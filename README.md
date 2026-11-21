@@ -72,6 +72,15 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="24"><br><b>Comments</b></a><br>Live page feedback</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="24"><br><b>UI</b></a><br>Agent interfaces</td>
   </tr>
+  <tr>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/sync"><img src=".github/assets/primitives/sync.svg" alt="" height="24"><br><b>Sync</b></a><br>Local table sync</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/device"><img src=".github/assets/primitives/device.svg" alt="" height="24"><br><b>Device</b></a><br>Stored browser reads</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/forge"><img src=".github/assets/primitives/forge.svg" alt="" height="24"><br><b>Forge</b></a><br>Git forge identity</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/webhooks"><img src=".github/assets/primitives/webhooks.svg" alt="" height="24"><br><b>Webhooks</b></a><br>Signed event delivery</td>
+  </tr>
+  <tr>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/mcp"><img src=".github/assets/primitives/mcp.svg" alt="" height="24"><br><b>MCP server</b></a><br>App MCP server</td>
+  </tr>
 </table>
 <!-- primitives:end -->
 

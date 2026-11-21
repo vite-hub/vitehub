@@ -94,7 +94,7 @@ function show(value: unknown): string {
   return typeof value === "string" ? JSON.stringify(value) : JSON.stringify(value) ?? "null"
 }
 
-/** The page changes as lines for `vitehub agent invocations show`. */
+/** The page changes as lines for `vitehub agent invocations get`. */
 export function formatInvocationPageChanges(changes: readonly InvocationPageChange[]): string[] {
   if (!changes.length) return []
   return [

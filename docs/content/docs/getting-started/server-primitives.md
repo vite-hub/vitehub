@@ -18,23 +18,35 @@ Set up your app in [Installation](/docs/getting-started/installation), save and 
 | Public, server, build-time, runtime, or secret env values | [Env](/docs/env) |
 | Application users, sessions, Better Auth routing, or guarded app routes | [Auth](/docs/auth) |
 | Provider accounts the app owns, with OAuth refresh, access rules, and call activity | [Connections](/docs/connections) |
+| GitHub App tokens and GitHub, GitLab, or Forgejo access from one set of env names | [Forge](/docs/forge) |
 | Request budgets spent before expensive server work starts | [Rate Limit](/docs/rate-limit) |
 | Outbound transactional messages with provider-neutral delivery | [Email](/docs/email) |
 | Named outbound destinations, such as Telegram or Teams, behind selected connectors | [Channels](/docs/channels) |
+| Outbound app events to outside URLs with HMAC signatures, retries, and debouncing on [supported hosts](/docs/webhooks/hosts) | [Webhooks](/docs/webhooks) |
+| Contact, feedback, or problem-report forms with a spam guard, validation, an inbox, and email | [Forms](/docs/forms) |
+| Pinned team comments on live pages, with replies, resolution, and in-place Content text edits | [Comments](/docs/comments) |
+| App translation with no message keys, collected for translators and served in each request locale | [i18n](/docs/i18n) |
+| An app MCP server for tools, prompts, or resources in `server/mcp/`, protected with MCP OAuth | [MCP server](/docs/mcp) |
 | Small values by key: settings, flags, cursors, or light state | [KV](/docs/kv) |
 | Relational data, constraints, joins, migrations, or queryable history | [Database](/docs/database) |
 | Uploads, generated artifacts, binary files, or object metadata | [Blob](/docs/blob) |
+| Local-first synced tables with offline writes, data kept on reload, and the server as authority for every row | [Sync](/docs/sync) |
+| Stored browser reads for a signed-in account that show the last server answer, then refresh | [Device](/docs/device) |
 | Provider-backed browser sessions, screenshots, DOM inspection, or live handoff | [Browser](/docs/browser) |
 | Persistent file-tree state, snapshots, diffs, rules, or sessions | [Workspace](/docs/workspace) |
 | Collaborative Markdown editing, presence, and Workspace checkpoints | [Realtime](/docs/realtime) |
 | Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/source) |
 | Parse, query, search, and serve content from Sources | [Content](/docs/content) |
+| Editable Markdown, JSON, and YAML documents published from the Console to the site or pull requests | [CMS](/docs/cms) |
 | Structured events with Evlog, and inspection of an existing log backend | [Logs](/docs/logs) |
 | Background delivery that returns before work finishes | [Queue](/docs/queue) |
 | Durable long-running work with provider-tracked run state | [Workflows](/docs/workflows) |
 | Static cron output | [Schedule](/docs/schedule) |
 | Isolated provider-managed execution | [Sandbox](/docs/sandbox) |
 | Controlled Unix-like command sessions | [Shell](/docs/shell) |
+| AI model request routing through a gateway such as Vercel AI Gateway, Cloudflare AI Gateway, OpenRouter, or Ollama | [AI Gateways](/docs/gateways) |
+| What people type, matched to declared options for filters, search facets, and command palettes | [Choices](/docs/choices) |
+| UI for people and Agents: ui-sdk parts, Agent-sent UI specs, and live pages Agents work on | [UI](/docs/ui) |
 
 ## Call a feature from a route
 

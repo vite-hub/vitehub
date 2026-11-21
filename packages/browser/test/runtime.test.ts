@@ -1,4 +1,4 @@
-import { toResponse } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {

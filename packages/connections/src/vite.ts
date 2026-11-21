@@ -18,7 +18,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer";
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
@@ -212,11 +212,13 @@ function connectionMountBase(base: unknown): string {
  * The connect and callback routes are the only `GET` routes under it.
  */
 function addManagementHandlers(kit: NitroServerKit, handler: string, route: string, callbackOnly: boolean): void {
+  // The routes check the app's actor module, and the callback checks the state of the flow.
+  const meta = { ...ownAccessRouteMeta };
   if (!callbackOnly) {
-    kit.addHandler({ handler, method: "post", route });
-    kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
+    kit.addHandler({ handler, meta, method: "post", route });
+    kit.addHandler({ handler, meta, method: "get", route: `${route}/connect/**` });
   }
-  kit.addHandler({ handler, method: "get", route: `${route}/callback` });
+  kit.addHandler({ handler, meta, method: "get", route: `${route}/callback` });
 }
 
 /** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */

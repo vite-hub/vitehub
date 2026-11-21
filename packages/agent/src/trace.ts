@@ -1,5 +1,5 @@
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
-import { emitTraceEvent } from "@vite-hub/runtime"
+import { emitTraceEvent } from "@vite-hub/runtime/internal/trace"
 
 import { redactCredentialText } from "./internal/credential-redaction.ts"
 import { agentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"

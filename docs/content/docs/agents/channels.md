@@ -113,6 +113,8 @@ Point an AI SDK `useChat` client at the same route to chat from a page. The Agen
 
 The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
 
+The simulated Channels need no bot token or webhook secret. In a simulated `vite dev`, Server Env declares their values optional, so `useServerEnv()` works without them. A build still requires them.
+
 Simulation applies to every app in the same Node.js process. To simulate only one app, start its dev server in a separate process.
 
 ## Answer replies in subscribed threads
@@ -1291,7 +1293,7 @@ Delivery custody shows what happened to each incoming message, so you can find w
 No ViteHub record can prove a provider event that never reached the process. Use provider audit logs and Gateway session history for that.
 ::
 
-Timelines live in the Channel's State Adapter, for the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
+Timelines live in the Channel's State Adapter, for at least the 10,000 most recent admissions. Inspection merges concurrent or retried admissions of one timeline. Each delivery and its newest 256 events expire 30 days after the last update, or earlier when 10,000 newer admissions push the delivery out. The index trims at most once a minute, so it can briefly hold the extra admissions of that minute. Records hold identifiers, timestamps, attempts, provider reply ids, and size-limited error messages, never message text, attachment data, webhook bodies, or connector options. They are as durable as the Agent state provider. The default in-memory dev state stays in one process.
 
 Hooks and Drivers get the active record as `context.channelDelivery`. Trace Events repeat `channel.delivery.id`, `channel.delivery.provider`, and `channel.delivery.source.id`. JSON logs use the `vitehub.channel.delivery` and `vitehub.channel.listener` scopes. Host integrations read records with the webhook handler's `handler.deliveries(request, webhookId, options)`, through the Channel's scoped State Adapter.
 

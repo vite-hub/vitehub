@@ -6,6 +6,7 @@ import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 import { withClientAddress } from "./client-address.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { authRequestEvent } from "./request.ts"
 
 import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { PublicUrlConfig, ViteHubContext } from "@vite-hub/runtime"
@@ -37,6 +38,14 @@ export function resolveDefaultDefinition(): AuthDefinition {
     throw authErrorDiagnostics.AUTH_R0005({ message: "[vitehub] No Auth Definition was discovered. Add `server/auth.ts` or `server.auth.ts`." })
   }
   return discoveredDefinition
+}
+
+export async function findVerifiedAuthUserId(email: string, request: Request): Promise<string | undefined> {
+  if (!discoveredDefinition) return undefined
+  const context = await authForRequest(request, authRequestEvent(request), discoveredDefinition).$context
+  if (!context.options.database) return undefined
+  const found = await context.internalAdapter.findUserByEmail(email)
+  return found?.user.emailVerified === true && found.user.email.trim().toLowerCase() === email ? found.user.id : undefined
 }
 
 export function createBetterAuthOptions(definition: AuthDefinition): AuthBetterAuthRuntimeOptions {
