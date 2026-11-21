@@ -4,9 +4,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
+import { findDataLoss, migrationParts, splitSqlStatements } from "./migration-sql.ts"
 import { readOldMigrationsLayout } from "./migrations-layout.ts"
 
+import type { DatabaseDialect } from "../types.ts"
 import type { DataLossStatement, ReferencingKey, TableColumns, TableReferences } from "./migration-sql.ts"
 
 /** A migration in the migrations folder that the database has not applied. */
@@ -95,9 +96,9 @@ function readSnapshotTables(migrationsDir: string, tag: string): { columns: Tabl
   return { columns: tables, references }
 }
 
-export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[]): PendingMigration {
-  const sql = readFileSync(migrationSqlFile(migrationsDir, tag), "utf8")
-  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
+/** Reads one migration with the parts that Drizzle runs one by one, see `migrationParts()`, and the statements that lose data. */
+export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[], dialect: DatabaseDialect): PendingMigration {
+  const statements = migrationParts(readFileSync(migrationSqlFile(migrationsDir, tag), "utf8"), dialect)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
   let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()
