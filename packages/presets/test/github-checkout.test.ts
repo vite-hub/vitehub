@@ -83,7 +83,9 @@ it('supplies Git credentials only for the scoped repository without running the 
   expect((await host.access()).env).not.toHaveProperty('GIT_CONFIG_KEY_1')
 })
 
-it('records repair publication before post-push validation while retaining source head leases', async () => {
+// A contributor fork of acme/base whose `feature` branch is one commit ahead of the stale PR ref.
+// Real Git runs against local repositories; only the network URL boundary is replaced.
+async function forkFixture() {
   const { root, source, target, head: staleHead } = await fixture()
   const fork = join(root, 'fork.git')
   await git(root, 'clone', '--bare', source, fork)
@@ -96,7 +98,6 @@ it('records repair publication before post-push validation while retaining sourc
   await mkdir(bin)
   const realGit = (await exec('which', ['git'])).stdout.trim()
   await writeFile(join(bin, 'gh'), '#!/bin/sh\necho "gh must not run" >&2\nexit 1\n', { mode: 0o755 })
-  // Run real Git against local repositories. Only the network URL boundary is replaced.
   await writeFile(join(bin, 'git'), `#!${process.execPath}
 const { spawnSync } = require('node:child_process');
 const map = ${JSON.stringify({ 'https://github.com/acme/base.git': source, 'https://github.com/contributor/fork.git': fork })};
@@ -111,6 +112,11 @@ process.exit(result.status ?? 1);
   await writeFile(globalConfig, `[core]\n hooksPath = ${globalHooks}\n`)
   vi.stubEnv('GIT_CONFIG_GLOBAL', globalConfig)
   vi.stubEnv('PATH', `${bin}:${process.env.PATH}`)
+  return { root, source, target, fork, headSha }
+}
+
+it('records repair publication before post-push validation while retaining source head leases', async () => {
+  const { root, source, target, fork, headSha } = await forkFixture()
   const credentials = vi.fn(({ repository }: { repository?: string }) => ({ token: repository ?? 'default' }))
   const host = createGitHubHost({ credentials })
   const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
@@ -177,7 +183,9 @@ process.exit(result.status ?? 1);
     await expect(checkout.push(target)).rejects.toThrow()
     expect(await git(fork, 'rev-parse', 'feature')).toBe(external)
   })
-  expect(credentials.mock.calls.some(([scope]) => scope.repository === 'contributor/fork')).toBe(true)
+  // The fork has no installation of its own; the base repository's installation, which maintainer edits extend to the fork, signs every call.
+  expect(credentials.mock.calls.length).toBeGreaterThan(0)
+  expect(credentials.mock.calls.every(([scope]) => scope.repository === 'acme/base')).toBe(true)
   await expect(host.withPullRequestCheckout(pr, async () => { throw new Error('must not run') })).rejects.toThrow('head changed')
   await expect(host.withPullRequestCheckout({ ...pr, headRef: '../invalid' }, async () => {})).rejects.toThrow()
   const baseHead = await git(source, 'rev-parse', 'HEAD')
@@ -252,3 +260,28 @@ process.exit(result.status ?? 1);
     vi.mocked(fs.readdir).mockImplementation(original.readdir)
   }
 }, 30_000)
+
+it('tells beforePush whether every commit a push adds came from commitRepair', async () => {
+  const { fork, headSha } = await forkFixture()
+  const host = createGitHubHost({ credentials: () => ({ token: 'test-token' }) })
+  const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', baseRef: 'feature', headSha, number: 123 }
+  const lineages: Array<{ head?: string, parent: string, hostOnly: boolean }> = []
+  const beforePush = (head?: string, lineage?: { parent: string, hostOnly: boolean }) => { lineages.push({ head, ...lineage! }) }
+  await host.withPullRequestCheckout(pr, async checkout => {
+    await git(checkout.path, 'config', 'user.name', 'Test')
+    await git(checkout.path, 'config', 'user.email', 'test@example.com')
+    await writeFile(join(checkout.path, 'file.txt'), 'host repair\n')
+    const repair = await checkout.commitRepair(checkout.path, { message: 'host repair', paths: ['file.txt'] })
+    expect(await checkout.push(checkout.path, { beforePush })).toBe(repair)
+    // A commit made outside commitRepair is someone else's work, even inside the host's checkout.
+    await writeFile(join(checkout.path, 'file.txt'), 'outside commit\n')
+    await git(checkout.path, 'commit', '-am', 'outside commit')
+    const outside = await git(checkout.path, 'rev-parse', 'HEAD')
+    expect(await checkout.push(checkout.path, { beforePush })).toBe(outside)
+    expect(lineages).toEqual([
+      { head: repair, parent: headSha, hostOnly: true },
+      { head: outside, parent: repair, hostOnly: false },
+    ])
+  })
+  expect(await git(fork, 'rev-parse', 'feature')).toBe(lineages[1]!.head)
+})

@@ -289,6 +289,37 @@ test('a PR passes on either author allow list, a bot login matches in both spell
   assert.deepEqual((await inbox.claim(2)).map(claim => claim.snapshot.number), [7])
 })
 
+test('admitApproved takes an outside PR once a maintainer approves it, keeps it through host pushes and drops it on the author\'s push', async t => {
+  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], admitApproved: true, filter: { author: { allow: ['onmax'], deny: ['blocked'] } }})
+  t.onTestFinished(() => inbox.close())
+  const [approved, repaired, pushed] = ['a', 'c', 'd'].map(c => c.repeat(40))
+  const outside = (sha: string, updated: string, login = 'outsider') => pr({ number: 8, user: { login }, author_association: 'CONTRIBUTOR', head: { sha, ref: 'fix', repo: { full_name: 'outsider/vitehub' } }, updated_at: updated })
+  await post(inbox, 'opened', 'pull_request', { action: 'opened', sender: { login: 'outsider' }, pull_request: outside(approved, '2026-11-21T10:00:00Z') })
+  assert.equal((await inbox.get(repository, 8))?.status, 'terminal')
+  assert.equal((await inbox.claim(1)).length, 0)
+  // A friend without write access cannot admit it.
+  await post(inbox, 'friend', 'pull_request_review', { action: 'submitted', sender: { login: 'friend' }, pull_request: outside(approved, '2026-11-21T10:00:00Z'),
+    review: { id: 1, state: 'approved', commit_id: approved, author_association: 'CONTRIBUTOR', user: { login: 'friend', type: 'User' }, submitted_at: '2026-11-21T10:01:00Z' } })
+  assert.equal((await inbox.get(repository, 8))?.status, 'terminal')
+  await post(inbox, 'approve', 'pull_request_review', { action: 'submitted', sender: { login: 'onmax' }, pull_request: outside(approved, '2026-11-21T10:00:00Z'),
+    review: { id: 2, state: 'approved', commit_id: approved, author_association: 'OWNER', user: { login: 'onmax', type: 'User' }, submitted_at: '2026-11-21T10:02:00Z' } })
+  const [claim] = await inbox.claim(1)
+  assert.equal(claim?.snapshot.number, 8)
+  // Only a push of the host's own commits extends the approval.
+  // Each registration bumps the revision, so the runtime passes the current snapshot, as here.
+  const current = async () => ({ ...claim!, snapshot: (await inbox.get(repository, 8))! })
+  assert.equal(await inbox.registerProspectivePush(await current(), pushed, { parent: approved, hostOnly: false }), true)
+  assert.equal(await inbox.registerProspectivePush(await current(), repaired, { parent: approved, hostOnly: true }), true)
+  assert.deepEqual((await inbox.get(repository, 8))?.hostHeads, [{ head: repaired, parent: approved }])
+  await post(inbox, 'host-push', 'pull_request', { action: 'synchronize', sender: { login: 'vitehub-bot[bot]' }, pull_request: outside(repaired, '2026-11-21T10:05:00Z') })
+  assert.notEqual((await inbox.get(repository, 8))?.status, 'terminal')
+  await post(inbox, 'author-push', 'pull_request', { action: 'synchronize', sender: { login: 'outsider' }, pull_request: outside(pushed, '2026-11-21T10:06:00Z') })
+  assert.equal((await inbox.get(repository, 8))?.status, 'terminal')
+  // A deny list still wins over an approval.
+  const denied = normalizePullRequest(outside(approved, '2026-11-21T10:00:00Z', 'blocked'))
+  assert.equal(inbox.eligible(repository, denied, (await inbox.get(repository, 8))!), false)
+})
+
 test('event actor rules match a bot login in either spelling', async t => {
   const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: { actor: { allow: ['renovate'] } }})
   t.onTestFinished(() => inbox.close())

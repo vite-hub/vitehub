@@ -38,6 +38,14 @@ export interface BabysitterLifecycleLabels {
 
 export interface BabysitterLifecycleOptions {
   labels?: BabysitterLifecycleLabels;
+  /**
+   * Also select a PR that `filter`'s author allow lists leave out, such as one from an outside
+   * contributor, once a reviewer with write access approves its current head. The approval carries
+   * over to the heads the Babysitter builds on the approved commit, so it repairs and merges the PR
+   * without another review. A push by anyone else drops the PR until the next approval. Deny lists and
+   * every other rule still apply. Defaults to `false`.
+   */
+  approval?: boolean;
 }
 
 /** Where one pass runs. A pass without a Sandbox uses the host checkout and the configured `sandbox`. */
@@ -447,6 +455,9 @@ export function resolveBabysitterLifecycleFilter(
     : { ...configured, authorAssociation: { allow: [...defaultAuthorAssociations] } };
   if (lifecycle !== undefined && !isRuntimeRecord(lifecycle)) {
     throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle", expected: "an object" });
+  }
+  if (lifecycle?.approval !== undefined && typeof lifecycle.approval !== "boolean") {
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "lifecycle.approval", expected: "a boolean" });
   }
   const labels = lifecycle?.labels;
   if (labels === undefined) return filter.labels ? filter : { ...filter, labels: { deny: [defaultSkipLabel] } };

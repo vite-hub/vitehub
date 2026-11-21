@@ -67,6 +67,8 @@ export interface GitHubHostAccess {
 }
 
 export interface GitHubHostPullRequest {
+  /** Base branch. With it, `push()` tells `beforePush` whether every new commit outside the base is the host's. */
+  baseRef?: string
   headRef?: string
   headRepository?: string
   headSha: string
@@ -84,8 +86,19 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
    */
   prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
-  push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
+  push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string, lineage?: GitHubHostPushLineage) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
+}
+
+/** How a pushed head relates to the head it replaces. */
+export interface GitHubHostPushLineage {
+  /** The pull request head that the push replaces. The pushed head descends from it. */
+  parent: string
+  /**
+   * Every commit that the push adds, apart from commits on the base branch, is one that `commitRepair()`
+   * made in this checkout. A provider that fetches and merges someone else's commits makes this `false`.
+   */
+  hostOnly: boolean
 }
 
 export interface GitHubHostCheckoutOptions {
@@ -109,6 +122,12 @@ export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
   /** Mint a new App installation token when the cached one expires within this many milliseconds. */
   minLifetime?: number
   repository?: string
+  /**
+   * Repository whose App installation mints the token, when it is not `repository`. Git still sends the
+   * token only to `repository`. A fork pull request's head uses its base repository's installation:
+   * that token may push to the fork's branch when its author allows edits by maintainers.
+   */
+  installationRepository?: string
 }
 
 /** A GitHub rate limit that the response headers of this host's Forge requests reported. */
@@ -324,13 +343,14 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   /** `commits: false` is for API calls only: they need no commit identity, so the App's identity is not read. */
   async function scopedAccess(input: GitHubHostAccessOptions, commits = true) {
-    const config = await credentials({ repository: input.repository, signal: input.signal })
+    const installationRepository = input.installationRepository ?? input.repository
+    const config = await credentials({ repository: installationRepository, signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
     const appOwner = String(config.owner || "").trim().toLowerCase()
     const privateKey = secret(config.privateKey)?.trim().replace(/\\n/g, "\n") || ""
     const appValues = [appId, installationId, privateKey]
-    const repositoryOwner = input.repository ? owner(input.repository) : undefined
+    const repositoryOwner = installationRepository ? owner(installationRepository) : undefined
     let token: string
     let credentialKey: string
     let identity = options.identity ?? {}
@@ -526,7 +546,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (pullRequest.headRef) {
             // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
             const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
-            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
+            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, installationRepository: pullRequest.repository, signal: operation.signal })
             await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
             await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
           }
@@ -559,8 +579,30 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
         : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha
-      const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
-      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
+      // Commits that commitRepair() created here. A pushed head whose new commits are all in this set is the host's own work.
+      const hostCommits = new Set<string>()
+      const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => {
+        const before = (await exec("git", ["-C", target, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
+        const head = await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
+        if (head !== before) hostCommits.add(head)
+        return head
+      }
+      const hostOnly = async (head: string, parent: string, signal: AbortSignal): Promise<boolean> => {
+        if (!hostCommits.size) return false
+        let base: string[] = []
+        if (pullRequest.baseRef) {
+          try {
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", "origin", `refs/heads/${pullRequest.baseRef}`], { ...commandOptions, signal })
+            base = ["^FETCH_HEAD"]
+          }
+          catch {
+            if (signal.aborted) throw abortError(signal.reason)
+          }
+        }
+        const added = (await exec("git", ["-C", checkout, "rev-list", head, `^${parent}`, ...base], { ...commandOptions, signal })).stdout.split("\n").filter(Boolean)
+        return added.length > 0 && added.every(commit => hostCommits.has(commit))
+      }
+      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string, lineage?: GitHubHostPushLineage) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
         const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
         signal.throwIfAborted()
         const expectedHead = pushHead
@@ -588,10 +630,11 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         const refreshed = await access({
           refresh: true,
           repository: pullRequest.headRepository,
+          installationRepository: pullRequest.repository,
           signal,
         })
         signal.throwIfAborted()
-        await options.beforePush?.(head)
+        await options.beforePush?.(head, { parent: expectedHead, hostOnly: await hostOnly(head, expectedHead, signal) })
         await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {
           env: { ...process.env, ...refreshed.env },
           maxBuffer,

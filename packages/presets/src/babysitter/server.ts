@@ -233,6 +233,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   assertBabysitterAgent(baseAgent);
   const presetOptions = baseAgent.options;
   const filter = resolveBabysitterLifecycleFilter(presetOptions.filter, presetOptions.lifecycle);
+  const approvalAdmission = presetOptions.lifecycle?.approval === true;
   const merge = resolveBabysitterMerge(presetOptions.merge);
   const github = options.github;
   const hostIdentity = github.identity()?.trim();
@@ -256,6 +257,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: () => repositorySource.known(),
     filter,
+    admitApproved: approvalAdmission,
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
@@ -2597,6 +2599,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           workspaceRun.base = pullRequest.baseRefOid;
           await github.withPullRequestCheckout(
             {
+              baseRef: pullRequest.baseRefName,
               headRef: pullRequest.headRefName,
               headRepository: pullRequest.headRepository?.nameWithOwner,
               headSha: pullRequest.headRefOid,
@@ -2876,11 +2879,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   try {
                     const result = await prepared.push(providerDirectory, {
                       signal: abortSignal,
-                      beforePush: async head => {
+                      beforePush: async (head, lineage) => {
                         const current = await assertLease(); await assertRepairBase();
                         const window = await repairPushWindow(current, await requiredCheckState(current), current.pr?.mergeable === false);
                         if (window && !window.allowed) throw presetsErrorDiagnostics.PRESETS_DAILY_PUSH_BUDGET_SPENT({ count: window.count, nextAt: new Date(window.nextAt).toISOString() });
-                        if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head)) {
+                        if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head, lineage)) {
                           throw new DOMException("Publication candidate lease changed.", "AbortError");
                         }
                         // The host supplies its exact validated local Git head.
@@ -3078,7 +3081,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerChannel = withoutForgeAccess(github.channel({
                 activity: activityEnabled,
                 // The Channel filter would require both author rules and compare logins exactly.
-                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, filter), workspace: false },
+                // With approval admission the inbox decides the author: it claims an outside PR only while an approval covers its head.
+                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, approvalAdmission ? { ...filter, author: undefined, authorAssociation: undefined } : filter), workspace: false },
               }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.

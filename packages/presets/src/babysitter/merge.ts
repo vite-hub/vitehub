@@ -8,6 +8,7 @@ import { newestCheckRun } from "./inbox/ci-evidence.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
 import { hasGitHubLogin } from "./pull-request-filter.ts";
 import { reviewerLabeledSevere } from "../github/index.ts";
+import { hasWriteAccess, maintainerApproval } from "./approval.ts";
 
 export type BabysitterMergeMethod = "squash" | "merge" | "rebase";
 
@@ -226,13 +227,11 @@ export function feedbackFingerprints(snapshot: Snapshot, policy: FeedbackPolicy 
     createHash("sha256").update(JSON.stringify([target, kind, value.id, value.body, value.state])).digest("hex").slice(0, 32)));
 }
 
-/** Author and reviewer associations that GitHub gives to people with write access to the repository. */
-const writeAccess = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-const hasWriteAccess = (association: unknown) => writeAccess.has(String(association ?? "").toUpperCase());
-
 /**
  * The `"approved-if-outside"` merge gate. Each write-access reviewer's latest APPROVED or
- * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing.
+ * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing. An
+ * approval carries over to heads the host built on the approved commit, so its own repairs need no
+ * new approval. A push by anyone else does.
  */
 export function approvedIfOutside(input: BabysitterMergeReadinessInput): true | string {
   return approvedIfOutsideGate(input, new Set());
@@ -250,20 +249,10 @@ function approvedIfOutsideGate({ head, snapshot }: BabysitterMergeReadinessInput
   const pr = snapshot.pr;
   if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
   if (trustedAuthors.has(accountLogin(pr?.user ?? pr?.author))) return true;
-  const latest = new Map<string, GitHubEvidence>();
-  const decisive = Object.values(snapshot.reviews)
-    .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
-      && ["APPROVED", "CHANGES_REQUESTED"].includes(String(review.state ?? "").toUpperCase()))
-    .sort((a, b) => String(a.submitted_at ?? a.submittedAt ?? "").localeCompare(String(b.submitted_at ?? b.submittedAt ?? "")));
-  for (const review of decisive) {
-    const reviewer = feedbackAuthor(review);
-    if (reviewer) latest.set(reviewer, review);
-  }
+  const approval = maintainerApproval(snapshot, head);
   const short = head.slice(0, 7);
-  const blocking = [...latest].filter(([, review]) => String(review.state).toUpperCase() === "CHANGES_REQUESTED").map(([reviewer]) => reviewer);
-  if (blocking.length) return `a maintainer's approval of ${short}: ${blocking.join(", ")} requested changes`;
-  const approved = [...latest.values()].some(review => (review.commit_id ?? review.commit?.oid) === head);
-  return approved || `a maintainer's approval of ${short}`;
+  if (approval.changesRequested.length) return `a maintainer's approval of ${short}: ${approval.changesRequested.join(", ")} requested changes`;
+  return approval.approved || `a maintainer's approval of ${short}`;
 }
 
 export function resolveBabysitterMerge(merge: unknown): ResolvedBabysitterMerge {

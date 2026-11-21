@@ -13,6 +13,7 @@ import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSch
 
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
 import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
+import { maintainerApproval, type HostHead } from '../approval.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
 import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
@@ -34,6 +35,8 @@ export type Snapshot = {
   sourcePushHeads?: string[]
   sourcePushOverflow?: boolean
   prospectivePush?: { token: string; heads: string[] }
+  /** Heads the host pushed whose new commits are all its own, oldest first. An approval carries over along them. */
+  hostHeads?: HostHead[]
   threadReopens?: Record<string, number>
   /** Authenticated outcome replies, including IDs used by thread-only reads. */
   ownedReviewCommentIds?: string[]
@@ -91,6 +94,7 @@ function parseSnapshot(value: unknown): Snapshot {
     throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   }
   if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
+  if (input.hostHeads !== undefined) v.parse(v.array(v.object({ head: v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i)), parent: v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i)) })), input.hostHeads)
   if (input.threadReopens !== undefined) v.parse(v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))), input.threadReopens)
   if (input.sourcePushHeads !== undefined) v.parse(v.array(v.string()), input.sourcePushHeads)
   if (input.sourcePushOverflow !== undefined) v.parse(v.boolean(), input.sourcePushOverflow)
@@ -123,6 +127,11 @@ export interface PullRequestInboxOptions {
   /** The served repositories, or a function that returns the current lowercase list on each read. */
   repositories: readonly string[] | (() => readonly string[])
   filter?: GitHubPullRequestFilter
+  /**
+   * Also admit an open PR that `filter`'s author rules leave out while a reviewer with write access
+   * approves its current head, or a head the host built on the approved one. Every other rule still applies.
+   */
+  admitApproved?: boolean
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
@@ -253,6 +262,7 @@ export class PullRequestInbox {
   private repositoryList: () => readonly string[]
   private clock: () => number
   private filter?: GitHubPullRequestFilter
+  private admitApproved: boolean
   private activityAuthors: Set<string>
   private activityAppId?: number
   private budgets: InboxBudgets
@@ -261,7 +271,7 @@ export class PullRequestInbox {
   private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
@@ -276,6 +286,7 @@ export class PullRequestInbox {
     }
     this.clock = clock
     this.filter = filter
+    this.admitApproved = admitApproved
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
     this.activityAppId = activityAppId === undefined ? undefined : v.parse(v.pipe(v.number(), v.integer(), v.minValue(1)), activityAppId)
     this.storage = storage ?? createNodeSqliteInboxStorage(path!)
@@ -975,8 +986,17 @@ export class PullRequestInbox {
   isMainRepair(pr: GitHubPullRequestRecord | null | undefined): boolean {
     return this.mainRepairBranchPrefix !== undefined && Boolean(pr?.head?.ref?.startsWith(this.mainRepairBranchPrefix))
   }
-  eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
-    return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
+  eligible(repository: string, pr: GitHubPullRequestRecord | null, snapshot?: Pick<Snapshot, 'reviews' | 'hostHeads'>): boolean {
+    if (!pr || pr.state !== 'open') return false
+    const context = pullRequestFilterContext(repository, pr)
+    if (matchesBabysitterPullRequestFilter(context, this.filter, 'pull-request')) return true
+    if (!this.admitApproved || !snapshot || !pr.head?.sha) return false
+    // An approval stands in for the author allow lists. Deny lists and every other rule still apply.
+    const { author, authorAssociation } = this.filter ?? {}
+    const denyOnly = { ...this.filter, author: author?.deny ? { deny: author.deny } : undefined, authorAssociation: authorAssociation?.deny ? { deny: authorAssociation.deny } : undefined }
+    if (!matchesBabysitterPullRequestFilter(context, denyOnly, 'pull-request')) return false
+    const approval = maintainerApproval(snapshot, pr.head.sha)
+    return approval.approved && !approval.changesRequested.length
   }
   async seed(repository: string, value: unknown, signal?: AbortSignal): Promise<Snapshot> {
     repository = repository.toLowerCase()
@@ -985,7 +1005,7 @@ export class PullRequestInbox {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, repository, pr.number) ?? this.empty(repository, pr.number)
       if (this.updatePr(s, pr)) this.dirty(s, 'bootstrap')
-      if (!this.eligible(repository, s.pr)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
+      if (!this.eligible(repository, s.pr, s)) { delete s.wait; s.status = 'terminal'; s.handled = s.generation }
       else if (s.status === 'terminal') {
         delete s.wait
         s.status = 'ready'
@@ -1177,7 +1197,7 @@ export class PullRequestInbox {
         else if (changed) s.revision = (s.revision ?? 0) + 1
         if (changed && human && feedbackEvent) s.humanFeedbackGeneration = s.generation
         const exhausted = s.progressBudget?.exhausted && s.progressBudget.head === s.pr?.head?.sha
-        const eligible = this.eligible(repository, s.pr)
+        const eligible = this.eligible(repository, s.pr, s)
         if (s.pr && !eligible) {
           // Filter ineligibility is terminal for this snapshot. Do not retain
           // an explicit wait across it: recovery must be admitted normally.
@@ -1230,7 +1250,7 @@ export class PullRequestInbox {
         const s = await this.getRowIn(tx, candidate)
         options.signal?.throwIfAborted()
         if (!s) continue
-        if (s.pr && !this.eligible(s.repository, s.pr)) continue
+        if (s.pr && !this.eligible(s.repository, s.pr, s)) continue
         if (options.only && !options.only(s)) continue
         if (options.skip && options.skip(s)) continue
         s.lease = randomUUID(); s.leaseUntil = now + 2 * 60 * 60_000; s.status = 'working'; s.sourcePushHeads = []
@@ -1254,7 +1274,7 @@ export class PullRequestInbox {
       Object.assign(s, patch)
       this.cleanSnapshot(s)
       if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
-      if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
+      if (s.pr && !this.eligible(s.repository, s.pr, s)) s.status = 'terminal'
       await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
@@ -1298,8 +1318,12 @@ export class PullRequestInbox {
       return true
     })
   }
-  /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
-  async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
+  /**
+   * Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt.
+   * With `lineage.hostOnly`, it also records the head as the host's own work on `lineage.parent`, so an
+   * approval of that parent carries over to it.
+   */
+  async registerProspectivePush(claim: Claim, head: string, lineage?: { parent: string; hostOnly: boolean }): Promise<boolean> {
     invariant(/^[a-f\d]{40}$/i.test(head), 'the runtime registers the full commit SHA that the host push returned')
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
@@ -1311,6 +1335,10 @@ export class PullRequestInbox {
         heads.push(head)
       }
       s.prospectivePush = { token: claim.token, heads }
+      if (lineage?.hostOnly && /^[a-f\d]{40}$/i.test(lineage.parent) && !s.hostHeads?.some(entry => entry.head === head)) {
+        // The newest 64 are enough: each approval needs only the chain since it, and push budgets keep that short.
+        s.hostHeads = [...s.hostHeads ?? [], { head, parent: lineage.parent }].slice(-64)
+      }
       s.revision = (s.revision ?? 0) + 1
       await this.put(tx, s)
       return true

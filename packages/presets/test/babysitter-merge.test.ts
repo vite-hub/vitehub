@@ -383,6 +383,20 @@ describe("Babysitter approved-if-outside merge gate", () => {
     expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
   });
 
+  it("carries an approval over to heads the host built on the approved commit, and not past someone else's push", async () => {
+    const approved = "b".repeat(40), repaired = "c".repeat(40);
+    const s = outside();
+    s.reviews.a = review("maintainer", "APPROVED", approved);
+    s.hostHeads = [{ head: repaired, parent: approved }, { head, parent: repaired }];
+    expect(await ready(s)).toBe(true);
+    // The contributor pushed `head` on top of the host's repair.
+    s.hostHeads = [{ head: repaired, parent: approved }];
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+    // A cycle in the record ends the walk.
+    s.hostHeads = [{ head, parent: repaired }, { head: repaired, parent: head }];
+    expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
   it("ignores approvals from reviewers without write access, deleted reviews and pending ones", async () => {
     const s = outside();
     s.reviews.a = review("friend", "APPROVED", head, "CONTRIBUTOR");
