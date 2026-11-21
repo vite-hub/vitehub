@@ -65,11 +65,16 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
     },
 
-    // Sign-in config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    // Page guard and component config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
     AUTH_AFTER_SIGN_IN_INVALID: {
       why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
       fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
     },
+    AUTH_COMPONENTS_INVALID: {
+      why: "`defineAuth()` components must be an inline object with only `prefix`, an inline non-empty string.",
+      fix: "Write `components: { prefix: 'Custom' }` in `defineAuth()` to register `<CustomAuthPermission>`, or remove `components`. The Nuxt module reads the prefix at build time, so it cannot use a variable or an expression.",
+    },
+    AUTH_PAGE_ROUTES_INVALID: withFix("Write `access.pages` inline in `defineAuth()`, and do not use a spread or a computed key in `access`. Start each key with `/` and use only static segments, `:name`, and a last `**`. Keep one key for the same pages, and set each value to `'user'`, `'guest'`, or `false`, for example `pages: { '/dashboard/**': 'user', '/login': 'guest' }`. For an optional segment, add one key with the segment and one key without it."),
     AUTH_REDIRECTS_MOVED: {
       why: "`vitehub({ auth })` takes only `true` or `false`. The `redirects` option moved to the Auth Definition.",
       fix: "Remove the object from `auth` in `vitehub()`. In `server/auth.ts`, set `access: { signIn: '/login', afterSignIn: '/' }`: `redirects.login` is now `signIn`, and `redirects.guest` is now `afterSignIn`. `vitehub migrate` moves them.",
@@ -101,7 +106,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0012: withFix("Write `access.routes` as an array literal in `defineAuth()`, for example `access: { routes: ['/admin/**'] }`. The Vite plugin reads it at build time."),
     AUTH_C0014: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
     AUTH_C0017: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
-    AUTH_C0019: withFix("Pass an object literal to `defineAuth()` in `server/auth.ts`, or a callback that returns one, for example `export default defineAuth({ basePath: '/auth' })`. Do not pass a variable."),
+    AUTH_C0019: withFix("Pass an object literal to `defineAuth()` in `server/auth.ts`, or a callback that returns one, for example `export default defineAuth({ basePath: '/auth' })`. Do not pass a variable. Export the call, or a top-level `const` that holds it."),
     AUTH_C0021: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
     AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0026: withFix("Set the option to a non-empty string, for example `provider: 'github'` or `method: 'GET'`."),
@@ -152,6 +157,7 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0068: withFix("Write each access route as a literal path, without percent-encoded pattern syntax or `.` and `..` segments. To guard a path and every path below it, end the route with `/**`, for example `/api/users/**` in place of `/api/users/:id` or `/api/admin/*`. Check the parameter in the handler."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
     AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
+    AUTH_GUARDED_PAGE_CACHED: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a route rule that turns the cache off on the guarded pages and their payloads, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. To keep the cache, add `ssr: false` to that route rule, so the page guard runs only in the browser. If the page is public, remove its page guard. To cache one public path beside a guarded page, add a public page with that static path, for example `pages/users/public.vue` with `definePageMeta({ auth: false })`, and use that exact path as the route rule key, for example `'/users/public': { swr: 60 }`."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),
     AUTH_R0006: withFix("Send the `Origin` header with the request. Browsers send it. A server-side caller must set it, for example `headers: { origin: 'https://app.example.com' }`."),
     AUTH_R0007: withFix("Add the origin to Better Auth's `trustedOrigins` in the Auth Definition, for example `trustedOrigins: ['https://app.example.com']`. Or send the request from the app origin."),

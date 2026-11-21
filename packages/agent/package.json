@@ -90,6 +90,11 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/agent-emulator-cli": {
+      "types": "./dist/internal/agent-emulator-cli.d.ts",
+      "import": "./dist/internal/agent-emulator-cli.js",
+      "default": "./dist/internal/agent-emulator-cli.js"
+    },
     "./internal/agent-invocations-cli": {
       "types": "./dist/internal/agent-invocations-cli.d.ts",
       "import": "./dist/internal/agent-invocations-cli.js",
@@ -134,6 +139,11 @@
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
+    },
+    "./invocations/postgres": {
+      "types": "./dist/invocations/postgres.d.ts",
+      "import": "./dist/invocations/postgres.js",
+      "default": "./dist/invocations/postgres.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
@@ -281,12 +291,14 @@
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@whatwg-node/node-fetch": "0.8.6",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "emulate": "0.14.0",
     "esbuild": "catalog:tooling",
     "evalite": "catalog:ai",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

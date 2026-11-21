@@ -120,6 +120,17 @@ export async function isAgentCliEnabled(rootDir: string, loadScanner: () => Prom
 }
 
 /**
+ * Whether `vitehub agent emulator` runs without loading the project. It does when the command names its emulator, with
+ * `--url` or `VITEHUB_EMULATE_URL`, or asks for help, or when the directory has no Vite or Nuxt config. Otherwise the
+ * project loads, so the command finds the dev server under the configured Vite `root` and respects `agent.cli: false`.
+ */
+export function isAgentEmulatorStandalone(args: readonly string[], env: Readonly<Record<string, string | undefined>>, cwd: string): boolean {
+  if (env.VITEHUB_EMULATE_URL) return true
+  if (args.some(arg => arg === "--url" || arg.startsWith("--url=") || arg === "--help" || arg === "-h")) return true
+  return !["nuxt", "vite"].some(owner => configExtensions.some(extension => existsSync(join(cwd, `${owner}.config.${extension}`))))
+}
+
+/**
  * The `file:` Agent State URL that the default Invocation journal goes next to, as `agentJournalStateUrl()` selects it
  * from the evaluated options. Reads only literal values: a computed value, a spread, or a `dataDir` gives undefined, and
  * the CLI keeps its default journal.

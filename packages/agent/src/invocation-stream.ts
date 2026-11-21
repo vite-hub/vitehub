@@ -18,6 +18,8 @@ export interface AgentDevLoopAgentSummary {
 
 export interface AgentDevLoopDiscoveryResponse {
   agents: AgentDevLoopAgentSummary[]
+  /** The AI emulator that answers Agent models, when `VITEHUB_MODELS=emulate` is set in the dev server. */
+  emulator?: { url: string }
   inspection?: AgentInspectionMetadata
   root: string
   workspaceDevTokenServerId?: string

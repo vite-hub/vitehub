@@ -98,7 +98,7 @@ Do not use this driver on request-scoped or serverless hosts that may stop betwe
 
 ### Run on more than one server
 
-Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. These are the leases of [`useLeases()`](/docs/database/server-api#hold-a-lease). This works on Postgres, remote libSQL such as Turso, and D1. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at the first lease.
+Every server checks every Schedule. While the holder keeps its lease, one server runs each occurrence. Before it runs an occurrence, a server takes a lease on `<prefix>/schedule/<run id>` in the `vitehub_leases` table of the Default Database. The prefix is `runtime.prefix`, which defaults to `vitehub:schedule`. Use a different prefix for each app that shares a Database, and the same prefix on every server of one app. The other servers skip the occurrence and try again at their next scan. These are the leases of [`useLeases()`](/docs/database/server-api#hold-a-lease). This works on Postgres, with postgres.js or node-postgres, remote libSQL such as Turso, and D1. A local libSQL file is safe for one server process only: `@libsql/client` can lose writes when several processes write to one file, so the server prints a warning at the first lease.
 
 | Case | What happens |
 | --- | --- |
@@ -110,7 +110,7 @@ Every server checks every Schedule. While the holder keeps its lease, one server
 | The run store fails before the handler starts | No done marker is written. The occurrence can retry after the store recovers. A one-time started Schedule stays until its handler can start. |
 | A Static occurrence waits for a free worker | It can start while its scheduled minute is inside `catchUpMs` of the current minute. Older queued occurrences are dropped. With `catchUpMs: 0`, queued work can start only in its scheduled minute. |
 | The handler fails | The run is final, as on one server. No server retries it. |
-| The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. The run gets a new attempt, and the stopped attempt is marked as failed. |
+| The server stops during the run | Its lease ends after `leaseTtlMs`. Then another server runs the occurrence, unless a done marker exists. A server that found the lease held tries again until `catchUpMs` plus `leaseTtlMs` plus one minute after the scheduled minute, also with `catchUpMs: 0`. The run gets a new attempt, and the stopped attempt is marked as failed. |
 | Every server restarts after a crash | At start, each server reads the Static Schedule runs inside `catchUpMs` that are still pending or running. It tries them like a held occurrence: one server runs each of them when the lease of the stopped server ends. |
 | A started Schedule is due | Each occurrence takes the same lease, so one server runs it. |
 | A manual run | The server that gets the request runs it once. Each manual run has its own run id. |

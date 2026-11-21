@@ -1,5 +1,5 @@
 import { defineChoices, toOptions } from "../../../../../../src/index.ts"
-import { wordGateway } from "../../../../../support.ts"
+import { wordGateway } from "../../../../../../src/testing.ts"
 // An extensionless import, as in app code.
 import { suppliers } from "./suppliers"
 

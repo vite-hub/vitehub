@@ -117,7 +117,7 @@ To fix the build, do one of these:
 - Add a route rule for the guarded path that turns the cache off, for example `'/dashboard/**': { cache: false, prerender: false }`.
 - If the page is public, remove the route from `access.routes`.
 
-An access route with a `method` other than `GET` or `HEAD` does not stop the build, because Nitro caches only `GET` and `HEAD` requests. The check does not read pages that `definePageMeta({ auth })` guards.
+An access route with a `method` other than `GET` or `HEAD` does not stop the build, because Nitro caches only `GET` and `HEAD` requests. The check does not read pages that `definePageMeta({ auth })` guards. [`AUTH_GUARDED_PAGE_CACHED`](/docs/auth/diagnostics/auth_guarded_page_cached) checks them.
 
 ## AUTH_CONSOLE_INVALID_REQUEST
 

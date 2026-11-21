@@ -1,5 +1,5 @@
 import { defineChoices } from "../../../../src/index.ts"
-import { wordGateway } from "../../../support.ts"
+import { wordGateway } from "../../../../src/testing.ts"
 
 console.log("module log")
 const gateway = wordGateway()
