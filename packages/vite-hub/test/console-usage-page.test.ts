@@ -33,6 +33,12 @@ vi.mock("../src/console/runtime/client/request", () => ({
 
 import Usage from "../src/console/runtime/components/console-usage.vue"
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 function totals(overrides: Record<string, unknown> = {}) {
   return {
     cacheWriteTokens: 0, cacheWriteTokensAvailable: true, cachedInputTokens: 0, cachedInputTokensAvailable: true,
@@ -288,7 +294,7 @@ describe("Console Usage URL state", () => {
 
   it("starts history from the first page when a filter changes and keeps the section", async () => {
     route.query = { section: "sessions" }
-    const filtered = Promise.withResolvers<ReturnType<typeof summary>>()
+    const filtered = deferred<ReturnType<typeof summary>>()
     responses.push(
       summary({ cursor: "next", sessionCount: 2, sessions: [session("first")] }),
       summary({ sessionCount: 2, sessions: [session("second")] }),
@@ -311,7 +317,7 @@ describe("Console Usage URL state", () => {
 
   it("keeps the headline while another period loads, so its digits roll from the old totals", async () => {
     route.query = { metric: "sessions" }
-    const nextPeriod = Promise.withResolvers<ReturnType<typeof summary>>()
+    const nextPeriod = deferred<ReturnType<typeof summary>>()
     responses.push(summary({ sessionCount: 1_204 }), nextPeriod.promise)
     const { app, root } = await mount()
     try {
