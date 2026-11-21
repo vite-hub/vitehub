@@ -5,7 +5,11 @@ import { join } from "node:path"
 import { H3Event } from "h3"
 import { describe, expect, it } from "vitest"
 
-import { installRequestPolicy, isCrossOriginWrite, trustForwardedProto } from "../src/_internal/runtime/request-policy.ts"
+import { getRequestIP } from "h3"
+
+import { getStandardContext, installStandardContext } from "../src/_internal/runtime/internal/h3.ts"
+
+import { installRequestPolicy, isCrossOriginWrite, trustForwardedProto, trustProxyHeaders } from "../src/_internal/runtime/request-policy.ts"
 import { renderRequestPolicyNitroPlugin, requestPolicyVitePlugin } from "../src/request-policy-vite.ts"
 
 function post(url: string, headers: Record<string, string>, method = "POST"): Request {
@@ -24,6 +28,28 @@ describe("trustProxy", () => {
       const event = new H3Event(new Request(url, header ? { headers: { "x-forwarded-proto": header } } : {}))
       trustForwardedProto(event)
       expect(event.url.href).toBe(url)
+    }
+  })
+
+  it("reads the client address from the last X-Forwarded-For value, which the proxy adds", () => {
+    // Drop on a VPS behind Caddy: the server sees Caddy as the peer.
+    const request = new Request("http://app.test/api/auth/sign-in/email", { headers: { "x-forwarded-for": "203.0.113.9, 198.51.100.7" } })
+    Object.defineProperty(request, "ip", { configurable: true, value: "127.0.0.1" })
+    const event = new H3Event(request)
+    trustProxyHeaders(event)
+    installStandardContext(event)
+    expect(getStandardContext(event).runtime?.clientAddress).toBe("198.51.100.7")
+    expect(getRequestIP(event)).toBe("198.51.100.7")
+  })
+
+  it("keeps the peer address without X-Forwarded-For", () => {
+    for (const header of [undefined, "", " , "]) {
+      const request = new Request("http://app.test/", header === undefined ? {} : { headers: { "x-forwarded-for": header } })
+      Object.defineProperty(request, "ip", { configurable: true, value: "192.0.2.4" })
+      const event = new H3Event(request)
+      trustProxyHeaders(event)
+      installStandardContext(event)
+      expect(getStandardContext(event).runtime?.clientAddress).toBe("192.0.2.4")
     }
   })
 
@@ -106,7 +132,7 @@ describe("installRequestPolicy", () => {
     expect(requestHooks).toHaveLength(1)
 
     installRequestPolicy(app, { trustProxy: true, sameOriginWrites: false })
-    expect(requestHooks[0]).toBe(trustForwardedProto)
+    expect(requestHooks[0]).toBe(trustProxyHeaders)
     expect(app.fetch).toBe(fetch)
   })
 })

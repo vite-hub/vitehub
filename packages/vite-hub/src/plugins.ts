@@ -537,10 +537,11 @@ export interface ViteHubOptions {
    */
   redirects?: RedirectsOptions
   /**
-   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
-   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
-   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
-   * you run sets the header. Default: `false`.
+   * Trust the `X-Forwarded-Proto` and `X-Forwarded-For` headers of a proxy that ends TLS, such as Caddy or nginx. When
+   * the first `X-Forwarded-Proto` value is `https` and the server sees `http:`, the request URL becomes `https:` before
+   * any middleware or route runs, so URLs built from the request start with `https://`. The client address, which Auth
+   * and Rate Limit read, becomes the last `X-Forwarded-For` value, which the proxy adds. It never reads
+   * `X-Forwarded-Host`. Turn it on only when a proxy that you run sets the headers. Default: `false`.
    */
   trustProxy?: boolean
   /**
