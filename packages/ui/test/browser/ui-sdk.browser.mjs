@@ -181,13 +181,15 @@ test("CommentThread resolves with Enter", async () => {
   await page.waitForFunction(() => window.events.includes("thread:resolve"))
 })
 
-test("CommentPanel filters toggle with the keyboard", async () => {
+test("CommentPanel filters are a radio group that arrow keys move", async () => {
   const filters = part("CommentPanel").locator("[data-part=comment-panel-filter]")
   assert.ok(await filters.count() >= 2)
+  await filters.nth(0).focus()
+  await page.keyboard.press("ArrowRight")
   const second = filters.nth(1)
-  await second.focus()
-  await page.keyboard.press("Enter")
-  assert.equal(await second.getAttribute("aria-pressed"), "true")
+  assert.equal(await second.getAttribute("role"), "radio")
+  assert.equal(await second.getAttribute("aria-checked"), "true")
+  assert.equal(await second.evaluate(element => element === document.activeElement), true)
 })
 
 test("CommentToolbar and CommentList toggle their buttons", async () => {

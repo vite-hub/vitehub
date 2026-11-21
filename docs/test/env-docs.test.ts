@@ -17,7 +17,7 @@ import {
 } from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { frameworkView } from "../modules/tutorials/build";
+import { frameworkView } from "../../packages/docs/src/runnable/build";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const canonicalPages = [

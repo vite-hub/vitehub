@@ -6,7 +6,7 @@ import { kebabCase, pascalCase, splitByCase } from "scule"
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 
-import { assertNoCachedPageGuards, type NuxtPageLike } from "./page-guard-cache.ts"
+import { assertNoCachedPageGuards, assertSignInPagesOpen, type NuxtPageLike } from "./page-guard-cache.ts"
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
 
 import { authAbilitiesCandidates } from "./discovery.ts"
@@ -51,7 +51,7 @@ type NuxtLike = {
     rootDir?: string
     routeRules?: Record<string, Record<string, unknown>>
     router?: {
-      options?: { sensitive?: boolean }
+      options?: { sensitive?: boolean, strict?: boolean }
     }
     serverDir?: string
     srcDir?: string
@@ -229,11 +229,12 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   // The session bridge and page guard share the discovered Auth path and the sign-in pages of `access`.
   const authConfig = resolveAuthOptions() === false ? undefined : resolveAuthConfig()
   const signIn = authConfig?.access.signIn
+  const signInPage = signIn && "provider" in signIn ? null : signIn?.page ?? "/login"
   nuxt.options.runtimeConfig ??= {}
   nuxt.options.runtimeConfig.public ??= {}
   nuxt.options.runtimeConfig.public.vitehubAuth = resolveAuthOptions() === false ? false : {
     basePath: authConfig?.basePath ?? "/api/auth",
-    signInPage: signIn && "provider" in signIn ? null : signIn?.page ?? "/login",
+    signInPage,
     afterSignIn: authConfig?.access.afterSignIn ?? "/",
   } satisfies AuthPageGuardConfig
   const accessPages = authConfig?.access.pages
@@ -311,11 +312,17 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     ;(nuxt.hook as unknown as (name: "pages:resolved", handler: (resolved: NuxtPageLike[]) => void) => void)("pages:resolved", (resolved) => {
       pages = resolved
     })
-    // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the check
-    // reads the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there.
+    // Nitro calls `build:config` after every `nitro:build:before` hook and before it bundles the server, so the checks
+    // read the final route rules and pages. With `ssr: false`, the server renders no page, so no page guard runs there
+    // and no response can keep one.
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `nitro:init` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
     ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
-      nitro.hooks.hook("build:config", () => nuxt.options.ssr === false ? undefined : assertNoCachedPageGuards(pages, nitro.options.routeRules, { sensitive: nuxt.options.router?.options?.sensitive, accessPages: authConfig?.access.pages }))
+      nitro.hooks.hook("build:config", async () => {
+        const { sensitive, strict } = nuxt.options.router?.options ?? {}
+        const options = { sensitive, strict, accessPages: authConfig?.access.pages }
+        await assertSignInPagesOpen(pages, signInPage, options)
+        if (nuxt.options.ssr !== false) await assertNoCachedPageGuards(pages, nitro.options.routeRules, options)
+      })
     })
   }
 

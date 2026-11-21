@@ -22,9 +22,14 @@ import {
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
 import { mentionQuery, rankPeople } from "../internal/comment-mentions.ts";
+import { shake as shakeBox } from "../motion/helpers/shake.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { matchesAccept } from "../internal/prompt-files.ts";
+import { CommentImageStack, type CommentStackImage } from "../internal/comment-image-stack.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
+import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { PromptInput, type PromptInputSubmit } from "./prompt-input.ts";
 
@@ -111,6 +116,8 @@ const pastedFiles = (clipboard: DataTransfer): File[] => {
 // A second Esc right after that shake means it: the text and files go and the composer closes.
 // How long a second Esc discards after the first one shook the box.
 const escapeWindow = 2000;
+// How long the preview of a removed picture lives on, for the card that folds away.
+const revokeDelay = 1000;
 
 export const CommentComposer = defineComponent({
   name: "CommentComposer",
@@ -197,6 +204,7 @@ export const CommentComposer = defineComponent({
     // PromptInput shows a file as a UI part. The preview is an object URL, so no file is read before it is sent.
     const parts = new WeakMap<File, FileUIPart>();
     const urls = new Set<string>();
+    const revokers: Array<ReturnType<typeof setTimeout>> = [];
     const partOf = (file: File): FileUIPart => {
       let part = parts.get(file);
       if (!part) {
@@ -211,9 +219,12 @@ export const CommentComposer = defineComponent({
       for (const file of previous) {
         const part = parts.get(file);
         if (part && !next.includes(file)) {
-          URL.revokeObjectURL(part.url);
-          urls.delete(part.url);
           parts.delete(file);
+          // A removed picture still draws while its card folds away, so its preview goes a moment later.
+          revokers.push(setTimeout(() => {
+            URL.revokeObjectURL(part.url);
+            urls.delete(part.url);
+          }, revokeDelay));
         }
       }
     });
@@ -275,13 +286,16 @@ export const CommentComposer = defineComponent({
     const lines = typeof ResizeObserver === "function" ? new ResizeObserver(() => measureLines()) : undefined;
     watch([() => props.modelValue, () => props.layout, () => props.size], measureLines, { flush: "post" });
 
+    // The box shakes with the `shake` helper of the motion layer. Under reduced motion its frame flashes a color instead.
+    // `data-shake` names the refusal for the stylesheet and for tests.
     async function shake() {
       const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // Clear first, so a second shake restarts the animation.
+      // Clear first, so a second flash restarts its animation.
       shaking.value = null;
       await nextTick();
       void root.value?.offsetWidth;
       shaking.value = reduced ? "flash" : "shake";
+      if (!reduced && root.value) shakeBox(root.value);
       clearTimeout(timer);
       timer = setTimeout(() => (shaking.value = null), 450);
       focus();
@@ -302,6 +316,7 @@ export const CommentComposer = defineComponent({
       root.value?.removeEventListener(shakeEventName, onShake);
       clearTimeout(timer);
       clearTimeout(escapeTimer);
+      for (const revoker of revokers) clearTimeout(revoker);
       for (const url of urls) URL.revokeObjectURL(url);
     });
     expose({ focus, shake });
@@ -412,6 +427,8 @@ export const CommentComposer = defineComponent({
 
     function keydown(event: KeyboardEvent) {
       if (event.isComposing) return;
+      // Esc in the fanned pictures folds them, and keeps the text.
+      if (event.target instanceof Element && event.target.closest("[data-slot=comment-image-stack][data-fanned]")) return;
       const open = menu.value;
       // The empty line is not an option, so the arrows, Enter, and Tab act as if the menu were closed.
       const listed = open !== null && open.items.length > 0;
@@ -460,6 +477,47 @@ export const CommentComposer = defineComponent({
 
     const hasFiles = (event: DragEvent) => attachmentsOn.value && (event.dataTransfer?.types.includes("Files") ?? false);
 
+    // Where the next pictures come from: the text for a paste, the box for a drop, and the attach button for a pick.
+    // The stack reads it once, when the pictures show.
+    let origin: Element | null | undefined;
+    const takeOrigin = () => {
+      const from = origin;
+      origin = undefined;
+      return from;
+    };
+    const UIcon = useUIComponent("UIcon");
+    const icons = useViteHubUIIcons();
+    // Pictures go in one stack beside the text. Other files keep their chip with the name.
+    const fileList = ({ files: list, remove }: { files: readonly FileUIPart[]; remove: (index: number) => void }) => {
+      const images: CommentStackImage[] = [];
+      const others: Array<{ file: FileUIPart; index: number }> = [];
+      list.forEach((file, index) => {
+        if (file.mediaType.startsWith("image/")) images.push({ key: file.url, name: file.filename ?? "Picture", url: file.url });
+        else others.push({ file, index });
+      });
+      return [
+        h(CommentImageStack, {
+          disabled: props.busy,
+          images,
+          onRemove: (key: string) => remove(list.findIndex((file) => file.url === key)),
+          origin: takeOrigin,
+        }),
+        others.length > 0
+          ? h(AttachmentGroup, { "data-slot": "prompt-input-attachments" }, () =>
+              others.map(({ file, index }) =>
+                h(Attachment, { key: file.url, size: "xs" }, () => [
+                  h(AttachmentMedia, { variant: "icon" }, () => h(UIcon, { name: icons.value.file })),
+                  h(AttachmentContent, () => h(AttachmentTitle, () => file.filename ?? file.mediaType)),
+                  h(AttachmentActions, () =>
+                    h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.busy, icon: icons.value.close, onClick: () => remove(index) }),
+                  ),
+                ]),
+              ),
+            )
+          : null,
+      ];
+    };
+
     return () =>
       h(
         "div",
@@ -485,6 +543,7 @@ export const CommentComposer = defineComponent({
           // PromptInput reads the pasted files. The composer keeps them as files, so it only stops the text paste here.
           onPasteCapture: (event: ClipboardEvent) => {
             if (!attachmentsOn.value || !event.clipboardData) return;
+            origin = textarea();
             if (pastedFiles(event.clipboardData).some((file) => matchesAccept(file, props.accept))) event.preventDefault();
           },
           onDragover: (event: DragEvent) => {
@@ -499,8 +558,14 @@ export const CommentComposer = defineComponent({
             dragging.value = false;
             if (!hasFiles(event)) return;
             event.preventDefault();
+            origin = root.value?.querySelector("[data-slot=prompt-input-group]");
             addFiles(event.dataTransfer?.files ?? []);
             focus();
+          },
+          onChangeCapture: (event: Event) => {
+            if (event.target instanceof HTMLInputElement && event.target.type === "file") {
+              origin = root.value?.querySelector("[data-slot=prompt-input-toolbar] button[aria-label='Add attachment']");
+            }
           },
           ref: root,
         },
@@ -525,7 +590,7 @@ export const CommentComposer = defineComponent({
               onSubmit: submit,
               "onUpdate:files": (next: readonly FileUIPart[]) => setFiles(files.value.filter((file) => next.includes(partOf(file)))),
               "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
-            }),
+            }, attachmentsOn.value ? { files: fileList } : undefined),
             menu.value && menu.value.items.length === 0
               ? h(
                   "div",
