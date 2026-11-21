@@ -200,6 +200,7 @@ export default defineNuxtConfig({
 ```
 
 - `mount` is the URL path of the pages. It defaults to `/`.
+- With `sources`, `base` defaults to `/docs`. If you move from `dir` without a `docs/` folder, set `base: '/'`, as above, to keep the same sections. If all your pages are outside the default base, setup warns with [`DOCS_BASE_EMPTY`](/docs/docs-site/diagnostics/docs_base_empty). Set `base: '/docs'` to keep those pages standalone without the warning.
 - `exclude` leaves out files by glob, relative to the source.
 - `frontmatter(data, { file, path, markdown })` changes the fields of a page before the schema checks them, such as a generated title. It does not change the file.
 - `sections` sets `.navigation.yml` fields by section id.

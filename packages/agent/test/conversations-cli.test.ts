@@ -103,12 +103,13 @@ describe("vitehub conversations export", () => {
     expect(missing.stderr).toContain("An agent, a channel, and a thread are required.")
   })
 
-  it("is a command of the agent CLI, next to channels history", async () => {
+  it("is the conversations command of the agent CLI, next to channels history", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-conversations-root-"))
     directories.push(rootDir)
     const contributor = await createAgentCliContributor({ rootDir, serverDirs: [] })
     const features = (name: string) => contributor!.namespaces.find(namespace => namespace.name === name)?.features.map(feature => feature.name)
-    expect(features("conversations")).toEqual(["export"])
+    expect(features("conversations")).toBeUndefined()
+    expect(features("agent")).toContain("conversations")
     expect(features("channels")).toEqual(["history", "replay", "sync"])
   })
 })

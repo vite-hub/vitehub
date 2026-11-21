@@ -12,6 +12,12 @@ async function run(args: string[]) {
 describe("renamed commands", () => {
   it.each([
     [["agent", "info", "--agent", "support"], "vitehub agent get"],
+    [["agents", "list"], "vitehub agent list"],
+    [["agents", "invoke", "support"], "vitehub agent invoke"],
+    [["agents", "status"], "vitehub agent get <name>"],
+    [["invocations", "list"], "vitehub agent invocations list"],
+    [["invocations", "workspace", "inv_1"], "vitehub agent invocations workspace"],
+    [["conversations", "export", "a", "c", "t"], "vitehub agent conversations export"],
     [["agent", "invocations", "show", "inv_1"], "vitehub agent invocations get"],
     [["content", "show", "docs", "intro"], "vitehub content get"],
     [["email", "outbox", "show", "msg_1"], "vitehub email outbox get"],

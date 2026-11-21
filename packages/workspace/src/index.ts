@@ -32,19 +32,9 @@ export type {
 } from "./sources/index.ts"
 export { createWorkspaceTools } from "./ai.ts"
 export type * from "./ai.ts"
-export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
-export {
-  assertModelWorkspaceGlobPattern,
-  modelWorkspaceGlobPatternLimits,
-} from "./core/glob-pattern.ts"
-export type { WorkspaceGlobPatternLimits } from "./core/glob-pattern.ts"
 export { isWorkspaceConflict } from "./core/errors.ts"
-export { normalizeSafeWorkspacePath } from "./core/path.ts"
-export { invalidateWorkspaceStore } from "./runtime/state.ts"
-export { resolveWorkspaceStoreTarget } from "./storage/target.ts"
-export type { WorkspaceStoreTarget } from "./storage/target.ts"
 export type { WorkspaceErrorCode } from "./core/errors.ts"
-export { isWorkspaceName, resolveRegisteredWorkspaceDefinition } from "./core/registry.ts"
+export { isWorkspaceName } from "./core/registry.ts"
 export { registerWorkspacePlugin } from "./core/plugins.ts"
 export { useWorkspace } from "./core/use-tools.ts"
 export { useWorkspaceFiles } from "./core/use.ts"

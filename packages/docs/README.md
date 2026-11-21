@@ -26,6 +26,8 @@ export default defineNuxtConfig({
 
 The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you, so a new site does not add them to `modules`. An app that already lists `@nuxt/ui` keeps it before the docs module, as in [Add docs to an existing app](#add-docs-to-an-existing-app). Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
+The module turns off Nuxt's idle prefetch of lazy chunks in the whole app, such as the editor and the comark blocks. A page loads the chunks that it renders. A link loads its page and payload when the reader points at it or focuses it, unless the app sets `experimental.defaults.nuxtLink.prefetchOn`.
+
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
 Apps that use `vite-hub` add `vite-hub/docs/nuxt` to `modules` in place of `@vite-hub/docs/nuxt`, and import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
@@ -209,7 +211,7 @@ Most changes are options in `nuxt.config.ts`:
 | Option | Default | Use |
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
-| `base` | `/docs`, or `/` without a `docs/` folder | URL prefix whose folders are sections. |
+| `base` | `/docs`, or `/` without a `docs/` folder in `dir` | URL prefix whose folders are sections. With `sources`, the default is always `/docs`. If all pages are outside the default base, setup warns with `DOCS_BASE_EMPTY`. Set `base: '/docs'` to keep them standalone without the warning. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |

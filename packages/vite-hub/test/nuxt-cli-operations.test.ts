@@ -65,11 +65,12 @@ async function cli(framework: "nuxt" | "vite", args: string[]) {
 
 // The Console is on, as in an app that the Console inspects.
 it.each(["vite", "nuxt"] as const)("finds the Console operation commands in a %s project", async (framework) => {
-  const result = await cli(framework, ["invocations", "--help"])
+  const result = await cli(framework, ["skills", "--help"])
 
   expect(result.stderr).toBe("")
   expect(result.exitCode).toBe(0)
-  expect(result.stdout).toContain("Usage: vitehub invocations <feature> [args...]")
-  expect(result.stdout).toMatch(/^ {2}list\b/m)
-  expect(result.stdout).toMatch(/^ {2}cancel\b/m)
+  expect(result.stdout).toContain("Usage: vitehub skills <feature> [args...]")
+  expect(result.stdout).toMatch(/^ {2}inspect\b/m)
+  const rootHelp = await cli(framework, ["--help"])
+  expect(rootHelp.stdout).not.toMatch(/^ {2}invocations\b/m)
 }, 60_000)

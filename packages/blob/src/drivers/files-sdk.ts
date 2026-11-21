@@ -1,5 +1,6 @@
 import { toArray } from "@vite-hub/internal/arrays"
 import { isPlainObject } from "@vite-hub/internal/object"
+import { downloadDisposition } from "../internal/active-content.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
@@ -117,10 +118,13 @@ async function signRequest(client: FilesInstance, driver: string, pathname: stri
   const { signedUpload, signedUrl } = client.capabilities
   if (signOptions.method === "GET") {
     if (!signedUrl.supported || signedUrl.expiry !== "exact") throw unsupportedSign(driver, "the provider has no expiring read URL")
-    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn }) }
+    const disposition = downloadDisposition(pathname, signOptions.download)
+    if (disposition && !signedUrl.disposition) throw unsupportedSign(driver, "the provider cannot bind `download`")
+    return { headers: {}, method: "GET", url: await client.url(pathname, { expiresIn: signOptions.expiresIn, ...(disposition ? { responseContentDisposition: disposition } : {}) }) }
   }
   if (!signedUpload.supported) throw unsupportedSign(driver, "the provider has no signed upload URL")
   if (signOptions.createOnly) throw unsupportedSign(driver, "the provider cannot bind `createOnly`")
+  if (signOptions.contentLength !== undefined) throw unsupportedSign(driver, "the provider cannot bind `contentLength`")
   if (signOptions.maxSize !== undefined) throw unsupportedSign(driver, "the provider cannot bind `maxSize`")
   if (signOptions.contentType && !signedUpload.contentType) throw unsupportedSign(driver, "the provider cannot bind `contentType`")
   const upload = await client.signedUploadUrl(pathname, { contentType: signOptions.contentType, expiresIn: signOptions.expiresIn })
