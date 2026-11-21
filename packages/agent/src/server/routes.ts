@@ -80,6 +80,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { acceptChannelFormAnswer, channelFormsOf, registerChannelForms } from "../internal/channel-forms.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, isChatReplyPartType, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatOmittedAttachment } from "../internal/input-attachments.ts"
@@ -6025,6 +6026,7 @@ async function admitChatSdkMessage(
   deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
   delivery: AgentChannelDeliveryTracker,
+  state: { keyPrefix: string; state: StateAdapter },
   messageContext?: MessageContext,
   historyThroughCurrent = false,
   inlineKey?: string,
@@ -6100,6 +6102,10 @@ async function admitChatSdkMessage(
     }
   }
 
+  if (thread.adapter.name === "slack" && !interruptedChatRetryAttempt(message.id) && !await acceptChannelFormAnswer(state, thread, message)) {
+    await recordChannelDeliveryEvidence(delivery, { reason: "unhandled", type: "rejected" })
+    return
+  }
   return { input, invoker, messages, currentMessage }
 }
 
@@ -6502,7 +6508,7 @@ async function handleChatSdkMessage(
   try {
     if (inlineScope) inlineKey = `${await resolveWebhookStateBackendId(state.state)}:${inlineScope}`
     const admission = admitted || await admitChatSdkMessage(
-      agent, context, registration, thread, message, deliveryKind, options, delivery,
+      agent, context, registration, thread, message, deliveryKind, options, delivery, state,
       messageContext, historyThroughCurrent, inlineKey,
     )
     if (!admission) return
@@ -7359,7 +7365,7 @@ async function handleChatSdkMessage(
           timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, remainingMaximumInvocationTimeout),
           context: {
             ...resolvedInvocationInput.context,
-            [messageChannelStateContextKey]: state,
+            [messageChannelStateContextKey]: { ...state, adapterName: thread.adapter.name },
             ...(options?.stream === false || bufferedDelivery ? { [finalChannelOutputContextKey]: true } : {}),
             ...(manualDelivery ? {} : { [chatFinalReplyContextKey]: (bufferedDelivery ? "pending" : "posted") satisfies ChatFinalReplyMode }),
           },
@@ -7684,7 +7690,7 @@ async function handleChatSdkMessages(
           const admission = await admitChatSdkMessage(
             agent, withAgentChannelDelivery(context, admittedDelivery), registration,
             observeChatThread(queuedThread, admittedDelivery), queuedMessage, deliveryKind,
-            options, admittedDelivery, undefined, true,
+            options, admittedDelivery, state, undefined, true,
           )
           if (!admission) continue
           accepted.push({ message: queuedMessage, thread: queuedThread, delivery: admittedDelivery, kind: deliveryKind, admission })
@@ -7935,6 +7941,7 @@ async function createChannelChat(
     workflowCustodySupported: "workflowCustodySupported" in resolvedState ? resolvedState.workflowCustodySupported : undefined,
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
+  if (adapter.name === "slack") registerChannelForms(chat, channelFormsOf(getAgentCapabilities(agent)), state, state.reconciliationWaitUntil)
   chat.onDirectMessage(async (chatThread, message, _channel, messageContext) => {
     const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
