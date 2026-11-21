@@ -94,14 +94,15 @@ export const vitehubTheme = {
       },
     },
   },
-  // Buttons are black and white. A press scales the button to 97%; reduced motion keeps it still.
+  // Buttons are black and white. The motion layer of `@vite-hub/ui/motion` gives them their press, so the theme only fades
+  // their colors.
   button: {
     defaultVariants: {
       color: "neutral",
       size: "sm",
     },
     slots: {
-      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97] motion-reduce:transition-none",
+      base: "rounded-md font-medium disabled:opacity-50 aria-disabled:opacity-50 transition-[color,background-color,box-shadow] duration-150 ease-out motion-reduce:transition-none",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
     },
@@ -260,6 +261,13 @@ export const vitehubTheme = {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
   },
+  // The motion layer of `@vite-hub/ui/motion` moves the knob, so it has no transition of its own. As in the prototype of
+  // docs/design/motion.md, the knob is smaller while the switch is off and lands larger when it turns on.
+  switch: {
+    slots: {
+      thumb: "transition-none data-[state=unchecked]:scale-75",
+    },
+  },
   table: {
     slots: {
       th: "h-9 px-2.5 py-2 text-xs font-medium text-muted",
@@ -267,7 +275,8 @@ export const vitehubTheme = {
     },
   },
   // Tabs are an underline under the active label, as on vitehub.dev and in Vercel's dashboard, not a segmented pill.
-  // The label keeps its weight, so switching moves nothing.
+  // The label keeps its weight, so switching moves nothing. The indicator gets no CSS transition: the select effect of
+  // the motion layer moves it with a spring.
   tabs: {
     defaultVariants: {
       color: "neutral",
@@ -277,7 +286,7 @@ export const vitehubTheme = {
     slots: {
       list: "gap-1",
       trigger: "data-[state=inactive]:text-muted data-[state=active]:text-highlighted hover:data-[state=inactive]:not-disabled:text-highlighted",
-      indicator: "bg-(--ui-text-highlighted)",
+      indicator: "bg-(--ui-text-highlighted) transition-none",
     },
     variants: {
       size: {

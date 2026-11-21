@@ -72,6 +72,7 @@ describe("Console signatures", () => {
   it.each([
     ["a CLI caller", { via: "cli" }],
     ["a Console caller without a team", { user: { id: "u" }, via: "console" }],
+    ["a Console caller with a verified email", { user: { id: "u", email: "ada@example.com", emailVerified: true }, via: "console" }],
     ["a call of the Console MCP", { surface: "mcp", team: { id: "t" }, user: { id: "u" }, via: "console" }],
     ["a confirmed call of the Console MCP", { confirmed: true, surface: "mcp", user: { id: "u" }, via: "console" }],
     ["a read-only call of the Console MCP", { readOnly: true, surface: "mcp", user: { id: "u" }, via: "console" }],
