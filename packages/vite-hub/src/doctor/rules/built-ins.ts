@@ -1,13 +1,13 @@
-import { resolve } from "node:path"
+import { join, resolve } from "node:path"
 
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
-import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, isServerFile, isTestFile, moduleSourceVisitors, numberValue, objectProperty, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
+import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, isTestFile, numberValue, objectProperty, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
 import type { AstNode } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
+import { viteHubInventory } from "../inventory.ts"
 import { generatedFile, viteHubPackage } from "./imports.ts"
-import { dependsOn } from "./integrations.ts"
 
 // Each built-in that these rules point to: what it is called and where its docs are.
 
@@ -31,10 +31,63 @@ type BuiltIn = typeof builtIns[keyof typeof builtIns]
 
 const see = (...items: BuiltIn[]) => `See ${items.map(item => item.url).filter((url, index, urls) => urls.indexOf(url) === index).join(" and ")}.`
 
-/** True for files of an app that uses `vite-hub`: not ViteHub itself, generated files, or tests. */
+const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
+
+function dependencyNames(manifest: Record<string, unknown>): Set<string> {
+  return new Set(dependencyFields.flatMap((field) => {
+    const dependencies = manifest[field]
+    return dependencies && typeof dependencies === "object" ? Object.keys(dependencies) : []
+  }))
+}
+
+function readManifest(ctx: RuleContext, root: string): Record<string, unknown> | undefined {
+  const manifest = ctx.fs.readJson(join(root, "package.json"))
+  return manifest && typeof manifest === "object" ? Object.fromEntries(Object.entries(manifest)) : undefined
+}
+
+/** A workspace root as a path prefix: `""` for the run root, else `apps/web/`. */
+function rootPrefix(root: string): string {
+  const path = root.replaceAll("\\", "/").replace(/^\.\/?/, "").replace(/\/$/, "")
+  return path ? `${path}/` : ""
+}
+
+/** The workspace package that owns the file: the longest workspace root that contains it, else the run root. */
+function owningPackage(ctx: RuleContext): { prefix: string, manifest: Record<string, unknown> | undefined } {
+  const prefix = (ctx.project.workspacePackages ?? [])
+    .map(item => rootPrefix(item.root))
+    .filter(prefix => ctx.file.relativePath.startsWith(prefix))
+    .reduce((longest, prefix) => prefix.length > longest.length ? prefix : longest, "")
+  return { prefix, manifest: readManifest(ctx, prefix || ".") }
+}
+
+/** True for files of a package that uses `vite-hub`: not ViteHub itself, generated files, or tests. */
 function appFile(ctx: RuleContext): boolean {
   if (generatedFile.test(ctx.file.relativePath) || isTestFile(ctx.file.relativePath)) return false
-  return !viteHubPackage.test(ctx.project.packageName ?? "") && dependsOn(ctx, "vite-hub")
+  const { manifest } = owningPackage(ctx)
+  if (!manifest) return false
+  return !(typeof manifest.name === "string" && viteHubPackage.test(manifest.name)) && dependencyNames(manifest).has("vite-hub")
+}
+
+/** Server directories as path prefixes: the ones in the ViteHub Project Inventory, and `server/` of the owning package. */
+function serverDirPrefixes(ctx: RuleContext): string[] {
+  const { prefix } = owningPackage(ctx)
+  return [...new Set([...(viteHubInventory(ctx).serverDirs ?? []).map(rootPrefix), `${prefix}server/`])]
+}
+
+/** The file's path inside its server directory, or `undefined` outside one. */
+function serverPath(ctx: RuleContext): string | undefined {
+  const dir = serverDirPrefixes(ctx).find(dir => ctx.file.relativePath.startsWith(dir))
+  return dir === undefined ? undefined : ctx.file.relativePath.slice(dir.length)
+}
+
+/** The build's Wrangler config, which `vitehub deploy` deploys. */
+const generatedWranglerConfig = /^(?:\.\/)?\.output\/server\/wrangler\.json$/
+
+/** True when a Wrangler command targets the build's Worker: `--config` names the build's config, without `--env`. */
+function targetsGeneratedWorker(args: string[]): boolean {
+  if (args.some(arg => /^(?:--env|-e)(?:=|$)/.test(arg))) return false
+  const config = flagValue(args, ["--config", "-c"])
+  return config !== undefined && generatedWranglerConfig.test(config)
 }
 
 /** The text of a string or template literal, with `${}` placeholders for template expressions. */
@@ -42,12 +95,14 @@ function literalText(node: unknown): string | undefined {
   const value = stringValue(node)
   if (value !== undefined) return value
   if (!isNodeType(node, "TemplateLiteral") || !Array.isArray(node.quasis)) return
-  // A template element's `value` is `{ raw, cooked }`, which has no `type`.
-  return node.quasis.map((quasi) => {
-    const value: unknown = isNode(quasi) ? quasi.value : undefined
-    const cooked: unknown = value && typeof value === "object" ? Reflect.get(value, "cooked") : undefined
-    return typeof cooked === "string" ? cooked : ""
-  }).join("${}")
+  return node.quasis.map(cookedText).join("${}")
+}
+
+/** The text of a template element. Its `value` is `{ raw, cooked }`, which has no `type`. */
+function cookedText(quasi: unknown): string {
+  const value: unknown = isNode(quasi) ? quasi.value : undefined
+  const cooked: unknown = value && typeof value === "object" ? Reflect.get(value, "cooked") : undefined
+  return typeof cooked === "string" ? cooked : ""
 }
 
 /** The source text of a node, to compare two expressions such as storage keys. */
@@ -58,7 +113,6 @@ function sourceOf(ctx: RuleContext, node: unknown): string | undefined {
 // vitehub/prefer-built-ins (VHUB0037): code that a ViteHub built-in replaces.
 
 const drizzleConfigFile = /(?:^|\/)drizzle\.config\.[cm]?[jt]s$/
-const viteHubDatabaseFolder = /(?:^|\/)databases\//
 const migrationsLedgerSql = /\b(?:create\s+table|insert\s+(?:or\s+\w+\s+)?into|select\b[\s\S]*\bfrom|delete\s+from|update)\b[\s\S]*\bd1_migrations\b/i
 const vacuumInto = /\bvacuum\s+into\b/i
 const proxyIdentityHeaders = [
@@ -113,19 +167,29 @@ export const preferBuiltIns: DoctorRule = createRule({
     }
 
     if (drizzleConfigFile.test(ctx.file.relativePath)) {
+      // Config paths are relative to the package root. Database Definitions live in `databases/` of a server directory.
+      const { prefix } = owningPackage(ctx)
+      const databaseDirs = serverDirPrefixes(ctx).filter(dir => dir.startsWith(prefix)).map(dir => `${dir.slice(prefix.length)}databases/`)
+      const inDatabases = (path: string) => databaseDirs.some(dir => path.replace(/^\.\//, "").startsWith(dir))
       const exported = unwrap(defaultExport(ctx)?.value)
       const config = isNodeType(exported, "CallExpression") ? unwrap(callArguments(exported)[0]) : exported
       for (const name of ["out", "schema"]) {
         const property = objectProperty(config, name)
         const value = unwrap(property?.value)
         const paths = isNodeType(value, "ArrayExpression") && Array.isArray(value.elements) ? value.elements.map(stringValue) : [stringValue(value)]
-        if (!property || !paths.some(path => path !== undefined && viteHubDatabaseFolder.test(path))) continue
+        if (!property || !paths.some(path => path !== undefined && inDatabases(path))) continue
         report("drizzle-config", property, `This Drizzle Kit config reads or writes \`databases/\`, the folder of ViteHub Database Definitions. ViteHub loads every Definition and writes its migrations with ${builtIns.generate.name}, so a second config can drift from the Definitions and write migrations ViteHub does not track.`, `Delete this config and run ${builtIns.generate.name} and ${builtIns.migrate.name}. ${see(builtIns.generate)}`)
         break
       }
     }
 
-    const forwardAuthImported = { value: false }
+    const program = ctx.file.scriptAst
+    const forwardAuthImported = isNode(program) && Array.isArray(program.body) && program.body.some(statement =>
+      isNodeType(statement, "ImportDeclaration")
+      && statement.importKind !== "type"
+      && /^(?:vite-hub|@vite-hub)\/auth\/forward$/.test(stringValue(statement.source) ?? "")
+      && !(Array.isArray(statement.specifiers) && statement.specifiers.length > 0 && statement.specifiers.every(specifier => isNode(specifier) && specifier.importKind === "type")))
+    const wranglerArgs = [...ctx.file.text.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map(match => match[1] ?? "")
 
     function checkText(node: unknown) {
       const text = literalText(node)
@@ -136,18 +200,15 @@ export const preferBuiltIns: DoctorRule = createRule({
       if (vacuumInto.test(text)) {
         report("vacuum-into", node, "This copies a SQLite database with `VACUUM INTO`. ViteHub backs up each local SQLite file the same way before it applies pending migrations, and keeps the newest copies.", `Set ${builtIns.backup.name}, or run ${builtIns.export.name} for a dump. ${see(builtIns.backup, builtIns.export)}`)
       }
-      if (!forwardAuthImported.value && stringValue(node) !== undefined && proxyIdentityHeaders.some(header => header.test(text))) {
+      if (!forwardAuthImported && stringValue(node) !== undefined && proxyIdentityHeaders.some(header => header.test(text))) {
         report("proxy-header", node, `This reads \`${text}\`, an identity header that a sign-in proxy such as oauth2-proxy, Cloudflare Access, or Tailscale Serve sends. Anyone who reaches the app without the proxy can send it too. ${builtIns.forwardAuth.name} turns the header into a Better Auth session only after your \`verify\` function proves it.`, `Use ${builtIns.forwardAuth.name} with \`header: "${text}"\` and a \`verify\` function. ${see(builtIns.forwardAuth)}`)
       }
-      if (text === "--secrets-file" && /\bwrangler\b/.test(ctx.file.text)) {
+      if (text === "--secrets-file" && /\bwrangler\b/.test(ctx.file.text) && targetsGeneratedWorker(wranglerArgs)) {
         report("secrets-file", node, "This passes a secrets file to `wrangler deploy`. A `.env` file holds more than the Worker needs, and Wrangler's dotenv mode expands `$VAR`. `vitehub deploy` sends only the env that the app declares, as a JSON file with mode 600 that it deletes after the deploy.", `Deploy with ${builtIns.deploy.name}. ${see(builtIns.deploy)}`)
       }
     }
 
     return {
-      ...moduleSourceVisitors((_node, source) => {
-        if (/^(?:vite-hub|@vite-hub)\/auth\/forward$/.test(source.specifier)) forwardAuthImported.value = true
-      }),
       Literal(node) {
         checkText(node)
       },
@@ -181,31 +242,62 @@ export const preferBuiltIns: DoctorRule = createRule({
 
 // vitehub/prefer-built-in-commands (VHUB0038): package.json scripts that a ViteHub command replaces.
 
-const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, manifest: Record<string, unknown>) => { why: string, fix: string } | undefined }[] = [
+/** The package whose scripts a command runs in. `databaseDirs` are its `databases/` folders of server directories. */
+type ScriptPackage = { manifest: Record<string, unknown>, read: (path: string) => string | undefined, databaseDirs: string[] }
+
+/** The words of one command in a script, from the match to the next `&&`, `||`, `|`, or `;`. */
+function commandArgs(command: string, index: number): string[] {
+  return (command.slice(index).split(/&&|\|\||[|;]/)[0] ?? "").trim().split(/\s+/)
+}
+
+/** The value of `--name value` or `--name=value`. */
+function flagValue(args: string[], names: string[]): string | undefined {
+  for (const [index, arg] of args.entries()) {
+    const [name = "", value] = arg.split("=", 2)
+    if (names.includes(name)) return value ?? args[index + 1]
+  }
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
+const drizzleConfigNames = ["ts", "mts", "cts", "js", "mjs", "cjs"].map(extension => `drizzle.config.${extension}`)
+const nuxtConfigNames = ["ts", "mts", "js", "mjs"].map(extension => `nuxt.config.${extension}`)
+
+const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, args: string[], pkg: ScriptPackage) => { why: string, fix: string } | undefined }[] = [
   {
     pattern: /\bdrizzle-kit\s+(generate|migrate|up)\b/,
-    builtIn: match => ({
-      why: `\`drizzle-kit ${match[1]}\` runs Drizzle Kit with its own config. \`vitehub database ${match[1]}\` runs it on every ViteHub Database Definition, with the dialect, aliases, and migrations folder of each.`,
-      fix: `Run \`vitehub database ${match[1]}\`. ${see(builtIns.generate)}`,
-    }),
+    // Only a config whose paths point into the ViteHub Database Definitions.
+    builtIn: (match, args, pkg) => {
+      const config = flagValue(args, ["--config"])
+      const text = config ? pkg.read(config) : drizzleConfigNames.map(pkg.read).find(text => text !== undefined)
+      if (!text || !pkg.databaseDirs.some(dir => new RegExp(`["'\`](?:\\./)?${escapeRegExp(dir)}`).test(text))) return
+      return {
+        why: `\`drizzle-kit ${match[1]}\` runs Drizzle Kit on the ViteHub Database Definitions with its own config. \`vitehub database ${match[1]}\` runs it on every Definition, with the dialect, aliases, and migrations folder of each.`,
+        fix: `Run \`vitehub database ${match[1]}\`. ${see(builtIns.generate)}`,
+      }
+    },
   },
   {
-    pattern: /\bwrangler\s+d1\s+migrations\s+apply\b[^&|;]*--remote\b/,
-    builtIn: () => ({
-      why: "This applies D1 migrations in a separate step before the deploy. With `database.migrateOnDeploy`, `vitehub deploy` applies them for each D1 binding and stops when one fails. Without it, `vitehub deploy` stops when the build has a migration that D1 does not list.",
-      fix: `Set ${builtIns.migrateOnDeploy.name} and deploy with ${builtIns.deploy.name}. ${see(builtIns.migrateOnDeploy)}`,
-    }),
+    pattern: /\bwrangler\s+d1\s+migrations\s+apply\b/,
+    builtIn: (_match, args) => args.includes("--remote") && targetsGeneratedWorker(args)
+      ? {
+          why: "This applies D1 migrations to the build's Worker in a separate step before the deploy. With `database.migrateOnDeploy`, `vitehub deploy` applies them for each D1 binding and stops when one fails. Without it, `vitehub deploy` stops when the build has a migration that D1 does not list.",
+          fix: `Set ${builtIns.migrateOnDeploy.name} and deploy with ${builtIns.deploy.name}. ${see(builtIns.migrateOnDeploy)}`,
+        }
+      : undefined,
   },
   {
-    pattern: /\bwrangler\s+deploy\b[^&|;]*--secrets-file\b/,
-    builtIn: () => ({
-      why: "This passes a secrets file to `wrangler deploy`. `vitehub deploy` sends only the env that the app declares, as a JSON file with mode 600 that it deletes after the deploy.",
-      fix: `Deploy with ${builtIns.deploy.name}. ${see(builtIns.deploy)}`,
-    }),
+    pattern: /\bwrangler\s+deploy\b/,
+    builtIn: (_match, args) => args.some(arg => /^--secrets-file(?:=|$)/.test(arg)) && targetsGeneratedWorker(args)
+      ? {
+          why: "This passes a secrets file to `wrangler deploy`. `vitehub deploy` sends only the env that the app declares, as a JSON file with mode 600 that it deletes after the deploy.",
+          fix: `Deploy with ${builtIns.deploy.name}. ${see(builtIns.deploy)}`,
+        }
+      : undefined,
   },
   {
     pattern: /\bvitehub\s+types\s+prepare\b/,
-    builtIn: (_match, manifest) => dependencyNames(manifest).has("nuxt")
+    // Only when the package's Nuxt config registers the ViteHub Nuxt module, which `nuxt prepare` runs.
+    builtIn: (_match, _args, pkg) => dependencyNames(pkg.manifest).has("nuxt") && nuxtConfigNames.some(name => pkg.read(name)?.includes("vite-hub/nuxt"))
       ? {
           why: "In a Nuxt app, the ViteHub Nuxt module writes its types during `nuxt prepare`, so `vitehub types prepare` does the same work twice.",
           fix: `Remove \`vitehub types prepare\` and keep \`nuxt prepare\`. ${see(builtIns.nuxtTypes)}`,
@@ -213,15 +305,6 @@ const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, manif
       : undefined,
   },
 ]
-
-const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
-
-function dependencyNames(manifest: Record<string, unknown>): Set<string> {
-  return new Set(dependencyFields.flatMap((field) => {
-    const dependencies = manifest[field]
-    return dependencies && typeof dependencies === "object" ? Object.keys(dependencies) : []
-  }))
-}
 
 /** Offsets of `"name": "command"` inside the `scripts` object of a package.json. */
 function scriptOffsets(text: string, name: string): [number, number] | undefined {
@@ -246,6 +329,7 @@ export const preferBuiltInCommands: DoctorRule = createRule({
     return {
       onProjectStart() {
         const roots = ctx.project.workspacePackages?.map(item => item.root) ?? ["."]
+        const inventoryDirs = (viteHubInventory(ctx).serverDirs ?? []).map(rootPrefix)
         for (const root of roots) {
           const file = resolve(ctx.project.root, root, "package.json")
           const text = ctx.fs.readText(file)
@@ -263,11 +347,17 @@ export const preferBuiltInCommands: DoctorRule = createRule({
           if (!dependencyNames(fields).has("vite-hub")) continue
           const scripts = fields.scripts
           if (!scripts || typeof scripts !== "object") continue
+          const prefix = rootPrefix(root)
+          const pkg: ScriptPackage = {
+            manifest: fields,
+            read: path => ctx.fs.readText(resolve(ctx.project.root, root, path)),
+            databaseDirs: [...new Set([...inventoryDirs.filter(dir => dir.startsWith(prefix)).map(dir => dir.slice(prefix.length)), "server/"])].map(dir => `${dir}databases/`),
+          }
           for (const [name, command] of Object.entries(scripts)) {
             if (typeof command !== "string") continue
             for (const { pattern, builtIn } of scriptCommands) {
               const match = pattern.exec(command)
-              const message = match && builtIn(match, fields)
+              const message = match && builtIn(match, commandArgs(command, match.index), pkg)
               if (!message) continue
               const offsets = scriptOffsets(text, name) ?? [0, 0]
               ctx.report(diagnostics.VHUB0038({ why: `The \`${name}\` script: ${message.why}`, fix: message.fix }), {
@@ -288,9 +378,17 @@ export const preferBuiltInCommands: DoctorRule = createRule({
 const ownedTableModule = /^(?!auth\/)([\w-]+)(?:\/[\w-]+)*\/(?:database|blob-database)(?:\/postgres)?$/
 const serverApiPages = new Set(["comments", "content", "env", "forms", "sync", "webhooks"])
 const docsFolders: Record<string, string> = { agent: "agents" }
-const ownedTableSql = /\b(insert\s+(?:or\s+\w+\s+)?into|replace\s+into|update|delete\s+from)\s+["'`[]?(vitehub_\w+)/i
+const sqlWrite = String.raw`\b(?:insert\s+(?:or\s+\w+\s+)?into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)\s+`
+/** A write whose target is a `vitehub_` table, with an optional schema: `DELETE FROM "public"."vitehub_comment_threads"`. */
+const ownedTableSql = new RegExp(`${sqlWrite}(?:["\`[]?\\w+["\`\\]]?\\s*\\.\\s*)?["\`[]?(vitehub_\\w+)`, "i")
+/** A write that ends where a Drizzle `sql` template interpolates its target table. */
+const sqlWriteBeforeTable = new RegExp(`${sqlWrite}$`, "i")
 const drizzleWrites = new Set(["insert", "update", "delete"])
-const databaseFolder = /(?:^|\/)server\/databases\//
+
+/** SQL without its string literals and comments, so data that reads like SQL is not matched as SQL. */
+function sqlCode(text: string): string {
+  return text.replace(/'(?:[^']|'')*'/g, "''").replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "")
+}
 
 function featureDocs(feature: string): string {
   const folder = docsFolders[feature] ?? feature
@@ -307,21 +405,43 @@ export const noOwnedTableWrites: DoctorRule = createRule({
   },
   create(ctx) {
     // Request-time code only. Migrations, seeds, and scripts that write migration files move data on purpose.
-    if (!appFile(ctx) || !isServerFile(ctx.file.relativePath) || databaseFolder.test(ctx.file.relativePath)) return
+    if (!appFile(ctx)) return
+    const path = serverPath(ctx)
+    if (path === undefined || path.startsWith("databases/")) return
     const r = resolver(ctx)
+
+    /** The ViteHub feature whose database module exports this table. */
+    function ownedTable(table: unknown): { name: string, feature: string } | undefined {
+      const reference = r.reference(table)
+      const feature = reference && reference.path.length === 0 ? ownedTableModule.exec(reference.module)?.[1] : undefined
+      return reference && feature ? { name: reference.name, feature } : undefined
+    }
+
+    function reportTable(node: unknown, write: string, table: { name: string, feature: string }) {
+      ctx.report(diagnostics.VHUB0039({
+        why: `This ${write} \`${table.name}\`, a table that ViteHub ${table.feature} owns. The write skips the checks that ${table.feature} runs, such as permissions and counters, and breaks when ViteHub changes the table.`,
+        fix: `Use the ${table.feature} server API. When it has no operation for this write, ask for one in vite-hub/vitehub. See ${featureDocs(table.feature)}.`,
+      }), { range: ctx.range(node) })
+    }
+
     return {
       CallExpression(node) {
         if (!isNodeType(node.callee, "MemberExpression") || node.callee.computed === true || !isIdentifier(node.callee.property)) return
         const method = node.callee.property.name
         if (!drizzleWrites.has(method)) return
-        const table = callArguments(node)[0]
-        const reference = r.reference(table)
-        const feature = reference && reference.path.length === 0 ? ownedTableModule.exec(reference.module)?.[1] : undefined
-        if (!reference || !feature) return
-        ctx.report(diagnostics.VHUB0039({
-          why: `This calls \`${method}()\` on \`${reference.name}\`, a table that ViteHub ${feature} owns. The write skips the checks that ${feature} runs, such as permissions and counters, and breaks when ViteHub changes the table.`,
-          fix: `Use the ${feature} server API. When it has no operation for this write, ask for one in vite-hub/vitehub. See ${featureDocs(feature)}.`,
-        }), { range: ctx.range(node) })
+        const table = ownedTable(callArguments(node)[0])
+        if (table) reportTable(node, `calls \`${method}()\` on`, table)
+      },
+      TaggedTemplateExpression(node) {
+        const quasi = node.quasi
+        if (!isIdentifier(node.tag, "sql") || !isNodeType(quasi, "TemplateLiteral") || !Array.isArray(quasi.quasis) || !Array.isArray(quasi.expressions)) return
+        let before = ""
+        for (const [index, expression] of quasi.expressions.entries()) {
+          before += cookedText(quasi.quasis[index])
+          const table = sqlWriteBeforeTable.test(sqlCode(before)) ? ownedTable(expression) : undefined
+          if (table) return reportTable(node, "SQL changes", table)
+          before += "${}"
+        }
       },
       Literal(node) {
         checkSql(node)
@@ -332,10 +452,10 @@ export const noOwnedTableWrites: DoctorRule = createRule({
     }
 
     function checkSql(node: unknown) {
-      const match = ownedTableSql.exec(literalText(node) ?? "")
+      const match = ownedTableSql.exec(sqlCode(literalText(node) ?? ""))
       if (!match) return
       ctx.report(diagnostics.VHUB0039({
-        why: `This SQL changes \`${match[2]}\`, a table that a ViteHub feature owns. The write skips the checks that the feature runs, and breaks when ViteHub changes the table.`,
+        why: `This SQL changes \`${match[1]}\`, a table that a ViteHub feature owns. The write skips the checks that the feature runs, and breaks when ViteHub changes the table.`,
         fix: "Use the server API of the feature that owns the table. When it has no operation for this write, ask for one in vite-hub/vitehub.",
       }), { range: ctx.range(node) })
     }

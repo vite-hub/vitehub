@@ -5,7 +5,7 @@ import { runRuleFixture } from "vite-doctor/testkit"
 import type { DoctorRule } from "vite-doctor/extension"
 
 import { noOwnedTableWrites, preferBuiltInCommands, preferBuiltIns } from "../src/doctor/rules/built-ins.ts"
-import { doctorTestTimeout } from "./doctor-helpers.ts"
+import { doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
@@ -54,6 +54,7 @@ describe("vitehub/prefer-built-ins", () => {
     expect(await codes(preferBuiltIns, {
       "package.json": app,
       "drizzle.config.ts": "import { defineConfig } from \"drizzle-kit\"\nexport default defineConfig({ dialect: \"postgresql\", out: \"./drizzle\", schema: \"./src/analytics/schema.ts\" })\n",
+      "analytics/drizzle.config.ts": "import { defineConfig } from \"drizzle-kit\"\nexport default defineConfig({ dialect: \"postgresql\", out: \"./src/databases/analytics/migrations\", schema: \"./src/databases/analytics/schema.ts\" })\n",
     })).toEqual([])
   })
 
@@ -146,7 +147,15 @@ describe("vitehub/prefer-built-ins", () => {
       ),
       "server/utils/ip.ts": "export const ip = (headers: Headers) => headers.get(\"x-forwarded-for\")\n",
       "test/proxy.test.ts": "export const headers = { \"x-auth-request-access-token\": \"token\" }\n",
+      "server/utils/access.ts": "const header = \"cf-access-jwt-assertion\"\nimport { forwardAuth } from \"vite-hub/auth/forward\"\nexport const access = forwardAuth({ header, verify: async ({ value }) => ({ id: value, email: value }) })\n",
     })).toEqual([])
+  })
+
+  it("reports the header when the forwardAuth() import is type-only", async () => {
+    expect(await codes(preferBuiltIns, {
+      "package.json": app,
+      "server/utils/proxy.ts": "import type { ForwardAuthOptions } from \"vite-hub/auth/forward\"\nexport const read = (headers: Headers) => headers.get(\"x-auth-request-email\")\nexport type Options = ForwardAuthOptions\n",
+    })).toEqual(["VHUB0037"])
   })
 
   it("reports Drop's hard-coded D1 bind limit", async () => {
@@ -196,10 +205,12 @@ describe("vitehub/prefer-built-ins", () => {
     expect(diagnostics[0]?.fix).toContain("#check-env-before-a-deploy")
   })
 
-  it("accepts a secrets file for another tool", async () => {
+  it("accepts a secrets file for another tool or another Worker", async () => {
     expect(await codes(preferBuiltIns, {
       "package.json": app,
       "scripts/seal.mjs": "export const args = [\"seal\", \"--secrets-file\", \"secrets.json\"]\n",
+      "scripts/deploy-email.mjs": "import { spawnSync } from \"node:child_process\"\nspawnSync(\"wrangler\", [\"deploy\", \"--config\", \"workers/email/wrangler.toml\", \"--secrets-file\", \"workers/email/secrets.json\"])\n",
+      "scripts/deploy-preview.mjs": "import { spawnSync } from \"node:child_process\"\nspawnSync(\"wrangler\", [\"deploy\", \"--config\", \".output/server/wrangler.json\", \"--env\", \"preview\", \"--secrets-file\", \".env\"])\n",
     })).toEqual([])
   })
 
@@ -249,11 +260,28 @@ describe("vitehub/prefer-built-ins", () => {
       "scripts/start.mjs": "export const backup = (database, target) => database.exec(`VACUUM INTO '${target}'`)\n",
     })).toEqual([])
   })
+
+  it("reads the package.json of the workspace package that owns the file", async () => {
+    const backup = "export const backup = (database, target) => database.exec(`VACUUM INTO '${target}'`)\n"
+    const workspace = (rootDependencies: Record<string, string>) => ({
+      "package.json": JSON.stringify({ name: "root", private: true, dependencies: rootDependencies }),
+      "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+      "apps/web/package.json": JSON.stringify({ name: "web", dependencies: { "vite": "^8.0.0", "vite-hub": "*" } }),
+      "apps/web/scripts/start.mjs": backup,
+      "apps/docs/package.json": JSON.stringify({ name: "docs", dependencies: { vite: "^8.0.0" } }),
+      "apps/docs/scripts/start.mjs": backup,
+    })
+    expect((await report(preferBuiltIns, workspace({}))).map(diagnostic => diagnostic.file)).toEqual(["apps/web/scripts/start.mjs"])
+    expect((await report(preferBuiltIns, workspace({ "vite-hub": "*" }))).map(diagnostic => diagnostic.file)).toEqual(["apps/web/scripts/start.mjs"])
+  })
 })
 
 describe("vitehub/prefer-built-in-commands", () => {
   it("reports Drop's package.json scripts", async () => {
     const diagnostics = await report(preferBuiltInCommands, {
+      // drop: drizzle.config.ts, nuxt.config.ts
+      "drizzle.config.ts": "export default { dialect: \"sqlite\", out: \"./server/databases/default/migrations\", schema: [\"./server/databases/default/index.ts\"] }\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"@nuxt/ui\", \"vite-hub/nuxt\"] })\n",
       // drop: package.json scripts
       "package.json": manifest({
         dependencies: { nuxt: "^4.0.0" },
@@ -282,8 +310,24 @@ describe("vitehub/prefer-built-in-commands", () => {
 
   it("reports wrangler deploy with a secrets file", async () => {
     expect(await codes(preferBuiltInCommands, {
-      "package.json": manifest({ scripts: { deploy: "wrangler deploy --secrets-file .env" } }),
+      "package.json": manifest({ scripts: { deploy: "wrangler deploy --config .output/server/wrangler.json --secrets-file .env" } }),
     })).toEqual(["VHUB0038"])
+  })
+
+  it("accepts commands for another database, Worker, or environment, and Nuxt apps without the ViteHub module", async () => {
+    expect(await codes(preferBuiltInCommands, {
+      "analytics/drizzle.config.ts": "export default { dialect: \"postgresql\", out: \"./analytics/migrations\", schema: \"./analytics/schema.ts\" }\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"@nuxt/ui\"] })\n",
+      "package.json": manifest({
+        dependencies: { nuxt: "^4.0.0" },
+        scripts: {
+          "analytics:generate": "drizzle-kit generate --config=./analytics/drizzle.config.ts",
+          "migrate:preview": "wrangler d1 migrations apply DB --remote --env preview",
+          "deploy:email": "wrangler deploy --config workers/email/wrangler.toml --secrets-file workers/email/secrets.json",
+          "postinstall": "nuxt prepare && vitehub types prepare",
+        },
+      }),
+    })).toEqual([])
   })
 
   it("accepts the ViteHub commands, local D1 migrations, and Vite apps that prepare types", async () => {
@@ -347,10 +391,47 @@ describe("vitehub/no-owned-table-writes", () => {
   })
 
   it("reports raw SQL that changes a vitehub_ table", async () => {
+    expect((await report(noOwnedTableWrites, {
+      "package.json": app,
+      "server/utils/cleanup.ts": lines(
+        "import { sql } from \"drizzle-orm\"",
+        "import { commentThreads } from \"vite-hub/comments/database\"",
+        "export const cleanup = (db: { run(sql: unknown): unknown }) => [",
+        "  db.run(\"DELETE FROM vitehub_comment_threads WHERE status = 'resolved'\"),",
+        "  db.run('DELETE FROM \"public\".\"vitehub_comment_threads\"'),",
+        "  db.run(\"UPDATE OR IGNORE vitehub_comment_threads SET status = 'open'\"),",
+        "  db.run(sql`DELETE FROM ${commentThreads} WHERE status = 'resolved'`),",
+        "]",
+      ),
+    })).map(diagnostic => diagnostic.line)).toEqual([4, 5, 6, 7])
+  })
+
+  it("accepts SQL that only mentions a vitehub_ table in a string or comment", async () => {
     expect(await codes(noOwnedTableWrites, {
       "package.json": app,
-      "server/utils/cleanup.ts": "export const cleanup = (db: { run(sql: string): unknown }) => db.run(\"DELETE FROM vitehub_comment_threads WHERE status = 'resolved'\")\n",
-    })).toEqual(["VHUB0039"])
+      "server/utils/jobs.ts": lines(
+        "export const jobs = (db: { all(sql: string): unknown }) => [",
+        "  db.all(\"SELECT * FROM jobs WHERE operation = 'update vitehub_comment_threads'\"),",
+        "  db.all(\"SELECT 1 -- delete from vitehub_comment_threads\"),",
+        "]",
+      ),
+    })).toEqual([])
+  })
+
+  it("reads the configured Nuxt server directory", async () => {
+    const files = (dir: string) => ({
+      "nuxt.config.ts": `export default defineNuxtConfig({ serverDir: "${dir}" })\n`,
+      [`${dir}/api/threads.delete.ts`]: lines(
+        "import { db } from \"vite-hub/database\"",
+        "import { commentThreads } from \"vite-hub/comments/database\"",
+        "export default defineEventHandler(async () => { await db.delete(commentThreads) })",
+      ),
+      [`${dir}/databases/default/seed.ts`]: lines(
+        "import { commentThreads } from \"vite-hub/comments/database\"",
+        "export default (async ({ db }) => { await db.insert(commentThreads).values([]) })",
+      ),
+    })
+    expect(await projectCodes(noOwnedTableWrites, files("backend"), "nuxt")).toEqual(["VHUB0039"])
   })
 
   it("accepts SQL in scripts that write migrations, and in seeds", async () => {

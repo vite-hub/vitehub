@@ -1155,12 +1155,12 @@ App code does work that a ViteHub built-in already does. The hand-written copy m
 
 | Code | Built-in |
 | --- | --- |
-| A `drizzle.config.*` file whose `out` or `schema` points into a `databases/` folder | [`vitehub database generate` and `vitehub database migrate`](/docs/database/configure#apply-migrations) |
+| A `drizzle.config.*` file whose `out` or `schema` points into `databases/` of a server directory, where Database Definitions live | [`vitehub database generate` and `vitehub database migrate`](/docs/database/configure#apply-migrations) |
 | SQL that reads or writes `d1_migrations`, the ledger of a hand-written D1 migrator | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy), or `vitehub database migrate` for D1 over HTTP |
 | SQL with `VACUUM INTO`, which copies a SQLite file | [`database.migrateOnStart: { backup: true }`](/docs/database/configure#back-up-sqlite-before-migrations), or [`vitehub database export`](/docs/database/configure#export-a-database) |
 | A sign-in proxy header, such as `x-auth-request-access-token`, `x-forwarded-email`, `cf-access-jwt-assertion`, or `tailscale-user-login` | [`forwardAuth()`](/docs/auth/configure#sign-in-through-a-trusted-proxy) |
 | A `const` that hard-codes the bound parameter limit, such as `const D1_MAX_BINDINGS = 100` | [`chunkParameters()`](/docs/database/server-api#stay-under-the-bound-parameter-limit) |
-| `--secrets-file` in a file that runs `wrangler` | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy), which sends only the declared env |
+| `--secrets-file` in a file that runs `wrangler deploy --config .output/server/wrangler.json`, the build's Worker | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy), which sends only the declared env |
 | `if (await storage.getItem(key)) return` followed by `await storage.setItem(key, <literal>)` | [`kv.setIfAbsent()`](/docs/kv/server-api#use-it-at-runtime), or [`withIdempotency()`](/docs/database/server-api#run-work-once-for-a-key) where KV has no atomic write |
 
 ```ts [server/utils/uploads.ts] fragment
@@ -1179,11 +1179,12 @@ if (!claimed) return false
 
 The rule reports each kind once per file. It does not report:
 
-- a Drizzle Kit config for a database outside `databases/`
+- a Drizzle Kit config for a database outside `databases/` of a server directory
 - `d1_migrations` alone, such as the `cloudflare.migrationsTable` option
-- a proxy header inside a file that imports `vite-hub/auth/forward`
+- a proxy header inside a file that imports `forwardAuth()` from `vite-hub/auth/forward`
+- `--secrets-file` for another Worker config, or with `--env`
 - a cache that stores a computed value, or a check on a `Map`, which has no `await`
-- test files, generated files under `.vitehub/`, the source of ViteHub, and apps that do not depend on `vite-hub`
+- test files, generated files under `.vitehub/`, the source of ViteHub, and packages that do not depend on `vite-hub`. In a workspace, the rule reads the `package.json` of the package that owns the file.
 
 ## VHUB0038
 
@@ -1193,28 +1194,28 @@ A `package.json` script runs a tool that a ViteHub command wraps. The rule reads
 
 | Script | Command |
 | --- | --- |
-| `drizzle-kit generate`, `migrate`, or `up` | [`vitehub database generate`, `migrate`, or `up`](/docs/database/configure#apply-migrations), which run Drizzle Kit on each Database Definition |
-| `wrangler d1 migrations apply ... --remote` | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy) with `vitehub deploy` |
-| `wrangler deploy ... --secrets-file` | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy) |
-| `vitehub types prepare` in a Nuxt app | `nuxt prepare`, where [the Nuxt module writes the types](/docs/development/generated-files#include-generated-types) |
+| `drizzle-kit generate`, `migrate`, or `up`, when its config points into `databases/` of a server directory | [`vitehub database generate`, `migrate`, or `up`](/docs/database/configure#apply-migrations), which run Drizzle Kit on each Database Definition |
+| `wrangler d1 migrations apply ... --remote --config .output/server/wrangler.json` | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy) with `vitehub deploy` |
+| `wrangler deploy --config .output/server/wrangler.json --secrets-file ...` | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy) |
+| `vitehub types prepare` in a Nuxt app whose `nuxt.config` registers `vite-hub/nuxt` | `nuxt prepare`, where [the Nuxt module writes the types](/docs/development/generated-files#include-generated-types) |
 
 ```json [package.json]
 {
   "scripts": {
     "db:generate": "drizzle-kit generate",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json",
     "postinstall": "nuxt prepare && vitehub types prepare"
   }
 }
 ```
 
-It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app.
+It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, and Drizzle Kit configs for another database.
 
 ## VHUB0039
 
 **Change ViteHub feature tables through the feature.** Rule `vitehub/no-owned-table-writes`.
 
-Server code calls `insert()`, `update()`, or `delete()` on a table that a ViteHub feature exports, such as `commentSends` from `vite-hub/comments/database` or `webhookEndpoints` from `vite-hub/webhooks/database`. SQL text that changes a `vitehub_*` table counts too. The write skips the checks of the feature, such as permissions and counters, and breaks when ViteHub changes the table.
+Server code calls `insert()`, `update()`, or `delete()` on a table that a ViteHub feature exports, such as `commentSends` from `vite-hub/comments/database` or `webhookEndpoints` from `vite-hub/webhooks/database`. SQL that changes a `vitehub_*` table counts too, including a schema-qualified name and a Drizzle `sql` template that interpolates a feature table. Text in SQL strings and comments does not count. The write skips the checks of the feature, such as permissions and counters, and breaks when ViteHub changes the table.
 
 ```ts [server/api/send/endpoint.delete.ts] fragment
 // Invalid
@@ -1227,7 +1228,7 @@ Use the server API of the feature. When it has no operation for the write, ask f
 
 - reads, such as `db.select().from(commentThreads)`
 - Auth tables from `vite-hub/auth/schema`, which Better Auth and the app share
-- files outside `server/`, such as scripts that write migration files, and `server/databases/`, which holds migrations and seeds
+- files outside the server directory (`server/`, or the Nuxt `serverDir`), such as scripts that write migration files, and its `databases/` folder, which holds migrations and seeds
 
 ## Related
 
