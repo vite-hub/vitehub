@@ -158,7 +158,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** shared-drivers.test.ts covers the sweep.
 
-**Decision:** Best-effort background sweep, skip locked on Postgres.
+**Decision:** Run a best-effort background sweep and skip locked rows on Postgres. A full batch lets the next write sweep again; otherwise wait one minute. Log once per streak of failures, independently of the write's request.
 
 **Consequences:** Rate-limit counters grow without bound, or writes fail on lock timeouts.
 

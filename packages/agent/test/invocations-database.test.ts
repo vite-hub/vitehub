@@ -168,7 +168,7 @@ describe("createDatabaseAgentInvocationStore", () => {
     const set = vi.fn()
     const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
 
-    await runWithDatabaseRequestStats({ req: { context: { log: { set } } } }, () => store.get(input.id))
+    await runWithDatabaseRequestStats({ req: { context: { log: { set, warn: vi.fn(), error: vi.fn() } } } }, () => store.get(input.id))
 
     expect(batch).toHaveBeenCalled()
     expect(set).toHaveBeenCalledWith({ database: expect.objectContaining({ calls: batch.mock.calls.length }) })

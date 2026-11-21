@@ -119,8 +119,6 @@ async function appIdentity(input: GitHubAppInput) {
   if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
   if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
   const login = `${slug}[bot]`
-  // The App JWT reaches only /app endpoints, so read the public bot user without credentials. GitHub links a commit to
-  // the bot only through `<user id>+<login>@users.noreply.github.com`; without the user ID, keep the plain noreply form.
   const { github } = await import("forges/github")
   const userId = await github({ ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.fetch ? { fetch: input.fetch } : {}), userAgent: input.userAgent ?? "vitehub" })
     .request<unknown>("GET", `/users/${encodeURIComponent(login)}`)

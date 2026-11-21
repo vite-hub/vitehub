@@ -1,4 +1,5 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { emitLogEvent, errorCode } from "@vite-hub/internal/runtime/request-log"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import { serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
@@ -6,6 +7,8 @@ import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { createScheduleError } from "../errors.ts"
 import { parseScheduledAt, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
+import { logScheduleRun } from "./log.ts"
+import { markLoggedScheduleError, normalizeScheduleRuntimeError } from "./static.ts"
 import { getScheduleRunStore } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -16,6 +19,7 @@ interface ExecuteScheduleOptions {
   claimed?: boolean
   definition: ScheduleDefinition
   onExecution?: () => void
+  onRunLogged?: () => void
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
@@ -31,6 +35,7 @@ interface ExecuteStaticScheduleOptions {
   definition: ScheduleDefinition
   name: string
   onExecution?: () => void
+  onRunLogged?: () => void
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
@@ -68,6 +73,11 @@ function toRunError(error: unknown): ScheduleRunError {
   catch {
     return { message: "[unprintable thrown value]" }
   }
+}
+
+function errorCodeField(error: unknown): { code?: string } {
+  const code = errorCode(error)
+  return code ? { code } : {}
 }
 
 function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecord {
@@ -213,6 +223,25 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
 
   const attempt = await startAttempt(run, runStore)
   options.onExecution?.()
+  const runLog = {
+    name: run.target,
+    ...(run.scheduleId === run.target ? {} : { id: run.scheduleId }),
+    runId: run.id,
+    source: normalizeRunSource(options.source),
+    scheduledAt: run.scheduledAt,
+    attempt: run.attemptCount + 1,
+  }
+  const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
+  const recordRun = async (write: () => Promise<ScheduleRunRecord>) => {
+    try {
+      return await write()
+    }
+    catch (error) {
+      const recorded = emitLogEvent({ field: "schedule", fields: { op: "record-run", name: run.target, runId: run.id, ...errorCodeField(error) }, level: "error", message: "Schedule could not record a finished run", ...waitUntil })
+      throw recorded ? markLoggedScheduleError(error) : error
+    }
+  }
+  const startedAt = performance.now()
   let response: ScheduleRunRecord["response"]
   try {
     const value = await runInRunScopes(() => runWithScheduleWaitUntil(
@@ -222,12 +251,15 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
     response = await serializeResponse(toResponse(value))
   }
   catch (error) {
-    const failed = await failRun(run, attempt, error, runStore)
+    const logged = logScheduleRun(runLog, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), ...waitUntil })
+    const failed = await recordRun(() => failRun(run, attempt, error, runStore))
     await emitRunFailed({ event: "schedule.failed", schedule: failed.scheduleId, runId: failed.id, error: toRunFailedError(error), failedAt: (failed.completedAt ?? new Date()).toISOString() })
     if (options.captureHandlerFailure) return failed
+    if (logged) options.onRunLogged?.()
     throw error
   }
-  return await completeRun(run, attempt, response, runStore)
+  logScheduleRun(runLog, startedAt, "success", waitUntil)
+  return await recordRun(() => completeRun(run, attempt, response, runStore))
 }
 
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<ScheduleRunRecord> {
@@ -235,6 +267,7 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     ...(options.claimed ? { claimed: true } : {}),
     definition: options.definition,
     onExecution: options.onExecution,
+    ...(options.onRunLogged ? { onRunLogged: options.onRunLogged } : {}),
     scheduleId: options.name,
     source: "static",
     scheduledAt: options.scheduledAt,

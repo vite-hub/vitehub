@@ -1,6 +1,6 @@
 {
   "packages/vite-hub/console.account.vite.config.ts": 14,
-  "packages/vite-hub/src/_internal/runtime/browser-errors.ts": 8,
+  "packages/vite-hub/src/_internal/runtime/browser-errors.ts": 6,
   "packages/vite-hub/src/_internal/runtime/redirects.ts": 3,
   "packages/vite-hub/src/_internal/runtime/security.ts": 7,
   "packages/vite-hub/src/agent-channel-env.ts": 1,
@@ -540,7 +540,7 @@
   "packages/vite-hub/test/nuxt.test.ts": 78,
   "packages/vite-hub/test/optional-owners.test.ts": 14,
   "packages/vite-hub/test/own-module-entries.test.ts": 2,
-  "packages/vite-hub/test/package.test.ts": 30,
+  "packages/vite-hub/test/package.test.ts": 29,
   "packages/vite-hub/test/plugin-order-build.test.ts": 3,
   "packages/vite-hub/test/preview-version.test.ts": 2,
   "packages/vite-hub/test/published-types.test.ts": 3,

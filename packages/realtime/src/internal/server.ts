@@ -90,6 +90,9 @@ import type { DurableSockets, LocalRequestOptions, RealtimeDurableObjectNamespac
 import { hasNativeCloudflareSql } from "../cloudflare-sql.ts"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { requestLog } from "@vite-hub/internal/runtime/request-log"
+import { logRealtime, realtimeRoomFields, realtimeRoomLabel } from "../log.ts"
+import type { RealtimeLogFields } from "../log.ts"
 
 export { isRealtimeAvailable } from "../availability.ts"
 export { blobDocument } from "../blob-document.ts"
@@ -559,29 +562,57 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
   return user
 }
 
+type RealtimeRefusal = "path" | "definition" | "origin" | "session" | "identify" | "authorize" | "room"
+
+const refusals = new WeakMap<object, { reason: RealtimeRefusal, cause?: unknown }>()
+
+function refusal<T>(reason: RealtimeRefusal, error: T, cause?: unknown): T {
+  if (typeof error === "object" && error !== null && !refusals.has(error)) refusals.set(error, cause === undefined ? { reason } : { reason, cause })
+  return error
+}
+
+async function refusing<T>(reason: RealtimeRefusal, step: () => Promise<T> | T): Promise<T> {
+  try {
+    return await step()
+  }
+  catch (error) {
+    throw refusal(reason, error)
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  const code: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "code") : undefined
+  return typeof code === "string" && /^[\w.-]{1,100}$/.test(code) ? code : undefined
+}
+
+function redactRealtimePath(event: H3Event): void {
+  requestLog(event)?.set({ path: `${routePrefix}:definition/:room` })
+}
+
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
   if (definition.authorize === true && !definition.identify) {
     let auth
     try {
       auth = await assertAuthOrigin(request, event)
     }
-    catch {
-      throw new HTTPError({ status: 403 })
+    catch (error) {
+      throw refusal("origin", new HTTPError({ status: 403 }), error)
     }
-    const session = await auth.api.getSession({ headers: request.headers })
+    const session = await refusing("session", () => auth.api.getSession({ headers: request.headers }))
     const user = toRealtimeUser(session?.user)
-    if (!user) throw new HTTPError({ status: 401 })
+    if (!user) throw refusal("session", new HTTPError({ status: 401 }))
     return user
   }
   const origin = request.headers.get("origin")
   const foreign = !!origin && origin !== forwardedRequestOrigin(request)
   const readsCallbackSession = typeof definition.authorize === "function" && !definition.identify && !!origin && (!foreign || !definition.origins)
-  if (foreign && !readsCallbackSession && !(await definition.origins?.({ definition: definitionName, event, origin, request }))) {
-    throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+  if (foreign && !readsCallbackSession && !(await refusing("origin", () => definition.origins?.({ definition: definitionName, event, origin, request })))) {
+    throw refusal("origin", new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." }))
   }
-  if (definition.identify) {
-    const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
-    if (definition.authorize === true && !user) throw new HTTPError({ status: 401 })
+  const identifyUser = definition.identify
+  if (identifyUser) {
+    const user = toRealtimeUser(await refusing("identify", () => identifyUser.call(definition, { definition: definitionName, event, request })))
+    if (definition.authorize === true && !user) throw refusal("session", new HTTPError({ status: 401 }))
     return user
   }
   const readsSession = typeof definition.authorize === "function"
@@ -594,9 +625,9 @@ async function identify(request: Request, event: H3Event, definitionName: string
   }
   catch (error) {
     if (!foreign && isMissingAuth(error)) return null
-    throw new HTTPError({ status: 403 })
+    throw refusal("origin", new HTTPError({ status: 403 }), error)
   }
-  const session = await auth.api.getSession({ headers: request.headers })
+  const session = await refusing("session", () => auth.api.getSession({ headers: request.headers }))
   return toRealtimeUser(session?.user)
 }
 
@@ -609,7 +640,8 @@ async function allows(
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
   if (definition.authorize === true) return true
-  if (definition.authorize) return (await definition.authorize(context)) === true
+  const authorize = definition.authorize
+  if (authorize) return (await refusing("authorize", () => authorize.call(definition, context))) === true
   return definition.access === "public"
 }
 
@@ -638,6 +670,10 @@ export interface RealtimeRefreshOptions {
   durableObjects?: RealtimeDurableObjectNamespace
 }
 
+function refreshLogFields(definition: string, documentId: string): RealtimeLogFields {
+  return { definition, room: realtimeRoomLabel(documentId, true) }
+}
+
 /**
  * Tells the open room of a document that its stored copy changed outside the room, such as a save by an Agent or the
  * CLI. A room without unsaved edits re-seeds at once and resets its clients. A room with unsaved edits finds the change
@@ -657,22 +693,30 @@ export async function refreshRealtimeDocument(definition: string, documentId: st
     try {
       if (await refresh(definition, documentId)) reseeded = true
     }
-    catch {}
+    catch (error) {
+      logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definition, documentId), failed: "refresh" }, error, { privateRoom: true })
+    }
   }
   return reseeded
 }
 
 async function refreshDurableRoom(binding: RealtimeDurableObjectNamespace, definition: string, documentId: string): Promise<boolean> {
+  const fields = { ...refreshLogFields(definition, documentId), failed: "refresh" }
   try {
     const room = documentId.split("/").map(encodeURIComponent).join("/")
     const response = await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
       `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?document=refresh`,
       { method: "POST", headers: { [internalRefreshHeader]: "1" } },
     ))
-    const result: unknown = response.ok ? await response.json() : undefined
+    if (!response.ok) {
+      logRealtime("warn", `Realtime could not refresh an open room (HTTP ${response.status}).`, { ...fields, status: response.status })
+      return false
+    }
+    const result: unknown = await response.json()
     return result instanceof Object && "reseeded" in result && result.reseeded === true
   }
-  catch {
+  catch (error) {
+    logRealtime("warn", "Realtime could not refresh an open room.", fields, error, { privateRoom: true })
     return false
   }
 }
@@ -703,6 +747,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   const peerSyncUpdates = new WeakMap<WebSocketPeer, { at: number, tokens: number }>()
   const peerHeldUpdates = new WeakMap<WebSocketPeer, { bytes: number, timer: ReturnType<typeof setTimeout>, updates: Uint8Array[] }>()
   const terminalPeers = new WeakSet<WebSocketPeer>()
+  const closingPeers = new WeakSet<WebSocketPeer>()
   function clearHeldUpdates(peer: WebSocketPeer): void {
     const held = peerHeldUpdates.get(peer)
     if (!held) return
@@ -747,9 +792,25 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     return room.kind === "document" ? room.epoch : eventsEpoch
   }
 
+  function roomFields(room: Room): RealtimeLogFields {
+    return realtimeRoomFields(room.key, room.kind === "events" && !room.workspace)
+  }
+
+  function saveInBackground(room: DocumentRoom, reason: "idle" | "leave"): void {
+    enqueue(room, async () => {
+      try {
+        await saveRoom(room, reason, false)
+      }
+      catch (error) {
+        if (error instanceof HTTPError && error.status === 409) return
+        logRealtime("warn", "Realtime could not save a room.", { ...roomFields(room), failed: "save" }, error)
+      }
+    }).catch(() => {})
+  }
+
   function publish(room: Room, type: RealtimeBusMessageType, data: Uint8Array): void {
     room.bus?.publish({ type, room: room.key, epoch: roomEpoch(room), data }).catch((error: unknown) => {
-      console.error("[vitehub] Realtime could not send a room message to the other instances.", error)
+      logRealtime("error", "Realtime could not send a room message to the other instances.", { ...roomFields(room), failed: "bus-publish" }, error, { privateRoom: room.kind === "events" && !room.workspace })
     })
   }
 
@@ -771,7 +832,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       if (record && record.epoch !== room.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
       if (!room.destroyed) publish(room, "sync", Y.encodeStateVector(room.document))
     }).catch((error: unknown) => {
-      console.error("[vitehub] Realtime could not repair a shared room.", error)
+      logRealtime("error", "Realtime could not repair a shared room.", { ...roomFields(room), failed: "bus-repair" }, error)
     }).finally(() => syncing.delete(room))
   }
 
@@ -802,7 +863,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     if (message.type === "refresh") {
       const key: unknown = JSON.parse(message.room)
       const [definitionName, documentId]: unknown[] = Array.isArray(key) ? key : []
-      if (typeof definitionName === "string" && typeof documentId === "string") refreshOpenRoom(definitionName, documentId, false).catch(() => {})
+      if (typeof definitionName === "string" && typeof documentId === "string") {
+        refreshOpenRoom(definitionName, documentId, false).catch((error: unknown) => {
+          logRealtime("warn", "Realtime could not refresh an open room.", { ...refreshLogFields(definitionName, documentId), failed: "refresh" }, error, { privateRoom: true })
+        })
+      }
       return
     }
     if (message.type === "reset") {
@@ -810,7 +875,9 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         if (room.kind !== "document" || !room.bus || room.destroyed || room.epoch === message.epoch) return
         enqueue(room, async () => {
           if (room.epoch !== message.epoch) await reseedRoom(room, "source-changed", undefined, false, true)
-        }).catch(() => {})
+        }).catch((error: unknown) => {
+          if (!room.destroyed) logRealtime("error", "Realtime could not follow a room that another instance re-seeded.", { ...roomFields(room), failed: "bus-reset" }, error)
+        })
       }, () => {})
       return
     }
@@ -892,6 +959,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       idFromName(name: string): unknown
     } | undefined
     if (!binding || !isRealtimeDurableObjectNamespace(binding) || (typeof context === "object" && context !== null && "storage" in context)) return
+    redactRealtimePath(event)
     let request = event.req
     if (request.headers.has(internalRefreshHeader) || request.headers.has(internalRequestHeader)) {
       const headers = new Headers(request.headers)
@@ -1072,12 +1140,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (await bus.writeRoom(key, record, record.epoch)) return
-        console.error("[vitehub] Realtime room record compare-and-set failed.", key)
         throw realtimeErrorDiagnostics.REALTIME_ROOM_WRITE_CONFLICT()
       }
       catch (error) { failure = error }
     }
-    console.error("[vitehub] Realtime could not write the shared room record.", failure)
     throw failure
   }
 
@@ -1415,6 +1481,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       catch (error) {
         room.holdError = errorMessage(error)
         writeRealtimeStatus(room.document, { error: room.holdError }, serverOrigin)
+        logRealtime("warn", "Realtime could not hold a room.", { ...roomFields(room), failed: "hold" }, error)
       }
     }).catch(() => {})
   }
@@ -1422,14 +1489,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   function releaseHold(room: DocumentRoom): void {
     if (room.holdTimer) clearInterval(room.holdTimer)
     room.holdTimer = undefined
-    if (room.dirty && room.resolved.persistence) enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
+    if (room.dirty && room.resolved.persistence) saveInBackground(room, "leave")
     enqueue(room, async () => {
       if (room.writers.size > 0 || !room.held) return
       room.held = false
-      await room.resolved.adapter.release?.(room.context)
-    }).catch(() => {
-      room.held = false
-    })
+      try {
+        await room.resolved.adapter.release?.(room.context)
+      }
+      catch (error) {
+        logRealtime("warn", "Realtime could not release a room.", { ...roomFields(room), failed: "release" }, error)
+      }
+    }).catch(() => { room.held = false })
   }
 
   function scheduleSave(room: DocumentRoom, delay?: number): void {
@@ -1441,7 +1511,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const wait = delay ?? Math.max(0, Math.min(persistence.debounce, room.firstDirtyAt + persistence.maxWait - now))
     room.idleTimer = setTimeout(() => {
       room.idleTimer = undefined
-      enqueue(room, () => saveRoom(room, "idle", false)).catch(() => {})
+      saveInBackground(room, "idle")
     }, wait)
   }
 
@@ -1706,8 +1776,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   async function refreshOpenRoom(definitionName: string, documentId: string, fanOut = true): Promise<boolean> {
     const key = realtimeRoomKey(definitionName, documentId)
     if (fanOut) {
-      const bus = await sharedBus().catch(() => undefined)
-      await bus?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() }).catch(() => {})
+      try {
+        await (await sharedBus())?.publish({ type: "refresh", room: key, epoch: "", data: new Uint8Array() })
+      }
+      catch (error) {
+        logRealtime("warn", "Realtime could not ask the other instances to refresh a room.", { ...refreshLogFields(definitionName, documentId), failed: "bus-publish" }, error, { privateRoom: true })
+      }
     }
     const pending = rooms.get(key)
     const room = pending ? await pending.catch(() => undefined) : undefined
@@ -1831,15 +1905,42 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     return { ...saved, digest: saved.digest, snapshot }
   }
 
+  const requestFields = new WeakMap<H3Event, { fields: RealtimeLogFields, privateRoom: boolean }>()
+
   async function requestContext(event: H3Event) {
-    const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
-    const definition = await getDefinition(definitionName)
-    const resolved = definition.document === false ? undefined : resolveRealtimeDefinition(definition)
+    const fields: RealtimeLogFields = {}
+    const metadata = { fields, privateRoom: true }
+    requestFields.set(event, metadata)
+    const { definitionName, documentId, searchParams, workspaceEvents } = await refusing("path", () => parseRoomPath(event.req.url))
+    fields.definition = definitionName
+    const definition = await refusing("definition", () => getDefinition(definitionName))
+    metadata.privateRoom = definition.document === false
+    if (metadata.privateRoom) redactRealtimePath(event)
+    fields.room = realtimeRoomLabel(documentId, metadata.privateRoom)
+    const resolved = definition.document === false ? undefined : await refusing("definition", () => resolveRealtimeDefinition(definition))
     const user = await identify(event.req, event, definitionName, definition)
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
     const scope = roomScope(definition, user?.id ?? null)
-    return { access, definitionName, documentId, resolved, scope, searchParams, user, workspaceEvents }
+    return { access, definitionName, documentId, fields, resolved, scope, searchParams, user, workspaceEvents }
+  }
+
+  function logRefusal(event: H3Event, error: unknown, upgrade: boolean): void {
+    const mark = typeof error === "object" && error !== null ? refusals.get(error) : undefined
+    const request = requestFields.get(event)
+    if (request?.fields.room === undefined) redactRealtimePath(event)
+    const httpError = upgrade
+      ? error instanceof HTTPError ? error : undefined
+      : HTTPError.isError(error) ? error : new HTTPError(error as Error)
+    const data: unknown = httpError?.data
+    const status = httpError?.status ?? 500
+    const code = errorCode(data) ?? errorCode(mark?.cause ?? error)
+    const fields: RealtimeLogFields = { ...request?.fields, refused: mark?.reason ?? "error", status, ...code ? { code } : {} }
+    const log = requestLog(event)
+    log?.set({ realtime: fields })
+    if (!upgrade || status < 500) return
+    log?.error("Realtime refused a connection.")
+    console.error("[vitehub] Realtime refused a connection.", fields, ...request?.privateRoom === false ? [error] : [])
   }
 
   const httpHandler = defineEventHandler(async (event) => {
@@ -1858,7 +1959,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
-      throw new HTTPError({ status: request.user ? 403 : 401 })
+      throw refusal("authorize", new HTTPError({ status: request.user ? 403 : 401 }))
     }
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
@@ -1880,14 +1981,22 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const request = await requestContext(event)
-    if (!(await request.access("read"))) throw new HTTPError({ status: request.user ? 403 : 401 })
+    if (!(await request.access("read"))) throw refusal("authorize", new HTTPError({ status: request.user ? 403 : 401 }))
     const writable = !request.workspaceEvents && !!request.resolved && await request.access("write")
     const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
-    const room: Room = request.workspaceEvents
-      ? await getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
+    const room = await refusing<Room>("room", () => request.workspaceEvents
+      ? getEventsRoom(JSON.stringify([request.definitionName, { workspaceEvents: true }]), true, undefined)
       : request.resolved
-        ? await getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
-        : await getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId, request.scope), false, resolveRealtimeRoomSql(event))
+        ? getDocumentRoom(request.definitionName, request.documentId, request.resolved, resolveRealtimeRoomSql(event))
+        : getEventsRoom(realtimeRoomKey(request.definitionName, request.documentId, request.scope), false, resolveRealtimeRoomSql(event)))
+    const fields = request.fields
+
+    function closePeer(peer: WebSocketPeer, code: number, reason: string) {
+      if (closingPeers.has(peer)) return
+      closingPeers.add(peer)
+      peer.close(code, reason)
+      logRealtime("warn", reason, { ...fields, closed: code }, undefined, { console: false })
+    }
     const clientEpoch = request.searchParams.get("epoch")
     const otherEditor = room.kind === "document" && request.searchParams.get("editor") !== (room.editor.version ?? null)
     const clientId = request.searchParams.get("clientId")
@@ -1920,7 +2029,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         return
       }
       if (room.kind === "document" && room.peers.size === 0 && room.dirty && room.resolved.persistence) {
-        enqueue(room, () => saveRoom(room, "leave", false)).catch(() => {})
+        saveInBackground(room, "leave")
         return
       }
       releaseRoom(room)
@@ -1935,8 +2044,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       }
       catch (error) {
         if (isWriteRejected(error) && otherEditor) return
-        if (isWriteRejected(error)) peer.close(realtimeForbiddenWriteCloseCode, error.message)
-        else peer.close(4400, "Realtime document exceeds its 8 MiB room quota.")
+        if (isWriteRejected(error)) closePeer(peer, realtimeForbiddenWriteCloseCode, error.message)
+        else closePeer(peer, 4400, "Realtime document exceeds its 8 MiB room quota.")
       }
     }
 
@@ -1955,7 +2064,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       if (bytes > maxMessageBytes) {
         terminalPeers.add(peer)
         clearHeldUpdates(peer)
-        peer.close(1013, "Realtime updates are arriving too quickly.")
+        closePeer(peer, 1013, "Realtime updates are arriving too quickly.")
         return
       }
       if (held) {
@@ -1987,7 +2096,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         clients = room.awarenessOwners.apply(room.awareness, peer, input, identity)
       }
       catch (error) {
-        peer.close(error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
+        closePeer(peer, error instanceof AwarenessOwnershipConflict ? 4500 : 4400, "Invalid awareness update.")
         return
       }
       const known = knownAwarenessClients(room.awareness, clients)
@@ -2035,13 +2144,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           if (data.byteLength <= maxMessageBytes) settleRequest(peer, data)
           return
         }
-        if (!room.peers.has(peer)) return
+        if (!room.peers.has(peer) || closingPeers.has(peer)) return
         if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
           peer.send(realtimeKeepalivePong)
           return
         }
         if (data.byteLength > maxMessageBytes) {
-          peer.close(4400, "Realtime message exceeds 1 MiB.")
+          closePeer(peer, 4400, "Realtime message exceeds 1 MiB.")
           return
         }
         const decoder = decoding.createDecoder(data)
@@ -2050,12 +2159,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           messageType = decoding.readVarUint(decoder)
         }
         catch {
-          peer.close(4400, "Invalid realtime message.")
+          closePeer(peer, 4400, "Invalid realtime message.")
           return
         }
         if (messageType === messageWorkspaceChange) {
           if (room.kind !== "events" || !room.workspace) {
-            peer.close(4400, "Workspace changes require the workspace room.")
+            closePeer(peer, 4400, "Workspace changes require the workspace room.")
             return
           }
           let change
@@ -2063,11 +2172,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
             change = decodeWorkspaceChangePayload(decoder)
           }
           catch {
-            peer.close(4400, "Invalid workspace change.")
+            closePeer(peer, 4400, "Invalid workspace change.")
             return
           }
           if (!change) {
-            peer.close(4400, "Invalid workspace change.")
+            closePeer(peer, 4400, "Invalid workspace change.")
             return
           }
           const now = Date.now()
@@ -2078,7 +2187,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           }
           quota.count++
           if (quota.count > workspaceChangeLimit) {
-            peer.close(4429, "Workspace change rate limit exceeded.")
+            closePeer(peer, 4429, "Workspace change rate limit exceeded.")
             return
           }
           const frame = encodeWorkspaceChange(change)
@@ -2101,7 +2210,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
             update = decoding.readVarUint8Array(decoder)
           }
           catch {
-            peer.close(4400, "Invalid awareness update.")
+            closePeer(peer, 4400, "Invalid awareness update.")
             return
           }
           const now = Date.now()
@@ -2135,7 +2244,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
               if (response) peer.send(response)
             }
             else if (syncType !== syncProtocol.messageYjsSyncStep2) {
-              peer.close(4400, room.workspace ? "Document updates cannot use the workspace room." : "This Realtime Definition has no document.")
+              closePeer(peer, 4400, room.workspace ? "Document updates cannot use the workspace room." : "This Realtime Definition has no document.")
             }
             return
           }
@@ -2152,13 +2261,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           applyDocumentMessage(peer, data)
         }
         catch {
-          peer.close(4400, "Invalid realtime message.")
+          closePeer(peer, 4400, "Invalid realtime message.")
         }
       },
       close(peer) {
         leave(peer)
       },
-      error(peer) {
+      error(peer, error) {
+        logRealtime("error", "A Realtime connection failed.", { ...fields, failed: "peer" }, error, { console: false })
         leave(peer)
       },
     }
@@ -2168,10 +2278,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const forwarded = await forwardToCloudflareDurableObject(event)
     if (forwarded) return forwarded
     if (event.req.headers.has(internalRefreshHeader) && resolveRealtimeRoomSql(event)) {
+      redactRealtimePath(event)
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       return { reseeded: await refreshOpenRoom(definitionName, documentId) }
     }
     if (event.req.headers.has(internalRequestHeader) && resolveRealtimeRoomSql(event)) {
+      redactRealtimePath(event)
       const { definitionName, documentId } = parseRoomPath(event.req.url)
       const input: unknown = await event.req.json().catch(() => undefined)
       const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
@@ -2185,12 +2297,24 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         ...(typeof user === "string" || user === null ? { user } : {}),
       }, isDurableSockets(context) ? context : undefined))
     }
-    if (event.req.method === "GET" && isBareRequest(event.req)) return restoredPeerHandler(event)
-    if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") return httpHandler(event)
+    if (event.req.method === "GET" && isBareRequest(event.req)) {
+      redactRealtimePath(event)
+      return restoredPeerHandler(event)
+    }
+    if (event.req.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      try {
+        return await httpHandler(event)
+      }
+      catch (error) {
+        logRefusal(event, error, false)
+        throw error
+      }
+    }
     try {
       return await websocketHandler(event)
     }
     catch (error) {
+      logRefusal(event, error, true)
       return refuseUpgrade(event.req, error instanceof HTTPError ? error.status : 500)
     }
   })

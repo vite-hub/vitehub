@@ -6,6 +6,7 @@ import { getScheduleOccurrenceClaims, getStartedScheduleRuntime, setStartedSched
 import { joinKey, keySegments } from "./store.ts"
 import { startedScheduleErrors } from "../started-errors.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
+import { errorCode, logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import type { ScheduleKVStorage } from "./kv-storage.ts"
 import type { StartedScheduleRuntime } from "./state.ts"
@@ -203,6 +204,10 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
   const occurrences = schedules.flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
   const held = runtime.held ??= new Map()
   const byId = new Map(schedules.map(schedule => [schedule.id, schedule]))
+  const failing = runtime.failing ??= new Map()
+  for (const id of failing.keys()) {
+    if (!byId.has(id)) failing.delete(id)
+  }
   for (const [runId, entry] of held) {
     const schedule = byId.get(entry.scheduleId)
     if (!schedule) held.delete(runId)
@@ -217,10 +222,16 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     if (result.status === "fulfilled") {
       if (result.value) held.delete(runId)
       else held.set(runId, { scheduleId: schedule.id, scheduledAt })
+      failing.delete(schedule.id)
       return
     }
     held.set(runId, { scheduleId: schedule.id, scheduledAt })
-    console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    const cause = errorCode(result.reason) ?? (result.reason instanceof Error ? result.reason.message : String(result.reason))
+    if (failing.get(schedule.id) === cause) return
+    failing.set(schedule.id, cause)
+    logFailure({ field: "schedule", fields: { op: "started", name: schedule.name, id: schedule.id }, level: "error", message: "Started Schedule failed", error: result.reason, waitUntil: promise => context.waitUntil(promise) }, () => {
+      console.error(`[vitehub:schedule] Started Schedule "${schedule.id}" of "${schedule.name}" failed.`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
+    })
   })
   if (results.every(result => result.status === "fulfilled")) {
     runtime.checkedThrough = Math.max(runtime.checkedThrough ?? minute, minute)

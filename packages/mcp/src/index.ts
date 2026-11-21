@@ -1,4 +1,5 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
+import type { FormSource, FormSubmitError } from "@vite-hub/forms"
 import type { McpIcon, McpMeta, McpPromptMessage, McpPromptResult, McpResourceContents, McpToolAnnotations, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
 
@@ -42,6 +43,29 @@ export interface McpToolContext {
   caller: McpCaller
 }
 
+/**
+ * The answer of the person to `elicit()`: `[undefined, { action: "accept", data }]` with the checked values,
+ * `[undefined, { action: "decline" }]` or `"cancel"` when the person did not answer, or `[error]` with the issue of each
+ * field, the same issues as the form route.
+ */
+export type McpElicitResult<TSchema extends StandardSchemaV1>
+  = | [FormSubmitError, undefined]
+    | [undefined, { action: "accept", data: StandardSchemaV1.InferOutput<TSchema> } | { action: "decline" | "cancel" }]
+
+/** The second argument of a tool handler. */
+export interface McpToolHandlerContext extends McpToolContext {
+  /**
+   * Asks the person for the fields of a form in the middle of the call, through the MCP client (MCP elicitation). The
+   * form is a `defineForm()` form or a Standard Schema of a flat object. The answer to the `tools/call` becomes an SSE
+   * stream until the call ends. The person has 10 minutes to answer, then the answer is `cancel`.
+   *
+   * It throws `MCP_ELICITATION_CLIENT_UNSUPPORTED` when the client did not declare the elicitation capability, and
+   * `MCP_ELICITATION_HOST_UNSUPPORTED` in a build for a host where the answer can reach another server instance, such as
+   * Cloudflare Workers or Vercel. Do not ask for passwords, API keys, or payment details.
+   */
+  elicit: <TSchema extends StandardSchemaV1>(form: FormSource<TSchema>, options: { message: string }) => Promise<McpElicitResult<TSchema>>
+}
+
 /** One tool of the app MCP server, the default export of a file in `server/mcp/tools/`. The file name is the tool name. */
 export interface McpToolDefinition<TInput extends McpToolInput | undefined = McpToolInput | undefined> {
   /** A short name for people, such as "List drops". */
@@ -76,7 +100,7 @@ export interface McpToolDefinition<TInput extends McpToolInput | undefined = Mcp
    */
   handler: (
     input: TInput extends McpToolInput ? StandardSchemaV1.InferOutput<TInput> : Record<string, never>,
-    context: McpToolContext,
+    context: McpToolHandlerContext,
   ) => unknown
 }
 

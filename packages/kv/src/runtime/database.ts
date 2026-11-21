@@ -1,3 +1,5 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { KVPageOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -86,7 +88,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
   let sweeping = false
-  let sweepWarned = false
+  let sweepFailing = false
 
   async function ready(): Promise<KVSqlClient> {
     pending ??= (async () => {
@@ -135,11 +137,16 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const rows = await query(`delete from ${table} where (namespace, "key") in (
         select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit ${sweepBatchSize}${lock}
       ) returning 1`, [namespace])
+      sweepFailing = false
       if (rows.length === sweepBatchSize) sweptAt = 0
     }
     catch (error) {
-      if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
-      sweepWarned = true
+      if (!sweepFailing) {
+        logFailure({ field: "kv", fields: { op: "expiry-sweep", driver: "database", namespace }, message: "KV could not delete expired rows", error }, () => {
+          console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
+        })
+      }
+      sweepFailing = true
     }
     finally {
       sweeping = false

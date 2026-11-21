@@ -16,6 +16,7 @@ import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
+import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
@@ -208,7 +209,8 @@ function stripViteHubOptions(
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
-    plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
+    plugins: [...plugins, ...(eventPlugin ? [eventPlugin] : []), createRequestLogPlugin()],
+    logger: withRequestLogger(rest.logger),
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,
     ...(eventPlugin ? {

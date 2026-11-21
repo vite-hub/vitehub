@@ -1,12 +1,13 @@
+import { readElicitation, toElicitation } from "@vite-hub/forms"
 import { mcpArgumentsInvalid, mcpMethodFailed, mcpMethodRpcCode, serveMcp } from "@vite-hub/internal/runtime/mcp-server"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { standardJsonSchema } from "@vite-hub/internal/standard-schema"
 
 import { mcpErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { McpContentBlock, McpPrompt, McpPromptArgument, McpPromptResult, McpResource, McpResourceContents, McpSecurityScheme, McpServerInfo, McpTool, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
+import type { McpContentBlock, McpPrompt, McpPromptArgument, McpPromptResult, McpResource, McpResourceContents, McpSecurityScheme, McpServerInfo, McpTool, McpToolCallContext, McpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 import type { H3Event } from "h3"
-import type { McpHooks, McpPromptDefinition, McpResourceDefinition, McpResourceValue, McpServerInfoOptions, McpToolCaller, McpToolContext, McpToolDefinition } from "./index.ts"
+import type { McpHooks, McpPromptDefinition, McpResourceDefinition, McpResourceValue, McpServerInfoOptions, McpToolCaller, McpToolContext, McpToolDefinition, McpToolHandlerContext } from "./index.ts"
 
 /** What `verifyMcpRequest()` of `vite-hub/auth/mcp` returns. */
 export type McpVerifyResult = readonly [{ code: string, message: string }, undefined] | readonly [undefined, McpToolCaller]
@@ -33,6 +34,11 @@ export interface McpHandlerOptions {
   hooks?: McpHooks<unknown>
   /** Checks the access token of a request. Present when `mcpOAuth()` protects the server. */
   verify?: (request: Request) => Promise<McpVerifyResult>
+  /**
+   * The Nitro preset of a build whose server instances cannot share a waiting tool call, such as `cloudflare-module`.
+   * There, `elicit()` throws `MCP_ELICITATION_HOST_UNSUPPORTED`. `hubMcp()` sets it.
+   */
+  elicitationUnsupportedHost?: string
   /**
    * With `verify`, serve a request without a token too: it may list every tool and call the tools, prompts, and
    * resources with `access: "public"`. `mcp.auth: "optional"` sets it.
@@ -68,7 +74,13 @@ function toolError(text: string): McpToolResult {
   return { content: [{ type: "text", text }], isError: true }
 }
 
+const elicitationCodes = new Set(["MCP_ELICITATION_CLIENT_UNSUPPORTED", "MCP_ELICITATION_HOST_UNSUPPORTED"])
+
 function failure(name: string, error: unknown): McpToolResult {
+  if (error instanceof Error && elicitationCodes.has(error.name)) {
+    const fix = Reflect.get(error, "fix")
+    return toolError(`${error.name}: ${error.message}${typeof fix === "string" ? ` ${fix}` : ""}`)
+  }
   const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
   if (status >= 400 && status < 500 && error instanceof Error) return toolError(error.message)
   console.error(`[vitehub] MCP tool ${name} failed:`, error)
@@ -106,18 +118,27 @@ interface McpRequestScope {
   event: H3Event
   context: () => Promise<McpToolContext>
   hooks: McpHooks<unknown> | undefined
+  elicitationUnsupportedHost: string | undefined
   refuse?: (tool: string, definition: McpToolDefinition) => McpToolResult | undefined
 }
 
-async function runTool(name: string, definition: McpToolDefinition, input: unknown, scope: McpRequestScope): Promise<{ caller?: unknown, durationMs: number, error?: { value: unknown }, result: McpToolResult }> {
+function elicitFor(name: string, call: McpToolCallContext, unsupportedHost: string | undefined): McpToolHandlerContext["elicit"] {
+  return async (form, { message }) => {
+    if (unsupportedHost) throw mcpErrorDiagnostics.MCP_ELICITATION_HOST_UNSUPPORTED({ host: unsupportedHost, tool: name })
+    if (!call.canElicit) throw mcpErrorDiagnostics.MCP_ELICITATION_CLIENT_UNSUPPORTED({ tool: name })
+    return await readElicitation(form, await call.elicit(toElicitation(form, { message })))
+  }
+}
+
+async function runTool(name: string, definition: McpToolDefinition, input: unknown, scope: McpRequestScope, call: McpToolCallContext): Promise<{ caller?: unknown, durationMs: number, error?: { value: unknown }, result: McpToolResult }> {
   let caller: unknown
   let started = performance.now()
   try {
-    const context = await scope.context()
+    const context: McpToolHandlerContext = { ...await scope.context(), elicit: elicitFor(name, call, scope.elicitationUnsupportedHost) }
     caller = context.caller
     started = performance.now()
     // SAFETY: The schema of the definition accepted the input, so it has the type that the handler declares.
-    const result = toMcpToolResult(await (definition.handler as (value: unknown, context: McpToolContext) => unknown)(input, context))
+    const result = toMcpToolResult(await (definition.handler as (value: unknown, context: McpToolHandlerContext) => unknown)(input, context))
     return { caller, durationMs: performance.now() - started, result }
   }
   catch (error) {
@@ -146,9 +167,9 @@ function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefiniti
         validationFailure = { error }
       }
     },
-    async handler() {
+    async handler(_input, toolCall) {
       if (validationFailure) return failure(name, validationFailure.error)
-      const call = await runTool(name, definition, input, scope)
+      const call = await runTool(name, definition, input, scope, toolCall)
       if (scope.hooks?.onToolCall) {
         try {
           await scope.hooks.onToolCall({
@@ -374,6 +395,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
     const scope: McpRequestScope = {
       event,
       hooks,
+      elicitationUnsupportedHost: options.elicitationUnsupportedHost,
       // SAFETY: `McpCaller` is the type that `resolveCaller` returns, or the signed-in caller without it.
       context: () => context ??= (async () => ({ event, caller: (hooks?.resolveCaller ? await hooks.resolveCaller({ caller, event }) : caller) as McpToolContext["caller"] }))(),
       ...(optional ? { refuse: (tool: string, definition: McpToolDefinition) => refusal(request, options.route, signedIn, tool, definition) } : {}),
@@ -383,6 +405,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       instructions,
       serverInfo: resolveServerInfo(serverInfo, request),
       tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, scope)),
+      ...(caller ? { principal: JSON.stringify([caller.user.id, caller.clientId]) } : {}),
       prompts: visible(prompts).map(prompt => toMcpPrompt(prompt.listed, prompt.definition, scope)),
       resources: visible(resources).map(({ name, definition }) => toMcpResource(name, definition, scope)),
       ...(caller && !optional ? { scopes: caller.scopes, challenge: async (missing: readonly string[]) => scopeChallenge(request, options.route, `Sign in again and approve ${missing.join(" ")}.`, missing) } : {}),
