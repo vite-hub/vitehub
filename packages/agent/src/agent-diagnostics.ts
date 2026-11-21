@@ -3511,6 +3511,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Write `channels` in `defineAgent()`, and `path` and `aliases` in the Channel adapter, as string literals or same-module `const` values, and correct any syntax error in the file that the message names. ViteHub reads these files without running them.",
     },
+    AGENT_FORMS_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] forms() has an invalid form. ${problem}`,
+      fix: "Pass forms by name, such as `forms({ expense })`, where each value is a defineForm() result, a Standard Schema object, or `{ form, title }`.",
+    },
     AGENT_INVOCATION_DRIVER_INTERRUPTED: {
       why: ({ id }: { id: string }) => `[vitehub] Agent Invocation ${JSON.stringify(id)} was interrupted while its Driver ran, and ViteHub did not run the Driver again. A second run could repeat model calls and tool side effects.`,
       fix: "Start a new turn. Before you do, check the work that the interrupted Driver did, such as tool calls with side effects. The journal record and its observations show how far it got.",

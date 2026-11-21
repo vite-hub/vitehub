@@ -44,6 +44,14 @@ export {
   content,
 } from "./content.ts"
 export {
+  forms,
+} from "./forms.ts"
+export type {
+  AgentForm,
+  AgentFormAskResult,
+  AgentFormsOptions,
+} from "./forms.ts"
+export {
   i18n,
 } from "./i18n.ts"
 export type {

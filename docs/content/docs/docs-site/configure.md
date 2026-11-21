@@ -307,7 +307,7 @@ definePageMeta({ layout: "docs", sidebar: "collapsed" })
 </script>
 ```
 
-Pages with a collapsible navigation fill the viewport, so they leave out the `banner`.
+Pages with a collapsible navigation leave out the `banner`. An app page with `sidebar: "collapsed"` in its page meta also fills the viewport under the header, and the window does not scroll. The root element of the page is exactly as tall as the viewport, so `height: 100%` inside it fills the screen. Content that is taller scrolls inside the page.
 
 ## Site options
 
