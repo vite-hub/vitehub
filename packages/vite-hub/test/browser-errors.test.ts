@@ -46,7 +46,7 @@ function runReporter(path = "/orders", sessionStorage: unknown = tabStorage()) {
 }
 
 /** Runs the Nuxt client plugin with fake Nuxt hooks. */
-function runNuxtPlugin() {
+function runNuxtPlugin(storage = tabStorage()) {
   const hooks = new Map<string, (payload: unknown) => void>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
   const source = browserErrorsNuxtPluginSource().replace(/^import .*$/m, "").replace("export default", "return")
@@ -56,7 +56,7 @@ function runNuxtPlugin() {
     () => {},
     fetch,
     { pathname: "/orders" },
-    tabStorage(),
+    storage,
   ) as { setup: (nuxtApp: { hook: (name: string, hook: (payload: unknown) => void) => void }) => void }
   plugin.setup({ hook: (name, hook) => hooks.set(name, hook) })
   const bodies = () => fetch.mock.calls.map(([, init]) => JSON.parse(String(init.body)) as Record<string, unknown>)
@@ -279,6 +279,12 @@ describe("browser error reporter", () => {
     expect(nuxt.bodies()).toMatchObject([{ kind: "chunk", message: "Unable to preload CSS for /assets/Cart.css" }])
   })
 
+  it.each(["error loading dynamically imported module: /assets/Cart.js", "Importing a module script failed."])("reports a module load failure (%s) as a chunk", (message) => {
+    const { listeners, bodies } = runReporter()
+    listeners.get("vite:preloadError")!({ payload: new TypeError(message) })
+    expect(bodies()).toMatchObject([{ kind: "chunk", message }])
+  })
+
   it("reports a missing chunk once per tab, not again on each reload", () => {
     const storage = tabStorage()
     const missing = () => new TypeError("Failed to fetch dynamically imported module: /assets/Cart.js")
@@ -289,6 +295,37 @@ describe("browser error reporter", () => {
     reload.listeners.get("vite:preloadError")!({ payload: new TypeError("Failed to fetch dynamically imported module: /assets/Checkout.js") })
     expect(first.fetch).toHaveBeenCalledOnce()
     expect(reload.bodies()).toMatchObject([{ kind: "chunk", message: "Failed to fetch dynamically imported module: /assets/Checkout.js" }])
+  })
+
+  it("reports lazy module execution errors on every page load, through Vite and Nuxt", async () => {
+    const viteStorage = tabStorage()
+    const nuxtStorage = tabStorage()
+    for (let page = 0; page < 2; page++) {
+      const vite = runReporter("/orders", viteStorage)
+      const nuxt = runNuxtPlugin(nuxtStorage)
+      const error = await import("./fixtures/browser-error-lazy-module.ts").catch((error: unknown) => error)
+      vite.listeners.get("vite:preloadError")!({ payload: error })
+      vite.listeners.get("unhandledrejection")!({ reason: error })
+      nuxt.hooks.get("app:chunkError")!({ error })
+      nuxt.hooks.get("app:error")!(error)
+      for (const reporter of [vite, nuxt]) {
+        expect(reporter.bodies()).toMatchObject([{ kind: "error", message: "Could not initialize the cart" }])
+      }
+    }
+  })
+
+  it("suppresses a deduped chunk's rethrow without spending a page slot", () => {
+    const storage = tabStorage()
+    const first = runReporter("/orders", storage)
+    const message = "Failed to fetch dynamically imported module: /assets/Cart.js"
+    first.listeners.get("vite:preloadError")!({ payload: new TypeError(message) })
+    const reload = runReporter("/orders", storage)
+    const error = new TypeError(message)
+    reload.listeners.get("vite:preloadError")!({ payload: error })
+    reload.listeners.get("unhandledrejection")!({ reason: error })
+    expect(reload.fetch).not.toHaveBeenCalled()
+    for (let index = 0; index < 11; index++) reportBrowserError(`failure ${index}`)
+    expect(reload.bodies().map(body => body.message)).toEqual(Array.from({ length: 10 }, (_, index) => `failure ${index}`))
   })
 
   it("still reports a missing chunk when session storage throws", () => {
@@ -348,6 +385,32 @@ describe("reportBrowserError", () => {
     // `order`, `bad key`, and the two fields after the 20th.
     expect(body!.droppedFields).toBe(4)
     expect(parseBrowserErrorReport(body)).toMatchObject({ fields: body!.fields, droppedFields: 4 })
+  })
+
+  it.each(["日", "\u0000"])("keeps a report with large serialized fields (%j) within the ingest limit", async (character) => {
+    const { fetch, bodies } = runReporter()
+    const fields = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, character.repeat(300)]))
+    reportBrowserError("Checkout failed", { action: "checkout", fields })
+    const error = vi.fn()
+    const response = await createBrowserErrorsHandler().fetch(post(fetch.mock.calls[0]![1].body, undefined, { error }))
+    expect(response.status).toBe(204)
+    const { fields: kept, droppedFields } = bodies()[0]!
+    expect(kept).toMatchObject({ field0: fields.field0 })
+    expect(droppedFields).toBe(20 - Object.keys(kept as object).length)
+    expect(droppedFields).toBeGreaterThan(0)
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ message: "Checkout failed" }), {
+      browserError: { kind: "handled", path: "/orders", level: "error", action: "checkout", fields: kept, droppedFields },
+    })
+  })
+
+  it("keeps the message and fields when the encoded stack alone exceeds the ingest limit", async () => {
+    const { fetch, bodies } = runReporter()
+    const failure = Object.assign(new Error("Checkout failed"), { stack: "\u0000".repeat(4000) })
+    reportBrowserError(failure, { fields: { status: 503 } })
+    const error = vi.fn()
+    expect((await createBrowserErrorsHandler().fetch(post(fetch.mock.calls[0]![1].body, undefined, { error }))).status).toBe(204)
+    expect(bodies()[0]).not.toHaveProperty("stack")
+    expect(bodies()[0]).toMatchObject({ message: "Checkout failed", fields: { status: 503 } })
   })
 
   it("skips an aborted request and never throws", () => {

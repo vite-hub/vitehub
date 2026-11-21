@@ -63,9 +63,9 @@ export default defineConfig({
 ::
 
 - The page sends each report to `POST /_vitehub/browser-errors`. The server adds it to the Evlog event of that request with `browserError: { kind, path, level }`. Your `redact`, sampling, and drains apply to it, as to your server errors.
-- The page reports window `error` and `unhandledrejection` events, and chunks that fail to load (`vite:preloadError`). In Nuxt, it also reports the errors of the `vue:error`, `app:error`, and `app:chunkError` hooks. An error that Nuxt sends through two hooks is reported once. A chunk that fails to load is reported once per browser tab, not again after each reload.
+- The page reports window `error`, `unhandledrejection`, and `vite:preloadError` events. In Nuxt, it also reports errors from the `vue:error`, `app:error`, and `app:chunkError` hooks. An error that Nuxt sends through two hooks is reported once. A chunk that fails to load is reported once per browser tab, not again after each reload. Errors thrown by a loaded chunk still follow the per-page limit.
 - The page sends the path without the query. The server removes the query from each URL in the message, the stack, and the fields, and cuts the message to 1,000 characters and the stack to 4,000.
-- The route accepts only requests from pages of the same origin, bodies of 16 KiB or less, and 20 reports a minute from one address in each server process. A page sends at most 10 reports, one for each action and message.
+- The route accepts only requests from pages of the same origin, bodies of 16 KiB or less, and 20 reports a minute from one address in each server process. The page can omit fields or an oversized stack to fit the byte limit without losing the message. It sends at most 10 reports, one for each action and message.
 
 It is off by default. If your `evlog.exclude` excludes `/_vitehub/**`, the reports go to the server console.
 
@@ -95,7 +95,7 @@ The server logs it with `browserError: { kind: 'handled', path, level: 'error', 
 | --- | --- |
 | `action` | What the page was doing. The server keeps 100 characters. |
 | `level` | `'error'` (default) or `'warn'`. A warning goes to `log.warn()`, with the message only. |
-| `fields` | At most 20 flat values: strings, numbers, booleans, or `null`. Put an HTTP status, a request id, or the id of the record that failed here. An object, an array, a bad name, or a field after the 20th is dropped, and the event counts them in `droppedFields`. The report is still sent. A string keeps 300 characters. |
+| `fields` | At most 20 flat values: strings, numbers, booleans, or `null`. Put an HTTP status, a request id, or the id of the record that failed here. The event counts invalid fields and fields omitted to fit the count or byte limits in `droppedFields`. The report is still sent. A string keeps 300 characters. |
 
 `reportBrowserError()` uses the same limits as the uncaught errors: 10 reports a page, and one report for each action and message. It never throws. On the server, and when `browserErrors` is off, it does nothing. Decide in your code which errors to send. For example, do not send a 404 that the server already logged.
 

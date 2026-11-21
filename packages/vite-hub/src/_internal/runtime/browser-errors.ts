@@ -2,8 +2,7 @@ import { requestLog } from "@vite-hub/internal/runtime/request-log"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime"
 
-/** The largest report body. A report has one error, and its stack is cut to 4,000 characters. */
-const maxBytes = 16 * 1024
+import { browserErrorMaxBytes } from "../browser-error-limits.ts"
 
 /** Reports from one address in one minute, per server process. */
 const perMinute = 20
@@ -20,7 +19,7 @@ type BrowserReportField = string | number | boolean | null
 /** One browser error or warning, as the server logs it. */
 export interface BrowserErrorReport {
   /**
-   * What caught it: the window `error`, `unhandledrejection`, or `vite:preloadError` (`chunk`) event, Nuxt's `vue:error`
+   * What caught it: a browser `error` or `unhandledrejection`, a failed asset load (`chunk`), Nuxt's `vue:error`
    * and `app:error`, or `handled` for `reportBrowserError()`.
    */
   kind: string
@@ -30,7 +29,7 @@ export interface BrowserErrorReport {
   level: "error" | "warn"
   action?: string
   fields?: Record<string, BrowserReportField>
-  /** How many fields the page or the server dropped because they were nested, extra, or badly named. */
+  /** How many fields the page or the server dropped because they were invalid or exceeded a limit. */
   droppedFields?: number
   name: string
   message: string
@@ -163,7 +162,7 @@ function logReport(request: Request, report: BrowserErrorReport): void {
 }
 
 /**
- * The body as text, or `undefined` when it passes `maxBytes`. It stops reading and cancels the body at the limit, so a
+ * The body as text, or `undefined` when it passes the byte limit. It stops reading and cancels the body at the limit, so a
  * body without `Content-Length` cannot make the server hold more than that.
  */
 async function readBoundedText(request: Request): Promise<string | undefined> {
@@ -175,7 +174,7 @@ async function readBoundedText(request: Request): Promise<string | undefined> {
     const { done, value } = await reader.read()
     if (done) break
     size += value.byteLength
-    if (size > maxBytes) {
+    if (size > browserErrorMaxBytes) {
       await reader.cancel()
       return undefined
     }
@@ -202,7 +201,7 @@ export function createBrowserErrorsHandler(now: () => number = Date.now): { fetc
       if (!sameOrigin(request)) return reply(403)
       const retryAfter = limit(clientAddress(request))
       if (retryAfter !== undefined) return reply(429, { "retry-after": String(retryAfter) })
-      if (Number(request.headers.get("content-length")) > maxBytes) return reply(413)
+      if (Number(request.headers.get("content-length")) > browserErrorMaxBytes) return reply(413)
       const body = await readBoundedText(request)
       if (body === undefined) return reply(413)
       let json: unknown

@@ -5,6 +5,8 @@ import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
+import { browserErrorMaxBytes } from "./_internal/browser-error-limits.ts"
+
 import type { HtmlTagDescriptor, Plugin } from "vite"
 
 /** Below the app base. */
@@ -19,7 +21,8 @@ export const browserErrorsRoute = "/_vitehub/browser-errors"
 export function browserErrorsReporterSource(endpoint: string): string {
   return [
     `const endpoint = ${endpoint}`,
-    `const sent = new Set()`,
+    `const seen = new Set()`,
+    `let sent = 0`,
     // The rules of the server's `parseFields()`, so a bad entry does not fill the 16 KiB body. The server counts both.
     `const flatFields = fields => {`,
     `  const kept = {}`,
@@ -34,6 +37,22 @@ export function browserErrorsReporterSource(endpoint: string): string {
     `    }`,
     `  }`,
     `  return { fields: count ? kept : undefined, droppedFields: dropped || undefined }`,
+    `}`,
+    `const encodeBody = body => {`,
+    `  const encoder = new TextEncoder()`,
+    `  const fits = json => encoder.encode(json).byteLength <= ${browserErrorMaxBytes}`,
+    `  let json = JSON.stringify(body)`,
+    `  if (fits(json)) return json`,
+    `  if (!fits(JSON.stringify({ ...body, fields: undefined }))) body.stack = undefined`,
+    `  json = JSON.stringify(body)`,
+    `  for (const name of Object.keys(body.fields ?? {}).reverse()) {`,
+    `    if (fits(json)) break`,
+    `    delete body.fields[name]`,
+    `    body.droppedFields = (body.droppedFields ?? 0) + 1`,
+    `    if (Object.keys(body.fields).length === 0) body.fields = undefined`,
+    `    json = JSON.stringify(body)`,
+    `  }`,
+    `  return json`,
     `}`,
     // A chunk that a deploy removed fails again after each reload, so the tab reports it once.
     `const firstInTab = message => {`,
@@ -54,14 +73,16 @@ export function browserErrorsReporterSource(endpoint: string): string {
     `    const action = typeof options?.action === "string" ? options.action.slice(0, 100) : undefined`,
     // Not the name: Nuxt sends a Vue error to `vue:error`, then as a NuxtError with the same message to `app:error`.
     `    const key = (action ?? "") + "\\n" + failure.message`,
-    `    if (sent.has(key) || sent.size >= 10) return`,
-    `    sent.add(key)`,
+    `    if (seen.has(key) || sent >= 10) return`,
+    `    seen.add(key)`,
     `    if (kind === "chunk" && !firstInTab(failure.message)) return`,
     // A string has no stack of its own: `new Error()` above would only point here.
     `    const stack = error instanceof Error ? failure.stack?.slice(0, 4000) : undefined`,
     `    const level = options?.level === "warn" ? "warn" : undefined`,
-    `    const body = { kind, path: location.pathname, name: failure.name, message: failure.message.slice(0, 1000), stack, action, level, ...flatFields(options?.fields) }`,
-    `    fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), keepalive: true }).catch(() => {})`,
+    `    const name = typeof failure.name === "string" ? failure.name.slice(0, 120) : undefined`,
+    `    const body = encodeBody({ kind, path: location.pathname.slice(0, 300), name, message: failure.message.slice(0, 1000), stack, action, level, ...flatFields(options?.fields) })`,
+    `    sent++`,
+    `    fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => {})`,
     `  }`,
     // A report must not cause a second error.
     `  catch {}`,
@@ -70,8 +91,14 @@ export function browserErrorsReporterSource(endpoint: string): string {
     // A failed <img> or <script> load has no error object, and a script of another origin shows only "Script error.".
     `addEventListener("error", event => { if (event.error) report("error", event.error) })`,
     `addEventListener("unhandledrejection", event => report("unhandledrejection", event.reason))`,
-    // Vite fires it when a lazy chunk or its CSS fails to load, often because a deploy removed the old files.
-    `addEventListener("vite:preloadError", event => report("chunk", event.payload))`,
+    // Vite's preload event also carries errors thrown while evaluating a successfully fetched module.
+    `const reportPreloadError = error => {`,
+    `  const message = error instanceof Error ? error.message : ""`,
+    `  const loadFailed = (error instanceof TypeError && (/^(Failed to fetch dynamically imported module: |error loading dynamically imported module: )/.test(message) || message === "Importing a module script failed."))`,
+    `    || message.startsWith("Unable to preload CSS for ")`,
+    `  report(loadFailed ? "chunk" : "error", error)`,
+    `}`,
+    `addEventListener("vite:preloadError", event => reportPreloadError(event.payload))`,
   ].join("\n")
 }
 
@@ -87,7 +114,7 @@ export function browserErrorsNuxtPluginSource(): string {
     browserErrorsReporterSource(`useRuntimeConfig().app.baseURL.replace(/\\/$/, "") + ${JSON.stringify(browserErrorsRoute)}`).replace(/^/gm, "    "),
     `    nuxtApp.hook("vue:error", error => report("vue", error))`,
     `    nuxtApp.hook("app:error", error => report("nuxt", error))`,
-    `    nuxtApp.hook("app:chunkError", ({ error }) => report("chunk", error))`,
+    `    nuxtApp.hook("app:chunkError", ({ error }) => reportPreloadError(error))`,
     `  },`,
     `})`,
     ``,
@@ -130,4 +157,3 @@ export async function installBrowserErrorsNuxt(nuxt: BrowserErrorsNuxt, projectR
   const plugins = (nuxt.options.plugins ??= [])
   if (!plugins.some(entry => (typeof entry === "string" ? entry : entry.src) === plugin)) plugins.push(plugin)
 }
-
