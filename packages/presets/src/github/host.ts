@@ -124,8 +124,8 @@ export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
   repository?: string
   /**
    * Repository whose App installation mints the token, when it is not `repository`. Git still sends the
-   * token only to `repository`. A fork pull request's head uses its base repository's installation:
-   * that token may push to the fork's branch when its author allows edits by maintainers.
+   * token only to `repository`. A fork without the App uses its base repository's installation, whose
+   * token may push to the fork's branch while its author allows edits by maintainers.
    */
   installationRepository?: string
 }
@@ -240,6 +240,14 @@ async function appIdentity(client: GitHubAppCredentials, signal?: AbortSignal): 
     throw error
   })
   return { appId, login, email }
+}
+
+/** The App lookup or token request for a repository answered 404: the App is not installed there. */
+function notInstalled(error: unknown): boolean {
+  for (let cause = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth++) {
+    if (forgeErrorStatus(cause) === 404) return true
+  }
+  return false
 }
 
 function owner(repository: string): string {
@@ -429,6 +437,21 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return { env, token }
   }
 
+  /**
+   * Access to a fork head: the fork's own App installation, or the base repository's when the App is not
+   * installed on the fork. The base's token pushes to the fork only while its author allows edits by maintainers.
+   */
+  async function headAccess(input: GitHubHostAccessOptions, base: string): Promise<GitHubHostAccess> {
+    if (!input.repository || input.repository === base) return await access(input)
+    try {
+      return await access(input)
+    }
+    catch (error) {
+      if (input.signal?.aborted || !notInstalled(error)) throw error
+      return await access({ ...input, installationRepository: base })
+    }
+  }
+
   async function forge(input: GitHubHostForgeOptions = {}): Promise<GitHubProvider> {
     const operation = controlledOperation(input)
     try {
@@ -546,7 +569,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (pullRequest.headRef) {
             // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
             const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
-            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, installationRepository: pullRequest.repository, signal: operation.signal })
+            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await headAccess({ refresh: true, repository: sourceRepository, signal: operation.signal }, pullRequest.repository)
             await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
             await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
           }
@@ -627,12 +650,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)
         }
         await exec("git", ["-C", checkout, "merge-base", "--is-ancestor", expectedHead, head], { ...commandOptions, signal })
-        const refreshed = await access({
-          refresh: true,
-          repository: pullRequest.headRepository,
-          installationRepository: pullRequest.repository,
-          signal,
-        })
+        const refreshed = await headAccess({ refresh: true, repository: pullRequest.headRepository, signal }, pullRequest.repository)
         signal.throwIfAborted()
         await options.beforePush?.(head, { parent: expectedHead, hostOnly: await hostOnly(head, expectedHead, signal) })
         await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {

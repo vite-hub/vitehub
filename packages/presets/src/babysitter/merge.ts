@@ -19,6 +19,11 @@ export interface BabysitterMergeReadinessInput {
   head: string;
   snapshot: Snapshot;
   requiredChecks: GitHubRequiredCheckState;
+  /**
+   * Lowercase logins of the reviewers whose write permission the host verified. The built-in gate
+   * counts only their approvals; without it, each review's author association stands in.
+   */
+  writers?: ReadonlySet<string>;
 }
 
 /** Return `true` to allow the merge, or a reason that sends the PR to a normal pass. */
@@ -245,11 +250,12 @@ function accountLogin(user: GitHubEvidence["user"]): string {
   return bot && !login.endsWith("[bot]") ? `${login}[bot]` : login;
 }
 
-function approvedIfOutsideGate({ head, snapshot }: BabysitterMergeReadinessInput, trustedAuthors: ReadonlySet<string>): true | string {
+function approvedIfOutsideGate({ head, snapshot, writers }: BabysitterMergeReadinessInput, trustedAuthors: ReadonlySet<string>): true | string {
   const pr = snapshot.pr;
+  const author = accountLogin(pr?.user ?? pr?.author);
   if (hasWriteAccess(pr?.author_association ?? pr?.authorAssociation)) return true;
-  if (trustedAuthors.has(accountLogin(pr?.user ?? pr?.author))) return true;
-  const approval = maintainerApproval(snapshot, head);
+  if (trustedAuthors.has(author)) return true;
+  const approval = maintainerApproval(snapshot, head, writers);
   const short = head.slice(0, 7);
   if (approval.changesRequested.length) return `a maintainer's approval of ${short}: ${approval.changesRequested.join(", ")} requested changes`;
   return approval.approved || `a maintainer's approval of ${short}`;

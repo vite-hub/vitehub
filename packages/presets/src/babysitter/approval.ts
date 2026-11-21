@@ -19,13 +19,10 @@ export interface MaintainerApproval {
 
 const reviewer = (review: GitHubEvidence) => String(review.user?.login ?? review.author?.login ?? "").toLowerCase();
 
-/**
- * The approval state of `head` from reviewers with write access. Each reviewer's latest APPROVED or
- * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing. An
- * approval of commit A also covers a head that the host built on A, and any head the host built on
- * that one, as `hostHeads` records them. A push by anyone else starts a head that no approval covers.
- */
-export function maintainerApproval(snapshot: { reviews: Record<string, GitHubEvidence>; hostHeads?: readonly HostHead[] }, head: string): MaintainerApproval {
+type ReviewEvidence = { reviews: Record<string, GitHubEvidence> };
+
+/** Each reviewer's latest APPROVED or CHANGES_REQUESTED review whose association claims write access, by lowercase login. */
+function decisiveReviews(snapshot: ReviewEvidence): Map<string, GitHubEvidence> {
   const latest = new Map<string, GitHubEvidence>();
   const decisive = Object.values(snapshot.reviews)
     .filter(review => !review.deleted && hasWriteAccess(review.author_association ?? review.authorAssociation)
@@ -35,6 +32,26 @@ export function maintainerApproval(snapshot: { reviews: Record<string, GitHubEvi
     const login = reviewer(review);
     if (login) latest.set(login, review);
   }
+  return latest;
+}
+
+/**
+ * The reviewers whose permission decides `maintainerApproval()`. Their association only claims write
+ * access: an organization member with read access is `MEMBER` too.
+ */
+export const approvalReviewers = (snapshot: ReviewEvidence): string[] => [...decisiveReviews(snapshot).keys()];
+
+/**
+ * The approval state of `head` from reviewers with write access. Each reviewer's latest APPROVED or
+ * CHANGES_REQUESTED review counts; comments, pending and dismissed reviews leave it standing. An
+ * approval of commit A also covers a head that the host built on A, and any head the host built on
+ * that one, as `hostHeads` records them. A push by anyone else starts a head that no approval covers.
+ * `writers` holds the lowercase logins whose write permission the host verified; without it, the
+ * review's association stands in for that permission.
+ */
+export function maintainerApproval(snapshot: ReviewEvidence & { hostHeads?: readonly HostHead[] }, head: string, writers?: ReadonlySet<string>): MaintainerApproval {
+  const latest = decisiveReviews(snapshot);
+  if (writers) for (const login of latest.keys()) if (!writers.has(login)) latest.delete(login);
   const changesRequested = [...latest].filter(([, review]) => String(review.state).toUpperCase() === "CHANGES_REQUESTED").map(([login]) => login);
   const approvedCommits = new Set([...latest.values()]
     .filter(review => String(review.state).toUpperCase() === "APPROVED")

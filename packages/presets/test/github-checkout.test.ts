@@ -183,9 +183,8 @@ it('records repair publication before post-push validation while retaining sourc
     await expect(checkout.push(target)).rejects.toThrow()
     expect(await git(fork, 'rev-parse', 'feature')).toBe(external)
   })
-  // The fork has no installation of its own; the base repository's installation, which maintainer edits extend to the fork, signs every call.
-  expect(credentials.mock.calls.length).toBeGreaterThan(0)
-  expect(credentials.mock.calls.every(([scope]) => scope.repository === 'acme/base')).toBe(true)
+  // The fork's own installation signs the calls that reach the fork.
+  expect(credentials.mock.calls.some(([scope]) => scope.repository === 'contributor/fork')).toBe(true)
   await expect(host.withPullRequestCheckout(pr, async () => { throw new Error('must not run') })).rejects.toThrow('head changed')
   await expect(host.withPullRequestCheckout({ ...pr, headRef: '../invalid' }, async () => {})).rejects.toThrow()
   const baseHead = await git(source, 'rev-parse', 'HEAD')
@@ -284,4 +283,32 @@ it('tells beforePush whether every commit a push adds came from commitRepair', a
     ])
   })
   expect(await git(fork, 'rev-parse', 'feature')).toBe(lineages[1]!.head)
-})
+}, 30_000)
+
+it('reaches a fork without the App through the base installation', async () => {
+  const { fork, headSha } = await forkFixture()
+  const notInstalled = Object.assign(new Error('GitHub App request /repos/contributor/fork/installation failed with 404.'), { cause: Object.assign(new Error('Not Found'), { status: 404 }) })
+  const credentials = vi.fn(({ repository }: { repository?: string }) => {
+    if (repository === 'contributor/fork') throw notInstalled
+    return { token: repository ?? 'default' }
+  })
+  const host = createGitHubHost({ credentials })
+  const pr = { repository: 'acme/base', headRepository: 'contributor/fork', headRef: 'feature', headSha, number: 123 }
+  await host.withPullRequestCheckout(pr, async checkout => {
+    await git(checkout.path, 'config', 'user.name', 'Test')
+    await git(checkout.path, 'config', 'user.email', 'test@example.com')
+    await writeFile(join(checkout.path, 'file.txt'), 'host repair\n')
+    const repair = await checkout.commitRepair(checkout.path, { message: 'host repair', paths: ['file.txt'] })
+    expect(await checkout.push(checkout.path)).toBe(repair)
+  })
+  expect(await git(fork, 'rev-parse', 'feature')).not.toBe(headSha)
+  const scopes = credentials.mock.calls.map(([scope]) => scope.repository)
+  expect(scopes.filter(scope => scope === 'contributor/fork')).toHaveLength(2)
+  expect(scopes.filter(scope => scope === 'acme/base').length).toBeGreaterThanOrEqual(3)
+  // Any other failure of the fork's installation stops the push.
+  credentials.mockImplementation(({ repository }) => {
+    if (repository === 'contributor/fork') throw Object.assign(new Error('Forbidden'), { status: 403 })
+    return { token: repository ?? 'default' }
+  })
+  await expect(host.withPullRequestCheckout({ ...pr, headSha: await git(fork, 'rev-parse', 'feature') }, async () => {})).rejects.toThrow('Forbidden')
+}, 30_000)

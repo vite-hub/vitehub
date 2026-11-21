@@ -320,6 +320,31 @@ test('admitApproved takes an outside PR once a maintainer approves it, keeps it 
   assert.equal(inbox.eligible(repository, denied, (await inbox.get(repository, 8))!), false)
 })
 
+test('admitApproved keeps an approval through a base update that the host asked for, and only that one', async t => {
+  const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], admitApproved: true, activityAuthors: ['vitehub-bot[bot]'], filter: { author: { allow: ['onmax'] } }})
+  t.onTestFinished(() => inbox.close())
+  const [approved, updated, merged, other] = ['a', 'b', 'c', 'e'].map(c => c.repeat(40))
+  const outside = (sha: string, at: string) => pr({ number: 8, user: { login: 'outsider' }, author_association: 'CONTRIBUTOR', head: { sha, ref: 'fix', repo: { full_name: repository } }, updated_at: at })
+  await post(inbox, 'opened', 'pull_request', { action: 'opened', sender: { login: 'outsider' }, pull_request: outside(approved, '2026-11-21T10:00:00Z') })
+  await post(inbox, 'approve', 'pull_request_review', { action: 'submitted', sender: { login: 'onmax' }, pull_request: outside(approved, '2026-11-21T10:00:00Z'),
+    review: { id: 2, state: 'approved', commit_id: approved, author_association: 'OWNER', user: { login: 'onmax', type: 'User' }, submitted_at: '2026-11-21T10:02:00Z' } })
+  await inbox.registerHostUpdate(repository, 8, approved)
+  // A probe's synthetic synchronize carries no sender or `before`, and leaves the update pending.
+  await post(inbox, 'probe', 'pull_request', { action: 'synchronize', pull_request: outside(approved, '2026-11-21T10:03:00Z') })
+  await post(inbox, 'host-update', 'pull_request', { action: 'synchronize', before: approved, after: updated, sender: { login: 'vitehub-bot[bot]', type: 'Bot' }, pull_request: outside(updated, '2026-11-21T10:04:00Z') })
+  assert.deepEqual((await inbox.get(repository, 8))?.hostHeads, [{ head: updated, parent: approved }])
+  assert.notEqual((await inbox.get(repository, 8))?.status, 'terminal')
+  // A merges API call returns its commit, which the host records at once.
+  await inbox.registerHostUpdate(repository, 8, updated, merged)
+  await post(inbox, 'host-merge', 'pull_request', { action: 'synchronize', before: updated, after: merged, sender: { login: 'vitehub-bot[bot]', type: 'Bot' }, pull_request: outside(merged, '2026-11-21T10:05:00Z') })
+  assert.notEqual((await inbox.get(repository, 8))?.status, 'terminal')
+  // The author clicking "Update branch" after the host asked for one does not carry the approval.
+  await inbox.registerHostUpdate(repository, 8, merged)
+  await post(inbox, 'author-update', 'pull_request', { action: 'synchronize', before: merged, after: other, sender: { login: 'outsider', type: 'User' }, pull_request: outside(other, '2026-11-21T10:06:00Z') })
+  assert.equal((await inbox.get(repository, 8))?.status, 'terminal')
+  assert.equal((await inbox.get(repository, 8))?.hostUpdates, undefined)
+})
+
 test('event actor rules match a bot login in either spelling', async t => {
   const inbox = new PullRequestInbox({path: ':memory:', repositories: [repository], filter: { actor: { allow: ['renovate'] } }})
   t.onTestFinished(() => inbox.close())

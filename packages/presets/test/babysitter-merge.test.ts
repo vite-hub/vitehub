@@ -347,9 +347,9 @@ describe("Babysitter stacked PR preservation", () => {
 
 describe("Babysitter approved-if-outside merge gate", () => {
   const merge = resolveBabysitterMerge({ strategy: "direct", ready: "approved-if-outside" });
-  const ready = (s: Snapshot) => {
+  const ready = (s: Snapshot, writers?: ReadonlySet<string>) => {
     if (merge.mode !== "direct" || !merge.ready) throw new Error("expected a direct merge with a ready gate");
-    return merge.ready({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed" });
+    return merge.ready({ repository: s.repository, number: s.number, head, snapshot: s, requiredChecks: "passed", writers });
   };
   const outside = (association: string | undefined = "CONTRIBUTOR") => {
     const s = snapshot();
@@ -395,6 +395,17 @@ describe("Babysitter approved-if-outside merge gate", () => {
     // A cycle in the record ends the walk.
     s.hostHeads = [{ head, parent: repaired }, { head: repaired, parent: head }];
     expect(await ready(s)).toBe("a maintainer's approval of aaaaaaa");
+  });
+
+  it("counts only the reviewers whose write permission the host verified", async () => {
+    const s = outside();
+    s.reviews.a = review("reader", "APPROVED");
+    expect(await ready(s, new Set())).toBe("a maintainer's approval of aaaaaaa");
+    expect(await ready(s, new Set(["reader"]))).toBe(true);
+    // A read-only member's change request does not block a writer's approval.
+    s.reviews.b = review("writer", "APPROVED");
+    s.reviews.c = review("reader", "CHANGES_REQUESTED");
+    expect(await ready(s, new Set(["writer"]))).toBe(true);
   });
 
   it("ignores approvals from reviewers without write access, deleted reviews and pending ones", async () => {
