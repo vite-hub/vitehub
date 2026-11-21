@@ -447,7 +447,7 @@ This is safe only under these conditions:
 
 - Every server and deploy step has the same migration history. D1 identifies a migration by its file name, not its SQL. A server that finds the name in the table skips its own file, even when that file has different SQL.
 - `name` stays unique, as Wrangler creates the table. A migrations table that you create without `UNIQUE` on `name` lets two servers apply the same migration.
-- A proxy in `cloudflare.http: { url, authToken }` runs a request with many statements as one transaction, as D1 does. If your proxy commits each statement on its own, set `migrateOnStart: false` and run `vitehub database migrate` from one place.
+- A proxy in `cloudflare.http: { url, authToken }` runs a request with many statements as one transaction, as D1 does. If your proxy commits each statement on its own, do not send migrations through it. Set `migrateOnStart: false` on the server. Before deployment, run `vitehub database migrate` with `cloudflare.http: true` for the same database and migrations table, so the CLI calls Cloudflare directly.
 
 ### Several processes on SQLite
 
