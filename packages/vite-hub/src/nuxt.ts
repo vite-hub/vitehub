@@ -19,6 +19,8 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
+import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
+import { withPrintedDiagnostics } from "./hook-errors.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { hostFromNitroPreset, normalizeNitroPreset, resolveBuildHost, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { cloudflareExportConditions } from "./deployment.ts"
@@ -310,12 +312,12 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 
 /**
  * Put these plugins before Nitro's own resolvers, so they see generated and cache imports first. Each one goes first, so
- * in a build `forgeBuildCheckPlugin()` can wrap Source imports before Nitro resolves them.
+ * in a build the Forge and Drizzle checks can see imports before Nitro resolves them.
  */
 function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin()] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }

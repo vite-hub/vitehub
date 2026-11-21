@@ -70,8 +70,8 @@ An app with [`connections`](/docs/connections) has a **Connections** section. It
 ## Read the project
 
 ```bash [Terminal]
-pnpm vitehub project info
-pnpm vitehub project info --url https://app.example.com
+pnpm vitehub project get
+pnpm vitehub project get --url https://app.example.com
 ```
 
 ```json [Output]
@@ -94,4 +94,4 @@ pnpm vitehub project info --url https://app.example.com
 
 `build` is what the production build recorded: when it ran, and its Git commit with the first line of the message, the author name, the branch, and the github.com repository. The Console shows it as **Last deploy** on Home and on the app Overview. With a repository, the Overview has a **Compare** link to the GitHub page that compares the live commit with the default branch, so you see the commits that are not deployed yet. CI variables come first, such as `GITHUB_SHA`, `VERCEL_GIT_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, and `WORKERS_CI_COMMIT_SHA`, and `git` in the project fills the rest. The [health route](/docs/frameworks-hosts/node-self-hosted#check-health) reads the commit the same way. `VITEHUB_BUILD_COMMIT`, `VITEHUB_BUILD_BRANCH`, and `VITEHUB_BUILD_REPOSITORY` set each value for a build that has neither CI variables nor `.git`, such as a Docker build. A build without Git records only the time, and `SOURCE_DATE_EPOCH` sets the time of a reproducible build. A development server sends no `build`. Every caller that may read `project.get` sees the commit message and the author name.
 
-The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project info` and MCP clients do not get it.
+The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. `vitehub project get` and MCP clients do not get it.

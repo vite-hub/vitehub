@@ -112,6 +112,8 @@ Keep `host: 'cloudflare'` in development too. With the Vite configurations above
 
 In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
 
+workerd does not get the variables of your shell. It reads the Wrangler `vars` and the `.dev.vars` or `.env` files. ViteHub adds each `VITEHUB_*` shell variable, such as `VITEHUB_AGENT_STATE_URL`, to the Wrangler `vars` in development, so the server reads it in `process.env` and `env`. If Nitro selects an environment defined in inline Wrangler config, ViteHub adds the values to that environment's `vars`. A value in `.dev.vars` or `.env` wins. Put other variables in those files.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment
@@ -290,6 +292,10 @@ pnpm exec nitro deploy --prebuilt
 ```
 
 With deploy config generation on (the default), ViteHub writes the command to `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`. It works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own. With `nitro.cloudflare.deployConfig: false`, ViteHub keeps Nitro's default command. With `database: { migrateOnDeploy: true }`, the command applies the pending D1 migrations before `wrangler deploy`, and stops when one fails. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
+
+::warning
+The Workers Builds default deploy command, `npx wrangler deploy`, skips the generated command. It applies no D1 migration and prints no warning, so new code can reach production before its tables and columns.
+::
 
 With config generation and Sandbox on, ViteHub writes an explicit gradual Container rollout to `.output/nitro.json`, so the Worker and its Container application deploy together.
 

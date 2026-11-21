@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>backup-db (ViteHub schedule). Managed by ViteHub (system scope). sha256:a6a306d92f580d35e3b88e0c225ac8588f7db26a27038a0d77aad70e7e20ca35</Description>
+    <Description>backup-db (ViteHub schedule). Managed by ViteHub (system scope). sha256:679e1ab28217fa9d82d53c2250b801924eb2fb59b8720b8393ffbe41e6f8d299</Description>
     <URI>\backup-db</URI>
   </RegistrationInfo>
   <Triggers>
@@ -114,7 +114,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File &quot;C:\ProgramData\ViteHub\schedules\backup-db.ps1&quot;</Arguments>
+      <Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand JABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFACAAPQAgADEACgAmACAAJwBDADoAXABQAHIAbwBnAHIAYQBtAEQAYQB0AGEAXABWAGkAdABlAEgAdQBiAFwAcwBjAGgAZQBkAHUAbABlAHMAXABiAGEAYwBrAHUAcAAtAGQAYgAuAHAAcwAxACcACgBlAHgAaQB0ACAAJABnAGwAbwBiAGEAbAA6AEwAQQBTAFQARQBYAEkAVABDAE8ARABFAA==</Arguments>
     </Exec>
   </Actions>
 </Task>

@@ -183,7 +183,7 @@ List, inspect, run again, and remove the stored jobs with the CLI. The commands 
 
 ```sh
 pnpm vitehub queue jobs list --state dead
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
