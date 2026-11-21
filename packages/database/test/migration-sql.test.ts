@@ -1,6 +1,17 @@
+import { DatabaseSync } from "node:sqlite"
+
 import { describe, expect, it } from "vitest"
 
-import { findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+import { addStatementBreakpoints, findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+
+it("preserves same-line statements in a whole script with existing breakpoints", () => {
+  const sql = "CREATE TABLE notes (id INTEGER);\n--> statement-breakpoint\nINSERT INTO notes VALUES (1); INSERT INTO notes VALUES (2);"
+  const rewritten = addStatementBreakpoints(sql)
+  expect(rewritten.split("--> statement-breakpoint")).toHaveLength(3)
+  using database = new DatabaseSync(":memory:")
+  database.exec(rewritten)
+  expect(database.prepare("SELECT id FROM notes ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
+})
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
   return findDataLoss(Array.isArray(sql) ? sql : [sql], before).map(loss => loss.reason)
