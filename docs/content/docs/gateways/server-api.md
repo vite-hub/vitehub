@@ -94,7 +94,20 @@ export async function summarizeRun(log: string) {
 
 ## Ask questions
 
-`gateway.ask(state, questions, options?)` sends typed questions to [TypeSafe Jev](https://typesafe.ai). Only `vercel()`, `typesafe()`, and `cloudflare()` have it. It needs `advocaat`, the TypeSafe client:
+`gateway.ask(state, questions, options?)` sends typed questions to [TypeSafe Jev](https://typesafe.ai). Only `vercel()`, `typesafe()`, and `cloudflare()` have it. It needs `advocaat`, the TypeSafe client.
+
+Pick the builder by the answer that you want. The answer types come from the questions.
+
+| You want | Write | You get |
+| --- | --- | --- |
+| Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
+| The probability of yes | `ask.chance(instructions, criteria?)` | `{ chance }`, from `0` to `1`. |
+| One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
+| One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
+| A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One answer for each item, under the key that `key(item)` returns. |
+
+`criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
 
 ```ts [label.ts]
 import { ask, typesafe } from 'vite-hub/gateways'
@@ -115,17 +128,6 @@ answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1
 answers.recurring // boolean
 ```
-
-The answer types come from the questions:
-
-| Builder | Answer |
-| --- | --- |
-| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
-| `ask.switch(instructions, criteria)` | The selected label only. |
-| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
-| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
-| `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
 
 `gateway.ask()` returns `[error, answers]`. A rejected key returns [`GATEWAYS_R0008`](/docs/gateways/limits-and-errors#gateways_r0008), and a provider that still fails after the retries returns [`GATEWAYS_R0009`](/docs/gateways/limits-and-errors#gateways_r0009). In a route, `return toResponse(error)` from `vite-hub/runtime` answers 503 or 502. A missing key or a question that the `ask` builders did not make throws.
 
