@@ -187,7 +187,7 @@ The id is the run id on Cloudflare and OpenWorkflow, so a double click does not 
 
 ```bash [Terminal]
 pnpm vitehub workflow start checkout '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
-pnpm vitehub workflow get <runId>
+pnpm vitehub workflow runs get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
 

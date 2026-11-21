@@ -258,6 +258,21 @@ describe("workflow definitions", () => {
     ])
   })
 
+  it("keeps an Agent with the external Driver out of Workflow discovery", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-external-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "server", "agents"), { recursive: true })
+    await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+    await writeFile(join(rootDir, "server", "agents", "coding-agent.ts"), "export default defineAgent({\n  description: 'Codex or Claude Code.',\n  driver: 'external',\n  workspace: 'meetups',\n})\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "quoted.ts"), "export default defineAgent({ \"driver\": \"external\" })\n", "utf8")
+    await writeFile(join(rootDir, "server", "agents", "nested.ts"), "export default defineAgent({ driver: { run }, metadata: { driver: 'external' } })\n", "utf8")
+    await writeFile(join(rootDir, "server", "workflows", "coding-agent.ts"), "export default defineWorkflow({ handler: async () => 'built' })\n", "utf8")
+
+    const discovered = discoverWorkflowDefinitions({ rootDir })
+    expect(discovered.filter(definition => definition.source === "agent-workflow").map(definition => definition.name)).toEqual(["nested"])
+    expect(discovered).toContainEqual(expect.objectContaining({ name: "coding-agent", handler: join(rootDir, "server", "workflows", "coding-agent.ts") }))
+  })
+
   it("honors quoted Agent runtime properties", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-quoted-runtime-"))
     tempDirs.push(rootDir)

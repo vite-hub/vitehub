@@ -176,7 +176,7 @@ describe("a Console app without Comments", () => {
   it("serves the session route, the loader, and the segment script", () => {
     const nitro: { handlers?: Array<{ handler: string, route?: string }>, publicAssets?: Array<{ baseURL?: string, dir: string }> } = {}
     addConsolePageToolRoutes(nitro, "/runtime", "/portal")
-    expect(nitro.handlers).toEqual([{ handler: "/runtime/server/page-session.js", route: "/portal/_vitehub/page/session" }])
+    expect(nitro.handlers).toEqual([{ handler: "/runtime/server/page-session.js", meta: { vitehubOwnAccess: true }, route: "/portal/_vitehub/page/session" }])
     expect(nitro.publicAssets?.map(({ baseURL, dir }) => ({ baseURL, dir }))).toEqual([
       { baseURL: "/portal/_vitehub/console/assets", dir: "/runtime/page-tool" },
       { baseURL: "/portal/_vitehub/page/assets", dir: "/runtime/page" },

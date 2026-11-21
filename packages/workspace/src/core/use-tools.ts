@@ -3,7 +3,7 @@ import type { WorkspaceReadOperations } from "../ai.ts"
 import type { ToolSet } from "ai"
 import { createReadonlyFs, createWorkspaceFileRuntime } from "./use.ts"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, UseWorkspaceOptions, WorkspaceFacadeToolOptions, WritableWorkspaceFacadeToolOptions, WorkspaceReadTools, WorkspaceWriteTools } from "./use.ts"
-import type { WorkspaceName } from "./types.ts"
+import type { WorkspaceLookupName } from "./types.ts"
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
   return { list: options?.list, materialize: options?.materialize ?? true, read: options?.read, search: options?.search }
@@ -33,10 +33,10 @@ function emptyTools(): ToolSet {
   return {}
 }
 
-export function useWorkspace<Name extends WorkspaceName>(name: Name): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFacade<Name>
-export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
+export function useWorkspace<Name extends WorkspaceLookupName>(name: Name): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceLookupName>(name: Name, options: UseWorkspaceOptions & { mode?: "read" }): ReadonlyWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceLookupName>(name: Name, options: UseWorkspaceOptions & { mode: "write" }): WritableWorkspaceFacade<Name>
+export function useWorkspace<Name extends WorkspaceLookupName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
   const runtime = createWorkspaceFileRuntime(name, options)
   if (runtime.mode === "write") {
     const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(runtime.workspace, {

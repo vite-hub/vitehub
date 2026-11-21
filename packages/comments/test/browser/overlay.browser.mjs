@@ -3,7 +3,7 @@
 // has no layout, so these checks need a real browser.
 // Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
@@ -14,6 +14,7 @@ import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 const port = Number(process.env.COMMENTS_BROWSER_PORT ?? 4797)
 /** A folder for screenshots of the flows, for pull request evidence. */
 const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
+const builtOverlay = new URL("../../dist/overlay/", import.meta.url)
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
@@ -711,5 +712,60 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), null)
   })
 
+  assert.deepEqual(errors, [])
+})
+
+test("the built overlay loads its chunks from its own folder", { timeout: 60_000 }, async (t) => {
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const context = await browser.newContext()
+  // A routed origin: the page is at the root and the built overlay at the asset path of the Comments routes.
+  const origin = "http://localhost:4799"
+  const assets = "/_vitehub/comments/assets/"
+  const scripts = []
+  await context.route(`${origin}/**`, async (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith(".js")) scripts.push(path)
+    if (path === "/") {
+      return route.fulfill({ contentType: "text/html", body: `<!doctype html><main><p>Hello</p></main><script type="module">
+        import start from "${assets}overlay.js"
+        const pill = document.createElement("vitehub-pill")
+        const bar = document.createElement("vitehub-tool")
+        bar.slot = "comments"
+        pill.append(bar)
+        document.documentElement.append(pill)
+        start({
+          tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "${assets}overlay.js" },
+          bar,
+          signal: new AbortController().signal,
+          open: false,
+          exit() {},
+          onOpen() {},
+          beforeExit() {},
+          openTool: async () => false,
+          createWindow() { throw new Error("Unexpected retained window") },
+        })
+      </script>` })
+    }
+    if (path.startsWith(assets)) {
+      const body = await readFile(new URL(path.slice(assets.length), builtOverlay)).catch(() => undefined)
+      return body ? route.fulfill({ contentType: "text/javascript", body }) : route.fulfill({ status: 404 })
+    }
+    // Presence is on, so the overlay imports the Realtime client chunk after the session answers.
+    if (path === "/_vitehub/comments/session") {
+      return route.fulfill({ json: { data: { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false }, people: [] } })
+    }
+    if (path.startsWith("/_vitehub/comments/")) return route.fulfill({ json: { data: [], people: [] } })
+    return route.fulfill({ status: 404 })
+  })
+  const page = await context.newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+  // The Realtime client opens the room's socket once its chunk has loaded, after the preload links went out.
+  const socket = page.waitForEvent("websocket", { timeout: 15_000 })
+  await page.goto(`${origin}/`)
+  assert.match((await socket).url(), /\/_vitehub\/realtime\/comments\//)
+  assert.ok(scripts.length > 1, `the overlay loaded its chunks: ${scripts.join(", ")}`)
+  assert.deepEqual(scripts.filter(path => !path.startsWith(assets)), [])
   assert.deepEqual(errors, [])
 })

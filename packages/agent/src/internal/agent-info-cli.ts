@@ -31,7 +31,7 @@ interface ParsedInfoArgs {
 
 function writeInfoUsage(context: AgentInfoCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent info [--agent <name>] [--url <url>] [--json]",
+    "Usage: vitehub agent get [--agent <name>] [--url <url>] [--json]",
     "",
     "Inspect a discovered Agent through a running Vite Development Server.",
     "",
@@ -91,7 +91,7 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
 
   // A Nuxt or Vite dev server records its URL in the project root, and Nuxt's Vite root is the `app/` folder below it.
   // Help needs no server, and the command never guesses a port.
-  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env, "agent info")) }
+  return { ...parsed, url: parsed.url ?? (parsed.help ? "" : requireViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env, "agent get")) }
 }
 
 function plural(count: number, singular: string, pluralLabel = `${singular}s`): string {
@@ -120,6 +120,7 @@ function agentInfoDriver(config: AgentInspectionMetadata["config"]): string {
   if (driver.kind === "provider") return driver.provider?.provider ? `Provider Agent Driver (${driver.provider.provider})` : "Provider Agent Driver"
   if (driver.kind === "run") return "Custom-run Agent Driver"
   if (driver.kind === "ask") return "Ask Agent Driver"
+  if (driver.kind === "external") return "External Agent Driver (runs outside the app)"
   return "Unknown Agent Driver"
 }
 
