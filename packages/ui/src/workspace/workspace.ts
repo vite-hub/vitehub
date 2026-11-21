@@ -20,6 +20,7 @@ import {
 } from "vue";
 import { useCopy } from "../components/copy-button.ts";
 import { Status } from "../components/status.ts";
+import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { ring } from "../motion/helpers/ring.ts";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundLinkLimit, playgroundUrl, readPlaygroundHash } from "../playground/share.ts";
@@ -135,7 +136,7 @@ const contextKey: InjectionKey<WorkspaceContext> = Symbol("Workspace");
 /** The workspace around the calling component: its files, edits, and actions. Call it in a slot of `Workspace`. */
 export function useWorkspace(): WorkspaceContext {
   const context = inject(contextKey, undefined);
-  if (!context) throw new Error("useWorkspace() runs only in a component inside a Workspace.");
+  if (!context) throw uiErrorDiagnostics.UI_R0002({ message: "useWorkspace() must be used in a component inside Workspace." });
   return context;
 }
 
