@@ -209,7 +209,8 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   return [
     `export * from ${JSON.stringify(serverImport)}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
-    `export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    // Webhooks reads `findVerifiedAuthUserId` to find the verified owner of a member endpoint.
+    `export { createAuthAccessHandler, findVerifiedAuthUserId } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "",
   ].join("\n")
 }
@@ -294,6 +295,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
     `  export const createAuthAccessHandler: typeof import(${JSON.stringify(privateAuthImport(importBase, "internal/server"))}).createAuthAccessHandler`,
+    `  export const findVerifiedAuthUserId: typeof import(${JSON.stringify(privateAuthImport(importBase, "internal/server"))}).findVerifiedAuthUserId`,
     "}",
     "",
   ].join("\n")

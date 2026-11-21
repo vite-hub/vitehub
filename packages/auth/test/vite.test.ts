@@ -150,7 +150,7 @@ describe("hubAuth", () => {
 
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
     expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
-    expect(loadAuthServer(plugin)).toContain(`export { createAuthAccessHandler } from "@vite-hub/auth/internal/server"`)
+    expect(loadAuthServer(plugin)).toContain(`export { createAuthAccessHandler, findVerifiedAuthUserId } from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).not.toContain(`export * from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
@@ -535,9 +535,10 @@ describe("hubAuth", () => {
     const declaration = join(root, ".vitehub/types/auth-server.d.ts")
     const probe = join(root, "probe.ts")
     await writeFile(probe, [
-      'import { createAuthAccessHandler, withAnonymousAuthorization } from "#vitehub/auth/server"',
+      'import { createAuthAccessHandler, findVerifiedAuthUserId, withAnonymousAuthorization } from "#vitehub/auth/server"',
       'export const anonymous: "anonymous" = withAnonymousAuthorization()',
       "export const access: ReturnType<typeof createAuthAccessHandler> = createAuthAccessHandler([])",
+      'export const owner: Promise<string | undefined> = findVerifiedAuthUserId("ana@example.com", new Request("https://example.com"))',
       "// @ts-expect-error the real handler type, not `any`",
       "export const wrong: number = createAuthAccessHandler",
       "",
