@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createClient } from "@libsql/client"
 import { defineAgent, resolveAgentTriggerInvocation } from "@vite-hub/agent"
 import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process"
 import { withDeclaredAgentWorkspace } from "@vite-hub/agent/server/internal"
@@ -51,7 +50,6 @@ describe("Babysitter process host", () => {
 
   it("serves scheduler health while admission hangs and after reconcile stops", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-health-"))
-    const client = createClient({ url: `file:${join(root, "state.sqlite")}` })
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123")
     vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", privateKey.export({ format: "pem", type: "pkcs1" }).toString())
@@ -62,7 +60,7 @@ describe("Babysitter process host", () => {
     const agent = defineAgent({ name: "babysitter", extends: babysitter, options: {
       filter: { repository: { allow: ["acme/app"] } }, install: false, merge: false, admission: { check },
     } })
-    const state = createLibsqlAgentState({ client })
+    const state = createLibsqlAgentState({ url: `file:${join(root, "state.sqlite")}` })
     const hosts = createAgentProcessHosts({ names: ["babysitter"], registry: { babysitter: async () => ({ default: agent }) }, enabled: true, dataDir: root, state: () => state })
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     try {
@@ -86,11 +84,12 @@ describe("Babysitter process host", () => {
       } } })
     }
     finally {
+      const closing = hosts.close()
       await vi.advanceTimersByTimeAsync(15 * 60_000)
-      await hosts.close()
+      await closing
       vi.useRealTimers()
       vi.unstubAllGlobals()
-      client.close()
+      await state.disconnect()
       await rm(root, { recursive: true, force: true })
     }
   })
