@@ -26,9 +26,11 @@ import { ConnectPanel, type ConnectProviderState } from "./connect-panel.ts";
 import { useConnectStore } from "./connect-store.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
+import { WorkspaceEditorHead } from "./workspace-editor-head.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
 import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
+import { type WorkspaceCursor, WorkspaceStatus } from "./workspace-status.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
 /** An app that the container can open. A playground has a menu of them. A tutorial has one, with the files of its step. */
@@ -189,6 +191,8 @@ const PlaygroundSession = defineComponent({
     const selected = ref(props.selected !== undefined && props.files[props.selected] !== undefined ? props.selected : firstFile(booted, props.files));
     watch(() => props.selected, (path) => { if (path !== undefined) selected.value = path; });
     watch(selected, path => emit("update:selected", path), { immediate: true });
+    const wrap = ref(false);
+    const cursor = ref<WorkspaceCursor>({ column: 1, line: 1 });
     const previewPath = ref(booted.preview ?? "/");
     const tab = ref<WorkspaceTab>("preview");
     const booting = computed(() => workspace.status.value !== "ready" || !!workspace.failure.value || !workspace.previewUrl.value);
@@ -345,16 +349,21 @@ const PlaygroundSession = defineComponent({
       const connect = props.connect;
       const shellSlots: Record<string, () => VNode | VNode[] | undefined> = {
         files: () => pane("Files", [h("span", { class: "vh-pc-pane-title" }, "Files")], h("div", { class: "vh-pc-tree" }, h(WorkspaceFileTree, {
-          modified: edited.value,
+          edited: edited.value,
           paths: paths.value,
           selected: selected.value,
           "onUpdate:selected": (path: string) => { selected.value = path; },
         })), "vh-pc-files"),
-        "editor-head": () => [
-          h("span", { class: "vh-pc-path" }, selected.value),
-          ...edited.value.includes(selected.value) ? [h("span", { class: "vh-pc-muted" }, "Edited")] : [],
-        ],
-        editor: () => pane("Editor", undefined, h(WorkspaceEditor, { modelValue: source.value, path: selected.value, "onUpdate:modelValue": (value: string) => { source.value = value; } })),
+        "editor-head": () => h(WorkspaceEditorHead, { path: selected.value, wrap: wrap.value, "onUpdate:wrap": (next: boolean) => { wrap.value = next; } }),
+        editor: () => pane("Editor", undefined, h(WorkspaceEditor, {
+          modelValue: source.value,
+          path: selected.value,
+          wrap: wrap.value,
+          onCursor: (next: WorkspaceCursor) => { cursor.value = next; },
+          "onUpdate:modelValue": (value: string) => { source.value = value; },
+          "onUpdate:wrap": (next: boolean) => { wrap.value = next; },
+        })),
+        status: () => h(WorkspaceStatus, { cursor: cursor.value, path: selected.value }),
         preview,
         terminal: () => h(WorkspaceTerminal, { output: workspace.logs.value }),
         ...connect && hasConnect.value && {
@@ -367,7 +376,7 @@ const PlaygroundSession = defineComponent({
             "onCopy-command": (command: string) => void copy(command),
           })),
         },
-        ...Object.fromEntries(props.tabs.map(item => [item.value, () => slots[item.value]?.(context)])),
+        ...Object.fromEntries(props.tabs.map(item => [`tab-${item.value}`, () => slots[item.value]?.(context)])),
       };
       return h("div", { class: "vh-pc-session" }, [
         toolbar(),

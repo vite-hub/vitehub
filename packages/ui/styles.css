@@ -3717,6 +3717,8 @@
     /* System colors, not currentColor: a currentColor fill under inverted text would take the text color and vanish. */
     --vh-ws-ink: var(--ui-text-highlighted, CanvasText);
     --vh-ws-ink-inverted: var(--ui-bg, Canvas);
+    /* The accent of the code parts: the selected file, its edge, and the dot of an edited file. The focus blue. */
+    --vh-ws-accent: var(--vh-focus, var(--ring, var(--vh-highlighted)));
   }
 }
 
@@ -3760,14 +3762,15 @@
   .vh-ws-bar { align-items: center; border-bottom: 1px solid var(--vh-border); box-sizing: border-box; display: flex; flex: none; gap: 0.25rem; height: var(--vh-ws-bar); padding: 0 0.5rem; }
   .vh-ws-body { display: flex; flex: 1; min-height: 0; min-width: 0; }
   .vh-ws-pane { box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; position: relative; }
-  .vh-ws-code { flex: 1 1 0; flex-direction: row; }
+  .vh-ws-code, .vh-ws-column { flex: 1 1 0; }
+  .vh-ws-code { flex-direction: row; }
   .vh-ws-pane--files { flex-grow: 0; flex-shrink: 0; }
   .vh-ws-pane--editor, .vh-ws-editor-body, .vh-ws-pane--output { flex: 1 1 0; }
   .vh-ws-head { align-items: center; border-bottom: 1px solid var(--vh-border); box-sizing: border-box; display: flex; flex: none; gap: 0.25rem; height: var(--vh-ws-head); padding: 0 0.375rem 0 0.75rem; }
   .vh-ws-status { align-items: center; background: var(--vh-bg-muted); border-top: 1px solid var(--vh-border); box-sizing: border-box; color: var(--vh-muted); display: flex; flex: none; font-size: 0.71875rem; gap: 0.875rem; height: var(--vh-ws-status); padding: 0 0.75rem; white-space: nowrap; }
   .vh-ws-guide { overflow: auto; }
-  /* guide-side: a 360px guide column. On the right the output takes 40% and the code sits under it. Nothing to drag. */
-  .vh-ws-shell--guide-side > .vh-ws-body > .vh-ws-guide { border-right: 1px solid var(--vh-border); flex: 0 0 360px; }
+  /* guide-side: a guide column up to 360px. On the right the output takes 40% and the code sits under it. */
+  .vh-ws-shell--guide-side > .vh-ws-body > .vh-ws-guide { border-right: 1px solid var(--vh-border); flex: 0 0 min(360px, 50%); }
   .vh-ws-stack { flex: 1 1 0; }
   .vh-ws-stack > .vh-ws-pane--output { border-bottom: 1px solid var(--vh-border); flex: 0 0 40%; }
   .vh-ws-separator { background: var(--vh-border); flex: none; position: relative; touch-action: none; z-index: 1; }
@@ -3788,10 +3791,45 @@
   .vh-ws-tab-panel.is-hidden { visibility: hidden; }
 
   /* File tree, editor, terminal */
-  .vh-ws-file-tree { border: 0; border-radius: 0; height: 100%; }
+  /* The rows of the tree: 22px, 13px text, 12px per level, the selected file tinted with an accent edge. */
+  .vh-ws-file-tree {
+    --trees-bg-override: var(--vh-bg-muted);
+    --trees-border-radius-override: 0px;
+    --trees-fg-muted-override: var(--vh-muted);
+    --trees-fg-override: var(--vh-text);
+    --trees-font-family-override: var(--vh-font-sans, var(--font-sans, ui-sans-serif, system-ui, sans-serif));
+    --trees-font-size-override: 13px;
+    --trees-hover-bg-override: var(--vh-bg-elevated);
+    --trees-indent-guide-bg-override: transparent;
+    --trees-item-margin-x-override: 0px;
+    --trees-item-padding-x-override: 6px;
+    --trees-item-row-gap-override: 4px;
+    /* Pierre indents a level by the level gap, the row gap, and half an icon less 0.5px: 0.5 + 4 + 7.5 = 12px. */
+    --trees-level-gap-override: 0.5px;
+    --trees-padding-inline-override: 0px;
+    --trees-scrollbar-gutter-override: 0px;
+    --trees-selected-bg-override: color-mix(in oklab, var(--vh-ws-accent) 12%, transparent);
+    --trees-selected-fg-override: var(--vh-highlighted);
+    border: 0; border-radius: 0; color-scheme: inherit; height: 100%;
+  }
+  .vh-ws-file-icon { flex: none; height: 16px; width: 16px; }
   .vh-ws-editor { background: var(--vh-ws-code-bg); flex: 1; height: 100%; min-height: 0; overflow: hidden; }
   .vh-ws-editor .cm-editor { height: 100%; }
-  .vh-ws-editor-fallback { color: var(--vh-ws-code-fg); font-family: var(--vh-ws-font-mono); font-size: 13px; line-height: 1.6; margin: 0; overflow: auto; padding: 8px 12px 8px 3.5rem; white-space: pre; }
+  .vh-ws-editor-fallback { color: var(--vh-ws-code-fg); font-family: var(--vh-ws-font-mono); font-size: 12.5px; line-height: 1.65; margin: 0; overflow: auto; padding: 8px 16px 8px 44px; white-space: pre; }
+  .vh-ws-editor[data-wrap] .vh-ws-editor-fallback { overflow-wrap: anywhere; white-space: pre-wrap; }
+  /* The editor head: the breadcrumb of the open file and the wrap button. It fills the head row of the shell. */
+  .vh-ws-file-head { align-items: center; align-self: stretch; display: flex; flex: 1; gap: 4px; min-width: 0; }
+  .vh-ws-file-head-spacer { flex: 1; }
+  .vh-ws-breadcrumb { align-items: center; color: var(--vh-text); display: flex; font-size: 12.5px; gap: 2px; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .vh-ws-breadcrumb > span { color: var(--vh-muted); }
+  .vh-ws-breadcrumb-separator { color: var(--vh-dimmed); flex: none; height: 13px; stroke-width: 1.5; width: 13px; }
+  .vh-ws-breadcrumb b { color: var(--vh-highlighted); font-weight: 500; margin-left: 3px; overflow: hidden; text-overflow: ellipsis; }
+  .vh-ws-wrap-button.vh-ws-wrap-button { border-radius: 4px; color: var(--vh-muted); flex: none; height: 24px; justify-content: center; min-height: 0; padding: 0; width: 24px; }
+  .vh-ws-wrap-button svg { height: 15px; stroke-width: 1.5; width: 15px; }
+  .vh-ws-wrap-button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
+  /* The status line items. The shell gives the line its height, its gap, and its padding. */
+  .vh-ws-status-items { align-items: center; display: flex; flex: 1; gap: inherit; min-width: 0; }
+  .vh-ws-status-spacer { flex: 1; }
   .vh-ws-terminal { background: var(--vh-ws-terminal-bg); flex: 1; height: 100%; min-height: 0; padding: 0.5rem 0 0 0.75rem; }
   .vh-ws-terminal .xterm, .vh-ws-terminal .xterm-viewport { background: var(--vh-ws-terminal-bg) !important; }
 
@@ -3872,15 +3910,12 @@
   .vh-pc-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
   .vh-pc-pane-header { align-items: center; border-bottom: 1px solid var(--vh-border); box-sizing: border-box; display: flex; flex: none; gap: 0.5rem; height: var(--vh-ws-head); padding: 0 0.75rem; }
   .vh-pc .vh-ws-preview-bar { height: 2.25rem; }
-  .vh-pc .vh-ws-editor-head .vh-pc-muted { font-size: 0.75rem; }
   .vh-pc-pane-body { display: flex; flex: 1; flex-direction: column; min-height: 0; position: relative; }
   .vh-pc-pane-title { color: var(--vh-muted); font-size: 0.75rem; font-weight: 500; }
   .vh-pc-pane-header .vh-pc-muted { font-size: 0.75rem; }
-  .vh-pc-path { color: var(--vh-text); font-family: var(--vh-ws-font-mono); font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* The file column is one tinted surface, header included. */
   .vh-pc-files { background: var(--vh-bg-muted); }
-  .vh-pc-files .vh-ws-file-tree { --trees-bg-override: var(--vh-bg-muted); }
-  .vh-pc-tree { flex: 1; min-height: 0; overflow: auto; padding: 0.25rem 0; }
+  .vh-pc-tree { flex: 1; min-height: 0; overflow: auto; }
   .vh-pc-scroll { height: 100%; overflow: auto; }
   /* The checklist sits in the middle of the preview, with room on every side. */
   .vh-pc-boot { align-items: center; display: flex; flex: 1; justify-content: center; overflow: auto; padding: 2rem 1.5rem; }

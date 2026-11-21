@@ -11,17 +11,20 @@ const component = defineComponent({
   props: { params: { required: true, type: Object as PropType<URLSearchParams> } },
   setup(props) {
     const layout = (props.params.get("layout") ?? "side") as WorkspaceLayout;
-    return () => h(WorkspaceShell, { layout, storageKey: false, style: "border: 0; border-radius: 0" }, {
+    return () => h(WorkspaceShell, {
+      layout,
+      storageKey: props.params.has("persist") ? "workspace-parts:test" : false,
+      style: { border: "0", borderRadius: "0", width: props.params.get("width") ?? undefined },
+    }, {
       bar: fill("bar"),
       files: fill("files"),
       "editor-head": () => h("span", "src/app.vue"),
       editor: fill("editor"),
       status: () => h("span", "Vue"),
       guide: fill("guide"),
-      preview: fill("preview"),
-      terminal: fill("terminal"),
+      ...!props.params.has("no-output") && { preview: fill("preview"), terminal: fill("terminal") },
     });
   },
 });
 
-export default { component, ready: ".vh-ws-tab-list [role=tab]" } satisfies WorkspacePartFixture;
+export default { component, ready: ".vh-ws-editor-body" } satisfies WorkspacePartFixture;

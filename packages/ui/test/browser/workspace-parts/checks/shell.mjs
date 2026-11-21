@@ -65,4 +65,39 @@ export default function ({ test, open, rects, near }) {
     near(Number(await line.getAttribute("aria-valuenow")), 30, "after a drag to 30%")
     near((await rects(page, selectors)).guide.h, column.h * 0.3, "guide height after the drag")
   })
+
+  test("shell guide-top: the code column fills the shell without output", async () => {
+    const page = await open("shell", { layout: "guide-top", "no-output": "" })
+    const got = await rects(page, { ...selectors, body: ".vh-ws-body" })
+    near(got.column.w, got.body.w, "full-width guide and code column")
+  })
+
+  for (const [layout, width] of [["side", 768], ["guide-top", 1024], ["guide-side", 520]]) {
+    test(`shell ${layout}: the editor keeps room at ${width}px`, async () => {
+      const page = await open("shell", { layout, persist: "" })
+      const divider = page.locator("[data-split=files]")
+      if (layout !== "guide-side") {
+        if (layout === "guide-top") await page.locator("[data-split=code]").press("Home")
+        await divider.press("End")
+      }
+      await page.locator(".vh-ws-shell").evaluate((element, width) => { element.style.width = `${width}px` }, width)
+      const check = async () => {
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+        const got = await rects(page, selectors)
+        near(Math.min(got.editor.w, 120), 120, "editor width of at least 120px")
+      }
+      await check()
+      await page.goto(`${page.url()}&width=${width}px`)
+      await page.locator("html[data-ready]").waitFor({ state: "attached" })
+      await check()
+
+      const code = (await rects(page, selectors)).code
+      const line = await divider.boundingBox()
+      await page.mouse.move(line.x, line.y + 10)
+      await page.mouse.down()
+      await page.mouse.move(code.x + code.w - 5, line.y + 10)
+      await page.mouse.up()
+      await check()
+    })
+  }
 }

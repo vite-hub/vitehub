@@ -7,7 +7,7 @@ import { createCodeEditor } from "../src/workspace/codemirror.ts";
 it("names the editor for the selected file after switching documents", async () => {
   const parent = document.createElement("div");
   const onChange = vi.fn();
-  const editor = createCodeEditor({ doc: "first", onChange, parent, path: "server.txt", readonly: false });
+  const editor = createCodeEditor({ doc: "first", onChange, onCursor: () => {}, onToggleWrap: () => {}, parent, path: "server.txt", readonly: false, wrap: false });
   try {
     expect(parent.querySelector(".cm-content")?.getAttribute("aria-label")).toBe("Edit server.txt");
     editor.setDoc("second", "lib/greeting.txt");

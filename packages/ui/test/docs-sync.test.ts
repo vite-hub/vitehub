@@ -9,6 +9,7 @@ import { WorkspaceGuide } from "../src/workspace/workspace-guide.ts";
 import { WorkspaceIssues } from "../src/workspace/workspace-issues.ts";
 import { WorkspaceSteps } from "../src/workspace/workspace-steps.ts";
 import { WorkspaceTask } from "../src/workspace/workspace-task.ts";
+import * as workspace from "../src/workspace.ts";
 
 // Each public component maps to the docs page that documents it. A new component needs a page here.
 const pages: Record<string, string> = {
@@ -112,6 +113,15 @@ const pages: Record<string, string> = {
   TraceTitle: "trace",
 };
 
+// The documented parts of `vite-hub/ui/workspace`. A new documented part needs a page here.
+const workspacePages: Record<string, string> = {
+  WorkspaceEditor: "workspace-code",
+  WorkspaceEditorHead: "workspace-code",
+  WorkspaceFileTree: "workspace-code",
+  WorkspaceStatus: "workspace-code",
+};
+Object.assign(pages, workspacePages);
+
 const docsRoot = resolve(import.meta.dirname, "../../../docs/content/docs/ui");
 
 function isComponent(value: unknown): value is { emits?: Record<string, unknown> | string[]; name?: string; props?: Record<string, unknown> } {
@@ -129,7 +139,8 @@ function documentedNames(page: string, heading: string): Set<string> {
 }
 
 describe("UI docs stay in sync with the public components", () => {
-  const components = Object.entries(ui).flatMap(([name, component]) => isComponent(component) ? [[name, component] as const] : []);
+  const components = Object.entries(ui).flatMap(([name, component]) => isComponent(component) ? [[name, component] as const] : [])
+    .concat(Object.entries(workspace).flatMap(([name, component]) => isComponent(component) && workspacePages[name] ? [[name, component] as const] : []));
 
   it("maps every public component to a docs page", () => {
     const pageNames = new Set(readdirSync(docsRoot).filter(file => file.endsWith(".md")).map(file => file.slice(0, -3)));

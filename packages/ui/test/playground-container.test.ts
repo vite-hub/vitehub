@@ -142,13 +142,13 @@ describe("PlaygroundContainer", () => {
     expect(fake.runs).toEqual(["dev"]);
     expect(wrapper.emitted("update:open")).toEqual([[true]]);
     expect(wrapper.get(".vh-pc-run-state").text()).toBe("Running");
-    expect(wrapper.get(".vh-pc-path").text()).toBe("server/api/health.get.ts");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/health.get.ts");
     expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console"]);
 
     await context!.workspace.setFiles({ "server/api/health.get.ts": "export default () => 'edited'\n" });
     await flushPromises();
     expect(context!.edited).toEqual(["server/api/health.get.ts"]);
-    expect(wrapper.text()).toContain("Edited");
+    expect(wrapper.findComponent({ name: "WorkspaceFileTree" }).props("edited")).toEqual(["server/api/health.get.ts"]);
 
     // Blob has the same snapshot and manifest, so it opens in place after the question.
     await wrapper.get("[data-item='Blob']").trigger("click");
@@ -159,7 +159,7 @@ describe("PlaygroundContainer", () => {
     expect(fake.boots).toHaveLength(1);
     expect(fake.disk.get("server/api/note.get.ts")).toBe(blob.files["server/api/note.get.ts"]);
     expect(context!.edited).toEqual([]);
-    expect(wrapper.get(".vh-pc-path").text()).toBe("server/api/note.get.ts");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
 
     // Agent has another snapshot, so it boots again. Without edits there is no question.
     await wrapper.get("[data-item='Agent']").trigger("click");
@@ -249,7 +249,7 @@ describe("PlaygroundContainer", () => {
     await wrapper.get("[data-item='Agent']").trigger("click");
     await flushPromises();
     expect(fake.boots.at(-1)?.files).toEqual(agent.files);
-    expect(wrapper.get(".vh-pc-path").text()).toBe("package.json");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("package.json");
     expect(selected.value).toBe("package.json");
     wrapper.unmount();
   });
@@ -262,16 +262,23 @@ describe("PlaygroundContainer", () => {
         templates: [kv],
         share: false,
         connect: defineConnect({ github: true }),
-        tabs: [{ label: "Messages", value: "messages" }],
+        tabs: [{ label: "Messages", value: "messages" }, { label: "Status", value: "status" }, { label: "Path", value: "editor-head" }],
       },
       slots: {
         messages: () => h("p", "messages"),
+        status: () => h("button", "Custom status"),
+        "editor-head": () => h("p", "Custom path"),
         toolbar: ({ edited }: PlaygroundContext) => h("span", { class: "extra" }, `${edited.length} edited`),
       },
     });
     await flushPromises();
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages"]);
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages", "Status", "Path"]);
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
+    expect(wrapper.get(".vh-ws-editor-head .vh-pc-path").text()).not.toBe("Custom path");
+    expect(wrapper.find(".vh-ws-status").exists()).toBe(false);
+    expect(wrapper.get("[data-tab='status']").attributes()).toHaveProperty("inert");
+    expect(wrapper.get("[data-tab='status']").text()).toBe("Custom status");
+    expect(wrapper.get("[data-tab='editor-head']").text()).toBe("Custom path");
     expect(wrapper.get(".extra").text()).toBe("0 edited");
     expect(wrapper.text()).not.toContain("Copy link");
     expect(wrapper.find(".vh-pc-toolbar .menu").exists()).toBe(true);

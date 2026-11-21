@@ -257,6 +257,24 @@ describe("WorkspaceShell", () => {
     await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console", "Messages2"]), { timeout: 5_000 });
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
   });
+
+  it("keeps layout slots separate from tabs with the same value", async () => {
+    const wrapper = mount(WorkspaceShell, {
+      props: { layout: "guide-top", storageKey: false, tabs: [{ label: "Guide", value: "guide" }, { label: "Status", value: "status" }] },
+      slots: {
+        guide: () => h("p", "Layout guide"),
+        status: () => h("p", "Editor status"),
+        "tab-guide": () => h("p", "Output guide"),
+      },
+    });
+    expect(wrapper.get(".vh-ws-guide").text()).toBe("Layout guide");
+    expect(wrapper.get("[data-tab='guide']").text()).toBe("Output guide");
+    expect(wrapper.get(".vh-ws-status").text()).toBe("Editor status");
+    expect(wrapper.get("[data-tab='status']").text()).toBe("");
+    await wrapper.setProps({ tab: "status" });
+    expect(wrapper.get("[data-tab='guide']").attributes()).toHaveProperty("inert");
+    wrapper.unmount();
+  });
 });
 
 describe("WorkspacePreview", () => {
