@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
@@ -549,7 +549,13 @@ export default defineConfig({
               if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
               const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
               for (const file of files) {
-                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
+                const source = readFileSync(resolve(root, file));
+                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
+                // Also publish it at `node_modules/vite-hub/skills/<name>/`, where agents look for a package's skills. Write
+                // without reading the old copy: a task that reads a file it writes is not cached.
+                const target = resolve(import.meta.dirname, "skills", name, file);
+                mkdirSync(dirname(target), { recursive: true });
+                writeFileSync(target, source);
               }
               return { name, description, files };
             });

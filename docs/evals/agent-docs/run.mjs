@@ -49,7 +49,8 @@ function writeDocs(target, includeAgentOnly, references) {
   }
 }
 
-function writeProject(root) {
+/** Writes a new Vite app, then the task's `files`, which set the task in an existing app. */
+function writeProject(root, files = {}) {
   writeFileSync(resolve(root, "package.json"), `${JSON.stringify({
     name: "eval-app",
     private: true,
@@ -66,6 +67,10 @@ function writeProject(root) {
     "})",
     "",
   ].join("\n"));
+  for (const [path, source] of Object.entries(files)) {
+    mkdirSync(dirname(resolve(root, path)), { recursive: true });
+    writeFileSync(resolve(root, path), source);
+  }
 }
 
 const instructions = [
@@ -119,7 +124,7 @@ const results = [];
 async function runJob({ attempt, task, variant }) {
   const root = resolve(outputRoot, `${task.id}-${variant}-${attempt}`);
   mkdirSync(root, { recursive: true });
-  writeProject(root);
+  writeProject(root, task.files);
   writeDocs(resolve(root, "vitehub-docs"), variant === "agent", references);
   const started = Date.now();
   const run = await runAgent(root, task.prompt);

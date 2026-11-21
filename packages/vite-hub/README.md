@@ -11,6 +11,10 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 
 `VITEHUB_HOST` selects the deployment host and is reserved. For an application Env field named `host`, use `env.source("APP_HOST", { canonical: false })` or a custom Env prefix.
 
+## Agent skill
+
+The package ships the `vitehub` agent skill at `node_modules/vite-hub/skills/vitehub/SKILL.md`. Point your coding agent at it before it changes an app that uses ViteHub. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
+
 ## Install
 
 ```sh

@@ -32,6 +32,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "tsconfig.json",
     "package.json"
   ],

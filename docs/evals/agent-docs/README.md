@@ -24,6 +24,8 @@ The runner prints one line per run, the failed checks, and a summary per variant
 
 Add an entry to [tasks.json](tasks.json). Each check names a file path pattern, a source pattern, and an optional `"expect": false` for code that must not appear. Base the checks on the current tutorial or Server API page, not on memory.
 
+To set a task in an existing app, add `files`: each key is a path in the project and each value is its source. They replace the default `package.json` and `vite.config.ts` when they name them. Write the prompt as the app's developer would: name the problem, not the ViteHub feature, so the run shows whether the agent finds the built-in.
+
 ## Use the result
 
 When a check fails in both variants, the docs do not give the agent what it needs. Find the cause in the kept project, then:

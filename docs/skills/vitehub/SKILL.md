@@ -1,11 +1,11 @@
 ---
 name: vitehub
-description: Build and debug complete ViteHub apps from live docs and installed contracts. Use for server primitives and Runtime Helpers; Agent Definitions, Drivers, Capabilities, Workspaces, Sources, Channels, Triggers, or orchestration; Vite/Nuxt integration, Provider Output, previews, hosts, and deployment.
+description: Build, change, and debug ViteHub apps. Use in an app with ViteHub before you write auth, migration, storage, realtime, skill, logging, rate limit, env, or deploy code, and for server primitives and Runtime Helpers, Agent Definitions, Provider Output, hosts, and deployment.
 ---
 
 # ViteHub
 
-Use one proof loop: orient, route, inspect the contract, build, and prove. Exact package exports, installed types, and current raw docs outrank remembered or project-example syntax.
+Use one proof loop: orient, look up the built-in, route, inspect the contract, build, and prove. Exact package exports, installed types, and current raw docs outrank remembered or project-example syntax.
 
 ## 1. Orient
 
@@ -17,7 +17,34 @@ Use one proof loop: orient, route, inspect the contract, build, and prove. Exact
 
 Orientation is complete when the current setup, target outcome, host boundary, and first docs URL are named.
 
-## 2. Route before code
+## 2. Look up the built-in first
+
+ViteHub ships code that apps often write by hand. Before you write or change auth, migration, storage, realtime, skill, logging, rate limit, env, or deploy code, find the problem in this table. Also read the app code that already does the job: a built-in can ship after the app wrote its own version.
+
+| Problem | Built-in | Docs |
+| --- | --- | --- |
+| Migrations: a `drizzle.config.ts`, `drizzle-kit` scripts, or SQL files written by hand | `vitehub database generate`, then `vitehub database migrate`. `vitehub database up` converts an old folder once | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#apply-migrations) |
+| Apply migrations when the server starts or deploys: a custom migrator, or `wrangler d1 migrations apply` in a script | `database.migrateOnStart` on Node, `database.migrateOnDeploy` on Cloudflare, `ensureMigrations()` in a task or test | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#migrate-when-the-server-starts) |
+| Copy the SQLite file before migrations, such as with `VACUUM INTO` | `database.migrateOnStart: { backup: true }` | [database/configure](https://vitehub.dev/raw/docs/database/configure.md#back-up-sqlite-before-migrations) |
+| Dump a database to a SQL file | `vitehub database export` | [cli/primitives](https://vitehub.dev/raw/docs/cli/primitives.md) |
+| Split a long `inArray()` list or a multi-row insert for the D1 parameter limit | `chunkParameters()` from `vite-hub/database` | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#stay-under-the-bound-parameter-limit) |
+| Run a webhook or a retried request once per key | `withIdempotency()` from `vite-hub/database` | [database/server-api](https://vitehub.dev/raw/docs/database/server-api.md#run-work-once-for-a-key) |
+| Let one runner at a time do a job, such as a get-then-set flag on a storage key | `kv.lock(key, { ttl }).run()` from `vite-hub/kv` | [kv/server-api](https://vitehub.dev/raw/docs/kv/server-api.md#locks) |
+| Sign people in from the headers of oauth2-proxy (`x-auth-request-*`), Cloudflare Access, or Tailscale Serve | `forwardAuth()` from `vite-hub/auth/forward` | [auth/configure](https://vitehub.dev/raw/docs/auth/configure.md#sign-in-through-a-trusted-proxy) |
+| Turn skills on and off while the app runs, such as with a settings table | `skillSettings()` from `vite-hub/skills` | [console/skills](https://vitehub.dev/raw/docs/console/skills.md#turn-skills-on-and-off) |
+| Presence or cursors in a Realtime room that has no shared document | `defineRealtime({ document: false })` | [realtime/server-api](https://vitehub.dev/raw/docs/realtime/server-api.md#presence-without-an-editor) |
+| Limit requests per user, IP, or key | `requireRateLimit(event, id, options)` from `vite-hub/rate-limit` | [rate-limit/server-api](https://vitehub.dev/raw/docs/rate-limit/server-api.md) |
+| A same-origin check for writes, a request body limit, or security headers | `sameOriginWrites: true` and `security` with `maxBodySize` in `vitehub()` | [frameworks-hosts/production](https://vitehub.dev/raw/docs/frameworks-hosts/production.md#add-security-headers-and-a-body-limit) |
+| Read and check `process.env` values | `vitehub({ env })` and `useServerEnv()` from `vite-hub/env` | [env/configure](https://vitehub.dev/raw/docs/env/configure.md) |
+| A logger or a log event per request | `vitehub({ logs })` with Evlog | [logs/configure](https://vitehub.dev/raw/docs/logs/configure.md) |
+| Deploy scripts: `wrangler deploy --secrets-file`, or creating host resources by hand | `vitehub deploy`, with `--push-env` for env values | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#deploy-from-your-machine) |
+| Move ViteHub packages to a new version | `vitehub update` | [cli/project](https://vitehub.dev/raw/docs/cli/project.md#update-vitehub-packages) |
+
+When a row matches, use the built-in and delete the app's own version in the same change. When no row matches, search `https://vitehub.dev/llms.txt` for the problem before you write the code.
+
+This step is complete when each piece of planned code is a built-in, or you can name the docs page that shows ViteHub has none.
+
+## 3. Route before code
 
 Choose one primary lane. Server Primitives serve application behavior through Vite Integrations and Runtime Helpers. Agents serve model-backed, provider-backed, or custom-run behavior through Agent Definitions; they may compose Server Primitives without changing the primary lane.
 
@@ -63,7 +90,7 @@ Read only the references whose conditions match, but read them before writing co
 
 Routing is complete when every requested behavior has one primary lane and every matching reference has been read. Start with the smallest matching set, then add a cross-cutting reference when the task spans lanes.
 
-## 3. Inspect the installed contract
+## 4. Inspect the installed contract
 
 - Read each installed package's `package.json`, exports, relevant types, and generated declarations before writing imports or options.
 - For a fresh application, create it with `vitehub init` (see [Project shapes](references/project-shapes.md)), then use the root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`. `vitehub add` installs it, `vitehub status` lists any that is missing, and the build error names it. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
@@ -71,7 +98,7 @@ Routing is complete when every requested behavior has one primary lane and every
 
 Contract inspection is complete when every planned package, import, option, generated path, and runtime entry exists in the installed graph; no syntax is inferred only from memory.
 
-## 4. Build the coherent file set
+## 5. Build the coherent file set
 
 Before editing, map every requested behavior to:
 
@@ -90,10 +117,20 @@ Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` b
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.
 
-## 5. Prove and repair
+## 6. Prove and repair
 
 - Run the narrow typecheck or package test nearest the change, then the relevant build.
+- Run Vite Doctor with the ViteHub rules. The `vite-doctor` CLI does not read `vite.config.ts`, so register the extension in a config file. Name the pack in `extends`, or its rules do not run. `auto` keeps the other packs:
+
+  ```ts [doctor.config.ts]
+  import { defineDoctorConfig } from 'vite-doctor/config'
+  import vitehub from 'vite-hub/doctor'
+
+  export default defineDoctorConfig({ extensions: [vitehub], extends: ['auto', 'vitehub/recommended'] })
+  ```
+
+  Run `pnpm vite-doctor . --config doctor.config.ts` and fix each `VHUB` finding. See [Doctor rules](https://vitehub.dev/raw/docs/reference/doctor-rules.md).
 - Prove the actual lane: execute the Runtime Helper, perform an Agent Invocation, exercise the webhook or schedule, or inspect generated Provider Output.
 - On failure, return to installed exports/types, `.vitehub` generated state, the selected raw docs page, and [Proof and recovery](references/proof-recovery.md). Repair the cause and rerun the same proof.
 
-The task is complete when every behavior row has an observed result, or a precise source-backed unsupported boundary. Report commands and observations, docs URLs, installed ViteHub versions or preview commit, contract mismatches, and host limitations.
+The task is complete when every behavior row has an observed result, or a precise source-backed unsupported boundary, and Doctor reports no `VHUB` finding. Report commands and observations, docs URLs, installed ViteHub versions or preview commit, contract mismatches, and host limitations.
