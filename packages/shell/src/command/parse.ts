@@ -1,11 +1,11 @@
-import { BinCmdOperator, LangVariant, RedirOperator, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
+import { BinCmdOperator, LangVariant, RedirOperator, createSourceIndex, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 import { parseShell } from "./sh-syntax.ts"
 
 type SourceIndex = (byteOffset: number) => number
 
-export function wordText(word: Word, source: string, toIndex = createSourceIndex(source)): string {
+export function wordText(word: Word, source: string, toIndex: SourceIndex = createSourceIndex(source)): string {
   return word.parts.map(part => wordPartText(part, source, toIndex, false)).join("")
 }
 
@@ -215,25 +215,6 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
     default:
       return undefined
   }
-}
-
-export function createSourceIndex(source: string): SourceIndex {
-  const indexes = [0]
-  let byteOffset = 0
-  for (let index = 0; index < source.length;) {
-    const codePoint = source.codePointAt(index)!
-    byteOffset += utf8Length(codePoint)
-    index += codePoint > 0xffff ? 2 : 1
-    indexes[byteOffset] = index
-  }
-  return offset => indexes[offset] ?? source.length
-}
-
-function utf8Length(codePoint: number): number {
-  if (codePoint <= 0x7f) return 1
-  if (codePoint <= 0x7ff) return 2
-  if (codePoint <= 0xffff) return 3
-  return 4
 }
 
 function stripLineContinuations(command: string) {

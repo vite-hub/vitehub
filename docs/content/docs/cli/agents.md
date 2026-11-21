@@ -48,6 +48,36 @@ With the Console on, `vitehub agent list` lists the Agents of the app, and `vite
 
 `agent get`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
 
+## Inspect the AI emulator
+
+When `VITEHUB_MODELS=emulate` sends Agent models to the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator), print its rules and recent calls:
+
+```bash [Terminal]
+pnpm vitehub agent emulator
+pnpm vitehub agent emulator --json
+```
+
+```txt [Output]
+AI emulator: http://127.0.0.1:45155
+Strict: no, a request that no rule matches gets a default reply
+
+Rules: 2
+  ID       Left       Answer
+  greet    2 of 3     reply
+  weather  unlimited  reply
+
+Calls: 3
+  #  Time      Model           Format            Status  Rule
+  1  11:45:04  openai/gpt-5.1  openai-responses  200     greet
+  2  11:45:05  openai/gpt-5.1  openai-responses  200     weather
+  3  11:45:06  openai/gpt-5.1  openai-responses  200     default (echo)
+```
+
+`Left` is the `times` budget that is left. The table shows the last 10 calls. `--json` prints the upstream `/_ai/rules` and `/_ai/calls` responses and the URL.
+The command reads `VITEHUB_EMULATE_URL`. Without it, it asks the dev server of this project, or the app of `--url`. The dev server of this project is found also when the Vite `root` is a subdirectory. When no emulator answers, it fails with `AGENT_EMULATOR_NOT_RUNNING`. With `agent: { cli: false }`, the project has no `agent emulator` command, and only `VITEHUB_EMULATE_URL` or `--url` works.
+It needs no ViteHub config when `VITEHUB_EMULATE_URL` or `--url` names the target. A server that does not return the emulator `/_ai/rules` and `/_ai/calls` shapes also fails with `AGENT_EMULATOR_NOT_RUNNING`. `Rule` is `none` when no rule or default answered a call, for example a strict-mode rejection or a malformed request.
+`vitehub agent get` also prints `AI emulator: <url>` for the dev server. [Provider status](/docs/agents/provider-status) tells whether the Driver of the Agent runs on it.
+
 ## Cancel an Agent Invocation
 
 Start the Vite + Nitro dev server, then cancel one pending or running Agent Invocation by its journal id.
@@ -100,6 +130,35 @@ Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [sig
 `--url` is the app URL. A Console URL, such as `http://localhost:3000/_vitehub`, fails with the app URL to pass instead. Cancellation uses the guarded dev endpoint when the URL matches this project's dev server. A local production build still uses its Console.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
+
+## Move unscoped Chat State
+
+An Agent with an explicit `messages.state` keeps its Chat State keys without a scope, such as `thread-state:teams:<conversation>`. The provider default State (`agent.providers.state`) keeps them under the Agent and Channel: `chat:<agent>:<channel>:thread-state:teams:<conversation>`. To move to the provider default without losing threads, subscriptions, queued messages, or transcripts, move the old keys once.
+
+Stop the app, then run the command against the same database. Without `--apply`, it only reads the database and prints the moves.
+
+```bash [Terminal]
+pnpm vitehub agent state migrate --agent bot --channel teams --url file:/var/lib/app/chat_state.sqlite.db
+pnpm vitehub agent state migrate --agent bot --channel teams --url file:/var/lib/app/chat_state.sqlite.db --apply
+```
+
+```txt [Output]
+2 keys move to their Channel scope.
+  cache         thread-state:teams:a1 -> chat:bot:teams:thread-state:teams:a1
+  subscriptions teams:a1 -> chat:bot:teams:teams:a1
+1 key names no listed adapter and stays:
+  chat:callback:9f2c
+Dry run: nothing changed. Run the command again with --apply to move the keys.
+```
+
+- `--channel <adapter>` picks keys by the adapter name at their start, such as `teams:` or `thread-state:teams:`. When the Channel key in `channels` differs from the adapter name, pass both: `--channel discord=support`. Repeat the flag for each Channel. The keys name only the adapter, so the command stops when one adapter names two Channels.
+- User transcripts of a listed adapter (`transcripts:user:<adapter>:<user>`) move to the Agent scope, `chat:<agent>:`, as the provider default stores them. Other identities stay. If a custom `identity` uses the same format, the command cannot tell it apart from a default identity; check the planned moves before applying them.
+- Keys of other adapters, keys without an adapter, and keys that ViteHub already scoped stay. Locks stay too, because they expire.
+- A key whose scoped copy already exists stays, so the command never replaces newer data. Running it again is safe.
+- `--url` defaults to `VITEHUB_AGENT_STATE_URL`, and `VITEHUB_AGENT_STATE_AUTH_TOKEN` authenticates a libSQL server. `--table-prefix` matches a custom `tablePrefix`. The command reads only libSQL and SQLite State, not the Cloudflare Durable Object State.
+- When one adapter served several Agents through the same unscoped State, the keys do not say which Agent wrote them. The command moves all of them to `--agent`.
+
+Then point the provider default State at the same database: set `VITEHUB_AGENT_STATE_URL`, or `url` in `agent.providers.state`, and the same `tablePrefix`. Without that, the provider default opens its own database and does not see the moved keys. Remove `messages.state` and start the app.
 
 ## Talk to an Agent during development
 

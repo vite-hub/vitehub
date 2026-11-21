@@ -54,11 +54,12 @@ export function createAgentHealth(options: AgentHealthOptions): () => Promise<Ag
       diagnostics.push({ label: 'Runtime', status: 'ok', value: globalThis.process?.version ? `Node ${globalThis.process.version}` : 'Server runtime' })
     }
     const status = await readStatus(agent, agent.name ?? options.name)
-    diagnostics.push({
+    if (status.emulated && status.readiness === 'ready') diagnostics.push({ label: 'Provider', status: 'ok', value: 'Emulated', detail: `AI emulator at ${status.emulated.url}` })
+    else diagnostics.push({
       label: 'Provider',
       status: status.readiness === 'ready' && !status.stale ? 'ok' : status.readiness === 'unsupported' ? 'neutral' : 'warning',
       value: status.readiness === 'ready' && !status.stale ? 'Ready' : status.stale ? 'Status unavailable' : status.readiness,
-      detail: status.checkedAt ? `Checked ${status.checkedAt}` : undefined,
+      detail: status.code ?? (status.checkedAt ? `Checked ${status.checkedAt}` : undefined),
     })
     diagnostics.push({ label: 'Agent', status: 'ok', value: agent.name ?? options.name })
     const model = driver?.provider?.model ?? driver?.model?.id

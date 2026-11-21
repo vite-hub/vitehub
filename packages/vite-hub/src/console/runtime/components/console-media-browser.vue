@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createDropField, type DropField } from "@vite-hub/ui/motion";
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
@@ -290,7 +291,8 @@ const uploads = useConsoleMediaUploads(() => props.client, (result) => {
   }
 });
 const fileInput = ref<HTMLInputElement>();
-const dragDepth = ref(0);
+const browser = ref<HTMLElement>();
+const dropSurface = ref<HTMLElement>();
 
 async function upload(files: readonly File[]): Promise<ConsoleMediaUploadResult[]> {
   if (!files.length) return [];
@@ -318,29 +320,18 @@ function hasFiles(event: DragEvent): boolean {
   return [...event.dataTransfer?.types ?? []].includes("Files");
 }
 
-function dragenter(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  dragDepth.value++;
-}
-
-function dragover(event: DragEvent): void {
-  if (!hasFiles(event) || !canWrite.value) return;
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
-}
-
-function dragleave(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  dragDepth.value = Math.max(0, dragDepth.value - 1);
-}
-
-function drop(event: DragEvent): void {
-  if (!hasFiles(event)) return;
-  event.preventDefault();
-  dragDepth.value = 0;
-  void upload([...event.dataTransfer?.files ?? []]);
-}
+// The whole browser takes a drop. The drop field of @vite-hub/ui marks it with `data-over`, which shows the drop
+// target, and the dots of the target lean toward the file.
+let dropField: DropField | undefined;
+onMounted(() => {
+  if (!browser.value || !dropSurface.value) return;
+  dropField = createDropField(browser.value, {
+    accepts: event => hasFiles(event) && canWrite.value,
+    onFiles: files => void upload(files),
+    surface: dropSurface.value,
+  });
+});
+onBeforeUnmount(() => dropField?.destroy());
 
 // Folders
 
@@ -527,11 +518,8 @@ defineExpose({
 
 <template>
   <div
+    ref="browser"
     class="vitehub-media-browser relative flex min-h-0 flex-1 flex-col"
-    @dragenter="dragenter"
-    @dragover="dragover"
-    @dragleave="dragleave"
-    @drop="drop"
     @keydown="keydown"
   >
     <ConsolePageToolbar>
@@ -717,7 +705,7 @@ defineExpose({
       </UTooltip>
     </div>
 
-    <div v-if="dragDepth > 0" class="vitehub-media-drop" aria-hidden="true">
+    <div ref="dropSurface" class="vitehub-media-drop" aria-hidden="true">
       <div class="flex flex-col items-center gap-2 text-center">
         <Icon name="i-lucide-upload" class="size-6 text-highlighted" />
         <p class="text-sm font-medium text-highlighted">Drop to upload to {{ folderLabel(folder) }}</p>
@@ -940,8 +928,13 @@ defineExpose({
   z-index: 15;
 }
 
-/* The drop target covers the whole browser, so a file can land anywhere on it. */
+/* The drop target covers the whole browser, so a file can land anywhere on it. It shows while a file is over it. */
+.vitehub-media-browser:not([data-over]) > .vitehub-media-drop {
+  display: none;
+}
+
 .vitehub-media-drop {
+  --vh-drop-dot: var(--ui-text-highlighted);
   align-items: center;
   background: color-mix(in oklab, var(--background) 85%, transparent);
   border: 1px dashed var(--foreground);

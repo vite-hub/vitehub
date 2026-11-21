@@ -22,7 +22,8 @@ export const overlayStyles = `
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 
-.cursor { position: fixed; transform: translate(-2px, -2px); transition: left 80ms linear, top 80ms linear; }
+/* Each cursor moves to its next place with the list mover of the motion layer. */
+.cursor { position: fixed; transform: translate(-2px, -2px); }
 .cursor svg { display: block; filter: drop-shadow(0 1px 1px rgb(0 0 0 / .25)); }
 .cursor span { display: inline-block; margin: 2px 0 0 12px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #18181b; white-space: nowrap; box-shadow: 0 1px 3px rgb(0 0 0 / .2); }
 
@@ -38,7 +39,9 @@ export const overlayStyles = `
 @media (pointer: coarse) { .card input { font-size: 16px; } }
 .card .row { display: flex; justify-content: flex-end; gap: 6px; }
 
-.toast { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; max-width: min(520px, calc(100vw - 32px)); padding: 8px 8px 8px 14px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: 12px; box-shadow: 0 8px 24px -6px rgb(0 0 0 / .16); display: flex; gap: 12px; align-items: center; font-size: 13px; text-wrap: pretty; }
+/* The toast is the item of a notifications region, so the toast effect of the motion layer brings it in from the bottom edge. */
+.toasts { position: fixed; left: 50%; bottom: 68px; translate: -50% 0; z-index: 2147483001; display: grid; justify-items: center; margin: 0; padding: 0; list-style: none; }
+.toast { max-width: min(520px, calc(100vw - 32px)); padding: 8px 8px 8px 14px; background: var(--vh-bg); color: var(--vh-text); border: 1px solid var(--vh-border); border-radius: 12px; box-shadow: 0 8px 24px -6px rgb(0 0 0 / .16); display: flex; gap: 12px; align-items: center; font-size: 13px; text-wrap: pretty; }
 .toast[data-kind="error"] { border-color: color-mix(in oklab, var(--vh-error) 45%, transparent); }
 .toast a { color: var(--vh-primary); font-weight: 500; white-space: nowrap; text-underline-offset: 3px; }
 .toast > span { padding: 4px 0; }
@@ -52,45 +55,41 @@ export const overlayStyles = `
 [data-slot="comment-layer-item"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) * -1); }
 [data-slot="comment-layer-item"][data-kind="text"] { --pin-x: 0px; --pin-y: calc(var(--vh-comment-pin-size) / -2); }
 [data-slot="comment-layer-item"]:is([data-kind="area"], [data-kind="image"]) { --pin-x: calc(var(--vh-comment-pin-size) / -2); --pin-y: calc(var(--vh-comment-pin-size) / -2); }
-[data-slot="comment-pin"] { touch-action: manipulation; transform: translate(var(--pin-x), var(--pin-y)); }
+/* The pin's own transform is its zoom and its active size, from comment-marks.css. */
+[data-slot="comment-pin"] { touch-action: manipulation; translate: var(--pin-x) var(--pin-y); }
 [data-kind="text"] > [data-slot="comment-pin"] { transform-origin: 0 50%; }
 [data-slot="comment-pin"] [data-slot="avatar-stack"] { --vh-avatar-size: var(--vh-comment-pin-size); display: block; }
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
   border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/var(--vh-comment-pin-size) "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
-/* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
-[data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
-[data-draft="true"] [data-slot="prompt-input-group"] { flex-flow: row wrap; align-items: flex-end; border: 0; box-shadow: none; background: none; }
-[data-draft="true"] [data-slot="prompt-input-attachments"] { flex-basis: 100%; }
-[data-draft="true"] [data-slot="prompt-input-textarea"] { flex: 1; min-width: 0; min-height: 2.25rem; padding: .5rem .25rem .375rem .625rem; }
-[data-draft="true"] [data-slot="prompt-input-toolbar"] { padding: .25rem; }
 [data-slot="comment-pin-number"] { display: none; }
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
 /*
  * --popover-width is the width the card wants. On a narrow screen it is the screen less 12px each side, and the card
  * moves toward the middle so that no part of it goes off screen. --vh-comment-x is the x of the spot on the screen.
+ * A dark page hides the shadow, and a Nuxt UI page's \`.dark\` tokens also reach the host, so a card can have the page's
+ * color. The hairline keeps its edge in view: a new comment's bubble edge, else the border color.
  */
 [data-slot="comment-layer-popover"] {
   --popover-width: 340px; --popover-room: min(var(--popover-width), calc(100vw - 24px));
   left: min(calc(var(--pin-x) + 36px), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
   top: var(--pin-y); width: var(--popover-room); max-width: none;
-  border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
-  transform-origin: 0 14px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
+  border-radius: 6px 16px 16px 16px; box-shadow: 0 0 0 1px var(--vh-bubble-edge, var(--vh-border)), 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
 }
 [data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
-[data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; animation: none; }
+[data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
-  left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px; transform-origin: 100% 0;
+  left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px;
 }
 [data-slot="comment-layer-item"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
-  top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+  top: auto; bottom: calc(-28px - var(--pin-y)); border-radius: 16px 16px 16px 6px;
 }
 [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
-  bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px; transform-origin: 100% 100%;
+  bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px;
 }
 [data-slot="comment-layer-item"][data-above="true"] > [data-slot="comment-layer-popover"] {
-  top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px; transform-origin: 0 100%;
+  top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px;
 }
 [data-slot="comment-layer-popover"][data-floating="true"] { border-radius: 16px; }
 /* The overlay places a card beside its pin itself, so it turns off the CSS anchor placement of @vite-hub/ui/styles.css. */
@@ -119,14 +118,6 @@ export const overlayStyles = `
 .selection { position: fixed; z-index: 2147483001; translate: -50% -100%; }
 .selection[data-below="true"] { translate: -50% 0; }
 [data-slot="comment-selection-bar-action"]:focus-visible { outline: 2px solid var(--vh-inverted); outline-offset: 1px; }
-
-@keyframes vitehub-comments-pop { from { opacity: 0; scale: .96; } }
-@keyframes vitehub-comments-enter { from { opacity: 0; transform: translateY(4px); } }
-.toast, .card { animation: vitehub-comments-enter 180ms cubic-bezier(.23, 1, .32, 1); }
-@media (prefers-reduced-motion: reduce) {
-  .toast, .card, [data-slot="comment-layer-popover"] { animation: none; }
-  .cursor { transition: none; }
-}
 `
 
 /**

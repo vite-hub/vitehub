@@ -80,6 +80,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { agentHttpError, toHttpErrorResponse, type AgentHttpError } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { acceptChannelFormAnswer, channelFormsOf, registerChannelForms } from "../internal/channel-forms.ts"
 import { chatMessageHeaderPartType, createChatMetadataEchoFilter, isChatReplyPartType, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatOmittedAttachment } from "../internal/input-attachments.ts"
@@ -202,6 +203,7 @@ import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding }
 import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
 import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
+import { chatStateAgentPrefix, chatStateChannelPrefix, chatStateScopedKey } from "../internal/chat-state-scope.ts"
 
 const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
 const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
@@ -3321,7 +3323,7 @@ function getInMemoryChatState(key: string): StateAdapter {
 }
 
 function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPrefix: string): StateAdapter {
-  const key = (value: string) => `${value.startsWith("transcripts:user:") ? agentPrefix : channelPrefix}${value}`
+  const key = (value: string) => chatStateScopedKey(value, agentPrefix, channelPrefix)
   const lock = (value: Lock) => ({ ...value, threadId: key(value.threadId) })
   const scoped: StateAdapter & { durable: boolean } = {
     durable: isDurableAgentState(state),
@@ -3402,8 +3404,8 @@ async function resolveChatState(
 ): Promise<{ state: StateAdapter; titleKeyPrefix: string }> {
   const agentName = routeAgentIdentity(handlerOptions)?.name || context.agentIdentity?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
-  const agentKeyPrefix = `chat:${agentName}:`
-  const stateKeyPrefix = `${agentKeyPrefix}${origin}:`
+  const agentKeyPrefix = chatStateAgentPrefix(agentName)
+  const stateKeyPrefix = chatStateChannelPrefix(agentName, origin)
   const state = await resolveMaybe(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
@@ -6024,6 +6026,7 @@ async function admitChatSdkMessage(
   deliveryKind: AgentMessageDeliveryKind,
   options: AgentChatOptions | undefined,
   delivery: AgentChannelDeliveryTracker,
+  state: { keyPrefix: string; state: StateAdapter },
   messageContext?: MessageContext,
   historyThroughCurrent = false,
   inlineKey?: string,
@@ -6099,6 +6102,10 @@ async function admitChatSdkMessage(
     }
   }
 
+  if (thread.adapter.name === "slack" && !interruptedChatRetryAttempt(message.id) && !await acceptChannelFormAnswer(state, thread, message)) {
+    await recordChannelDeliveryEvidence(delivery, { reason: "unhandled", type: "rejected" })
+    return
+  }
   return { input, invoker, messages, currentMessage }
 }
 
@@ -6501,7 +6508,7 @@ async function handleChatSdkMessage(
   try {
     if (inlineScope) inlineKey = `${await resolveWebhookStateBackendId(state.state)}:${inlineScope}`
     const admission = admitted || await admitChatSdkMessage(
-      agent, context, registration, thread, message, deliveryKind, options, delivery,
+      agent, context, registration, thread, message, deliveryKind, options, delivery, state,
       messageContext, historyThroughCurrent, inlineKey,
     )
     if (!admission) return
@@ -7358,7 +7365,7 @@ async function handleChatSdkMessage(
           timeout: chatInvocationTimeout(resolvedInvocationInput.timeout, remainingMaximumInvocationTimeout),
           context: {
             ...resolvedInvocationInput.context,
-            [messageChannelStateContextKey]: state,
+            [messageChannelStateContextKey]: { ...state, adapterName: thread.adapter.name },
             ...(options?.stream === false || bufferedDelivery ? { [finalChannelOutputContextKey]: true } : {}),
             ...(manualDelivery ? {} : { [chatFinalReplyContextKey]: (bufferedDelivery ? "pending" : "posted") satisfies ChatFinalReplyMode }),
           },
@@ -7683,7 +7690,7 @@ async function handleChatSdkMessages(
           const admission = await admitChatSdkMessage(
             agent, withAgentChannelDelivery(context, admittedDelivery), registration,
             observeChatThread(queuedThread, admittedDelivery), queuedMessage, deliveryKind,
-            options, admittedDelivery, undefined, true,
+            options, admittedDelivery, state, undefined, true,
           )
           if (!admission) continue
           accepted.push({ message: queuedMessage, thread: queuedThread, delivery: admittedDelivery, kind: deliveryKind, admission })
@@ -7934,6 +7941,7 @@ async function createChannelChat(
     workflowCustodySupported: "workflowCustodySupported" in resolvedState ? resolvedState.workflowCustodySupported : undefined,
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
+  if (adapter.name === "slack") registerChannelForms(chat, channelFormsOf(getAgentCapabilities(agent)), state, state.reconciliationWaitUntil)
   chat.onDirectMessage(async (chatThread, message, _channel, messageContext) => {
     const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)

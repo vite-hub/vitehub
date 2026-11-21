@@ -90,10 +90,20 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/agent-emulator-cli": {
+      "types": "./dist/internal/agent-emulator-cli.d.ts",
+      "import": "./dist/internal/agent-emulator-cli.js",
+      "default": "./dist/internal/agent-emulator-cli.js"
+    },
     "./internal/agent-invocations-cli": {
       "types": "./dist/internal/agent-invocations-cli.d.ts",
       "import": "./dist/internal/agent-invocations-cli.js",
       "default": "./dist/internal/agent-invocations-cli.js"
+    },
+    "./internal/agent-state-cli": {
+      "types": "./dist/internal/agent-state-cli.d.ts",
+      "import": "./dist/internal/agent-state-cli.js",
+      "default": "./dist/internal/agent-state-cli.js"
     },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
@@ -129,6 +139,11 @@
       "types": "./dist/invocations/drizzle.d.ts",
       "import": "./dist/invocations/drizzle.js",
       "default": "./dist/invocations/drizzle.js"
+    },
+    "./invocations/postgres": {
+      "types": "./dist/invocations/postgres.d.ts",
+      "import": "./dist/invocations/postgres.js",
+      "default": "./dist/invocations/postgres.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
@@ -259,6 +274,7 @@
     "advocaat": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
+    "@chat-adapter/slack": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
     "@emulators/ai": "0.14.0",
     "@emulators/core": "0.14.0",
@@ -276,12 +292,14 @@
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@whatwg-node/node-fetch": "0.8.6",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "emulate": "0.14.0",
     "esbuild": "catalog:tooling",
     "evalite": "catalog:ai",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
+    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

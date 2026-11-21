@@ -97,7 +97,9 @@ Available namespaces:
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent get` | Available | Agent Package | Inspect one Agent by name through the running dev server, or a deployed app with `--url`. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
+| `vitehub agent emulator` | Available | Agent Package | Show the URL, rules, and recent calls of the AI emulator that answers Agent models under `VITEHUB_MODELS=emulate`. |
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
+| `vitehub agent state` | Available | Agent Package | Use `migrate` to move unscoped Chat State keys to their Channel scope once. Prints the moves; `--apply` writes them. Does not load the project config. |
 
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |

@@ -154,6 +154,8 @@ Trusted code can scope extra tools and Agent Capabilities to one Invocation with
 - A production build or `NODE_ENV=production` fails with `AGENT_MODELS_EMULATE_IN_PRODUCTION`, and a value other than `emulate` fails with `AGENT_MODELS_INVALID`.
 - Inspection metadata and the Invocation configuration record show `gateway: "emulate"` for the model.
 - The AI SDK adapter drops hosted provider tools, such as `openai.web_search` from `webSearch({ mode: "model" })`, because the emulator rejects them. It filters the tools of every call, so hosted tools from Capabilities, `runAgent(..., { tools })`, and `prepareCall` never reach the emulator. For each dropped tool it records an `agent.diagnostic.warning` observation with `diagnostic.code: "AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED"`, `tool.id`, and `tool.name`. A tool choice that only a dropped tool can satisfy becomes `"auto"` and records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`.
+- `vitehub agent emulator [--json]` (`src/internal/agent-emulator-cli.ts`) prints the URL, the rules with their left `times` budget, and the recent calls with the matched rule id, from upstream `/_ai/rules` and `/_ai/calls`. It reads `VITEHUB_EMULATE_URL`, else the `emulator.url` field of the Agent Dev Loop discovery response. No emulator fails with `AGENT_EMULATOR_NOT_RUNNING`. With `VITEHUB_EMULATE_URL` or `--url`, or outside a project, the `vitehub` binary runs it before any project config loads. Otherwise the project loads, so the configured Vite `root` and `agent.cli: false` apply.
+- `vitehub agent get` prints the emulator URL. `createAgentStatusReader()` does not call `agent.status()`, so it reads no credentials. It returns `readiness: "ready"` with `emulated: { url }` only for a model Driver with a model ID and for Codex without Capability tools or a Sandbox. A Driver that an Invocation rejects, such as Jev questions or Claude Code, is `unavailable` with that diagnostic `code`, and so is any Agent when `NODE_ENV` is `production`. A Driver that the definition cannot judge, such as `run` or `"external"`, is `unknown`.
 
 Provider Drivers check the switch at the start of `runProvider()` in `src/provider-agent.ts`, before they read `driver.credentials`, `driver.env`, or a gateway:
 
@@ -543,6 +545,12 @@ With inline `messages.concurrency: "steer"`, only the same invoker steers the ac
 
 Set `messages.replyToSubscribedThreads: true` on an Agent or a built-in Channel to answer human replies without an @mention in subscribed threads. The default is `false`. Mentions subscribe the conversation. Programmatically created bot threads must be subscribed through the same Agent chat state before replies can be admitted. Unmentioned messages in other threads and messages from other bots remain ignored. `messages.filter` receives `deliveryKind: "subscribed"` for these replies. Provider permissions must still allow the bot to receive channel messages.
 
+## Forms in chat
+
+`forms({ expense })` from `@vite-hub/agent/capabilities` gives the Agent one `ask_<name>` tool for each form. A form is a `defineForm()` result from `@vite-hub/forms` (install it), or a flat Standard Schema object. Pass `{ form, title }` to set the title.
+
+In an inline Slack turn, the tool adds a card with a **Fill in <title>** button. The click opens a modal. ViteHub shows invalid values as errors under their inputs. The first valid answer that passes Channel access and message filters marks the card complete and starts the next turn with the checked values as JSON. The form expires after 24 hours. Use shared Chat State across server processes to preserve the modal context and accept only one answer. Other Channels, durable Workflow turns, and runs outside a Channel get `{ status: "unavailable", fields }`, so the Agent asks in its reply. `forms()` throws `AGENT_FORMS_INVALID` for an invalid form or name. See [Agent Channels](../../docs/content/docs/agents/channels.md#ask-a-person-to-fill-in-a-form).
+
 ## Chat state
 
 Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. The default `driver: "auto"` uses Cloudflare state on Cloudflare and local SQLite at `file:.vitehub/data/agent-state.sqlite` during Vite development.
@@ -681,6 +689,10 @@ On Node, the default journal goes next to a configured `file:` Agent State unles
 A `file:` URL selected on a Cloudflare Worker throws `AGENT_R1029`, including an override through `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`. Set a remote libSQL URL, or remove the file URL to use the host default journal.
 
 The private `@vite-hub/agent/internal/default-invocations-core` entry exports the same journal without the libSQL client. Pass `libsql: () => import("@vite-hub/agent/internal/default-invocations-libsql")` to open SQLite or libSQL. Without it, a journal that selects SQLite or libSQL throws `AGENT_R1036`. `vite-hub` passes it in every build except a Cloudflare production build without `agent.invocations.databaseUrl`, so a Worker that stores the journal in D1 or memory does not ship libSQL.
+
+## Postgres invocation storage
+
+`@vite-hub/agent/invocations/postgres` exports `postgresAgentInvocationTables({ tablePrefix? })`, the Drizzle tables of the journal on a Postgres Database, and `agentInvocationsPostgresSchema`, the same tables with the default `vitehub_agent_` prefix. A Postgres `tablePrefix` has at most 25 lowercase letters, digits, and underscores, and does not start with a digit; another prefix fails with `AGENT_R0910`. `createDatabaseAgentInvocationStore()` uses these tables when the Database runs on postgres.js. The store does not create them; the Database migrations do. A missing table fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. Claims expire by the database clock, and each update locks its record row in a transaction. See [Store invocations in a Postgres Database](../../docs/content/docs/agents/invocation-storage.md#store-invocations-in-a-postgres-database).
 
 ## D1 invocation storage
 
@@ -958,6 +970,8 @@ With libSQL or SQLite Agent State, the route also exists without `preparation`. 
 The Nitro plugin that `vitehub({ observability })` generates owns request IDs, drain and error hooks, reporter lifecycle, and shutdown flush. See the [observability guide](https://vitehub.dev/docs/agents/observability) for host drain reuse and background delivery.
 
 Set `transcripts: { retention: "forever" }` in `createLibsqlAgentState()` to preserve Chat transcript rows before startup expiry cleanup and ignore future transcript TTLs. Other state still expires normally. This cannot recover rows already deleted.
+
+An explicit `messages.state` keeps Chat keys without a scope. The provider default keeps them under `chat:<agent>:<channel>:`, and user transcripts under `chat:<agent>:`. To switch to the provider default, stop the app and run `vitehub agent state migrate --agent <name> --channel <adapter>[=<channel>] --url <libsql-url>` once. It prints the moves without a write; `--apply` writes them. It picks keys by the adapter name at their start and leaves a key whose scoped copy exists. Then point the provider default State at the same database before you remove `messages.state`. See [Move unscoped Chat State](../../docs/content/docs/cli/agents.md#move-unscoped-chat-state).
 
 
 Webhook `signature` selects how `secretHeader` is checked, with the names of Webhooks and Channels: unset compares the secret itself, `"bearer"` compares `Bearer <secret>` in constant time and reads `authorization` unless `secretHeader` names another header, `"github"` and `"stripe"` check those providers' formats, `{ type: "stripe", tolerance?: "5m" }` sets the Stripe timestamp age, `{ type: "hmac-sha256", prefix?, encoding?: "hex" | "base64", secretEncoding?: "utf8" | "base64" }` checks `prefix` followed by the HMAC-SHA256 of the raw body, and `{ verify }` runs a custom check. `"github"` is the HMAC signature with `prefix: "sha256="`. A `secretEncoding: "base64"` key that does not decode fails verification. `vitehub channels history` signs its requests with the same signature. The old names, `secretToken`, `"github-sha256"`, `"stripe-sha256"`, `{ preset }`, and `toleranceSeconds`, fail with `AGENT_WEBHOOK_OPTION_RENAMED`.

@@ -1,10 +1,10 @@
 import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
-import { rollNumber } from "@vite-hub/ui/motion"
+import { createMotionList, installMotion, rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
 import uiCss from "@vite-hub/ui/styles.css?inline"
-import { computed, createApp, defineComponent, h, nextTick, onMounted, ref, shallowRef, Teleport, toRaw, watch } from "vue"
+import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, shallowRef, Teleport, toRaw, watch } from "vue"
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
@@ -20,9 +20,10 @@ import { overlayStyles, panelStyles } from "./styles.ts"
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentCan, CommentVisibility } from "@vite-hub/ui/headless"
+import type { MotionList } from "@vite-hub/ui/motion"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
@@ -271,6 +272,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const root = document.createElement("div")
   root.className = "root"
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
+  // The motion layer of @vite-hub/ui/motion moves what the overlay draws, in each of its shadow roots: its own, the
+  // toolbar's segment in the pill, the areas, and the list in the pill's window. The page around it does not move.
+  const stopMotion = [shadow, options.toolbar?.getRootNode(), options.areas].filter((node): node is ShadowRoot => node instanceof ShadowRoot).map(node => installMotion(node))
 
   const page = ref(normalizeCommentPage(location.pathname))
   /** The server decides the subject of a page. Without its answer, it is the page itself. */
@@ -288,6 +292,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   let navigations = 0
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
+  /** A key for each toast, so a new toast is a new item of the notifications list. */
+  const toastKeys = new WeakMap<Toast, number>()
+  let toastCount = 0
+  const toastKey = (value: Toast) => {
+    let key = toastKeys.get(value)
+    if (key === undefined) toastKeys.set(value, key = ++toastCount)
+    return key
+  }
+  const cursorLayer = ref<HTMLElement>()
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
   const editing = ref(false)
@@ -569,6 +582,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       const panelHost = document.createElement("div")
       panelHost.setAttribute("data-comments-ui", "")
       const panelShadow = panelHost.attachShadow({ mode: "open" })
+      stopMotion.push(installMotion(panelShadow))
       const target = document.createElement("div")
       target.className = "panel-root dark"
       panelShadow.append(style(shadowCss(panelStyles)), target)
@@ -735,6 +749,23 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (status === "ready" && !room) void joinRoom()
       })
       watch(() => state.counts.value.open, () => tick.value++)
+      // Each cursor moves to its next place with the list mover of the motion layer. It reads the places after each
+      // render, for the next one.
+      let cursorList: { element: HTMLElement; motion: MotionList } | undefined
+      const moveCursors = () => {
+        const element = cursorLayer.value
+        if (cursorList && cursorList.element !== element) {
+          cursorList.motion.destroy()
+          cursorList = undefined
+        }
+        if (!element) return
+        if (cursorList) cursorList.motion.play()
+        else cursorList = { element, motion: createMotionList(element) }
+        cursorList.motion.measure()
+      }
+      onMounted(moveCursors)
+      onUpdated(moveCursors)
+      onBeforeUnmount(() => cursorList?.motion.destroy())
       // A new comment, a reply, or another page changes how many threads Send carries.
       if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
@@ -767,7 +798,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
           nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
-          nodes.push(h("div", { class: "cursors" }, cursors()))
+          nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
           const bar = selected.value
@@ -818,14 +849,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
         if (pageCan.value?.read && options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         if (naming.value) nodes.push(h(NameCard))
+        // The toast is the item of a notifications region, so the toast effect of the motion layer moves it in and out.
         const current = toast.value
-        if (current) {
-          nodes.push(h("div", { class: "toast", role: "status", "data-kind": current.kind }, [
-            h("span", current.text),
-            current.link ? h("a", { href: current.link[1] }, current.link[0]) : null,
-            current.action ? h(UButton, { color: "neutral", label: current.action[0], onClick: current.action[1], size: "sm", variant: "ghost" }) : null,
-          ]))
-        }
+        nodes.push(h("section", { role: "region", "aria-label": "Comments notifications" }, h("ol", { class: "toasts" }, current
+          ? [h("li", { class: "toast", role: "status", "data-kind": current.kind, key: toastKey(current) }, [
+              h("span", current.text),
+              current.link ? h("a", { href: current.link[1] }, current.link[0]) : null,
+              current.action ? h(UButton, { color: "neutral", label: current.action[0], onClick: current.action[1], size: "sm", variant: "ghost" }) : null,
+            ])]
+          : [])))
         return nodes
       }
     },
@@ -1177,6 +1209,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       leaveRoom()
       app.unmount()
       pageWindow?.destroy()
+      for (const stop of stopMotion) stop()
     },
   }
 }

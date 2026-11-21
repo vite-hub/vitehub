@@ -1,14 +1,75 @@
 // The motion layer of docs/design/motion.md, with no Vue, so plain TypeScript surfaces such as the page pill use it too.
-export { installMotion, isMotionOff } from "./motion/layer.ts";
-export { defineMotionEffect, listMotionEffects, motionStateAttributes, writeMotionStyle } from "./motion/registry.ts";
-export type { MotionEffect, MotionPress, MotionStateAttribute, MotionStateChange, MotionStyleProperty } from "./motion/registry.ts";
-export { forceReducedMotion, onReducedMotionChange, prefersReducedMotion } from "./motion/reduced-motion.ts";
-export { createSpring, getMotionSlowFactor, setMotionSlowFactor, springs } from "./motion/spring.ts";
-export type { Spring, SpringFrame, SpringPreset, SpringTarget } from "./motion/spring.ts";
-export type { MotionContentChange } from "./motion/registry.ts";
-// The helpers for what only a component knows: a label, an icon, or a count that changes, and a finished action.
-export { morphText } from "./motion/helpers/text.ts";
-export { swapIcon } from "./motion/helpers/icon.ts";
-export type { IconEnter, IconExit, SwapIconOptions } from "./motion/helpers/icon.ts";
-export { rollNumber } from "./motion/helpers/number.ts";
-export { ring } from "./motion/helpers/ring.ts";
+// Unlike `@vite-hub/ui/motion/core`, this entry installs every built-in effect by default.
+export {
+  appearEffect,
+  buttonIconEffect,
+  checkEffect,
+  createDropField,
+  createHoldToDelete,
+  createMotionList,
+  createProgress,
+  createSpring,
+  defineMotionEffect,
+  disclosureEffect,
+  dividerEffect,
+  forceReducedMotion,
+  getMotionSlowFactor,
+  isMotionOff,
+  jellyEffect,
+  labelEffect,
+  leaveEffect,
+  listMotionEffects,
+  morphText,
+  motionEffects,
+  motionStateAttributes,
+  onReducedMotionChange,
+  panelEffect,
+  prefersReducedMotion,
+  pressEffect,
+  ring,
+  rollNumber,
+  selectEffect,
+  setMotionSlowFactor,
+  shake,
+  sliderEffect,
+  springs,
+  swapIcon,
+  switchEffect,
+  toastEffect,
+  tooltipEffect,
+  travel,
+  writeMotionStyle,
+} from "./motion-core.ts";
+export type {
+  DropField,
+  DropFieldOptions,
+  HoldToDelete,
+  HoldToDeleteOptions,
+  HoldToDeleteState,
+  IconEnter,
+  IconExit,
+  InstallMotionOptions,
+  MotionContentChange,
+  MotionEffect,
+  MotionList,
+  MotionListOptions,
+  MotionListOrigin,
+  MotionListPlay,
+  MotionPress,
+  MotionRoot,
+  MotionStateAttribute,
+  MotionStateChange,
+  MotionStyleProperty,
+  Progress,
+  ProgressOptions,
+  ProgressPhase,
+  Spring,
+  SpringFrame,
+  SpringPreset,
+  SpringTarget,
+  SwapIconOptions,
+  Travel,
+  TravelBox,
+  TravelOptions,
+} from "./motion-core.ts";
+export { installMotion } from "./motion/install.ts";

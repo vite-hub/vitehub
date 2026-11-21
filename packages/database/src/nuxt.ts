@@ -330,11 +330,15 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             // Keep Nuxt's unconditional type reference valid when no Database Definition exists.
             await removeGeneratedDatabaseTypes(root)
           }
+          // A Node build whose Databases all use D1 over HTTP runs the hosted runtime, and migrates on start like local SQLite.
+          const nodeD1Http = runtime && runtimeProvider === "cloudflare" && !provider ? runtime : undefined
+          const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
           if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel")) {
             if (building) assertHostedDatabaseRuntimeResources(runtime, [runtimeProvider])
-            await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
+            const shipped = nodeD1Http ? resolve(root, ".vitehub", generatedNitroShippedMigrations) : undefined
+            if (shipped) await writeFileIfChanged(shipped, renderShippedMigrationsModule(runtime, migrateOnStart))
+            await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider], shipped)
           }
-          const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
           const host = { hosting: nuxtOptions.nitro?.preset, nitro: config }
           const preset = resolveHostPreset(host)
           // Without a preset here, Nitro detects the host later. The default then takes the Postgres databases, and a
@@ -346,6 +350,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
             if (migrateOnStart && startDatabases.length && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart, startDatabases)
           }
+          else if (nodeD1Http && migrateOnStart && startDatabases.length) await installNitroMigrateOnStart(config, root, nodeD1Http, migrateOnStart, startDatabases)
           // The D1 bindings whose migrations the build copies into the server output.
           const migratedBindings: string[] = []
           if (provider === "cloudflare" && runtime) {

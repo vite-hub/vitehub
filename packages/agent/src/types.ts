@@ -9,7 +9,7 @@ import type { AgentInvocationsSetting } from "./invocations/app.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
 import type { AgentPublicError } from "./agent-error.ts"
 import type { JSONSchema7 } from "json-schema"
-import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, CardElement, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type { LanguageModel } from "ai"
 import type {
   Duration,
@@ -143,7 +143,7 @@ declare global {
     "agent.output.progressSummary": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
-    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.channelState": { adapterName?: string, keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
     /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
     page: { id: string }
@@ -548,6 +548,8 @@ export interface AgentChannelDeliveryEffectIntentOptions {
 export interface AgentChannelDeliveryReplyPayload {
   artifacts?: readonly PublishedAgentDeliveryArtifact[]
   body?: string
+  /** A Chat SDK card, such as a card with buttons. Chat Channels post it, with the text as the fallback text. */
+  card?: CardElement
   markdown?: string
 }
 
@@ -1869,6 +1871,13 @@ export interface AgentProviderStatus {
   readiness: "ready" | "unavailable" | "unknown" | "unsupported"
   checkedAt: string
   stale: boolean
+  /**
+   * Set when `VITEHUB_MODELS=emulate` is on and the Driver of this Agent runs on the AI emulator. Under the switch, the
+   * check reads no credentials. A Driver that the emulator cannot run is `unavailable` with a `code` instead.
+   */
+  emulated?: { url: string }
+  /** The diagnostic code that an Invocation fails with, when the check knows it, such as `AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`. */
+  code?: string
   installed?: boolean
   authenticated?: boolean
   /** Commands from `driver.requirements` that the Driver shell cannot find. Present when requirements are checked. */
