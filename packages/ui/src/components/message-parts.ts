@@ -19,7 +19,14 @@ export const MessageParts = defineComponent({
         { class: "vh-message-parts", "data-slot": "message-parts", parts: props.parts, streaming: props.streaming },
         {
           markdown: ({ value, streaming }: { value: string; streaming: boolean }) => h(Markdown, { streaming, value }),
-          file: ({ image, name }: { image?: string; name: string }) => (image ? h(ImagePreview, { alt: name, src: image }) : null),
+          file: ({ image, mediaType, name, part }: { image?: string; mediaType: string; name: string; part: { url?: unknown } }) => {
+            if (image) return h(ImagePreview, { alt: name, src: image });
+            const { url } = part;
+            if (typeof url === "string" && url && !URL.canParse(url) && (mediaType === "image" || mediaType.startsWith("image/"))) {
+              return h(ImagePreview, { alt: name, src: url });
+            }
+            return null;
+          },
           ...slots,
         },
       );
