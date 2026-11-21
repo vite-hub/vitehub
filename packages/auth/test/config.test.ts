@@ -383,6 +383,21 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
   })
 
+  it("resolves components.prefix for the Nuxt component names", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  components: { prefix: 'Custom' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.components).toEqual({ prefix: "Custom" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  components: {},"])
+    expect(resolveAuthViteConfig(undefined, rootDir)).not.toHaveProperty("components")
+  })
+
+  it.each(["prefix", "{ prefix }", "{ prefix: '' }", "{ prefix: ' Custom' }", "{ prefix: 'Custom', global: true }", "{ ...options }"])("rejects components written as %s", async (value) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  components: ${value},`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+  })
+
   it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [`  access: { routes: ['/**'], public: ${value} },`])

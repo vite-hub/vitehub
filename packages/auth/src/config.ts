@@ -581,6 +581,17 @@ function readAuthAccessPagesConfig(body: ObjectExpression | undefined): Pick<Res
   return { pages }
 }
 
+/** `components.prefix`, which the Nuxt module reads at build time to name `<AuthPermission>`, like `basePath`. */
+function readAuthComponentsConfig(body: ObjectExpression | undefined): ResolvedAuthViteConfig["components"] {
+  if (!hasObjectProperty(body, "components")) return
+  const components = objectLiteral(readObjectPropertyValue(body, "components"))
+  if (!components || readObjectEntries(components).some(entry => entry.key !== "prefix")) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  if (!hasObjectProperty(components, "prefix")) return
+  const prefix = staticString(readObjectPropertyValue(components, "prefix"))
+  if (!prefix?.trim() || prefix !== prefix.trim()) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  return { prefix }
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -656,6 +667,7 @@ export function resolveAuthViteConfig(
 
   const abilities = discoverAuthAbilities(rootDir, discovery)
   const publicRoutes = readAuthAccessPublicConfig(body)
+  const components = readAuthComponentsConfig(body)
   return {
     ...(abilities ? { abilities } : {}),
     access: {
@@ -665,6 +677,7 @@ export function resolveAuthViteConfig(
       ...readAuthAccessPagesConfig(body),
     },
     basePath,
+    ...(components ? { components } : {}),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),

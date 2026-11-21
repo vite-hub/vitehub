@@ -15,13 +15,17 @@ import type { RequestFetch } from "../nuxt-bridge.ts"
 
 type NuxtApp = {
   runWithContext<T>(run: () => T): T
-  payload: { prerenderedAt?: unknown, isCached?: unknown }
+  isHydrating?: boolean
+  payload: { prerenderedAt?: unknown, isCached?: unknown, error?: unknown }
 }
-type RouteLike = { path: string, fullPath: string, meta: { auth?: AuthPageMeta }, matched: readonly unknown[], params: Record<string, unknown> }
-type RouterLike = { currentRoute: { value: RouteLike }, resolve: (target: string) => Pick<RouteLike, "matched" | "params"> }
+type RouteLike = { fullPath: string, matched: readonly object[], params: Record<string, unknown>, meta: { auth?: AuthPageMeta } }
+type RouterLike = {
+  currentRoute: { value: RouteLike }
+  resolve(path: string): { matched: readonly object[], params: Record<string, unknown> }
+}
 /** Vue Router gives the same params in other forms: `"a"` or `["a"]`, `[]` or `""` or nothing for an empty one, and any key order. */
 function sameParams(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
-  const values = (value: unknown) => JSON.stringify([value ?? []].flat().filter(item => item !== ""))
+  const values = (value: unknown) => JSON.stringify(value === undefined || value === "" ? [] : [value].flat())
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => values(a[key]) === values(b[key]))
 }
 /** The H3 event of a page request on the server. */
@@ -32,6 +36,7 @@ type PageEvent = {
 }
 
 const stateKey = "vitehub:auth:session"
+const guardRouteKey = "vitehub:auth:guard-route"
 
 /**
  * True when the request may have a session: ViteHub's `vitehub_session` marker cookie, which Auth sets next to the
@@ -158,26 +163,18 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       if (config === false || meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
-      // A wide `access.pages` pattern can also cover the page of the redirect. Vue Router tells whether the redirect
-      // opens the same page with the same parameters.
-      const router = useRouter() as RouterLike
-      const isSelf = (target: string) => {
-        const resolved = router.resolve(target)
-        const page = resolved.matched.at(-1)
-        return page !== undefined && page === to.matched.at(-1) && sameParams(resolved.params, to.params)
+      // A redirect to the page itself would loop. Ask Vue Router, which knows `strict` and `sensitive`, and compare with the record and params it chose for `to`.
+      const isThisPage = (target: string) => {
+        const page = (useRouter() as RouterLike).resolve(target)
+        return page.matched.length > 0 && page.matched.at(-1) === to.matched.at(-1) && sameParams(page.params, to.params)
       }
       return (loggedIn: boolean, signedOut = false) => {
-        if (mode === "guest") {
-          const target = redirectTo ?? afterSignIn
-          return loggedIn && !isSelf(target) ? navigateTo(target) : undefined
-        }
+        if (mode === "guest") return loggedIn && !isThisPage(redirectTo ?? afterSignIn) ? navigateTo(redirectTo ?? afterSignIn) : undefined
         if (loggedIn) return
-        if (redirectTo || signInPage !== null) {
-          const target = redirectTo ?? signInPage ?? "/login"
-          // The page guards its own sign-in page, so it cannot render it to a signed-out visitor.
-          if (isSelf(target)) return showError({ statusCode: 401, statusMessage: "Signed out" })
-          return navigateTo({ path: target, query: { redirect: to.fullPath } })
-        }
+        const signInTarget = redirectTo ?? signInPage
+        // A page that is its own sign-in page stays closed to a signed-out visitor.
+        if (signInTarget && isThisPage(signInTarget)) return showError({ statusCode: 401, statusMessage: "Signed out" })
+        if (redirectTo || signInPage !== null) return navigateTo({ path: redirectTo ?? signInPage ?? "/login", query: { redirect: to.fullPath } })
         if (signedOut) return showError({ statusCode: 401, statusMessage: "Signed out" })
         // The Auth route starts the provider sign-in and comes back to `?redirect=`, a path below `app.baseURL`.
         const signIn = `${resolveAuthMountPath(config?.basePath ?? "/api/auth", runtimeConfig.app?.baseURL)}/sign-in`
@@ -237,9 +234,23 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       }
     })
 
-    const guard = (to: RouteLike, meta: AuthPageMeta | undefined) => {
+    // Counts navigations, so a read can tell that a newer navigation started while Better Auth answered.
+    let navigations = 0
+
+    const guard = (to: RouteLike, meta: AuthPageMeta | undefined, navigation: number) => {
       const decide = guardOf(to, meta)
       if (!decide) return
+      const page = to.fullPath.split("#", 1)[0]
+      // An error render can replace the response's Cache-Control, so the browser may have kept it.
+      if (navigation === 1 && !serverSession && !stale && !nuxtApp.payload.error && nuxtApp.isHydrating && useState(guardRouteKey).value === page) return decide(true)
+      const decideAndSeed = (loggedIn: boolean) => {
+        if (serverSession && loggedIn) {
+          useState(guardRouteKey).value = page
+          // Hydration trusts this decision, so the browser must not replay the page from its cache after a sign-out.
+          ;(useRequestEvent() as PageEvent | undefined)?.res.headers.set("cache-control", "private, no-store")
+        }
+        return decide(loggedIn)
+      }
       // Decide synchronously on the server when the session is known, to keep Nuxt's request context. Browser
       // navigations read the session into the state that `useUserSession()` and `useAbility()` share, so the page and
       // the guard see the same answer.
@@ -248,19 +259,28 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
       const app = tryUseNuxtApp() as NuxtApp | undefined
       const inApp = <T>(run: () => T): T => app ? app.runWithContext(run) : run()
       const loggedIn = !serverSession
-        ? import("../vue.ts").then(({ useUserSession }) => inApp(() => useUserSession().refresh())).then(current => Boolean(current?.session && current?.user))
+        // A query, even an empty one, gives the navigation a read of its own instead of a replaced navigation's read.
+        // SAFETY: `refresh` is the session store's `read()`, which takes the query of Better Auth's `getSession()`.
+        ? import("../vue.ts").then(({ useUserSession }) => inApp(() => (useUserSession().refresh as (query: object) => Promise<{ session?: unknown, user?: unknown } | null>)({})))
+            .then(current => Boolean(current?.session && current?.user))
         : session instanceof Promise ? session.then(Boolean) : Boolean(session)
-      if (typeof loggedIn === "boolean") return decide(loggedIn)
-      return loggedIn.then(value => inApp(() => decide(value)))
+      if (typeof loggedIn === "boolean") return decideAndSeed(loggedIn)
+      return loggedIn.then((value) => {
+        // Only the latest navigation decides. Vue Router cancels a navigation that a newer one replaced, but it still
+        // follows a redirect that the old navigation returns, so an old answer could open a page that is now wrong.
+        if (navigation !== navigations) return
+        return inApp(() => decideAndSeed(value))
+      })
     }
-    addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth), { global: true })
+    // Nuxt runs this global middleware before the named ones of a route, so it counts each navigation once.
+    addRouteMiddleware("vitehub-auth", (to: RouteLike) => guard(to, to.meta.auth, ++navigations), { global: true })
     // `definePageMeta({ auth })` wins over the named guards that `access.pages` attaches.
     for (const mode of ["user", "guest"] as const) {
       addRouteMiddleware(`vitehub-auth-${mode}`, (to: RouteLike) => {
         if (to.meta.auth !== undefined) return
         // Keep the policy on this route, so an aborted navigation cannot replace the page's sign-out guard.
         routeModes.set(to, mode)
-        return guard(to, mode)
+        return guard(to, mode, navigations)
       })
     }
   },

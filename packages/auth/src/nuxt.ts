@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { kebabCase, pascalCase, splitByCase } from "scule"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
@@ -79,6 +80,8 @@ type NuxtComponent = {
 }
 
 const composables = ["useAbility", "useAuthClient", "useUserSession"]
+/** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
+const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
 const vueBridgeRegistered = new WeakSet<object>()
 const pageMetaRegistered = new WeakSet<object>()
@@ -249,23 +252,28 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  if (!componentsRegistered.has(nuxt) && nuxt.hook) {
+  // Without `shared/abilities.ts`, the app has no rules to check, so the name `<AuthPermission>` stays free for the app. In
+  // development, adding or removing the file restarts Nuxt (below), and this check runs again.
+  if (authConfig?.abilities && !componentsRegistered.has(nuxt) && nuxt.hook) {
     componentsRegistered.add(nuxt)
     const filePath = options.importsFrom || "@vite-hub/auth/vue"
-    // The same entry that `@nuxt/kit`'s addComponent() writes, without a dependency on `@nuxt/kit`.
+    // `components.prefix` of `defineAuth()`, which the Vite plugin reads at build time, like `basePath`.
+    const prefix = authConfig.components?.prefix ?? ""
+    // The same entries that `@nuxt/kit`'s addComponentExports() writes, without a dependency on `@nuxt/kit`.
     ;(nuxt.hook as unknown as (name: "components:extend", handler: (components: NuxtComponent[]) => void) => void)("components:extend", (components) => {
-      for (const name of ["Can", "Cannot"]) {
+      for (const name of abilityComponents) {
+        const { kebabName, pascalName } = componentNames(prefix, name)
         // An app component with the same name wins.
-        if (components.some(component => component.pascalName === name)) continue
+        if (components.some(component => component.pascalName === pascalName)) continue
         components.push({
-          chunkName: `components/${name.toLowerCase()}`,
+          chunkName: `components/${kebabName}`,
           export: name,
           filePath,
           global: false,
-          kebabName: name.toLowerCase(),
+          kebabName,
           meta: {},
           mode: "all",
-          pascalName: name,
+          pascalName,
           prefetch: false,
           preload: false,
           priority: 0,
@@ -351,4 +359,26 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
   if (!nuxt.options.nitro.plugins.includes(runtimePlugin)) {
     nuxt.options.nitro.plugins.push(runtimePlugin)
   }
+}
+
+/**
+ * The Nuxt names of a component export under a prefix: the names that `<name>.vue` gets in a directory of
+ * `components: [{ path, prefix }]`. As in Nuxt's `resolveComponentNameSegments()`, the prefix words that the name starts
+ * with are dropped, so the prefix `MyAuth` gives `MyAuthPermission`.
+ *
+ * @example
+ * componentNames("custom", "AuthPermission") // { kebabName: "custom-auth-permission", pascalName: "CustomAuthPermission" }
+ */
+function componentNames(prefix: string, name: string): { kebabName: string, pascalName: string } {
+  // `splitByCase("my-auth-")` ends with "", which adds no word in Nuxt's overlap check.
+  const prefixWords = splitByCase(prefix).filter(Boolean)
+  const nameWords = splitByCase(name)
+  const nameContent = nameWords.join("/").toLowerCase()
+  let kept = prefixWords.length
+  for (let index = prefixWords.length - 1; index >= 0; index--) {
+    const overlap = prefixWords.slice(index).join("/").toLowerCase()
+    if (nameContent === overlap || nameContent.startsWith(`${overlap}/`)) kept = index
+  }
+  const words = [...prefixWords.slice(0, kept), ...nameWords]
+  return { kebabName: kebabCase(words), pascalName: pascalCase(words) }
 }

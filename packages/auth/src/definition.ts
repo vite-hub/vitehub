@@ -121,6 +121,13 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
   if (typeof access.pages !== "undefined") assertAuthPages(access.pages)
 }
 
+export function validateAuthComponents(value: unknown): void {
+  if (typeof value === "undefined") return
+  if (!isPlainObject(value) || Object.keys(value).some(key => key !== "prefix")) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  const prefix = value.prefix
+  if (typeof prefix !== "undefined" && (typeof prefix !== "string" || !prefix.trim() || prefix !== prefix.trim())) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+}
+
 /** A path of the app: one `/`, then no `/` or `\`, so it cannot name another site. */
 function isAppPath(value: unknown): value is string {
   return typeof value === "string" && /^\/(?![/\\])/.test(value)
@@ -174,6 +181,7 @@ function defineAuthOptions(
   const viteHubOptions = options as {
     access?: unknown
     basePath?: unknown
+    components?: unknown
     database?: unknown
     route?: unknown
     secondaryStorage?: unknown
@@ -206,6 +214,7 @@ function defineAuthOptions(
   validateAuthDatabase(viteHubOptions.database)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
+  validateAuthComponents(viteHubOptions.components)
   // A callback resolves its options later, so ViteHub checks the preset again for each resolution.
   applyAuthPreset(options)
 

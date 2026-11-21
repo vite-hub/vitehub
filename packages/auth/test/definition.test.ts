@@ -129,6 +129,13 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ access: { pages: pages as never } })).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining(entry) }))
   })
 
+  it("keeps components.prefix and rejects any other components value", () => {
+    expect(defineAuth({ components: { prefix: "Custom" } }).options.components).toEqual({ prefix: "Custom" })
+    for (const components of [false, { prefix: "" }, { prefix: 1 }, { prefix: "Custom", global: true }]) {
+      expect(() => defineAuth({ components } as never)).toThrow(expect.objectContaining({ code: "AUTH_COMPONENTS_INVALID" }))
+    }
+  })
+
   it("rejects unsupported access config", () => {
     expect(() => defineAuth({ access: false } as never)).toThrow(/access must be an object/)
     expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be a path or an object/)

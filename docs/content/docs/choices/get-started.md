@@ -268,7 +268,7 @@ The list shows plain Vue state. Replace it with your own filter bar, and the sam
 ::tutorial-step{title="Swap in a real model"}
 ## Swap in a real model
 
-The word gateway knows only exact names. A real decision model also reads codes, short names, and typos. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes in your code. `typesafe()` sends the questions through `advocaat`, the TypeSafe client, so install it with `pnpm add advocaat`. Without it, `resolve()` returns an error.
+The word gateway knows only the exact labels and aliases. A real decision model also reads short names, typos, and phrasing that the words do not match. In `server/utils/forecast-choices.ts`, replace the word gateway with `typesafe()`. Nothing else changes in your code. `typesafe()` sends the questions through `advocaat`, the TypeSafe client, so install it with `pnpm add advocaat`. Without it, `resolve()` returns an error.
 
 ```diff
 -import { wordGateway } from "vite-hub/choices/testing"
