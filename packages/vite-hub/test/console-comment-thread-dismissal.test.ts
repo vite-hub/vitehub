@@ -13,6 +13,7 @@ vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default:
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 import OperationView from "../src/console/runtime/components/console-operation-view.vue"
 import Panel from "../src/console/runtime/components/console-comment-thread.vue"
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 
 const Slideover = defineComponent({
   props: { open: Boolean, content: Object },
@@ -36,7 +37,7 @@ const thread = (id: string) => ({
 
 async function panel(request?: typeof mocks.request, operationView = false) {
   mocks.request.mockImplementation(request ?? (async (operation, input) => operation === "comments.get" ? {
-    id: input.id, n: 1, author: { id: "ana" }, subject: { id: "/pricing", kind: "page" }, anchor: { kind: "page" },
+    id: input.threadId, n: 1, author: { id: "ana" }, subject: { id: "/pricing", kind: "page" }, anchor: { kind: "page" },
     messages: [], scope: "site", status: "open", createdAt: 1, updatedAt: 1,
   } : operation === "comments.session" ? {
     canWrite: true, user: { id: "ana" }, capabilities: { reply: true, resolve: true, deleteThread: true, edit: [], delete: [] },
@@ -127,10 +128,21 @@ it("focuses a deep-linked thread after its request completes", async () => {
   expect(document.activeElement).toBe(wrapper.get("[data-slot='comment-thread']").element)
 })
 
+it("opens a deep-linked thread on an older linked app", async () => {
+  const { wrapper } = await panel(vi.fn(async (operation, input) => {
+    if (operation !== "comments.get") return {}
+    if (input.threadId) throw new ConsoleRequestError(400, { code: "INTERNAL_R0022" })
+    return thread(input.id)
+  }))
+  expect(wrapper.find("[data-slot='comment-thread']").exists()).toBe(true)
+  expect(mocks.request).toHaveBeenCalledWith("comments.get", { threadId: "first" })
+  expect(mocks.request).toHaveBeenCalledWith("comments.get", { id: "first" })
+})
+
 it("guards URL changes while editing a message", async () => {
   const { wrapper, router } = await panel(vi.fn(async (operation, input) => operation === "comments.get" ? {
-    ...thread(input.id), messages: [{
-      id: "owned", threadId: input.id, author: { id: "ana" }, body: "Original", mentions: [], attachments: [], createdAt: 1,
+    ...thread(input.threadId), messages: [{
+      id: "owned", threadId: input.threadId, author: { id: "ana" }, body: "Original", mentions: [], attachments: [], createdAt: 1,
     }],
   } : {
     user: { id: "ana" }, capabilities: { reply: false, resolve: false, deleteThread: false, edit: ["owned"], delete: [] },
@@ -165,7 +177,7 @@ const ownedThread = (id: string) => ({ ...thread(id), messages: [{
 const session = { user: { id: "ana" }, capabilities: { reply: true, resolve: true, deleteThread: false, edit: ["first-owned", "second-owned"], delete: [] } }
 
 it.each(["reply", "edit"])("guards leaving the Comments section with an unsent %s", async (kind) => {
-  const { wrapper, router, onClose } = await panel(vi.fn(async (operation, input) => operation === "comments.get" ? ownedThread(input.id) : session))
+  const { wrapper, router, onClose } = await panel(vi.fn(async (operation, input) => operation === "comments.get" ? ownedThread(input.threadId) : session))
   if (kind === "edit") await wrapper.get("[aria-label='Edit']").trigger("click")
   const field = kind === "edit" ? wrapper.get("[data-slot='comment-reply'] textarea") : wrapper.get("[data-slot='comment-thread'] > [data-slot='comment-composer'] textarea")
   await field.setValue("Unsent draft")
@@ -180,7 +192,7 @@ it.each(["reply", "edit"])("guards leaving the Comments section with an unsent %
 })
 
 it.each(["reply", "edit"])("guards selecting another row with an unsent %s", async (kind) => {
-  const { wrapper, router } = await panel(vi.fn(async (operation, input) => operation === "comments.list" ? [ownedThread("first"), ownedThread("second")] : operation === "comments.get" ? ownedThread(input.id) : session), true)
+  const { wrapper, router } = await panel(vi.fn(async (operation, input) => operation === "comments.list" ? [ownedThread("first"), ownedThread("second")] : operation === "comments.get" ? ownedThread(input.threadId) : session), true)
   await vi.waitFor(() => expect(wrapper.find("textarea").exists()).toBe(true))
   if (kind === "edit") await wrapper.get("[aria-label='Edit']").trigger("click")
   const field = wrapper.get("textarea")
@@ -198,7 +210,7 @@ it.each(["reply", "edit"])("guards selecting another row with an unsent %s", asy
 
 it("authorizes mention searches in the open thread, including after switching threads", async () => {
   const request = vi.fn(async (operation, input) => {
-    if (operation === "comments.get") return thread(input.id)
+    if (operation === "comments.get") return thread(input.threadId)
     if (operation === "comments.users") {
       if (!input.threadId) throw new Error("Thread-scoped authorization denied")
       return [{ id: "ben", name: "Ben" }]
@@ -221,7 +233,7 @@ it("loads existing attachments through the authorized operation and releases the
   const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
   try {
     const { wrapper, router } = await panel(vi.fn(async (operation, input) => operation === "comments.get" ? {
-      ...ownedThread(input.id), messages: ownedThread(input.id).messages.map(message => ({ ...message, attachments: ["files/notes"] })),
+      ...ownedThread(input.threadId), messages: ownedThread(input.threadId).messages.map(message => ({ ...message, attachments: ["files/notes"] })),
     } : operation === "comments.attachment" ? { data: btoa("File contents"), name: "notes.txt", type: "text/plain", inline: false } : session))
     await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-reply-attachments] a").exists()).toBe(true))
     expect(wrapper.get("[data-slot=comment-reply-attachments] a").attributes("href")).toBe("blob:attachment")
@@ -273,9 +285,9 @@ it("aborts attachment reads when switching threads and ignores their late result
   const create = vi.spyOn(URL, "createObjectURL")
   try {
     const { router, wrapper } = await panel(vi.fn(async (operation, input) => {
-      if (operation === "comments.get") return input.id === "first" ? {
+      if (operation === "comments.get") return input.threadId === "first" ? {
         ...ownedThread("first"), messages: ownedThread("first").messages.map(message => ({ ...message, attachments: ["file"] })),
-      } : thread(input.id)
+      } : thread(input.threadId)
       if (operation === "comments.attachment") return pending
       return session
     }))

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createClient } from "@libsql/client"
-import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -708,7 +708,56 @@ describe("comments.resolve", () => {
     const locked = await create(member, { ...input, body: "locked" })
     expect(await call("comments.resolve", { threads: [{ reply: "Done.", threadId: open.id }, { threadId: "missing" }] })).toMatchObject({ ok: false, status: 404 })
     expect(await call("comments.resolve", { threads: [{ reply: "Done.", threadId: open.id }, { threadId: locked.id }] })).toMatchObject({ ok: false, status: 403 })
+    expect(await call("comments.resolve", { threads: [{ reply: "Done.", threadId: open.id }, { reply: " \n", threadId: locked.id }] })).toMatchObject({ ok: false, status: 400 })
     expect(await store.getById(open.id)).toMatchObject({ messages: [{ body: "Review this page." }], status: "open" })
+  })
+
+  it.each([undefined, "Fixed the follow-up."])("acknowledges activity after resolution with reply %s", async (reply) => {
+    const store = setup(defineComments({ authorize: () => true }))
+    const { id: threadId } = await create()
+    await call("comments.resolve", { threadId })
+    await call("comments.reply", { threadId, body: "One more thing." }, admin)
+    const request = { threadId, ...(reply ? { reply } : {}) }
+    expect(await call("comments.resolve", request)).toMatchObject({ ok: true })
+    expect(await call("comments.resolve", request)).toMatchObject({ ok: true })
+    const thread = await store.getById(threadId)
+    expect(thread?.messages.map(message => message.body)).toEqual(["Review this page.", "One more thing.", ...(reply ? [reply] : [])])
+    expect(thread?.resolvedAt).toBeGreaterThanOrEqual(thread?.messages.at(-1)?.createdAt ?? 0)
+  })
+
+  it("accepts the same reply in a later resolution by a different author", async () => {
+    const store = setup(defineComments({ authorize: () => true }))
+    const { id: threadId } = await create()
+    const request = { threadId, reply: "Done." }
+    expect(await call("comments.resolve", request)).toMatchObject({ ok: true })
+    expect(await call("comments.reopen", { threadId }, admin)).toMatchObject({ ok: true })
+    expect(await call("comments.resolve", request, admin)).toMatchObject({ ok: true })
+    expect((await store.getById(threadId))?.messages.filter(message => message.body === "Done.").map(message => message.author.id)).toEqual([member.id, admin.id])
+  })
+
+  it("does not check write policy again after changing a thread in the batch", async () => {
+    let resolvedFirst = false
+    const store = setup(defineComments({ authorize: ({ action }) => action !== "write" || !resolvedFirst }))
+    const first = await create()
+    const second = await create()
+    const setStatus = store.setStatus.bind(store)
+    vi.spyOn(store, "setStatus").mockImplementation(async (...args) => {
+      const result = await setStatus(...args)
+      if (result.id === first.id) resolvedFirst = true
+      return result
+    })
+    expect(await call("comments.resolve", { threads: [{ threadId: first.id }, { threadId: second.id, reply: "Done." }] })).toMatchObject({ ok: true })
+  })
+
+  it("reports completed threads when a batch write stops", async () => {
+    const store = setup(defineComments({ authorize: () => true }))
+    const first = await create()
+    const second = await create()
+    const setStatus = store.setStatus.bind(store)
+    vi.spyOn(store, "setStatus").mockImplementation((...args) => args[0] === second.id ? Promise.reject(new Error("Store unavailable")) : setStatus(...args))
+    expect(await call("comments.resolve", { threads: [{ threadId: first.id }, { threadId: second.id, reply: "Done." }] })).toMatchObject({
+      ok: false, code: "COMMENTS_RESOLVE_INTERRUPTED", message: expect.stringContaining(`after its reply was saved. Completed threads: ${JSON.stringify(first.id)}`),
+    })
   })
 
   it("takes either threadId or threads, and keeps each reply in its entry", async () => {
@@ -717,6 +766,11 @@ describe("comments.resolve", () => {
     for (const value of [{}, { threadId: thread.id, threads: [{ threadId: thread.id }] }, { reply: "Done.", threads: [{ threadId: thread.id }] }, { threads: [] }]) {
       expect(await call("comments.resolve", value)).toMatchObject({ ok: false, status: 400 })
     }
+    expect(await call("comments.resolve", { threads: [{ threadId: thread.id }, { threadId: thread.id }] })).toMatchObject({ ok: false, status: 400 })
+    expect(operationInputJsonSchema(registry.get("comments.resolve")!)).toMatchObject({ anyOf: [
+      { required: ["threadId"], additionalProperties: false },
+      { required: ["threads"], additionalProperties: false },
+    ] })
   })
 
   it("tells the agent to resolve the open threads that it handles", async () => {
@@ -734,6 +788,6 @@ describe("comments.resolve", () => {
     expect(await call("comments.get", { threadId: thread.id })).toMatchObject({ ok: true, value: { id: thread.id } })
     // The error names the fields, so an agent that sent `id` sees `threadId` in the same answer.
     expect(await call("comments.get", { id: thread.id })).toMatchObject({ message: expect.stringContaining("comments.get takes { threadId } or { n, scope }."), ok: false, status: 400 })
-    expect(await call("comments.resolve", {})).toMatchObject({ message: expect.stringContaining("comments.resolve takes { reply?, threadId?, threads? }."), ok: false })
+    expect(await call("comments.resolve", {})).toMatchObject({ message: expect.stringContaining("comments.resolve takes { threadId, reply? } or { threads }."), ok: false })
   })
 })

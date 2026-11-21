@@ -1,4 +1,4 @@
-import { requestConsoleOperation } from "./request"
+import { ConsoleRequestError, requestConsoleOperation } from "./request"
 import { isRecord } from "@vite-hub/internal/object"
 
 import type { CommentsTransport, CommentSubject, CommentThread, CommentUser } from "@vite-hub/comments/client"
@@ -14,7 +14,15 @@ export function consoleCommentsTransport(threadId?: () => string | undefined): C
     create: input => call("create", input),
     delete: input => call("delete", input),
     edit: input => call("edit", input),
-    get: input => call("get", input),
+    get: async ({ threadId }) => {
+      try {
+        return await call<CommentThread | null>("get", { threadId })
+      }
+      catch (error) {
+        if (!(error instanceof ConsoleRequestError) || error.code !== "INTERNAL_R0022") throw error
+        return call("get", { id: threadId })
+      }
+    },
     list: query => call("list", query),
     reopen: input => call("reopen", input),
     reply: input => call("reply", input),

@@ -174,15 +174,19 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.getItem("nonce")).toBe("second")
   })
 
-  it("increments one counter atomically from several clients, with the TTL of the first increment", async () => {
+  it("increments one counter atomically from several clients", async () => {
     const stores = await target.stores(3)
-    // Redis and Upstash round an increment TTL up to whole seconds.
-    const values = await Promise.all(stores.flatMap(storage => Array.from({ length: 4 }, () => storage.incrementItem!("attempts", 1))))
+    const values = await Promise.all(stores.flatMap(storage => Array.from({ length: 4 }, () => storage.incrementItem!("attempts", 60))))
     expect(values.sort((a, b) => a - b)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1))
     expect(await stores[0]!.getItem("attempts")).toBe(12)
+  })
 
+  it("keeps the TTL of the first increment", async () => {
+    const [storage] = await target.stores(1)
+    expect(await storage!.incrementItem!("attempts", 60)).toBe(1)
+    expect(await storage!.incrementItem!("attempts", 1)).toBe(2)
     await sleep(1300)
-    expect(await stores[0]!.incrementItem!("attempts", 30)).toBe(1)
+    expect(await storage!.getItem("attempts")).toBe(2)
   })
 
   it("refuses to increment a value that is not a safe integer, and leaves it unchanged", async () => {

@@ -100,6 +100,16 @@ afterEach(async () => {
 })
 
 describe("comment operations over the Console RPC", () => {
+  it("resolves a full batch with replies above the default signed RPC byte limit", async () => {
+    await setup()
+    const reply = "直".repeat(500)
+    const threads = []
+    for (let index = 0; index < 50; index++) threads.push({ threadId: (await create()).id, reply })
+    const result = await value<CommentThread[]>("comments.resolve", { threads })
+    expect(result.map(thread => ({ id: thread.id, status: thread.status, reply: thread.messages.at(-1)?.body })))
+      .toEqual(threads.map(entry => ({ id: entry.threadId, status: "resolved", reply })))
+  })
+
   it("creates, lists, and gets threads in the shapes of the client types", async () => {
     await setup()
     const thread = await create()
@@ -259,14 +269,14 @@ describe("comment operations over the Console RPC", () => {
 })
 
 describe("comments in the CLI, the Console, and the browser transport", () => {
-  it("prints the threads for `vitehub comments list --json`", async () => {
+  it.each(["list", "get", "resolve"] as const)("runs `vitehub comments %s` with flags", async (command) => {
     await setup()
     const thread = await create()
     installConsoleProjectRoot("/app")
     let output = ""
     let errors = ""
     const code = await runViteHubCli({
-      args: ["comments", "list", "--json"],
+      args: ["comments", command, "--json", ...(command === "list" ? [] : ["--thread-id", thread.id])],
       cwd: "/app",
       env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
       fetch: (async (url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(await signed(new Request(String(url), init)))) as typeof fetch,
@@ -276,7 +286,10 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       stdout: { write: (chunk: string | Uint8Array) => { output += String(chunk); return true } },
     })
     expect(code, errors || output).toBe(0)
-    expect(JSON.parse(output)).toEqual([thread])
+    const result: unknown = JSON.parse(output)
+    if (command === "list") expect(result).toEqual([thread])
+    else if (command === "get") expect(result).toEqual(thread)
+    else expect(result).toMatchObject({ id: thread.id, status: "resolved" })
   })
 
   it("describes the Console section as a list of comments.list with filter chips and page links", () => {

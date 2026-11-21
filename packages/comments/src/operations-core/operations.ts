@@ -92,16 +92,12 @@ const revision = v.pipe(v.number(), v.integer(), v.minValue(0))
 const threadId = v.strictObject({ threadId: id })
 /** Threads that one `comments.resolve` call resolves at most. */
 const maximumResolvedThreads = 50
-const resolveReply = v.pipe(v.string(), v.minLength(1), v.maxLength(maximumCommentBodyLength), v.description("What changed, such as the commit or a link. It is added to the thread as a reply."))
-const resolveInput = v.pipe(
-  v.strictObject({
-    reply: v.optional(resolveReply),
-    threadId: v.optional(id),
-    threads: v.optional(v.pipe(v.array(v.strictObject({ reply: v.optional(resolveReply), threadId: id })), v.minLength(1), v.maxLength(maximumResolvedThreads))),
-  }),
-  v.check(input => (input.threadId === undefined) !== (input.threads === undefined), "Pass threadId for one thread, or threads for several threads, not both."),
-  v.check(input => input.reply === undefined || input.threadId !== undefined, "With threads, put each reply in its entry, as { threadId, reply }."),
-)
+const resolveReply = v.pipe(v.string(), v.regex(/\S/, "A resolution reply needs some text."), v.maxLength(maximumCommentBodyLength), v.description("What changed, such as the commit or a link. It is added to the thread as a reply."))
+const resolveEntry = v.strictObject({ threadId: id, reply: v.optional(resolveReply) })
+const resolveInput = v.union([
+  resolveEntry,
+  v.strictObject({ threads: v.pipe(v.array(resolveEntry), v.minLength(1), v.maxLength(maximumResolvedThreads), v.check(entries => new Set(entries.map(entry => entry.threadId)).size === entries.length, "List each thread only once.")) }),
+])
 
 async function digest(value: string): Promise<string> {
   const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))
@@ -407,25 +403,44 @@ export const commentActions = {
    * checked before any of them changes, so a missing thread or a refused one changes nothing.
    */
   async resolveThreads(input: readonly { threadId: string, reply?: string }[], who: CommentsCaller): Promise<CommentThread[]> {
-    const found = await Promise.all(input.map(async (entry) => {
+    const by = author(who)
+    const plans = await Promise.all(input.map(async (entry) => {
       const thread = await load(who, entry.threadId)
       await allow(who, "resolve", { thread })
-      if (entry.reply !== undefined) await allow(who, "write", { thread })
-      return thread
+      const body = entry.reply?.trim()
+      if (body === undefined) return { thread }
+      checkOutboxAccount(who)
+      await allow(who, "write", { thread })
+      const replyKey = async (previousId: string | undefined) => `resolve:${await digest(JSON.stringify([by.id, who.actor?.id, previousId, body]))}`
+      const last = thread.messages.at(-1)
+      if (thread.status === "resolved" && last && last.createdAt <= (thread.resolvedAt ?? 0) && last.body === body) {
+        const earlier = await earlierReply(thread, await replyKey(thread.messages.at(-2)?.id))
+        if (earlier?.id === last.id) return { thread }
+      }
+      return { thread, reply: { author: by, body, requestId: await replyKey(last?.id), ...(who.actor ? { actor: who.actor } : {}) } }
     }))
+    for (const plan of plans) if (plan.reply) await limitGuest(who)
     const resolved: CommentThread[] = []
-    for (const [index, entry] of input.entries()) {
-      let thread = found[index]!
-      if (entry.reply !== undefined) {
-        // The same reply on a retry keeps one message.
-        const requestId = `resolve:${await digest(entry.reply)}`
-        thread = (await commentActions.reply({ body: entry.reply, requestId, threadId: thread.id }, who, { allowResolved: true })).thread
+    for (const plan of plans) {
+      let { thread } = plan
+      let replied = false
+      try {
+        if (plan.reply) {
+          thread = (await replyToThread(who.runtime, thread, plan.reply, { allowResolved: true, ...writeOptions(who) })).thread
+          replied = true
+        }
+        if (thread.status !== "resolved" || thread.messages.some(message => message.createdAt > (thread.resolvedAt ?? 0))) {
+          thread = await who.runtime.store.setStatus(thread.id, "resolved", by, Date.now(), who.actor)
+          who.runtime.forge?.changed(thread.id)
+        }
+        resolved.push(thread)
       }
-      if (thread.status !== "resolved") {
-        thread = await who.runtime.store.setStatus(thread.id, "resolved", author(who), Date.now(), who.actor)
-        who.runtime.forge?.changed(thread.id)
+      catch (cause) {
+        if (!resolved.length && !replied) throw cause
+        throw Object.assign(fail(commentsErrorDiagnostics.COMMENTS_RESOLVE_INTERRUPTED({
+          completed: resolved.map(entry => entry.id), threadId: thread.id, replied,
+        }), 409), { cause })
       }
-      resolved.push(thread)
     }
     return resolved
   },
@@ -567,12 +582,12 @@ const resolve = defineOperation({
   description: "Resolve the comment threads that you handled, each with a reply that says what changed, such as the commit or a link. This is the last step of every thread that you act on, and the person who commented expects it: resolved threads leave their page, open ones stay on it. Pass { threadId, reply } for one thread, or { threads: [{ threadId, reply }] } to resolve every thread that you handled in one call. A thread that you did not change stays open.",
   input: resolveInput,
   kind: "write",
+  maxRequestBytes: 3_200_000,
   name: "comments.resolve",
   run: async (input, context): Promise<CommentThread | CommentThread[]> => {
     const who = await caller(context)
-    if (input.threads) return commentActions.resolveThreads(input.threads, who)
-    // SAFETY: The schema accepts threadId when threads is missing.
-    const [thread] = await commentActions.resolveThreads([{ threadId: input.threadId!, ...(input.reply === undefined ? {} : { reply: input.reply }) }], who)
+    if ("threads" in input) return commentActions.resolveThreads(input.threads, who)
+    const [thread] = await commentActions.resolveThreads([input], who)
     return thread!
   },
   mcp: { format: output => [output].flat().map(thread => `Thread ${thread.id} is ${thread.status}.`).join("\n"), title: "Resolve comment threads" },
