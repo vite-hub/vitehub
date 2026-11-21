@@ -46,6 +46,7 @@ export type {
   ViteHubNodeOptions,
   ViteHubOptions,
   ViteHubQueueOptions,
+  WebContainerOptions,
   WorkflowOptions,
   WorkspaceOptions,
 } from "./plugins.ts"
