@@ -1,7 +1,9 @@
 import { typesafe } from "@vite-hub/gateways"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { askAiGateway } from "@vite-hub/gateways/internal"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { getMessageText } from "../messages.ts"
+import { resolveModelEmulation } from "./agent-emulation.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
 
 import type { AiGateway, AskAnswers, AskQuestions } from "@vite-hub/gateways"
@@ -30,12 +32,17 @@ let defaultGateway: AiGateway<{ ask: true }> | undefined
 export async function askJev<const Q extends AskQuestions>(context: AskRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
   const cloudflareEnv = context.cloudflare?.env ?? getActiveCloudflareEnv()
   const envContext = { ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}), ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}) }
-  return await askAiGateway(context.gateway ?? (defaultGateway ??= typesafe()), state, questions, {
+  // The AI emulator does not answer Jev questions. Fail before the gateway reads its key.
+  if (resolveModelEmulation(envContext)) throw agentDiagnostics.AGENT_MODELS_EMULATE_ASK_UNSUPPORTED()
+  const [error, answers] = await askAiGateway(context.gateway ?? (defaultGateway ??= typesafe()), state, questions, {
     context: { env: async (preset, field) => await gatewayEnvValue(preset, field, envContext) },
     ...(context.observe ? { observe: context.observe } : {}),
     ...(context.recordUsage ? { onUsage: context.recordUsage } : {}),
     ...(context.abortSignal ? { signal: context.abortSignal } : {}),
   })
+  // `driver.ask` keeps its contract: a provider failure fails the Agent step that asked.
+  if (error) throw error
+  return answers
 }
 
 /** Jev state for a run: Invocation `data` when present, else the prompt text, else the latest user message. */

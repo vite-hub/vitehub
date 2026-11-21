@@ -1,8 +1,8 @@
 import { expectTypeOf, it } from "vitest"
 import { codexDriver, defineAgent, defineCapability } from "../src/index.ts"
 import { runAgentInline } from "../src/internal/agent-run.ts"
-import { github } from "../src/channels.ts"
-import type { AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/index.ts"
+import { github, gmail } from "../src/channels.ts"
+import type { AgentChannelDefinition, AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/index.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 it("selects a parent with extends and rejects preset selection", () => {
@@ -448,4 +448,47 @@ it("rejects conflicting preset option selectors", () => {
   defineAgent({ extends: preset, repair: { enabled: true }, options: { enabled: false } })
   // @ts-expect-error Tuple options cannot also use legacy options.
   defineAgent({ extends: [preset, { enabled: true }], options: { enabled: false } })
+})
+
+it("types the declared Channels of an Agent and of its children", () => {
+  const channel = github()
+  const agent = defineAgent({ driver: codexDriver(), channels: { github: channel } })
+  expectTypeOf(agent.channels.github).toEqualTypeOf<typeof channel>()
+  const child = defineAgent({ extends: agent, channels: { web: () => github() } })
+  expectTypeOf(child.channels.github).toEqualTypeOf<typeof channel>()
+  expectTypeOf(child.channels.web).toEqualTypeOf<typeof channel>()
+  const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver(), channels: { github: github() } }) })
+  expectTypeOf(defineAgent({ extends: preset }).channels.github.kind).toEqualTypeOf<"github">()
+  // @ts-expect-error An Agent without Channels keeps the optional record.
+  void defineAgent({ driver: codexDriver() }).channels.github
+})
+
+it("uses registry names instead of tuple keys for named Channels", () => {
+  const agent = defineAgent({ driver: codexDriver(), channels: { mail: gmail(), repo: github() } })
+  const named = defineAgent({ driver: codexDriver(), channels: ["mail"] })
+  expectTypeOf(named.channels.mail).toEqualTypeOf<AgentChannelDefinition>()
+  // @ts-expect-error The resulting record has no tuple index.
+  void named.channels[0]
+  // @ts-expect-error The resulting record has no tuple length.
+  void named.channels.length
+  const child = defineAgent({ extends: agent, channels: ["mail"] })
+  expectTypeOf(child.channels.mail).toEqualTypeOf<AgentChannelDefinition>()
+  expectTypeOf(child.channels.repo.kind).toEqualTypeOf<"github">()
+  function check(names: readonly "mail"[]) {
+    const selected = defineAgent({ driver: codexDriver(), channels: names })
+    expectTypeOf(selected.channels.mail).toEqualTypeOf<AgentChannelDefinition | undefined>()
+  }
+  void check
+})
+
+it("preserves conditional Channel presence and replacements", () => {
+  function check(enabled: boolean) {
+    const agent = defineAgent({ driver: codexDriver(), channels: enabled ? { mail: gmail() } : undefined })
+    expectTypeOf(agent.channels?.mail.kind).toEqualTypeOf<"gmail" | undefined>()
+    const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), channels: { mail: gmail() } }) })
+    const child = defineAgent({ extends: preset, channels: enabled ? { mail: github(), extra: github() } : undefined })
+    expectTypeOf(child.channels.mail.kind).toEqualTypeOf<"github" | "gmail">()
+    expectTypeOf(child.channels.extra?.kind).toEqualTypeOf<"github" | undefined>()
+  }
+  void check
 })

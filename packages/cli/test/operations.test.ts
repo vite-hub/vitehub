@@ -131,18 +131,18 @@ describe("generated operation commands", () => {
       description: "Read a file for redirection.",
       input: v.strictObject({}),
       kind: "read",
-      name: "workspace.show",
+      name: "workspace.get",
       run: () => ({ content }),
       section: "workspaces",
     })
     const options = { fetch: server("http://localhost:5173", {}, [show]), operations: [show] }
 
-    const result = await run(["workspace", "show"], options)
+    const result = await run(["workspace", "get"], options)
     expect(result.code).toBe(0)
     expect(result.stdout).toBe(content)
     expect(result.stderr).toBe("")
 
-    const json = await run(["workspace", "show", "--json"], options)
+    const json = await run(["workspace", "get", "--json"], options)
     expect(json.code).toBe(0)
     expect(JSON.parse(json.stdout)).toEqual({ content })
     expect(json.stdout.endsWith("\n")).toBe(true)
@@ -248,7 +248,7 @@ describe("generated operation commands", () => {
     expect(operationRpcRequest(fetch.mock.calls[0]![1]!.body).input).toEqual({})
   })
 
-  it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
+  it.each(["inspect", "provision", "seed"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
     const operation = defineOperation({ ...list, name: "reports.custom", cli: { namespace } })
     await expect(run([namespace, "custom"], { operations: [operation] })).rejects.toMatchObject({ code: "INTERNAL_R0020", message: expect.stringContaining("reserved") })
   })

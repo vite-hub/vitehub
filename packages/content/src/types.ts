@@ -36,7 +36,9 @@ async function generateTypes(content: ContentTypesHost, options: ContentTypesOpt
 
 const typedInstances = new WeakSet<ComarkContent>()
 
-/** Comark writes JSON Schema's `integer`, from a field such as `z.number().int()`, as a TypeScript type name. */
+/**
+ * Comark writes JSON Schema's `integer`, from a field such as `z.number().int()`, as a TypeScript type name.
+ */
 function integerAsNumber(field: TypegenFieldContext): void {
   if (![field.schema.type].flat().includes("integer")) return
   field.type = field.type.split(" | ").map(part => part === "integer" ? "number" : part).join(" | ")

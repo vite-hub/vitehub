@@ -34,7 +34,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         target: `Workspace "${workspace}" has no ref or revision "${id}". Run \`vitehub workspace refs ${workspace}\` to list refs.`,
         workspace: `Unknown Workspace: ${workspace}.`,
       })[problem],
-      fix: "Check the Workspace name, the ref or revision, and the path. `vitehub workspace refs <workspace>` lists the refs, and `vitehub workspace show <workspace> <ref>` lists the files. When a base revision is gone, pull again without it.",
+      fix: "Check the Workspace name, the ref or revision, and the path. `vitehub workspace refs <workspace>` lists the refs, and `vitehub workspace get <workspace> <ref>` lists the files. When a base revision is gone, pull again without it.",
     },
 
     // Checkout errors. `vitehub pull`, `push`, `resolve`, `status`, and the Git hooks print them with the code and the fix.
@@ -103,6 +103,23 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Fix the conflict in `vitehub.lock`, or delete the entry and pull again.",
     },
 
+    // Config errors. The Vite plugin and the runtime throw them because the `store` option must change.
+    WORKSPACE_RENAMED_STORE_PROVIDER_KEY: {
+      why: ({ provider }: { driver: string, provider: string }) => `The Workspace \`store\` sets \`provider: ${provider}\`. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so the Store would not be the one you chose.`,
+      fix: ({ driver }: { driver: string, provider: string }) => `Set \`store: { driver: ${driver} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
+    },
+    WORKSPACE_RENAMED_STORE_REPOSITORY_KEY: {
+      why: () => "The GitHub Workspace `store` sets `repository`. ViteHub renamed this key to `repo`, and it does not read `repository`, so the Store would use `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` or no repository.",
+      fix: () => "Rename `repository` to `repo` in `store: { driver: \"github\" }`, or run `vitehub migrate` to rename it in every file.",
+    },
+    WORKSPACE_UNKNOWN_STORE_DRIVER: {
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `The Workspace \`store.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `The Workspace \`store.driver\` ${driver} is not a Workspace Store driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`store: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `store.driver` to \"local\", \"memory\", \"github\", \"cloudflare\", or \"vercel\", or pass a Store object.",
+    },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
       why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,
@@ -119,7 +136,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0069: withFix("Use a Store with retained history: `createBlobDatabaseWorkspaceStore()` or the `github` Store. Open the Workspace with a scope that grants the complete Workspace, not selected paths."),
     WORKSPACE_R0070: withFix("Pass a `limit` from 1 to 100, and pass a `cursor` only with the `ref` of the `history.list()` call that returned it."),
     WORKSPACE_R0071: withFix("Use a ref name with up to 128 letters, numbers, `_`, and `-`, joined by single `.` or `/`, for example `draft` or `team/review`. In a GitHub Store with `refs`, use `published` or `draft`, not the branch name."),
-    WORKSPACE_R0072: withFix("Set the `repository` option of the GitHub Store or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, for example `owner/repo`. Set the `token` option or `VITEHUB_GITHUB_TOKEN`."),
+    WORKSPACE_R0072: withFix("Set the `repo` option of the GitHub Store or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, for example `owner/repo`. Set the `token` option or `VITEHUB_GITHUB_TOKEN`."),
     WORKSPACE_R0073: withFix("Make the commit message or metadata shorter, as the message says. Remove each `Vitehub-Metadata:` line from the message, and pass the values in the `metadata` option."),
     WORKSPACE_R0001: withFix("Pass the path of a file or folder in the Workspace, for example `docs/guide.md`. The Workspace root itself cannot be written, moved, or deleted."),
     WORKSPACE_R0002: withFix("Enable at least one operation in `createWorkspaceTools(workspace, { operations })`, for example `{ operations: { read: true } }`."),
@@ -147,8 +164,8 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0022: withFix("Pass the Workspace name as a non-empty string, for example `registerWorkspace(\"docs\", definition)` or `registerWorkspacePlugin(\"docs\", plugin)`."),
     WORKSPACE_R0023: withFix("Set `maxBytes` to a number of bytes or to a string such as `\"512kb\"` or `\"10mb\"`."),
     WORKSPACE_R0024: withFix("Give each Workspace plugin a non-empty string `id`, for example `{ id: \"my-plugin\", rules }`."),
-    WORKSPACE_R0025: withFix("Declare the target as a `fetch()` Source in the Workspace Definition, and make the Source visible in the Workspace scope."),
-    WORKSPACE_R0026: withFix("Use a Store that supports rebase: `github` or `cloudflare-artifacts`. Or do not call `rebase()` on this Workspace."),
+    WORKSPACE_R0025: withFix("Declare the target as a `url()` Source in the Workspace Definition, and make the Source visible in the Workspace scope."),
+    WORKSPACE_R0026: withFix("Use a Store that supports rebase: `github` or `cloudflare`. Or do not call `rebase()` on this Workspace."),
     WORKSPACE_R0027: withFix("Set another `binding` in the Workspace `store` options, or set `namespace` to the namespace that Wrangler config already has for that binding."),
     WORKSPACE_R0028: withFix("The client closed the Workspace Dev connection before the command finished. Run the command again and keep the connection open."),
     WORKSPACE_R0029: withFix("Give each Cloudflare Artifacts namespace its own `binding` in the Workspace `store` options."),
@@ -167,11 +184,11 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0045: withFix("Set `executionAuthority` on the Workspace Session host. Use `unknownExecutionAuthority` from `@vite-hub/runtime` when the host cannot describe it."),
     WORKSPACE_C0003: withFix("Rename the Source key to one file name without `/` and without a `.json` ending, for example `issues`. ViteHub keeps the request descriptor at `.vitehub/sources/<key>.json`."),
     WORKSPACE_C0004: withFix("Set `mount` on the Source to a folder, for example `mount: \"docs\"`, or set `probeKeys`. A Workspace Scope grant needs paths, and a Source at the root has none."),
-    WORKSPACE_C0005: withFix("Use a Source helper so that the Source kind is explicit, for example `github({ repo: \"owner/name\" })`, `fetch({ url, workspacePath: \"issues.json\" })`, or `file({ path: \"README.md\" })`. A `{ source: { ... } }` wrapper does not help, because ViteHub reads the options in it the same way."),
+    WORKSPACE_C0005: withFix("Use a Source helper so that the Source kind is explicit, for example `github({ repo: \"owner/name\" })`, `url({ url, workspacePath: \"issues.json\" })`, or `file({ path: \"README.md\" })`. A `{ source: { ... } }` wrapper does not help, because ViteHub reads the options in it the same way."),
     WORKSPACE_C0006: withFix("Pass `path` or `workspacePath` to `file()`, for example `file({ path: \"README.md\" })`."),
-    WORKSPACE_C0007: withFix("When the URL has a query, set `path` on the Source config, for example `{ url, path: \"issues.json\" }`. Or use the `fetch()` helper with `workspacePath: \"issues.json\"`."),
-    WORKSPACE_R0046: withFix("Set `workspacePath` on the `fetch()` Source to read the response as a file. A request-only Source answers only `curl` Source requests."),
-    WORKSPACE_R0047: withFix("Read the `fetch()` Source at its `workspacePath`. The Source has no other file."),
+    WORKSPACE_C0007: withFix("When the URL has a query, set `path` on the Source config, for example `{ url, path: \"issues.json\" }`. Or use the `url()` helper with `workspacePath: \"issues.json\"`."),
+    WORKSPACE_R0046: withFix("Set `workspacePath` on the `url()` Source to read the response as a file. A request-only Source answers only `curl` Source requests."),
+    WORKSPACE_R0047: withFix("Read the `url()` Source at its `workspacePath`. The Source has no other file."),
     WORKSPACE_R0048: withFix("Read this Source in an Agent Invocation. The Agent runs the resolver with the Invocation context before it reads the Source. Outside an Invocation, the Source has no files."),
     WORKSPACE_R0049: withFix("Set `responseType` to `\"json\"` or `\"text\"`."),
     WORKSPACE_R0050: withFix("Set `method` to `\"GET\"`, `\"HEAD\"`, or `\"POST\"`."),

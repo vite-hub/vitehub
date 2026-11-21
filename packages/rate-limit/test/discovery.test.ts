@@ -43,6 +43,15 @@ describe("Rate Limit declarations", () => {
       .toThrow("`checkRateLimit()` requires an event, a stable ID, and a static options object.")
   })
 
+  it("collects refundRateLimit() calls, so a refund with another policy fails like a guard", () => {
+    expect(extractRateLimitDeclarations("server/api/tutor.ts", [
+      'import { refundRateLimit } from "vite-hub/rate-limit"',
+      '  await refundRateLimit(event, "tutor", { key: learner, limit: 5, window: "1d" })',
+    ].join("\n"))).toMatchObject([{ name: "tutor", policy: { limit: 5, window: "1d" } }])
+    expect(() => extractRateLimitDeclarations("server/api/tutor.ts", 'import { refundRateLimit } from "vite-hub/rate-limit"\nrefundRateLimit(event, "tutor", { limit: 5, message: "No.", window: "1d" })'))
+      .toThrow("`refundRateLimit()` does not support the \"message\" option.")
+  })
+
   it("collects framework auto-imported guards", () => {
     const source = [
       "export default defineEventHandler(async (event) => {",
@@ -329,13 +338,13 @@ describe("Rate Limit declarations", () => {
     expect(extractRateLimitDeclarations("default-parameter.ts", source)).toMatchObject([{ name: "default-parameter" }])
   })
 
-  it("deduplicates identical IDs and policies", async () => {
+  it("deduplicates policies with equivalent windows", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-declarations-"))
     roots.push(root)
     await mkdir(join(root, "server", "api"), { recursive: true })
     const declaration = 'import { requireRateLimit } from "vite-hub/rate-limit"\nrequireRateLimit(event, "uploads", { limit: 1, window: "1m" })\n'
     await writeFile(join(root, "server", "api", "first.ts"), declaration)
-    await writeFile(join(root, "server", "api", "second.ts"), declaration)
+    await writeFile(join(root, "server", "api", "second.ts"), declaration.replace('"1m"', '"1 minute"'))
 
     expect(discoverRateLimitDeclarations({ rootDir: root })).toHaveLength(1)
   })

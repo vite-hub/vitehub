@@ -2,6 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAuth } from "../src/definition.ts"
 import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
+import { requireCaller } from "../src/server.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 import type { H3Event } from "h3"
@@ -50,4 +51,23 @@ describe("the typed Auth of a Definition with mcpOAuth()", () => {
     await deleteUnusedMcpClients({ auth })
     await verifyMcpRequest(request, { auth: {} as AuthFor<typeof object> })
   })
+})
+
+it("narrows the caller of requireCaller() by kind", async () => {
+  const event = {} as H3Event
+  const [error, caller] = await requireCaller(event)
+  if (error) {
+    expectTypeOf(error.code).toEqualTypeOf<"AUTH_MCP_TOKEN_INVALID" | "AUTH_SIGNED_OUT">()
+    return
+  }
+  expectTypeOf(caller.user.id).toEqualTypeOf<string>()
+  expectTypeOf(caller.user.email).toEqualTypeOf<string>()
+  if (caller.kind === "agent") {
+    expectTypeOf(caller.client.name).toEqualTypeOf<string | undefined>()
+    expectTypeOf(caller.scopes).toEqualTypeOf<string[]>()
+  }
+  else {
+    // @ts-expect-error Only an agent caller has a client.
+    void caller.client
+  }
 })

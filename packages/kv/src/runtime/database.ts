@@ -1,4 +1,4 @@
-import type { KVListOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
+import type { KVPageOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { chunks } from "./batch.ts"
@@ -218,7 +218,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const [filter, params] = prefixFilter(base)
       await query(`delete from ${table} where namespace = ?${filter}`, [namespace, ...params])
     },
-    async listKeys({ cursor, limit, prefix }: KVListOptions): Promise<KVListPage> {
+    async listKeys({ cursor, limit, prefix }: KVPageOptions): Promise<KVListPage> {
       const after = decodeCursor(cursor)
       const [filter, params] = prefixFilter(prefix)
       const rows = await query(

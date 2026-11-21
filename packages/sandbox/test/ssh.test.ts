@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { serveSsh, sshLaunch } from "../src/ssh.ts"
-import type { SshLaunchOptions } from "../src/ssh.ts"
+import type { SshLaunchOptions, SshServerOptions } from "../src/ssh.ts"
 
 const run = promisify(execFile)
 const cleanup: Array<() => Promise<unknown>> = []
@@ -18,7 +18,7 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function fixture() {
+async function fixture(serve: Partial<SshServerOptions> = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-ssh-test-"))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const hostKeyFile = join(root, "host")
@@ -35,6 +35,7 @@ async function fixture() {
     host: "127.0.0.1",
     port: 0,
     acceptEnvironment: ["VITEHUB_SSH_TEST_SECRET"],
+    ...serve,
   })
   cleanup.push(() => server.close())
   const options = { host: "127.0.0.1", user: "agent", identityFile, hostKeyFile: `${hostKeyFile}.pub`, port: server.port }
@@ -111,6 +112,22 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     const result = await child.done
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toEqual({ secret })
+  }, 15000)
+
+  // A login shell reads /etc/profile and ~/.profile. Debian's /etc/profile sets PATH again, which dropped the PATH of the
+  // caller and Codex's apply_patch folder on SSH launches.
+  it("runs the command without a login shell, so profiles keep the forwarded environment", async () => {
+    const { launch, root } = await fixture({ acceptEnvironment: ["HOME", "VITEHUB_SSH_TEST_PATH"] })
+    const home = join(root, "home")
+    await mkdir(home)
+    await writeFile(join(home, ".profile"), "export VITEHUB_SSH_TEST_PATH=/from/profile\n")
+    const child = launch(["-e", "console.log(process.env.VITEHUB_SSH_TEST_PATH)"], {
+      forwardEnvironment: ["HOME", "VITEHUB_SSH_TEST_PATH"],
+    }, { HOME: home, VITEHUB_SSH_TEST_PATH: "/from/caller" })
+    child.child.stdin.end()
+    const result = await child.done
+    expect(result.code).toBe(0)
+    expect(result.stdout).toBe("/from/caller\n")
   }, 15000)
 
   it("rejects an untrusted host key and an unauthorized client key", async () => {
@@ -274,16 +291,16 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
   }, 15000)
 
   it("does not repeat a remote side effect when a nested ssh connection is refused", async () => {
+    const outer = await fixture()
     const { server, cwd } = await fixture()
     const closedPort = server.port
     await server.close()
-    // Use a second live server for the outer connection and the closed port for the nested command.
-    const outer = await fixture()
+    await expectRefused(closedPort)
     const result = outer.launch(["-e", `
       const { appendFileSync } = require("node:fs")
       const { spawnSync } = require("node:child_process")
       appendFileSync(${JSON.stringify(join(cwd, "executions"))}, "x")
-      const child = spawnSync("ssh", ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
+      const child = spawnSync("ssh", ["-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-p", "${closedPort}", "agent@127.0.0.1", "true"], { stdio: "inherit" })
       process.exitCode = child.status
     `], { connectRetryMs: 1800 })
     result.child.stdin.end()

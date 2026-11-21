@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterEach, expect, it } from "vitest"
 
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 
 import { prepareFeatureArtifacts } from "../playground/vite/build/vite-e2e.ts"
 

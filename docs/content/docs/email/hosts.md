@@ -98,19 +98,19 @@ Set `outbox: false` to turn the outbox off. A dev send then goes straight to the
 - The outbox hides header and metadata values with secret names, and credentials in delivery errors.
 - It keeps message bodies as your app rendered them.
 
-Inspect the outbox with the [CLI](/docs/development/cli#inspect-the-email-development-outbox) or in the [Console](/docs/development/console) **Email** section:
+Inspect the outbox with the [CLI](/docs/cli/primitives#inspect-the-email-development-outbox) or in the [Console](/docs/console) **Email** section:
 
 ```bash [Terminal]
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html > message.html
+pnpm vitehub email outbox get outbox-1 --html > message.html
 pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
-`vitehub email outbox` runs the `email.outbox-*` [operations](/docs/development/operations) in the app, so it needs this project's dev server running. With `--url`, it reads the outbox of a deployed app with the Console on, but only `vite dev` captures messages. `vitehub email preview` needs no server. The Console never renders captured HTML. It shows the HTML source as text.
+`vitehub email outbox` runs the `email.outbox-*` [operations](/docs/console/operations) in the app, so it needs this project's dev server running. With `--url`, it reads the outbox of a deployed app with the Console on, but only `vite dev` captures messages. `vitehub email preview` needs no server. The Console never renders captured HTML. It shows the HTML source as text.
 
 ## Requirements
 
-- `vite-hub/email` needs Node.js 22.22 or later. The standalone `@vite-hub/email` package needs Node.js 22.18 or later.
+- `vite-hub/email` and the standalone `@vite-hub/email` package need Node.js 24.15 or later.
 - Provider config needs Vite 8 or later. `createEmail()` clients do not need Vite.
 - Runtime support comes from the built-in or custom driver you pick.
 

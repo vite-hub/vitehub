@@ -44,7 +44,7 @@ async function sendTelegramMessage(agent: ReturnType<typeof defineAgent>, chat: 
   const tasks: Array<Promise<unknown>> = []
   // SAFETY: This synthetic route call omits host-only context that Telegram webhook handling does not read.
   const response = await createChannelWebhookRouteHandler(agent as never)(
-    new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+    new Request("https://example.com/_vitehub/agents/support/webhooks/telegram", {
       body: JSON.stringify({
         message: {
           chat,

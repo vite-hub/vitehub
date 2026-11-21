@@ -1,8 +1,8 @@
 # @vite-hub/cms
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcms&icon=npm)](https://www.npmjs.com/package/@vite-hub/cms)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/cms)](https://www.npmjs.com/package/@vite-hub/cms)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/cms` is the CMS of ViteHub. It stores the editable collections of [`@vite-hub/content`](https://www.npmjs.com/package/@vite-hub/content) without wiring: Content is the primitive, collections on a Workspace, and the CMS adds that Workspace and its Database tables.
 
@@ -23,7 +23,7 @@ export default defineContent({
 
 [`vite-hub`](https://www.npmjs.com/package/vite-hub) then turns on `workspace`, `database`, and `blob` if you left them unset, and registers `hubCms()`. A setting you pass wins, and `false` keeps a feature off. Without `vite-hub`, import `cms` from `@vite-hub/cms` and add `hubCms()` from `@vite-hub/cms/vite` next to the Workspace, Database, and Blob plugins.
 
-At build time `hubCms()` reads `server/content.ts` without running it, so import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it as `extends: cms` or `extends: [cms, { ... }]`, and give string literal options. It then:
+At build time `hubCms()` reads `server/content.ts` without running it. Import the preset from `vite-hub/cms` or `@vite-hub/cms`, pass it as `extends: cms` or `extends: [cms, { ... }]`, and use literal options. Use the boolean literal `true` for `roles`. The build then:
 
 - writes the Workspace Definition to `.vitehub/content/workspace.mjs` and contributes it as the `content` Workspace (option `workspace`);
 - adds the `content-history` tables (Blob + Database store) and the `content-sessions` table to the default or only Database (option `database`);
@@ -58,7 +58,7 @@ export default defineAuth({ database: authDatabase(), plugins: [admin(cmsAccess)
 | `publisher` | `read`, `read-draft`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
 | `admin` | Everything, with the Better Auth admin permissions | Everything |
 
-`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table. The role policy also decides `read`, the `/api/content/**` route, so visitors without a role get `401`. Set `defineContent({ access: "public" })` when visitors read that route. The roles still decide drafts, writes, and publishing.
+`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { roles: true }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table. The role policy also decides `read`, the `/api/content/**` route, so visitors without a role get `401`. Set `defineContent({ access: "public" })` when visitors read that route. The roles still decide drafts, writes, and publishing.
 
 ## Inspect
 
@@ -70,6 +70,6 @@ export default defineAuth({ database: authDatabase(), plugins: [admin(cmsAccess)
 | --- | --- |
 | `CONTENT_B0001` | The build cannot read the preset selection, or an option is unknown or not valid. |
 | `CONTENT_B0002` | The app lacks something the preset needs: Workspace, Database, or Blob is off, the Database choice is ambiguous, or a named Database or Blob store does not exist. |
-| `CONTENT_R0006` | An option passed to `defineContent({ extends: [cms, { ... }] })` is not valid at runtime. |
+| `CONTENT_CMS_OPTION_INVALID` | An option passed to `defineContent({ extends: [cms, { ... }] })` is not valid at runtime. |
 
 See the [CMS docs](https://vitehub.dev/docs/cms).

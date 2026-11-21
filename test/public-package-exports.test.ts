@@ -10,6 +10,19 @@ import { listWorkspacePackageInfos } from "../packages/internal/src/workspace-in
 import { packageDir, packageInfos, packageManifestSchema, readPackageManifest, repoRoot, toRepoPath, walkFiles } from "./utils/repo"
 
 describe("public package export contracts", () => {
+  it("limits Content's Tiptap peers to the editor and Realtime exports", () => {
+    const tiptapPeers = Object.keys(readPackageManifest("content").peerDependencies || {})
+      .filter(peer => peer.startsWith("@tiptap/"))
+
+    expect(tiptapPeers.length).toBeGreaterThan(0)
+    for (const contract of publicPackageExportContracts.filter(entry => entry.packageName === "@vite-hub/content")) {
+      const usesEditor = contract.subpath === "./editor" || contract.subpath === "./realtime"
+      const expected = usesEditor ? tiptapPeers.toSorted() : []
+      expect(contract.optionalRuntimePeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+      expect(contract.optionalDeclarationPeers.filter(peer => peer.startsWith("@tiptap/")).toSorted(), contract.specifier).toEqual(expected)
+    }
+  })
+
   it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
     for (const specifier of ["@vite-hub/auth/mcp", "vite-hub/auth/mcp"]) {
       const contract = publicPackageExportContracts.find(entry => entry.specifier === specifier)
@@ -48,10 +61,11 @@ describe("public package export contracts", () => {
       // A wildcard would publish the private modules that generated code imports by file path (`ownModule()` in
       // `@vite-hub/internal/build/paths`).
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
+      // Package implementation subpaths have one spelling: `internal/*`.
+      expect(subpaths.filter(subpath => /(?:^|\/)_internal(?:\/|$)/.test(subpath)), `${path} exports an _internal subpath`).toEqual([])
     }
     // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
-    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/(?:internal|_internal\/(?:blob|database|email|kv|queue|rate-limit))(?:\/|$)/.test(subpath))).toEqual([])
-    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/_?internal(?:\/|$)/.test(subpath))).toEqual([])
+    expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
   it("classifies every public root and subpath exactly once", () => {
@@ -135,7 +149,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("ui")
     const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
     for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
-      expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      // The ui-sdk drag handle loads on first render, not when MarkdownEditor is imported.
+      if (peer === "@tiptap/extension-drag-handle" || peer === "@tiptap/extension-drag-handle-vue-3") {
+        expect(contract?.optionalRuntimePeers).not.toContain(peer)
+      } else {
+        expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      }
       expect(contract?.optionalDeclarationPeers, `${peer} is needed to typecheck the editor`).toContain(peer)
     }
   })
@@ -217,9 +236,12 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
-    expect(manifest.dependencies?.["@tiptap/pm"]).toEqual(expect.any(String))
-    expect(manifest.devDependencies?.["@tiptap/pm"]).toBeUndefined()
-    for (const dependency of ["@tiptap/core", "@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
+    // The editor and its document model come from the app's Tiptap and Yjs, which the package manager installs as peers.
+    for (const dependency of ["@tiptap/core", "@tiptap/pm", "yjs"]) {
+      expect(manifest.peerDependencies?.[dependency], `realtime should take ${dependency} from the app`).toEqual(expect.any(String))
+      expect(manifest.dependencies?.[dependency]).toBeUndefined()
+    }
+    for (const dependency of ["@tiptap/extension-collaboration", "@tiptap/y-tiptap"]) {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }

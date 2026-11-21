@@ -336,6 +336,7 @@ onBeforeUnmount(() => {
   flushVersion++;
   if (pending) clearTimeout(pending);
   clearTimeout(outlineTimer);
+  clearTimeout(sectionTimer);
 });
 
 /** The body as Markdown now, such as the live room body for a preview. Null while it cannot serialize. */
@@ -476,15 +477,19 @@ function insertBelow(instance: Editor | undefined, onClick: () => { pos: number 
   handlers.value.suggestion.execute(instance, { pos: node?.pos }).run();
 }
 
-function lockHandle(instance: Editor, open: boolean): void {
+// Enter opens the block menu without a click, so opening it selects the block under the handle, as a press does.
+function toggleBlockMenu(instance: Editor, open: boolean, select: () => unknown): void {
+  if (open) select();
   instance.chain().setMeta("lockDragHandle", open).run();
 }
 
 // A link that names a section scrolls to it once the body loads.
+let sectionTimer: ReturnType<typeof setTimeout> | undefined;
 watch(editor, (instance) => {
   if (!instance || !window.location.hash) return;
   const target = decodeURIComponent(window.location.hash.slice(1));
-  setTimeout(() => {
+  clearTimeout(sectionTimer);
+  sectionTimer = setTimeout(() => {
     instance.state.doc.forEach((node, offset) => {
       if (node.type.name === "heading" && consoleHeadingSlug(node.textContent) === target) scrollTo(offset);
     });
@@ -551,7 +556,7 @@ watch(editor, (instance) => {
           :items="blockItems(editor)"
           :content="{ side: 'left', align: 'start' }"
           :ui="{ content: 'w-52' }"
-          @update:open="lockHandle(editor, $event)"
+          @update:open="toggleBlockMenu(editor, $event, onClick)"
         >
           <UButton
             icon="i-lucide-grip-vertical"
@@ -561,7 +566,6 @@ watch(editor, (instance) => {
             aria-label="Block actions. Drag to move."
             :active="open"
             :class="ui.handle()"
-            @click="onClick"
           />
         </UDropdownMenu>
       </UEditorDragHandle>

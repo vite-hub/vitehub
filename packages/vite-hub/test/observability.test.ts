@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
 import { env } from "@vite-hub/env"
@@ -53,8 +54,8 @@ describe("vitehub({ observability })", () => {
       const generated = join(root, ".vitehub/nitro/observability/plugin.mjs")
       expect(config.nitro?.plugins).toEqual([generated])
       const source = await readFile(generated, "utf8")
-      expect(source).toContain(`import { installObservability } from "@vite-hub/agent/observability/host"`)
-      expect(source).toContain(`import { posthog } from "@vite-hub/agent/observability/posthog"`)
+      expect(source).toContain(`import { installObservability } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/host")))}`)
+      expect(source).toContain(`import { posthog } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/observability/posthog")))}`)
       expect(source).toContain("loadServerEnv()")
       expect(source).toContain(`papercuts: { ...{"eventPrefix":"acme.papercut"}, invocations: getConsoleInvocations }`)
     }

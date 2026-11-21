@@ -18,7 +18,7 @@ Your app code uses the package's documented server API, not generated internals.
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', agent: true, kv: true },
+  vitehub: { agent: true, kv: true },
 })
 ```
 :::
@@ -31,7 +31,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, kv: true }),
+    vitehub({ agent: true, kv: true }),
     nitro(),
   ],
 })
@@ -45,7 +45,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ host: 'node', agent: true, kv: true }),
+    vitehub({ agent: true, kv: true }),
   ],
 })
 ```
@@ -65,7 +65,7 @@ Inspect generated output to verify routes, bindings, or host wiring. Import it f
 | Host deployment files | Provider Output from the integration. |
 | Server code access | A documented package or generated import. |
 
-Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/reference/runtime-helpers), and [Provider Output](/docs/reference/provider-output) for details.
+Read [Definition discovery](/docs/development/definition-discovery), [Runtime Helpers and stable imports](/docs/runtime/helpers), and [Provider Output](/docs/reference/provider-output) for details.
 
 ## Persistent Node storage
 
@@ -154,7 +154,6 @@ Set `publicUrl` in the ViteHub options to your deployed app's public origin. Vit
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     publicUrl: "https://agents.example.com",
   },
 })
@@ -170,7 +169,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: "https://agents.example.com",
     }),
     nitro(),
@@ -187,7 +185,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: "https://agents.example.com",
     }),
   ],
@@ -204,7 +201,6 @@ Use a function when one build serves Agents from different origins. ViteHub call
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: "node",
     publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
   },
 })
@@ -220,7 +216,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
     nitro(),
@@ -237,7 +232,6 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: "node",
       publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
     }),
   ],
@@ -268,7 +262,7 @@ With the function form, pass the Agent name: `resolvePublicUrl({ agentName: "bot
 
 ### Register webhooks at the public URL
 
-When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks).
+When `publicUrl` is a string, `vitehub channels sync` and `vitehub channels history` use it as the default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` you type. See [Synchronize Channel webhooks](/docs/cli/agents#synchronize-channel-webhooks).
 
 ### Serve a Cloudflare Worker on its custom domain
 

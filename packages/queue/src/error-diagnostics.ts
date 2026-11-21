@@ -19,9 +19,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_UNSUPPORTED_OPTION: {
       why: ({ options, provider }: { options: string, provider: QueueDriver }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
-      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("`id`")
-        ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
-        : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
+      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("Seconds`")
+        ? "Rename `delaySeconds` to `delay` and `retentionSeconds` to `retention`, and write the time as a duration: `{ delay: \"60s\" }` in place of `{ delaySeconds: 60 }`. `vitehub migrate` renames them."
+        : options.includes("`id`")
+          ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
+          : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
     // Provider cause errors. They are the `cause` of `QUEUE_PROVIDER_FAILED`, as the provider error is in production.
@@ -30,12 +32,12 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
         "batch-bytes": `${provider} accepts up to ${max} bytes in one \`sendBatch()\`, got ${value} bytes of JSON.`,
         "batch-empty": "Vercel requires at least one job in a `sendBatch()`.",
         "batch-jobs": `${provider} accepts up to ${max} jobs in one \`sendBatch()\`, got ${value}.`,
-        "delay": `\`delaySeconds\` must be a number of seconds from 0, got ${value}.`,
-        "delay-max": `${provider} accepts \`delaySeconds\` up to ${max}, got ${value}.`,
+        "delay": `\`delay\` must be a time from 0, got ${value} seconds.`,
+        "delay-max": `${provider} accepts a \`delay\` of up to ${max} seconds, got ${value} seconds.`,
         "payload": `${provider} accepts a payload of up to ${max} bytes, got ${value} bytes of JSON.`,
-        "retention": `${provider} accepts \`retentionSeconds\` from ${min} to ${max}, got ${value}.`,
+        "retention": `${provider} accepts a \`retention\` from ${min} to ${max} seconds, got ${value} seconds.`,
       })[limit],
-      fix: "Change the job as the message says: `delaySeconds`, `retentionSeconds`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
+      fix: "Change the job as the message says: `delay`, `retention`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
     },
     QUEUE_VERCEL_BATCH_REJECTED: {
       why: ({ failed, total }: { failed: number, total: number }) => `@vercel/queue did not accept ${failed} of ${total} batch messages.`,
@@ -65,7 +67,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_JOB_RUNNING: {
       why: "The job is running now.",
-      fix: "Wait for the attempt to end, then run `vitehub queue jobs show` for its state.",
+      fix: "Wait for the attempt to end, then run `vitehub queue jobs get` for its state.",
     },
 
     // Config errors. An operation throws them when it starts, because the code or the deployment must change.
@@ -143,6 +145,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "A custom `queue.binding` works with one Queue Definition only, and this app has more.",
       fix: "Remove `queue.binding`, so that each Queue Definition gets its own generated binding.",
     },
+    QUEUE_CONTRIBUTION_INVALID: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Correct the `vitehub.queues` entry of the plugin that the message names. Give it a `name` and `definition: { module }`, where `module` is the absolute path or `file:` URL of a file with `export default defineQueue(...)`.",
+    },
     QUEUE_CRYPTO_UNAVAILABLE: {
       why: "Cloudflare queue names for long Queue Definition names need the `node:crypto` module, and this runtime does not have it.",
       fix: "Enable the `nodejs_compat` compatibility flag, or use a shorter Queue Definition name.",
@@ -151,13 +157,17 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ context }: { context: string }) => `The ${context} Queue Definitions changed after Vite resolved the config.`,
       fix: "Generate Queue Definition files before the Vite config resolves, then build again.",
     },
+    QUEUE_DEFINITION_DUPLICATE: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Rename or remove one of the two Queue Definitions that the message lists. Each Queue name must have one file or one plugin contribution.",
+    },
     QUEUE_INVALID_CONFIG: {
       why: "`queue` must be a plain object or `false`.",
       fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
     },
     QUEUE_INVALID_DEFINITION: {
-      why: "`defineQueue()` needs a handler function.",
-      fix: "Pass the handler as the first argument, for example `defineQueue(async (job) => { ... })`.",
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Pass one object with a `handler` function and the options next to it, for example `defineQueue({ handler: async ({ payload }) => { ... }, concurrency: 2 })`. Run `npx vitehub migrate` to move the former `defineQueue(handler, options)` form.",
     },
     QUEUE_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
@@ -166,6 +176,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_INVALID_NAME: {
       why: ({ name }: { name: string }) => `The Cloudflare queue name "${name}" can contain only letters, numbers, and dashes, and must start and end with a letter or number.`,
       fix: "Change `queue.namePrefix` so that it contains only letters, numbers, and dashes.",
+    },
+    QUEUE_MAX_BATCH_SIZE_INVALID: {
+      why: ({ where }: { where: string }) => `${where}: \`maxBatchSize\` must be a whole number from 1 to 100, written as a number in \`export default defineQueue({ ... })\`. The build reads the options from the file to configure the Cloudflare consumer, so they cannot use a spread or a computed key.`,
+      fix: "Write each option, such as `maxBatchSize: 5` (a whole number from 1 to 100), directly in the object of `export default defineQueue({ ... })`, without a variable, a spread, or a computed key.",
     },
     QUEUE_MISSING_DRIVER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue driver for ${hosting} hosting.`,
@@ -182,6 +196,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_PROVISION_FAILED: {
       why: "Cloudflare returned an invalid queue list during provisioning.",
       fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+    },
+    QUEUE_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`queue.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Queue would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`queue: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
   },
 })

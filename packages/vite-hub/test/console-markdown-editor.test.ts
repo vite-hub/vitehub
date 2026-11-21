@@ -3,7 +3,7 @@ import { EditorContent } from "@tiptap/vue-3"
 import { createContentEditorCodec } from "@vite-hub/content/editor"
 import { flushPromises, shallowMount } from "@vue/test-utils"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { DefineComponent } from "vue"
+import { type DefineComponent, defineComponent, h } from "vue"
 
 import ConsoleMarkdownEditor from "../src/console/runtime/components/console-markdown-editor.vue"
 
@@ -147,5 +147,77 @@ describe("Rich edit commits", () => {
       await flushPromises()
       wrapper.unmount()
     }
+  })
+})
+
+describe("Block menu", () => {
+  // Nuxt UI's handle and menu, reduced to what the editor uses: the handle's slot, and the menu's items and `update:open`.
+  const selected = vi.fn()
+  const DragHandle = defineComponent({
+    setup(_, { slots }) {
+      // Nuxt UI's `onClick` selects the block under the handle and returns it.
+      const onClick = () => selected()
+      return () => h("div", slots.default?.({ onClick, ui: { handle: () => "" } }))
+    },
+  })
+  const DropdownMenu = defineComponent({
+    props: { items: { default: () => [], type: Array } },
+    emits: ["update:open"],
+    setup(_, { slots }) {
+      return () => h("div", slots.default?.({ open: false }))
+    },
+  })
+
+  it("selects the block under the handle when Enter opens the menu, without a click", async () => {
+    const wrapper = shallowMount(ConsoleMarkdownEditor, {
+      props: { active: true, collection: "posts", modelValue: "Original\n" },
+      global: {
+        stubs: {
+          UButton: true, UDropdownMenu: DropdownMenu, UEditorDragHandle: DragHandle, UEditorSuggestionMenu: true,
+          UEditorToolbar: true, UIcon: true, UInput: true, UPopover: true,
+        },
+      },
+    })
+    try {
+      await flushPromises()
+      const editor = wrapper.getComponent(EditorContent).props("editor")
+      await vi.waitFor(() => expect(editor?.isEditable).toBe(true))
+      const menu = await vi.waitFor(() => wrapper.getComponent(DropdownMenu))
+      // A keyboard opens Nuxt UI's menu on keydown, and no click follows.
+      menu.vm.$emit("update:open", true)
+      await flushPromises()
+      expect(selected).toHaveBeenCalledOnce()
+      menu.vm.$emit("update:open", false)
+      expect(selected).toHaveBeenCalledOnce()
+    }
+    finally {
+      wrapper.unmount()
+    }
+  })
+})
+
+describe("Section links", () => {
+  // The test tsconfig has no DOM library. happy-dom provides `location`.
+  const setHash = (hash: string) => Reflect.set(Reflect.get(globalThis, "location"), "hash", hash)
+  afterEach(() => setHash(""))
+
+  it("does not scroll to the linked section after the editor unmounts", async () => {
+    setHash("#intro")
+    const wrapper = shallowMount(ConsoleMarkdownEditor, {
+      props: { active: true, collection: "posts", modelValue: "# Intro\n\nBody\n" },
+      global: {
+        stubs: {
+          UButton: true, UDropdownMenu: true, UEditorDragHandle: true, UEditorSuggestionMenu: true,
+          UEditorToolbar: true, UIcon: true, UInput: true, UPopover: true,
+        },
+      },
+    })
+    await flushPromises()
+    const editor = wrapper.getComponent(EditorContent).props("editor")
+    if (!editor) throw new Error("Rich editor did not initialize")
+    const chain = vi.spyOn(editor, "chain")
+    wrapper.unmount()
+    await new Promise(resolve => setTimeout(resolve, 350))
+    expect(chain).not.toHaveBeenCalled()
   })
 })

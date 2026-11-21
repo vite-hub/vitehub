@@ -1,12 +1,14 @@
+import { fileURLToPath } from "node:url"
+
 import { defineConfig } from "vitest/config"
 
-const providerLoader = new URL("./src/task/runtime/provider-loader.ts", import.meta.url).pathname
+const providerLoader = fileURLToPath(new URL("./src/task/runtime/provider-loader.ts", import.meta.url))
 
 export default defineConfig({
   resolve: {
     alias: {
       "#vitehub-sandbox-task-provider-loader": providerLoader,
-      "#vitehub-sandbox-task-registry": new URL("./src/task/runtime/empty-registry.ts", import.meta.url).pathname,
+      "#vitehub-sandbox-task-registry": fileURLToPath(new URL("./src/task/runtime/empty-registry.ts", import.meta.url)),
       "vitehub-sandbox-task-provider-loader": providerLoader,
       "virtual:vitehub-sandbox-task-provider-loader": providerLoader,
     },

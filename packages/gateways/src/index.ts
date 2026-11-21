@@ -2,7 +2,7 @@ export { chatgpt } from "./chatgpt.ts"
 export type { ChatGPTGateway } from "./chatgpt.ts"
 export { ask } from "./ask.ts"
 export { askWithModel } from "./ask-model.ts"
-export type { AskModel } from "./ask-model.ts"
+export type { AskError, AskModel, AskOptions, AskResult, AskSchema } from "./ask-model.ts"
 export type {
   AskAnswer,
   AskAnswers,
@@ -26,7 +26,7 @@ export type {
 } from "./ask.ts"
 export { aiGatewayEnv } from "./env.ts"
 export type { AiGatewayEnvField } from "./env.ts"
-export { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "./presets.ts"
+export { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, emulate, litellm, ollama, openai, openrouter, typesafe, vercel } from "./presets.ts"
 export type {
   AiAskGatewayOptions,
   AiGatewayPresetOptions,
@@ -34,13 +34,16 @@ export type {
   AiModelGateway,
   CloudflareAccessOptions,
   CloudflareGatewayOptions,
+  EmulateGatewayOptions,
   TypesafeGatewayOptions,
   VercelGatewayOptions,
 } from "./presets.ts"
 export type {
   AiGateway,
   AiGatewayAsk,
+  AiGatewayAskError,
   AiGatewayAskOptions,
+  AiGatewayAskResult,
   AiGatewayCapabilities,
   AiGatewayContext,
   AiGatewayDefinition,

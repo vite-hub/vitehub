@@ -5,6 +5,7 @@ import { forgeEnv, readForgeEnv } from "@vite-hub/internal/forge"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { workspaceError } from "../core/errors.ts"
+import { assertNoGitHubRepositoryKey } from "../providers/github/shared.ts"
 import { createGitHubWorkspaceStore } from "../providers/github/store.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
@@ -105,6 +106,7 @@ export function resolveGitHubWorkspaceStore(
   env: Record<string, string | undefined> = process.env,
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
+  assertNoGitHubRepositoryKey(config)
   const branch = gitHubWorkspaceOption(config.branch)
     ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
   // An empty root is the repository root.
@@ -115,8 +117,7 @@ export function resolveGitHubWorkspaceStore(
     ...(config.database === undefined ? {} : { database: config.database }),
     driver: "github",
     ...(config.refs ? { refs: { ...config.refs } } : {}),
-    repository: gitHubWorkspaceOption(config.repository)
-      ?? gitHubWorkspaceOption(config.repo)
+    repo: gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),
     root: root ?? (input.runtime ? undefined : ".vitehub/workspaces/<workspace>"),
     token: input.runtime
@@ -132,6 +133,10 @@ export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined
   return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
+const workspaceStoreDrivers = new Set<unknown>(["cloudflare", "github", "local", "memory", "vercel"])
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedWorkspaceStoreDrivers = new Map([["cloudflare-artifacts", "cloudflare"], ["vercel-blob", "vercel"]])
+
 export function normalizeWorkspaceStoreOptions(
   store: WorkspaceStoreOptions | undefined,
   input: WorkspaceResolutionInput = {},
@@ -143,6 +148,16 @@ export function normalizeWorkspaceStoreOptions(
   const env = input.env || process.env
   const hosting = input.hosting || ""
 
+  // A `root` once made a Store without `driver` a local Store, so the former `provider` key would pick it silently.
+  if (store && Object.hasOwn(store, "provider") && store.driver === undefined) {
+    // SAFETY: An app config without types still passes the former `provider` key.
+    const provider = (store as { provider?: unknown }).provider
+    const driver = renamedWorkspaceStoreDrivers.get(String(provider)) ?? provider
+    throw workspaceErrorDiagnostics.WORKSPACE_RENAMED_STORE_PROVIDER_KEY({ driver: JSON.stringify(driver) ?? String(driver), provider: JSON.stringify(provider) ?? String(provider) })
+  }
+  if (store?.driver !== undefined && !workspaceStoreDrivers.has(store.driver)) {
+    throw workspaceErrorDiagnostics.WORKSPACE_UNKNOWN_STORE_DRIVER({ driver: JSON.stringify(store.driver), renamed: renamedWorkspaceStoreDrivers.get(String(store.driver)) })
+  }
   if (store?.driver === "cloudflare") return resolveCloudflareArtifactsStore(store, env)
   if (store?.driver === "github") return resolveGitHubWorkspaceStore(store, env, input)
   if (store?.driver === "memory") return store

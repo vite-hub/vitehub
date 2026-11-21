@@ -682,7 +682,7 @@ for (const item of cases) {
     assert.equal(await grace.page.evaluate(() => window.pageTest.heard()), 0)
     const graceRun = async (n) => {
       const intruded = await grace.page.evaluate(async ({ id, n, text }) => {
-        const response = await fetch("/api/_vitehub/agents/settings/chat", {
+        const response = await fetch("/_vitehub/agents/settings/chat", {
           method: "POST",
           headers: { "content-type": "application/json", "x-vitehub-page": id },
           body: JSON.stringify({ messages: [{ id: `grace-${n}`, role: "user", parts: [{ type: "text", text }] }] }),

@@ -76,7 +76,7 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 ### KV_INVALID_TTL
 
-The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive number of seconds. Upstash rounds up to whole seconds.
+The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
 
 ### KV_INVALID_WAIT
 
@@ -122,7 +122,7 @@ The runtime has no KV config. Set `kv` in `vitehub()` to `true` or to a KV confi
 
 ### KV_INVALID_DRIVER
 
-`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`.
+`kv.driver` is not `cloudflare`, `database`, `deno-kv`, `fs-lite`, `redis`, or `upstash`. The former `cloudflare-kv-binding` is now `cloudflare`; `npx @vite-hub/codemods driver-key` renames it.
 
 ### KV_INVALID_REMOTE
 

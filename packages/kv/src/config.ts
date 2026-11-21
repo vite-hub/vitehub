@@ -26,12 +26,15 @@ import type {
 } from "./types.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 
+import type { Diagnostic } from "nostics"
+
 export interface KVResolutionInput {
   /**
    * `vite dev`. A store is then local unless it sets `remote: true`: inference never selects Upstash, and a Cloudflare
    * store falls back to `fs-lite` when the runtime has no binding. Builds leave it unset.
    */
   dev?: boolean
+  prerender?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
   /**
@@ -55,11 +58,10 @@ function readRemote(config: KVStoreConfig | InferredKVStoreConfig, store: string
   throw kvErrorDiagnostics.KV_INVALID_REMOTE({ store })
 }
 
-/** Applies `vite dev` mode: hosted stores are marked remote, and a Cloudflare store gets its local fallback. */
-function resolveDevStore(store: ResolvedKVStoreConfig, remote: boolean | undefined): ResolvedKVStoreConfig {
-  if (store.driver === "upstash") return { ...store, remote: true }
-  if (store.driver !== "cloudflare") return store
-  return remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
+function resolveStoreMode(store: ResolvedKVStoreConfig, remote: boolean | undefined, input: KVResolutionInput): ResolvedKVStoreConfig {
+  if (input.dev && store.driver === "upstash") return { ...store, remote: true }
+  if (store.driver !== "cloudflare" || !(input.dev || input.prerender)) return store
+  return input.dev && remote ? { ...store, remote: true } : { ...store, localBase: cloudflareKVLocalBase(store.binding) }
 }
 
 /**
@@ -84,7 +86,7 @@ export function redisStorePrefix(name: string): string {
   return `vitehub:kv:${segment}`
 }
 
-/** An empty prefix would let `kv.clear()` and `kv.keys()` reach every key of the Redis or Upstash database. */
+/** An empty prefix would let `kv.clear()` and `kv.list()` reach every key of the Redis or Upstash database. */
 function resolveStoreBase(base: string | undefined, name: string): string {
   return normalizeKey(trimmed(base)) || redisStorePrefix(name)
 }
@@ -120,14 +122,14 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
   return path ? { driver: "deno-kv", path } : { driver: "deno-kv" }
 }
 
-function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, dev: boolean | undefined): ResolvedKVStoreConfig {
+function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, input: KVResolutionInput): ResolvedKVStoreConfig {
   const remote = readRemote(store, name)
   const { driver } = store
-  if (dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
+  if (input.dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
   const resolved = resolveStoreDriver(store, env, name)
-  return dev ? resolveDevStore(resolved, remote) : resolved
+  return resolveStoreMode(resolved, remote, input)
 }
 
 function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | undefined>, name: string): ResolvedKVStoreConfig {
@@ -138,10 +140,16 @@ function resolveStoreDriver(store: KVStoreConfig, env: Record<string, string | u
     case "fs-lite": return resolveFsLiteStore(store, name)
     case "redis": return resolveRedisStore(store, name)
     case "upstash": return resolveUpstashStore(store, resolveStoreBase(store.base, name))
-    // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
-    default: throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify((store as { driver: unknown }).driver) })
+    default: {
+      // SAFETY: The invalid driver branch reads only the driver field for diagnostics, without using it as a supported driver.
+      const driver = (store as { driver: unknown }).driver
+      throw kvErrorDiagnostics.KV_INVALID_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedKVDrivers.get(String(driver)) })
+    }
   }
 }
+
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedKVDrivers = new Map([["cloudflare-kv-binding", "cloudflare"]])
 
 function createResolvedConfig(store: ResolvedKVModuleOptions["store"], stores?: Record<string, ResolvedKVModuleOptions["store"]>): ResolvedKVModuleOptions {
   return stores ? { store, stores: { default: store, ...stores } } : { store }
@@ -174,18 +182,17 @@ export function normalizeKVOptions(
 
   if (hasStoresConfig(options, stores)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input.dev)]),
+      Object.entries(stores).map(([name, store]) => [name, resolveExplicitStore(store, env, name, input)]),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw kvErrorDiagnostics.KV_MISSING_DEFAULT_STORE()
     return createResolvedConfig(defaultStore, resolvedStores)
   }
 
-  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input.dev))
+  if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env, "default", input))
   const remote = explicit ? readRemote(explicit, "default") : undefined
-  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(input.dev ? resolveDevStore(store, remote) : store)
-  // Only an explicit `remote: true` lets `vite dev` infer a hosted store from env or the host.
-  const hosted = !input.dev || remote === true
+  const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(resolveStoreMode(store, remote, input))
+  const hosted = !input.prerender && (!input.dev || remote === true)
   if (hosting.includes("deno")) {
     if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "deno-kv", remote, store: "default" })
     return inferred(resolveDenoStore())
@@ -194,7 +201,7 @@ export function normalizeKVOptions(
   if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore({}, redisStorePrefix("default")))
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))
   if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "fs-lite", remote, store: "default" })
-  if (input.dev) return inferred(resolveFsLiteStore())
+  if (input.dev || input.prerender) return inferred(resolveFsLiteStore())
   // Node and other servers keep the build-selected driver. Redis requires an explicit driver.
   if (input.postgresDatabase) return inferred({ ...resolveDatabaseStore({}, "default"), inferred: true })
   return inferred({ ...resolveFsLiteStore(), inferred: true })
@@ -208,22 +215,18 @@ export function kvInferredStoreNotice(name: string, store: ResolvedKVStoreConfig
 }
 
 /**
- * The build warning for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
+ * The build hint for a Redis URL that KV does not use. Redis is never inferred, because a `REDIS_URL` often belongs to
  * another service, such as BullMQ or sessions. A NuxtHub app that kept its keys in Redis must select it.
  */
-export function kvRedisEnvWarning(options: KVOptions | undefined, input: KVResolutionInput = {}): string | undefined {
+export function kvRedisEnvHint(options: KVOptions | undefined, input: KVResolutionInput = {}): Diagnostic | undefined {
   if (options === false || input.dev || (options && ("stores" in options || options.driver))) return
   const env = input.env || process.env
   const name = readEnv(env, redisUrlEnvName) ? redisUrlEnvName : readEnv(env, "KV_URL")?.startsWith("rediss://") ? "KV_URL" : undefined
   if (!name) return
-  const fix = `To keep KV in that Redis, set \`kv: { driver: "redis"${name === redisUrlEnvName ? "" : `, url: "env:${name}"`} }\`. To keep this store, set its \`driver\`.`
   const store = normalizeKVOptions(options, input)?.store
-  if (store?.driver === "upstash" && !hasUpstashEnv(env)) {
-    return `[vitehub] KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own. ${fix}`
-  }
+  if (store?.driver === "upstash" && !hasUpstashEnv(env)) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: "upstash" })
   const selected = store?.driver === "database" ? `the table vitehub_kv of the Database "${store.database}"` : store?.driver === "fs-lite" ? `fs-lite in ${store.base}` : undefined
-  if (!selected) return
-  return `[vitehub] The build has \`${name}\`, but KV does not select Redis on its own. The KV store "default" uses ${selected}. ${fix}`
+  if (selected) return kvErrorDiagnostics.KV_REDIS_URL_UNUSED({ name, store: selected })
 }
 
 export function warnVercelKVFallback(

@@ -1,4 +1,5 @@
 import { waitUntil as vercelWaitUntil } from "@vercel/functions"
+import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -14,12 +15,14 @@ function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
     // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
-    checkQueueHandlerResponse(await definition.handler({
-      attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
-      id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
-      metadata,
-      payload,
-    }))
+    await runInRunScopes(async () => {
+      checkQueueHandlerResponse(await definition.handler({
+        attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
+        id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
+        metadata,
+        payload,
+      }))
+    })
   }
 }
 
@@ -56,7 +59,7 @@ export async function handleHostedVercelQueueCallback(request: Request, name: st
     throw queueErrorDiagnostics.QUEUE_DRIVER_MISMATCH({ driver: queue.provider, expected: "vercel" })
   }
 
-  const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.options?.callbackOptions))(request)
+  const result = await queue.callback(createVercelJobHandler(definition), createVercelCallbackOptions(name, definition.callbackOptions))(request)
   if (result instanceof Response) return result
   return result === undefined ? new Response(null, { status: 204 }) : Response.json(result)
 }

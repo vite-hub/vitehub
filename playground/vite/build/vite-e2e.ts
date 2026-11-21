@@ -34,7 +34,7 @@ import { createWorkflowRegistryContents } from "../../../packages/workflow/src/i
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -439,7 +439,7 @@ function renderWorkspaceRuntimeModule(file: string, assetsRegistryFile: string) 
     `import assetsRegistry from ${JSON.stringify(createImportPath(file, assetsRegistryFile))}`,
     "",
     `export const defineWorkspace = definition => definition`,
-    `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options), mcpResources: options => createHostedSourceStub("mcpResources", options) }`,
+    `export const source = { custom: source => source, file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options), mcpResources: options => createHostedSourceStub("mcpResources", options), url: options => createHostedSourceStub("fetch", options) }`,
     "const stores = new Map()",
     "function normalizePath(path = '', allowEmpty = true) {",
     "  const raw = String(path).replace(/\\\\/g, '/')",
@@ -870,6 +870,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
     if (sandboxTaskProvider === "cloudflare") {
       // @cloudflare/sandbox 1.0 exports only the `import` condition, which require.resolve cannot read.
+      // Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
       alias["@cloudflare/sandbox"] = realpathSync(resolve(sandboxPackageDir, "node_modules/@cloudflare/sandbox/dist/index.mjs"))
     }
   }
@@ -1028,8 +1029,8 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     "        if (!definition) return",
     "        const runtimeEvent = createCloudflareRuntimeEvent(env, context)",
     "        await createCloudflareQueueBatchHandler({",
-    "          concurrency: definition.options?.concurrency,",
-    "          onError: definition.options?.onError,",
+    "          concurrency: definition.concurrency,",
+    "          onError: definition.onError,",
     "          onMessage: async (message, currentBatch) => {",
     "            await runWithQueueRuntimeEvent(runtimeEvent, async () => {",
     "              await definition.handler(createQueueJob(message, currentBatch))",

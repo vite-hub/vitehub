@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/auth",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Better Auth-powered authentication primitives and Vite integration for ViteHub.",
   "keywords": [
     "auth",
@@ -183,6 +183,7 @@
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
+    "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database"
   },
   "peerDependencies": {
@@ -214,6 +215,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

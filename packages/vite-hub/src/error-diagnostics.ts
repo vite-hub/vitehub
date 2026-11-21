@@ -5,7 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: VITE_HUB_B0002, VITE_HUB_B0003, VITE_HUB_B0006, VITE_HUB_B0007, VITE_HUB_B0010, VITE_HUB_B0014, VITE_HUB_B0017, VITE_HUB_R0002 to VITE_HUB_R0039, VITE_HUB_R0048, VITE_HUB_R0055 to VITE_HUB_R0057, VITE_HUB_R0064 to VITE_HUB_R0069, VITE_HUB_R0099, VITE_HUB_R0100, VITE_HUB_R0105, VITE_HUB_R0110 to VITE_HUB_R0112, VITE_HUB_R0119, VITE_HUB_R0122, and VITE_HUB_R0134.
+// Retired codes. Do not reuse them: VITE_HUB_B0002, VITE_HUB_B0003, VITE_HUB_B0006, VITE_HUB_B0007, VITE_HUB_B0010, VITE_HUB_B0014, VITE_HUB_B0017, VITE_HUB_R0002 to VITE_HUB_R0039, VITE_HUB_R0048, VITE_HUB_R0055 to VITE_HUB_R0057, VITE_HUB_R0064 to VITE_HUB_R0069, VITE_HUB_R0086, VITE_HUB_R0099, VITE_HUB_R0100, VITE_HUB_R0105, VITE_HUB_R0110 to VITE_HUB_R0112, VITE_HUB_R0119, VITE_HUB_R0122, and VITE_HUB_R0134.
 export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -69,13 +69,25 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Nitro tasks are not enabled in this runtime.",
       fix: "Add a file to `server/tasks/` and build again. In Nuxt, use Nuxt's own task support.",
     },
-    VITE_HUB_AGENT_OPTION_MISSING: {
-      ...dynamicError,
-      fix: "Set `agent: true` in the ViteHub options to run the Agents. Set `agent: false` to keep them off on purpose.",
+    VITE_HUB_CACHE_STALE_IF_ERROR_INVALID: {
+      why: ({ value }: { value: string }) => `\`staleIfError\` is the number of seconds after \`maxAge\` during which a failed call returns the stored value, but it is ${value}.`,
+      fix: "Pass a number of seconds that is 0 or more, such as `staleIfError: 86400` for one day. Remove `staleIfError` to return the error at once.",
+    },
+    VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE: {
+      why: "`staleIfError` returns the stored value, but with `serialize` the stored value is the serialized form, and ocache would serialize it again.",
+      fix: "Remove `serialize`, or remove `staleIfError` and catch the error where you call the cached function.",
     },
     VITE_HUB_CACHE_TAG_INVALID: {
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
+    },
+    VITE_HUB_DEFINITION_PACKAGE_MISSING: {
+      why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
+      fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,
+    },
+    VITE_HUB_DEFINITION_ROOT_MISMATCH: {
+      why: ({ keys, projectRoot, workingDirectory }: { keys: string, projectRoot: string, workingDirectory: string }) => `\`vitehub()\` turns features on from the Definition files of ${workingDirectory}, the project of the working directory, but the Vite root is in ${projectRoot}, which has other Definition files for ${keys}.`,
+      fix: ({ keys }: { keys: string, projectRoot: string, workingDirectory: string }) => `Run Vite from the project folder, or set ${keys} to \`true\` or \`false\` in the ViteHub options.`,
     },
     VITE_HUB_DEPLOY_CHECK_INVALID: {
       why: ({ value }: { value: string }) => `A \`deploy.check\` path must be a path on the deployed site that starts with one \`/\`, such as \`/api/health\`, but it is ${value}.`,
@@ -84,6 +96,14 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_DEPLOY_INDEX_NOW_PUBLIC_URL_MISSING: {
       why: "`deploy.indexNow` sends the URLs of the public site to IndexNow, and the build does not know that site: `publicUrl` is not a string.",
       fix: "Set `vitehub({ publicUrl: \"https://shop.example.com\" })` to the origin of the public site, or remove `deploy.indexNow`.",
+    },
+    VITE_HUB_DOCKERFILE_NATIVE_PACKAGES_NOT_LINUX: {
+      why: ({ os, packages }: { os: string, packages: string }) => `The build ran on ${os}, so these native packages in \`.output\` hold ${os} code: ${packages}. The Linux image of \`.output/Dockerfile\` cannot load them.`,
+      fix: "Install dependencies and build the app in the Linux Node image for the target CPU. Use that same base for the generated Dockerfile with `docker build --build-arg VITEHUB_NODE_IMAGE=<image>`. Or set `docker: false` in `vitehub()` and use a Dockerfile with compatible build and runtime stages.",
+    },
+    VITE_HUB_HOST_PROVIDER_CONFLICT: {
+      why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
+      fix: ({ host }: { host: string }) => `Remove \`host\` from \`vitehub()\` to build for the host that the environment names. To build ${host} output on purpose, set \`VITEHUB_HOST=${host}\`.`,
     },
     VITE_HUB_MCP_AUTH_MISSING: {
       why: "The MCP server needs Auth, so that only signed-in MCP clients call its tools.",
@@ -147,7 +167,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0137: {
       ...dynamicError,
-      fix: "Set `schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" }` in `vitehub()` to run Schedules in the server process, or `schedule: { providerOutput: false }` to start them yourself.",
+      fix: "Remove `schedule.providerOutput` from `vitehub()` to run Schedules in the server process, or set `schedule: { providerOutput: false }` to start them yourself.",
     },
     VITE_HUB_R0141: {
       ...dynamicError,
@@ -287,7 +307,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_C0001: {
       ...dynamicError,
-      fix: "Pass a section that `vitehub project info` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
+      fix: "Pass a section that `vitehub project get` lists, or a Workspace, revision, and text file under 512 KiB that `vitehub workspaces files` lists. For a 502 or 503, read the app logs for the Workspace store, Env provider, or section reader that failed, then try again.",
     },
     VITE_HUB_C0002: {
       ...dynamicError,
@@ -298,8 +318,12 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `cache` from `vitehub()`, or set `cache: { driver: \"kv\" }` with `kv` enabled to keep the cache in KV on this host.",
     },
     VITE_HUB_C0004: {
-      ...dynamicError,
-      fix: "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`cache.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`cache.driver\` is ${driver}. It must be "cloudflare", "deno-kv", "fs-lite", "kv", or "vercel".`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`cache: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `cache.driver` to \"cloudflare\", \"deno-kv\", \"fs-lite\", \"kv\", or \"vercel\".",
     },
     VITE_HUB_R0052: {
       ...dynamicError,
@@ -367,7 +391,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0005: {
       ...dynamicError,
-      fix: "Set `auth: true` in `vitehub()` and add server/auth.ts with the admin plugin of Better Auth, or remove `console.impersonation`.",
+      fix: "Add server/auth.ts with the admin plugin of Better Auth, and remove `auth: false` from `vitehub()` if it is there. Or remove `console.impersonation`.",
     },
     VITE_HUB_R0075: {
       ...dynamicError,
@@ -413,10 +437,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass an options object to `vitehub()`, such as `vitehub({ host: \"node\" })`, or call `vitehub()` with no argument.",
     },
-    VITE_HUB_R0086: {
-      ...dynamicError,
-      fix: "Set `schedule: false` in `vitehub()`, or build for another host, such as `host: \"node\"` or `host: \"cloudflare\"`.",
-    },
     VITE_HUB_R0087: {
       ...dynamicError,
       fix: "Remove `agent.runtime: \"deno\"` from `vitehub()` to run Agents in the Nitro server of the Deno host, or deploy the Deno Agent runtime to another host.",
@@ -427,7 +447,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_R0089: {
       ...dynamicError,
-      fix: "Choose an Email driver for this host, such as `email: { driver: \"resend\" }` in `vitehub()`, or set `host: \"cloudflare\"`.",
+      fix: "Set `driver` for the production build, such as `email: { driver: \"resend\" }` in `vitehub()`. Use `driver: \"log\"` to send no email, or build for `host: \"cloudflare\"`.",
     },
     VITE_HUB_B0008: {
       ...dynamicError,
@@ -537,19 +557,27 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_LOGS_MAX_ENTRIES_INVALID: {
       why: "logs.maxEntries must be an integer from 1 to 10000.",
-      fix: "Set `maxEntries` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 1 to 10000.",
+      fix: "Set `maxEntries` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 1 to 10000.",
     },
     VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID: {
       why: "logs.maxEntryBytes must be an integer from 256 to 262144.",
-      fix: "Set `maxEntryBytes` in `vitehub({ observability: { logs } })` or in `createLogBuffer()` to an integer from 256 to 262144.",
+      fix: "Set `maxEntryBytes` in `vitehub({ logs })` or in `createLogBuffer()` to an integer from 256 to 262144.",
     },
     VITE_HUB_LOGS_SOURCE_MISSING: {
-      why: "[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: \"./server/logs.ts\" } }. The local buffer is per process and has no durable history.",
-      fix: "Set `vitehub({ observability: { logs: { source: \"./server/logs.ts\" } } })` to a server file that default-exports a `LogSource`, or remove `observability.logs` from the production build.",
+      why: "[vitehub] Production Logs needs an existing source. Set logs: { source: \"./server/logs.ts\" }. The local buffer is per process and has no durable history.",
+      fix: "Set `vitehub({ logs: { source: \"./server/logs.ts\" } })` to a server file that default-exports a `LogSource`, or remove `logs` from the production build.",
     },
     VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE: {
       why: ({ limit }: { limit: "entries" | "bytes" }) => limit === "entries" ? "The source exceeded the requested page size." : "The source exceeded the response size limit.",
       fix: "Return at most `query.limit` entries from `query()` of the `LogSource`, and keep one page under 4 MB of JSON.",
+    },
+    VITE_HUB_REDIRECTS_FILE_RULE_SKIPPED: {
+      why: ({ rules }: { rules: string }) => `Cloudflare serves static files, such as prerendered pages, before the Worker runs, so ViteHub writes \`redirect\` route rules to the \`_redirects\` file. These rules cannot go in that file: ${rules}. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Write the route as a path with `:name` segments or one `/**` at the end, without an HTTP method, and use a 301, 302, 303, 307, or 308 status. Or do not prerender the paths of these rules.",
+    },
+    VITE_HUB_REDIRECTS_FILE_TOO_LARGE: {
+      why: ({ dynamic, static: fixed }: { dynamic: number, static: number }) => `With the \`redirect\` route rules, the \`_redirects\` file has more than Cloudflare's limit of ${fixed} static or ${dynamic} dynamic redirects, so ViteHub did not add the rules. The Worker still redirects their paths, but not the static files on them.`,
+      fix: "Join redirects of one section into one rule with `/**`, such as `'/blog/**': { redirect: { to: '/posts/**', status: 301 } }`, or remove old redirects from `public/_redirects`.",
     },
     VITE_HUB_REDIRECTS_HOST_INVALID: {
       why: ({ value }: { value: string }) => `\`redirects.host\` must be a host name such as \`example.com\`, but it is ${value}.`,
@@ -562,6 +590,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_REDIRECTS_TRAILING_SLASH_INVALID: {
       why: ({ value }: { value: string }) => `\`redirects.trailingSlash\` must be \`"add"\` or \`"remove"\`, but it is ${value}.`,
       fix: "Set `redirects.trailingSlash` to `\"remove\"` to redirect `/pricing/` to `/pricing`, or to `\"add\"` for the other way. Leave it out to keep paths as they are.",
+    },
+    VITE_HUB_RENAMED_PROVIDER_KEY: {
+      why: ({ key, value }: { key: string, value: string }) => `\`${key}.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so it would pick the driver of the host, or stop because the host has none.`,
+      fix: ({ key, value }: { key: string, value: string }) => `Set \`${key}: { driver: ${value} }\` in \`vitehub()\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
     VITE_HUB_SANDBOX_CLI_DRAIN_TIMEOUT_INVALID: {
       why: "[vitehub] --drain-timeout must be a non-negative number of milliseconds.",

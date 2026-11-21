@@ -9,7 +9,7 @@ it("gives each Markdown Template build code a fix and its own docs page", () => 
   for (const code of fixedCodes) {
     const error = markdownTemplateErrorDiagnostics[code]({ message: "m" })
     expect(error.fix, code).toMatch(/\S/)
-    expect(error.docs, code).toBe(`https://vitehub.dev/docs/agents/diagnostics/${code.toLowerCase()}`)
+    expect(error.docs, code).toBe(`https://vitehub.dev/docs/markdown-template/diagnostics/${code.toLowerCase()}`)
   }
 })
 

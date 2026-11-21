@@ -116,6 +116,8 @@ fi
     expect(docs?.if).toBeUndefined()
     expect(docs?.["continue-on-error"]).not.toBe(true)
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
+    // `vp run verify` gates the release on this typecheck, so pull requests run it too.
+    expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs typecheck")).toBe(true)
   })
 
   // Each site deploys after every verification job and its own build, and not after the other site.
@@ -270,11 +272,14 @@ fi
     "checks",
     "schedule-os-select",
     "workflow-lint",
+    "doctor",
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "typecheck",
     "ui-sdk",
     "service-tests",
+    "agent-codex-emulator",
     "docs",
     "docs-snippets",
     "docs-demo",
@@ -290,12 +295,24 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it.each(["node-22", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
+  it.each(["node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
     const results = { ...successfulJobs, [name]: { result: "skipped" } }
     expect(runGate(results, "pull_request").status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
     expect(runGate(results, "workflow_dispatch").status).not.toBe(0)
     expect(runGate(results, "pull_request", true).status).not.toBe(0)
+  })
+
+  it.each(["push", "workflow_dispatch"])("accepts the Doctor job skipped on %s", (event) => {
+    expect(runGate({ ...successfulJobs, doctor: { result: "skipped" } }, event).status).toBe(0)
+  })
+
+  it("runs Doctor on the lines that a pull request changes", () => {
+    const doctor = workflow.jobs.doctor
+    const step = doctor?.steps.find(item => item.run?.includes("doctor:typescript"))
+    expect(doctor?.if).toBe("${{ github.event_name == 'pull_request' }}")
+    expect(step?.env?.VITE_DOCTOR_SINCE).toBe("${{ github.event.pull_request.base.sha }}")
+    expect(step?.run).toContain("--format agent")
   })
 
   it("rejects the push-only checks skipped on a repair-main pull request", () => {
@@ -306,7 +323,7 @@ fi
     const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("contracts-examples: skipped")
-    expect(result.stderr).toContain("node-22: skipped")
+    expect(result.stderr).toContain("node-floor: skipped")
     expect(result.stderr).toContain("prepublish-contracts: skipped")
   })
 

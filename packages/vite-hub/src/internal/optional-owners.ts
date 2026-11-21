@@ -28,7 +28,8 @@ export type OptionalOwnerPackage
     | "@vite-hub/connections"
     | "@vite-hub/content"
     | "@vite-hub/database"
-    | "@vite-hub/decisions"
+    | "@vite-hub/choices"
+    | "@vite-hub/device"
     | "@vite-hub/email"
     | "@vite-hub/forge"
     | "@vite-hub/forms"
@@ -44,7 +45,9 @@ export type OptionalOwnerPackage
     | "@vite-hub/sandbox"
     | "@vite-hub/schedule"
     | "@vite-hub/shell"
+    | "@vite-hub/sync"
     | "@vite-hub/ui"
+    | "@vite-hub/webhooks"
     | "@vite-hub/workflow"
     | "@vite-hub/workspace"
 
@@ -72,7 +75,9 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
-  "decisions": ["@vite-hub/decisions"],
+  "choices": ["@vite-hub/choices"],
+  // `vite-hub/device`: stored reads in the browser.
+  "device": ["@vite-hub/device"],
   "email": features.email.packages,
   // `vite-hub/forge`: `useForge()` and the Forge helpers.
   "forge": ["@vite-hub/forge"],
@@ -93,8 +98,11 @@ export const optionalFeaturePackages = {
   "sandboxTask": features.sandboxTask.packages,
   "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
+  // `server/sync/` turns Sync on, and its change log goes to the Database.
+  "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
-  // An Agent turns Workflow on unless the app sets `workflow: false`.
+  // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
+  "webhooks": ["@vite-hub/webhooks"],
   "workflow": features.workflow.packages,
   "workspace": features.workspace.packages,
 } as const satisfies Record<string, readonly string[]>
@@ -148,7 +156,8 @@ function resolvesPackage(packageName: string): boolean {
     // file system root, and most owner packages are missing in a typical app.
     if (error instanceof Error && "code" in error && error.code === "ERR_MODULE_NOT_FOUND") return false
   }
-  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry.
+  // Some packages, such as drizzle-orm, do not export their manifest, so also try the package entry
+  // (drizzle-orm: https://github.com/drizzle-team/drizzle-orm/issues/6695).
   try {
     import.meta.resolve(packageName)
     return true
@@ -276,7 +285,7 @@ export function missingFeaturePackagesError(features: readonly OptionalFeature[]
  * and warns when another installed package is outside its range. `hostPackages` adds the packages that the host or a
  * provider needs, from `hostFeaturePackages`.
  */
-export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}): void {
+export function assertFeaturePackages(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}, reportVersionError = true): void {
   const isMissing = (feature: OptionalFeature) => !packagesOf(feature, hostPackages).every(name => isFeaturePackageInstalled(feature, name))
   if (features.some(isMissing)) {
     // The app can install a package after an earlier check, such as after this error in a dev session. Check again.
@@ -284,7 +293,7 @@ export function assertFeaturePackages(features: readonly OptionalFeature[], host
     const missing = features.filter(isMissing)
     if (missing.length) throw missingFeaturePackagesError(missing, hostPackages)
   }
-  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)))
+  checkPackageVersions(features.flatMap(feature => packagesOf(feature, hostPackages)), reportVersionError)
 }
 
 /**
@@ -417,7 +426,7 @@ let viteHubManifest: unknown
  * package in range is checked only the first time. A package out of range stays unchecked, so the next check throws
  * again until the app installs a supported version. A `vite-hub` manifest that the check cannot read turns it off.
  */
-function checkPackageVersions(packages: readonly string[]): void {
+function checkPackageVersions(packages: readonly string[], reportVersionError: boolean): void {
   const unchecked = [...new Set(packages)].filter(name => !checkedPackageVersions.has(name))
   if (!unchecked.length) return
   if (viteHubManifest === undefined) {
@@ -431,7 +440,7 @@ function checkPackageVersions(packages: readonly string[]): void {
   const error = unsupportedViteHubPackagesError(unchecked, installedPackageVersion, viteHubManifest)
   if (error) {
     // Vite and Nitro print the message of a build error, not its fix. The fix names the install command and pnpm `overrides`.
-    console.error(formatDiagnostic(error))
+    if (reportVersionError) console.error(formatDiagnostic(error))
     throw error
   }
   for (const name of unchecked) checkedPackageVersions.add(name)

@@ -77,10 +77,12 @@ describe("reading the cms preset from server/content.ts", () => {
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
       "import cms from 'vite-hub/cms'",
-      "export default defineContent({ extends: [cms, { access: 'roles' }] })",
-    ].join("\n"))).toEqual({ file, options: { access: "roles" } })
-    expect(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: [cms, { access: 'implicit' }] })"))
-      .toThrow('option "access" must be "roles"')
+      "export default defineContent({ extends: [cms, { roles: true }] })",
+    ].join("\n"))).toEqual({ file, options: { roles: true } })
+    expect(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: [cms, { roles: false }] })"))
+      .toThrow('cms preset option "roles" must be a `true` literal')
+    expect(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: [cms, { access: 'roles' }] })"))
+      .toThrow("Replace `access: \"roles\"` with `roles: true`.")
     // The app's own policy replaces the CMS roles, and inspection says so.
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
@@ -131,7 +133,7 @@ describe("reading the cms preset from server/content.ts", () => {
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst name = 'x'\nexport default defineContent({ extends: [cms, { database: name }] })")).message)
       .toContain("cms preset option \"database\" must be a string literal")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: [cms, { speed: 'x' }] })")).message)
-      .toContain("unknown cms preset option \"speed\". Use access, blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
+      .toContain("unknown cms preset option \"speed\". Use roles, blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst o = {}\nexport default defineContent({ extends: [cms, o] })")).message)
       .toContain("the cms preset tuple must be [cms, { ... }] with an object literal.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: cms, extends: [cms, {}] })")).message)
@@ -326,25 +328,25 @@ describe("hubCms()", () => {
     }
     const denied = await inspect(presetContent)
     expect(denied.fields[0]?.fields).toContainEqual({ label: "Access", value: "No policy (all actions denied)" })
-    const roles = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }]"))
+    const roles = await inspect(presetContent.replace("extends: cms", "extends: [cms, { roles: true }]"))
     expect(roles.cli?.namespaces).toMatchObject([{ name: "cms", features: [{ name: "roles" }] }])
     expect(roles.fields).toEqual([{ kind: "cms", fields: [
       { label: "Store", value: "blob-database" },
       { label: "Workspace", value: "content" },
       { label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" },
     ] }])
-    const own = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: () => true"))
+    const own = await inspect(presetContent.replace("extends: cms", "extends: [cms, { roles: true }], authorize: () => true"))
     expect(own.fields[0]?.fields).toContainEqual({ label: "Access", value: "The app's defineContent({ authorize })" })
     const undefinedPolicy = await inspect(presetContent.replace("extends: cms", "extends: cms, authorize: undefined"))
     expect(undefinedPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "No policy (all actions denied)" })
-    const undefinedRolesPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: (undefined)"))
+    const undefinedRolesPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { roles: true }], authorize: (undefined)"))
     expect(undefinedRolesPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
-    const voidPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: void 0"))
+    const voidPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { roles: true }], authorize: void 0"))
     expect(voidPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
     const spread = "const shared = { authorize: () => false }\n" + presetContent
-    const spreadPolicy = await inspect(spread.replace("extends: cms", "extends: [cms, { access: 'roles' }], ...shared"))
+    const spreadPolicy = await inspect(spread.replace("extends: cms", "extends: [cms, { roles: true }], ...shared"))
     expect(spreadPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "Indeterminate (object spread may supply authorize)" })
-    const overriddenSpread = await inspect(spread.replace("extends: cms", "extends: [cms, { access: 'roles' }], ...shared, authorize: undefined"))
+    const overriddenSpread = await inspect(spread.replace("extends: cms", "extends: [cms, { roles: true }], ...shared, authorize: undefined"))
     expect(overriddenSpread.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
     // Without the preset there is nothing to inspect, but the roles still serve cmsContentAuthorize.
     const plain = await inspect("import { defineContent } from 'vite-hub/content'\nexport default defineContent({ workspace: 'site' })\n")
@@ -441,7 +443,7 @@ describe("the cms preset on the GitHub store", () => {
     const module = renderCmsWorkspaceModule(plan, imports)
     expect(module).toContain("try { database = useDatabase(\"default\").db }")
     expect(module).toContain("driver: \"github\",")
-    expect(module).toContain("repository: \"onmax/docs\",")
+    expect(module).toContain("repo: \"onmax/docs\",")
     expect(module).toContain("root: \"\",")
     expect(module).toContain("refs: { published: \"main\", draft: \"cms/drafts\" },")
     expect(module).toContain("rules: { \"**\": { write: false } },")
@@ -451,7 +453,7 @@ describe("the cms preset on the GitHub store", () => {
     const folder = renderCmsWorkspaceModule(resolveCmsPresetPlan({ file, options: { store: "github", root: "content" } }, choices([]), "/app"), imports)
     expect(folder).toContain("root: \"content\",")
     expect(folder).toContain("rules: { \"**\": { write: false } },")
-    expect(folder).not.toContain("repository:")
+    expect(folder).not.toContain("repo:")
   })
 
   it("validates the options at runtime too", () => {
@@ -470,7 +472,7 @@ describe("the cms preset on the GitHub store", () => {
     expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", privateBranches })
     expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content", privateBranches })
     expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content", privateBranches })
-    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function), privateBranches })
+    expect(cms.configure({ ...cms.options, roles: true, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function), privateBranches })
   })
 
   it("keeps the draft branch of the GitHub store private for content.sources.allow()", () => {

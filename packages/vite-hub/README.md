@@ -1,9 +1,9 @@
 # vite-hub
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://npmx.dev/package/vite-hub)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://npmx.dev/package/vite-hub)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/vite-hub)](https://npmx.dev/package/vite-hub)
+[![npm downloads](https://img.shields.io/npm/dm/vite-hub)](https://npmx.dev/package/vite-hub)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `vite-hub` is the ViteHub application distribution. It registers enabled integrations through one `vitehub()` call and exposes application APIs on explicit `vite-hub/*` feature imports.
 
@@ -17,13 +17,11 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script.
-
 `vite-hub` includes Env, Source, Logs, and the Console endpoint. Every other feature is an optional peer, so an app installs and loads only what it enables. An app without features installs no feature package. Add their packages before you enable them:
 
 | Feature | Add these packages |
 | --- | --- |
-| `agent` | `@vite-hub/agent @vite-hub/workflow` (Agents run on Workflow) |
+| `agent` | `@vite-hub/agent` |
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
@@ -45,7 +43,8 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
-| `vite-hub/decisions` | `@vite-hub/decisions` |
+| `vite-hub/choices` | `@vite-hub/choices` |
+| `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
@@ -55,7 +54,7 @@ If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages f
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
-You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
+You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 
@@ -95,33 +94,31 @@ Custom H3 and Nuxt routes can import `getRuntimeContext` from
 Standard Context (`event["~standard"]`): request, bindings, host `waitUntil`,
 and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
-[Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
+[Runtime Context guide](https://vitehub.dev/docs/runtime/context).
 
 The public hosts are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOST` selects a different host than `host`. In Nuxt, without `host`, the host comes from `nitro.preset` when it names one, such as `cloudflare-module`. `vitehub deploy --host <host>` is the exception: it builds with `VITEHUB_HOST=<host>` and `VITEHUB_HOST_SOURCE=cli`, and that host wins over `host`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare host uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
-Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
+A Definition file turns its feature on, with no key: `server/agents/`, `server/auth.ts`, `server/browsers/`, `server/channels/`, `server/connections/`, `server/queues/`, `server/realtime/`, `server/schedules/`, `server/workflows/`, and `server/workspaces/`. Set the key to `false` to keep the feature off, or to an object to set its options. When the package of the feature is missing, the build fails with `VITE_HUB_DEFINITION_PACKAGE_MISSING` and the `pnpm add` command.
+
+Agents run inline when Workflow is off. An Agent Definition does not turn Workflow on. Set `workflow: true` or add a Workflow Definition to use the configured Workflow driver. OpenWorkflow and Cloudflare Workflows make discovered Agent turns durable; the default Vercel driver still runs Agent turns inline.
+
+Blob, Database, Email, KV, Rate Limit, and Sandbox Task have no Definition files to find, so they are opt-in with their key:
 
 ```ts
 import { vitehub } from "vite-hub"
 
 vitehub({
-  agent: true,
   blob: true,
   host: "cloudflare",
-  auth: true,
   database: true,
   email: {
     driver: "resend",
   },
   kv: true,
-  queue: true,
   rateLimit: true,
   sandboxTask: true,
-  schedule: true,
-  workflow: true,
-  workspace: true,
 });
 ```
 
@@ -145,6 +142,8 @@ Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
 writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
 only when you manage that configuration yourself. `vitehub deploy` uploads the Worker secrets with each new version.
 See [Upload secrets with the version](https://vitehub.dev/docs/frameworks-hosts/cloudflare#upload-secrets-with-the-version).
+With `cloudflare: { vars: true }`, the build writes the non-secret Server Env values it finds to the Worker's `vars`.
+See [Worker vars from Server Env](https://vitehub.dev/docs/frameworks-hosts/cloudflare#worker-vars-from-server-env).
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
@@ -152,17 +151,19 @@ Generated files are for inspection and deployment. Application code must not imp
 
 Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
 
-`vitehub({ redirects: { host: "example.com", https: true, trailingSlash: "remove" } })` sends every request to one canonical address in one redirect: `301` for `GET` and `HEAD`, `308` for other methods. `trailingSlash` changes page paths only. `vite dev`, local names, IP addresses, and preview hosts such as `*.workers.dev` (add more with `previewHosts`) keep their host and scheme. On Cloudflare, ViteHub sets `assets.run_worker_first` so static files redirect too. Move single pages with Nitro `routeRules`. See [Redirect to one canonical address](https://vitehub.dev/docs/frameworks-hosts/redirects).
+`vitehub({ redirects: { host: "example.com", https: true, trailingSlash: "remove" } })` sends every request to one canonical address in one redirect: `301` for `GET` and `HEAD`, `308` for other methods. `trailingSlash` changes page paths only. `vite dev`, local names, IP addresses, and preview hosts such as `*.workers.dev` (add more with `previewHosts`) keep their host and scheme. On Cloudflare, ViteHub sets `assets.run_worker_first` so static files redirect too. Move single pages with Nitro `routeRules`. On Cloudflare, ViteHub also writes their redirects to the static `_redirects` file, after the lines of `public/_redirects`. See [Redirect to one canonical address](https://vitehub.dev/docs/frameworks-hosts/redirects).
 
-`vitehub({ health: true })` adds `/api/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, commit }`, where `commit` is the commit of the build from the CI or host variables, else from Git, else `null`. With `database`, it also runs `SELECT 1` on each Database and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, databases: { default: false } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
+`vitehub({ health: true })` adds `/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, version, commit, vitehub }`, where `version` is the app's `package.json` version, `commit` is the commit of the build from the CI or host variables, else from Git, else `null`, and `vitehub` is the installed `vite-hub` version. It checks each Database (`SELECT 1`), each KV store (one read), and each Blob store (opens the root directory on `fs`, lists up to one object on `s3` with `s3:ListBucket`, and checks object metadata on other drivers) of the app, with 2 seconds for each, and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, vitehub, checks: { database: { default: true }, kv: { default: false } } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
 
 `vitehub({ publicUrl, seo: { sitemap: true } })` serves `/sitemap.xml` and `/robots.txt` on every host. The sitemap lists the Nuxt pages without a dynamic part, the static prerender routes, the published Content pages with a URL, and the pages that `server/sitemap.ts` returns with `defineSitemap()` from `vite-hub/seo`. `exclude` leaves path prefixes out, and `pages: false` keeps only Content and `server/sitemap.ts` entries. URLs start with `publicUrl`, else the request origin; a build that prerenders the files needs `publicUrl` (`SEO_PUBLIC_URL_MISSING`). `robots: { disallow }` adds `Disallow` lines. ViteHub keeps the app's own `public/robots.txt`, and a server route for `/sitemap.xml` fails the build with `SEO_SITEMAP_ROUTE_EXISTS`. See [Sitemap and robots.txt](https://vitehub.dev/docs/frameworks-hosts/sitemap).
 
-`vitehub({ deploy: { check: ["/", "/api/products"] } })` makes `vitehub deploy` request those paths, and the health route with `health`, on the deployed URL after each deploy. A path that does not answer with a `2xx` status fails the deploy with the rollback command of the host. `deploy: { indexNow: true }` with a string `publicUrl` serves an IndexNow key file and sends the sitemap URLs to IndexNow after each production deploy. See [Check the deployed app](https://vitehub.dev/docs/development/cli#check-the-deployed-app).
+`vitehub({ deploy: { check: ["/", "/api/products"] } })` makes `vitehub deploy` request those paths, and the health route with `health`, on the deployed URL after each deploy. A path that does not answer with a `2xx` status fails the deploy with the rollback command of the host. `deploy: { indexNow: true }` with a string `publicUrl` serves an IndexNow key file and sends the sitemap URLs to IndexNow after each production deploy. See [Check the deployed app](https://vitehub.dev/docs/cli/project#check-the-deployed-app).
 
 `vitehub({ trustProxy: true })` trusts a proxy that ends TLS: when the server sees `http:` and the first `X-Forwarded-Proto` value is `https`, the request URL becomes `https:` before any middleware or route runs. It never reads `X-Forwarded-Host`. `vitehub({ sameOriginWrites: true })` answers `403` to a write with cookies whose `Sec-Fetch-Site` is `same-site` or `cross-site`, or whose `Origin` is not the app's origin; `exclude` lists path prefixes that take writes from other sites. See [Run behind a reverse proxy](https://vitehub.dev/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
 
-`vitehub({ security: { headers: true } })` adds `Strict-Transport-Security` (built output only), `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and `Permissions-Policy` to each response that does not set them itself, and to static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. An object changes, adds, or removes (`false`) one header. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
+Built output sends `Strict-Transport-Security: max-age=31536000`, `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin` on each response that does not set them itself, and on static files through `_headers` on Cloudflare and Netlify and a static-file route on Vercel. `vitehub({ security: { headers: { "X-Frame-Options": "SAMEORIGIN" } } })` changes, adds, or removes (`false`) one header; `security: { headers: false }` sends none. `security: { maxBodySize: "1mb" }` answers `413` with `data.code: "VITE_HUB_REQUEST_BODY_TOO_LARGE"` to a larger request body, on every route. It adds no Content Security Policy. See [Add security headers and a body limit](https://vitehub.dev/docs/frameworks-hosts/production#add-security-headers-and-a-body-limit).
+
+A tab that is open during a deploy asks for files of the old build when it loads a lazy page or component. `vitehub()` and `vite-hub/nuxt` reload the page once when such a file is missing, and not again within 10 seconds. Call `preventDefault()` on the `vite:preloadError` event to handle it yourself. See [Open tabs after a deploy](https://vitehub.dev/docs/frameworks-hosts/production#open-tabs-after-a-deploy).
 
 `vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
@@ -209,7 +210,7 @@ pnpm vitehub task list
 pnpm vitehub task run db:seed '{"title":"First note"}' --yes
 ```
 
-`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
+`vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/cli/primitives#run-app-tasks) for payload options and limits.
 
 ## Configure TypeScript
 
@@ -301,35 +302,35 @@ Retention defaults to 30 days and 10,000 terminal records. To change a limit, pa
 
 ## Invoke Agents from the Console
 
-The Console **Skills** page shows the bundled files of each discovered Agent Definition in a searchable tree. Read Markdown previews or file source, including supporting references and scripts. Source-mounted Skills are available in the session Workspace. See [Inspect Skills](https://vitehub.dev/docs/development/console#inspect-skills).
+The Console **Skills** page shows the bundled files of each discovered Agent Definition in a searchable tree. Read Markdown previews or file source, including supporting references and scripts. Source-mounted Skills are available in the session Workspace. See [Inspect Skills](https://vitehub.dev/docs/console/agents#skills-and-usage).
 
-The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
+The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/console/agents#skills-and-usage) for the identity, coverage, and pagination contract.
 
-Apps do not serve a Console page, a Console MCP, or a Console sign-in. They serve one Console route, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with signed requests. `console: true` takes only requests signed with an Ed25519 key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` runtime env var. A dev server without such a var also answers this machine without a signature, so the local `vitehub` CLI works. `console: { auth: false }` takes calls without a signature from this machine, for development; a production build with it fails with `VITE_HUB_B0022`, even with `authorize` set. `console.auth: "token"`, `console.auth: "app"`, `console.auth: { ... }` (Console Auth), `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed` are removed, and fail the build with `VITE_HUB_B0020` and the fix. See [Move from auth: "app" or Console Auth](https://vitehub.dev/docs/development/console#move-from-auth-app-or-console-auth).
+Apps do not serve a Console page, a Console MCP, or a Console sign-in. They serve one Console route, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with signed requests. `console: true` takes only requests signed with an Ed25519 key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` runtime env var. A dev server without such a var also answers this machine without a signature, so the local `vitehub` CLI works. `console: { auth: false }` takes calls without a signature from this machine, for development; a production build with it fails with `VITE_HUB_B0022`, even with `authorize` set. `console.auth: "token"`, `console.auth: "app"`, `console.auth: { ... }` (Console Auth), `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed` are removed, and fail the build with `VITE_HUB_B0020` and the fix. See [Move from auth: "app" or Console Auth](https://vitehub.dev/docs/console/migrate#move-from-auth-app-or-console-auth).
 
 Without a `console` option, `vite dev` serves the operation RPC, so `vitehub <command>` works. `console: false` turns the Console endpoint off completely: no `/_vitehub` route in development or production.
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. When the ViteHub MCP of the Console calls for the user, `surface` is `"mcp"`: the RPC then refuses operations with `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that the person did not confirm. A caller with `readOnly: true` runs only operations that read. The app ignores caller fields that it does not know, so a newer Console can still call it. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
 
-Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/development/console#connect-to-mcp-servers).
+Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
 
-`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
+`invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/cli/primitives#run-a-schedule-on-demand).
 
 `impersonation: true` adds the `auth.impersonate` and `auth.stop-impersonating` operations. Each returns a one-time link, `GET /_vitehub/rpc?ticket=<ticket>`, that the browser opens on the app. The browser's app session must belong to the email of the signed Console person and have Better Auth's `impersonate` permission. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`. The session lasts one hour by default and cannot create credentials.
 
-One-time links also open Content previews (`documents.preview`). A link works once, for 60 seconds, on the app origin and mount that made it, for the person who asked. The app keeps the SHA-256 of each link in Better Auth's verification table, so every instance sees it. A development server without an Auth database keeps them in memory. A production app without one refuses links with `CONSOLE_TICKET_STORE_MISSING`. See [One-time links](https://vitehub.dev/docs/development/console#one-time-links).
+One-time links also open Content previews (`documents.preview`). A link works once, for 60 seconds, on the app origin and mount that made it, for the person who asked. The app keeps the SHA-256 of each link in Better Auth's verification table, so every instance sees it. A development server without an Auth database keeps them in memory. A production app without one refuses links with `CONSOLE_TICKET_STORE_MISSING`. See [One-time links](https://vitehub.dev/docs/console/site-access#one-time-links).
 
 Auth changes from the Console, such as `auth.ban`, run as the app user with the email of the signed Console person, with a live app session of that user. CLI calls name no person, so they cannot run Auth changes.
 
 All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, the route is `/portal/_vitehub/rpc`. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, the route stays at the root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once.
 
-The Console route takes only signed requests on `POST /_vitehub/rpc`. Each caller has an Ed25519 key pair. The app reads the public keys from `VITEHUB_CONSOLE_KEY_<NAME>` variables of the host environment on each request, on Cloudflare from the Worker `env`. A key is 43 base64url characters, the raw 32-byte public key. The ViteHub Console makes one key pair for each linked app and shows its line. `vitehub secret console-key [name]` makes one for the CLI, which signs with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. A request carries two headers: `x-vitehub-signature: key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>` and `x-vitehub-caller`, the base64url JSON of who calls. The Ed25519 signature covers `vitehub-signature-v1`, the method, the path and query, the app origin, the time, the key name, the SHA-256 of the exact body bytes, and the caller header, one per line. The app origin is `vitehub({ publicUrl })` when it is set, else the URL of the request as the host routed it; `Host` and `X-Forwarded-*` headers never count. The app refuses a time more than 5 minutes off. Refusals are `401` with `CONSOLE_SIGNATURE_MISSING`, `CONSOLE_SIGNATURE_STALE`, `CONSOLE_SIGNATURE_ORIGIN`, `CONSOLE_KEY_UNKNOWN`, `CONSOLE_SIGNATURE_INVALID`, or `CONSOLE_SIGNATURE_BODY`. No key, or a malformed one, is `500` with `CONSOLE_KEY_NOT_CONFIGURED` or `CONSOLE_KEY_MALFORMED`. Bearer tokens and cookies never count. Rotate a key by adding a key with a new name, then removing the old variable. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
+The Console route takes only signed requests on `POST /_vitehub/rpc`. Each caller has an Ed25519 key pair. The app reads the public keys from `VITEHUB_CONSOLE_KEY_<NAME>` variables of the host environment on each request, on Cloudflare from the Worker `env`. A key is 43 base64url characters, the raw 32-byte public key. The ViteHub Console makes one key pair for each linked app and shows its line. `vitehub secret console-key [name]` makes one for the CLI, which signs with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`. A request carries two headers: `x-vitehub-signature: key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>` and `x-vitehub-caller`, the base64url JSON of who calls. The Ed25519 signature covers `vitehub-signature-v1`, the method, the path and query, the app origin, the time, the key name, the SHA-256 of the exact body bytes, and the caller header, one per line. The app origin is `vitehub({ publicUrl })` when it is set, else the URL of the request as the host routed it; `Host` and `X-Forwarded-*` headers never count. The app refuses a time more than 5 minutes off. Refusals are `401` with `CONSOLE_SIGNATURE_MISSING`, `CONSOLE_SIGNATURE_STALE`, `CONSOLE_SIGNATURE_ORIGIN`, `CONSOLE_KEY_UNKNOWN`, `CONSOLE_SIGNATURE_INVALID`, or `CONSOLE_SIGNATURE_BODY`. No key, or a malformed one, is `500` with `CONSOLE_KEY_NOT_CONFIGURED` or `CONSOLE_KEY_MALFORMED`. Bearer tokens and cookies never count. Rotate a key by adding a key with a new name, then removing the old variable. See [Sign Console requests](https://vitehub.dev/docs/console/signed-requests).
 
-A call without a signature, with `auth: false` or on a dev server without a `console` option, must come from the app origin, or send `x-vitehub-console: 1` without an `Origin` header, so a foreign page cannot call it without a CORS preflight. Browsers cannot call the Console route from another origin. Each Console operation is one stateless `POST /_vitehub/rpc` request with one birpc call as its JSON body, `{ "m": "<operation>", "a": [input], "t": "q", "i": "<id>" }`, and one birpc reply as its response, so hosts such as Cloudflare Workers can send consecutive calls to different instances. The `project.get` operation (`vitehub project info`) returns `{ protocol: 1, name, vitehub, build, sections, operations }`: the `vite-hub` version, the time and Git commit of the production build, and the installed sections and operations that `authorize` allows for the caller. The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. It works without Agents. See [Read the project](https://vitehub.dev/docs/development/console#read-the-project).
+A call without a signature, with `auth: false` or on a dev server without a `console` option, must come from the app origin, or send `x-vitehub-console: 1` without an `Origin` header, so a foreign page cannot call it without a CORS preflight. Browsers cannot call the Console route from another origin. Each Console operation is one stateless `POST /_vitehub/rpc` request with one birpc call as its JSON body, `{ "m": "<operation>", "a": [input], "t": "q", "i": "<id>" }`, and one birpc reply as its response, so hosts such as Cloudflare Workers can send consecutive calls to different instances. The `project.get` operation (`vitehub project get`) returns `{ protocol: 1, name, vitehub, build, sections, operations }`: the `vite-hub` version, the time and Git commit of the production build, and the installed sections and operations that `authorize` allows for the caller. The Console page also gets `navigation`, the answer of `sections.list`, so it opens a project with one call. It works without Agents. See [Read the project](https://vitehub.dev/docs/console/sections#read-the-project).
 
 [console.vitehub.dev](https://console.vitehub.dev) is the Console app, [`@vite-hub/console`](../console). People sign in with GitHub or a passkey, link apps for their team, and the Console server signs each call with the key of the link. It calls apps from its server, so it cannot open a `vite dev` server on your machine; use the `vitehub` commands there. `hostedConsoleUrl(projectUrl, path)` from `vite-hub/runtime` builds a link to one page of a project, such as `https://console.vitehub.dev/open?project=<app URL>&path=/kv`. The Console opens that page of the app of your team with that URL, or Home when your team has not linked it.
 
-Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
+Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/console/agents#start-agent-invocations) for the access and history contracts.
 
 The Console reads the app-wide Agent journal. It does not configure or store one. See [Record Agent invocations](#record-agent-invocations).
 
@@ -337,7 +338,7 @@ The Console reads the app-wide Agent journal. It does not configure or store one
 
 ## Console images
 
-The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/development/console#image-upload-boundaries).
+The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/console/agents#attach-images).
 
 Console image uploads require invocation to be enabled. The Console fixes the Agent, route, and invoker profile when submission starts, so switching Agents during an upload cannot redirect the input. Uploads without a usable Blob serving URL are removed before the request fails.
 
@@ -345,17 +346,19 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 `vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
 
-Logs are part of `observability`. Turn them on with `vitehub({ console: { auth: false }, observability: { logs: true } })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `observability: { evlog: { redact: true }, logs: { maxEntries: 256 } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
+Logs has its own `logs` key. Turn it on with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { maxEntries: 256 }` to size the buffer, and `observability: { evlog: { redact: true } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 
-For production, use `observability: { logs: { source: './server/logs.ts' } }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. Without `observability.service`, this form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
+`observability: { browserErrors: true }` sends uncaught browser errors to `POST /_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error` and `app:error`. Report an error that the app catches with the browser's `reportError(error)`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
+
+For production, use `logs: { source: './server/logs.ts' }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. Without `observability`, this form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
 
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
-With the Cloudflare host, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`, with or without `observability.logs`. An `observability` key in the project `wrangler.json` or in `nitro.cloudflare.wrangler` is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+With the Cloudflare host, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`, with or without `logs`. An `observability` key in the project `wrangler.json` or in `nitro.cloudflare.wrangler` is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
 ## Agent Skills
 
-`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. `skillSettings(skills, { store: kv })` adds a switch to each skill: default-export it from `server/skills.ts`, serve `settings.enabled`, and turn skills on and off without a deploy in the Console **Served skills** section or with `vitehub served-skills set <name> false`. Read the [Agent Skills guide](https://vitehub.dev/docs/development/skills).
+`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. `skillSettings(skills, { store: kv })` adds a switch to each skill: default-export it from `server/skills.ts`, serve `settings.enabled`, and turn skills on and off without a deploy in the Console **Served skills** section or with `vitehub served-skills set <name> false`. Read the [Agent Skills guide](https://vitehub.dev/docs/console/skills).
 
 ```ts
 // server/middleware/skills.ts
@@ -369,4 +372,4 @@ export default defineHandler(event => serveSkills(event.req, skills))
 
 ## ViteHub MCP
 
-Apps do not serve a Console MCP. Agents connect to the ViteHub MCP of the Console: `https://console.vitehub.dev/mcp` for docs tools without sign-in, and `https://console.vitehub.dev/mcp/account` with a Console account for docs and project tools, which run the operations of the team's apps with signed calls. An operation sets `mcp: false` to stay out of it, or `mcp: { format }` to shape its text. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp). For an MCP server of your own app, see `vitehub({ mcp: true })` and [MCP server](https://vitehub.dev/docs/mcp).
+Apps do not serve a Console MCP. Agents connect to the ViteHub MCP of the Console: `https://console.vitehub.dev/mcp` for docs tools without sign-in, and `https://console.vitehub.dev/mcp/account` with a Console account for docs and project tools, which run the operations of the team's apps with signed calls. An operation sets `mcp: false` to stay out of it, or `mcp: { format }` to shape its text. See [ViteHub MCP](https://vitehub.dev/docs/console/mcp). For an MCP server of your own app, see `vitehub({ mcp: true })` and [MCP server](https://vitehub.dev/docs/mcp).

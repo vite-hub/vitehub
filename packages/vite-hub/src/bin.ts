@@ -9,19 +9,27 @@ import { secretCliFeatures } from "@vite-hub/env/cli"
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
 // `agent invocations` talks to a server or a journal database, so a broken or slow project config cannot block it.
+// Its entry does not import `vite`, so it also runs on a server that installed only production dependencies. It reads
+// only literal config values.
 const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   features: [{
     name: "invocations",
-    run: async (args, context) => requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/cli")), "agent").runAgentInvocationsCli(args, context),
+    run: async (args, context) => {
+      const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-invocations-cli")), "agent")
+      // The default journal goes next to a `file:` Agent State, which only the config names. Read it without evaluating the config.
+      const { readAgentJournalStateUrl } = await import("./internal/runtime-feature-guard.ts")
+      const stateUrl = await readAgentJournalStateUrl(context.rootDir, context.env)
+      return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
+    },
   }],
   name: "agent",
 }
 
-// Connections and Decisions are optional peers. Their commands exist when the app installed the package.
+// Connections and Choices are optional peers. Their commands exist when the app installed the package.
 // The Connections commands load jose and valibot, so only `vitehub connections` imports them.
-const [connectionsCli, decisionsCli] = await Promise.all([
+const [connectionsCli, choicesCli] = await Promise.all([
   process.argv[2] === "connections" ? importOptionalOwner("@vite-hub/connections", () => import("@vite-hub/connections/cli")) : undefined,
-  importOptionalOwner("@vite-hub/decisions", () => import("@vite-hub/decisions/cli")),
+  importOptionalOwner("@vite-hub/choices", () => import("@vite-hub/choices/cli")),
 ])
 
 // `vitehub kv get` and the other KV commands call the running dev server, like `connections`.
@@ -48,6 +56,10 @@ const secretRuntimeNamespace: ViteHubCliCommandNamespace = {
 }
 
 runViteHubCliEntrypoint({
+  // Help text needs no project. Loading a Nuxt project for it takes seconds.
+  helpNamespaces: {
+    database: async () => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/cli")))?.createDbCliContributor()?.namespaces[0],
+  },
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
     if (namespace !== "agent" || feature !== "invocations") return true
@@ -57,5 +69,5 @@ runViteHubCliEntrypoint({
   // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the
   // server files that they generate make the running dev server rebuild while the command waits for its answer.
   runtimeFeatures: [agentRuntimeFeatures, ...connectionsCli?.createConnectionsCliContributor().namespaces ?? [], ...kvCli?.createKVCliContributor().namespaces ?? [], ...contentRuntimeFeatures],
-  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...decisionsCli ? [decisionsCli.createDecisionsCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
+  runtimeNamespaces: [...bundleCli?.bundleCliContributor.namespaces ?? [], ...choicesCli ? [choicesCli.createChoicesCliNamespace()] : [], createMigrateCliNamespace(), createSandboxCliNamespace(), secretRuntimeNamespace],
 })

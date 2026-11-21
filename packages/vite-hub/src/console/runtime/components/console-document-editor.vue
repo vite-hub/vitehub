@@ -1779,19 +1779,11 @@ async function resolveSharedSiteConflict(choice: "site" | "draft", site: Console
   }
 }
 
-// Title: a large borderless field. Enter moves to the body, as in Notion.
-function resizeTitle(): void {
-  const input = titleInput.value;
-  if (!input) return;
-  input.style.height = "auto";
-  input.style.height = `${input.scrollHeight}px`;
-}
-
+// Title: a large borderless field that grows with its text (`field-sizing: content`). Enter moves to the body, as in Notion.
 function onTitleInput(event: Event): void {
   if (!titleField.value || !(event.target instanceof HTMLTextAreaElement)) return;
   const value = event.target.value.replace(/\r?\n/g, " ");
   draft.value = { ...draft.value, data: { ...draft.value.data, [titleField.value.name]: value } };
-  resizeTitle();
 }
 
 function onTitleKeydown(event: KeyboardEvent): void {
@@ -1917,7 +1909,6 @@ async function onPreviewSelect(field: string): Promise<void> {
 function onPreviewEdit(field: string, value: string): void {
   if (!editable.value || !previewTextFields.value.includes(field)) return;
   draft.value = { ...draft.value, data: { ...draft.value.data, [field]: value } };
-  if (titleField.value?.name === field) void nextTick(resizeTitle);
 }
 
 function setPreviewWidth(width: number): void {
@@ -1996,7 +1987,6 @@ function openHistory(): void {
 // The id follows the title until someone edits the id.
 watch(() => (titleField.value ? draft.value.data[titleField.value.name] : undefined), (value) => {
   if (creating.value && !idEdited.value) newId.value = consoleDocumentSlug(String(value ?? ""));
-  void nextTick(resizeTitle);
 });
 watch(historyOpen, (open) => {
   if (open && !revisions.value.length) void loadRevisions();
@@ -2042,7 +2032,7 @@ onMounted(() => {
   window.addEventListener("beforeunload", onBeforeUnload);
   const saved: unknown = window.history.state?.vitehubDocumentSavedAt;
   if (String(saved) === saved) savedAt.value = saved;
-  void load().then(() => nextTick(resizeTitle));
+  void load();
   // A new document starts at its title.
   if (creating.value) void nextTick(() => titleInput.value?.focus());
 });
@@ -2320,7 +2310,7 @@ const menuItems = computed(() => [[
               ref="titleInput"
               :value="String(draft.data[titleField.name] ?? '')"
               rows="1"
-              class="block w-full resize-none overflow-hidden bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.015em] text-highlighted placeholder:text-dimmed disabled:cursor-default"
+              class="block w-full field-sizing-content resize-none bg-transparent text-[32px]/[40px] font-semibold tracking-[-0.015em] text-highlighted placeholder:text-dimmed disabled:cursor-default"
               :placeholder="`${noun} title`"
               :disabled="!editable"
               :aria-invalid="fieldErrors[titleField.name] ? 'true' : undefined"

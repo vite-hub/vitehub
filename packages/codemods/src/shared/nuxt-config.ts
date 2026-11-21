@@ -47,7 +47,7 @@ export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
 
 export function unwrapExpression(node: Node): Node {
   let current = node
-  while (current.type === "TSAsExpression" || current.type === "TSSatisfiesExpression" || current.type === "ParenthesizedExpression" || current.type === "TSNonNullExpression") {
+  while (current.type === "TSAsExpression" || current.type === "TSSatisfiesExpression" || current.type === "ParenthesizedExpression" || current.type === "TSNonNullExpression" || current.type === "TSTypeAssertion") {
     current = current.expression
   }
   return current

@@ -5,7 +5,7 @@ import type { ForgeKind } from "../provider.ts"
 
 export interface ForgeGitCredentialsInput {
   forge: ForgeKind
-  /** The same `baseUrl` as `forgeProvider()`. GitHub: API base. GitLab and Forgejo: instance root. */
+  /** The same `baseUrl` as `forgeProvider()`. GitHub: API base. GitLab, Forgejo and Gitea: instance root. */
   baseUrl?: string
   /** Omitted: anonymous clone. */
   token?: string
@@ -24,14 +24,16 @@ const defaultInstance: Record<ForgeKind, string> = {
   github: "https://github.com",
   gitlab: "https://gitlab.com",
   forgejo: "https://codeberg.org",
+  gitea: "https://gitea.com",
 }
 
 // GitHub: `x-access-token` for any token. GitLab: `oauth2` for any token.
-// Forgejo reads the token from the password and does not check the user name.
+// Forgejo and Gitea read the token from the password and do not check the user name.
 const tokenUsername: Record<ForgeKind, string> = {
   github: "x-access-token",
   gitlab: "oauth2",
   forgejo: "oauth2",
+  gitea: "oauth2",
 }
 
 function instanceRoot(forge: ForgeKind, baseUrl: string | undefined): string {
@@ -60,6 +62,7 @@ function repositoryPath(repository: string): string {
 /**
  * Git smart HTTP remote and credentials for one repository.
  * Gap: `forges` exposes `Repo.cloneUrls` but no transport credential.
+ * Remove when forges releases it (https://github.com/danielroe/forges/issues/192).
  */
 export function forgeGitCredentials(input: ForgeGitCredentialsInput): ForgeGitCredentials {
   const url = `${instanceRoot(input.forge, input.baseUrl)}/${repositoryPath(input.repository)}.git`
