@@ -14,13 +14,13 @@ export function consoleCommentsTransport(threadId?: () => string | undefined): C
     create: input => call("create", input),
     delete: input => call("delete", input),
     edit: input => call("edit", input),
-    get: async ({ threadId }) => {
+    get: async (input) => {
       try {
-        return await call<CommentThread | null>("get", { threadId })
+        return await call<CommentThread | null>("get", input)
       }
       catch (error) {
-        if (!(error instanceof ConsoleRequestError) || error.code !== "INTERNAL_R0022") throw error
-        return call("get", { id: threadId })
+        if (!("threadId" in input) || !(error instanceof ConsoleRequestError) || error.code !== "INTERNAL_R0022") throw error
+        return call("get", { id: input.threadId })
       }
     },
     list: query => call("list", query),

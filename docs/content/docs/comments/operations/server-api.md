@@ -44,6 +44,8 @@ An open thread stays on its page in the overlay, and a resolved one leaves it. S
 
 One call resolves all the threads, so an MCP client asks you to approve it once. List each thread only once. The operation checks input and permissions before it changes any thread. If a write fails after changes begin, the error identifies the completed threads and the thread where resolution stopped. Retrying a completed resolution with the same reply and no new activity adds no second message. A reply needs the `write` right as well as `resolve`. The thread records `resolvedBy`, and also records `resolvedActor` when the caller supplies an Actor. The Console MCP does not supply one.
 
+The Console MCP limits the entire JSON request to 2 MiB. If long replies make a batch exceed that limit, split the `threads` array across smaller calls.
+
 ### Paging
 
 `list` returns up to `limit` threads (default 200, max 500), newest first by `updatedAt`, then `id`. For the next page, pass the last thread as `before`: `{ before: { updatedAt, id } }`. `list` reads until it has `limit` threads you may read, so a shorter page is the last one. The database filters `mentions`, so it does not count against `limit`.

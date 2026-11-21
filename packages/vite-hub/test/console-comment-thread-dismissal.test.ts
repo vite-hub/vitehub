@@ -13,6 +13,7 @@ vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default:
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 import OperationView from "../src/console/runtime/components/console-operation-view.vue"
 import Panel from "../src/console/runtime/components/console-comment-thread.vue"
+import { consoleCommentsTransport } from "../src/console/runtime/client/comment-thread"
 import { ConsoleRequestError } from "../src/console/runtime/client/request"
 
 const Slideover = defineComponent({
@@ -137,6 +138,18 @@ it("opens a deep-linked thread on an older linked app", async () => {
   expect(wrapper.find("[data-slot='comment-thread']").exists()).toBe(true)
   expect(mocks.request).toHaveBeenCalledWith("comments.get", { threadId: "first" })
   expect(mocks.request).toHaveBeenCalledWith("comments.get", { id: "first" })
+})
+
+it("forwards a numbered thread lookup without retrying it as an ID lookup", async () => {
+  const transport = consoleCommentsTransport()
+  const input = { n: 1, scope: "site" }
+  const found = thread("first")
+  mocks.request.mockResolvedValueOnce(found)
+  await expect(transport.get(input)).resolves.toEqual(found)
+  const error = new ConsoleRequestError(400, { code: "INTERNAL_R0022" })
+  mocks.request.mockRejectedValueOnce(error)
+  await expect(transport.get(input)).rejects.toBe(error)
+  expect(mocks.request.mock.calls).toEqual([["comments.get", input], ["comments.get", input]])
 })
 
 it("guards URL changes while editing a message", async () => {
