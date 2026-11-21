@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -74,6 +74,11 @@
       "types": "./dist/internal/path.d.ts",
       "import": "./dist/internal/path.js",
       "default": "./dist/internal/path.js"
+    },
+    "./internal/workspace": {
+      "types": "./dist/internal/workspace.d.ts",
+      "import": "./dist/internal/workspace.js",
+      "default": "./dist/internal/workspace.js"
     },
     "./lineage": {
       "types": "./dist/lineage.d.ts",

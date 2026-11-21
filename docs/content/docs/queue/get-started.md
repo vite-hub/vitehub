@@ -144,7 +144,7 @@ List saved jobs, inspect one, or retry a failed job from the CLI:
 
 ```bash [commands/jobs]
 pnpm vitehub queue jobs list
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 ```
 

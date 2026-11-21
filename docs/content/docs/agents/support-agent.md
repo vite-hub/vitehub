@@ -102,7 +102,7 @@ authorization from message text.
 
 Instructions say how to behave and what evidence to use. File access goes in
 the Workspace, and tool schemas go in Capabilities. With the `::source` and
-`::capability` directives, `vitehub agent info` reports if the policy names
+`::capability` directives, `vitehub agent get` reports if the policy names
 every Source and Capability.
 
 ## Pass trusted identity
@@ -122,10 +122,10 @@ Turn on the Node Agent host, then run from the project root:
 
 ```sh
 pnpm vite build
-# In another terminal, keep the dev server running for `agent info`.
+# In another terminal, keep the dev server running for `agent get`.
 pnpm vite dev
 pnpm vitehub inspect definitions --kind agent
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get --agent support --json
 ```
 
 Check that the definition lists the `teams` Channel, the `docs` Source, the
