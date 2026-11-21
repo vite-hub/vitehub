@@ -1,7 +1,7 @@
 import { workspaceNotFoundError } from "./core/errors.ts"
 import runtimeAssetsRegistry from "#vitehub-workspace-assets-registry"
 
-import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceName } from "./core/types.ts"
+import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceLookupName } from "./core/types.ts"
 
 const workspaceAssetsRegistryKey = Symbol.for("vitehub.workspace.assetsRegistry")
 
@@ -21,7 +21,7 @@ export function resetWorkspaceAssetsRegistry(): void {
   workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey] = runtimeAssetsRegistry
 }
 
-export function useWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> {
+export function useWorkspaceAssets<Name extends WorkspaceLookupName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> {
   const registry = workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey]
   const assets = registry && Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!assets) throw workspaceNotFoundError(name)

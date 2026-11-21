@@ -237,6 +237,9 @@ describe("webhooks operations through the RPC", () => {
       "webhooks.flush": "write",
       "webhooks.cancel": "write",
       "webhooks.redeliver": "write",
+      "webhooks.endpoints": "read",
+      "webhooks.disable-endpoint": "write",
+      "webhooks.enable-endpoint": "write",
     })
     expect(await runOperation(registry, "webhooks.list", {}, context)).toMatchObject({ ok: true })
     expect(await runOperation(registry, "webhooks.pending", {}, context)).toMatchObject({ ok: true })
