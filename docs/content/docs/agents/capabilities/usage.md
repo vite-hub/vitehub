@@ -136,7 +136,7 @@ Default pricing downloads the public Models.dev catalog without sending prompts,
 1. With a model that reports tokens, the extension equals `event.invocation.usage`.
 2. Without provider cost, a matching Models.dev entry adds a cost with `source: 'models.dev'`.
 3. With missing or failing pricing, the run still succeeds with raw usage.
-4. `vitehub agent info --agent support --json` shows `pricing: true` in `usage` metadata, or `false` with `pricing: false`.
+4. `vitehub agent get --agent support --json` shows `pricing: true` in `usage` metadata, or `false` with `pricing: false`.
 
 ## Options
 
@@ -147,6 +147,6 @@ Default pricing downloads the public Models.dev catalog without sending prompts,
 ## Related pages
 
 - [Agent Invocations](/docs/agents/invocations)
-- [Runtime events](/docs/reference/runtime-events)
+- [Runtime events](/docs/runtime/events)
 - [Custom Capabilities](/docs/agents/capabilities/custom)
 - [Official Capabilities](/docs/agents/capabilities/official)

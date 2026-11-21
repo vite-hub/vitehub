@@ -3,16 +3,19 @@ import { ViteHubError } from "./errors.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeTraceAttributes } from "./internal/trace-attributes.ts"
 
+import type { ViteHubContext } from "./standard-context.ts"
+
 export { runtimeErrorDiagnostics }
 
 export { isTraceContentAttributeKey } from "./internal/trace-attributes.ts"
 
 export {
   createExecutionBudget,
-  ExecutionBudgetExceededError,
+  isExecutionBudgetExceededError,
   type ExecutionBudget,
   type ExecutionBudgetCounter,
   type ExecutionBudgetLimits,
+  type ExecutionBudgetExceededError,
   type ExecutionBudgetOptions,
   type ExecutionBudgetSnapshot,
   type ExecutionBudgetUsage,
@@ -31,6 +34,7 @@ export {
   type LeaseSqlParam,
   type LeaseStore,
 } from "./lease.ts"
+export { parseDuration, type Duration, type DurationUnit } from "./duration.ts"
 export { decodeRouteSegment, encodeRouteSegment } from "./route-segment.ts"
 export { hostedConsoleOrigin, hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "./hosted-console.ts"
 export { consoleInvocationUrl, resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"
@@ -67,6 +71,8 @@ export {
   toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
+  type ErrorCodes,
+  type ErrorHandle,
   type Result,
   type ResultError,
 } from "./result.ts"
@@ -89,22 +95,48 @@ function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } 
 // Each capture is pure, so a bundle that never checks trace values drops it.
 const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
-export interface AccessAuthorizationContext {
-  request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
-  session: Record<string, unknown>
-  user: Record<string, unknown> & { id: string }
+declare global {
+  namespace ViteHub {
+    /** Generated declarations set `sessionResult` to the result of the app's Auth Definition. */
+    interface AuthRegistry {}
+  }
 }
+
+/** The user of the app's Auth Definition, with the fields of its plugins. Without generated types, a record with an `id`. */
+type AccessUser<TRegistry> = TRegistry extends { sessionResult: { user: infer TUser extends { id: string } } } ? TUser : Record<string, unknown> & { id: string }
+/** The session of the app's Auth Definition. Without generated types, a record. */
+type AccessSession<TRegistry> = TRegistry extends { sessionResult: { session: infer TSession extends object } } ? TSession : Record<string, unknown>
+
+interface AccessContext<TEvent, TSession, TUser> {
+  /** The input of the guard: the H3 event in a Nitro route, so `event.context` and helpers that take the event work. */
+  event: TEvent
+  request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
+  session: TSession
+  user: TUser
+}
+
+/** `TEvent` is the guard input. `TRegistered: false` avoids reading the app registry while inferring its Auth Definition. */
+export type AccessAuthorizationContext<TEvent = ViteHubContext, TRegistered extends boolean = true> = AccessContext<
+  TEvent,
+  AccessSession<TRegistered extends true ? ViteHub.AuthRegistry : unknown>,
+  AccessUser<TRegistered extends true ? ViteHub.AuthRegistry : unknown>
+>
 
 export type AccessAuthorizeResult = boolean | Response
 
+type Authorize<TContext> = (context: TContext) => MaybePromise<AccessAuthorizeResult>
+
 /** Decides whether a signed-in user can access one request. Return `false` for `403` or a custom `Response`. */
-export type AccessAuthorize = (context: AccessAuthorizationContext) => MaybePromise<AccessAuthorizeResult>
+export type AccessAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = TRegistered extends true
+  ? Authorize<AccessAuthorizationContext<TEvent>>
+  : Authorize<AccessAuthorizationContext<TEvent, false>>
 
 /** `true` requires a signed-in session. A callback also decides each request after sign-in. */
-export type AccessAuthorizeOption = true | AccessAuthorize
+export type AccessAuthorizeOption<TEvent = ViteHubContext, TRegistered extends boolean = true> = true | AccessAuthorize<TEvent, TRegistered>
 
 /** A signed-out caller. `session` and `user` are `null`. */
-export interface AnonymousAccessAuthorizationContext {
+export interface AnonymousAccessAuthorizationContext<TEvent = ViteHubContext> {
+  event: TEvent
   request: AccessAuthorizationContext["request"]
   session: null
   user: null
@@ -114,9 +146,9 @@ export interface AnonymousAccessAuthorizationContext {
  * Decides whether a signed-in or signed-out caller can access one request.
  * Check `user` before you read it. Return `false` for `403` (`401` when signed out) or a custom `Response`.
  */
-export type AnonymousAccessAuthorize = (
-  context: AccessAuthorizationContext | AnonymousAccessAuthorizationContext,
-) => MaybePromise<AccessAuthorizeResult>
+export type AnonymousAccessAuthorize<TEvent = ViteHubContext, TRegistered extends boolean = true> = TRegistered extends true
+  ? Authorize<AccessAuthorizationContext<TEvent> | AnonymousAccessAuthorizationContext<TEvent>>
+  : Authorize<AccessAuthorizationContext<TEvent, false> | AnonymousAccessAuthorizationContext<TEvent>>
 
 export interface ExecutionAuthority {
   readonly credentials: "ambient" | "none" | "provisioned" | "unknown"
@@ -1548,6 +1580,7 @@ export { getRuntimeContext, getStandardContext, type RequestRuntimeContext, type
 
 export {
   deserializeResponse,
+  isResponse,
   isSerializedResponse,
   serializeResponse,
   toResponse,

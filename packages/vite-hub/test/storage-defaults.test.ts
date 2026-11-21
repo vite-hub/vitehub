@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
 import { defaultDatabaseD1Binding, agentJournalStateUrl, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
@@ -12,7 +13,7 @@ import type { ViteHubOptions } from "../src/index.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
 /** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
-async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
+async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ durability: unknown, info: string[], plugin: string }> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-storage-journal-"))
   try {
     for (const [file, contents] of Object.entries(files)) {
@@ -27,7 +28,8 @@ async function generatedJournalPlugin(options: ViteHubOptions, command: "build" 
     await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
     const info: string[] = []
     await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
-    return { info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
+    const durability = plugin && "vitehub" in plugin ? (plugin.vitehub as DurabilityPluginMetadata).durability?.() : undefined
+    return { durability, info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
   }
   finally {
     await rm(root, { force: true, recursive: true })
@@ -78,9 +80,9 @@ describe("Node storage defaults", () => {
   })
 
   it("gives named local stores separate directories and preserves remote stores", () => {
-    const result = withDataDir({ host: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel-blob", token: "fixture" } } } })
+    const result = withDataDir({ host: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel", token: "fixture" } } } })
     expect(result.kv).toEqual({ stores: { first: { driver: "fs-lite", base: "/var/lib/app/kv/first" }, second: { driver: "fs-lite", base: "/var/lib/app/kv/second" } } })
-    expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel-blob", token: "fixture" } } })
+    expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel", token: "fixture" } } })
   })
 
   it("ignores inherited named stores when applying local defaults", () => {
@@ -90,12 +92,12 @@ describe("Node storage defaults", () => {
       token: "token",
     })
     const blob = Object.assign(Object.create({ stores: { inherited: { driver: "fs" as const } } }), {
-      driver: "vercel-blob" as const,
+      driver: "vercel" as const,
       token: "token",
     })
     const result = withDataDir({ host: "node", dataDir: "/tmp/app", kv, blob } as ViteHubOptions)
     expect(result.kv).toEqual({ driver: "upstash", url: "https://kv.example.com", token: "token" })
-    expect(result.blob).toEqual({ driver: "vercel-blob", token: "token" })
+    expect(result.blob).toEqual({ driver: "vercel", token: "token" })
   })
 
   it("rejects local storage on hosted ephemeral hosts through the public API", () => {
@@ -115,8 +117,10 @@ describe("Node storage defaults", () => {
 
   it("passes a file Agent State URL to the default journal on the node host", async () => {
     const state = { driver: "libsql" as const, url: "file:.data/agent-state.db" }
-    const { plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
+    const { durability, plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
     expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
+    // The boot report reads the same State URL, so it names the file that the journal opens.
+    expect(durability).toMatchObject([{ input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" }])
     const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
     expect(stateUrl("libsql://state.example.com")).toBeUndefined()
     expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
@@ -132,7 +136,7 @@ describe("Node storage defaults", () => {
 
 describe("Default Agent journal host defaults", () => {
   // The Console is off: the default journal does not depend on it.
-  const cloudflare = { host: "cloudflare", agent: true, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
+  const cloudflare = { host: "cloudflare", agent: true, database: { driver: "cloudflare", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
     const { info, plugin } = await generatedJournalPlugin(cloudflare, "build")
@@ -173,7 +177,7 @@ describe("Default Agent journal host defaults", () => {
     ['cloudflare: { databaseName: "app" },', "JOURNAL_DB"],
     ["", "JOURNAL_DB"],
   ])("selects the effective D1 binding with Definition config %s", async (config, binding) => {
-    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "cloudflare", binding: "JOURNAL_DB" } }, "build", {
       "server/databases/default.ts": `export default defineDatabase({ ${config} schema: {} })\n`,
     })
     expect(plugin).toContain(`d1: { binding: "${binding}",`)
@@ -219,11 +223,11 @@ describe("Default Agent journal host defaults", () => {
   })
 
   it("resolves the D1 binding from the Database options", () => {
-    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1" })).toBeUndefined()
-    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1", binding: " JOURNAL " })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "cloudflare" })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "cloudflare", binding: " JOURNAL " })).toBeUndefined()
     expect(defaultDatabaseD1Binding("cloudflare", true)).toBeUndefined()
     expect(defaultDatabaseD1Binding("cloudflare", { connection: { url: "libsql://db.example.com" } })).toBeUndefined()
-    expect(defaultDatabaseD1Binding("vercel", { driver: "d1" })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("vercel", { driver: "cloudflare" })).toBeUndefined()
   })
 })
 
@@ -259,6 +263,9 @@ describe("Connections database default", () => {
     expect(withComments({ host: "node", console: { auth: false }, comments: false })).toEqual({ host: "node", console: { auth: false }, comments: false })
     expect(withComments({ host: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
     expect(withComments({ host: "node" })).toEqual({ host: "node" })
+    // `markCmsPresetFeaturesResolved()` marks the object, so a call that changes nothing keeps it.
+    const resolved = { host: "node", comments: true, database: true } as const
+    expect(withComments(resolved)).toBe(resolved)
   })
 
   it("keeps Comments off with the Console alone, and on with server/comments.ts", async () => {
@@ -320,7 +327,7 @@ describe("Connections database default", () => {
   it("reads the D1 binding of the implicit default Database on Cloudflare", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-connections-d1-"))
     try {
-      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "d1" as const }
+      const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "cloudflare" as const }
       expect(defaultDatabaseD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
     }
     finally {

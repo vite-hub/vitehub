@@ -1,0 +1,12 @@
+{
+  "name": "harbor-journal",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nuxt/content": "^3.8.0",
+    "@nuxt/ui": "^4.11.0",
+    "better-sqlite3": "^13.0.3",
+    "nuxt": "^5.0.0",
+    "zod": "^3.25.0"
+  }
+}

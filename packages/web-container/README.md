@@ -1,9 +1,9 @@
 # @vite-hub/web-container
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fweb-container&icon=npm)](https://npmx.dev/package/@vite-hub/web-container)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fweb-container&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/web-container)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/web-container)](https://npmx.dev/package/@vite-hub/web-container)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/web-container)](https://npmx.dev/package/@vite-hub/web-container)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/web-container` runs a ViteHub app in the reader's browser tab, inside a [StackBlitz WebContainer](https://webcontainers.io). Docs tutorials and playgrounds use it to install, start, and preview an app without a server of ours.
 
@@ -95,7 +95,7 @@ container.on("status", status => renderChecklist(status.stage, status.steps, sta
 
 The stages are `checking`, `unsupported`, `booting`, `mounting`, `installing`, `starting`, `ready`, and `error`. `installing` starts with `run("install")`. `starting` starts with `run("dev")` and becomes `ready` when the preview server is ready.
 
-To show a notice before the reader clicks run, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer`, not the browser name. `bootWebContainer()` throws `WebContainerUnsupportedError` with the same reason.
+To show a notice before the reader clicks run, call `checkWebContainerSupport()`. It checks `crossOriginIsolated` and `SharedArrayBuffer`, not the browser name. `bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` with the same reason.
 
 ### Skip the install with a snapshot
 
@@ -128,7 +128,7 @@ const container = await bootWebContainer({
 await container.run("dev")
 ```
 
-`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. The wasm builds install as npm aliases in the same install, so the returned `lockfile` pins every version: pass it back and the install runs `npm ci`, and the same lockfile gives the same snapshot bytes. A lockfile that no longer matches the app throws `SnapshotLockfileMismatchError`; pass `frozenLockfile: false` to update it. Other install and snapshot errors propagate unchanged. The original `package.json` is restored exactly on success and failure. The integrity of `file:` tarballs is left out of the lockfile, because a rebuilt tarball changes it. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount. Link and executable paths must stay inside the working directory, and so must link targets: the builder leaves out other links, and the restore step skips other entries, because the snapshot bytes come from the network.
+`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. The wasm builds install as npm aliases in the same install, so the returned `lockfile` pins every version: pass it back and the install runs `npm ci`, and the same lockfile gives the same snapshot bytes. A lockfile that no longer matches the app throws `WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH`, and so does one that installs a `file:` tarball that the app no longer has; pass `frozenLockfile: false` to update it. The update reads every `file:` tarball again and keeps the registry versions it can. Other install and snapshot errors propagate unchanged. The original `package.json` is restored exactly on success and failure. The integrity of `file:` tarballs is left out of the lockfile, because a rebuilt tarball changes it. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount. Link and executable paths must stay inside the working directory, and so must link targets: the builder leaves out other links, and the restore step skips other entries, because the snapshot bytes come from the network.
 
 `fetchSnapshot()` downloads the parts in parallel and inflates them. With `sha256`, it rejects parts whose hash differs. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. A part goes into the cache only after the whole snapshot inflates and matches its hash; a damaged snapshot removes its parts from the cache, so the next boot downloads them again. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
 

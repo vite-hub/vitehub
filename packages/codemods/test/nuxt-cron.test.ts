@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from "vitest"
 
 import { formatReport, runCodemod } from "../src/index.ts"
 import { cronPresets } from "../src/nuxt-cron/index.ts"
+import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 const scratch = fileURLToPath(new URL("../.tmp/nuxt-cron-test/", import.meta.url))
@@ -36,7 +37,7 @@ describe.each([
     for (const edit of run.result.edits) {
       if (edit.before !== undefined) expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
       // The report lists deleted files. Only kept and new files have an output snapshot.
-      if (edit.after !== null) await expect(edit.after).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      if (edit.after !== null) await expect(withVersionPlaceholder(edit.after)).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })

@@ -18,16 +18,14 @@ Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm 
 pnpm add vite-hub
 ```
 
-Register the module with a [deployment host](/docs/frameworks-hosts#choose-a-host).
-It takes the same options as `vitehub()`.
+Register the module. It takes the same options as `vitehub()`. ViteHub
+detects the [deployment host](/docs/frameworks-hosts#choose-a-host) from the build.
 
 ```ts [nuxt.config.ts]
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, { host: "node" }],
-  ],
+  modules: [viteHubNuxt],
 })
 ```
 
@@ -40,7 +38,7 @@ keeps the options that the other form sets:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ["vite-hub/nuxt", { host: "node", kv: true }],
+    ["vite-hub/nuxt", { kv: true }],
   ],
   // KV uses Redis: `kv: true` does not remove these options.
   vitehub: { kv: { driver: "redis" } },
@@ -50,8 +48,9 @@ export default defineNuxtConfig({
 ## Build the application
 
 Run Nuxt's normal commands. The module sets Nitro's preset from the ViteHub
-host, so do not add `nitro()` or set another `nitro.preset`. A conflicting
-`nitro.preset` fails module setup.
+host, so do not add `nitro()`. Without `host`, the module takes the host from
+`nitro.preset`, such as `cloudflare-module`. A `nitro.preset` for a different
+host than `host` fails module setup.
 
 ```bash [Terminal]
 pnpm nuxt dev
@@ -115,7 +114,7 @@ Definition.
 | --- | --- |
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs, not to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers go to `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, not `.vitehub/agent/**`. Discovery still uses `server/agents`. |
-| Database on Cloudflare | With the `cloudflare` host, `database` defaults to `driver: 'd1'`: one D1 host resource that Nitro and Nuxt Content share. |
+| Database on Cloudflare | With the `cloudflare` host, `database` defaults to `driver: 'cloudflare'`: one D1 host resource that Nitro and Nuxt Content share. |
 | Server auto-imports | On Nuxt 5, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: { actor } }`, behind your actor policy. |

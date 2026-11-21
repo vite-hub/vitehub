@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 
 import { workspaceError } from "../core/errors.ts"
 import { decodeFile, isWorkspaceBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
-import { fetch as fetchSource } from "./fetch.ts"
+import { url as urlSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import { resolveGitHubIgnore } from "./github-ignore.ts"
 import { prepareWorkspaceSource } from "./preparation.ts"
@@ -284,10 +284,10 @@ function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): Error 
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
-  if (!isPlainRecord(input)) return fetchSource(input as never)
+  if (!isPlainRecord(input)) return urlSource(input as never)
   const record = input as Record<string, unknown>
   const workspacePath = typeof record.workspacePath === "string" ? record.workspacePath : inferFetchWorkspacePath(record)
-  return fetchSource({ ...input, workspacePath } as never)
+  return urlSource({ ...input, workspacePath } as never)
 }
 
 function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): WorkspaceSource {
@@ -337,6 +337,9 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
     },
     async resolveRevision(ctx) {
       return await (await loadSource()).resolveRevision?.(ctx)
+    },
+    async checkAccess(ctx) {
+      await (await loadSource()).checkAccess?.(ctx)
     },
   }
 
@@ -449,7 +452,7 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))
   if (url.search) {
-    throw workspaceErrorDiagnostics.WORKSPACE_C0007({ message: "[vitehub] fetch() requires an explicit path when the URL includes query parameters." })
+    throw workspaceErrorDiagnostics.WORKSPACE_C0007({ message: "[vitehub] url() requires an explicit path when the URL includes query parameters." })
   }
 
   let path = normalizeSafeWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })

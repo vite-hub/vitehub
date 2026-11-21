@@ -5,6 +5,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentStreamErrorSymbol } from "./agent-output.ts"
 import { hostObservability, isHostObservabilityCapability } from "./internal/observability-host.ts"
 import { asUnknownBoundary, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { isSourceSkillsOf } from "./internal/source-skills.ts"
 import { resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
@@ -265,7 +266,6 @@ export function defineCapability<
 >(
   capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>> & NoInfer<CheckedCapabilityTools<TCapability, TRuntimeConfig, Name>>,
 ): TCapability
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This call fixes the config type; the returned builder checks the supplied Capability and infers its tool schemas.
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The returned builder constrains the supplied Capability to this Workspace name.
@@ -1225,6 +1225,10 @@ async function applyCapabilityWorkspaceContributions<
           && sameGitHubSourceScope(prOptions, existingOptions)
           && !registries.some(entry => entry.sources.includes(key))) {
           delete remaining[key]
+          // The checkout holds the replaced Source's Skills itself, so the Skill Sources mounted inside it go too.
+          for (const skillsKey of Object.keys(remaining)) {
+            if (isSourceSkillsOf(skillsKey, key)) delete remaining[skillsKey]
+          }
           replacedSources.add("vitehubGitHubPullRequest")
           continue
         }

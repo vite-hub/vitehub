@@ -155,8 +155,17 @@ export interface ListFormSubmissionsOptions {
 
 /** Where submissions live. */
 export interface FormsStore {
-  insert(submission: FormSubmission): Promise<void>
+  /** Stores a new submission. Returns false if its id already exists or is reserved. */
+  insert(submission: FormSubmission): Promise<boolean>
+  /**
+   * Like `insert`, but atomically reserves the id before calling `beforeInsert`. A collision skips the callback.
+   * Keep the reservation out of the inbox, and release it if the callback returns false or throws.
+   * If it returns true, publish the submission. Return false for a collision or a callback veto.
+   */
+  insertWith(submission: FormSubmission, beforeInsert: () => Promise<boolean>): Promise<boolean>
   list(options?: ListFormSubmissionsOptions): Promise<FormSubmission[]>
   get(id: string): Promise<FormSubmission | undefined>
   setStatus(id: string, status: FormStatus, now: number): Promise<FormSubmission | undefined>
+  /** Deletes the submissions that this signed-in user sent. Auth calls it when the user deletes the account. */
+  deleteUser(userId: string): Promise<void>
 }

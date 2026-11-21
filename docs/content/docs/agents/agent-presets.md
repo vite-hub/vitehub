@@ -8,7 +8,7 @@ navigation.kind: Guides
 icon: i-lucide-copy
 ---
 
-Reuse an Agent Definition (what `defineAgent()` returns) when several Agents share behavior but need different settings. First learn to [define](/docs/agents/agent-definitions) and [run](/docs/agents/invocations) one Agent. For a published workflow, choose a [ready-made Agent preset](/docs/agents/presets).
+Reuse an Agent Definition (what `defineAgent()` returns) when several Agents share behavior but need different settings. First learn to [define](/docs/agents/agent-definitions) and [run](/docs/agents/invocations) one Agent. For a published workflow, choose a [ready-made Agent preset](/docs/presets).
 
 ## Extend an Agent
 
@@ -22,7 +22,7 @@ export default defineAgent({
   extends: bot,
   driver: { model: 'gpt-5.6-sol' },
   workspace: {
-    store: { provider: 'local', root: '.vitehub/workspaces/bot-dev' },
+    store: { driver: 'local', root: '.vitehub/workspaces/bot-dev' },
   },
 })
 ```
@@ -39,7 +39,7 @@ Child settings compose with parent defaults like this:
 | Capability resolver | Replaces the inherited list or resolver. |
 | Other arrays | Replace the parent array. |
 | `driver.launch` | Replaces the whole command or resolver, including `onExit`. Omitted inherits the parent launch. |
-| Driver kind or store provider | A different kind or provider replaces that configuration. |
+| Driver kind or store driver | A different kind or driver replaces that configuration. |
 
 Some settings add to inherited values instead:
 
@@ -91,7 +91,7 @@ A discovered child Agent with its own `skills/` folder also keeps the colocated 
 
 ## Presets from a package
 
-Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+Use [Agent presets](/docs/presets) to choose a built-in workflow and follow its setup guide.
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import one and pass it as `extends`:
 

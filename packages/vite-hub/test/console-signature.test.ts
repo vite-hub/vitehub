@@ -192,7 +192,7 @@ describe("signed Console requests", () => {
     install(authorize)
     const response = await send(await request())
     expect(response.status).toBe(401)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("#sign-console-requests"), fix: expect.any(String), ok: false, status: 401 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("/docs/console/signed-requests"), fix: expect.any(String), ok: false, status: 401 })
     // The body check runs in the RPC route, after `authorize`, on the bytes that it reads. Every other refusal comes
     // from the access check, before `authorize`, with the signature challenge.
     if (code === "CONSOLE_SIGNATURE_BODY") return
@@ -366,6 +366,10 @@ describe("calls of the ViteHub MCP in the Console", () => {
     const project = await callAsMcp("project.get", {})
     expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
     expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
+    // The sections of the Console page are for the page, not for MCP clients.
+    expect(project.ok && Object.hasOwn(Object(project.value), "navigation")).toBe(false)
+    const page = await callAsMcp("project.get", {}, person)
+    expect(page.ok && Object.hasOwn(Object(page.value), "navigation")).toBe(true)
     // The Console page still runs it.
     await expect(callAsMcp("test.hidden", {}, person)).resolves.toMatchObject({ ok: true, value: "ran" })
   })
@@ -375,6 +379,15 @@ describe("calls of the ViteHub MCP in the Console", () => {
     install()
     await expect(callAsMcp("test.drop", { key: "a" })).resolves.toMatchObject({ error: { code: "INTERNAL_R0026", status: 409 }, ok: false })
     await expect(callAsMcp("test.drop", { key: "a" }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { dropped: "a" } })
+  })
+
+  it("runs only reads for a read-only caller, even with a confirmation", async () => {
+    stubKeys(link.env)
+    install()
+    const reader: ConsoleCaller = { confirmed: true, readOnly: true, surface: "mcp", user: { id: "user-1" }, via: "console" }
+    await expect(callAsMcp("test.whoami", {}, reader)).resolves.toMatchObject({ ok: true, value: { surface: "mcp" } })
+    await expect(callAsMcp("test.store", { text: "x" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.store is a write operation, and this caller may only read.", status: 403 }, ok: false })
+    await expect(callAsMcp("test.drop", { key: "a" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.drop is a destructive operation, and this caller may only read.", status: 403 }, ok: false })
   })
 
   it("does not take the confirmation from an unsigned header or a changed caller", async () => {

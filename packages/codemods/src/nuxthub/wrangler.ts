@@ -120,9 +120,9 @@ export async function readCloudflareResourceOptions(cwd: string, file: string | 
     const { binding, id, bucket_name: bucketName, jurisdiction } = fields
     if (!binding) continue
     for (const feature of ["kv", "cache"] as const) {
-      if (kind === "kv_namespaces" && binding === bindings[feature] && id && !placeholderId.test(id)) options[feature] = { driver: "cloudflare-kv-binding", binding, namespaceId: id }
+      if (kind === "kv_namespaces" && binding === bindings[feature] && id && !placeholderId.test(id)) options[feature] = { driver: "cloudflare", binding, namespaceId: id }
     }
-    if (kind === "r2_buckets" && binding === bindings.blob && bucketName) options.blob = { driver: "cloudflare-r2", binding, bucketName, ...(jurisdiction ? { jurisdiction } : {}) }
+    if (kind === "r2_buckets" && binding === bindings.blob && bucketName) options.blob = { driver: "cloudflare", binding, bucketName, ...(jurisdiction ? { jurisdiction } : {}) }
   }
   return options
 }
@@ -192,10 +192,10 @@ export async function planWrangler(cwd: string, file: string | undefined, featur
         followUps.push({ file, line: resource.line, message: `The codemod set vitehub.${key} to keep this ${key === "blob" ? "bucket" : "namespace"}, and ViteHub writes the ${binding} binding itself. Remove this entry from ${file}.` })
       }
       else if (key === "blob") {
-        followUps.push({ file, line: resource.line, message: `${keep} To keep this bucket, set vitehub.blob to { driver: "cloudflare-r2", binding: "${binding}"${bucketName ? `, bucketName: "${bucketName}"` : ""}${jurisdiction ? `, jurisdiction: "${jurisdiction}"` : ""} } in nuxt.config. ${remove}` })
+        followUps.push({ file, line: resource.line, message: `${keep} To keep this bucket, set vitehub.blob to { driver: "cloudflare", binding: "${binding}"${bucketName ? `, bucketName: "${bucketName}"` : ""}${jurisdiction ? `, jurisdiction: "${jurisdiction}"` : ""} } in nuxt.config. ${remove}` })
       }
       else {
-        followUps.push({ file, line: resource.line, message: `${keep} ${key === "cache" ? "On Cloudflare, cache: true needs a namespace ID. " : ""}To keep this namespace, set vitehub.${key} to { driver: "cloudflare-kv-binding", binding: "${binding}"${id ? `, namespaceId: "${id}"` : ""} } in nuxt.config. ${remove}` })
+        followUps.push({ file, line: resource.line, message: `${keep} ${key === "cache" ? "On Cloudflare, cache: true needs a namespace ID. " : ""}To keep this namespace, set vitehub.${key} to { driver: "cloudflare", binding: "${binding}"${id ? `, namespaceId: "${id}"` : ""} } in nuxt.config. ${remove}` })
       }
     }
   }

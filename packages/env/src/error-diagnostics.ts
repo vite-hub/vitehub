@@ -20,7 +20,7 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0006: withFix("Remove `required`: a value is required by default. Set `optional: true` for a value that can be missing, or a `default` for a fallback value, not both."),
     ENV_R0008: withFix("Change the Env declaration at the path in the error details, as the message says."),
     ENV_R0009: withFix("Load Server Env with `await loadServerEnv()`, or run the code in `runWithServerEnv()`. A provider value cannot be read without `await`."),
-    ENV_R0010: withFix("Give the variable a value at its source: set it in `.env` or in the host environment, or return it from the provider or the custom source. Or set `optional: true` on the declaration, or a `default` if the variable is not secret. Run `vitehub env check` to list the missing variables."),
+    ENV_R0010: withFix("Give the variable a value at its source: set a variable that the error names in `.env` or in the host environment, or return it from the provider or the custom source. Or set `optional: true` on the declaration, or a `default` if the variable is not secret. Run `vitehub env check` to list the missing variables."),
     ENV_R0011: withFix("Change the value at its source, or the `default` of the declaration, so that it matches the type of the variable. The message names each issue. If the message names a provider, make its `read()` return a plain object with a value for each key, not a getter."),
     ENV_R0012: withFix("Make package.json contain one JSON object."),
     ENV_R0013: withFix("Pass an object with a `read({ env, keys, signal })` method to `defineEnvProvider()`."),
@@ -47,6 +47,8 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_B0005: withFix("Add the provider to `vitehub({ env: { providers } })` or `hubEnv({ providers })`, or use a configured provider name in `env.provider()`."),
     ENV_B0006: withFix("Change the env-spec schema file at the file and line that the message names, so that it follows the env-spec format."),
     ENV_B0007: withFix("Stop other Vite processes of this project. If none runs, delete `.vitehub/env/secret.lock` and run the command again."),
+    ENV_JSON_SCHEMA_INVALID: withFix("In `env.server`, export the Standard Schema from a module and pass `env.json(env.schemaFrom('./server/env.schema.ts', 'settings'))`. With `mode: 'build'`, pass the schema object itself. Without a schema, call `env.json()` or `env.json({ default: {} })`."),
+    ENV_LIST_ITEM_INVALID: withFix("Pass the item parser without options, for example `env.list(env.number())` or `env.list(env.enum(['a', 'b']))`, and put `default`, `secret`, `source`, or `optional` on the list: `env.list(env.number(), { default: [1] })`."),
     ENV_NOT_GENERATED: {
       why: ({ accessor }: { accessor: string }) => `\`${accessor}()\` ran outside a Vite build, so ViteHub did not generate the Env registry that it reads.`,
       fix: "Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on. A test that calls it needs the Vite plugin too.",

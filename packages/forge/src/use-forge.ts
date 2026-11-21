@@ -23,8 +23,8 @@ export interface UseForgeOptions<TKind extends ForgeKind = "github"> {
   /** Default `"github"`. */
   forge?: TKind
   /**
-   * GitHub: the API base, for GitHub Enterprise Server. GitLab and Forgejo: the instance root.
-   * Default for GitLab and Forgejo: `VITEHUB_GITLAB_BASE_URL` or `VITEHUB_FORGEJO_BASE_URL`.
+   * GitHub: the API base, for GitHub Enterprise Server. GitLab, Forgejo and Gitea: the instance root.
+   * Default for GitLab, Forgejo and Gitea: `VITEHUB_GITLAB_BASE_URL`, `VITEHUB_FORGEJO_BASE_URL` or `VITEHUB_GITEA_BASE_URL`.
    */
   baseUrl?: string
   /** Default: the bindings of the active Cloudflare request, then `process.env`. */
@@ -46,8 +46,15 @@ export interface ForgeCallOptions {
    * Otherwise GitHub finds the installation that can reach the repository.
    */
   repository?: string
+  /**
+   * The GitHub App installation to use, such as `installation.id` of a webhook delivery.
+   * It replaces the installation that `repository` selects.
+   */
+  installation?: number
   /** Mint a new GitHub App installation token instead of the cached one. */
   refresh?: boolean
+  /** Milliseconds the token must stay valid. A cached installation token that expires sooner is replaced. Default 60000. */
+  minLifetime?: number
   signal?: AbortSignal
 }
 
@@ -160,6 +167,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
   }
   const baseField = fields[kind].baseUrl
   const baseUrl = options.baseUrl ?? (baseField ? readForgeEnv(baseField, env) : undefined)
+  const webhookSecret = kind === "gitea" ? readForgeEnv(forgeEnv.gitea.webhookSecret, env) : undefined
   const userAgent = options.userAgent ?? "vitehub"
 
   let credentials: Promise<GitHubAppCredentials> | undefined
@@ -180,7 +188,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
   async function installationToken(config: GitHubAppConfig, call: ForgeCallOptions): Promise<Result<ForgeToken & { identity: string }, ForgeTokenErrorCode>> {
     const { repository, signal } = call
     const client = await appCredentials(config)
-    let installation = githubInstallationFor(config.installations, repository)
+    let installation = call.installation ?? githubInstallationFor(config.installations, repository)
     if (installation === undefined) {
       if (!repository) throw forgeErrors.FORGE_MISSING_INSTALLATION()
       try {
@@ -196,7 +204,11 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
       }
     }
     try {
-      const minted = await client.installationToken(installation, { signal, ...(call.refresh ? { refresh: true } : {}) })
+      const minted = await client.installationToken(installation, {
+        signal,
+        ...(call.refresh ? { refresh: true } : {}),
+        ...(call.minLifetime === undefined ? {} : { minLifetime: call.minLifetime }),
+      })
       return [undefined, { token: minted.token, expiresAt: minted.expiresAt, identity: `app:${config.appId}:${installation}` }]
     }
     catch (cause) {
@@ -229,6 +241,7 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
           ? { conditionalRequests: false }
           : minted.identity ? { conditionalRequests: { identity: minted.identity } } : {}),
         ...(baseUrl ? { baseUrl } : {}),
+        ...(webhookSecret ? { webhookSecret } : {}),
         ...(options.fetch ? { fetch: options.fetch } : {}),
       })
       if (call.signal?.aborted) throw abortError(call.signal)

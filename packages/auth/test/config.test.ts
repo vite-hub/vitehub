@@ -187,7 +187,7 @@ describe("resolveAuthViteConfig", () => {
       "  appName: 'ViteHub',",
     ])
 
-    expect(resolveAuthViteConfig(undefined, rootDir)).toEqual({
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
       access: {
         routes: [],
       },
@@ -197,7 +197,6 @@ describe("resolveAuthViteConfig", () => {
         name: "default",
         source: "server-auth",
       },
-      implicitMemory: true,
       rootDir,
       route: "/api/auth",
       tables: false,
@@ -209,7 +208,6 @@ describe("resolveAuthViteConfig", () => {
     await writeAuth(rootDir, "server/auth.ts", ["  database: 'memory',"])
     const config = resolveAuthViteConfig(undefined, rootDir)
     expect(config?.tables).toBe(false)
-    expect(config).not.toHaveProperty("implicitMemory")
   })
 
   it.each([
@@ -284,6 +282,26 @@ describe("resolveAuthViteConfig", () => {
 
     await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], public: [] },"])
     expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }] })
+  })
+
+  it("resolves the sign-in page or provider, and afterSignIn, for the Nuxt page guard", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { signIn: '/sign-in', afterSignIn: '/dashboard' },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [], signIn: { page: "/sign-in" }, afterSignIn: "/dashboard" })
+
+    await writeAuth(rootDir, "server/auth.ts", ["  access: { routes: ['/**'], signIn: { provider: 'github', scopes: ['read:org'] } },"])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access).toEqual({ routes: [{ route: "/**" }], signIn: { provider: true } })
+  })
+
+  it.each([
+    ["signIn: signInPage", "AUTH_C0028"],
+    ["signIn: 'login'", "AUTH_C0028"],
+    ["signIn: { provider: 'github', callbackURL: '/app' }", "AUTH_SIGN_IN_CALLBACK_URL_MOVED"],
+    ["afterSignIn: '//evil.example'", "AUTH_AFTER_SIGN_IN_INVALID"],
+  ])("rejects access.%s", async (value, code) => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [`  access: { ${value} },`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code }))
   })
 
   it.each(["publicRoutes", "['/', publicRoute]", "['/', ...more]", "['login']", "['/', ,'/x']"])("rejects access.public written as %s", async (value) => {
@@ -546,33 +564,129 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
   })
 
+  it("reads the additional fields and the plugins that add Auth tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "import { twoFactor as secondFactor, username } from 'better-auth/plugins'",
+      "import type { lastLoginMethod } from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "const plugins = [apiKey(), secondFactor()]",
+      "export default defineAuth(() => ({",
+      "  database: authDatabase(),",
+      "  plugins,",
+      "  user: { additionalFields: {",
+      "    login: { type: 'string', required: false },",
+      "    language: { type: ['en', 'es'], required: false, defaultValue: 'en' },",
+      "    credits: { type: 'number', required: true, defaultValue: () => 0, input: false },",
+      "  } },",
+      "  session: { additionalFields: { device: { type: 'string', index: true } } },",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({
+      database: "default",
+      schema: {
+        plugins: ["apiKey", "twoFactor"],
+        additionalFields: {
+          user: { login: { type: "string" }, language: { type: "string", defaultValue: "en" }, credits: { type: "number", required: true } },
+          session: { device: { type: "string", index: true } },
+        },
+      },
+    })
+  })
+
+  it("reads the plugins that a local module of the Definition calls", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "src/server/auth-plugins.ts", [
+      "import { stripe } from '@better-auth/stripe'",
+      "import { jwt } from 'better-auth/plugins'",
+      "export { twoFactorPlugins } from './two-factor'",
+      "export function authPlugins(stripeClient) {",
+      "  return [jwt(), stripe({ stripeClient, stripeWebhookSecret: '' })]",
+      "}",
+    ])
+    await writeAuthSource(rootDir, "src/server/two-factor.ts", [
+      "import { twoFactor } from 'better-auth/plugins'",
+      "export const twoFactorPlugins = () => [twoFactor()]",
+    ])
+    await writeAuthSource(rootDir, "src/server/types.ts", [
+      "import { username } from 'better-auth/plugins'",
+      "export const unused = () => username()",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import type { Plan } from '../src/server/types.ts'",
+      "import { authPlugins, twoFactorPlugins } from '../src/server/auth-plugins.ts'",
+      "export default defineAuth(({ env }) => ({",
+      "  database: authDatabase(),",
+      "  plugins: [...authPlugins(env.stripe), ...twoFactorPlugins()],",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
+  })
+
+  it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins/index.mjs", [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "import { keys } from '../keys.js'",
+      "const secondFactor = () => twoFactor()",
+      "export const accountProtection = () => [secondFactor(), ...keys()]",
+      "export const loginByUsername = () => [username()]",
+    ])
+    await writeAuthSource(rootDir, "server/keys.tsx", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export const keys = () => [apiKey()]",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { accountProtection } from './plugins'",
+      "export default defineAuth({ database: authDatabase(), plugins: accountProtection() })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["apiKey", "twoFactor"] } })
+  })
+
   it.each([
-    "{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } }",
-    "() => ({ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } })",
-    "{ database: authDatabase(), user: { additionalFields: profileFields } }",
-  ])("rejects user fields missing from the owned schema before table discovery: %s", async (options) => {
+    ["{ database: authDatabase(), user: { additionalFields: profileFields } }", /user.additionalFields must be an inline object literal/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: planField } } }", /user.additionalFields.plan must be an inline object/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: planType } } } }", /user.additionalFields.plan.type must be one of/],
+    ["{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string', required: isRequired } } } }", /user.additionalFields.plan.required must be/],
+    ["() => ({ database: authDatabase(), session: { additionalFields: extraFields } })", /session.additionalFields must be an inline object literal/],
+  ])("asks for additional fields that the Vite plugin can read: %s", async (options, message) => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
       `export default defineAuth(${options})`,
     ])
-    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0055", message: expect.stringMatching(message) }))
   })
 
-  it.each(["session", "account", "verification"])("rejects %s fields missing from the owned schema before table discovery", async (model) => {
+  it("rejects a field that a table has with another type, and a renamed column", async () => {
     const rootDir = await createTempProject()
-    for (const options of [
-      `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
-      `() => ({ database: authDatabase(), ${model}: { additionalFields: extraFields } })`,
-    ]) {
+    for (const [fields, message] of [
+      ["{ role: { type: 'number' } }", /user.additionalFields declares user.role as number/],
+      ["{ login: { type: 'string', fieldName: 'github_login' } }", /fieldName cannot rename the column/],
+    ] as const) {
       await writeAuthSource(rootDir, "server/auth.ts", [
         "import { defineAuth } from 'vite-hub/auth'",
         "import { authDatabase } from 'vite-hub/auth/database'",
-        `export default defineAuth(${options})`,
+        `export default defineAuth({ database: authDatabase(), user: { additionalFields: ${fields} } })`,
       ])
-      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`${model}.additionalFields`)
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_C0056", message: expect.stringMatching(message) }))
     }
+  })
+
+  it("keeps additional fields to Better Auth without authDatabase()", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "export default defineAuth(() => ({ database: adapter, user: { additionalFields: profileFields } }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
   })
 
   it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {

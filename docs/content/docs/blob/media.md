@@ -63,7 +63,7 @@ A record looks like this:
   "crops": { "mobile": { "aspect": "4:5" } },
   "createdAt": "2026-10-14T15:38:53.716Z",
   "updatedAt": "2026-10-14T15:38:53.716Z",
-  "url": "/api/_vitehub/blob/posts/cover.jpg"
+  "url": "/_vitehub/blob/posts/cover.jpg"
 }
 ```
 
@@ -131,9 +131,9 @@ An `image()` field or other stored pathname still points at the old path after a
 The serve route reads variant parameters from the query string. Without them, it serves the original.
 
 ```text
-/api/_vitehub/blob/posts/cover.jpg?w=640
-/api/_vitehub/blob/posts/cover.jpg?w=256&h=256
-/api/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
+/_vitehub/blob/posts/cover.jpg?w=640
+/_vitehub/blob/posts/cover.jpg?w=256&h=256
+/_vitehub/blob/posts/cover.jpg?w=640&crop=mobile&fmt=avif&q=60
 ```
 
 | Parameter | Values | Default |
@@ -179,7 +179,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       serve: { access: 'public' },
       images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
@@ -198,7 +198,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
@@ -218,7 +218,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
@@ -253,7 +253,7 @@ export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
     blob: {
-      driver: 'cloudflare-r2',
+      driver: 'cloudflare',
       serve: { access: 'public' },
       images: { transformer: 'photon' },
     },
@@ -272,7 +272,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
@@ -292,7 +292,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       blob: {
-        driver: 'cloudflare-r2',
+        driver: 'cloudflare',
         serve: { access: 'public' },
         images: { transformer: 'photon' },
       },
@@ -314,11 +314,25 @@ Photon reads JPEG, PNG, WebP, and GIF. It turns JPEG images upright from their E
 
 `responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
 
-Photon decodes the full source first, at about 19 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
+Photon decodes the full source first, at about 17 bytes of WebAssembly memory per pixel. A Worker has 128 MB in total, so Photon rejects a source over 10 MiB or 4 megapixels (such as 2400 × 1600) with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU per variant, above the 10 ms Workers Free limit. Variants are cached after the first request.
 
-The Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+Set `maxPixels` to change the pixel limit:
 
-- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+```ts fragment
+images: { transformer: 'photon', maxPixels: 6_000_000 }
+```
+
+| Source | WebAssembly memory for one variant |
+| --- | --- |
+| 4 MP (default) | about 67 MB |
+| 6 MP | about 96 MB |
+| 8 MP | about 123 MB |
+
+On a Worker, the JavaScript heap and the rest of the app share the same 128 MB, so stay at 6 megapixels or less there. On Node, the limit is the memory of the server. `maxPixels` works only with `transformer: 'photon'`. With another transformer, the build fails with `BLOB_C0015`.
+
+The Nitro plugin imports Photon with a dynamic `import()`, so the WebAssembly module loads on the first variant, not at startup. You configure nothing:
+
+- On Cloudflare, Nitro writes `photon_rs_bg.wasm` as a separate module, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression. ViteHub turns on Nitro's `wasm.lazy` for Cloudflare, and Photon loads with or without it.
 - On Node, the `node` entry embeds the WebAssembly in JavaScript and compiles it on the first variant.
 - In `vite dev` with Cloudflare emulation, workerd blocks WebAssembly compiled at runtime, so variants fail with `BLOB_R0034`. Use a Node host in development, or run the built Worker with `wrangler dev`.
 
@@ -406,7 +420,7 @@ export default defineNuxtConfig({
 </template>
 ```
 
-The `src` is the Blob pathname, or the `url` of a media record. The example requests `/api/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
+The `src` is the Blob pathname, or the `url` of a media record. The example requests `/_vitehub/blob/photos/cat.jpg?w=640&h=384&fit=cover&fmt=avif`.
 
 | Modifier | Parameter |
 | --- | --- |
@@ -432,7 +446,7 @@ References stay portable in Markdown frontmatter and JSON. An alt-text fix in th
 
 The media library edits folders, uploads, alt text, focal points, and crops, and has a picker for `image()` fields and Markdown images.
 
-When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+When another store holds private files, such as the Content workspace, keep media in its own store. Serve it and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents cannot read or change the private store. See [Grant one Blob store](/docs/console/access#grant-one-blob-store).
 
 ## Storage layout
 

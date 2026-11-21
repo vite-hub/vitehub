@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { createNitroServerKit } from "../src/nitro-kit.ts"
 import { VITEHUB_APP_BASE_URL } from "../src/build/vite.ts"
+import { viteHubPageToolsLoader } from "../src/runtime/page-tools-shared.ts"
 
 describe("addViteHubPageToolRoutes", () => {
   it.each([
@@ -15,7 +16,7 @@ describe("addViteHubPageToolRoutes", () => {
     const kit = createNitroServerKit({ publicAssets: [{ baseURL: "/assets", dir: "/app/public" }] })
     addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page", mount })
     addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page", mount })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: `${mount}/_vitehub/page/session` }])
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", meta: { vitehubOwnAccess: true }, route: `${mount}/_vitehub/page/session` }])
     expect(kit.config.publicAssets).toEqual([
       { baseURL: "/assets", dir: "/app/public" },
       { baseURL: `${mount}/_vitehub/page/assets`, dir: "/a/dist/page", maxAge: 300 },
@@ -46,7 +47,7 @@ describe("viteHubPageToolsBase", () => {
     const kit = createNitroServerKit({})
     addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page", mount: "/portal" })
     addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page", mount: "/portal" })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: "/portal/_vitehub/page/session" }])
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", meta: { vitehubOwnAccess: true }, route: "/portal/_vitehub/page/session" }])
     expect(kit.config.publicAssets).toEqual([{ baseURL: "/portal/_vitehub/page/assets", dir: "/a/dist/page", maxAge: 300 }])
   })
 })
@@ -75,17 +76,19 @@ describe("viteHubPageToolsIndexHtml", () => {
 
   it("imports the loader only with the hint", () => {
     const page = viteHubPageToolsIndexHtml(html, "/")!
+    // The loader URL points into the asset route above, with a cache-busting version.
+    expect(viteHubPageToolsLoader).toMatch(/^\/_vitehub\/page\/assets\/loader\.js\?v=\d+$/)
     expect(run(page, "/")).toEqual([])
     expect(run(page, "/", "theme=dark")).toEqual([])
-    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=20"])
-    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=20"])
+    expect(run(page, "/?vitehub")).toEqual([viteHubPageToolsLoader])
+    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual([viteHubPageToolsLoader])
     // A link to a comment thread loads the tools too, also after the person turned them off.
-    expect(run(page, "/pricing?comment=3", "vitehub-tools=0")).toEqual(["/_vitehub/page/assets/loader.js?v=20"])
+    expect(run(page, "/pricing?comment=3", "vitehub-tools=0")).toEqual([viteHubPageToolsLoader])
     expect(run(page, "/pricing?commentary=3")).toEqual([])
   })
 
   it("imports the loader below the Vite base", () => {
-    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=20"])
-    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=20"])
+    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual([`/portal${viteHubPageToolsLoader}`])
+    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual([viteHubPageToolsLoader])
   })
 })

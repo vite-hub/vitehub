@@ -1,4 +1,5 @@
-import type { KVListOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
+import { invariant } from "@vite-hub/internal/invariant"
+import type { KVPageOptions, ResolvedDenoKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
@@ -81,7 +82,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    // ponytail: Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
+    // Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
     for await (const entry of kv.list({ prefix: [] })) {
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
@@ -123,8 +124,8 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     async getKeys(base = "") {
       return (await matchingKeys(base)).flatMap(key => fromDenoKey(key) ?? []).sort()
     },
-    async listKeys({ cursor, limit, prefix = "" }: KVListOptions) {
-      if (disposed) throw new Error("KV storage has been disposed.")
+    async listKeys({ cursor, limit, prefix = "" }: KVPageOptions) {
+      invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
@@ -138,7 +139,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           cursorHistories.complete(cursor)
           return { keys }
         }
-        if (disposed) throw new Error("KV storage has been disposed.")
+        invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
         if (cursors.has(iterator.cursor)) {
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Deno KV list returned a repeated pagination cursor." })
         }

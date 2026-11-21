@@ -1,7 +1,9 @@
 import { agentInvocationId, type AgentRunMetadata } from "@vite-hub/agent"
 import * as v from "valibot"
+import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
+import { invariantError } from "@vite-hub/internal/invariant";
 import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
 import type { GitHubHost } from "./host.ts";
 
@@ -88,20 +90,20 @@ const pullRequestSchema = v.pipe(v.object({
 
 function repositoryParts(repository: string) {
   const [owner, name, extra] = repository.split("/");
-  if (!owner || !name || extra !== undefined) throw new Error("Expected a GitHub owner/repository.");
+  if (!owner || !name || extra !== undefined) throw invariantError("the Babysitter reads repositories in owner/name form from its GitHub App installations")
   return { owner, name };
 }
 
 function record(value: unknown): Record<string, unknown> {
-  if (!isRuntimeRecord(value)) throw new Error("Incomplete GitHub response.")
+  if (!isRuntimeRecord(value)) throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "response" })
   return value
 }
 function text(value: unknown): string {
-  if (!hasRuntimeType(value, "string")) throw new Error("GitHub returned an invalid string field.")
+  if (!hasRuntimeType(value, "string")) throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "string field" })
   return value
 }
 function boolean(value: unknown): boolean {
-  if (!hasRuntimeType(value, "boolean")) throw new Error("GitHub returned an invalid boolean field.")
+  if (!hasRuntimeType(value, "boolean")) throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "boolean field" })
   return value
 }
 function field(value: unknown, ...path: string[]): unknown {
@@ -110,11 +112,11 @@ function field(value: unknown, ...path: string[]): unknown {
 }
 function parseConnection<T>(value: unknown, parse: (item: unknown) => T): Connection<T> {
   const connection = record(value)
-  if (!Array.isArray(connection.nodes)) throw new Error("Incomplete GitHub connection.")
+  if (!Array.isArray(connection.nodes)) throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "connection" })
   const page = record(connection.pageInfo)
   const hasNextPage = boolean(page.hasNextPage)
   const endCursor = page.endCursor === null ? "" : text(page.endCursor)
-  if (hasNextPage && !endCursor) throw new Error("GitHub omitted a pagination cursor.")
+  if (hasNextPage && !endCursor) throw presetsErrorDiagnostics.PRESETS_GITHUB_PAGINATION_INVALID({ detail: "omitted a pagination cursor" })
   return { nodes: connection.nodes.map(parse), pageInfo: { hasNextPage, endCursor } }
 }
 function parseComment(value: unknown): GitHubPullRequestComment {
@@ -148,7 +150,7 @@ export function createGitHubPullRequests(
     const forge = await github.forge({ repository });
     const operationName = /\b(?:query|mutation)\s+([A-Za-z0-9_]+)/.exec(query)?.[1]
     const response = (await forge.request<unknown>("POST", "/graphql", { body: { query, variables, ...(operationName ? { operationName } : {}) } })).data
-    if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length) throw new Error("GitHub could not complete the pull request query.")
+    if (isRuntimeRecord(response) && Array.isArray(response.errors) && response.errors.length) throw presetsErrorDiagnostics.PRESETS_GITHUB_QUERY_FAILED()
     return isRuntimeRecord(response) && "data" in response ? response.data : response
   }
 
@@ -156,7 +158,7 @@ export function createGitHubPullRequests(
     // Bulk first pages keep discovery cheap; large discussions fall back to pagination.
     const data = await graphql(repository, `query PullRequestList($owner:String!,$name:String!,$comments:String,$reviews:String,$threads:String){repository(owner:$owner,name:$name){pullRequests(first:100,states:OPEN){nodes{${pullRequestFields} ${feedbackFields}}}}}`, { ...repositoryParts(repository), comments: null, reviews: null, threads: null });
     const nodes = field(data, "repository", "pullRequests", "nodes");
-    if (!Array.isArray(nodes)) throw new Error("GitHub did not return a PR list.");
+    if (!Array.isArray(nodes)) throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "pull request list" });
     return await Promise.all(nodes.map(async (value) => {
       const pullRequest = v.parse(pullRequestSchema, value);
       const node = parseFeedback(value);
@@ -179,7 +181,7 @@ export function createGitHubPullRequests(
     node: FeedbackNode,
   ): Record<string, Connection<GitHubPullRequestComment | FeedbackReview | FeedbackThread>> {
     if (!node?.comments?.nodes || !node?.reviews?.nodes || !node?.reviewThreads?.nodes)
-      throw new Error("Incomplete GitHub feedback response.");
+      throw presetsErrorDiagnostics.PRESETS_GITHUB_RESPONSE_INVALID({ part: "feedback response" });
     return { comments: node.comments, reviews: node.reviews, threads: node.reviewThreads };
   }
 
@@ -228,7 +230,7 @@ export function createGitHubPullRequests(
       function collect<T extends { id: string }>(key: string, items: Map<string, T>, connection: Connection<T>) {
         for (const item of connection.nodes) items.set(item.id, item)
         if (connection.pageInfo.hasNextPage) {
-          if (cursors.get(key) === connection.pageInfo.endCursor) throw new Error("GitHub pagination did not advance.")
+          if (cursors.get(key) === connection.pageInfo.endCursor) throw presetsErrorDiagnostics.PRESETS_GITHUB_PAGINATION_INVALID({ detail: "pagination did not advance" })
           cursors.set(key, connection.pageInfo.endCursor)
           more = true
         }
@@ -242,7 +244,7 @@ export function createGitHubPullRequests(
         const query =
           "query PullRequestThreadComments($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread{comments(first:100,after:$after){nodes{id body updatedAt} pageInfo{hasNextPage endCursor}}}}}";
         const page = parseConnection(field(await graphql(repository, query, { id: thread.id, after: thread.comments.pageInfo.endCursor }), "node", "comments"), parseComment);
-        if (page.pageInfo.hasNextPage && page.pageInfo.endCursor === thread.comments.pageInfo.endCursor) throw new Error("GitHub thread pagination did not advance.");
+        if (page.pageInfo.hasNextPage && page.pageInfo.endCursor === thread.comments.pageInfo.endCursor) throw presetsErrorDiagnostics.PRESETS_GITHUB_PAGINATION_INVALID({ detail: "thread pagination did not advance" });
         thread.comments.nodes.push(...page.nodes);
         thread.comments.pageInfo = page.pageInfo;
       }
@@ -303,6 +305,11 @@ export function pullRequestCheckState(
 }
 
 /** Derive stable PR thread identity, inspection annotations, and a session link. */
+/** The Agent run thread of a pull request. A Babysitter pass adds `:<session>` to it. */
+export function pullRequestThreadId(repository: string, number: number): string {
+  return `github:${repository.toLowerCase()}:pull-request:${number}`
+}
+
 export async function createGitHubPullRequestRun(
   repository: string,
   pullRequest: Pick<PullRequest, 'number' | 'headRefOid' | 'title' | 'url'>,
@@ -315,7 +322,7 @@ export async function createGitHubPullRequestRun(
   return {
     runId: options.runId,
     channelId: 'github',
-    threadId: `github:${repository.toLowerCase()}:pull-request:${pullRequest.number}`,
+    threadId: pullRequestThreadId(repository, pullRequest.number),
     annotations: { 'github.head': pullRequest.headRefOid, 'github.pullRequest': pullRequest.number, 'github.repository': repository, 'github.title': pullRequest.title, 'github.url': pullRequest.url },
     activity: { target: { repository, issue: pullRequest.number }, links: sessionUrl ? [{ label: 'Current session', url: sessionUrl }] : [] },
   }

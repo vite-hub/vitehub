@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("Channels section", () => {
   it("is a section of every Console with an Agent, next to Agents and Usage", () => {
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels"])
     expect(consoleSectionDetails.channels).toMatchObject({ label: "Channels", routeName: "vitehub-console-channels" })
   })
 
@@ -83,11 +83,11 @@ describe("Channels section", () => {
     }
   })
 
-  it("answers CHANNELS_HOST_UNAVAILABLE until the webhook routes have started", async () => {
+  it("answers AGENT_CHANNELS_HOST_UNAVAILABLE until the webhook routes have started", async () => {
     installConsoleOperations([{ operations: agentChannelOperations, plugin: "agent" }])
     Reflect.deleteProperty(globalThis, Symbol.for("vitehub.agent.channels-console"))
     const response = await rpc("channels.list")
     expect(response.status).toBe(503)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code: "AGENT_CHANNELS_HOST_UNAVAILABLE", fix: expect.stringContaining("libSQL") })
   })
 })

@@ -140,6 +140,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
       view: { kind: "workspace-browser", notice: "Files, refs, and revisions come from the Workspace Store when you open them. Without retained history, the browser shows the mounted files." },
     }
   }
+  // `connections` runs the Connections operations, so the Console section lists and connects them through them.
+  const connectionsVite = ownerModules.connectionsVite
+  if (connectionsVite && sections.includes("connections")) {
+    content.connections = await readViteHubConsoleSection(connectionsVite.connectionsConsoleSection, undefined)
+    sectionOverrides.connections = describeViteHubConsoleSection(connectionsVite.connectionsConsoleSection)
+  }
   // `server/forms/` runs the forms operations, so the Console section lists submissions through them.
   const formsVite = ownerModules.formsVite
   if (formsVite?.usesForms({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {
@@ -147,6 +153,16 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     sectionOverrides.forms = describeViteHubConsoleSection(formsVite.formsConsoleSection)
     // No section registers Forms, so the folder turns it on here.
     if (!entries.includes("forms")) entries.push("forms")
+  }
+  // `server/webhooks/` and member endpoints run the webhooks operations, so the Console section lists webhooks, member
+  // endpoints, and deliveries through them. A plugin such as Comments with `send: true` turns on member endpoints.
+  const webhooksVite = ownerModules.webhooksVite
+  const webhooksContext = { projectRoot, ...(serverDirs ? { serverDirs } : {}) }
+  if (webhooksVite && (webhooksVite.usesWebhooks(webhooksContext) || (await webhooksVite.collectWebhooksUses(options.plugins, { ...webhooksContext, root: projectRoot })).length > 0)) {
+    content.webhooks = await readViteHubConsoleSection(webhooksVite.webhooksConsoleSection, undefined)
+    sectionOverrides.webhooks = describeViteHubConsoleSection(webhooksVite.webhooksConsoleSection)
+    // No section registers Webhooks, so the folder turns it on here.
+    if (!entries.includes("webhooks")) entries.push("webhooks")
   }
   // `server/skills.ts` runs the served skill operations, so the Console section lists the skills with a switch each.
   if (findServedSkillsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) })) {

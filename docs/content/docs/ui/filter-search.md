@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-lucide-search
 ---
 
-`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
+`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/choices/vue` sends the request, and your `onSelect` applies the result to your state.
 
 ::example{name="FilterSearchExample" height=8}
 ::
@@ -15,10 +15,10 @@ Type `suppliers except vak` and press Enter. Type `error` to see the error state
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { FilterSearch } from "@vite-hub/ui";
+import { FilterSearch } from "vite-hub/ui";
 ```
 
 ## Usage
@@ -33,7 +33,7 @@ Wrap `clear()` to reset your filters too.
 ```vue
 <script setup lang="ts">
 import type { forecast } from "~~/server/choices/forecast";
-import { useChoices } from "vite-hub/decisions/vue";
+import { useChoices } from "vite-hub/choices/vue";
 
 const filters = useFilters();
 
@@ -81,11 +81,11 @@ FilterSearch
 
 ## Headless parts
 
-Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
+Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
-import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "@vite-hub/ui/headless";
+import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "vite-hub/ui/headless";
 </script>
 
 <template>

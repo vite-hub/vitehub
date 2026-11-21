@@ -35,7 +35,7 @@ ViteHub checks these host limits before the provider sees the request:
 | [Cloudflare R2](https://developers.cloudflare.com/r2/platform/limits/) | Object key of at most 1,024 bytes in UTF-8 | `BLOB_PATHNAME_TOO_LONG` |
 | [Vercel Functions](https://vercel.com/docs/functions/limitations#request-body-size) | Request body of at most 4.5 MB | HTTP `413` |
 
-A `cloudflare-r2` store checks the key in `put()`, `get()`, `head()`, `delete()`, `serve()`, `sign()`, and multipart uploads, in production and `vite dev`. `serve()` answers such a key with a `400` response. Other drivers keep their own limits.
+A `cloudflare` store checks the key in `put()`, `get()`, `head()`, `delete()`, `serve()`, `sign()`, and multipart uploads, in production and `vite dev`. `serve()` answers such a key with a `400` response. Other drivers keep their own limits.
 
 On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` before your function runs. `vite dev` has no such limit, so when the build targets Vercel (`vitehub({ host: 'vercel' })` or the Vercel Nitro preset), the dev server copies it. `blob.handleUpload()` and the `upload` action of `blob.handleMultipartUpload()` throw an H3 `413` above 4,500,000 bytes, and the route answers `413`. For larger uploads, use [direct uploads](/docs/blob/server-api#direct-uploads), which send the file straight to storage. Read the [Vercel Blob guide](/docs/guides/vercel-blob#vercel-blob-limits).
 
@@ -43,11 +43,11 @@ On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` bef
 
 ### BLOB_CONFLICT
 
-`blob.copy()` or a media move found a file at the target pathname, or a folder removal found files in the folder. Pass `{ overwrite: true }` to replace the file.
+`blob.copy()` or a media move found a file at the target pathname, or a folder removal found files in the folder. Pass `{ overwrite: true }` to replace the file. A `put()` returns it when its `ifMatch` or `overwrite: false` condition does not hold: read the file again, and retry with its new `httpEtag`.
 
 ### BLOB_NOT_FOUND
 
-The file does not exist. `statusCode` is `404`, so the route answers `404`.
+The file does not exist. The error has `statusCode: 404`, but H3 answers the status of a thrown error only for its own `HTTPError`, so a route that rethrows it answers `500`. Map the code in the route: `if (error?.code === 'BLOB_NOT_FOUND') throw new HTTPError({ status: 404 })`.
 
 ### BLOB_OPERATION_FAILED
 

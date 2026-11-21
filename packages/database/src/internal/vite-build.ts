@@ -70,6 +70,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig, 
     chunkParametersImport: createImportPath(file, resolveRuntimeModule("runtime/chunk-parameters")),
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
+    postgresConnectionImport: createImportPath(file, resolveRuntimeModule("runtime/postgres-connection")),
     ensureMigrationsImport: createImportPath(file, resolveRuntimeModule("runtime/migrate-on-start")),
     imports: [
       ...(usesSqlite(runtimeConfig) ? [`import { createHostedDrizzleDb, resolveRuntimeCloudflareConfig } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(usesRemoteLibsql(runtimeConfig) ? "runtime/hosted" : "runtime/d1")))}`] : []),
@@ -175,7 +176,8 @@ function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig,
 function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    if (database?.dialect === "postgresql") return !hasConfigValue(database.connection?.url)
+    // A Vercel Function runs on Node, so postgres.js reads the PG* variables when the Definition has no `connection.url`.
+    if (database?.dialect === "postgresql") return false
     const hasD1Http = Boolean(database?.cloudflare?.http)
       && hasConfigValue(database.cloudflare?.databaseId)
     return !hasD1Http

@@ -62,7 +62,7 @@ jobs:
             exit 0
           fi
           release_tag="${merged_branch#release/}"
-          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          tag_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
             --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
           for entry in "${stale_prs[@]}"; do
@@ -85,9 +85,10 @@ jobs:
           checkout: "false"
           packages: |
             packages/*
+      # uppt's version commit is the only commit on the release branch, so uppt can rebuild it on every push to main.
       # GitHub starts no workflows for branches and PRs that GITHUB_TOKEN
       # writes, so dispatch each required check once per release PR commit.
-      - name: Update release versions and run required checks
+      - name: Check the release PR and run required checks
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -109,15 +110,7 @@ jobs:
           git worktree add --detach "$release_directory" FETCH_HEAD
           (
             cd "$release_directory"
-            node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch" --bump
-            if ! git diff --quiet; then
-              corepack pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
-              git add package.json packages pnpm-lock.yaml
-              git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-                commit -m "chore: sync release dependency versions"
-              git -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
-                push origin "HEAD:refs/heads/$release_branch"
-            fi
+            node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch"
           )
           git worktree remove "$release_directory"
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
@@ -277,7 +270,7 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="${RELEASE_BRANCH#release/}"
-          existing_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_tag}" --jq .sha 2>/dev/null || true)"
+          existing_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
             echo "Tag $release_tag already points to $existing_sha" >&2
             exit 1

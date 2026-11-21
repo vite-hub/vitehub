@@ -1,15 +1,15 @@
 # @vite-hub/presets
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fpresets&icon=npm)](https://npmx.dev/package/@vite-hub/presets)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fpresets&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/presets)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/presets)](https://npmx.dev/package/@vite-hub/presets)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/presets)](https://npmx.dev/package/@vite-hub/presets)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/presets` contains ready-made Agents that are built from ViteHub
 primitives. Each preset is a subpath. The package depends on
 [`@vite-hub/agent`](../agent/README.md); the Agent package does not know these presets.
 
-Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution.
+Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framework distribution. User docs: [Agent presets](https://vitehub.dev/docs/presets).
 
 | Import | Preset |
 | --- | --- |
@@ -35,7 +35,7 @@ Most applications use the `vite-hub/presets/*` imports of the `vite-hub` framewo
 import { labeller } from "@vite-hub/presets/labeller"
 ```
 
-See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
+See the [Labeller docs](https://vitehub.dev/docs/presets/labeller).
 
 ## Workspace preset
 
@@ -43,7 +43,7 @@ See the [Labeller docs](https://vitehub.dev/docs/agents/labeller).
 import workspace from "@vite-hub/presets/workspace"
 ```
 
-See the [workspace preset docs](https://vitehub.dev/docs/agents/workspace-preset).
+See the [workspace preset docs](https://vitehub.dev/docs/presets/workspace).
 
 ## Babysitter
 
@@ -123,7 +123,7 @@ symlink resolution. Trusted GitHub release archives use the HTTPS archive path.
 Workers call `commitRepair` with a message and explicit repair paths, then
 `pushRepair`. The host commits because the provider sandbox protects Git metadata. For a
 conflicting PR, the host first prepares a merge against the exact base commit.
-Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing.
+Installation runs after merge preparation. The worker resolves dependency conflicts and calls `refreshDependencies` before validation, then commits through the same tool. Changing dependency inputs requires another refresh and validation before committing. `commitRepair` rejects a base merge whose result undoes changes the base made since the PR branched: lines the base added that the result lacks, or lines the base removed that it brings back. Lockfiles are exempt because the host regenerates them. When the PR deliberately replaces such a change, the worker passes the file in `baseOverrides` with a reason, and the merge commit message lists it.
 Unattended Codex runs preauthorize only the assigned host tools. Capability checks
 still run on the host, and the native shell keeps its edit sandbox.
 
@@ -139,7 +139,7 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `false` | The Babysitter never merges. |
 | `"auto"` | The worker may call `requestAutoMerge`, which requests GitHub native auto-merge. |
 | `"direct"` | Before a model pass, the host squash-merges a PR that is ready. |
-| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, and optional required checks to merge past when they only repeat the base's failure. |
+| `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks, foldStacks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, optional required checks to merge past when they only repeat the base's failure, and stack folding (default `true`). |
 
 A direct merge needs passing required checks, completed and successful
 current-head checks and statuses, loaded and resolved review threads, a
@@ -159,7 +159,14 @@ changed its files after its checks ran, gets a branch update instead of a merge
 or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
-after checking that the head did not move.
+after checking that the head did not move. GitHub refuses App pushes to a fork,
+so a fork PR whose base changed its files, or that needs a retest on the current
+base, is closed and reopened instead, at most hourly. Its `pull_request` workflows
+then run again on the merge with the current base. GitHub lists no pull request on
+a fork's Actions runs, so the host matches the workflow run to the fork branch and
+head, then uses base branch activity before the run was created. Push runs do not
+count. The host records the close first and recovers an interrupted reopen only
+when its own GitHub identity closed the PR.
 
 PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
 
@@ -177,6 +184,17 @@ sets GitHub's `bypass_rules`, so the GitHub App must be allowed to bypass the
 branch rules. A required check that never reported, 10 minutes after the head's
 checks finished, gets a branch update or an Actions rerun once per head every
 six hours.
+
+`forkHeadBranches` (off by default), such as
+`{ "acme/app": "preview/pr-{number}" }`, is for required checks that run only on
+pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
+PR's head. When it is missing, the host pushes the head to that branch, once per
+head. A push runs the workflow files of the pushed commit with the repository's
+permissions, so the host first rereads GitHub and pushes only when a reviewer with
+write access approved that exact head, no change request stands, and any local
+action, reusable workflow, or workflow triggered by pushing or creating that
+branch still matches the live base. It moves and deletes only a
+branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
 drafts should merge. Off by default. When a pass has reviewed a draft's head, no
@@ -254,11 +272,14 @@ disable lifecycle and build scripts; custom commands are trusted host configurat
 workspaces from an earlier process when its temporary directory is inside the
 service directory. Claims take main repairs and priority-labelled PRs first, then reviewed heads,
 then heads whose checks all passed, then stack parents. A restart releases the claims of the previous process.
-A stacked PR whose parent merged into the default branch is retargeted to the
-default branch; until then the child waits. With `merge: "direct"`,
-`repairStackChildren: true` (default `false`) repairs a child's checks, conflicts
-and feedback alongside its open parent. The child never merges into the parent's
-branch and waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
+With `merge.foldStacks` (default `true`), a ready stacked PR whose base is the
+branch of one open PR in the same repository merges into that branch with a merge
+commit, so the stack lands with its parent, and the host emits `babysitter.stack.folded`.
+A fold and the parent's own merge never run at the same time. Other stacked PRs
+wait: a stacked PR whose parent merged into the default branch is retargeted to the
+default branch. With `merge: "direct"`, `repairStackChildren: true` (default `false`)
+repairs a child's checks, conflicts and feedback alongside its open parent, and the
+child waits for it once its reviewed head has nothing left to repair. A provider rate limit is retried `providerRetries` times (default `3`); after that, model
 dispatch waits for `providerCooldownMs` (five minutes by default), doubling per
 consecutive cooldown up to an hour. The pass waits for the cooldown instead of
 failing and spends no no-progress budget. `modelConcurrency` caps model passes.
@@ -275,7 +296,9 @@ go when the PR closes, after `idleDays` (7) without a pass, and least recently
 used first above `budgetGb` (60) or below `minFreePercent` (15) free disk.
 `warmWorkspaces: { resumeThreads: true }` also continues the previous pass's
 provider thread when that pass pushed or recorded a wait on the same base and
-release.
+release. The host stores only that session in `provider-sessions.sqlite`: it
+deletes the session of every pass that cannot be resumed, and the last one when
+the PR's workspace goes. Without `resumeThreads`, it stores no provider session.
 While the built-in resource guard pauses model passes for a spent token budget, low temporary space or exhausted proxy accounts, host work continues. A token budget of `0` stops every claim.
 
 Colocated `instructions.md` fills the preset's instruction slot without adding
@@ -290,9 +313,9 @@ installations can access, except archived ones and `filter.repository.deny`),
 claims, repair passes, and wake handling. Installing the App on a repository
 enrolls it; `installation` and `installation_repositories` webhooks update the
 list at once, and the host lists the installations again every 10 minutes. Signed
-GitHub deliveries to `/api/_vitehub/agents/<name>/webhooks/github` feed the
-inbox; they never start the Agent directly. `GET /api/_vitehub/host/drain`
-reports drain status, and `GET /api/_vitehub/host/health` reports each host's
+GitHub deliveries to `/_vitehub/agents/<name>/webhooks/github` feed the
+inbox; they never start the Agent directly. `GET /_vitehub/host/drain`
+reports drain status, and `GET /_vitehub/host/health` reports each host's
 health and queue. SIGUSR2 starts a drain. The build fails with `AGENT_B0022` on
 hosts that cannot keep a process running, and with `AGENT_B0023` without SQL
 Agent State. Hosts start in production builds, or in development only with

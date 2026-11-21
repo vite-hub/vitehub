@@ -82,7 +82,7 @@ Filter a list (All / Errors / Warnings)?                           → UTabs wit
 
 ## Floating surfaces
 
-`UDropdownMenu` for actions, `UPopover` for content, `UTooltip` for a label of an icon-only control, `UModal` for a task that blocks the page. The theme gives them the 12px radius, the floating surface, and the layered shadow, and dialogs are 448px wide. Menus and tooltips do not animate. Only a dialog that shows a diff or a picker sets a wider `content`.
+`UDropdownMenu` for actions, `UPopover` for content, `UTooltip` for a label of an icon-only control, `UModal` for a task that blocks the page. The theme gives them the 12px radius, the floating surface, and the layered shadow, and dialogs are 448px wide. Menus open at once. A tooltip rises from behind its trigger, as [Motion](motion.md) says. Only a dialog that shows a diff or a picker sets a wider `content`.
 
 ## Keyboard keys
 
@@ -104,6 +104,7 @@ A list of events with Refresh and Load older         → ConsoleActivityFeed
 Confirm a change, or a destructive action            → ConsoleConfirm
 A loading, error, or empty section                   → ConsoleState
 Inline code, a name, or a path                       → ConsoleCodeText
+An icon, such as i-lucide-x or i-vitehub-kv          → Icon from console-icon.vue, not UIcon
 A time, a duration, a number, a size, or initials    → client/format.ts
 ```
 

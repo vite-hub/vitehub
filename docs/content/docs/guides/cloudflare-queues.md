@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
-Set `host: 'cloudflare'` and `queue: true` in `vitehub()`, and add one file per queue in `server/queues/`. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
+Set `host: 'cloudflare'` in `vitehub()`, and add one file per queue in `server/queues/`. The files turn Queue on. A route calls `sendQueue()` to send a job. The build writes each queue's producer binding and consumer into `.output/server/wrangler.json`. `vitehub provision run` creates the queues, and the same Worker runs the handler when Cloudflare delivers a batch.
 
 ## What Cloudflare Queues is
 
@@ -29,7 +29,7 @@ pnpm add -D wrangler
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'cloudflare', queue: true },
+  vitehub: { host: 'cloudflare' },
 })
 ```
 :::
@@ -41,7 +41,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true }), nitro()],
+  plugins: [vitehub({ host: 'cloudflare' }), nitro()],
 })
 ```
 :::
@@ -52,7 +52,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare' })],
 })
 ```
 :::
@@ -66,8 +66,10 @@ The `cloudflare` host picks the Cloudflare Queue Provider and Worker output. `vi
 import { defineQueue } from 'vite-hub/queue'
 
 // The file name is the queue name: welcome-email
-export default defineQueue<{ email: string }>(async ({ payload, id, attempts }) => {
-  console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload, id, attempts }) => {
+    console.log(`Welcome job ${id} for ${payload.email}, attempt ${attempts}`)
+  },
 })
 ```
 
@@ -78,17 +80,17 @@ Cloudflare can deliver the same message twice. A handler that sends mail or char
 ### Send a job from a route
 
 ```ts [server/api/signup.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { sendQueue } from 'vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
   if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
+    throw new HTTPError({ status: 400, message: 'Send a non-empty email.' })
   }
 
   const [error, result] = await sendQueue('welcome-email', { email: body.email.trim() }, {
-    delaySeconds: 60,
+    delay: '1m',
   })
   if (error) throw error
   return result
@@ -97,7 +99,7 @@ export default defineEventHandler(async (event) => {
 
 `sendQueue()` returns `[error, result]`. When Cloudflare accepts the job, `result` is `{ status: 'queued', messageId }`, not the handler's result. `messageId` is ViteHub's id; Cloudflare never sees it and gives the handler its own id.
 
-Cloudflare accepts `delaySeconds` and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs at once, call `sendBatch()` on `useQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
+Cloudflare accepts `delay`, such as `'1m'`, and `contentType` (`'bytes'`, `'json'`, `'text'`, or `'v8'`). To send many jobs at once, call `sendBatch()` on `useQueue('welcome-email')`. See [Queue server API](/docs/queue/server-api#queue-enqueue-options).
 
 ## What the build generates
 
@@ -119,23 +121,24 @@ A handler that returns acknowledges the message. One that throws gets a Cloudfla
 
 - `'ack'` drops the message.
 - `'retry'` retries it.
-- `{ retry: { delaySeconds } }` retries it later.
+- `{ retry: { delay: '30s' } }` retries it later.
 - Nothing keeps the default.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from 'vite-hub/queue'
 import { getViteHubErrorShape, ViteHubError } from 'vite-hub/runtime'
 
-export default defineQueue<{ email: string }>(async ({ payload }) => {
-  if (!payload.email.includes('@')) {
-    throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
-  }
-  // Send the email here
-}, {
+export default defineQueue<{ email: string }>({
+  handler: async ({ payload }) => {
+    if (!payload.email.includes('@')) {
+      throw new ViteHubError('WELCOME_INVALID_EMAIL', 'The welcome job has no valid email.')
+    }
+    // Send the email here
+  },
   concurrency: 5,
   onError: error => getViteHubErrorShape(error)?.code === 'WELCOME_INVALID_EMAIL'
     ? 'ack'
-    : { retry: { delaySeconds: 30 } },
+    : { retry: { delay: '30s' } },
 })
 ```
 
@@ -143,7 +146,7 @@ export default defineQueue<{ email: string }>(async ({ payload }) => {
 
 ## How to use Cloudflare Queues locally
 
-`pnpm dev` runs jobs in the dev server, with no binding or account. It uses Cloudflare's defaults: 4 attempts, an instant retry, `delaySeconds` up to 24 hours, and payloads up to 128 KB. It does not run batches or call `onError`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+`pnpm dev` runs jobs in the dev server, with no binding or account. It uses Cloudflare's defaults: 4 attempts, an instant retry, a `delay` of up to 24 hours, and payloads up to 128 KB. It does not run batches or call `onError`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
 
 ```bash [Terminal]
 pnpm dev
@@ -176,8 +179,8 @@ Wrangler runs them through Miniflare. See Cloudflare's [Queues local development
 Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. The token must be allowed to create Queues and deploy Workers. Preview, then create the queues:
 
 ```bash [Terminal]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
+pnpm vitehub provision run --host cloudflare --dry-run
+pnpm vitehub provision run --host cloudflare
 ```
 
 Build again and deploy with Nitro:
@@ -227,4 +230,4 @@ The queue file and route stay the same. To move to Vercel Queues:
 3. Remove `contentType` from `sendQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
-See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local provider. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).
+See [Vercel Queues](/docs/guides/vercel-queues) for all steps. Self-hosted Node uses the local driver. Deno has no Queue Provider. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

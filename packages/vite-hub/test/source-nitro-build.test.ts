@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { createBuilder, resolveConfig } from "vite";
 import type { Plugin } from "vite";
@@ -99,6 +100,7 @@ describe("Source Collections through the Nitro Vite plugin", () => {
             `// route: false belongs to an unrelated comment`,
             ``,
             `export const articles = defineCollection(async () => [{ id: "a", title: "A" }], {`,
+            `  access: "public",`,
             `  cursor: article => article.id,`,
             `  cursorSchema: v.string(),`,
             `})`,
@@ -154,3 +156,34 @@ describe("Source Collections through the Nitro Vite plugin", () => {
     120_000,
   );
 });
+
+it("reads a named Source bound at module scope in production Nitro middleware", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-named-source-build-"));
+  try {
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir");
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }));
+    await writeFile(join(root, "index.html"), "<main>ok</main>\n");
+    await Promise.all(["sources", "middleware", "routes"].map(directory => mkdir(join(root, "server", directory), { recursive: true })));
+    await writeFile(join(root, "server/sources/docs.ts"), `import { file } from "vite-hub/source"
+export default file({ content: "hello", workspacePath: "intro.md" })
+`);
+    await writeFile(join(root, "server/middleware/source.ts"), `import { useSource } from "vite-hub/source"
+const docs = useSource("docs")
+export default async event => {
+  event.res.headers.set("x-source", await docs.read("intro.md"))
+}
+`);
+    await writeFile(join(root, "server/routes/status.get.ts"), `export default () => "ok"\n`);
+
+    const { nitro } = (await import("nitro/vite" as string)) as { nitro: (options: { preset: string }) => Plugin[] };
+    const builder = await createBuilder({ root, configFile: false, logLevel: "silent", plugins: [nitro({ preset: "standard" }), vitehub({ host: "node" })] });
+    await builder.buildApp();
+
+    const { default: app } = await import(pathToFileURL(join(root, ".output/server/index.mjs")).href) as { default: { fetch(request: Request): Promise<Response> } };
+    const response = await app.fetch(new Request("http://localhost/status"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-source")).toBe("hello");
+  } finally {
+    await rm(root, { force: true, recursive: true, maxRetries: 3 });
+  }
+}, 120_000);

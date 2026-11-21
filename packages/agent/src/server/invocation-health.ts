@@ -4,6 +4,9 @@ import type {
   AgentInvocationStore,
   AgentInvocationSummary,
 } from "../invocations.ts"
+import { emitRunFailed } from "@vite-hub/runtime/internal/run-failed"
+
+import { invocationDiagnostics } from "../invocation-diagnostics.ts"
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
@@ -30,17 +33,20 @@ export async function failInterruptedAgentInvocations(
     const claimId = `recovery_${globalThis.crypto.randomUUID()}`
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
       replaceClaimToken === undefined ? undefined : { replaceClaimToken })) return false
+    const message = options.message || "The host stopped before this Agent Invocation finished."
+    const timestamp = new Date().toISOString()
+    let updated: Awaited<ReturnType<AgentInvocationStore["update"]>>
     try {
-      const updated = await store.update(invocation.id, {
-        error: { message: options.message || "The host stopped before this Agent Invocation finished." },
-        status: "failed",
-        timestamp: new Date().toISOString(),
-      }, claimId)
-      return updated?.status === "failed"
+      const current = await store.getSummary(invocation.id)
+      if (current?.status !== "pending" && current?.status !== "running") return false
+      updated = await store.update(invocation.id, { error: { message }, status: "failed", timestamp }, claimId)
     }
     finally {
       await store.release(invocation.id, claimId)
     }
+    if (updated?.status !== "failed") return false
+    await emitRunFailed({ event: "invocation.failed", agent: invocation.agentName ?? null, invocationId: invocation.id, error: { message }, failedAt: timestamp })
+    return true
   }
   do {
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
@@ -101,7 +107,7 @@ export async function readAgentInvocationWorkload(
     const active = await invocations.list({ cursor, limit: 100, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     for (const invocation of active.invocations) records.set(invocation.id, invocation)
     if (active.cursor && seenCursors.has(active.cursor)) {
-      throw new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
+      throw invocationDiagnostics.AGENT_INVOCATION_CURSOR_REPEATED()
     }
     if (active.cursor) seenCursors.add(active.cursor)
     cursor = active.cursor

@@ -18,7 +18,10 @@ describe("vitehub status", () => {
     '{ postgres: { schema: "custom" } }',
     '{ sqlite: { path: "   " } }',
     '{ postgres: { url: "" } }',
-  ])("keeps partial Workflow storage options on the inline provider (%s)", async (options) => {
+    '{ driver: "openworkflow" }',
+    '{ sqlite: { path: ".data/workflows.db" } }',
+    '{ postgres: { url: "postgres://localhost/workflows" } }',
+  ])("needs only the Workflow package for Workflow storage options (%s)", async (options) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node", workflow: ${options} }`) })
     const { exitCode, json } = await runSetup<SetupStatus>(["status", "--json"], root)
     expect(exitCode).toBe(0)
@@ -27,10 +30,6 @@ describe("vitehub status", () => {
   })
 
   it.each([
-    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
-    ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
-    ["workflow", '{ postgres: { url: "postgres://localhost/workflows" } }', ["openworkflow"]],
-    ["workflow", '{ postgres: { url: { kind: "env-variable", source: { kind: "env", name: "DATABASE_URL" } } } }', ["openworkflow"]],
     ["blob", '{ driver: "s3", bucket: "assets" }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
     ["blob", '{ stores: { default: { driver: "s3", bucket: "assets" } } }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
   ] as const)("reports missing provider packages for %s: %s", async (id, options, packages) => {
@@ -60,7 +59,7 @@ describe("vitehub status", () => {
       packageManager: "pnpm",
       schemaVersion: 1,
     })
-    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { adapter: "cloudflare-kv-binding", level: "native" } })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { driver: "cloudflare", level: "native" } })
   })
 
   it.each([
@@ -98,7 +97,6 @@ describe("vitehub status", () => {
     const { json } = await runSetup<SetupStatus>(["status", "--json"], root, { NETLIFY: "true" })
     expect(json.host).toEqual({ name: "unknown", source: "config" })
     expect(feature(json, "agent").support).toMatchObject({ level: "unknown" })
-    expect(feature(json, "workflow")).toMatchObject({ enabled: "unknown" })
     const human = await runSetup(["status"], root)
     expect(human.stdout).toContain("unknown (config)")
   })
@@ -162,10 +160,11 @@ describe("vitehub status", () => {
 
   it("keeps explicit false authoritative with unresolved Nuxt discovery", async () => {
     const root = await createProject({
-      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: process.env.SERVER_DIR, vitehub: { comments: false } })`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: process.env.SERVER_DIR, vitehub: { comments: false, connections: false } })`,
       "package.json": pnpmManifest,
     })
     const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    // Comments and Connections turn on Database. Unresolved discovery leaves features without a key unknown.
     expect(feature(json, "comments")).toMatchObject({ enabled: "off", reason: "config" })
     expect(feature(json, "database").enabled).toBe("off")
   })
@@ -265,8 +264,7 @@ describe("vitehub status", () => {
   })
 
   it.each([
-    ["{ agent: process.env.AGENT === '1' }", "workflow", "unknown"],
-    ["{ agent: process.env.AGENT === '1', host: 'netlify' }", "workflow", "off"],
+    ["{ agent: process.env.AGENT === '1' }", "workflow", "off"],
     ["{ console: true }", "comments", "off"],
     ["{ comments: process.env.COMMENTS === '1' }", "database", "unknown"],
     ["{ comments: process.env.COMMENTS === '1', database: false }", "database", "off"],
@@ -329,15 +327,12 @@ describe("vitehub status", () => {
     }
   })
 
-  it("reports env on by default and workflow implied by agent, except on Netlify", async () => {
+  it("reports env on by default and keeps workflow off for agent", async () => {
     const node = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ agent: true }") })
     const status = (await runSetup<SetupStatus>(["status", "--json"], node)).json
     expect(feature(status, "env")).toMatchObject({ enabled: "on", reason: "default" })
-    expect(feature(status, "workflow")).toMatchObject({ enabled: "on", reason: "implied" })
+    expect(feature(status, "workflow")).toMatchObject({ enabled: "off", reason: "default" })
     expect(feature(status, "kv")).toMatchObject({ enabled: "off", reason: "default" })
-
-    const netlify = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "netlify", agent: true }`) })
-    expect(feature((await runSetup<SetupStatus>(["status", "--json"], netlify)).json, "workflow")).toMatchObject({ enabled: "off", reason: "default" })
 
     const disabled = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ agent: true, workflow: false, env: false }") })
     const off = (await runSetup<SetupStatus>(["status", "--json"], disabled)).json
@@ -375,7 +370,7 @@ describe("vitehub status", () => {
     expect(json).toEqual({
       error: {
         code: "SETUP_NOT_A_PROJECT",
-        docs: "https://vitehub.dev/docs/development/diagnostics/setup_not_a_project",
+        docs: "https://vitehub.dev/docs/cli/diagnostics/setup_not_a_project",
         fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",
         message: `${root} has no package.json, vite.config, or nuxt.config file.`,
         why: `${root} has no package.json, vite.config, or nuxt.config file.`,

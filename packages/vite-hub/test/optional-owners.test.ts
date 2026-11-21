@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs"
 import { registerHooks } from "node:module"
 import { fileURLToPath } from "node:url"
+import { inspect } from "node:util"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { assertFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning } from "../src/internal/optional-owners.ts"
+import { assertFeaturePackages, hostFeaturePackages, installArguments, installedPackageVersion, isPackageInstalled, missingFeaturePackagesError, unsupportedPackageVersionsWarning, unsupportedViteHubPackagesError } from "../src/internal/optional-owners.ts"
 
 const sha = "52e6aba01356ffd6c5f1d0d6e8dafc3d63788b82"
 
@@ -30,6 +31,11 @@ it("tells a Connections app to install the Connections and Database packages", (
   expect(missingFeaturePackagesError(["connections"]).message).toContain("The connections feature needs @vite-hub/connections, @vite-hub/database, drizzle-orm.")
 })
 
+it("installs every package that it names, also one that another dependency provides", () => {
+  // The repository installs both packages, as an app does when only drizzle-orm is missing.
+  expect(missingFeaturePackagesError(["console agents"]).message).toContain("The console agents feature needs @libsql/client, drizzle-orm. Install them in your app with: pnpm add @libsql/client drizzle-orm")
+})
+
 it.each([
   ["blob", "@vite-hub/blob"],
   ["kv", "@vite-hub/kv"],
@@ -53,6 +59,31 @@ it("finds installed packages, including one that does not export its manifest", 
   expect(isPackageInstalled("@vite-hub/not-a-package")).toBe(false)
 })
 
+describe("unsupportedViteHubPackagesError", () => {
+  const versions = (installed: Record<string, string>) => (name: string): string | undefined => installed[name]
+
+  it("names each ViteHub package, both versions, and the install that aligns them, including pnpm overrides", () => {
+    // A preview of vite-hub with the ViteHub packages of an earlier preview, as when pnpm `overrides` pin them.
+    const preview = {
+      dependencies: { "@vite-hub/env": `https://pkg.pr.new/vite-hub/vitehub/@vite-hub/env@${sha}` },
+      peerDependencies: { "@vite-hub/agent": "0.1.0 || 0.0.0-preview-52e6aba", "@vite-hub/kv": "0.1.0 || 0.0.0-preview-52e6aba" },
+      version: "0.0.0-preview-52e6aba",
+    }
+    const error = unsupportedViteHubPackagesError(["@vite-hub/agent", "@vite-hub/kv"], versions({ "@vite-hub/agent": "0.0.0-preview-8724a59", "@vite-hub/kv": "0.0.0-preview-52e6aba" }), preview)
+    expect(error).toMatchObject({
+      code: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED",
+      fix: `Install the ViteHub packages of the same release as vite-hub: \`pnpm add https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@${sha}\`. When pnpm \`overrides\`, \`resolutions\`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.`,
+      why: "@vite-hub/agent 0.0.0-preview-8724a59 is installed, but vite-hub 0.0.0-preview-52e6aba supports @vite-hub/agent@0.1.0 || 0.0.0-preview-52e6aba. ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.",
+    })
+  })
+
+  it("accepts ViteHub packages in range and leaves other packages to the warning", () => {
+    const manifest = { peerDependencies: { "@vite-hub/database": "0.2.0", "drizzle-orm": "^0.45.0" }, version: "0.2.0" }
+    expect(unsupportedViteHubPackagesError(["@vite-hub/database", "drizzle-orm"], versions({ "@vite-hub/database": "0.2.0", "drizzle-orm": "0.44.0" }), manifest)).toBeUndefined()
+    expect(unsupportedPackageVersionsWarning(["@vite-hub/database", "drizzle-orm"], versions({ "@vite-hub/database": "0.1.0", "drizzle-orm": "0.45.2" }), manifest)).toBeUndefined()
+  })
+})
+
 describe("unsupportedPackageVersionsWarning", () => {
   const manifest = {
     peerDependencies: { "@vite-hub/database": "0.2.0", "ai": "^6.0.0 || ^7.0.0-0", "drizzle-orm": "^0.45.0", "evlog": "catalog:runtime" },
@@ -65,8 +96,8 @@ describe("unsupportedPackageVersionsWarning", () => {
   })
 
   it("names each installed version outside its range and one install command", () => {
-    expect(unsupportedPackageVersionsWarning(["@vite-hub/database", "drizzle-orm"], versions({ "@vite-hub/database": "0.1.0", "drizzle-orm": "0.44.0" }), manifest))
-      .toBe("[vitehub] @vite-hub/database 0.1.0 is installed, but vite-hub 0.2.0 supports @vite-hub/database@0.2.0. drizzle-orm 0.44.0 is installed, but vite-hub 0.2.0 supports drizzle-orm@^0.45.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add @vite-hub/database@0.2.0 'drizzle-orm@^0.45.0'")
+    expect(unsupportedPackageVersionsWarning(["ai", "drizzle-orm"], versions({ "ai": "5.0.0", "drizzle-orm": "0.44.0" }), manifest))
+      .toBe("[vitehub] ai 5.0.0 is installed, but vite-hub 0.2.0 supports ai@^6.0.0 || ^7.0.0-0. drizzle-orm 0.44.0 is installed, but vite-hub 0.2.0 supports drizzle-orm@^0.45.0. Other versions can fail at runtime with errors that do not name the version. Update vite-hub to a release that supports these versions, or install supported versions in your app with: pnpm add 'ai@^6.0.0 || ^7.0.0-0' 'drizzle-orm@^0.45.0'")
   })
 
   it("quotes a range that the shell would split", () => {
@@ -86,16 +117,17 @@ describe("unsupportedPackageVersionsWarning", () => {
       peerDependencies: { "@vite-hub/database": "0.1.0 || 0.0.0-preview-52e6aba" },
       version: "0.0.0-preview-52e6aba",
     }
-    expect(unsupportedPackageVersionsWarning(["@vite-hub/database"], versions({ "@vite-hub/database": "0.0.0-preview-52e6aba" }), preview)).toBeUndefined()
-    expect(unsupportedPackageVersionsWarning(["@vite-hub/database"], versions({ "@vite-hub/database": "0.0.9" }), preview))
+    expect(unsupportedViteHubPackagesError(["@vite-hub/database"], versions({ "@vite-hub/database": "0.0.0-preview-52e6aba" }), preview)).toBeUndefined()
+    expect(unsupportedViteHubPackagesError(["@vite-hub/database"], versions({ "@vite-hub/database": "0.0.9" }), preview)?.fix)
       .toContain(`pnpm add https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@${sha}`)
   })
 
   it("does not check a package without a version, or a range that is not semver", () => {
     const versionOf = vi.fn(versions({ "drizzle-orm": "not-a-version" }))
-    expect(unsupportedPackageVersionsWarning(["@vite-hub/database", "drizzle-orm", "evlog", "vite"], versionOf, manifest)).toBeUndefined()
+    expect(unsupportedPackageVersionsWarning(["drizzle-orm", "evlog", "vite"], versionOf, manifest)).toBeUndefined()
+    expect(unsupportedViteHubPackagesError(["@vite-hub/database"], versionOf, manifest)).toBeUndefined()
     // `catalog:runtime` is a range of a source checkout, and this manifest has no range for `vite`.
-    expect(versionOf.mock.calls.map(([name]) => name)).toEqual(["@vite-hub/database", "drizzle-orm"])
+    expect(versionOf.mock.calls.map(([name]) => name)).toEqual(["drizzle-orm", "@vite-hub/database"])
   })
 })
 
@@ -125,7 +157,7 @@ it("does not warn in a source checkout, where the peer ranges are workspace and 
   }
 })
 
-describe("assertFeaturePackages version warning", () => {
+describe("assertFeaturePackages version check", () => {
   const viteHubManifestFile = fileURLToPath(new URL("../package.json", import.meta.url))
 
   /** Loads a fresh copy of the module, which reads `published` as the manifest of `vite-hub`. */
@@ -145,17 +177,58 @@ describe("assertFeaturePackages version warning", () => {
     }
   }
 
-  it("warns one time for each package in the process and keeps the build going", async () => {
+  it("stops the build for a ViteHub package of another release, every time it checks", async () => {
     const kv = installedPackageVersion("@vite-hub/kv")
-    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@vite-hub/database": "9.9.9", "@vite-hub/kv": "9.9.9" }, version: "9.9.9" }))
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@vite-hub/kv": "9.9.9" }, version: "9.9.9" }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const printed = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const error = { code: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED", why: expect.stringContaining(`@vite-hub/kv ${kv} is installed, but vite-hub 9.9.9 supports @vite-hub/kv@9.9.9.`) }
+      expect(() => assertFeaturePackages(["kv"])).toThrow(expect.objectContaining(error))
+      expect(() => assertFeaturePackages(["kv"])).toThrow(expect.objectContaining(error))
+      expect(warn).not.toHaveBeenCalled()
+      // The build log shows the fix, which a thrown error alone does not.
+      expect(printed).toHaveBeenCalledTimes(2)
+      expect(String(printed.mock.calls[0]![0])).toContain("pnpm add @vite-hub/kv@9.9.9")
+      expect(String(printed.mock.calls[0]![0])).toContain("pnpm `overrides`")
+    }
+    finally {
+      warn.mockRestore()
+      printed.mockRestore()
+    }
+  })
+
+  it("lets Vite print an unsupported version once with the fix last", async () => {
+    await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@vite-hub/kv": "9.9.9" }, version: "9.9.9" }))
+    const { vitehub } = await import("../src/index.ts")
+    const printed = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const configure = () => vitehub({ kv: true, console: false })
+      expect(configure).toThrow(expect.objectContaining({ code: "VITE_HUB_PACKAGE_VERSION_UNSUPPORTED" }))
+      expect(printed).not.toHaveBeenCalled()
+      try {
+        configure()
+      }
+      catch (error) {
+        const lines = inspect(error).split("\n")
+        expect(lines).toHaveLength(3)
+        expect(lines[1]).toContain("see: ")
+        expect(lines[2]).toContain("fix: ")
+      }
+    }
+    finally {
+      printed.mockRestore()
+    }
+  })
+
+  it("warns one time for another package outside its range and keeps the build going", async () => {
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "drizzle-orm": "^99.0.0" }, version: "9.9.9" }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      assertFeaturePackages(["kv"])
-      assertFeaturePackages(["kv"])
-      assertFeaturePackages(["kv", "database"])
+      assertFeaturePackages(["database"])
+      assertFeaturePackages(["database"])
       expect(warn.mock.calls.map(([message]) => String(message).replace(/ Other versions.*/, ""))).toEqual([
-        `[vitehub] @vite-hub/kv ${kv} is installed, but vite-hub 9.9.9 supports @vite-hub/kv@9.9.9.`,
-        `[vitehub] @vite-hub/database ${installedPackageVersion("@vite-hub/database")} is installed, but vite-hub 9.9.9 supports @vite-hub/database@9.9.9.`,
+        `[vitehub] drizzle-orm ${installedPackageVersion("drizzle-orm")} is installed, but vite-hub 9.9.9 supports drizzle-orm@^99.0.0.`,
       ])
     }
     finally {
@@ -273,4 +346,43 @@ it("sees a package that the app installed before a Vite restart", async () => {
     kv.stop()
   }
   expect(kv.lookups).toEqual(["@vite-hub/kv/package.json", "@vite-hub/kv/package.json"])
+})
+
+describe("host packages", () => {
+  it("adds the SDKs that the host or the provider of a feature needs", () => {
+    expect(hostFeaturePackages(["kv", "queue", "sandboxTask", "workflow"], "vercel", { kv: true, queue: true, sandboxTask: true, workflow: true })).toEqual({
+      queue: ["@vercel/queue", "@vercel/functions"],
+      sandboxTask: ["@vercel/sandbox"],
+      workflow: ["@vercel/functions"],
+    })
+    expect(hostFeaturePackages(["queue"], "node", { queue: { driver: "postgres" } })).toEqual({ queue: ["postgres"] })
+    expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { driver: "openworkflow" } })).toEqual({})
+    expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
+  })
+
+  it("stops a Vercel Workflow build that misses @vercel/functions with the install command", async () => {
+    const { assertFeaturePackages, hostFeaturePackages } = await importOptionalOwners()
+    // `importOptionalOwners()` loads a new catalog, and a catalog guard matches only its own errors.
+    const { viteHubErrorDiagnostics } = await import("../src/error-diagnostics.ts")
+    const functions = watchPackage("@vercel/functions")
+    let error: unknown
+    try {
+      functions.hidden = true
+      assertFeaturePackages(["workflow"], hostFeaturePackages(["workflow"], "vercel", { workflow: true }))
+    }
+    catch (caught) {
+      error = caught
+    }
+    finally {
+      functions.stop()
+    }
+    expect(viteHubErrorDiagnostics.VITE_HUB_R0136.is(error)).toBe(true)
+    expect(error).toHaveProperty("message", "[vitehub] The workflow feature needs @vite-hub/workflow, @vercel/functions. Install them in your app with: pnpm add @vite-hub/workflow @vercel/functions")
+  })
+
+  it("resolves a host SDK from the owner package that loads it", async () => {
+    // `vite-hub` does not declare `@vercel/queue`. `@vite-hub/queue` does, so pnpm links it there.
+    const { assertFeaturePackages, hostFeaturePackages } = await importOptionalOwners()
+    expect(() => assertFeaturePackages(["queue"], hostFeaturePackages(["queue"], "vercel", { queue: true }))).not.toThrow()
+  })
 })

@@ -8,10 +8,10 @@ import createKVStorageDriver from "../src/runtime/unstorage-driver.ts"
 vi.mock("#vitehub/kv/config", () => ({
   hosting: "cloudflare",
   kv: {
-    store: { binding: "KV", driver: "cloudflare-kv-binding" },
+    store: { binding: "KV", driver: "cloudflare" },
     stores: {
-      default: { binding: "KV", driver: "cloudflare-kv-binding" },
-      sessions: { binding: "SESSIONS", driver: "cloudflare-kv-binding" },
+      default: { binding: "KV", driver: "cloudflare" },
+      sessions: { binding: "SESSIONS", driver: "cloudflare" },
     },
   },
 }))

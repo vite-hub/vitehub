@@ -1,0 +1,1 @@
+`where` returned `false` and the caller has no user. The client keeps its queue, and the writes are not failures. Sign the person in, then call `refresh()`. When the live stream refuses a store with this code, the store leaves the stream, and the next pull shows it.

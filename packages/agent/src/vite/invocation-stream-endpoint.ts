@@ -1,16 +1,17 @@
-import { createExecutionContext } from "@vite-hub/runtime"
+import { createExecutionContext, formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { join } from "node:path"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { assertViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { isRecord } from "@vite-hub/internal/object"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, runWorkspaceDevCommand } from "@vite-hub/workspace/server"
 
-import { agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
+import { agentDevLoopTokenScopeHeader, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { isAgentDevLoopDiscoveryRequest } from "./invocation-stream-route.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
@@ -25,6 +26,7 @@ import {
   createViteAgentDiscoveryContext,
   createViteAgentRuntimeContext,
   createViteWorkspaceAgentLoader,
+  importViteDevModule,
   loadViteAgent,
   writeViteResponse as writeResponse,
 } from "./runtime-adapter.ts"
@@ -241,7 +243,7 @@ function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): bo
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
   if (!workspace) return false
-  return store?.provider === "cloudflare-artifacts" || store?.provider === "github"
+  return store?.driver === "cloudflare" || store?.driver === "github"
 }
 
 function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeContext>): boolean {
@@ -251,12 +253,12 @@ function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentRuntimeCon
   if (!workspace) return false
   // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
   if (!store && typeof process === "object" && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true
-  return store?.provider === "vercel-blob"
+  return store?.driver === "vercel"
 }
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
   if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
-  const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
+  const mod = await importViteDevModule(server, workspaceRegistryId) as { default?: unknown }
   return isWorkspaceRegistry(mod.default) ? mod.default : {}
 }
 
@@ -277,9 +279,9 @@ async function installServerAgentWorkspaceRegistry(
   if (entries.some(({ agent }) => hasHostedVercelBlobWorkspaceStore(agent))) installHostedVercelBlobWorkspaceRuntime()
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
-    if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    if (storeOptions.driver === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
     if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
-    throw agentDiagnostics.AGENT_R0874({ message: `[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.` })
+    throw agentDiagnostics.AGENT_R0874({ message: `[vitehub] Hosted workspace store "${storeOptions.driver}" is not available in this runtime.` })
   })
   setWorkspaceRuntimeRegistry(registry)
   for (const { agent, definition } of entries) {
@@ -527,6 +529,8 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
 function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  // The command does not start the Driver, so an Agent with `driver: "external"` can run it too.
+  Object.defineProperty(clone, Symbol.for("vitehub.agentWorkspaceCommandRun"), { value: true })
   clone.run = async (context) => {
     if (!context.workspace) throw agentDiagnostics.AGENT_R0876({ message: "[vitehub] Agent Dev Loop command requires an Agent with a Workspace." })
     const { resolveSandbox } = await import("@vite-hub/" + "sandbox") as typeof import("@vite-hub/sandbox")
@@ -596,7 +600,7 @@ export async function resolveDevRuntimeCapabilities(
     name: definition.name,
     value: definition.packageName === false
       ? false
-      : (await server.ssrLoadModule(definition.packageName))[definition.importName],
+      : (await importViteDevModule(server, definition.packageName))[definition.importName],
   })))
   for (const { name, value } of resolved) capabilities[name] = value
   return capabilities
@@ -763,18 +767,22 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
 
 export { writeResponse }
 
-function errorResponse(error: unknown): Response {
-  if (error instanceof Response) return error
-  return new Response("Agent Invocation Stream endpoint failed.", {
+function errorResponse(error: unknown, authorized: boolean, tokenScope: Pick<AgentDevLoopDiscoveryResponse, "root" | "workspaceDevTokenServerId">): Response {
+  if (authorized && error instanceof Response) return error
+  return new Response(authorized ? redactInspectionText(formatRuntimeDiagnosticError(error)) : "Agent Invocation Stream endpoint failed.", {
+    headers: {
+      "Cache-Control": "no-store",
+      ...(!authorized ? { [agentDevLoopTokenScopeHeader]: encodeURIComponent(JSON.stringify(tokenScope)) } : {}),
+    },
     status: 500,
   })
 }
 
 /** Answers one Dev Loop request. The endpoint module loads this module on the first request. */
-export function handleAgentInvocationStreamEndpoint(server: ViteDevServer, req: IncomingMessage, res: ServerResponse, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, runtimeOptions: AgentDevRuntimeOptions): void {
+export function handleAgentInvocationStreamEndpoint(server: ViteDevServer, req: IncomingMessage, res: ServerResponse, grant: ViteHubDevRequestGrant, tokenOptions: WorkspaceDevTokenOptions, runtimeOptions: AgentDevRuntimeOptions, authorized: boolean): void {
   const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
   void handleAgentInvocationStreamRequest(server, req, grant, tokenOptions, abort.signal, runtimeOptions)
-    .catch(errorResponse)
+    .catch((error: unknown) => errorResponse(error, authorized, { root: server.config.root, workspaceDevTokenServerId: tokenOptions.serverId }))
     .then(response => writeResponse(res, response))
     .finally(abort.dispose)
 }

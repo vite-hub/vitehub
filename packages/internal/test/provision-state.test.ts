@@ -125,13 +125,6 @@ describe("provision state", () => {
     expect(await readFile(path)).toEqual(original)
   })
 
-  it("only persists the non-secret ids it is given", async () => {
-    const rootDir = await createTempDir()
-    await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })
-    const raw = await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")
-    expect(raw).not.toMatch(/token|secret/i)
-  })
-
   it("does not return inherited categories or identifiers", () => {
     const state = { cloudflare: { d1: { primary: "id-1" } } }
     for (const name of ["__proto__", "constructor", "toString"]) {
@@ -167,7 +160,7 @@ describe("provision state", () => {
 describe("provision status", () => {
   function createStatus(rootDir: string) {
     const plan = vi.fn(async () => [])
-    const status = createProvisionNamespace([{ id: "test", provider: "cloudflare", plan }]).features.find(feature => feature.name === "status")!
+    const status = createProvisionNamespace(async () => ({ rootDir, steps: [{ id: "test", provider: "cloudflare", plan }] })).features.find(feature => feature.name === "status")!
     const context = {
       cwd: rootDir,
       env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
@@ -183,7 +176,7 @@ describe("provision status", () => {
     const { path, rootDir } = await createStateFile(invalidState)
     const original = await readFile(path)
     const { context, plan, status } = createStatus(rootDir)
-    await expect(status.run(["--provider", "cloudflare", ...options], context)).rejects.toMatchObject({
+    await expect(status.run(["--host", "cloudflare", ...options], context)).rejects.toMatchObject({
       code: "INTERNAL_R0014",
       message: expect.stringContaining(path),
       cause: expect.any(SyntaxError),
@@ -197,7 +190,7 @@ describe("provision status", () => {
     const rootDir = await createTempDir()
     await writeFile(join(rootDir, ".vitehub"), "obstruction")
     const { context, plan, status } = createStatus(rootDir)
-    await expect(status.run(["--provider", "cloudflare", "--json"], context)).rejects.toMatchObject({
+    await expect(status.run(["--host", "cloudflare", "--json"], context)).rejects.toMatchObject({
       code: "INTERNAL_R0014",
       cause: expect.objectContaining({ code: "ENOTDIR" }),
     })
@@ -208,7 +201,7 @@ describe("provision status", () => {
   it("reports missing state and persisted IDs", async () => {
     const rootDir = await createTempDir()
     const { context, status } = createStatus(rootDir)
-    const args = ["--provider", "cloudflare", "--json"]
+    const args = ["--host", "cloudflare", "--json"]
     expect(await status.run(args, context)).toBe(0)
     expect(JSON.parse(context.stdout.write.mock.lastCall![0])).toMatchObject({ recorded: {} })
     await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })

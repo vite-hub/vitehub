@@ -2,6 +2,8 @@
 // stay thin.
 import { isRecord } from "@vite-hub/internal/object"
 
+import { blobBrowserDiagnostics } from "./browser-diagnostics.ts"
+
 import type { BlobMultipartPart, BlobObject } from "./types.ts"
 
 // Check a file's leading bytes in the browser before upload. The server root exports the same function.
@@ -129,36 +131,31 @@ function isSerializedBlobObjectArray(value: unknown): value is SerializedBlobObj
 
 function parseSerializedBlobObjectArray(value: unknown): SerializedBlobObject[] {
   if (!isSerializedBlobObjectArray(value)) {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   return value
 }
 
 function parseMultipartCreate(value: unknown): { pathname: string, uploadId: string } {
   if (!isRecord(value) || !isString(value.pathname) || !isString(value.uploadId)) {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   return { pathname: value.pathname, uploadId: value.uploadId }
 }
 
 function parseMultipartPart(value: unknown): { part: BlobMultipartPart } {
   if (!isRecord(value) || !isRecord(value.part) || !isString(value.part.etag)) {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   if (typeof value.part.partNumber !== "number" || !Number.isSafeInteger(value.part.partNumber) || value.part.partNumber < 1) {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   return { part: { etag: value.part.etag, partNumber: value.part.partNumber } }
 }
 
 function parseMultipartComplete(value: unknown): { object: SerializedBlobObject } {
   if (!isRecord(value) || !isSerializedBlobObject(value.object)) {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   return { object: value.object }
 }
@@ -168,8 +165,7 @@ type DirectUploadStep =
   | { action: "sign", request: { headers: Record<string, string>, method: string, url: string }, ticket: string }
 
 function malformedJson(): never {
-  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-  throw new Error("Upload request returned malformed JSON.")
+  throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
 }
 
 function parseDirectUploadStep(value: unknown): DirectUploadStep {
@@ -185,11 +181,9 @@ function parseDirectUploadStep(value: unknown): DirectUploadStep {
 async function assertOk(response: Response): Promise<void> {
   if (response.ok) return
   const message = await response.text().catch(() => "")
-  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-  throw new Error(`Upload request failed with status ${response.status}${message ? `: ${message}` : ""}`)
+  throw blobBrowserDiagnostics.BLOB_UPLOAD_REQUEST_FAILED({ body: message, status: response.status })
 }
 
-// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- The matching upload route defines each response shape at its call site.
 async function readJson<T>(response: Response, parse: (value: unknown) => T): Promise<T> {
   await assertOk(response)
   let body: unknown
@@ -197,8 +191,7 @@ async function readJson<T>(response: Response, parse: (value: unknown) => T): Pr
     body = await response.json()
   }
   catch {
-    // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-    throw new Error("Upload request returned malformed JSON.")
+    throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({})
   }
   return parse(body)
 }
@@ -253,7 +246,7 @@ async function uploadDirect(apiBase: string, files: File[], options: UploadFiles
   return objects
 }
 
-// The `fs` driver signs links on the app origin, such as `/_vitehub/blob/signed/...`. Resolve them like the route.
+// The `fs` driver signs links on the app origin, such as `/_vitehub/blob-signed/...`. Resolve them like the route.
 function resolveUrl(url: string, apiBase: string): string {
   try {
     return new URL(url, apiBase).href
@@ -304,11 +297,9 @@ function sendWithProgress(url: string, init: { body: Blob | FormData, headers: H
 export function createMultipartUploader(baseURL: string, options: MultipartUploadOptions = {}): (file: File, pathname?: string) => MultipartUploadTask {
   const request = options.fetch ?? globalThis.fetch
   const partSize = options.partSize ?? defaultPartSize
-  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-  if (!Number.isFinite(partSize) || partSize <= 0) throw new TypeError("partSize must be a finite positive number.")
+  if (!Number.isFinite(partSize) || partSize <= 0) throw blobBrowserDiagnostics.BLOB_UPLOAD_OPTION_INVALID({ option: "partSize" })
   const concurrency = options.concurrency ?? 1
-  // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw new TypeError("concurrency must be a positive integer.")
+  if (!Number.isSafeInteger(concurrency) || concurrency < 1) throw blobBrowserDiagnostics.BLOB_UPLOAD_OPTION_INVALID({ option: "concurrency" })
   const send = (action: string, pathname: string, init: RequestInit, query?: Record<string, string>) =>
     request(multipartUrl(baseURL, action, pathname, query), { ...init, headers: mergeHeaders(options.headers, init.headers) })
 
@@ -374,8 +365,7 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
             signal: controller.signal,
           }, { partNumber: String(partNumber), uploadId }), parseMultipartPart)
           if (result.part.partNumber !== partNumber) {
-            // Internal invariant: @vite-hub/blob/client runs in the browser without nostics.
-            throw new Error("Upload request returned a part number that does not match the requested part.")
+            throw blobBrowserDiagnostics.BLOB_UPLOAD_RESPONSE_INVALID({ partMismatch: true })
           }
           parts.set(partNumber, result.part)
           options.onProgress?.(Math.round((parts.size / partCount) * 100))

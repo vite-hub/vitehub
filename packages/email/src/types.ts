@@ -34,11 +34,8 @@ export type EmailBody =
   | { text: string, html?: string }
   | { html: string, text?: string }
 
-/**
- * A message that ViteHub Email sends. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` are sent only by the
- * Resend driver. The Cloudflare Email driver rejects them.
- */
-export type EmailMessage = EmailBody & {
+/** The fields of a message other than its body. */
+export interface EmailEnvelope {
   from: EmailAddress
   to: EmailAddressList
   cc?: EmailAddressList
@@ -53,6 +50,37 @@ export type EmailMessage = EmailBody & {
   unsubscribe?: EmailUnsubscribeOptions
   metadata?: Record<string, string>
 }
+
+/**
+ * A message that ViteHub Email sends. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` are sent only by the
+ * Resend driver. The Cloudflare Email driver rejects them.
+ */
+export type EmailMessage = EmailBody & EmailEnvelope
+
+/**
+ * The Markdown templates under `server/emails`, by name. `.vitehub/types/email-templates.d.ts` adds each template
+ * and the `data` type that it reads.
+ */
+export interface EmailTemplateRegistry {}
+
+/** The name of a template under `server/emails`, for example `welcome` or `monthly/recap`. */
+export type EmailTemplateName = Extract<keyof EmailTemplateRegistry, string>
+
+type EmailTemplateData<TName extends EmailTemplateName> = {} extends EmailTemplateRegistry[TName]
+  ? { data?: EmailTemplateRegistry[TName] }
+  : { data: EmailTemplateRegistry[TName] }
+
+/** A message whose body `email.send()` renders from a template under `server/emails`. */
+export type EmailTemplateMessage<TName extends EmailTemplateName = EmailTemplateName> = {
+  [TTemplate in TName]: EmailEnvelope & EmailTemplateData<TTemplate> & {
+    template: TTemplate
+    html?: never
+    text?: never
+  }
+}[TName]
+
+/** What `email.send()` takes: a message with a body, or a template name and its `data`. */
+export type EmailSendMessage = (EmailMessage & { template?: undefined }) | EmailTemplateMessage
 
 /**
  * `NOT_CONFIGURED` marks invalid driver options, for example a missing API key. `INVALID_OPTIONS` marks a message
@@ -83,9 +111,10 @@ export interface EmailProviderResult {
   provider?: Record<string, unknown>
 }
 
+/** What `EmailDriver.send()` returns: `[error, data]`, the same order as `email.send()`. */
 export type EmailDriverResult =
-  | { data: EmailProviderResult, error: null }
-  | { data: null, error: EmailProviderError }
+  | [error: undefined, data: EmailProviderResult]
+  | [error: EmailProviderError, data: undefined]
 
 export interface EmailDriverContext {
   attempt: number
@@ -119,12 +148,14 @@ export type EmailErrorCode =
   | "EMAIL_NETWORK"
   | "EMAIL_PROVIDER_FAILED"
   | "EMAIL_RATE_LIMITED"
+  | "EMAIL_TEMPLATE_RENDER_FAILED"
   | "EMAIL_TIMEOUT"
 
-export interface EmailClient {
+/** `createEmail()` clients take an `EmailMessage`. The `email` helper also takes an `EmailTemplateMessage`. */
+export interface EmailClient<TMessage = EmailMessage> {
   /**
    * Sends one message and returns `[error, data]`. `data` tells that the provider accepted the message.
    * `EMAIL_NOT_CONFIGURED` and an invalid driver throw, because the config must change.
    */
-  send: (message: EmailMessage) => Promise<Result<EmailSendResult, EmailErrorCode>>
+  send: (message: TMessage) => Promise<Result<EmailSendResult, EmailErrorCode>>
 }

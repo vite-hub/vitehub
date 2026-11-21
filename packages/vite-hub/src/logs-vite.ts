@@ -4,7 +4,8 @@ import { isProductionBuild, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } fr
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { Plugin } from "vite";
-import type { ObservabilityLogsOptions } from "./observability-vite.ts";
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts";
+import type { LogsOptions } from "./observability-vite.ts";
 
 export function renderLogsPlugin(
   projectRoot: string,
@@ -30,8 +31,8 @@ export function renderLogsPlugin(
   ].join("\n");
 }
 
-/** Installs the log source of `observability.logs`. The observability plugin registers Evlog. */
-export function logsVitePlugin(options: ObservabilityLogsOptions): Plugin {
+/** Installs the log source of `vitehub({ logs })`. The observability plugin registers Evlog. */
+export function logsVitePlugin(options: LogsOptions): Plugin {
   return {
     name: "vite-hub/logs",
     async config(config, environment) {
@@ -42,9 +43,7 @@ export function logsVitePlugin(options: ObservabilityLogsOptions): Plugin {
           : resolveViteHubProjectRoot(config.root ?? process.cwd());
       const source = "source" in options ? resolve(root, options.source) : undefined;
       if (!source && isProductionBuild(config, environment)) {
-        throw new Error(
-          '[vitehub] Production Logs needs an existing source. Set observability: { logs: { source: "./server/logs.ts" } }. The local buffer is per process and has no durable history.',
-        );
+        throw viteHubErrorDiagnostics.VITE_HUB_LOGS_SOURCE_MISSING();
       }
       const nitroValue: unknown = Reflect.get(config, "nitro");
       const kit = createNitroServerKit(

@@ -100,7 +100,7 @@ The plan shows the current and desired URL, and each repository's hook ID, event
 
 The plan never shows tokens or secrets. It lists `webhookSecret` as unverifiable, because Forges do not return it. `--force` resends the secret to existing hooks. Sync never deletes hooks and leaves hooks with other URLs alone. It fails if a repository has duplicate hooks at the desired URL, so remove them first.
 
-Without `sync.repositories`, the plan shows the Channel with no change and an unverifiable entry that names the option. You can still add webhooks by hand. See [Channel Env and sync](/docs/agents/channels#channel-env) and [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks) for deploy checks and origin confirmation.
+Without `sync.repositories`, the plan shows the Channel with no change and an unverifiable entry that names the option. You can still add webhooks by hand. See [Channel Env and sync](/docs/agents/channels#channel-env) and [CLI channel synchronization](/docs/cli/agents#synchronize-channel-webhooks) for deploy checks and origin confirmation.
 
 For Forgejo, sync sets JSON payloads and handles its grouped event subscriptions. If GitLab auto-disabled a hook, re-enable it with a successful test request in GitLab before sync. Different deployed webhook URLs can manage hooks on the same repositories.
 
@@ -113,13 +113,13 @@ To set up a webhook by hand, point it at the generated Agent Channel route. Use 
 | GitLab | Comments, Merge request events |
 | Forgejo or Codeberg | Pull Request, Pull Request Comment, Review |
 
-GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_R0946`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
+GitLab sends its secret in `X-Gitlab-Token`. Forgejo signs the body. A wrong signature or token returns HTTP 401. A missing secret fails with `AGENT_FORGE_WEBHOOK_SECRET_MISSING`, naming the option and env variable. Delivery IDs stop duplicate Invocations. Reconcile runs share the pull request concurrency limit, which defaults to one.
 
 ## Limits
 
 - No `pullRequest.workspace` checkout, artifacts, or `authorAssociation` filters. Add a Workspace through the Agent's other Capabilities if needed.
 - `webhookSecret: false` is not supported.
-- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_R0946`.
+- GitLab has approvals, not reviews. An `APPROVE` effect approves the merge request and posts the review text as a separate note. A comment review posts a note. A request-changes review fails with `AGENT_FORGE_REVIEW_UNSUPPORTED`.
 - Forgejo has native reviews, but these Channels cannot reach its CI runs, jobs, or check reruns.
 - Metadata reads are limited. Change the limits with `maxBodyLength`, `maxCommentBodyLength`, `maxComments`, and `maxFiles` on `pullRequest`. The context reports omitted items and missing metadata.
 - After a restart, activity lookup scans the newest 500 comments.

@@ -33,6 +33,14 @@
  * The dark blocks repeat the Nuxt UI tokens, so each token keeps the specificity of its color mode selector.
  */
 :root {
+  /* Tokens for the scoped kit family. Nuxt UI keeps its own --ui-* aliases. */
+  --primary-foreground: oklch(0.985 0 0);
+  --input: oklch(0.87 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --overlay: oklch(0 0 0 / 25%);
+  --popover-foreground: oklch(0.205 0 0);
+  --shadow-popover: 0 0 0 1px var(--border), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 6%);
+  --shadow-dialog: 0 0 0 1px var(--border), 0 8px 16px -4px rgb(0 0 0 / 4%), 0 24px 32px -8px rgb(0 0 0 / 6%);
   color-scheme: light;
   --background: oklch(1 0 0);
   --foreground: oklch(0.205 0 0);
@@ -95,6 +103,14 @@
 
 /* Dark is its own palette, not an inversion: the page is near black, and surfaces are white at low alpha. */
 :root.dark {
+  /* Tokens for the scoped kit family. Nuxt UI keeps its own --ui-* aliases. */
+  --primary-foreground: oklch(0.205 0 0);
+  --input: oklch(1 0 0 / 16%);
+  --destructive: oklch(0.704 0.191 22.216);
+  --overlay: oklch(0 0 0 / 60%);
+  --popover-foreground: oklch(0.985 0 0);
+  --shadow-popover: 0 0 0 1px var(--border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
+  --shadow-dialog: 0 0 0 1px var(--border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
   color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -137,6 +153,14 @@
 /* Before the app sets a color mode class, the page follows the system. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
+    /* Tokens for the scoped kit family. Nuxt UI keeps its own --ui-* aliases. */
+    --primary-foreground: oklch(0.205 0 0);
+    --input: oklch(1 0 0 / 16%);
+    --destructive: oklch(0.704 0.191 22.216);
+    --overlay: oklch(0 0 0 / 60%);
+    --popover-foreground: oklch(0.985 0 0);
+    --shadow-popover: 0 0 0 1px var(--border), 0 4px 8px -4px rgb(0 0 0 / 24%), 0 16px 24px -8px rgb(0 0 0 / 32%);
+    --shadow-dialog: 0 0 0 1px var(--border), 0 8px 16px -4px rgb(0 0 0 / 24%), 0 24px 32px -8px rgb(0 0 0 / 32%);
     color-scheme: dark;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);

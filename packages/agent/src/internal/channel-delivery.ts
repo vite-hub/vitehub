@@ -1,4 +1,4 @@
-import type { StateAdapter } from "chat"
+import type { Lock, StateAdapter } from "chat"
 
 
 import type {
@@ -14,7 +14,10 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
+// Finding the deliveries a trim removes reads the whole index, so the index trims at most once per this interval.
+const indexTrimIntervalMs = 60_000
 const indexKey = "deliveries:index"
+const indexTrimLeaseKey = "deliveries:index:trim"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 let workflowOwnershipResolver: AgentChannelDeliveryWorkflowOwnershipResolver | undefined
@@ -193,11 +196,47 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
   )
 }
 
-async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<void> {
+async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<string[]> {
+  if (!(await state.setIfNotExists(indexTrimLeaseKey, true, indexTrimIntervalMs))) {
+    await state.appendToList(indexKey, deliveryId, { ttlMs: retentionMs })
+    return []
+  }
+  const before = await state.getList<string>(indexKey)
   await state.appendToList(indexKey, deliveryId, {
     maxLength: maximumDeliveries,
     ttlMs: retentionMs,
   })
+  // Below the limit, the append trims nothing.
+  if (before.length < maximumDeliveries) return []
+  // No read can reach a delivery that leaves the index, so delete its records instead of keeping them for the full retention.
+  // An id that is still in the index, such as one admitted again as a duplicate, keeps its records.
+  const kept = new Set(await state.getList<string>(indexKey))
+  return [...new Set(before)].filter(id => !kept.has(id))
+}
+
+async function deleteDeliveryRecords(state: StateAdapter, deliveryIds: string[]): Promise<void> {
+  const locks = new Map<string, Lock>()
+  try {
+    // Sorted order keeps two concurrent trims from each holding a lock the other waits for.
+    for (const deliveryId of [...deliveryIds].sort()) locks.set(deliveryId, await acquireDeliveryLock(state, deliveryId))
+    // Admissions append under these same journal locks. Recheck after acquiring them:
+    // the snapshot that selected these candidates may predate a completed retry.
+    const indexed = new Set(await state.getList<string>(indexKey))
+    for (const [deliveryId, lock] of locks) {
+      // A lock that expired while the trim took later ones no longer covers the recheck, so a retry may have re-admitted this delivery.
+      if (indexed.has(deliveryId) || !(await state.extendLock(lock, 30_000))) continue
+      const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
+      if (delivery) {
+        // A later delivery can own the same source after this record expired, so delete the source only while it points here.
+        const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
+        if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+      }
+      await state.delete(deliveryEventsKey(deliveryId))
+      await state.delete(deliveryRecordKey(deliveryId))
+    }
+  } finally {
+    for (const lock of locks.values()) await state.releaseLock(lock)
+  }
 }
 
 function advanceDeliveryStatus(
@@ -217,6 +256,8 @@ function advanceDeliveryStatus(
   if (event.type === "invocation.started") return { retrySignaled, status: "running" }
   if (event.type === "superseded") return { retrySignaled, status: "completed" }
   if (event.type === "received") return { retrySignaled, status: "received" }
+  // An acknowledgement never hides an outcome that a handler recorded before it.
+  if (event.type === "acknowledged") return { retrySignaled, status: current === "received" ? "acknowledged" : current }
   if (
     event.type === "accepted" ||
     event.type === "completed" ||
@@ -273,6 +314,7 @@ async function appendEvent(
   }
   try {
     const lock = await acquireDeliveryLock(state, delivery.id)
+    let trimmed: string[] = []
     let ownershipLost = false
     const renewal = setInterval(() => {
       void state
@@ -319,7 +361,7 @@ async function appendEvent(
       await renew()
       await state.set(deliveryRecordKey(stored.id), stored, retentionMs)
       await renew()
-      if (event.type === "received" || event.type === "duplicate") await touchDeliveryIndex(state, delivery.id)
+      if (event.type === "received" || event.type === "duplicate") trimmed = await touchDeliveryIndex(state, delivery.id)
     } finally {
       clearInterval(renewal)
       try {
@@ -337,6 +379,8 @@ async function appendEvent(
         )
       }
     }
+    // Never acquire another delivery's journal lock while holding our own.
+    if (trimmed.length) await deleteDeliveryRecords(state, trimmed)
   } catch (error) {
     console.error(
       JSON.stringify({
@@ -419,8 +463,6 @@ export async function openAgentChannelDelivery(
   }
   const created = await state.setIfNotExists(sourceKey(candidate), candidate, retentionMs)
   const delivery = created ? candidate : (await state.get<StoredAgentChannelDelivery>(sourceKey(candidate))) || candidate
-  await state.set(sourceKey(delivery), delivery, retentionMs)
-  await state.set(deliveryRecordKey(delivery.id), delivery, retentionMs)
   const opened = tracker(state, delivery, !created)
   try {
     await opened.event({ type: opened.duplicate ? "duplicate" : "received" })
@@ -429,6 +471,31 @@ export async function openAgentChannelDelivery(
     throw error
   }
   return opened
+}
+
+const untrackedWebhook = Symbol("vitehub.channel.webhook.untracked")
+
+/**
+ * Marks a webhook registration whose deliveries the route does not record, such as Gmail push notifications.
+ * They carry no message, and the Channel records the status of the work they start.
+ */
+export function untrackedChannelWebhook<T extends object>(registration: T): T {
+  return Object.assign(registration, { [untrackedWebhook]: true })
+}
+
+export function isUntrackedChannelWebhook(registration: object): boolean {
+  return untrackedWebhook in registration
+}
+
+/** The delivery of an untracked webhook. It writes no State. */
+export function untrackedAgentChannelDelivery(input: Omit<AgentChannelDelivery, "id" | "receivedAt">): AgentChannelDeliveryTracker {
+  const delivery: AgentChannelDelivery = { ...input, id: token(), receivedAt: new Date().toISOString() }
+  return {
+    claimed: false,
+    delivery,
+    duplicate: false,
+    event: async eventInput => ({ ...eventInput, at: new Date().toISOString(), deliveryId: delivery.id, id: token() }),
+  }
 }
 
 export async function resumeAgentChannelDelivery(state: StateAdapter, deliveryId: string): Promise<AgentChannelDeliveryTracker | undefined> {

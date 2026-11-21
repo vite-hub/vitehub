@@ -1,8 +1,8 @@
-import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
+import { readCloudflareFailure } from '../../internal/cloudflare-failure.ts'
 import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
-import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script'
+import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script.injected'
 
 import type { TaskSandbox } from './task-sandbox'
 
@@ -36,16 +36,21 @@ function getErrorMessage(error: unknown) {
   return String(error)
 }
 
-function isRecoverableCloudflareExecError(error: unknown) {
+/** The handler command may still write its output when the Cloudflare request failed after it could reach the Container. */
+function mayHaveRunCloudflareExec(error: unknown) {
   const metadata = readSandboxTaskErrorMetadata(error)
 
   if (metadata?.provider && metadata.provider !== 'cloudflare')
     return false
 
-  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT' || metadata?.code === 'SANDBOX_TASK_TRANSPORT_ERROR')
+  if (metadata?.code === 'SANDBOX_TASK_TIMEOUT')
     return true
 
-  return CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE.test(collectCloudflareErrorMessages(error))
+  if (metadata?.code !== 'SANDBOX_R0088')
+    return false
+  // An overloaded Durable Object or a Container that is not ready never received the command.
+  const failure = readCloudflareFailure(error)
+  return !failure.overloaded && !failure.coldStart
 }
 
 export function createHandlerError(message: string, provider: string, details?: Record<string, unknown>) {
@@ -234,7 +239,7 @@ async function recoverExecOutput(
   execution?: ExecutionMeta,
   signal?: AbortSignal,
 ) {
-  if (sandbox.provider !== 'cloudflare' || !isRecoverableCloudflareExecError(error))
+  if (sandbox.provider !== 'cloudflare' || !mayHaveRunCloudflareExec(error))
     return null
 
   return await waitForExecOutput(

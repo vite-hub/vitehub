@@ -1,3 +1,4 @@
+import { invariant, invariantError } from '@vite-hub/internal/invariant'
 import { parseProviderBudget, parseProgressBudget, parseReviewPushBudget, nextReviewPushBudget, parseDailyPassBudget, nextDailyPassBudget, validateBudgets, requireEvidence, progressCooldownMs, type InboxBudgets, type ProgressBudget, type ProgressGrant, type ProgressOutcome, type ProviderBudget, type ProviderAttempt, type ProviderAttemptOutcome, type ReviewPushBudget, type DailyPassBudget, nextMinorReviewRound, type AutomatedReviewClass } from './budgets.ts'
 
 import { parseWait, type PullRequestWait } from './wait-state.ts'
@@ -13,6 +14,7 @@ import { isStatusDeliveryCurrent, statusProjectionText, statusAcknowledgementSch
 import type { GitHubPullRequestFilter, GitHubPullRequestFilterContext } from '@vite-hub/agent/channels'
 import { matchesBabysitterPullRequestFilter } from '../pull-request-filter.ts'
 import { parsePullRequest, parseEvidence, parseThread, parseDelivery, type GitHubEvidence, type GitHubReviewThread, type GitHubPullRequestRecord } from './types.ts'
+import { presetsErrorDiagnostics } from '../../error-diagnostics.ts'
 
 export type Snapshot = {
   repository: string; number: number; pr: GitHubPullRequestRecord | null
@@ -59,7 +61,7 @@ export type Claim = {
   /** The pass's class of the automated review of the claimed head. `finish()` records it with `budgets.minorReviewRounds`. */
   automatedReview?: AutomatedReviewClass
 }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean; foldInto?: number }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
   digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
@@ -71,7 +73,7 @@ export const normalizePullRequest: typeof parsePullRequest = parsePullRequest
 export const isFeedback = (item: GitHubEvidence | undefined): boolean => Boolean(item)
 
 function parseSnapshot(value: unknown): Snapshot {
-  if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+  if (value === null || Object.prototype.toString.call(value) !== '[object Object]') throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   // SAFETY: JSON.parse returns an object here; validation below checks every owned field.
   const input = value as Record<string, unknown>
   // SAFETY: Number.isInteger above guarantees this unknown value is a finite integer for the range check.
@@ -86,7 +88,7 @@ function parseSnapshot(value: unknown): Snapshot {
     ('revision' in input && !Number.isFinite(input.revision)) ||
     ('threadsHydrated' in input && input.threadsHydrated !== true && input.threadsHydrated !== false) ||
     ('lastResult' in input && Object.prototype.toString.call(input.lastResult) !== '[object String]')) {
-    throw new TypeError('Invalid inbox snapshot')
+    throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
   }
   if (input.prospectivePush !== undefined) v.parse(v.object({ token: v.string(), heads: v.array(v.pipe(v.string(), v.regex(/^[a-f\d]{40}$/i))) }), input.prospectivePush)
   if (input.threadReopens !== undefined) v.parse(v.record(v.string(), v.pipe(v.number(), v.integer(), v.minValue(0))), input.threadReopens)
@@ -102,7 +104,7 @@ function parseSnapshot(value: unknown): Snapshot {
   if (input.reviewPushBudget !== undefined) parseReviewPushBudget(input.reviewPushBudget)
   if (input.dailyPassBudget !== undefined) parseDailyPassBudget(input.dailyPassBudget)
   const parseMap = (map: unknown): Record<string, GitHubEvidence> => {
-    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw new TypeError('Invalid inbox snapshot')
+    if (!map || Object.prototype.toString.call(map) !== '[object Object]') throw invariantError('the inbox reads only snapshot rows that it wrote, so each row is a valid inbox snapshot')
     return Object.fromEntries(Object.entries(map).map(([key, evidence]) => [key, parseEvidence(evidence)]))
   }
   // SAFETY: All snapshot fields and nested values are validated immediately above.
@@ -261,7 +263,7 @@ export class PullRequestInbox {
   private reportedRows = new Set<string>()
   constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
-    if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
+    if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
     this.priorityLabels = [...new Set(priorityLabels.map(label => label.trim().toLowerCase()).filter(Boolean))]
     this.mainRepairBranchPrefix = mainRepairBranchPrefix || undefined
@@ -329,9 +331,14 @@ export class PullRequestInbox {
     })
     await this.ready
   }
-  private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>): Promise<T> {
+  private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.init()
-    return await this.storage.transaction(run)
+    return await this.storage.transaction(async tx => {
+      signal?.throwIfAborted()
+      const result = await run(tx)
+      signal?.throwIfAborted()
+      return result
+    })
   }
   private async read(statement: string, args: unknown[] = []): Promise<PullRequestInboxRow[]> {
     await this.init()
@@ -490,10 +497,10 @@ export class PullRequestInbox {
     const rows = await this.read(`SELECT key, value FROM ${this.tables.meta} WHERE scope=? AND key>=? AND key<? AND substr(key, 1, ?)=? ORDER BY key`, [this.scope, prefix, end, prefix.length, prefix])
     return rows.map(row => [stringValue(row.key), JSON.parse(stringValue(row.value))])
   }
-  async deleteMeta(key: string): Promise<void> {
-    await this.transaction(async tx => { await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]) })
+  async deleteMeta(key: string, signal?: AbortSignal): Promise<void> {
+    await this.transaction(async tx => { await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key]) }, signal)
   }
-  async setMeta(key: string, value: unknown): Promise<void> { await this.transaction(tx => this.setMetaIn(tx, key, value)) }
+  async setMeta(key: string, value: unknown, signal?: AbortSignal): Promise<void> { await this.transaction(tx => this.setMetaIn(tx, key, value), signal) }
   private async enqueueStatusResult(tx: PullRequestInboxExecutor, snapshot: Snapshot, claim?: Claim, resultHead?: string): Promise<void> {
     if (!this.activityAuthors.size || !snapshot.lastResult?.trim()) return
     const head = resultHead ?? snapshot.pr?.head?.sha
@@ -573,7 +580,7 @@ export class PullRequestInbox {
   }
   /** A bounded batch of due deliveries. Invalid metadata never reaches the publisher. */
   async pendingStatusDeliveries(limit = 5): Promise<StatusDelivery[]> {
-    if (!Number.isInteger(limit) || limit < 1) throw new Error('Status delivery limit must be a positive integer')
+    invariant(Number.isInteger(limit) && limit >= 1, 'the status recovery passes a fixed positive integer delivery limit')
     const now = this.clock()
     return (await this.metaEntries(statusOutboxPrefix)).flatMap(([, value]) => {
       const parsed = v.safeParse(statusDeliverySchema, value)
@@ -582,7 +589,7 @@ export class PullRequestInbox {
   }
   /** Claim due, eligible deliveries atomically across hosts. Deferred heads yield the batch. */
   async claimStatusDeliveries(limit = 5, leaseMs = 300_000): Promise<StatusDelivery[]> {
-    if (!Number.isInteger(limit) || limit < 1 || !Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery limits must be positive')
+    invariant(Number.isInteger(limit) && limit >= 1 && Number.isFinite(leaseMs) && leaseMs > 0, 'the status recovery passes a fixed positive delivery limit and lease')
     return await this.transaction(async tx => {
       const now = this.clock()
       const rows = await tx.execute(`SELECT value FROM ${this.tables.meta} WHERE scope=? AND substr(key, 1, ?)=?`, [this.scope, statusOutboxPrefix.length, statusOutboxPrefix])
@@ -621,7 +628,7 @@ export class PullRequestInbox {
   }
   /** Keep the external writer's lease, including when its saved result is superseded. */
   async renewStatusDelivery(observed: StatusDelivery, leaseMs = 300_000): Promise<boolean> {
-    if (!Number.isFinite(leaseMs) || leaseMs <= 0) throw new Error('Status delivery lease must be positive')
+    invariant(Number.isFinite(leaseMs) && leaseMs > 0, 'the status recovery passes a fixed positive delivery lease')
     return await this.transaction(async tx => {
       const key = `${statusOutboxPrefix}${statusTargetKey(observed)}`
       const parsed = v.safeParse(statusDeliverySchema, await this.metaIn(tx, key))
@@ -737,10 +744,12 @@ export class PullRequestInbox {
     return true
   }
   /** Upgrade historical waiting results without synthetic webhooks or model passes. */
-  async backfillStatusDeliveries(): Promise<void> {
+  async backfillStatusDeliveries(signal?: AbortSignal): Promise<void> {
     for (const observed of await this.waitsToEvaluate(true, true)) {
+      signal?.throwIfAborted()
       await this.transaction(async tx => {
         const current = await this.getIn(tx, observed.repository, observed.number)
+        signal?.throwIfAborted()
         if (!current || current.lease || current.status !== 'waiting' || current.generation !== current.handled || current.generation !== observed.generation
           || (current.revision ?? 0) !== (observed.revision ?? 0)) return
         await this.enqueueStatusResult(tx, current, undefined, current.wait?.headSha)
@@ -779,17 +788,38 @@ export class PullRequestInbox {
     })
   }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
-  /** Atomically records that a claim has started an irreversible merge request. */
-  async beginDirectMerge(claim: Claim, head: string, asynchronous = false): Promise<boolean> {
+  private stackFoldKey(repository: string, parent: number): string { return `stack-fold:${repository}:${parent}` }
+  /** The stacked pull request whose merge into this pull request's branch has an unknown outcome. */
+  private async foldingChildIn(tx: PullRequestInboxExecutor, repository: string, parent: number): Promise<number | undefined> {
+    const fold = await this.metaIn(tx, this.stackFoldKey(repository, parent))
+    if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
+    const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
+    return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+  }
+  async foldingChild(repository: string, parent: number): Promise<number | undefined> {
+    await this.init()
+    return await this.foldingChildIn({ execute: (statement, args) => this.storage.execute(statement, args) }, repository, parent)
+  }
+  /**
+   * Atomically records that a claim has started an irreversible merge request. With `foldInto`, the merge
+   * targets that open parent's branch. A parent with a merge in flight refuses the fold, and a parent with
+   * a fold in flight refuses its own merge, so a fold never lands on a branch that already merged.
+   */
+  async beginDirectMerge(claim: Claim, head: string, asynchronous = false, foldInto?: number): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.lease !== claim.token || s.generation !== claim.generation ||
         (s.revision ?? 0) !== (claim.snapshot.revision ?? 0) || s.leaseUntil <= this.clock()) return false
       if (await this.metaIn(tx, this.directMergeKey(s.repository, s.number)) !== undefined) return false
+      if (await this.foldingChildIn(tx, s.repository, s.number) !== undefined) return false
+      // One fold at a time per parent: the parent's marker names one child, and a sibling must not replace it.
+      if (foldInto !== undefined && (await this.metaIn(tx, this.directMergeKey(s.repository, foldInto)) !== undefined
+        || await this.foldingChildIn(tx, s.repository, foldInto) !== undefined)) return false
       await this.setMetaIn(tx, this.directMergeKey(s.repository, s.number), {
         token: claim.token, generation: claim.generation, revision: claim.snapshot.revision ?? 0,
-        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}),
+        head, startedAt: this.clock(), ...(asynchronous ? { asynchronous } : {}), ...(foldInto === undefined ? {} : { foldInto }),
       } satisfies DirectMergeAttempt)
+      if (foldInto !== undefined) await this.setMetaIn(tx, this.stackFoldKey(s.repository, foldInto), { child: s.number, token: claim.token })
       return true
     })
   }
@@ -819,6 +849,11 @@ export class PullRequestInbox {
       const attempt = await this.metaIn(tx, key)
       if (!isRuntimeRecord(attempt) || Array.isArray(attempt) || attempt.token !== token) return false
       await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+      if (isRuntimeNumber(attempt.foldInto)) {
+        const foldKey = this.stackFoldKey(repository, attempt.foldInto)
+        const fold = await this.metaIn(tx, foldKey)
+        if (isRuntimeRecord(fold) && fold.token === token) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, foldKey])
+      }
       return true
     })
   }
@@ -833,9 +868,9 @@ export class PullRequestInbox {
   }
   async reserveProviderAttempt(provider: string): Promise<ProviderAttempt | undefined> {
     return await this.transaction(async tx => {
-      if (!provider.trim()) throw new Error('Provider scope is required')
+      invariant(provider.trim(), 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const maxRetries = this.budgets.providerRetries
-      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before reserving attempts')
+      invariant(maxRetries !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const budget = await this.providerBudgetIn(tx, provider) ?? { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [] }
       // Pending attempts also consume capacity. A crashed dispatch fails closed.
       if (budget.pending.length + budget.failures.length >= budget.maxRetries + 1) return undefined
@@ -864,7 +899,7 @@ export class PullRequestInbox {
     requireEvidence(reason)
     await this.transaction(async tx => {
       const maxRetries = this.budgets.providerRetries
-      if (maxRetries === undefined) throw new Error('Configure budgets.providerRetries before resetting attempts')
+      invariant(maxRetries !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       await this.setMetaIn(tx, `provider-budget:${provider}`, { generation: randomUUID(), maxRetries, nextAttempt: 0, succeededThrough: 0, pending: [], failures: [], resetReason: reason })
     })
   }
@@ -874,7 +909,7 @@ export class PullRequestInbox {
       const s = await this.getIn(tx, repository.toLowerCase(), number)
       if (!s || s.pr?.head?.sha !== head || s.status === 'terminal' || s.lease) return false
       const limit = this.budgets.noProgress
-      if (limit === undefined) throw new Error('Configure budgets.noProgress before resetting progress')
+      invariant(limit !== undefined, 'the runtime reserves and resets provider attempts and progress only for budgets that it configured, with a named provider')
       const previous = s.progressBudget?.head === head ? s.progressBudget : undefined
       s.progressBudget = { head, limit, count: 0, exhausted: false, evidence: previous?.evidence,
         creditedEvidence: previous?.creditedEvidence ?? [], resetReason: reason, ...(previous?.grants ? { grants: previous.grants } : {}) }
@@ -943,9 +978,9 @@ export class PullRequestInbox {
   eligible(repository: string, pr: GitHubPullRequestRecord | null): boolean {
     return Boolean(pr && pr.state === 'open' && matchesBabysitterPullRequestFilter(pullRequestFilterContext(repository, pr), this.filter, 'pull-request'))
   }
-  async seed(repository: string, value: unknown): Promise<Snapshot> {
+  async seed(repository: string, value: unknown, signal?: AbortSignal): Promise<Snapshot> {
     repository = repository.toLowerCase()
-    if (!this.repositories.includes(repository)) throw new Error('Repository is not configured for this inbox.')
+    invariant(this.repositories.includes(repository), 'the runtime seeds only repositories that its repository source lists')
     const pr = normalizePullRequest(value)
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, repository, pr.number) ?? this.empty(repository, pr.number)
@@ -957,9 +992,9 @@ export class PullRequestInbox {
         if (s.generation <= s.handled) this.dirty(s, 'bootstrap-recovery')
       }
       await this.put(tx, s); return s
-    })
+    }, signal)
   }
-  async ingest(id: string, event: string, value: unknown): Promise<GitHubInboxDeliveryResult> {
+  async ingest(id: string, event: string, value: unknown, signal?: AbortSignal): Promise<GitHubInboxDeliveryResult> {
     const payload = parseDelivery(value)
     return await this.transaction(async tx => {
       const t = this.tables
@@ -1157,12 +1192,13 @@ export class PullRequestInbox {
         if (wake && !s.wait && s.status !== 'terminal' && !exhausted) queued.push(number)
       }
       return await finish(numbers.size ? undefined : 'no matching PR head')
-    })
+    }, signal)
   }
   /** Leases up to `limit` eligible PRs. `skip` leaves a candidate unclaimed for this call. */
-  async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean } = {}): Promise<Claim[]> {
+  async claim(limit: number, options: { only?: (snapshot: Snapshot) => boolean; skip?: (snapshot: Snapshot) => boolean; includeBlocked?: boolean; signal?: AbortSignal } = {}): Promise<Claim[]> {
     if (!this.repositories.length || limit < 1) return []
     return await this.transaction(async tx => {
+      options.signal?.throwIfAborted()
       const now = this.clock(), claims: Claim[] = [], t = this.tables
       const repositories = this.repositoryFilter('p.repository')
       // Columns select candidates; only these snapshots are parsed. A main repair comes first: a red base
@@ -1184,6 +1220,7 @@ export class PullRequestInbox {
           p.dirty_at, p.number`, [this.scope, ...repositories.args, now, now, options.includeBlocked ? 1 : 0,
         ...mainRepair === undefined ? [] : [mainRepair.length, mainRepair], ...this.priorityLabels])
       for (const candidate of candidates) {
+        options.signal?.throwIfAborted()
         if (claims.length >= limit) break
         const repository = stringValue(candidate.repository), number = Number(candidate.number)
         // Stack children remain local unless they repair alongside their parent; a parent merge's base push wakes them.
@@ -1191,6 +1228,7 @@ export class PullRequestInbox {
           WHERE scope=? AND repository=? AND number<>? AND state='open' AND head_ref=?
             AND CASE WHEN json_valid(value) THEN json_extract(value, '$.pr.head.repo.full_name') END = ? COLLATE NOCASE LIMIT 1`, [this.scope, repository, number, candidate.base_ref, candidate.base_repository])).length) continue
         const s = await this.getRowIn(tx, candidate)
+        options.signal?.throwIfAborted()
         if (!s) continue
         if (s.pr && !this.eligible(s.repository, s.pr)) continue
         if (options.only && !options.only(s)) continue
@@ -1199,6 +1237,7 @@ export class PullRequestInbox {
         delete s.sourcePushOverflow
         await this.put(tx, s); claims.push({ token: s.lease, generation: s.generation, snapshot: structuredClone(s) })
       }
+      options.signal?.throwIfAborted()
       return claims
     })
   }
@@ -1219,7 +1258,7 @@ export class PullRequestInbox {
       await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, reviewComments: s.reviewComments, threads: s.threads, ownedReviewCommentIds: s.ownedReviewCommentIds, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
-  async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
+  async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[], signal?: AbortSignal): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s || s.lease || s.generation !== observed.generation || (s.revision ?? 0) !== (observed.revision ?? 0)) return false
@@ -1235,7 +1274,7 @@ export class PullRequestInbox {
       s.threads = threads; s.threadsHydrated = true; s.feedbackRefresh = false
       if (changed && s.status !== 'terminal') this.dirty(s, 'review-threads:reconciled')
       await this.put(tx, s); return true
-    })
+    }, signal)
   }
   /** Retain a worker's verified thread resolution even when its webhook is missing. */
   async recordThreadResolution(claim: Claim, id: string, observed: Snapshot): Promise<boolean> {
@@ -1261,14 +1300,14 @@ export class PullRequestInbox {
   }
   /** Retain CI for an exact candidate before its source-push webhook arrives. This is not a publication receipt. */
   async registerProspectivePush(claim: Claim, head: string): Promise<boolean> {
-    if (!/^[a-f\d]{40}$/i.test(head)) throw new TypeError('Expected an exact publication commit SHA.')
+    invariant(/^[a-f\d]{40}$/i.test(head), 'the runtime registers the full commit SHA that the host push returned')
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
       if (!s || s.status === 'terminal' || s.sourcePushOverflow || s.lease !== claim.token || s.leaseUntil <= this.clock()
         || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) return false
       const heads = s.prospectivePush?.token === claim.token ? s.prospectivePush.heads : []
       if (!heads.includes(head)) {
-        if (heads.length >= 64) throw new Error('Publication candidate limit reached.')
+        invariant(heads.length < 64, 'a pass registers one head for each host push, and the push budgets end a pass long before 64 pushes')
         heads.push(head)
       }
       s.prospectivePush = { token: claim.token, heads }
@@ -1361,8 +1400,8 @@ export class PullRequestInbox {
       this.recordReviewPush(s, claim, result.progress)
       const pinnedHead = result.wait?.headSha
       if (result.wait && pinnedHead) {
-        if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
-        if (result.verifiedPushHeads && (result.progress?.kind !== 'verified' || result.progress.evidence !== `push:${pinnedHead}`)) throw new Error('Published ancestry requires a verified push receipt')
+        invariant(!result.retry && !result.terminal, 'the runtime builds each pass result, so a wait has no retry or terminal')
+        invariant(!result.verifiedPushHeads || result.progress?.kind === 'verified' && result.progress.evidence === `push:${pinnedHead}`, 'the runtime builds each pass result, so it sets verified push heads only with their push receipt')
         const pushed = new Set([pinnedHead, ...result.verifiedPushHeads ?? []])
         const published = new Set([claim.snapshot.pr?.head?.sha, ...pushed])
         // Generation changes must not discard a pinned wait: feedback and terminal
@@ -1394,7 +1433,7 @@ export class PullRequestInbox {
         return true
       }
       if (result.wait) {
-        if (result.retry || result.terminal) throw new Error('A wait cannot also retry or terminate work')
+        invariant(!result.retry && !result.terminal, 'the runtime builds each pass result, so a wait has no retry or terminal')
         if (s.status === 'terminal' || !s.pr?.head?.sha || s.pr.head.sha !== claim.snapshot.pr?.head?.sha
           || s.generation !== claim.generation || (s.revision ?? 0) !== (claim.snapshot.revision ?? 0)) {
           s.lease = null; s.leaseUntil = 0
@@ -1480,7 +1519,7 @@ export class PullRequestInbox {
     return rows.flatMap(row => this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value))) ?? []).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
   }
   /** Records that the host evaluated a wait's new events and the wait still holds. */
-  async acknowledgeWait(observed: Snapshot): Promise<boolean> {
+  async acknowledgeWait(observed: Snapshot, signal?: AbortSignal): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
@@ -1489,10 +1528,10 @@ export class PullRequestInbox {
       await this.put(tx, s)
       await this.enqueueStatusResult(tx, s, undefined, s.wait.headSha)
       return true
-    })
+    }, signal)
   }
   /** Re-evaluate structured evidence outside an Agent invocation before calling this method. */
-  async wake(observed: Snapshot, evidenceKey: string, options: { recovery?: boolean } = {}): Promise<boolean> {
+  async wake(observed: Snapshot, evidenceKey: string, options: { recovery?: boolean; signal?: AbortSignal } = {}): Promise<boolean> {
     return await this.transaction(async tx => {
       const s = await this.getIn(tx, observed.repository, observed.number)
       if (!s?.wait || s.lease || s.status === 'terminal' || s.generation !== observed.generation
@@ -1509,7 +1548,7 @@ export class PullRequestInbox {
       this.dirty(s, 'wait:evidence-changed')
       await this.put(tx, s)
       return true
-    })
+    }, options.signal)
   }
   /**
    * Frees every lease in this scope at startup and returns how many were held. Call it only when one
@@ -1530,18 +1569,21 @@ export class PullRequestInbox {
       return released
     })
   }
-  async recoverLeases(): Promise<void> {
+  async recoverLeases(signal?: AbortSignal): Promise<void> {
     // Only expired leases are recoverable, including when other processes share the database.
     await this.transaction(async tx => {
+      signal?.throwIfAborted()
       const now = this.clock()
       const rows = await tx.execute(`SELECT repository, number FROM ${this.tables.pullRequests} WHERE scope=? AND lease IS NOT NULL AND lease_until<=?`, [this.scope, now])
       for (const row of rows) {
         const s = await this.getRowIn(tx, row)
+        signal?.throwIfAborted()
         if (!s?.lease || s.leaseUntil > now) continue
         s.lease = null; s.leaseUntil = 0
         if (s.status !== 'terminal') s.status = 'ready'
         await this.put(tx, s)
       }
+      signal?.throwIfAborted()
     })
   }
   async summary(): Promise<GitHubInboxSummary[]> {
@@ -1619,16 +1661,20 @@ export class PullRequestInbox {
     }
   }
   /** Drops delivery payloads after `payloadMs` and delivery IDs after `idMs`. Recent IDs still deduplicate redeliveries. */
-  async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5 }: { payloadMs?: number; idMs?: number } = {}): Promise<void> {
+  async pruneDeliveries({ payloadMs = 864e5, idMs = 6048e5, signal }: { payloadMs?: number; idMs?: number; signal?: AbortSignal } = {}): Promise<void> {
     const now = this.clock()
     // CI metadata and full logs share the delivery payload retention window.
     // Entries written before timestamps were introduced are expired too.
     await this.transaction(async tx => {
+      signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
         AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
           WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
+      signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
+      signal?.throwIfAborted()
       await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
+      signal?.throwIfAborted()
     })
   }
 }

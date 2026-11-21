@@ -3,11 +3,20 @@ import { describe, expect, it } from "vitest"
 import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "../src/features.ts"
 
 const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
 describe("feature catalog", () => {
+  it.each([
+    ["queue", "postgres", "@vercel/queue"],
+    ["workflow", "openworkflow", "@vercel/functions"],
+  ] as const)("selects Vercel SDKs for %s unless another driver is explicit", (feature, driver, sdk) => {
+    expect(featurePackages(feature, true, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver: "vercel" }, "vercel")).toContain(sdk)
+    expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
+  })
+
   it("has one definition per feature id, keyed by its id", () => {
     expect(Object.keys(features).sort()).toEqual([...featureIds].sort())
     for (const id of featureIds) expect(features[id].id).toBe(id)
@@ -32,7 +41,7 @@ describe("feature catalog", () => {
           expect(support.level, `${id} on ${preset}`).not.toBe("native")
           continue
         }
-        expect(support, `${id} on ${preset}`).toMatchObject({ adapter: policy.adapter, guarantee: policy.guarantee, level: "native" })
+        expect(support, `${id} on ${preset}`).toMatchObject({ driver: policy.driver, guarantee: policy.guarantee, level: "native" })
       }
     }
   })
@@ -51,17 +60,16 @@ describe("feature catalog", () => {
     }
   })
 
-  it("implies Workflow from Agent except on Netlify", () => {
-    expect(impliedFeatures(["agent"], "cloudflare")).toEqual(["workflow"])
-    expect(impliedFeatures(["agent"], "netlify")).toEqual([])
-    expect(impliedFeatures(["agent"], "node", ["workflow"])).toEqual([])
+  it("does not turn Workflow on for Agent", () => {
+    expect(impliedFeatures(["agent"])).toEqual([])
   })
 
   it("requires Database for Comments and Connections but not Console", () => {
-    expect(impliedFeatures(["console"], "node")).toEqual([])
-    expect(impliedFeatures(["comments"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections"], "node")).toEqual(["database"])
-    expect(impliedFeatures(["connections", "database"], "node")).toEqual([])
+    expect(impliedFeatures(["console"])).toEqual([])
+    expect(impliedFeatures(["comments"])).toEqual(["database"])
+    expect(impliedFeatures(["connections"])).toEqual(["database"])
+    expect(impliedFeatures(["connections", "database"])).toEqual([])
+    expect(impliedFeatures(["comments"], ["database"])).toEqual([])
   })
 
   it("only implies features that exist", () => {
@@ -81,12 +89,12 @@ describe("feature catalog", () => {
 
   it("uses process-local Rate Limit memory during Cloudflare development", () => {
     expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
-      adapter: "memory",
+      driver: "memory",
       guarantee: "process-local",
       level: "native",
     })
     expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
-      adapter: "cloudflare",
+      driver: "cloudflare",
       guarantee: "native",
       level: "native",
     })

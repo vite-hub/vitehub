@@ -62,7 +62,7 @@ describe("llms files", { timeout: 30_000 }, () => {
       "## Overview",
       "- [Example](https://example.com/index.md)",
       "## Documentation Sets",
-      "- [Example](https://example.com/llms-full.txt): Notes about examples.",
+      "- [Example](https://example.com/llms-full.txt): Notes about examples.\n- [Example (es)](https://example.com/es/llms-full.txt): Notes about examples.",
       "## Blog",
       "Every page below is available as raw markdown.",
       "- [About us](https://example.com/blog/about.md): Who we are.\n- [Hello](https://example.com/blog/hello.md): The first post.",
@@ -75,7 +75,7 @@ describe("llms files", { timeout: 30_000 }, () => {
     for (const left of ["Draft only", "Hidden", "Copy", "Settings", "Private"]) expect(text).not.toContain(left)
   })
 
-  it("joins every page copy in llms-full.txt, each with its URL", async () => {
+  it("joins every page copy in llms-full.txt, each with its URL, and each translated locale in a file of its own", async () => {
     const content = await site()
     const full = await content.llms({ file: "llms-full.txt" })
     expect(full).toBe(`${[
@@ -83,11 +83,62 @@ describe("llms files", { timeout: 30_000 }, () => {
       "URL: https://example.com/\n\n# Home\n\nWelcome to [the blog](https://example.com/blog/hello).",
       "URL: https://example.com/blog/about\n\n# About us\n\n> Who we are.\n\nAbout body.",
       "URL: https://example.com/blog/hello\n\n# Hello\n\n> The first post.\n\nHello body.",
-      "URL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.",
       "URL: https://example.com/guides/start\n\n# Start\n\nStart body.",
     ].join("\n\n---\n\n")}\n`)
     expect(full).not.toContain("Draft body")
     expect(full).not.toContain("Private body")
+    expect(await content.llms({ file: "llms-full.txt", locale: "es" })).toBe(`${[
+      "# Example\n\n> Notes about examples.",
+      "URL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.",
+    ].join("\n\n---\n\n")}\n`)
+    // A locale without translations gets the file of the source locale.
+    expect(await content.llms({ file: "llms-full.txt", locale: "fr" })).toBe(full)
+  })
+
+  it("orders pages, builds sections, sets headers, and heads each locale file as the app says", async () => {
+    const order = ["/guides/start", "/blog/hello", "/blog/about"]
+    const rank = (path: string) => order.indexOf(path.replace(/^\/es\//, "/"))
+    const content = await site({
+      site: "https://example.com",
+      llms: {
+        title: "Example",
+        description: "Notes about examples.",
+        sort: (left, right) => rank(left.path) - rank(right.path),
+        sections: async ({ pages, markdown }) => {
+          const links = await Promise.all(pages.map(async page => ({ page, text: await markdown(page) })))
+          return [{ title: "Pages that link to the blog", links: links.filter(({ text }) => text?.includes("/blog/")).map(({ page }) => ({ title: page.title ?? page.path, href: `https://example.com${page.path}` })) }]
+        },
+        headers: { "x-robots-tag": "noindex", "Cache-Control": "public, max-age=300" },
+        locales: { es: { description: "Notas sobre ejemplos." } },
+      },
+    })
+    const handler = defineContentLlmsHandler(content)
+    const app = new H3().get("/llms.txt", handler).get("/llms-full.txt", handler).get("/:locale/llms-full.txt", handler)
+
+    const index = await app.request("https://example.com/llms.txt")
+    expect(index.headers.get("x-robots-tag")).toBe("noindex")
+    expect(index.headers.get("cache-control")).toBe("public, max-age=300")
+    expect(await index.text()).toBe([
+      "# Example",
+      "> Notes about examples.",
+      "## Overview",
+      "- [Example](https://example.com/index.md)",
+      "## Documentation Sets",
+      "- [Example](https://example.com/llms-full.txt): Notes about examples.\n- [Example (es)](https://example.com/es/llms-full.txt): Notas sobre ejemplos.",
+      "## Pages that link to the blog",
+      "- [Home](https://example.com/)",
+      "## Guides",
+      "Every page below is available as raw markdown.",
+      "- [Start](https://example.com/guides/start.md)\n- [Empezar](https://example.com/es/guides/start.md)",
+      "## Blog",
+      "Every page below is available as raw markdown.",
+      "- [Hello](https://example.com/blog/hello.md): The first post.\n- [About us](https://example.com/blog/about.md): Who we are.",
+    ].join("\n\n"))
+    const full = await (await app.request("https://example.com/llms-full.txt")).text()
+    expect(full.indexOf("URL: https://example.com/guides/start")).toBeLessThan(full.indexOf("URL: https://example.com/blog/hello"))
+    const spanish = await app.request("https://example.com/es/llms-full.txt")
+    expect(spanish.headers.get("x-robots-tag")).toBe("noindex")
+    expect(await spanish.text()).toBe("# Example\n\n> Notas sobre ejemplos.\n\n---\n\nURL: https://example.com/es/guides/start\n\n# Empezar\n\nCuerpo.\n")
   })
 
   it("escapes link titles and quotes every line of the description", async () => {
@@ -161,6 +212,9 @@ describe("llms files", { timeout: 30_000 }, () => {
   it("rejects llms without the Markdown copies it links to", () => {
     expect(() => defineContent({ seo: { llms: true, markdown: false }, logger: false })).toThrow(/Remove markdown: false/)
     expect(() => defineContent({ seo: { llms: { title: 1 } as never }, logger: false })).toThrow(/llms.title must be text/)
+    expect(() => defineContent({ seo: { llms: { sort: "path" } as never }, logger: false })).toThrow(/llms.sort must be a function/)
+    expect(() => defineContent({ seo: { llms: { headers: { "x-robots-tag": false } } as never }, logger: false })).toThrow(/llms.headers must be an object/)
+    expect(() => defineContent({ seo: { llms: { locales: { es: { description: 1 } } } as never }, logger: false })).toThrow(/llms.locales.es.description must be text/)
   })
 
   it.each(["configured", "call", "request"] as const)("keeps absolute self-canonicals with the %s site", async (origin) => {
@@ -179,6 +233,84 @@ describe("llms files", { timeout: 30_000 }, () => {
       expect(text).toContain(file === "llms-full.txt" ? "# Self\n" : "[Self](https://example.com/blog/self.md)")
       expect(text).not.toContain("Elsewhere")
     }
+  })
+})
+
+describe("Markdown copies of collections", { timeout: 30_000 }, () => {
+  /** A guide whose `::phrases` block reads from the app, and whose live `::booking` widget means nothing to an agent. */
+  async function guideSite() {
+    const phrases = [["Hello", "สวัสดี"], ["Thank you", "ขอบคุณ"]]
+    const content = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: {
+        guide: documents({
+          path: "guide/{locale}/*.md",
+          locales: ["en", "es"],
+          fields: { title: z.string(), draft: z.boolean().optional() },
+          url: "/:id",
+          markdown: ({ id, path, locale, data, body, title, site }) => {
+            if (data.draft) return null
+            const table = ["| Meaning | Thai |", "| --- | --- |", ...phrases.map(([meaning, thai]) => `| ${meaning} | ${thai} |`)].join("\n")
+            const text = body.replace(/^::phrases\n::$/m, table).replace(/^::booking\n::\n?/m, "").replace(/\]\(\//g, `](${site}/`).trim()
+            return { markdown: `# ${title}\n\nSource: ${site}${path} (${locale}, ${id})\n\n${text}\n`, footer: "\nIndex: /llms.txt\n" }
+          },
+        }),
+      },
+      seo: { site: "https://example.com", markdown: { prefix: "/raw" }, llms: { title: "Guide" }, mcp: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const guide = content.collection("guide")
+    await guide.save("thai", { data: { title: "Speak Thai" }, body: "Read [the trip](/trip) first.\n\n::phrases\n::\n\n::booking\n::\n" })
+    await guide.save("thai", { data: { title: "Hablar tailandés" }, body: "Lee [el viaje](/es/trip).\n" }, { locale: "es" })
+    await guide.save("later", { data: { title: "Later", draft: true }, body: "Not yet." })
+    await content.publish({ collection: "guide" })
+    return content
+  }
+
+  it("serves the copy that the markdown option renders, with its footer only at the .md URL", async () => {
+    const content = await guideSite()
+    const copy = "# Speak Thai\n\nSource: https://example.com/thai (en, thai)\n\nRead [the trip](https://example.com/trip) first.\n\n| Meaning | Thai |\n| --- | --- |\n| Hello | สวัสดี |\n| Thank you | ขอบคุณ |\n\nIndex: /llms.txt\n"
+    expect(await content.markdown("/thai.md")).toBe(copy)
+    expect(await content.markdown("/raw/thai.md")).toBe(copy)
+    expect(await content.markdown("/raw/es/thai.md")).toBe("# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n\nIndex: /llms.txt\n")
+    const response = await new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page").request("https://example.com/thai", { headers: { accept: "text/markdown" } })
+    expect(await response.text()).toBe(copy)
+    // A page that the option returns null for has no copy.
+    expect(await content.markdown("/raw/later.md")).toBeNull()
+    expect(await content.page("/later")).toBeNull()
+  })
+
+  it("joins the rendered copies without footers in llms-full.txt and get-page", async () => {
+    const content = await guideSite()
+    const full = await content.llms({ file: "llms-full.txt" })
+    expect(full).toContain("URL: https://example.com/thai\n\n# Speak Thai\n\nSource: https://example.com/thai (en, thai)\n\n")
+    expect(full).not.toContain("URL: https://example.com/es/thai")
+    expect(await content.llms({ file: "llms-full.txt", locale: "es" })).toContain("URL: https://example.com/es/thai\n\n# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).")
+    expect(full).toMatch(/\| Thank you \| ขอบคุณ \|\n$/)
+    expect(full).not.toContain("::")
+    expect(full).not.toContain("Index: /llms.txt")
+    expect(full).not.toContain("Not yet.")
+    expect(await content.page("/es/thai")).toMatchObject({ content: "# Hablar tailandés\n\nSource: https://example.com/es/thai (es, thai)\n\nLee [el viaje](https://example.com/es/trip).\n" })
+  })
+
+  it("does not discover or advertise a copy suppressed by the collection renderer", async () => {
+    const content = await guideSite()
+    for (const prefix of ["", "/raw"]) {
+      expect(await content.markdown(`${prefix}/later.md`)).toBeNull()
+      expect(await content.hasMarkdown(`${prefix}/later.md`)).toBe(false)
+      expect(await content.hasMarkdown(`${prefix}/thai.md`)).toBe(true)
+    }
+    const handler = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => new Response("<p>Later</p>", { headers: { "content-type": "text/html" } }))
+    for (const method of ["GET", "HEAD"]) {
+      const response = await handler.request("https://example.com/later", { method })
+      expect(response.headers.get("link")).toBeNull()
+    }
+  })
+
+  it("rejects a markdown option that is not a function, or that has no url", () => {
+    expect(() => documents({ path: "guide/*.md", fields: { title: z.string() }, markdown: () => "" })).toThrow(/needs a url/)
+    expect(() => singleton({ path: "home.md", fields: { title: z.string() }, url: "/", markdown: "copy" as never })).toThrow(/markdown must be a function/)
   })
 })
 
@@ -287,7 +419,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
           const result = await handler.request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
           const fields = result.headers.get("vary")!.toLowerCase().split(/,\s*/)
           if (vary === "*" || prepared === "*") expect(fields).toEqual(["*"])
-          else expect(new Set(fields)).toEqual(new Set([...vary.toLowerCase().split(/,\s*/), "cookie", "accept"]))
+          else expect(new Set(fields)).toEqual(new Set([...vary.toLowerCase().split(/,\s*/), "cookie", "user-agent", "accept"]))
           expect(await result.text()).toBe("page")
         }
       }
@@ -304,12 +436,12 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       for (const method of ["GET", "HEAD"]) {
         const response = await app(content).request(`https://example.com${path}`, { method, headers: { accept: "text/markdown" } })
         expect(response.status).toBe(200)
-        expect(response.headers.get("vary")).toBe("Accept")
+        expect(response.headers.get("vary")).toBe("User-Agent, Accept")
         expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
         expect(await response.text()).toBe(method === "HEAD" ? "" : "# Version 1.0\n\nVersion body.\n")
       }
       const browser = await app(content).request(`https://example.com${path}`, { headers: { accept: "text/html" } })
-      expect(browser.headers.get("vary")).toBe("Accept")
+      expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
     }
     const missing = app(content, () => new Response("gone", { status: 404 }))
     const response = await missing.request("https://example.com/blog/nope.1", { headers: { accept: "text/markdown" } })
@@ -355,7 +487,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const negotiated = await app(content).request("https://example.com/blog/hello", { headers: { accept: "text/markdown" } })
     expect(negotiated.status).toBe(200)
     expect(negotiated.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
-    expect(negotiated.headers.get("vary")).toBe("Accept")
+    expect(negotiated.headers.get("vary")).toBe("User-Agent, Accept")
     expect(await negotiated.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
     const home = await app(content).request("https://example.com/", { headers: { accept: "text/markdown, text/html;q=0.9" } })
     expect(await home.text()).toMatch(/^# Home\n/)
@@ -364,11 +496,11 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(await twin.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
   })
 
-  it("keeps HTML for browsers and marks page responses with Vary: Accept", async () => {
+  it("keeps HTML for browsers and marks page responses with Vary", async () => {
     const content = await site({ site: "https://example.com", markdown: true })
     const browser = await app(content).request("https://example.com/blog/hello", { headers: { accept: "text/html,application/xhtml+xml,*/*;q=0.8" } })
     expect(await browser.text()).toBe("page")
-    expect(browser.headers.get("vary")).toBe("Accept")
+    expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
     // A draft has no copy: the request goes on to the app.
     expect(await (await app(content).request("https://example.com/blog/draft", { headers: { accept: "text/markdown" } })).text()).toBe("page")
     expect(await (await app(content).request("https://example.com/logo.png", { headers: { accept: "text/markdown" } })).text()).toBe("page")
@@ -395,7 +527,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     }))
     const negotiated = await missing.request("https://example.com/blog/draft", { headers: { accept: "text/markdown" } })
     expect(negotiated.status).toBe(404)
-    expect(negotiated.headers.get("vary")).toBe("Accept")
+    expect(negotiated.headers.get("vary")).toBe("User-Agent, Accept")
     expect(await negotiated.text()).toContain("The page `/blog/draft` does not exist on https://example.com.")
     // A 404 Response and an unmatched route count the same. A browser keeps the app's own 404 page.
     expect((await app(content, () => new Response("gone", { status: 404 })).request("https://example.com/x.md")).headers.get("content-type")).toBe("text/markdown; charset=utf-8")
@@ -403,6 +535,30 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const browser = await missing.request("https://example.com/blog/nope", { headers: { accept: "text/html" } })
     expect(browser.status).toBe(404)
     expect(browser.headers.get("content-type")).not.toContain("markdown")
+  })
+
+  it("answers a .md URL with the Markdown 404 when only an HTML fallback page matches it", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    // A single-page app answers every path with its HTML shell.
+    const shells = [
+      () => new Response("<!doctype html><div id=__nuxt></div>", { headers: { "content-type": "text/html;charset=utf-8" } }),
+      (event: { res: { headers: Headers } }) => {
+        event.res.headers.set("content-type", "text/html; charset=utf-8")
+        return "<!doctype html><div id=__nuxt></div>"
+      },
+    ]
+    for (const shell of shells) {
+      const server = new H3().use(defineContentMarkdownHandler(content)).all("/**", shell)
+      const copy = await server.request("https://example.com/docs/nope.md")
+      expect(copy.status).toBe(404)
+      expect(copy.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(await copy.text()).toContain("The page `/docs/nope.md` does not exist on https://example.com.")
+      // The page URL keeps the shell, also for an agent: Accept states a preference.
+      expect((await server.request("https://example.com/docs/nope", { headers: { accept: "text/markdown" } })).status).toBe(200)
+    }
+    // A route of the app that serves the .md URL as text keeps its answer.
+    const text = await app(content, () => new Response("# Notes", { headers: { "content-type": "text/markdown" } })).request("https://example.com/notes.md")
+    expect(await text.text()).toBe("# Notes")
   })
 
   it("loads Content to check copies for downstream responses", async () => {
@@ -430,7 +586,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     const html = (body = "<p>page</p>", status = 200) => () => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8" } })
     const page = await app(content, html()).request("https://example.com/blog/hello", { headers: { accept: "text/html" } })
     expect(page.headers.get("link")).toBe("</blog/hello.md>; rel=\"alternate\"; type=\"text/markdown\"")
-    expect(page.headers.get("vary")).toBe("Accept")
+    expect(page.headers.get("vary")).toBe("User-Agent, Accept")
     expect((await app(content, html()).request("https://example.com/", { method: "HEAD" })).headers.get("link")).toBe("</index.md>; rel=\"alternate\"; type=\"text/markdown\"")
     // A page without a copy does not change with Accept. A page 404 does: a Markdown request gets the Markdown 404.
     const plain = await app(content, html()).request("https://example.com/blog/draft")
@@ -438,7 +594,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(plain.headers.get("vary")).toBeNull()
     const missing = await app(content, html("<p>gone</p>", 404)).request("https://example.com/blog/nope")
     expect(missing.headers.get("link")).toBeNull()
-    expect(missing.headers.get("vary")).toBe("Accept")
+    expect(missing.headers.get("vary")).toBe("User-Agent, Accept")
     // An existing Link header keeps its values.
     const linked = await app(content, () => new Response("<p>page</p>", { headers: { "content-type": "text/html", link: "</style.css>; rel=preload; as=style" } }))
       .request("https://example.com/blog/hello")
@@ -451,10 +607,10 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
       for (const path of ["/blog/hello", "/unrelated"]) {
         const handler = app(content, () => response.clone())
         const result = await handler.request(`https://example.com${path}`, { headers: { accept: "application/json" } })
-        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(result.headers.get("vary")).toBe(path === "/blog/hello" ? "User-Agent, Accept" : null)
         expect(result.headers.get("link")).toBeNull()
         const markdown = await handler.request(`https://example.com${path}`, { headers: { accept: "text/markdown" } })
-        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "Accept" : null)
+        expect(markdown.headers.get("vary")).toBe(path === "/blog/hello" ? "User-Agent, Accept" : null)
         if (path === "/blog/hello") expect(await markdown.text()).toMatch(/^# Hello\n/)
         else expect(await markdown.text()).toBe(await response.clone().text())
       }
@@ -467,7 +623,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     for (const accept of ["text/html", "text/markdown"]) {
       const result = await handler.request("https://example.com/missing", { headers: { accept } })
       expect(result.status).toBe(404)
-      expect(result.headers.get("vary")).toBe("Accept")
+      expect(result.headers.get("vary")).toBe("User-Agent, Accept")
       expect(result.headers.get("content-type")?.includes("text/markdown")).toBe(accept === "text/markdown")
     }
   })
@@ -489,6 +645,275 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     }
     const head = await app(content).request("https://example.com/blog/hello.md", { method: "HEAD" })
     expect(head.headers.get("etag")).toBe((await app(content).request("https://example.com/blog/hello.md")).headers.get("etag"))
+  })
+
+  describe("app pages with pages: true", () => {
+    const layout = (title: string, main: string) => `<!doctype html><html><head><title>${title} &amp; more</title><script>var x = "<main>no</main>"</script></head><body><header><nav><a href="/">Home</a> <a href="/blog">Blog</a></nav></header><main>${main}<div hidden>Hidden text</div><button>Copy</button></main><footer>Footer text</footer></body></html>`
+    const html = (body: string, init: ResponseInit = {}) => new Response(body, { ...init, headers: { "content-type": "text/html; charset=utf-8", ...init.headers } })
+    let renders = 0
+    function pages(content: Parameters<typeof defineContentMarkdownHandler>[0]) {
+      const server: H3 = new H3()
+      server.use(defineContentMarkdownHandler(content, {
+        render: (request) => {
+          renders++
+          return server.fetch(request)
+        },
+      }))
+      server.get("/about-app", event => html(layout("About the app", `<h1>About the app</h1><p>Read <a href="/blog/hello">the blog</a>.</p><p>Cookie: ${event.req.headers.get("cookie") ?? "none"}</p>`), { headers: { "set-cookie": "seen=1; Path=/", vary: "Cookie, Accept" } }))
+      server.get("/untitled", () => html(layout("Untitled page", "<p>No heading here.</p>")))
+      server.get("/secret", () => html(layout("Secret", "<h1>Secret</h1>"), { headers: { "x-robots-tag": "noindex" } }))
+      server.get("/meta-secret", () => html(`<html><head><meta name="robots" content="noindex, nofollow"></head><body><main><h1>Meta</h1></main></body></html>`))
+      server.get("/private", () => new Response(null, { status: 302, headers: { location: "/login" } }))
+      server.get("/api/data", () => Response.json({ ok: true }))
+      server.get("/blog/hello", () => html(layout("Hello", "<h1>Hello from HTML</h1>")))
+      server.get("/sitemap.md", () => new Response("# Real route\n", { headers: { "content-type": "text/markdown" } }))
+      server.all("/**", () => html(layout("Not found", "<h1>Not found</h1>"), { status: 404 }))
+      return server
+    }
+
+    it("converts the HTML of an app page that is not a Content document", async () => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app = pages(content)
+      const expected = "# About the app\n\nRead [the blog](https://example.com/blog/hello).\n\nCookie: none\n"
+      const twin = await app.request("https://example.com/about-app.md")
+      expect(twin.status).toBe(200)
+      expect(twin.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(await twin.text()).toBe(expected)
+      expect(twin.headers.get("content-location")).toBe("/about-app.md")
+      expect(twin.headers.get("link")).toBe("<https://example.com/about-app>; rel=\"canonical\"")
+      expect(twin.headers.get("vary")).toBe("Cookie")
+      // The page set a cookie, so no shared cache keeps the copy.
+      expect(twin.headers.get("cache-control")).toBe("private, no-store")
+      expect(twin.headers.getSetCookie()).toEqual(["seen=1; Path=/"])
+      expect(twin.headers.get("etag")).toMatch(/^"\w+"$/)
+      expect((await app.request("https://example.com/about-app.md", { headers: { "if-none-match": twin.headers.get("etag")! } })).status).toBe(304)
+      const negotiated = await app.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })
+      expect(await negotiated.text()).toBe(expected)
+      expect(negotiated.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
+      expect(negotiated.headers.get("content-location")).toBe("/about-app.md")
+      // The page renders for the same reader, with the reader's cookies.
+      const signedIn = await app.request("https://example.com/about-app.md", { headers: { cookie: "session=abc" } })
+      expect(await signedIn.text()).toContain("Cookie: session=abc")
+      expect(signedIn.headers.get("cache-control")).toBe("private, no-store")
+      // A Link that an earlier handler prepared, such as from route rules, stays next to the canonical link.
+      const linked = new H3().use((event) => { event.res.headers.set("link", "</llms.txt>; rel=\"describedby\"") }).use(app)
+      expect((await linked.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })).headers.get("link"))
+        .toBe("</llms.txt>; rel=\"describedby\", <https://example.com/about-app>; rel=\"canonical\"")
+      // A route of the app that ends in .md keeps its answer, and renders no page.
+      renders = 0
+      expect(await (await app.request("https://example.com/sitemap.md")).text()).toBe("# Real route\n")
+      expect(renders).toBe(0)
+      // A page without a heading gets its title. Exact copies of Content documents win.
+      expect(await (await app.request("https://example.com/untitled.md")).text()).toBe("# Untitled page & more\n\nNo heading here.\n")
+      const exact = await app.request("https://example.com/blog/hello.md")
+      expect(await exact.text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
+      expect(exact.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate")
+      // The HTML page links its copy.
+      const page = await app.request("https://example.com/about-app", { headers: { accept: "text/html" } })
+      expect(page.headers.get("link")).toBe("</about-app.md>; rel=\"alternate\"; type=\"text/markdown\"")
+      expect(page.headers.get("vary")).toBe("Cookie, Accept, User-Agent")
+    })
+
+    it("resolves links against nested page URLs, including trailing slashes", async () => {
+      const content = await site({ site: "https://example.com/portal", markdown: { pages: true } })
+      for (const path of ["/guide/start", "/guide/start/"]) {
+        const app: H3 = new H3().use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+        app.get(path, () => html('<main><a href="next">Next</a><img src="images/a.png"><a href="/root">Root</a></main>'))
+        for (const [url, headers] of [[path, { accept: "text/markdown" }], [`${path}.md`, {}]] as const) {
+          const body = await (await app.request(`https://example.com${url}`, { headers })).text()
+          const base = path.endsWith("/") ? "/guide/start/" : "/guide/"
+          expect(body).toContain(`https://example.com${base}next`)
+          expect(body).toContain(`https://example.com${base}images/a.png`)
+          expect(body).toContain("https://example.com/root")
+        }
+      }
+    })
+
+    it("converts app pages when a .md URL matches an HTML shell", async () => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app: H3 = new H3().use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+      app.get("/about", () => html("<main>About the app</main>"))
+      app.all("/**", (event) => {
+        event.res.headers.set("content-type", "text/html")
+        event.res.headers.set("cache-control", "public, max-age=600")
+        return "<!doctype html><div id=__nuxt></div>"
+      })
+      const response = await app.request("https://example.com/about.md", { headers: { cookie: "session=abc" } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(response.headers.get("cache-control")).toBe("private, no-store")
+      expect(await response.text()).toBe("About the app\n")
+    })
+
+    it.each([false, true])("discards prepared failed-route headers (throws: %s)", async (throws) => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app: H3 = new H3()
+        .use((event) => { event.res.headers.set("x-earlier", "preserved") })
+        .use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+      app.get("/about", () => html("<main>Personal page</main>"))
+      app.all("/**", (event) => {
+        event.res.status = 404
+        event.res.headers.set("content-type", "text/html")
+        event.res.headers.set("cache-control", "public, max-age=600")
+        if (throws) throw Object.assign(new Error("Missing"), { status: 404 })
+        return "Missing"
+      })
+      const response = await app.request("https://example.com/about.md", { headers: { cookie: "session=abc" } })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+      expect(response.headers.get("cache-control")).toBe("private, no-store")
+      expect(response.headers.get("x-earlier")).toBe("preserved")
+    })
+
+    it("does not convert noindex pages, errors, redirects, or other content", async () => {
+      const content = await site({ site: "https://example.com", markdown: { prefix: "/raw", pages: true } })
+      const app = pages(content)
+      expect(await (await app.request("https://example.com/raw/about-app.md")).text()).toMatch(/^# About the app\n/)
+      // A robots meta tag reads only from the HTML, so the copy exists and keeps the rule.
+      const meta = await app.request("https://example.com/meta-secret.md")
+      expect(meta.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+      expect(await meta.text()).toBe("# Meta\n")
+      for (const path of ["/secret", "/api/data", "/nope"]) {
+        const twin = await app.request(`https://example.com${path}.md`)
+        expect(twin.status).toBe(404)
+        expect(await twin.text()).toContain("# 404 Page Not Found")
+      }
+      // The page URL keeps its own answer for an agent.
+      const secret = await app.request("https://example.com/secret", { headers: { accept: "text/markdown" } })
+      expect(secret.headers.get("content-type")).toContain("text/html")
+      expect(secret.headers.get("x-robots-tag")).toBe("noindex")
+      expect((await app.request("https://example.com/secret")).headers.get("link")).toBeNull()
+      expect(await (await app.request("https://example.com/api/data", { headers: { accept: "text/markdown" } })).json()).toEqual({ ok: true })
+      for (const path of ["/private.md", "/private"]) {
+        const redirect = await app.request(`https://example.com${path}`, { headers: { accept: "text/markdown" }, redirect: "manual" })
+        expect(redirect.status).toBe(302)
+        expect(redirect.headers.get("location")).toBe("/login")
+      }
+      const missing = await app.request("https://example.com/nope", { headers: { accept: "text/markdown" } })
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+    })
+
+    it("converts nothing without pages: true", async () => {
+      const content = await site({ site: "https://example.com", markdown: true })
+      const app = pages(content)
+      renders = 0
+      expect((await app.request("https://example.com/about-app.md")).status).toBe(404)
+      expect(await (await app.request("https://example.com/about-app", { headers: { accept: "text/markdown" } })).text()).toContain("<h1>About the app</h1>")
+      expect((await app.request("https://example.com/about-app")).headers.get("link")).toBeNull()
+      // The only render asks the app for a route at /about-app.md.
+      expect(renders).toBe(1)
+      expect(() => defineContent({ seo: { markdown: { pages: "yes" as unknown as boolean } }, logger: false })).toThrow(/pages must be true or false/)
+    })
+  })
+
+  describe("app routes that serve their own copy", () => {
+    // A shared doc that the browser draws: its HTML has no text, so a route at its URL plus .md serves the copy.
+    const shell = () => new Response("<!doctype html><html><head><title>Launch plan</title></head><body><main><div id=\"viewer\"></div></main></body></html>", { headers: { "content-type": "text/html; charset=utf-8" } })
+    let renders = 0
+    function docs(content: Parameters<typeof defineContentMarkdownHandler>[0]) {
+      const server: H3 = new H3()
+      server.use(defineContentMarkdownHandler(content, {
+        render: (request) => {
+          renders++
+          return server.fetch(request)
+        },
+      }))
+      server.get("/d/launch-plan", shell)
+      server.get("/blog/hello", shell)
+      server.get("/d/launch-plan.md", event => new Response(`# Launch plan\n\nShip on Monday. Reader: ${event.req.headers.get("cookie") ?? "none"}\n`, {
+        headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "private, no-store", "vary": "Cookie", "x-robots-tag": "noindex, nofollow", "set-cookie": "seen=1; Path=/" },
+      }))
+      server.get("/d/old-plan", shell)
+      server.get("/d/old-plan.md", () => new Response("<p>Not Markdown</p>", { headers: { "content-type": "text/html" } }))
+      server.all("/**", () => new Response("<h1>Not found</h1>", { status: 404, headers: { "content-type": "text/html" } }))
+      return server
+    }
+
+    it("serves the route's copy for Accept: text/markdown and keeps the .md answer of the route", async () => {
+      for (const markdown of [true, { pages: true }] as const) {
+        const app = new H3().use((event) => {
+          if (event.url.pathname !== "/d/launch-plan") return
+          event.res.headers.set("cache-control", "public, max-age=600")
+          event.res.headers.set("x-robots-tag", "index, follow")
+        }).use(docs(await site({ site: "https://example.com", markdown })))
+        renders = 0
+        const response = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", cookie: "session=abc", "if-none-match": "\"old\"" } })
+        expect(response.status).toBe(200)
+        expect(await response.text()).toBe("# Launch plan\n\nShip on Monday. Reader: session=abc\n")
+        expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+        expect(response.headers.get("content-location")).toBe("/d/launch-plan.md")
+        expect(response.headers.get("cache-control")).toBe("private, no-store")
+        expect(response.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
+        expect(response.headers.get("x-robots-tag")).toBe("index, follow, noindex, nofollow")
+        expect(response.headers.getSetCookie()).toEqual(["seen=1; Path=/"])
+        expect(response.headers.get("link")).toBe("<https://example.com/d/launch-plan>; rel=\"canonical\"")
+        // The route wins over a converted copy: one render asks the route, and the page does not render.
+        expect(renders).toBe(1)
+        const etag = response.headers.get("etag")!
+        const fresh = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", cookie: "session=abc", "if-none-match": etag } })
+        expect(fresh.status).toBe(304)
+        expect(fresh.headers.get("cache-control")).toBe("private, no-store")
+        expect(fresh.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
+        const direct = await app.request("https://example.com/d/launch-plan.md")
+        expect(await direct.text()).toBe("# Launch plan\n\nShip on Monday. Reader: none\n")
+        expect(direct.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+      }
+    })
+
+    it("keeps the page when the .md route answers with something other than Markdown", async () => {
+      const app = docs(await site({ site: "https://example.com", markdown: true }))
+      const response = await app.request("https://example.com/d/old-plan", { headers: { accept: "text/markdown" } })
+      expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8")
+      expect(response.headers.get("vary")).toBe("User-Agent, Accept")
+    })
+
+    it("gives AI fetchers the copy by User-Agent", async () => {
+      const app = docs(await site({ site: "https://example.com", markdown: true }))
+      const claude = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +Claude-User@anthropic.com)"
+      renders = 0
+      for (const path of ["/d/launch-plan", "/blog/hello", "/d/nope"]) {
+        const browser = await app.request(`https://example.com${path}`, { headers: { accept: "text/html", "user-agent": "Mozilla/5.0" } })
+        expect(browser.headers.get("content-type")).toMatch(/^text\/html/)
+        expect(browser.headers.get("vary")).toBe("User-Agent, Accept")
+      }
+      expect(renders).toBe(0)
+      const fetched = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/html, */*", "user-agent": claude } })
+      expect(await fetched.text()).toMatch(/^# Launch plan/)
+      expect(fetched.headers.get("vary")).toBe("Cookie, User-Agent, Accept")
+      // Content documents and the Markdown 404 answer the same way.
+      expect(await (await app.request("https://example.com/blog/hello", { headers: { "user-agent": "GPTBot/1.2" } })).text()).toBe("# Hello\n\n> The first post.\n\nHello body.\n")
+      const missing = await app.request("https://example.com/d/nope", { headers: { "user-agent": "PerplexityBot/1.0" } })
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+    })
+
+    it("converts pages for AI fetchers without asking itself again", async () => {
+      const content = await site({ site: "https://example.com", markdown: { pages: true } })
+      const app: H3 = new H3().use(defineContentMarkdownHandler(content, { render: request => app.fetch(request) }))
+      app.get("/pricing", () => new Response("<main><h1>Pricing</h1><p>Free for one team.</p></main>", { headers: { "content-type": "text/html" } }))
+      const response = await app.request("https://example.com/pricing", { headers: { "user-agent": "ChatGPT-User/1.0" } })
+      expect(await response.text()).toBe("# Pricing\n\nFree for one team.\n")
+    })
+
+    it("reads the User-Agent list from userAgents", async () => {
+      const off = docs(await site({ site: "https://example.com", markdown: { userAgents: [] } }))
+      const page = await off.request("https://example.com/d/launch-plan", { headers: { "user-agent": "ClaudeBot/1.0" } })
+      expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8")
+      expect(page.headers.get("vary")).toBe("Accept")
+      const copy = await off.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown" } })
+      expect(copy.headers.get("vary")).toBe("Cookie, Accept")
+      const own = docs(await site({ site: "https://example.com", markdown: { userAgents: ["ReadingAgent"] } }))
+      expect(await (await own.request("https://example.com/d/launch-plan", { headers: { "user-agent": "readingagent/2" } })).text()).toMatch(/^# Launch plan/)
+      expect((await own.request("https://example.com/d/launch-plan", { headers: { "user-agent": "ClaudeBot/1.0" } })).headers.get("content-type")).toBe("text/html; charset=utf-8")
+      expect(() => defineContent({ seo: { markdown: { userAgents: "ClaudeBot" as unknown as string[] } }, logger: false })).toThrow(/userAgents must be a list/)
+    })
+
+    it("ignores the render header without the server's value", async () => {
+      const app = docs(await site({ site: "https://example.com", markdown: true }))
+      const response = await app.request("https://example.com/d/launch-plan", { headers: { accept: "text/markdown", "x-vitehub-markdown-render": "guess" } })
+      expect(await response.text()).toMatch(/^# Launch plan/)
+    })
   })
 
   it("reads Accept quality values", () => {

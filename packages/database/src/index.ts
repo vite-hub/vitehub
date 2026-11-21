@@ -1,8 +1,12 @@
 export { defineDatabase } from "./definition.ts"
 export { chunkParameters } from "./runtime/chunk-parameters.ts"
+export { withIdempotency } from "./idempotency.ts"
+export { useLeases } from "./leases.ts"
 // A package import, not a relative one, so Nuxt and hosted builds can alias the registry to their generated runtime.
-export { db, ensureMigrations, schema, useDatabase, useDatabaseBinding } from "@vite-hub/database/runtime/registry"
+export { db, ensureMigrations, getPostgresConnectionUrl, schema, useDatabase, useDatabaseBinding } from "@vite-hub/database/runtime/registry"
 export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
+export type { WithIdempotencyErrorCode, WithIdempotencyOptions } from "./idempotency.ts"
+export type { UseLeasesOptions } from "./leases.ts"
 export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
 export type { DatabaseRegistry, DatabaseSeed, RuntimeDatabaseEntry } from "@vite-hub/database/runtime/registry"
 export type {

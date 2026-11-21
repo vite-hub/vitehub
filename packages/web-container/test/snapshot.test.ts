@@ -40,7 +40,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("snapshots", () => {
   it.each([0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])("rejects an invalid part size of %s", (partBytes) => {
-    expect(() => packSnapshot(new Uint8Array([1]), { partBytes })).toThrow(RangeError)
+    expect(() => packSnapshot(new Uint8Array([1]), { partBytes })).toThrow(expect.objectContaining({ code: "WEB_CONTAINER_SNAPSHOT_PART_BYTES_INVALID" }))
   })
 
   it("rejects Windows before changing the dependency tree", async () => {
@@ -135,7 +135,9 @@ describe("snapshots", () => {
     const sha256 = createHash("sha256").update(parts[0]!).digest("hex")
     const other = packSnapshot(new Uint8Array(randomBytes(1000)))
     vi.stubGlobal("fetch", vi.fn(async () => new Response(other[0])))
-    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).rejects.toThrow(`not ${sha256}`)
+    const damaged = await fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 }).catch((error: unknown) => error)
+    // The SHA-256 diagnostic is thrown as it is, not wrapped as the cause of a second one.
+    expect(damaged).toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_DAMAGED", cause: undefined, message: expect.stringContaining(`not ${sha256}`) })
     expect(stored.size).toBe(0)
     vi.stubGlobal("fetch", vi.fn(async () => new Response(parts[0])))
     await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).resolves.toBeInstanceOf(Uint8Array)

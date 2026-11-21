@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { MarkdownDocument } from "@comark/vue"
-import comarkUi from "comark-ui/vue"
+import { components as blocks } from "comark-ui/vue"
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { describe, expect, it, vi } from "vitest"
 import * as vue from "vue"
@@ -19,15 +19,15 @@ const script = compileScript(descriptor, { id: "docs-markdown", inlineTemplate: 
 const { outputText } = transpileModule(script, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext } })
 const parseMarkdown = createDocsParser()
 
-function renderer(content: Record<string, () => Promise<{ default: vue.Component }>> = {}, custom: Record<string, vue.Component> = {}) {
+function renderer(content: Record<string, () => Promise<{ default: vue.Component }>> = {}, custom: Record<string, vue.Component> = {}, blockMap: Record<string, vue.Component> = blocks) {
   const exports: { default?: vue.Component } = {}
   runInNewContext(outputText, {
     ...vue,
     exports,
     require: (id: string) => {
       if (id === "vue") return vue
-      if (id === "@comark/vue") return { MarkdownDocument }
-      if (id === "comark-ui/vue") return { __esModule: true, default: comarkUi }
+      if (id === "@comark/vue/components/MarkdownDocument") return { MarkdownDocument }
+      if (id === "#docs/blocks") return { __esModule: true, default: blockMap }
       if (id === "#docs/components") return { __esModule: true, default: content }
       if (id === "#docs/custom-components") return { __esModule: true, default: custom }
       throw new Error(`Unexpected component import: ${id}`)
@@ -113,6 +113,45 @@ describe("DocsMarkdown", () => {
     expect(html.match(/<script\b/g)).toHaveLength(1)
   })
 
+  it("draws the screenshots of a compare inside its carousel", async () => {
+    const shot = (name: string) => `:::screenshot{src="/${name}.png" alt="${name} toolbar" viewport="900x360"}\n::::annotation{x=10 y=20 w=30 h=10}\nThe ${name} toolbar.\n::::\n:::\n`
+    const document = await parseMarkdown(`::compare\n${shot("before")}\n${shot("after")}::\n`)
+    const fallback = vue.defineComponent({
+      props: ["html", "block"],
+      setup: props => () => vue.h("div", { "data-block": props.block, innerHTML: props.html }),
+    })
+    const html = await renderToString(vue.createSSRApp(renderer({}, { ComarkHtml: fallback }), { document }))
+    const compare = html.slice(html.indexOf('data-block="compare"'))
+
+    expect(compare.match(/<img\b/g)).toHaveLength(2)
+    expect(compare).toContain('alt="before toolbar"')
+    expect(compare).toContain("The after toolbar.")
+  })
+
+  it("keeps the HTML of a chart with a note, whose Vue component draws no marks", async () => {
+    const document = await parseMarkdown("::chart{title=\"Deploys\"}\n| day | deploys |\n| --- | --: |\n| mon | 3 |\n| tue | 5 |\n:::annotation{at=\"tue\" mark=\"circle\"}\nRelease day.\n:::\n::\n")
+    const fallback = vue.defineComponent({
+      props: ["html", "block"],
+      setup: props => () => vue.h("div", { "data-block": props.block, innerHTML: props.html }),
+    })
+    const html = await renderToString(vue.createSSRApp(renderer({}, { ComarkHtml: fallback }), { document }))
+
+    expect(html).toContain('data-block="chart"')
+    expect(html).toContain("cch-marked")
+    expect(html).toContain("Release day.")
+  })
+
+  it("renders the same HTML when each block loads on first use", async () => {
+    const document = await parseMarkdown("# Page\n\n::tabs\n:::tabs-item{label=One}\n```ts [one.ts]\nconst one = 1\n```\n:::\n:::tabs-item{label=Two}\nSecond\n:::\n::\n\n::note\nA note.\n::\n")
+    const lazy = Object.fromEntries(Object.entries(blocks).map(([tag, block]) => [tag, vue.defineAsyncComponent(async () => block)]))
+    // An async component adds a level to the ids that `useId()` makes. The server and the client both render it.
+    const render = async (map: Record<string, vue.Component>) => (await renderToString(vue.createSSRApp(renderer({}, {}, map), { document }))).replace(/\bv-[\d-]+/g, "v-id")
+    const eager = await render(blocks)
+    expect(eager).toContain('class="ct-tab"')
+    expect(eager).toMatch(/<div\b(?=[^>]*\bclass="cgc")(?=[^>]*\bdata-type="note")[^>]*>/)
+    expect(await render(lazy)).toBe(eager)
+  })
+
   it("lets a tutorial replace the built-in pre block by its Markdown tag", async () => {
     const document = await parseMarkdown("```ts [index.ts]\nexport const answer = 42\n```\n")
     const html = await renderToString(vue.createSSRApp(renderer(), { document, components: { pre: block("tutorial-code") } }))
@@ -128,7 +167,7 @@ describe("DocsMarkdown", () => {
     const page = readDocsSeoPage("/", html, "https://docs.example.com")
     expect(page.h1).toBe(1)
     expect(page.headingSkip).toBeNull()
-    expect(docsSeoProblems([page], [])).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
+    expect(docsSeoProblems([page], []).map(problem => problem.message)).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
   })
 
   it("renders example headings without duplicating page anchors", async () => {
@@ -179,7 +218,7 @@ svg: '<svg xmlns="http://www.w3.org/2000/svg" onload="globalThis.__diagramOnload
 
       const html = await renderToString(vue.createSSRApp(renderer(), { document }))
       const diagram = html.slice(html.indexOf('class="cmm"'))
-      expect(diagram).toMatch(/^class="cmm" data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
+      expect(diagram).toMatch(/^class="cmm" data-comark-frame data-source="graph LR[^"]*"><div class="[^"]*" data-diagram="flowchart"[^>]*><svg/)
       expect(diagram).toContain(">Handler<")
       expect(fetch).not.toHaveBeenCalled()
     }

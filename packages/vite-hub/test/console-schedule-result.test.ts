@@ -1,28 +1,55 @@
 import { readFileSync } from "node:fs"
 
-import { compile, createSSRApp, defineComponent, h } from "vue"
+import { compile, createRenderer, createSSRApp, defineComponent, h, ssrContextKey } from "vue"
 import { renderToString } from "vue/server-renderer"
-import { expect, it } from "vitest"
+import { createMemoryHistory, createRouter } from "vue-router"
+import { expect, it, vi } from "vitest"
 
-import { consoleStatusValue } from "../src/console/runtime/client/format"
 import { consoleScheduleRunDescription } from "../src/console/runtime/client/schedule-run"
 import type { ConsoleScheduleRunView } from "../src/console/runtime/client/schedule-run"
+
+vi.mock("../src/console/runtime/client/request", () => ({ requestConsole: async () => ({ sections: ["schedules"], operations: [] }) }))
+vi.mock("../src/console/runtime/client/read-only", () => ({ isConsoleSectionReadOnly: async () => false }))
+vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default: {} }))
+vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
+
+import Definitions from "../src/console/runtime/components/console-definitions.vue"
 
 const source = readFileSync(new URL("../src/console/runtime/components/console-definitions.vue", import.meta.url), "utf8")
 // Render the actual record detail template without the page's navigation and network lifecycle.
 const start = source.indexOf('<article v-if="selectedRecord"')
 const template = source.slice(start, source.indexOf("</article>", start) + "</article>".length)
 
+// The component's own runStatus(), from a mount that renders nothing.
+async function componentRunStatus(): Promise<unknown> {
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/schedules", component: {} }] })
+  await router.push("/schedules")
+  const renderer = createRenderer({
+    createComment: () => ({}), createElement: () => ({}), createText: () => ({}),
+    insert() {}, nextSibling: () => null, parentNode: () => null,
+    patchProp() {}, remove() {}, setElementText() {}, setText() {},
+  })
+  const app = renderer.createApp({ ...Definitions, render: () => null }, {
+    agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/sections",
+    details: { id: "schedules", label: "Schedules", icon: "i-lucide-calendar", description: "Schedules", view: { kind: "definition-catalog", notice: "Schedule metadata" } },
+  })
+  app.use(router)
+  app.provide(ssrContextKey, {})
+  try {
+    return Reflect.get((app.mount({}).$ as unknown as { setupState: object }).setupState, "runStatus")
+  }
+  finally {
+    app.unmount()
+  }
+}
+
 async function renderResult(selectedRun?: ConsoleScheduleRunView) {
+  const runStatus = await componentRunStatus()
   const app = createSSRApp({
     render: compile(template),
     setup: () => ({
       consoleScheduleRunDescription,
-      // The same mapping as the component's runStatus().
-      runStatus: (run: ConsoleScheduleRunView) => ({
-        label: run.status === "unavailable" ? "Could not run this Schedule" : `Run ${run.status}`,
-        tone: consoleStatusValue(run.status)?.tone ?? "neutral",
-      }),
+      runStatus,
       canRunSelected: false,
       runningSchedule: undefined,
       runSelectedSchedule: () => {},

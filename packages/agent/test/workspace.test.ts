@@ -130,7 +130,7 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
   return readonlyWorkspaceTestFixture({
     fs: { exists, list, readFile, stat },
     history: createWorkspace({
-      ...defineWorkspace({ store: { provider: "memory" } }),
+      ...defineWorkspace({ store: { driver: "memory" } }),
       name: `agent-inspection-${crypto.randomUUID()}`,
     }).history,
     tools: Object.assign(vi.fn(() => ({})), {
@@ -385,7 +385,7 @@ describe("defineAgent workspace option", () => {
     const first = agent.run!(context())
     await vi.waitFor(() => expect(starts).toBe(1))
     const second = agent.run!(context())
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toBe(1)
 
     releases.shift()!()
@@ -420,7 +420,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("records opt-in skill shell execution mode", async () => {
@@ -559,13 +559,13 @@ describe("defineAgent workspace option", () => {
     const registeredDefinition: {
       name: string
       sources: Record<string, WorkspaceSourceInput>
-      store: { provider: "memory" }
+      store: { driver: "memory" }
     } = {
       name: workspaceName,
       sources: {
         instructions: { path: "AGENTS.md" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     }
     registerWorkspace(workspaceName, {
       sources: registeredDefinition.sources,
@@ -606,7 +606,7 @@ describe("defineAgent workspace option", () => {
             },
           },
         },
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       }),
       mode: "write",
     })
@@ -616,7 +616,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     const workspaceName = `review-${Math.random().toString(36).slice(2)}`
-    const registeredDefinition = { name: workspaceName, sources: {}, store: { provider: "memory" as const } }
+    const registeredDefinition = { name: workspaceName, sources: {}, store: { driver: "memory" as const } }
     resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registeredDefinition)
     exists.mockResolvedValue(true)
 
@@ -690,7 +690,7 @@ describe("defineAgent workspace option", () => {
       sources: {
         instructions: { path: "AGENTS.md" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     })
     const agent = defineAgent({
       capabilities: [
@@ -880,13 +880,13 @@ describe("defineAgent workspace option", () => {
       driver: { model: {} as never },
       workspace: {
         commit: "chore: update workspace",
-        store: { provider: "memory" },
+        store: { driver: "memory" },
       },
     })
 
     expect(agent.workspace).toEqual({
       mode: "read",
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     })
   })
 
@@ -1574,7 +1574,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("resolves explicit workspace instruction bindings through workspace files", async () => {
@@ -1707,7 +1707,7 @@ describe("defineAgent workspace option", () => {
       sources: {
         summaryInstructions: { name: "summary" } as never,
       },
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
     }
     registerWorkspace(workspaceName, workspaceDefinition)
     resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)
@@ -2290,7 +2290,7 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.model).toMatchObject({ modelId: "model-acme" })
   })
 
-  it("passes provider-defined capability tools to AI SDK agents", async () => {
+  it("passes provider capability tools to AI SDK agents", async () => {
     const { webSearch } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
 
@@ -2307,7 +2307,7 @@ describe("defineAgent workspace option", () => {
         args: {},
         id: "openai.web_search",
         name: "web_search",
-        type: "provider-defined",
+        type: "provider",
       },
     })
   })
@@ -2622,7 +2622,7 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(readFile).not.toHaveBeenCalled()
-    expect(agentSettings.at(-1)?.instructions).toBe("")
+    expect(agentSettings.at(-1)?.instructions).toBeUndefined()
   })
 
   it("throws when explicit callback instructions fail", async () => {

@@ -56,7 +56,7 @@ function createR2Storage() {
     accessKeyId: "access-key",
     binding: "BLOB",
     bucketName: "private-audio",
-    driver: "cloudflare-r2",
+    driver: "cloudflare",
     secretAccessKey: "secret-key",
   }))
 }
@@ -149,7 +149,7 @@ describe("signed Blob requests", () => {
       accessKeyId: "access-key",
       binding: "BLOB",
       bucketName: "private-audio",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       jurisdiction: "eu",
       secretAccessKey: "secret-key",
     }))
@@ -167,7 +167,7 @@ describe("signed Blob requests", () => {
       accessKeyId: "access-key",
       binding: "BLOB",
       bucketName: "private-audio",
-      driver: "cloudflare-r2",
+      driver: "cloudflare",
       jurisdiction: "eu",
       secretAccessKey: "secret-key",
     }))
@@ -186,7 +186,7 @@ describe("signed Blob requests", () => {
       createCloudflareDriver({
         binding: "BLOB",
         bucketName: "private-audio",
-        driver: "cloudflare-r2",
+        driver: "cloudflare",
       }),
     )
 
@@ -195,7 +195,7 @@ describe("signed Blob requests", () => {
     expect(signed).toBeUndefined()
     expect(error).toMatchObject({
       code: "BLOB_OPERATION_FAILED",
-      why: "The Blob sign operation failed on the \"cloudflare-r2\" store.",
+      why: "The Blob sign operation failed on the \"cloudflare\" store.",
     })
     expect(error?.cause).toMatchObject({
       message: "Cloudflare R2 signed requests require `accountId`, `accessKeyId`, `secretAccessKey`, and `bucketName` HTTP credentials.",
@@ -212,7 +212,18 @@ describe("signed Blob requests", () => {
     const driver = { ...createUnsignedDriver(), sign: vi.fn() }
     const storage = createBlobStorage(driver)
 
-    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive integer.")
+    await expect(storage.sign("source.mp3", { expiresIn: 0, method: "GET" })).rejects.toThrow("`expiresIn` must be a positive whole number of seconds")
+    await expect(storage.sign("source.mp3", { expiresIn: "1500ms", method: "GET" })).rejects.toMatchObject({ code: "BLOB_R0024" })
+    await expect(storage.sign("source.mp3", { expiresIn: "soon" as never, method: "GET" })).rejects.toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
     expect(driver.sign).not.toHaveBeenCalled()
+  })
+
+  it("gives the driver a duration as whole seconds", async () => {
+    const driver = { ...createUnsignedDriver(), sign: vi.fn(async () => ({ headers: {}, method: "GET" as const, url: "https://example.com/source.mp3" })) }
+    const storage = createBlobStorage(driver)
+
+    await storage.sign("source.mp3", { expiresIn: "4.15m", method: "GET" })
+
+    expect(driver.sign).toHaveBeenCalledWith("source.mp3", { expiresIn: 249, method: "GET" }, expect.anything())
   })
 })

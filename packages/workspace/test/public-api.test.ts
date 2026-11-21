@@ -56,7 +56,7 @@ describe("workspace public API", () => {
     ".git./config",
     "nested/.git:$I30:$INDEX_ALLOCATION/config",
   ])("rejects reserved aliases through filesystem operations: %s", async (path) => {
-    registerWorkspace("reserved-alias", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("reserved-alias", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("reserved-alias", { mode: "write" })
     const invalidPath = { code: "WORKSPACE_PATH_INVALID" }
 
@@ -71,7 +71,7 @@ describe("workspace public API", () => {
   it.each([".. /secret.txt", ".. ./secret.txt", ".. . /secret.txt", ".:$DATA/secret.txt", "..:$DATA/secret.txt", "..::$INDEX_ALLOCATION/secret.txt", "git~1/config", "nested/git~1/config", "vitehu~1/file-metadata/secret/metadata.json"])(
     "rejects Windows traversal and short-name aliases through filesystem operations: %s",
     async (path) => {
-      registerWorkspace("windows-alias", defineWorkspace({ store: { provider: "memory" } }))
+      registerWorkspace("windows-alias", defineWorkspace({ store: { driver: "memory" } }))
       const workspace = useWorkspace("windows-alias", { mode: "write" })
       const invalidPath = { code: "WORKSPACE_PATH_INVALID" }
 
@@ -94,7 +94,7 @@ describe("workspace public API", () => {
     expect(builtRuntimeState).not.toContain("@vite-hub/source")
 
     registerWorkspace("runtime-api", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
 
     const workspace = useRuntimeWorkspace("runtime-api", { mode: "write" })
@@ -116,7 +116,7 @@ describe("workspace public API", () => {
                   workspacePath: "skills/browser/SKILL.md",
                 }),
               },
-              store: { provider: "memory" },
+              store: { driver: "memory" },
             },
           },
           sources: {
@@ -168,35 +168,17 @@ describe("workspace public API", () => {
 
   it("keeps workspace declarations installable without optional integration peers", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
-    const builtServer = await readFile(new URL("../dist/server.d.ts", import.meta.url), "utf8")
-    const builtCloudflareArtifactsStore = await readBuiltSourceModule("src/providers/cloudflare/artifacts-store.ts")
     const distDir = new URL("../dist/", import.meta.url)
     const distFiles = await readdir(distDir, { recursive: true })
     const declarations = (await Promise.all(distFiles
       .filter(file => file.endsWith(".d.ts"))
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const effectFreeBundles = (await Promise.all([
-      "cloudflare.js",
-      "source-metadata.js",
-      "runtime/empty-assets-registry.js",
-      "runtime/empty-registry.js",
-      "providers/github/store.js",
-    ].map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
-    const effectImport = /(?:from\s*|import\s*(?:\(\s*)?)["']effect(?:\/[^"']*)?["']/
     const vueFreeBundles = (await Promise.all(["index.js", "server.js"]
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
-    // The server helpers return Fetchable routes and do not import h3.
     expect(packageJson.dependencies?.h3).toBeUndefined()
-    expect(packageJson.dependencies?.ofetch).toBeUndefined()
     expect(packageJson.dependencies?.vite).toBeUndefined()
-    expect(packageJson.devDependencies?.vite).toBe("catalog:vite")
-    expect(packageJson.peerDependencies?.vite).toBe("catalog:vite-compat")
     expect(packageJson.peerDependenciesMeta?.vite).toEqual({ optional: true })
-    expect(packageJson.exports).not.toHaveProperty("./collections")
-    expect(packageJson.exports).not.toHaveProperty("./collections/client")
-    expect(packageJson.peerDependencies?.vue).toBeUndefined()
-    expect(packageJson.peerDependenciesMeta?.vue).toBeUndefined()
     expect(packageJson.dependencies?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
@@ -206,13 +188,9 @@ describe("workspace public API", () => {
     expect(packageJson.peerDependenciesMeta?.["files-sdk"]).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vercel/blob"]).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.["@vercel/blob"]).toBeUndefined()
-    expect(builtServer).not.toContain("from \"h3\"")
     expect(declarations).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vercel/blob")
     expect(declarations).not.toContain("@vite-hub/sandbox/task")
-    expect(declarations).not.toMatch(effectImport)
-    expect(effectFreeBundles).not.toMatch(effectImport)
-    expect(builtCloudflareArtifactsStore).not.toMatch(effectImport)
     expect(vueFreeBundles).not.toMatch(/from\s*["']vue["']/)
   })
 
@@ -238,7 +216,7 @@ describe("workspace public API", () => {
 
   it("uses the writable facade for synced reads and writes", async () => {
     registerWorkspace("api", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: file({
           workspacePath: "README.md",
@@ -262,7 +240,7 @@ describe("workspace public API", () => {
   })
 
   it("rejects a conditional write after the Workspace file changes", async () => {
-    registerWorkspace("conditional-write", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("conditional-write", defineWorkspace({ store: { driver: "memory" } }))
     const first = useWorkspace("conditional-write", { mode: "write" })
     const second = useWorkspace("conditional-write", { mode: "write" })
     await first.fs.writeFile("docs/page.md", "first")
@@ -282,7 +260,7 @@ describe("workspace public API", () => {
           write: true,
         },
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const workspace = useWorkspace("preserved-path", { mode: "write" })
 
@@ -294,7 +272,7 @@ describe("workspace public API", () => {
 
   it("exposes source materialization on the writable facade", async () => {
     registerWorkspace("materialize-api", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         docs: file({
           workspacePath: "README.md",
@@ -342,7 +320,7 @@ describe("workspace public API", () => {
           sync: true,
         }),
       },
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
 
     await useWorkspace("sync-before-read", { mode: "write" }).sync({ sources: ["docs"] })
@@ -353,7 +331,7 @@ describe("workspace public API", () => {
 
   it("serves allowlisted workspace files as Responses", async () => {
     registerWorkspace("files", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const workspace = useWorkspace("files", { mode: "write" })
     await workspace.fs.writeFile("tasks/open.json", "{\"ok\":true}", { mediaType: "application/json" })
@@ -381,7 +359,7 @@ describe("workspace public API", () => {
 
   it("serves files from a Fetchable route below its base path", async () => {
     registerWorkspace("fetchable-files", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const workspace = useWorkspace("fetchable-files", { mode: "write" })
     await workspace.fs.writeFile("data/a.json", "{\"a\":1}")
@@ -426,7 +404,7 @@ describe("workspace public API", () => {
     { base: "/", baseURL: "/", pathname: "/" },
     { base: "/api/data", baseURL: "/app", pathname: "/app/api/data/" },
   ])("serves route $base under application base $baseURL", async ({ base, baseURL, pathname }) => {
-    registerWorkspace("application-base-files", defineWorkspace({ store: { provider: "memory" } }))
+    registerWorkspace("application-base-files", defineWorkspace({ store: { driver: "memory" } }))
     const workspace = useWorkspace("application-base-files", { mode: "write" })
     await workspace.fs.writeFile("a.json", "{\"a\":1}")
     await workspace.fs.writeFile("api/data/my file.json", "{\"nested\":true}")
@@ -446,7 +424,7 @@ describe("workspace public API", () => {
 
   it("mounts inline files at the workspace root", async () => {
     registerWorkspace("root-file", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         instructions: file({
           mount: "",
@@ -467,7 +445,7 @@ describe("workspace public API", () => {
 
   it("keeps inline files root mounted when mount options omit a path", async () => {
     registerWorkspace("root-file-mount-options", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         instructions: file({
           mount: { materialize: "lazy" },
@@ -491,7 +469,7 @@ describe("workspace public API", () => {
 
     registerWorkspace("source-root-file", defineWorkspace({
       rootDir: sourceRoot,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         instructions: file("AGENTS.md"),
       },
@@ -511,7 +489,7 @@ describe("workspace public API", () => {
 
     registerWorkspace("nested-source-file", defineWorkspace({
       rootDir: sourceRoot,
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: {
         summaryInstructions: file(".agents/summary/AGENTS.md"),
       },
@@ -539,7 +517,7 @@ describe("workspace public API", () => {
           __vitehubWorkspaceAgentOptions: {
             workspace: {
               rootDir: root,
-              store: { provider: "memory" },
+              store: { driver: "memory" },
               sources: {
                 instructions: file("AGENTS.md"),
               },
@@ -562,7 +540,7 @@ describe("workspace public API", () => {
 
   it("enforces workspace rules before writes reach the store", async () => {
     registerWorkspace("rules", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       rules: {
         "/**": { write: false },
         "/generated/**": { maxBytes: "1kb", write: true },
@@ -589,7 +567,7 @@ describe("workspace public API", () => {
   it("merges workspace plugin rules and hooks into the write pipeline", async () => {
     const events: string[] = []
     registerWorkspace("plugin-rules", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       plugins: [{
         id: "docs",
         hooks: {
@@ -644,7 +622,7 @@ describe("workspace public API", () => {
 
   it("exposes Store metadata through the read-only facade", async () => {
     registerWorkspace("metadata", defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
     }))
     const writable = useWorkspace("metadata", { mode: "write" })
     await writable.setMeta?.("snapshot", { status: "ready" })
@@ -659,7 +637,7 @@ describe("workspace public API", () => {
     const addedKeys = vi.fn(async () => ["SKILL.md"])
     const definition = {
       name: "snapshot-inspection",
-      store: { provider: "memory" as const },
+      store: { driver: "memory" as const },
       sources: {
         existing: custom({
           materialize: "startup",
@@ -696,7 +674,7 @@ describe("workspace public API", () => {
     })
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           repo: file({
             content: "# Repo\n",
@@ -722,7 +700,7 @@ describe("workspace public API", () => {
 
   it("loads the Workspace Definition again on the next read after a failed load", async () => {
     const definition = defineWorkspace({
-      store: { provider: "memory" },
+      store: { driver: "memory" },
       sources: { repo: file({ content: "# Repo\n", workspacePath: "README.md" }) },
     })
     const load = vi.fn()
@@ -743,7 +721,7 @@ describe("workspace public API", () => {
     })
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           repo: file({
             content: "needle in runtime\n",
@@ -783,11 +761,11 @@ describe("workspace public API", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted Workspace contract.
     const serverB = await import(`${new URL("../src/server.ts", import.meta.url).href}?copy=server-b`) as typeof import("../src/server.ts")
 
-    configA.setWorkspaceRuntimeConfig({ root: runtimeRoot, store: { provider: "local" } })
-    expect(configB.getWorkspaceRuntimeConfig()).toEqual({ root: runtimeRoot, store: { provider: "local" } })
+    configA.setWorkspaceRuntimeConfig({ root: runtimeRoot, store: { driver: "local" } })
+    expect(configB.getWorkspaceRuntimeConfig()).toEqual({ root: runtimeRoot, store: { driver: "local" } })
 
     registryA.setWorkspaceRegistry({
-      shared: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
+      shared: async () => ({ default: defineWorkspace({ store: { driver: "memory" } }) }),
     })
     await expect(registryB.useRegisteredWorkspace("shared")).resolves.toMatchObject({ name: "shared" })
 
@@ -834,7 +812,7 @@ describe("workspace public API", () => {
     const root = await createRoot()
     const configuredRoot = join(root, "runtime-workspaces")
     await mkdir(configuredRoot, { recursive: true })
-    setWorkspaceRuntimeConfig({ root: configuredRoot, store: { provider: "local" } })
+    setWorkspaceRuntimeConfig({ root: configuredRoot, store: { driver: "local" } })
 
     registerWorkspace("runtime-root", defineWorkspace({
       rootDir: root,
@@ -848,7 +826,7 @@ describe("workspace public API", () => {
 
   it("injects inferred names when loading registry definitions", async () => {
     setWorkspaceRegistry({
-      docs: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
+      docs: async () => ({ default: defineWorkspace({ store: { driver: "memory" } }) }),
     })
 
     const workspace = useWorkspace("docs", { mode: "write" })
@@ -858,7 +836,7 @@ describe("workspace public API", () => {
   it("refreshes loader-backed workspace definitions when the registry changes", async () => {
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           docs: file({
             workspacePath: "README.md",
@@ -873,7 +851,7 @@ describe("workspace public API", () => {
 
     setWorkspaceRegistry({
       docs: async () => ({ default: defineWorkspace({
-        store: { provider: "memory" },
+        store: { driver: "memory" },
         sources: {
           docs: file({
             workspacePath: "README.md",

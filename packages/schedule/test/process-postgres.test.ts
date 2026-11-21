@@ -49,7 +49,8 @@ describe.skipIf(!postgresUrl)("Process Runtime on three processes with Postgres"
     try {
       await sql`drop table if exists runs`
       await sql`drop table if exists vitehub_leases`
-      await sql`create table runs (scheduled_at text not null, pid int not null, event text not null, at timestamptz not null default clock_timestamp())`
+      await sql`create table runs (scheduled_at text not null, pid int not null, event text not null,
+        at timestamptz not null default clock_timestamp(), lease_expires_at bigint)`
 
       // The fake clock starts 10 seconds into a minute. The fourth minute is the one where a process crashes.
       const fakeStart = Date.parse("2026-11-09T08:00:10.000Z")
@@ -85,10 +86,12 @@ describe.skipIf(!postgresUrl)("Process Runtime on three processes with Postgres"
       expect(crash[2]!.pid).toBe(crash[1]!.pid)
       expect(processes.filter(child => child.signalCode === "SIGKILL").map(child => child.pid)).toEqual([crashed])
 
-      const [{ elapsed }] = await sql<{ elapsed: number }[]>`
-        select extract(epoch from (max(at) filter (where event = 'start') - min(at))) * 1000 as elapsed
-        from runs where scheduled_at = ${crashAt}`
-      expect(Number(elapsed)).toBeGreaterThanOrEqual(leaseTtlMs - 100)
+      const [{ afterExpiry }] = await sql<{ afterExpiry: boolean }[]>`
+        select (extract(epoch from retry.at) * 1000)::bigint >= initial.lease_expires_at as "afterExpiry"
+        from runs initial cross join runs retry
+        where initial.scheduled_at = ${crashAt} and initial.event = 'start' and initial.pid = ${crashed}
+          and retry.scheduled_at = ${crashAt} and retry.event = 'start' and retry.pid = ${crash[1]!.pid}`
+      expect(afterExpiry).toBe(true)
       // More than one process ran occurrences, so the test did not pass because one process did all the work.
       expect(new Set(rows.map(row => row.pid)).size).toBeGreaterThanOrEqual(2)
     }

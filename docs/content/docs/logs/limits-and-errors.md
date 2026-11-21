@@ -10,6 +10,7 @@ icon: i-lucide-logs
 - The Console shows at most 1,000 events. Follow polls every two seconds and can miss events during bursts or retention changes.
 - Queries return 200 entries by default and 500 at most. Search text is up to 512 characters. Responses are up to 4 MiB.
 - Errors: an expired cursor returns HTTP 409, an invalid query 400, and a source failure 502.
+- The browser errors route answers 204 when it logs a report, 403 for a request from another origin or without an `Origin` header, 413 for a body over 16 KiB, 429 after 20 reports a minute from one address, and 400 for a body that is not a report. It counts in each server process, so several instances or Workers isolates each allow 20.
 
 Remove secrets and personal data before capture or source delivery. The local Console is a development tool. In production, access goes through your app's Console authorization.
 

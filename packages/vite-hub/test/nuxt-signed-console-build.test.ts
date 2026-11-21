@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 // Generated server modules import the built package, so the test uses the same module graph.
 import viteHubNuxt from "vite-hub/nuxt"
@@ -14,15 +13,6 @@ import { operationRpcResponseResult } from "../../internal/test-utils/operation-
 const ci = await consoleTestKey("CI")
 const repositoryNodeModules = resolve(import.meta.dirname, "../../../node_modules")
 const publicUrl = "http://app.example.com"
-
-async function freePort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
-  const address = server.address()
-  await new Promise<void>(done => server.close(() => done()))
-  if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
-  return address.port
-}
 
 /**
  * A Nuxt 5 app root. The module finds Nitro 3 through the `nuxt` package that the app resolves, so the fixture puts a
@@ -88,33 +78,6 @@ function createNuxt(app: string, dev: boolean) {
   }
 }
 
-async function withServer<T>(app: string, run: (port: number) => Promise<T>): Promise<T> {
-  const port = await freePort()
-  const server = spawn(process.execPath, [join(app, ".output/server/index.mjs")], {
-    env: { ...process.env, HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port), ...ci.env },
-    stdio: "ignore",
-  })
-  try {
-    return await run(port)
-  }
-  finally {
-    server.kill()
-  }
-}
-
-async function fetchWhenReady(url: string, init: RequestInit): Promise<Response> {
-  const deadline = Date.now() + 20_000
-  while (true) {
-    try {
-      return await fetch(url, init)
-    }
-    catch (error) {
-      if (Date.now() > deadline) throw error
-      await new Promise(done => setTimeout(done, 100))
-    }
-  }
-}
-
 describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
   it("gives the Nitro config the configured public URL in development", async () => {
     const { app, root } = await nuxtFixture()
@@ -129,14 +92,34 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
     }
   })
 
-  it("accepts a signed call on the built Node server", { timeout: 240_000 }, async () => {
+  it("gives project.get the name option in development", async () => {
+    const { app, root } = await nuxtFixture()
+    try {
+      const { nitroConfig, nuxt } = createNuxt(app, true)
+      await viteHubNuxt({ console: true, env: false, host: "node", name: "glosa", publicUrl }, nuxt)
+      const config = await nitroConfig()
+      const plugin = (config.plugins as string[]).find(file => file.includes("/.vitehub/nitro/console/"))
+      if (!plugin) throw new TypeError("Expected the generated Console plugin.")
+      expect(await readFile(plugin, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("lists static Schedules over signed RPC on the built Node server without a Process Runtime", { timeout: 240_000 }, async () => {
     const { app, root } = await nuxtFixture()
     try {
       const { nitroConfig, nuxt } = createNuxt(app, false)
-      await viteHubNuxt({ console: true, env: false, host: "node", publicUrl }, nuxt)
+      await mkdir(join(app, "server/schedules"), { recursive: true })
+      await writeFile(join(app, "server/schedules/digest.ts"), `
+import { defineSchedule } from "vite-hub/schedule"
+export default defineSchedule({ cron: "0 9 * * *", timeZone: "Europe/Madrid", handler: () => {} })
+`)
+      await viteHubNuxt({ console: true, env: false, host: "node", publicUrl, schedule: { providerOutput: false } }, nuxt)
       const config = await nitroConfig()
       const { build, createNitro, prepare } = await import("nitro/builder")
-      const nitro = await createNitro(config as Parameters<typeof createNitro>[0])
+      const nitro = await createNitro({ ...config, preset: "standard" })
       try {
         await prepare(nitro)
         await build(nitro)
@@ -145,19 +128,24 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
         await nitro.close()
       }
 
-      await withServer(app, async (port) => {
-        const signed = await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` })
-        const body = await signed.text()
-        // The Node adapter builds the request URL from this Host header. The signed origin must come from `publicUrl`.
-        const response = await fetchWhenReady(`http://127.0.0.1:${port}/_vitehub/rpc`, { body, headers: signed.headers, method: "POST" })
-        expect(response.status, await response.clone().text()).toBe(200)
-        expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true })
-
-        const unsigned = await fetch(`http://127.0.0.1:${port}/_vitehub/rpc`, { body, headers: { "content-type": "application/json" }, method: "POST" })
-        expect(unsigned.status).toBe(401)
+      for (const [key, value] of Object.entries(ci.env)) vi.stubEnv(key, value)
+      const entry = pathToFileURL(join(app, ".output/server/index.mjs")).href
+      const { default: server } = await import(entry) as { default: { fetch(request: Request): Promise<Response> } }
+      const signed = await signedRpcRequest({ key: ci.key, operation: "schedule.list", url: `${publicUrl}/_vitehub/rpc` })
+      const body = await signed.text()
+      const localUrl = "http://127.0.0.1/_vitehub/rpc"
+      const response = await server.fetch(new Request(localUrl, { body, headers: signed.headers, method: "POST" }))
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(await operationRpcResponseResult(response)).toEqual({
+        ok: true,
+        value: { definitions: [{ cron: "0 9 * * *", name: "digest", timeZone: "Europe/Madrid" }], schedules: [] },
       })
+
+      const unsigned = await server.fetch(new Request(localUrl, { body, headers: { "content-type": "application/json" }, method: "POST" }))
+      expect(unsigned.status).toBe(401)
     }
     finally {
+      vi.unstubAllEnvs()
       await rm(root, { force: true, recursive: true })
     }
   })

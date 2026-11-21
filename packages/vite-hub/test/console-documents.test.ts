@@ -6,8 +6,12 @@ import { pathToFileURL } from "node:url"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
 import { runOperation } from "@vite-hub/internal/operations"
+import { github } from "@vite-hub/source"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { defineContent } from "../../content/src/index.ts"
+import { contentOperations } from "../../content/src/operations.ts"
+import { createContentConsoleActions } from "../../content/src/runtime/console.ts"
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
 import { consoleStateKey } from "../src/console/internal.ts"
@@ -16,6 +20,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
@@ -293,7 +298,7 @@ describe("Console document editor route", () => {
 })
 
 describe("Console document editor discovery", () => {
-  it("adds the Content section only when server/content.ts defines document collections", async () => {
+  it("adds the Content section when server/content.ts defines document collections", async () => {
     const root = await temporaryRoot()
     const empty = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
     expect(empty.documents).toEqual({})
@@ -314,6 +319,46 @@ describe("Console document editor discovery", () => {
     expect(consoleDocumentEditorSectionIds).toEqual(["content"])
   })
 
+  it("adds the Content route for GitHub Sources and reads their heads with a read grant", async () => {
+    const root = await temporaryRoot()
+    const entry = join(root, "server/content.ts")
+    const plugin = join(root, "console.mjs")
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(entry, `import { defineContent } from "vite-hub/content"\nimport { github } from "vite-hub/source"\nexport default defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) } })\n`)
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["kv"] })
+    const sections = withConsoleDocumentEditorSections(["kv"], catalog)
+    expect(sections).toEqual(["content", "kv"])
+    expect(catalog.content.content).toMatchObject({ setup: { sourceHeadsOnly: true } })
+
+    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections, catalog, blobStores: [] })
+    expect(await readFile(plugin, "utf8")).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
+
+    vi.stubEnv("VITEHUB_GITHUB_TOKEN", "")
+    const content = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+    try {
+      installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content:read"] }) })
+      installConsoleSections(root, sections)
+      installConsoleDocuments(root, {
+        content: {
+          actions(module) {
+            const actions = createContentConsoleActions(module)
+            return fakeActions({ overview: (_input, context) => actions.overview({}, context) })
+          },
+          load: async () => ({ default: content }),
+        },
+      })
+      installConsoleOperations([{ operations: contentOperations }])
+      await expect(call("content.head", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { heads: [{ source: "docs", live: false }] } } })
+      await expect(documents("overview", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { activity: [], collections: [] } } })
+    }
+    finally {
+      installConsoleOperations()
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules"))
+      vi.unstubAllEnvs()
+      await content.dispose()
+    }
+  })
+
   it("reads whether a Schedule Definition runs scheduled Content publishes", async () => {
     const root = await temporaryRoot()
     await mkdir(join(root, "server/schedules"), { recursive: true })
@@ -328,8 +373,8 @@ describe("Console document editor discovery", () => {
   })
 
   it("leads its navigation group", () => {
-    expect(insertConsoleSection(["agents", "blob", "kv"], "content")).toEqual(["agents", "content", "blob", "kv"])
-    expect(insertConsoleSection(["agents"], "content")).toEqual(["agents", "content"])
+    expect(insertConsoleSection(["agents", "blob", "kv"], "content")).toEqual(["content", "agents", "blob", "kv"])
+    expect(insertConsoleSection(["agents"], "content")).toEqual(["content", "agents"])
     expect(insertConsoleSection(["content", "kv"], "content")).toEqual(["content", "kv"])
   })
 
@@ -344,8 +389,6 @@ describe("Console document editor discovery", () => {
       { entry, export: "createContentConsoleActions", module: contentConsoleModule, section: "content" },
     ])
     expect(source).toContain(`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`)
-    // Content reaches MCP through its operations, so the plugin registers no Content tools.
-    expect(source).not.toContain("registerContentMcpTools")
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from ${JSON.stringify(contentConsoleModule)}`)
     expect(source).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)

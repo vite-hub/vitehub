@@ -19,6 +19,7 @@ describe("blob.images configuration", () => {
     })
     expect(normalizeBlobOptions({ images: { transformer: "sharp" }, stores: { default: { driver: "fs" } } })).toMatchObject({ images: { transformer: "sharp" } })
     expect(normalizeBlobOptions({ driver: "fs", images: { transformer: "photon" } })).toMatchObject({ images: { transformer: "photon" } })
+    expect(normalizeBlobOptions({ driver: "fs", images: { maxPixels: 8_000_000, transformer: "photon" } })).toMatchObject({ images: { maxPixels: 8_000_000, transformer: "photon" } })
   })
 
   it.each([
@@ -27,13 +28,17 @@ describe("blob.images configuration", () => {
     [{ sizes: [] }, "`blob.images.sizes` must be a non-empty array"],
     [{ sizes: [1.5] }, "`blob.images.sizes` must be a non-empty array"],
     [{ binding: "" }, "`blob.images.binding` must be a non-empty"],
+    [{ maxPixels: 8_000_000 }, "Set `blob.images.transformer` to \"photon\", or remove `maxPixels`."],
+    [{ maxPixels: 8_000_000, transformer: "sharp" }, "Set `blob.images.transformer` to \"photon\", or remove `maxPixels`."],
+    [{ maxPixels: 0, transformer: "photon" }, "`blob.images.maxPixels` must be a positive integer"],
+    [{ maxPixels: 1.5, transformer: "photon" }, "`blob.images.maxPixels` must be a positive integer"],
     ["on", "`blob.images` must be false or a plain object."],
   ])("rejects %j", (images, message) => {
     expect(() => normalizeBlobOptions({ driver: "fs", images: images as never })).toThrow(message)
   })
 
   it("adds a Cloudflare Images binding only for the explicit cloudflare-images transformer", () => {
-    const store = { binding: "BLOB", driver: "cloudflare-r2" as const }
+    const store = { binding: "BLOB", driver: "cloudflare" as const }
     expect(cloudflareImagesBinding({ store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "auto" }, store })).toBeUndefined()
     expect(cloudflareImagesBinding({ images: { transformer: "cloudflare-images" }, store })).toEqual({ binding: "IMAGES" })
@@ -77,16 +82,21 @@ describe("generated Nitro plugin", () => {
     await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
     await writeFile(join(root, "node_modules/@cf-wasm/photon/index.js"), "export {}")
     expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
-    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
-      const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
-      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
-      expect(source).not.toContain("sharp")
-    }
+    const node = await generatePlugin({ driver: "fs", images: { transformer: "photon" } })
+    expect(node).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+    expect(node).not.toContain("sharp")
+    // The Worker gets the compiled module itself, so Photon loads with and without `wasm.lazy`.
+    const previousHost = process.env.VITEHUB_HOST
+    process.env.VITEHUB_HOST = "cloudflare"
+    const worker = await generatePlugin({ bucketName: "assets", driver: "cloudflare", images: { transformer: "photon" } })
+      .finally(() => previousHost === undefined ? Reflect.deleteProperty(process.env, "VITEHUB_HOST") : process.env.VITEHUB_HOST = previousHost)
+    expect(worker).toContain("setBlobPhotonLoader(() => loadWorkerPhoton(import('@cf-wasm/photon/others'), import('@cf-wasm/photon/photon.wasm')))")
+    expect(worker).not.toContain("sharp")
   })
 
   it("finds Photon in node_modules when the Nuxt Nitro build replays the hook without a resolver", async () => {
     const replay = async () => {
-      const plugin = hubBlob({ driver: "cloudflare-r2", images: { transformer: "photon" } })
+      const plugin = hubBlob({ driver: "cloudflare", images: { transformer: "photon" } })
       const config = await resolveConfig({ configFile: false, logLevel: "silent", root }, "build")
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, createResolver: undefined })
       return await readFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "utf8")
@@ -101,7 +111,7 @@ describe("generated Nitro plugin", () => {
     const entry = join(root, ".yarn/cache/photon/index.js")
     await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
     await writeFile(entry, "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       const source = await generatePlugin({ driver, images: { transformer: "photon" } }, { "@cf-wasm/photon": entry })
       expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
     }
@@ -122,18 +132,9 @@ describe("generated Nitro plugin", () => {
     // A previous build's plugin makes Vite resolve from its directory and return an optional-peer placeholder.
     await mkdir(join(root, ".vitehub/nitro/blob"), { recursive: true })
     await writeFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "export {}")
-    for (const driver of ["fs", "cloudflare-r2"] as const) {
+    for (const driver of ["fs", "cloudflare"] as const) {
       await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
     }
-  })
-
-  it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
-    await generatePlugin({ driver: "fs", serve: { access: "public" } })
-    const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
-    expect(route).toContain("import { blob, parseImageVariant } from '@vite-hub/blob'")
-    expect(route).toContain("const variant = parseImageVariant(url.searchParams)")
-    expect(route).toContain("{ status: 400 }")
-    expect(route).toContain("blob.store(storeName).serve(request, pathname, options)")
   })
 })
 
@@ -145,7 +146,7 @@ describe("responsiveImage", () => {
     crops: { mobile: { aspect: "4:5" }, story: { aspect: "9:16", replacement: { height: 1920, width: 1080 } } },
     focal: { x: 0.7, y: 0.4 },
     height: 1500,
-    url: "/api/_vitehub/blob/hero.jpg",
+    url: "/_vitehub/blob/hero.jpg",
     width: 2400,
   }
 
@@ -158,8 +159,8 @@ describe("responsiveImage", () => {
       height: 1500,
       loading: "lazy",
       sizes: "(min-width: 1024px) 50vw, 100vw",
-      src: "/api/_vitehub/blob/hero.jpg?w=1080&fmt=webp",
-      srcset: [640, 750, 828, 1080, 1200, 1920, 2048, 2400].map(width => `/api/_vitehub/blob/hero.jpg?w=${width}&fmt=webp ${width}w`).join(", "),
+      src: "/_vitehub/blob/hero.jpg?w=1080&fmt=webp",
+      srcset: [640, 750, 828, 1080, 1200, 1920, 2048, 2400].map(width => `/_vitehub/blob/hero.jpg?w=${width}&fmt=webp ${width}w`).join(", "),
       style: "object-position: 70% 40%; background-color: #336699",
       width: 2400,
     })
@@ -175,10 +176,10 @@ describe("responsiveImage", () => {
       widths: [640, 1080],
     })
     expect(image.sources).toEqual([
-      { height: 1920, media: "(max-width: 480px)", sizes: "100vw", srcset: "/api/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=story 640w, /api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=story 1080w", type: "image/avif", width: 1080 },
-      { height: 1500, media: "(max-width: 768px)", sizes: "100vw", srcset: "/api/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=mobile 640w, /api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=mobile 1080w, /api/_vitehub/blob/hero.jpg?w=1200&fmt=avif&q=60&crop=mobile 1200w", type: "image/avif", width: 1200 },
+      { height: 1920, media: "(max-width: 480px)", sizes: "100vw", srcset: "/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=story 640w, /_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=story 1080w", type: "image/avif", width: 1080 },
+      { height: 1500, media: "(max-width: 768px)", sizes: "100vw", srcset: "/_vitehub/blob/hero.jpg?w=640&fmt=avif&q=60&crop=mobile 640w, /_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60&crop=mobile 1080w, /_vitehub/blob/hero.jpg?w=1200&fmt=avif&q=60&crop=mobile 1200w", type: "image/avif", width: 1200 },
     ])
-    expect(image.img).toMatchObject({ fetchpriority: "high", loading: "eager", src: "/api/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60" })
+    expect(image.img).toMatchObject({ fetchpriority: "high", loading: "eager", src: "/_vitehub/blob/hero.jpg?w=1080&fmt=avif&q=60" })
   })
 
   it("keeps GIF and SVG originals and requires a URL", () => {

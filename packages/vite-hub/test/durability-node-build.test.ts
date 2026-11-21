@@ -103,6 +103,7 @@ it("prints the durability table and serves with one instance", async () => {
   await expect(result.response?.json()).resolves.toEqual({ ok: true });
   expect(result.output).toContain("[vitehub] Durability (1 instance, from VITEHUB_INSTANCES):");
   expect(result.output).toMatch(/ {2}kv {2}fs-lite {2}host {2}Files in \.vitehub\/data\/kv on this host\./);
+  expect(result.output).not.toContain('KV store "default" uses');
 }, 30_000);
 
 it("loads Definitions with deferred Nitro hooks before serving and enforces their stores", async () => {
@@ -127,7 +128,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       'import { defineWorkspace } from "@vite-hub/workspace"',
       'import { useNitroApp } from "nitro/app"',
       'const options = {',
-      '  store: { provider: "memory" },',
+      '  store: { driver: "memory" },',
       '  hooks: { "write:error": ({ error }) => {',
       '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
       '  } },',
@@ -141,7 +142,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
         kv: false,
-        workspace: { assets: false, store: { provider: "github", repository: "acme/workspaces" } },
+        workspace: { assets: false, store: { driver: "github", repo: "acme/workspaces" } },
       })],
       root: projectRoot,
     });

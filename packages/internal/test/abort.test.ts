@@ -1,3 +1,5 @@
+import { getEventListeners } from "node:events"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { abortable } from "../src/abort.ts"
@@ -18,6 +20,16 @@ describe("abortable", () => {
     expect(task).not.toHaveBeenCalled()
   })
 
+  it("rejects with an AbortError DOMException when the signal has no reason", async () => {
+    const signal = Object.defineProperty(AbortSignal.abort(), "reason", { value: undefined })
+    const result = abortable(signal, "interrupted", () => "value")
+    await expect(result).rejects.toBeInstanceOf(DOMException)
+    await expect(result).rejects.toMatchObject({
+      message: "interrupted",
+      name: "AbortError",
+    })
+  })
+
   it("returns values and failures by identity", async () => {
     const failure = new Error("failure")
     const thrown = new Error("thrown")
@@ -28,8 +40,7 @@ describe("abortable", () => {
 
   it("removes its abort listener when the task settles", async () => {
     const controller = new AbortController()
-    const removeEventListener = vi.spyOn(controller.signal, "removeEventListener")
     await abortable(controller.signal, "interrupted", async () => "done")
-    expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function))
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0)
   })
 })

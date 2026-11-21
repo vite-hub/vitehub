@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { createServer as createHttpServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import {
@@ -13,7 +14,7 @@ import {
   ModuleResolutionKind,
   ScriptTarget,
 } from "typescript"
-import { build, resolveConfig } from "vite"
+import { build, createServer, resolveConfig } from "vite"
 import type { InlineConfig } from "vite"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
@@ -439,7 +440,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = hookHandler<(id: string) => string | undefined>(plugin.load)
-    const loaded = loadHook("\0#vitehub/env/public")
+    const loaded = loadHook("\0virtual:vitehub/env/public")
     expect(loaded).toContain("Quiver")
     expect(loaded).toContain("usePublicEnv")
     expect(loaded).not.toContain("buildConfig")
@@ -467,16 +468,52 @@ describe("Vite plugin", () => {
     const loadFilter = filterOf(plugin.load)?.id
     for (const id of ["#vitehub/env/description", "#vitehub/env/public", "#vitehub/env/server"]) {
       expect(resolveIdFilter?.test(id)).toBe(true)
-      expect(loadFilter?.test(`\0${id}`)).toBe(true)
       expect(resolveIdFilter?.test(`\0${id}`)).toBe(false)
       expect(loadFilter?.test(id)).toBe(false)
     }
+    for (const id of ["\0#vitehub/env/description", "\0virtual:vitehub/env/public", "\0#vitehub/env/server"]) {
+      expect(loadFilter?.test(id)).toBe(true)
+    }
+    expect(loadFilter?.test("\0#vitehub/env/public")).toBe(false)
     for (const id of ["#vitehub/env/secret", "#vitehub/env/server.mjs", "@vite-hub/env/internal/server", "/app/server/api/env.ts"]) {
       expect(resolveIdFilter?.test(id)).toBe(false)
       expect(loadFilter?.test(`\0${id}`)).toBe(false)
     }
     expect(filterOf(plugin.transform)?.code).toBe("/* @vitehub-env */")
   })
+
+  it("serves #vitehub/env/public to the browser at a dev URL without a fragment", async () => {
+    const root = await temporaryDirectory("vitehub-env-public-dev-")
+    await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>', "utf8")
+    await writeFile(join(root, "main.js"), 'import { usePublicEnv } from "#vitehub/env/public"\nconsole.log(usePublicEnv().appName)\n', "utf8")
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubEnv({ public: { appName: env({ default: "Acme", mode: "build" }) } })],
+      server: { middlewareMode: true, watch: null },
+    })
+    const http = createHttpServer(server.middlewares)
+    try {
+      await new Promise<void>(resolve => http.listen(0, "127.0.0.1", resolve))
+      const address = http.address()
+      if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
+      const origin = `http://127.0.0.1:${address.port}`
+      const entry = await (await fetch(`${origin}/main.js`)).text()
+      const urls = [...entry.matchAll(/["'](\/@id\/[^"']+)["']/g)].map(match => match[1])
+      expect(urls).toHaveLength(1)
+      expect(urls[0]).not.toContain("#")
+      const response = await fetch(new URL(urls[0], origin))
+      expect(response.status).toBe(200)
+      const publicModule = await response.text()
+      expect(publicModule).toContain("\"Acme\"")
+      expect(publicModule).toContain("usePublicEnv")
+    }
+    finally {
+      await new Promise(resolve => http.close(resolve))
+      await server.close()
+    }
+  }, 30_000)
 
   it("does not read package metadata unless packageJson is declared", async () => {
     const root = await temporaryDirectory("vitehub-env-no-package-json-")
@@ -562,7 +599,7 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-provider-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
     await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
-    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
+    await symlink(fileURLToPath(new URL("..", import.meta.url)), join(root, "node_modules", "@vite-hub", "env"), "dir")
     await mkdir(join(root, "server", "env#blue?%"), { recursive: true })
     const providerPath = join(root, "server", "env#blue?%", "secrets.mjs")
     await writeFile(providerPath, [
@@ -1183,7 +1220,7 @@ describe("Vite plugin", () => {
 
     expect(() => resolveServerEnv(registry, cloudflareRequest({
         WEBHOOK_URL: "https://example.test/hook",
-      }))).toThrow("[vitehub] Required Env value is missing.")
+      }))).toThrow("[vitehub] Required Env value env.server.airtableToken is missing. Set VITEHUB_AIRTABLE_TOKEN or AIRTABLE_TOKEN.")
   })
 
 })

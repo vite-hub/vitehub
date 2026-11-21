@@ -11,12 +11,22 @@ interface DocsFileStore {
 /** Where each file sits in the unpacked bytes: `index[store][file]` is `[start, end]`. */
 type DocsFilesIndex = Record<string, Record<string, [number, number]>>
 
-/** What `#docs/files` exports in a production build. Development exports `null` and reads the folders. */
+/** What `#docs/files` exports in a production build. */
 export interface DocsPackedFiles {
   index: DocsFilesIndex
   /** Every file, one after the other, as one gzip stream in base64. */
   packed: string
 }
+
+/** What `#docs/files` exports in development: a reader that loads each file through Vite. */
+export interface DocsDevFiles {
+  has: (store: string, file: string) => boolean
+  /** The file of a store, or null when the store or the file is unknown. */
+  read: (store: string, file: string) => Promise<string | null>
+}
+
+/** What `#docs/files` exports. */
+export type DocsFiles = DocsPackedFiles | DocsDevFiles
 
 /** The Markdown files of a folder, without dot files or dot folders, as Nitro's server assets list them. */
 function markdownFiles(dir: string): string[] {
@@ -55,6 +65,25 @@ function packDocsFiles(stores: DocsFileStore[], order: Array<[store: string, fil
     offset += bytes.length
   }
   return { index, packed: gzipSync(Buffer.concat(chunks), { level: 9 }).toString("base64") }
+}
+
+/**
+ * The source of `#docs/files` in development. Each file is a `?raw` import, so Vite watches it, and an edit shows on the
+ * next read. The server can run in workerd, which cannot read the folders from disk.
+ */
+export function docsDevFilesModule(stores: DocsFileStore[]): string {
+  const loaders = stores.map(store => `  ${JSON.stringify(store.name)}: {\n${markdownFiles(store.dir).map(file => `    ${JSON.stringify(file)}: () => import(${JSON.stringify(`${join(store.dir, file).split(sep).join("/")}?raw`)}),`).join("\n")}\n  },`)
+  return [
+    `const files = {\n${loaders.join("\n")}\n}`,
+    "const has = (store, file) => Object.hasOwn(files, store) && Object.hasOwn(files[store], file)",
+    "export default {",
+    "  has,",
+    "  async read(store, file) {",
+    "    return has(store, file) ? (await files[store][file]()).default : null",
+    "  },",
+    "}",
+    "",
+  ].join("\n")
 }
 
 /** The source of `#docs/files` for a production build. */

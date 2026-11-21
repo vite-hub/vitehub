@@ -9,8 +9,7 @@ async function durableRoundtrip({ payload }: WorkflowProviderContext<RoundtripPa
   return { marker: payload.marker }
 }
 
-export default defineWorkflow(
-  "roundtrip",
-  async (payload: RoundtripPayload): Promise<RoundtripResult> => ({ marker: payload.marker }),
-  { native: durableRoundtrip },
-)
+export default defineWorkflow<RoundtripPayload>({
+  handler: async ({ payload }): Promise<RoundtripResult> => ({ marker: payload.marker }),
+  native: durableRoundtrip,
+})

@@ -1,9 +1,9 @@
 # @vite-hub/source
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Sources" src="https://comark-ui.onmax.me/badge.svg?label=Source&amp;value=typed+retrieval">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Sources" src="https://img.shields.io/static/v1?label=Source&amp;message=typed+retrieval&amp;color=blue">
 </p>
 
 `@vite-hub/source` loads files, globs, markdown, GitHub content, or custom data before something else places it in a workspace.
@@ -17,21 +17,21 @@ pnpm add @vite-hub/source
 ## Open a Source
 
 ```ts
-import { createSource, glob } from "@vite-hub/source"
+import { glob, useSource } from "@vite-hub/source"
 
 export const docs = glob({ cwd: "docs", include: "**/*.md" })
 
-const reader = createSource(docs, { rootDir: process.cwd() })
+const reader = useSource(docs, { rootDir: process.cwd() })
 const revision = await reader.revision()
 const keys = await reader.keys()
 const first = await reader.read(keys[0]!)
 ```
 
-`createSource(definition, context?)` infers keys, items, and metadata from the
+`useSource(definition, context?)` infers keys, items, and metadata from the
 Source definition. It resolves a revision and prepares the Source once per
 reader. Revision-aware loaders receive the same pinned revision on every
 operation. Loaders without revision support can observe origin changes. Create
-another reader to resolve a new revision. No registration or global type map is needed.
+another reader to resolve a new revision.
 
 `glob()` treats both `/` and `\` as path separators in `include` and `ignore`,
 including before wildcards: the JavaScript string `"docs\\*.md"` means
@@ -52,7 +52,7 @@ File paths are relative to the Source root. Absolute paths, Windows drive paths 
 Use `defineSource()` for custom loaders:
 
 ```ts
-import { createSource, defineSource } from "@vite-hub/source"
+import { defineSource, useSource } from "@vite-hub/source"
 
 const articles = defineSource({
   name: "articles",
@@ -64,7 +64,7 @@ const articles = defineSource({
   },
 })
 
-const article = await createSource(articles).get("article_123")
+const article = await useSource(articles).get("article_123")
 article.data.title
 article.metadata.version
 ```
@@ -81,7 +81,8 @@ and `exists()`. File readers also expose `read()` and `list()`. Built-in `file`,
 Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
 
-`github()` reads GitHub through `@vite-hub/forge`. `auth` is a token or a trusted
+`github()` reads GitHub through `@vite-hub/forge`, an optional peer that it loads on the first read. Install it with
+`pnpm add @vite-hub/forge`. A build of server code that calls `github()` without it fails with `VITE_HUB_R0136`. `auth` is a token or a trusted
 callback. Without `auth`, it reads Server Env `VITEHUB_GITHUB_TOKEN`, then
 `FORGES_GITHUB_TOKEN`. It does not read `GH_TOKEN` or `GITHUB_TOKEN`.
 `auth: false` reads without a token. `authenticated()` tells whether reads send a
@@ -157,26 +158,25 @@ export default defineWorkspace({
 Workspace owns paths, materialization, sync, and access rules. Source owns
 retrieval. Content owns parsed documents, navigation, queries, and search.
 
-## Optional name lookup
+## Name a Source with a file
+
+```ts [server/sources/docs.ts]
+import { glob } from "vite-hub/source"
+
+export default glob({ cwd: "docs", include: "**/*.md" })
+```
 
 ```ts fragment
-import { registerSources, useSource } from "@vite-hub/source"
-
-registerSources({ docs })
-
-declare global {
-  interface ViteHubSourceMap {
-    docs: typeof docs
-  }
-}
+import { useSource } from "vite-hub/source"
 
 await useSource("docs").read("intro.md")
 ```
 
-`useSource(name, context?)` opens the same managed reader through a process-local
-registry. Import the registration module before lookup. The Vite integration
-for Collections and Content does not generate `ViteHubSourceMap`.
-`RegisteredSource<"docs">` resolves a registered name to its definition type.
+The Vite integration finds each file in `server/sources/`. It registers the
+default export by the path of the file, such as `docs`, when the server starts,
+and writes the `ViteHubSourceMap` types to `.vitehub/types`. In Nuxt,
+`useSource` is auto-imported in server code. `RegisteredSource<"docs">` gives
+the Source type of a name.
 
 ## Split items into parts
 
@@ -184,7 +184,7 @@ for Collections and Content does not generate `ViteHubSourceMap`.
 sections of a Markdown file. Each part key is `<parent key>#<part key>`:
 
 ```ts
-import { createSource, splitSource, glob } from "@vite-hub/source"
+import { splitSource, glob, useSource } from "@vite-hub/source"
 
 const sections = splitSource({
   source: glob({ cwd: "docs", include: "**/*.md" }),
@@ -192,7 +192,7 @@ const sections = splitSource({
     .map(section => ({ key: section.slice(0, section.indexOf("\n")), content: section })),
 })
 
-await createSource(sections).read("guide.md#Usage")
+await useSource(sections).read("guide.md#Usage")
 ```
 
 The result is a Source definition. `get()` reads only the parent item of the
@@ -207,7 +207,7 @@ Use `cachedSource()` to add Nitro caching to a keyed reader. It loads
 ```ts fragment
 import { cachedSource } from "@vite-hub/source/server"
 
-const cachedDocs = cachedSource(createSource(docs), { name: "docs", maxAge: 60 })
+const cachedDocs = cachedSource(useSource(docs), { name: "docs", maxAge: 60 })
 await cachedDocs.get("intro.md")
 ```
 
@@ -215,7 +215,7 @@ Use a different cache name for each origin and access scope.
 
 The `cache` option of a loader, such as `github({ cache: { maxAge } })`, is a
 hint for the consumer of the Source. The Workspace reads it to decide when its
-copy of the Source content is stale. A reader from `createSource()` alone does
+copy of the Source content is stale. A reader from `useSource()` alone does
 not read `cache` and does not cache.
 
 ## Collections
@@ -240,6 +240,7 @@ export const articles = defineCollection(async ({ cursor, limit, query }) => {
   if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
   return await response.json() as Article[]
 }, {
+  access: 'public',
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),
   querySchema: v.object({ author: v.optional(v.string()) }),
@@ -265,7 +266,10 @@ export const useArticles = () => useCollection("articles", {
 ViteHub discovers modules in `server/collections` and generates the collection
 registry and GET handler. The module must export a Collection with the same name
 as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`.
-A Collection is a public read model unless it sets `authorize`. `authorize: true`
+Each routed Collection must set `authorize` or `access: "public"`, or
+`defineCollection()` throws `SOURCE_COLLECTION_ACCESS_REQUIRED`. `access: "public"` makes the route
+public. `authorize: false` throws `SOURCE_COLLECTION_AUTHORIZE_FALSE`, and `access: "public"` with
+`authorize` throws `SOURCE_COLLECTION_ACCESS_CONFLICT`. `authorize: true`
 requires a signed-in `@vite-hub/auth` session, and a callback receives
 `{ request, session, user }` and returns `true`, `false` for `403`, or a
 `Response`. The route checks access before it parses the query. Without a session
@@ -273,7 +277,8 @@ it returns `401`, and `useCollection()` sets `error` to a `CollectionAccessError
 with that `status`. Generated routes wrap the page with Auth's `withAuthorization` when the host
 enables Auth with a discovered Auth Definition (`hubSource({ auth: true })`
 alongside `hubAuth()` outside `vite-hub`); otherwise a
-Collection with `authorize` fails closed. Do not repeat the route under
+Collection with `authorize: true` or a callback fails closed. Set `route: false`
+to keep a Collection server-only. Then neither is needed. Do not repeat the route under
 `server/api`. Restart Nuxt after
 adding, removing, or renaming a Collection module so Nitro rebuilds its handler
 manifest.
@@ -296,6 +301,7 @@ It filters, searches, sorts, counts, and pages the array, and returns `total` an
 import { array, defineCollection } from "@vite-hub/source"
 
 export const articles = defineCollection({
+  access: 'public',
   source: array(() => loadArticles(), {
     facets: ["category"],
     filters: ["category", "authors.name"],
@@ -319,7 +325,17 @@ page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
 request. `table()` needs the optional `drizzle-orm` peer. Apps import it from
-`vite-hub/source/drizzle`.
+`vite-hub/source/drizzle`. `table()` selects every column. A public Collection
+over it must set `transform` to return only the public fields, or
+`defineCollection()` throws `SOURCE_COLLECTION_PUBLIC_TRANSFORM_REQUIRED`:
+
+```ts fragment
+export const authors = defineCollection({
+  access: 'public',
+  source: table({ db, orderBy: { column: users.id, direction: "asc", tieBreaker: users.id }, table: users }),
+  transform: ({ id, name }) => ({ id, name }),
+})
+```
 
 Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
 Cancelled reads reject with the signal's reason, including when a loader or

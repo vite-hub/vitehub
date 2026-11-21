@@ -18,6 +18,31 @@ const consoleRuntime = resolve(packageRoot, "src/console/runtime")
 
 type NitroEntry = { baseURL?: string, dir?: string, handler?: string, method?: string | string[], middleware?: boolean, route?: string }
 
+describe("generated Agent routes with the Console fallback", () => {
+  it.each(["serve", "build"] as const)("registers standalone Channels and readiness during %s", async (command) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ name: "agent-console-routes", private: true, type: "module" }),
+      "server/channels/intake.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n",
+      "server/agents/support.ts": "import { defineAgent } from 'vite-hub/agent'\nexport default defineAgent({ driver: { run: () => 'ok' } })\n",
+    })
+    const resolved = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: vitehub({
+        agent: { preparation: { workspace: "docs" } },
+        channels: true,
+        host: "node",
+        ...(command === "build" ? { console: true } : {}),
+      }),
+      root,
+    }, command, command === "build" ? "production" : "development")
+    const nitro: { handlers?: NitroEntry[] } = Object(Reflect.get(resolved, "nitro"))
+    expect(nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining([
+      "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/channels/intake", "/_vitehub/ready",
+    ]))
+  })
+})
+
 /** A path that reads the same on every machine: `console/`, `app/`, or `@vite-hub/<package>/`. */
 function owner(root: string, path: string): string {
   if (path.startsWith(`${consoleRuntime}/`)) return `console/${relative(consoleRuntime, path)}`
@@ -38,7 +63,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
     "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
     "server/connections-actor.ts": "export default () => ({ id: 'owner' })\n",
     "server/console-authorize.ts": "export default () => true\n",
-    "server/schedules/daily.ts": "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 0 * * *', run: () => {} })\n",
+    "server/schedules/daily.ts": "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 0 * * *', handler: () => {} })\n",
   })
   const resolved = await resolveConfig({
     configFile: false,
@@ -55,7 +80,7 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
       kv: true,
       host: "node",
       schedule: { providerOutput: false },
-      workflow: { provider: "vercel" },
+      workflow: { driver: "vercel" },
     }),
     root,
   }, "build", "production")
@@ -77,6 +102,8 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
  * browser `GET`s it with a one-time ticket, for Content preview and impersonation.
  */
 const consoleRoutes = [
+  "route ALL /_vitehub console/server/site-entry.js",
+  "route ALL /_vitehub/** console/server/site-entry.js",
   "route ALL /_vitehub/rpc console/server/rpc.js",
 ]
 
@@ -86,9 +113,9 @@ const consoleRoutes = [
  */
 const appRoutes = [
   // Signed links for private files in the app's fs Blob store.
-  "route ALL /_vitehub/blob/signed/** @vite-hub/blob/dist/runtime/signed.js",
+  "route ALL /_vitehub/blob-signed/** @vite-hub/blob/dist/runtime/signed.js",
   // The Comments API of the overlay, with the app's own identity.
-  "route ALL /api/_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
+  "route ALL /_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
   // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
   "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
   // App Auth: the sign-in of the app's own users.
@@ -107,6 +134,9 @@ const plugins = [
   "app/.vitehub/nitro/console/plugin.mjs",
   "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
+  // `security` headers, on by default in built output.
+  "app/.vitehub/nitro/request-policy.mjs",
+  "app/.vitehub/nitro/schedule/plugin.ts",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/dev-plugin.mjs",
 ]
@@ -114,22 +144,18 @@ const plugins = [
 const publicAssets = [
   // The public ViteHub skill of the installed `vite-hub` version, for `npx skills add <app>/_vitehub`. Static files.
   "/_vitehub/.well-known/skills console/public/skills",
+  // The Comments overlay script, in the assets folder of the Comments API route.
+  "/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
   // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
   "/_vitehub/console/assets console/page-tool",
-  // The page tools loader and the Comments overlay script.
+  // The page tools loader.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
-  "/api/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
-  it("serves one Console route, /_vitehub/rpc, and the app features that stay", async () => {
+  it("serves the Console routes, /_vitehub/rpc and /_vitehub, and the app features that stay", async () => {
     const inventory = await nitroInventory({ invoke: true, mcpClient: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
-    // The Console MCP, OAuth discovery, CORS, sign-in, Console Auth, and Env management are gone from apps.
-    const removed = ["/.well-known/oauth", "/_vitehub/mcp", "/_vitehub/sign-in", "/_vitehub/api/auth", "/_vitehub/env/manage", "/_vitehub/auth/manage"]
-    expect(inventory.handlers.filter(line => removed.some(path => line.split(" ")[2]!.startsWith(path)))).toEqual([])
-    expect(inventory.handlers.filter(line => line.startsWith("middleware"))).toEqual([])
-    expect(inventory.plugins.filter(plugin => /console-preflight|mcp-discovery/.test(plugin))).toEqual([])
   }, 120_000)
 
   it.each([

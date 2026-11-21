@@ -2,13 +2,11 @@ import { afterEach, expect, it, vi } from "vitest"
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import type { EmailDriver, EmailMessage } from "../src/index.ts"
+import type { EmailDriverResult } from "../src/types.ts"
 
 const fixture = vi.hoisted(() => ({
   initialize: vi.fn(),
-  send: vi.fn(async () => ({
-    data: { at: new Date(), driver: "fixture", id: "provider-1" },
-    error: null,
-  })),
+  send: vi.fn(async (): Promise<EmailDriverResult> => [undefined, { at: new Date(), driver: "fixture", id: "provider-1" }]),
 }))
 
 const definition = {

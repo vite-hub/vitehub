@@ -1,30 +1,20 @@
-// Display formatters that every @vite-hub/ui component shares, so a time, a duration, or a name reads the same in a
+// Display formatters that every @vite-hub/ui component shares, so a duration or a name reads the same in a
 // comment, a trace, and a boot checklist.
 
-const relativeUnits: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ["day", 86_400_000],
-  ["hour", 3_600_000],
-  ["minute", 60_000],
-];
+const milliseconds = new Intl.DurationFormat("en", { style: "narrow", millisecondsDisplay: "always" });
+const tenths = new Intl.DurationFormat("en", { style: "narrow", milliseconds: "numeric", fractionalDigits: 1 });
+const minutes = new Intl.DurationFormat("en", { style: "narrow", secondsDisplay: "always" });
 
-/** "5 minutes ago", "yesterday", or "now" for under a minute. */
-export function timeAgo(at: number, now: number = Date.now()): string {
-  const difference = at - now;
-  for (const [unit, size] of relativeUnits) {
-    if (Math.abs(difference) >= size) {
-      return new Intl.RelativeTimeFormat("en", { numeric: "auto" }).format(Math.round(difference / size), unit);
-    }
-  }
-  return "now";
-}
-
-/** "320 ms", "1.2 s", "30 s", or "1 min 35 s". Seconds round down, so a running counter never shows "60 s". */
+/** "320ms", "1.2s", "30s", or "1m 35s". Seconds round down, so a running counter never shows "60s". */
 export function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${Math.round(ms)} ms`;
-  const seconds = ms / 1_000;
-  if (seconds < 10) return `${seconds.toFixed(1)} s`;
-  if (seconds < 60) return `${Math.floor(seconds)} s`;
-  return `${Math.floor(seconds / 60)} min ${Math.floor(seconds % 60)} s`;
+  const whole = Math.round(ms);
+  if (whole < 1_000) return milliseconds.format({ milliseconds: whole });
+  // 999.6 ms rounds up to a second, so it reads "1.0s", not "1,000ms".
+  const elapsed = Math.max(ms, 1_000);
+  const seconds = Math.floor(elapsed / 1_000);
+  if (seconds < 10) return tenths.format({ seconds, milliseconds: Math.floor(elapsed % 1_000) });
+  if (seconds < 60) return minutes.format({ seconds });
+  return minutes.format({ minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
 }
 
 /** Two letters for an avatar without an image: `Ana Lopez` and `ana.lopez@vitehub.dev` are `AL`, `Ana` is `AN`. */

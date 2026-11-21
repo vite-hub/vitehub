@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_MAX_PARALLEL = 2
-// A package build writes only inside its own package, so builds run in dependency order, four at a time, like `vp run build`.
+// Uncached builds only write inside their package. Cached builds share Vite+'s SQLite cache, so run one writer at a time.
 const BUILD_MAX_PARALLEL = 4
 const LEADING_BUILD = /^vp run (?:--cache )?-t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
@@ -397,7 +397,7 @@ export async function runPackageTask(options) {
     const buildPackages = buildClosure(selected, packageByName)
     buildResults = await runPhase({
       execute,
-      maxParallel: BUILD_MAX_PARALLEL,
+      maxParallel: options.cache ? 1 : BUILD_MAX_PARALLEL,
       packages: buildPackages,
       packageByName,
       parallelSafePackages: buildPackages.map(pkg => pkg.name),

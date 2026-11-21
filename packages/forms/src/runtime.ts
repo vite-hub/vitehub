@@ -1,26 +1,34 @@
+import { clientAddressKey, createClientRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
+
 import { createDrizzleFormsStore } from "./database.ts"
 import { isFormDefinition } from "./define.ts"
 import { formsDiagnostics } from "./errors.ts"
 import { handleFormRequest } from "./handler.ts"
 import { createFormsInbox } from "./inbox.ts"
 import { createMemoryFormsStore } from "./memory.ts"
+import { formsTableNames } from "./table-names.ts"
 
 import type { FormsDatabase } from "./database.ts"
 import type { FormsInbox } from "./inbox.ts"
-import type { FormDefinition, FormEmailMessage, FormRateLimit, FormRateLimitDecision, FormServices, FormsStore, FormUser } from "./types.ts"
+import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
+import type { FormDefinition, FormEmailMessage, FormServices, FormsStore, FormUser } from "./types.ts"
 
-/** The Database registry of `@vite-hub/database/runtime/registry`, as the generated handler passes it. */
-export type FormsDatabaseRegistry = Record<string, { db: FormsDatabase } | undefined>
+/**
+ * `useDatabase()` of `@vite-hub/database/runtime/registry`, as the generated handler passes it. Without a name it returns
+ * the Database that `vitehub database generate` adds the Forms table to: `default`, else the only one.
+ */
+export type FormsUseDatabase = (name?: string) => { db: FormsDatabase }
 
 /** What the generated route of a ViteHub app passes. Each service is there only when the app has its feature. */
 export interface FormsRuntimeOptions {
   /** The default export of each `server/forms/<name>.ts`, by name. */
   forms: Record<string, unknown>
-  /** The Database registry, and the name that the forms use. */
-  databases?: FormsDatabaseRegistry
+  /** Returns the Database, and the name that the forms use. */
+  useDatabase?: FormsUseDatabase
   database?: string
   /**
-   * Without `databases`, keep submissions in the memory of this process. The generated handler sets it only on a
+   * Without `useDatabase`, keep submissions in the memory of this process. The generated handler sets it only on a
    * development server. Without both, a form that stores submissions answers 503.
    */
   memory?: boolean
@@ -30,60 +38,28 @@ export interface FormsRuntimeOptions {
   session?: (request: Request) => Promise<FormUser | null>
   /** The Standard Context of a request, from `getStandardContext()`: the client address in `runtime`, and `waitUntil`. */
   context?: (request: Request) => { runtime?: { clientAddress?: string, cloudflare?: object }, waitUntil?: (promise: Promise<unknown>) => void }
+  /**
+   * `checkRateLimit` of ViteHub Rate Limit. The generated handler passes it when Rate Limit counts in a KV store that
+   * every server process shares. Forms then counts each form and address under the Rate Limit name `forms`. Without
+   * it, or when the store does not answer, Forms counts in the memory of this process.
+   */
+  rateLimit?: FormsSharedRateLimit
 }
 
-const units: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
-
-function windowMs(window: string): number {
-  const [, amount, unit] = /^(\d+)(ms|s|m|h|d)$/.exec(window) ?? []
-  return Number(amount) * (units[unit ?? "m"] ?? 60_000)
-}
-
-/** A fixed window for each key, in this process only. Enough for one Node server; a Worker should use Rate Limit. */
-export function memoryFormRateLimit(now: () => number = Date.now): (key: string, policy: FormRateLimit) => FormRateLimitDecision {
-  const windows = new Map<string, { count: number, resetAt: number }>()
-  let nextSweep = 0
-  return (key, policy) => {
-    const time = now()
-    // At most one sweep a second, so many live keys do not make every request walk the map.
-    if (windows.size > 10_000 && time >= nextSweep) {
-      nextSweep = time + 1000
-      for (const [stale, entry] of windows) if (entry.resetAt <= time) windows.delete(stale)
-    }
-    const current = windows.get(key)
-    const entry = current && current.resetAt > time ? current : { count: 0, resetAt: time + windowMs(policy.window) }
-    entry.count += 1
-    windows.set(key, entry)
-    return entry.count <= policy.limit ? { allowed: true } : { allowed: false, retryAfter: (entry.resetAt - time) / 1000 }
-  }
-}
-
-/** An IPv6 address counts as its /64 network, since one host can use any address in it. */
-export function addressKey(address: string): string {
-  if (!address.includes(":") || address.includes(".")) return address
-  const [head = "", tail = ""] = address.toLowerCase().split("::")
-  const left = head ? head.split(":") : []
-  const right = tail ? tail.split(":") : []
-  const groups = address.includes("::") ? [...left, ...Array.from({ length: 8 - left.length - right.length }, () => "0"), ...right] : left
-  return `${groups.slice(0, 4).map(group => group.replace(/^0+(?=.)/, "")).join(":")}::/64`
-}
-
-/** The Database that `database` names, else `default`, else the only one. */
-function selectDatabase(databases: FormsDatabaseRegistry, name?: string): FormsDatabase | undefined {
-  if (name) return databases[name]?.db
-  if (databases.default) return databases.default.db
-  const names = Object.keys(databases)
-  return names.length === 1 ? databases[names[0]!]?.db : undefined
-}
+/** The part of `checkRateLimit()` from `vite-hub/rate-limit` that Forms calls. */
+export type FormsSharedRateLimit = SharedRateLimit
 
 const installedKey = Symbol.for("vitehub.forms.installed")
+const rejectMissingStore = () => Promise.reject(new Error("[vitehub] Forms has no store."))
 
 /** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
 const emptyFormsStore: FormsStore = {
-  insert: () => Promise.reject(new Error("[vitehub] Forms has no store.")),
+  insert: rejectMissingStore,
+  insertWith: rejectMissingStore,
   list: async () => [],
   get: async () => undefined,
   setStatus: async () => undefined,
+  deleteUser: async () => undefined,
 }
 
 /** The forms and inbox of the running app, for the Console and MCP tools. */
@@ -99,33 +75,37 @@ export function installedForms(): InstalledForms | undefined {
 }
 
 /**
- * The `{ fetch }` route of every form at `<base>api/_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
+ * The `{ fetch }` route of every form at `<base>_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
  */
-export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response> } {
+export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (request: Request) => Promise<Response>, registerUserData: (app: unknown) => void } {
   const forms = new Map<string, FormDefinition>()
   for (const [name, form] of Object.entries(options.forms)) {
     if (!isFormDefinition(form)) throw formsDiagnostics.FORMS_C0001({ message: `[vitehub] server/forms/${name} must default-export defineForm({ schema }).` })
     forms.set(name, form)
   }
-  const { databases } = options
-  const store: FormsStore | undefined = databases
+  const { useDatabase } = options
+  const store: FormsStore | undefined = useDatabase
     ? createDrizzleFormsStore(() => {
-        const db = selectDatabase(databases, options.database)
-        if (!db) throw new Error(`[vitehub] Forms has no Database${options.database ? ` named ${JSON.stringify(options.database)}` : ""}.`)
-        return db
+        // The registry also holds a placeholder `default` that throws, so ask it which Database the forms use.
+        try {
+          return useDatabase(options.database).db
+        }
+        catch (cause) {
+          throw formsDiagnostics.FORMS_DATABASE_MISSING({ database: options.database, cause })
+        }
       })
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
-  const memoryLimit = memoryFormRateLimit()
   const { sendEmail, session, context } = options
+  // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
+  const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })
   const services = (request: Request): FormServices => {
     const host = context?.(request)
-    const address = addressKey(host?.runtime?.clientAddress ?? (host?.runtime?.cloudflare ? request.headers.get("cf-connecting-ip") : undefined) ?? "unknown")
+    const address = clientAddressKey(request, host)
     return {
       ...(store ? { store } : {}),
-      // Counts in this server process. Rate Limit on Cloudflare needs each limit name at build time.
-      rateLimit: async (_, key, policy) => memoryLimit(`${key}:${address}`, policy),
+      rateLimit: (_, key, policy) => rateLimit(request, `${key}:${address}`, policy),
       ...(sendEmail ? { email: async (message: FormEmailMessage) => {
         const [error] = await sendEmail(message)
         if (error) throw error
@@ -136,6 +116,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     }
   }
   return {
+    registerUserData(app) {
+      if (store) registerViteHubUserData(app, { owner: "forms", tables: Object.values(formsTableNames), delete: userId => store.deleteUser(userId) })
+    },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
       let name = segment
