@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Runs coding-agent tasks against the raw docs with and without `::agent-only` content.
-// Usage: node evals/agent-docs/run.mjs [--tasks a,b] [--variants agent,baseline] [--repeat 1] [--model sonnet] [--concurrency 2] [--keep]
+// Runs coding-agent tasks against the raw docs with and without `::agent-only` content, and optionally with the `vitehub` skill.
+// Usage: node evals/agent-docs/run.mjs [--tasks a,b] [--variants agent,baseline,skill] [--repeat 1] [--model sonnet] [--concurrency 2] [--keep]
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -75,19 +75,22 @@ function writeProject(root, files = {}) {
 
 const instructions = [
   "You are working in a Vite application that uses Nitro for server routes. Dependencies are not installed; do not install them.",
-  "The ViteHub documentation is in ./vitehub-docs as Markdown. A link to https://vitehub.dev/docs/<path> is the file ./vitehub-docs/docs/<path>.md.",
+  "The ViteHub documentation is in ./vitehub-docs as Markdown. A link to https://vitehub.dev/docs/<path> or https://vitehub.dev/raw/docs/<path>.md is the file ./vitehub-docs/docs/<path>.md.",
   "Use only those files as the ViteHub reference. Write the code, then stop.",
 ].join("\n");
 
-function runAgent(cwd, prompt) {
+const skillInstructions = "The vitehub skill is installed. Use it as well as the docs.";
+
+function runAgent(cwd, prompt, variant) {
   const command = [
-    "-p", `${instructions}\n\nTask: ${prompt}`,
+    "-p", `${instructions}${variant === "skill" ? `\n${skillInstructions}` : ""}\n\nTask: ${prompt}`,
     "--output-format", "json",
     "--model", args.model,
     "--permission-mode", "bypassPermissions",
     "--setting-sources", "project",
     "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
-    "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Skill", "Agent",
+    // The `skill` variant keeps the Skill tool, so the agent can load `.claude/skills/vitehub`.
+    "--disallowedTools", "Bash", "WebFetch", "WebSearch", ...(variant === "skill" ? [] : ["Skill"]), "Agent",
     "--no-session-persistence",
   ];
   return new Promise((resolvePromise) => {
@@ -107,10 +110,23 @@ function runAgent(cwd, prompt) {
   });
 }
 
+/** Reads the value at `keys` in a JSON file, so a check can test one parsed field. */
+function readJsonValue(source, keys) {
+  try {
+    const value = keys.reduce((object, key) => object?.[key], JSON.parse(source));
+    return typeof value === "string" ? value : "";
+  }
+  catch {
+    return "";
+  }
+}
+
 function grade(root, checks) {
-  const files = listFiles(root).map(path => relative(root, path)).filter(path => !path.startsWith("vitehub-docs/"));
+  const files = listFiles(root).map(path => relative(root, path)).filter(path => !path.startsWith("vitehub-docs/") && !path.startsWith(".claude/"));
   return checks.map((check) => {
-    const sources = files.filter(path => new RegExp(check.files).test(path)).map(path => readFileSync(resolve(root, path), "utf8"));
+    const sources = files.filter(path => new RegExp(check.files).test(path))
+      .map(path => readFileSync(resolve(root, path), "utf8"))
+      .map(source => check.json ? readJsonValue(source, check.json) : source);
     const found = sources.some(source => new RegExp(check.pattern).test(source));
     return { label: check.label, passed: found === (check.expect ?? true) };
   });
@@ -125,9 +141,10 @@ async function runJob({ attempt, task, variant }) {
   const root = resolve(outputRoot, `${task.id}-${variant}-${attempt}`);
   mkdirSync(root, { recursive: true });
   writeProject(root, task.files);
-  writeDocs(resolve(root, "vitehub-docs"), variant === "agent", references);
+  writeDocs(resolve(root, "vitehub-docs"), variant !== "baseline", references);
+  if (variant === "skill") cpSync(resolve(docsRoot, "skills/vitehub"), resolve(root, ".claude/skills/vitehub"), { recursive: true });
   const started = Date.now();
-  const run = await runAgent(root, task.prompt);
+  const run = await runAgent(root, task.prompt, variant);
   const checks = grade(root, task.checks);
   const result = {
     attempt,

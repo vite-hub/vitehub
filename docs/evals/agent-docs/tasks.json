@@ -41,9 +41,9 @@
       "server/api/invoices.get.ts": "import { defineEventHandler } from 'h3'\n\nexport default defineEventHandler(() => [{ id: 1, customer: 'Acme', total: 4200 }])\n"
     },
     "checks": [
-      { "label": "imports forwardAuth from ViteHub", "files": "^server/.*\\.ts$", "pattern": "from ['\"]vite-hub/auth/forward['\"]" },
-      { "label": "adds forwardAuth to the Auth Definition", "files": "^server/auth\\.ts$", "pattern": "forwardAuth\\(" },
-      { "label": "verifies the forwarded token", "files": "^server/auth\\.ts$", "pattern": "verify\\s*[:(]" },
+      { "label": "imports forwardAuth from ViteHub", "files": "^server/auth\\.ts$", "pattern": "from ['\"]vite-hub/auth/forward['\"]" },
+      { "label": "adds forwardAuth to the plugins of the Auth Definition", "files": "^server/auth\\.ts$", "pattern": "defineAuth\\(\\s*\\{[\\s\\S]*\\bplugins\\s*:\\s*\\[[^\\]]*?\\bforwardAuth\\(" },
+      { "label": "verifies the token with GitHub", "files": "^server/auth\\.ts$", "pattern": "\\bverify\\s*[:(][\\s\\S]*api\\.github\\.com/user" },
       { "label": "does not read the proxy headers in its own code", "files": "^server/(?!auth\\.ts$).*\\.ts$", "pattern": "x-auth-request", "expect": false }
     ]
   },
@@ -56,8 +56,8 @@
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nimport { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'\n\nexport default defineDatabase({\n  schema: {\n    invoices: sqliteTable('invoices', {\n      id: integer('id').primaryKey({ autoIncrement: true }),\n      customer: text('customer').notNull(),\n      total: integer('total').notNull(),\n    }),\n  },\n})\n"
     },
     "checks": [
-      { "label": "sets backup in migrateOnStart", "files": "^vite\\.config\\.ts$", "pattern": "migrateOnStart:\\s*\\{[\\s\\S]*backup" },
-      { "label": "keeps 5 copies", "files": "^vite\\.config\\.ts$", "pattern": "keep:\\s*5" },
+      { "label": "turns on backup in migrateOnStart", "files": "^vite\\.config\\.ts$", "pattern": "migrateOnStart\\s*:\\s*\\{[^}]*?\\bbackup\\s*:\\s*(?:true\\b|\\{)" },
+      { "label": "keeps 5 copies in the backup option", "files": "^vite\\.config\\.ts$", "pattern": "migrateOnStart\\s*:\\s*\\{[^}]*?\\bbackup\\s*:\\s*\\{[^}]*?\\bkeep\\s*:\\s*5\\b" },
       { "label": "does not copy the file in its own code", "files": "^(?:server|scripts)/", "pattern": "VACUUM INTO|copyFile|\\.backup\\(", "expect": false }
     ]
   },
@@ -70,8 +70,8 @@
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nimport { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'\n\nexport default defineDatabase({\n  schema: {\n    invoices: sqliteTable('invoices', {\n      id: integer('id').primaryKey({ autoIncrement: true }),\n      customer: text('customer').notNull(),\n      total: integer('total').notNull(),\n    }),\n  },\n})\n"
     },
     "checks": [
-      { "label": "adds the table to the Database Definition", "files": "^server/databases/.*\\.ts$", "pattern": "sqliteTable\\(\\s*['\"]audit_events['\"]" },
-      { "label": "db:generate runs vitehub database generate", "files": "^package\\.json$", "pattern": "\"db:generate\":\\s*\"[^\"]*vitehub database generate" },
+      { "label": "registers the table in the Database Definition schema", "files": "^server/databases/default\\.ts$", "pattern": "schema\\s*:\\s*\\{[\\s\\S]*?\\b\\w+\\s*:\\s*sqliteTable\\(\\s*['\"]audit_events['\"]|const\\s+(\\w+)\\s*=\\s*sqliteTable\\(\\s*['\"]audit_events['\"][\\s\\S]*schema\\s*:\\s*\\{[\\s\\S]*?\\b\\1\\b" },
+      { "label": "db:generate runs vitehub database generate", "files": "^package\\.json$", "json": ["scripts", "db:generate"], "pattern": "^(?:(?:pnpm|npm|yarn)(?: exec| run)? |npx )?vitehub database generate(?:\\s|$)" },
       { "label": "writes no Drizzle Kit config", "files": "^drizzle\\.config\\.\\w+$", "pattern": "[\\s\\S]", "expect": false },
       { "label": "does not call drizzle-kit directly", "files": "^package\\.json$", "pattern": "drizzle-kit (?:generate|migrate|push)", "expect": false }
     ]
