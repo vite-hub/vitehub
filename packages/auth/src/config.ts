@@ -350,6 +350,7 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   }
   const returned = readReturnedObject(options)
   assertAuthDatabasePlacement(options, returned, authDatabase)
+  assertOneReturnWithPages(options)
   return returned === undefined ? undefined : { authDatabase, body: returned, callback: true, plugins }
 }
 
@@ -536,11 +537,33 @@ function readAuthAccessSignInConfig(body: ObjectExpression | undefined): Pick<Re
   return resolved
 }
 
+/** The build reads only the first return of a callback, so access.pages in any other branch would go unguarded. */
+function assertOneReturnWithPages(options: Expression): void {
+  if (options.type !== "ArrowFunctionExpression" || options.body.type !== "BlockStatement") return
+  const returned: (Expression | null | undefined)[] = []
+  walk(options.body, (node) => {
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+    if (node.type === "ReturnStatement") returned.push(node.argument)
+  })
+  const declaresPages = (argument: Expression | null | undefined) => {
+    const body = objectLiteral(argument && unwrapExpression(argument))
+    if (!hasObjectProperty(body, "access")) return false
+    const access = readObjectPropertyValue(body, "access")
+    const object = objectLiteral(access && unwrapExpression(access))
+    return !object || hasObjectProperty(object, "pages")
+  }
+  if (returned.length > 1 && returned.some(declaresPages)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "A `defineAuth()` callback that sets access.pages must have one `return`, so that the build reads the same pages as every request." })
+  }
+}
+
 /** `access.pages`, which the Nuxt module turns into route rules at build time, like `access.signIn`. */
 function readAuthAccessPagesConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "pages"> {
   if (!hasObjectProperty(body, "access")) return {}
   const expression = readObjectPropertyValue(body, "access")
-  const access = objectLiteral(expression && unwrapExpression(expression))
+  const unwrapped = expression && unwrapExpression(expression)
+  if (unwrapped?.type === "Identifier" && unwrapped.name === "undefined") return {}
+  const access = objectLiteral(unwrapped)
   // A variable, a call, a spread or a computed key can hide `pages` from the build, while the Definition has it at runtime.
   if (!access || readObjectEntries(access).some(entry => !entry.key)) {
     throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access must be an inline object with only static keys, without a spread, so that the build can read access.pages." })

@@ -331,6 +331,24 @@ describe("resolveAuthViteConfig", () => {
   })
 
   it.each([
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { pages: { '/dashboard/**': 'user' } } } })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { access: sharedAccess }\n  return {} })",
+  ])("stops the build when a branch of %s can set access.pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
+  })
+
+  it.each([
+    "defineAuth({ access: undefined })",
+    "defineAuth(({ env }) => { if (env.PREVIEW) return { secret: env.AUTH_SECRET }\n  return { secret: env.AUTH_SECRET, access: { routes: ['/api/**'] } } })",
+  ])("builds %s without pages", async (call) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", ["import { defineAuth } from '@vite-hub/auth'", `export default ${call}`])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.access.pages).toBeUndefined()
+  })
+
+  it.each([
     "defineAuth(({ env }) => ({ secret: env.AUTH_SECRET }))",
     "defineAuth(() => ({ access: { signIn: '/login', pages: { '/dashboard/**': 'user' } } as const }))",
   ])("reads the pages of %s", async (call) => {
