@@ -290,7 +290,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (Object.keys(prepared.plan.questions).length) {
         try {
           // SAFETY: The plan questions come from the `ask` builders.
-          const [askError, asked] = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
+          const [askError, asked] = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { onUsage: request?.onUsage, signal: request?.signal })
           if (askError) return [gatewayFailed(askError)]
           answers = asked
         }

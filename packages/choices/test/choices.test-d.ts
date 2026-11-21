@@ -3,6 +3,8 @@ import { describe, expectTypeOf, it } from "vitest"
 import { defineChoices } from "../src/index.ts"
 import { wordGateway } from "./support.ts"
 
+import type { AiGatewayUsage } from "@vite-hub/gateways"
+
 describe("defineChoices types", () => {
   it("types selections from the declared options", async () => {
     const choices = defineChoices({
@@ -28,6 +30,16 @@ describe("defineChoices types", () => {
     // @ts-expect-error The context has the wrong shape.
     void needs.resolve("a", { context: { tenant: 1 } })
     void needs.resolve("a", { context: { tenant: "acme" } })
+  })
+
+  it("passes the gateway usage type to onUsage, with or without context", () => {
+    const plain = defineChoices({ gateway: wordGateway(), groups: { chart: { label: "Chart", options: [{ label: "Bar", value: "bar" }] } } })
+    void plain.resolve("bar", { onUsage: usage => expectTypeOf(usage).toEqualTypeOf<AiGatewayUsage>() })
+    const needs = defineChoices({
+      gateway: wordGateway(),
+      groups: { site: { label: "Site", options: async (_context: { tenant: string }) => [{ label: "A", value: "a" }] } },
+    })
+    void needs.resolve("a", { context: { tenant: "acme" }, onUsage: usage => expectTypeOf(usage).toEqualTypeOf<AiGatewayUsage>() })
   })
 
   it("keeps required context when static groups are present", () => {

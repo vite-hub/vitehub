@@ -44,6 +44,16 @@ selection.chart // { value: null, confidence: 0.9, ranked: [{ value: 'line', pro
 
 `resolve()` returns `[error, data]` and never throws. Definition errors throw when you define the choices.
 
+`resolve(text, { context?, signal?, onUsage? })` takes these request options:
+
+| Option | Meaning |
+| --- | --- |
+| `context` | Passed to `options` functions. |
+| `signal` | Cancels the gateway request. |
+| `onUsage` | Receives the model, provider, and token counts of each gateway request. Jev sends at most 60 KB of questions per request, so it can run more than once in one `resolve()`. It does not run when no question is sent. |
+
+Each multi-select option is one question, each single-select group is one question, and the `supported` check is one more unless every group infers. A multi-select group with 100 options sends 101 questions. A single-select group with 100 options sends 2.
+
 ## The bridges
 
 | You write | We do |
