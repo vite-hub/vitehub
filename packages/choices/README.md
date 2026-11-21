@@ -39,10 +39,22 @@ const [error, selection] = await forecast.resolve('nord parts except vak supply'
 if (error) return handle(error)
 
 selection.supplier // { include: ['S2'], exclude: ['S1'] }
-selection.chart // { value: null, confidence: 0.9, ranked: [{ value: 'line', probability: 0.5 }, ...] }
+selection.chart // { value: null, confidence: 0, ranked: [{ value: 'line', probability: 0.1 }, ...] }
 ```
 
 `resolve()` returns `[error, data]` and never throws. Definition errors throw when you define the choices.
+
+`resolve(text, { context?, signal?, onUsage? })` takes these request options:
+
+| Option | Meaning |
+| --- | --- |
+| `context` | Passed to `options` functions. |
+| `signal` | Cancels the gateway request. |
+| `onUsage` | Receives the model, provider, and token counts the gateway reports. Jev sends at most 60 KB of questions per request, so it can run more than once in one `resolve()`. It does not run when no question is sent or the gateway reports no usage. |
+
+No callback does not mean that no request was sent or no tokens were used.
+
+Each multi-select option is one question, and each non-empty single-select group is one question, except that an `infer` group with one option sends none. The `supported` check adds one question if at least one non-empty group does not infer. With one group and 100 options, multi-select sends 101 questions and single-select sends 2, or 1 with `infer: true`.
 
 ## The bridges
 
@@ -64,7 +76,7 @@ options: async ({ tenantId }: { tenantId: string }) => toOptions(await loadSites
 | Option | Meaning |
 | --- | --- |
 | `multiple: true` (default) | Any number of options. The selection is `{ include, exclude }`. |
-| `multiple: false` | At most one option. The selection is `{ value, confidence, ranked }`. `value` is `null` below `thresholds.option`. |
+| `multiple: false` | At most one option. The selection is `{ value, confidence, ranked }`. `confidence` is the probability of `value`. `value` is `null` and `confidence` is `0` below `thresholds.option`. |
 | `hints` | A short note for the model about this group. |
 
 The top-level `hints` apply to every question. Put your domain words there, such as "mtop means Make to order".
@@ -120,6 +132,19 @@ A newer request cancels the older one through `signal`, and the older result nev
 | `DECISIONS_R0006` | The model answer misses a question. |
 
 `thresholds.option` (0.5) decides one option. `thresholds.supported` (0.6) decides whether the text can be expressed at all. A decision model answers from the options you gave it. It cannot compare numbers or invent a value.
+
+## Test
+
+`@vite-hub/choices/testing` has two gateways that need no key. `selectionGateway(selection)` returns the selection that you give, by group key and option value. It validates the values against the loaded groups without applying model thresholds. Leave a group out to select nothing, even when it has `infer: true`:
+
+```ts fragment
+import { selectionGateway, unsupported } from '@vite-hub/choices/testing'
+
+const choices = defineChoices({ gateway: selectionGateway<typeof groups>({ supplier: { include: ['S2'] }, chart: 'bar' }), groups })
+await choices.resolve('anything') // [undefined, { supplier: { include: ['S2'], exclude: [] }, chart: { value: 'bar', ... } }]
+```
+
+Pass a function, `(text, context) => selection`, to answer from the request. Return `unsupported` for `DECISIONS_R0004`, and throw for `DECISIONS_R0005`. `wordGateway()` answers by word match, for examples and local dev without a key. For a failing provider, pass `scriptedAsk()` from `@vite-hub/gateways/testing`.
 
 ## Inspect
 
