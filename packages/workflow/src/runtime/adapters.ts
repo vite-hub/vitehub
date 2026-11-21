@@ -1,4 +1,5 @@
-import { deserializeResponse, getViteHubErrorShape, isSerializedResponse } from "@vite-hub/runtime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -344,10 +345,17 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
     resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, signal, workflow }) => {
       const binding = resolveCloudflareInspectionBinding(getWorkflowRuntimeEvent(), config.binding, workflow)
       if (!binding) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+      const { instance, run: current } = await readCloudflareRun(binding, run)
+      if (!instance || finishedRunStatuses.has(current.status)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
       await runWorkflowProviderOperation("cloudflare", "resume-signal", async () => {
-        const instance = await binding.get(run)
         if (!instance.sendEvent) unsupportedOperation("cloudflare", "signals")
-        await instance.sendEvent({ payload, type: cloudflareSignalEventType(signal) })
+        try {
+          await instance.sendEvent({ payload, type: cloudflareSignalEventType(signal) })
+        }
+        catch (error) {
+          if (isCloudflareInstanceNotFound(error)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+          throw error
+        }
       })
     }),
   }
@@ -377,8 +385,8 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     get: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
       ? await getOpenWorkflowRun(config, name, id)
       : await inline.get({ event, id, name }),
-    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run }) => {
-      if (!await resumeOpenWorkflowSignal(config, token, payload)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
+    resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, workflow }) => {
+      if (!await resumeOpenWorkflowSignal(config, workflow, run, token, payload)) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_NOT_WAITING({ run })
     }),
     run: async (context) => {
       const { definition, event, name, options, payload, startAt } = context

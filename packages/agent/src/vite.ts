@@ -45,6 +45,7 @@ import {
 import {
   configureCloudflareAgentState,
   defaultCloudflareAgentStateBinding,
+  defaultCloudflareAgentStateClassName,
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { agentStateAuthTokenEnvNames, normalizeAgentOptions } from "./config.ts"
@@ -2853,6 +2854,8 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let runtimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let standaloneRuntimeCapabilities: GeneratedAgentRuntimeCapability[] = []
   let installsCloudflareState = false
+  // True once the Nitro config of a build binds the Agent state Durable Object.
+  let bindsCloudflareState = false
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/agent/vite")
@@ -3281,6 +3284,18 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
               ? [{ description: "Generated Netlify Agent function", owner: "agent", path: join(createDefaultNetlifyOutputRoot(rootDir), "functions", `${netlifyAgentFunctionName}.mjs`) }]
               : []),
           ],
+          resources: () => bindsCloudflareState
+            ? [{
+                binding: defaultCloudflareAgentStateBinding,
+                definition: "state",
+                host: "cloudflare",
+                kind: "cloudflare-durable-object",
+                name: defaultCloudflareAgentStateClassName,
+                note: "Agents keep conversation state in this Durable Object. The Worker exports its class.",
+                owner: "agent",
+                source: "name",
+              }]
+            : [],
         }
       },
     },
@@ -3312,6 +3327,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       }
       const installCloudflareState = hasHostedAgents && !denoOutput && shouldInstallCloudflareAgentState(resolved, config, environment?.command)
       installsCloudflareState ||= installCloudflareState
+      bindsCloudflareState ||= installCloudflareState
       if (resolved && hasHostedAgents && !denoOutput && environment?.command === "build" && typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function") {
         const buildConfig = { ...config, root, command: environment.command }
         warnMissingServerlessStateUrl(buildConfig, resolveLibsqlAgentState(resolved, buildConfig))

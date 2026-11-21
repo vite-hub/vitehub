@@ -244,6 +244,7 @@ export async function shareAudio(file: Blob) {
   const [downloadError, download] = await blob.sign("private/audio.mp3", {
     method: "GET",
     expiresIn: 60 * 60,
+    download: "Interview.mp3",
   })
   if (downloadError) throw downloadError
 
@@ -251,6 +252,7 @@ export async function shareAudio(file: Blob) {
     method: "PUT",
     expiresIn: "15m",
     contentType: "audio/mpeg",
+    contentLength: file.size,
     createOnly: true,
   })
   if (uploadError) throw uploadError
@@ -270,7 +272,7 @@ The returned headers are part of the request contract and must be sent unchanged
 
 `maxSize`, such as `"8MB"`, limits the body of a `PUT`. Only the `fs` and `vercel` drivers bind it.
 
-The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob-signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
+The `fs` driver, the `cloudflare` driver, the files-sdk drivers, and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only, as a request to the Vercel Blob API with a client token from `BLOB_READ_WRITE_TOKEN`. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry. An `fs` store signs a link to the `/_vitehub/blob-signed/<store>/<pathname>` route of the app, which ViteHub adds only when a store uses the `fs` driver. The route checks the link, then serves the file with `serve()` or stores the body with `put()`. It answers `403` for an expired or changed link, or a body that is not `contentLength` bytes (`BLOB_R0042`, `BLOB_R0041`), `405` for another method, and `413` for a body larger than `maxSize` (`BLOB_R0043`). The HMAC-SHA256 key comes from `VITEHUB_SECRET` or `NUXT_APP_SECRET` with the purpose `vitehub:blob:sign`, so a link works on another instance only with the same secret and the same folder, such as a shared volume. Set `urlBaseUrl` on the store for absolute links, with the base URL of the app when it has one, such as `https://app.example/app`. `download` sets `Content-Disposition: attachment` on the signed `GET`, as on `serve()`. `contentLength` binds the exact body size of a `PUT`: the `fs` and `cloudflare` drivers bind it, and the other drivers fail. `maxSize` binds the largest size on the `fs` and `vercel` drivers only. The `fs` driver cannot bind `createOnly`. A files-sdk driver signs a `GET` only when its provider issues a URL with an exact expiry, and a `PUT` only when its provider issues a direct upload URL. Files-sdk drivers cannot bind `createOnly`. When the provider cannot sign the request, `sign()` returns a `BLOB_OPERATION_FAILED` error with the reason in `cause`.
 
 ## S3-compatible storage
 

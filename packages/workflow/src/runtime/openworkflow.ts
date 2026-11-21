@@ -1,4 +1,4 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"
@@ -406,7 +406,7 @@ function toOpenWorkflowRetryPolicy(name: string, options: WorkflowStepOptions): 
   }
 }
 
-function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProviderStep {
+function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi, workflow: string): WorkflowProviderStep {
   return {
     // OpenWorkflow retries every error. A NonRetryableError ends the step with a result instead, and fails the run here.
     async do(name, options, run) {
@@ -430,24 +430,28 @@ function createOpenWorkflowProviderStep(step: OpenWorkflowStepApi): WorkflowProv
     // The token is the OpenWorkflow signal name. OpenWorkflow waits one year by default and then returns null.
     async waitForSignal(name, token) {
       const received = await step.waitForSignal({ name, signal: token })
-      if (received === null) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TIMEOUT({ name })
+      if (received === null) throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_TIMEOUT({ name: workflow })
       return received.data
     },
   }
 }
 
 /**
- * Sends `value` to the run that waits for the signal `token`. Returns false when no run waits for it: OpenWorkflow
- * drops a signal that comes before the wait.
+ * Sends `value` to a live run that waits for the signal `token`. OpenWorkflow drops early signals and can match
+ * a wait left behind by cancellation, so check the run before sending.
  */
-export async function resumeOpenWorkflowSignal(config: ResolvedWorkflowOptions, token: string, value: unknown): Promise<boolean> {
+export async function resumeOpenWorkflowSignal(config: ResolvedWorkflowOptions, workflow: string, id: string, token: string, value: unknown): Promise<boolean> {
   const runtime = await getOpenWorkflowRuntime(config)
-  const { workflowRunIds } = await runWorkflowProviderOperation("openworkflow", "resume-signal", async () => await runtime.client.sendSignal({
-    // SAFETY: `resumeWorkflow()` documents that the value is JSON, as OpenWorkflow stores it.
-    data: value as OpenWorkflowJsonValue,
-    signal: token,
-  }))
-  return workflowRunIds.length > 0
+  return await runWorkflowProviderOperation("openworkflow", "resume-signal", async () => {
+    const run = await runtime.backend.getWorkflowRun({ workflowRunId: await runtime.findRunId(workflow, id) ?? id })
+    if (!run || run.workflowName !== workflow || terminalOpenWorkflowStatuses.has(normalizeOpenWorkflowStatus(run.status))) return false
+    const { workflowRunIds } = await runtime.client.sendSignal({
+      // SAFETY: `resumeWorkflow()` documents that the value is JSON, as OpenWorkflow stores it.
+      data: value as OpenWorkflowJsonValue,
+      signal: token,
+    })
+    return workflowRunIds.includes(run.id)
+  })
 }
 
 export async function registerOpenWorkflowDefinition(
@@ -470,7 +474,7 @@ export async function registerOpenWorkflowDefinition(
       name,
       payload: input,
       provider: "openworkflow",
-      step: createOpenWorkflowProviderStep(step),
+      step: createOpenWorkflowProviderStep(step, name),
     }, openWorkflowDefinition)
   })
   runtime.workflows.set(name, workflow)

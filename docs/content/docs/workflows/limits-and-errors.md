@@ -183,7 +183,9 @@ ViteHub makes the token from the Workflow name, the run id, and the call order (
 | Inline runs (`vite dev`, Cloudflare without a binding) | Waits in memory. A value that comes before the wait is kept. Not durable: a restart loses the run. |
 | Vercel | Not supported yet. `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`. A `native` entry can wait with `defineHook()` from Workflow DevKit, and `resumeWorkflow()` resumes its hook token. |
 
-`resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` when no run waits for the token: the run did not reach `wait()` yet, it got the value already, or it ended. It returns `WORKFLOW_SIGNAL_TOKEN_INVALID` for a string that `createSignal()` did not make, or for a token of another provider, such as an inline token from `vite dev`. A single-file Workflow cannot wait: `wait()` in a root step throws `WORKFLOW_ROOT_STEP_SIGNAL`.
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` if the run is missing or already finished. OpenWorkflow also returns this code when the run has not reached the wait or no longer waits for that token. An inline run accepts one value per signal, even before the wait. Cloudflare can queue an event before the wait. Success on Cloudflare confirms that the provider accepted the event, not that the run consumed it or that this was the first event for the token.
+
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_TOKEN_INVALID` for a string that `createSignal()` did not make, or for a token of another provider, such as an inline token from `vite dev`. A single-file Workflow cannot wait: `wait()` in a root step throws `WORKFLOW_ROOT_STEP_SIGNAL`.
 
 ## Production checks
 

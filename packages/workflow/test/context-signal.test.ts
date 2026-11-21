@@ -4,7 +4,7 @@ import type { CloudflareWorkflowStep } from "../src/runtime/cloudflare-runner.ts
 import type { WorkflowDefinition, WorkflowExecutionContext } from "../src/types.ts"
 import { defineWorkflow } from "../src/definition.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
-import { getWorkflowRun, resumeWorkflow, startWorkflow } from "../src/runtime/client.ts"
+import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { setWorkflowDevRecorder } from "../src/runtime/dev-recorder.ts"
 import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
@@ -102,7 +102,8 @@ describe("Cloudflare", () => {
 
   it("sends the value to the instance as an event of the signal type", async () => {
     const sendEvent = vi.fn(async () => {})
-    const binding = { createBatch: vi.fn(), get: vi.fn(async (id: string) => ({ id, sendEvent, status: async () => ({ status: "waiting" }) })) }
+    const status = vi.fn(async () => ({ status: "queued" }))
+    const binding = { createBatch: vi.fn(), get: vi.fn(async (id: string) => ({ id, sendEvent, status })) }
     setWorkflowRuntimeConfig({ driver: "cloudflare" })
     enterWorkflowRuntimeEvent({ req: { runtime: { cloudflare: { env: { [getCloudflareWorkflowBindingName("summary")]: binding } } } } })
     const token = createWorkflowSignalToken({ host: "cloudflare", run: "run-1", signal: "signal-1", workflow: "summary" })
@@ -111,6 +112,14 @@ describe("Cloudflare", () => {
 
     expect(binding.get).toHaveBeenCalledWith("run-1")
     expect(sendEvent).toHaveBeenCalledWith({ payload: { text: "hello" }, type: "vitehub-signal-1" })
+
+    status.mockResolvedValue({ status: "complete" })
+    const [finished] = await resumeWorkflow(token, { text: "again" })
+    expect(finished).toMatchObject({ code: "WORKFLOW_SIGNAL_NOT_WAITING" })
+    binding.get.mockRejectedValueOnce(new Error("instance.not_found"))
+    const [missing] = await resumeWorkflow(token, { text: "again" })
+    expect(missing).toMatchObject({ code: "WORKFLOW_SIGNAL_NOT_WAITING" })
+    expect(sendEvent).toHaveBeenCalledTimes(1)
   })
 
   it("rejects a token of another provider or a string that no signal made", async () => {
@@ -243,6 +252,18 @@ describe("OpenWorkflow (SQLite)", () => {
     // OpenWorkflow runs the orchestrator again from the start after the wait, and the token stays the same.
     expect(calls).toEqual(["request", "request", "summarize hello"])
     expect(tokens[1]).toBe(tokens[0])
+    const [finished] = await resumeWorkflow(tokens[0]!, { text: "again" })
+    expect(finished).toMatchObject({ code: "WORKFLOW_SIGNAL_NOT_WAITING" })
+  })
+
+  it("does not deliver a signal to a cancelled run with a pending wait", async () => {
+    const started = await unwrap(startWorkflow("summary", undefined, { id: "cancelled-summary" }))
+    await tick()
+    await expect(unwrap(getWorkflowRun("summary", started.id))).resolves.toMatchObject({ steps: [{ name: "signal-1", status: "running" }] })
+    await expect(unwrap(cancelWorkflow("summary", started.id))).resolves.toMatchObject({ status: "cancelled" })
+
+    const [error] = await resumeWorkflow(tokens[0]!, { text: "too late" })
+    expect(error).toMatchObject({ code: "WORKFLOW_SIGNAL_NOT_WAITING" })
   })
 
   it("fails a value that comes before the wait, so the caller can retry", async () => {

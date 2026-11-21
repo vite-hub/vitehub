@@ -1,4 +1,4 @@
-import { createExecutionBudget } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
 import { describe, expect, it, vi } from "vitest"
 
 import { createShellRuntime } from "../src/index.ts"

@@ -5,7 +5,8 @@ import { dirname, join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { isSerializedResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
+import { ViteHubError } from "@vite-hub/runtime"
+import { isSerializedResponse, serializeResponse } from "@vite-hub/runtime/internal/response"
 
 import type { Result } from "@vite-hub/runtime"
 import { checkDurability } from "@vite-hub/runtime/durability"

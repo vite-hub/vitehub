@@ -1,0 +1,28 @@
+wrangler d1 execute <database>
+
+Execute a command or SQL file
+
+POSITIONALS
+  database  The name or binding of the DB  [string] [required]
+
+GLOBAL FLAGS
+  -c, --config          Path to Wrangler configuration file  [string]
+      --cwd             Run as if Wrangler was started in the specified directory instead of the current working directory  [string]
+  -e, --env             Environment to use for operations, and for selecting .env and .dev.vars files  [string]
+      --env-file        Path to an .env file to load - can be specified multiple times - values from earlier files are overridden by values in later files  [array]
+  -h, --help            Show help  [boolean]
+      --install-skills  Install Cloudflare skills for detected AI coding agents before running the command  [boolean] [default: false]
+      --profile         Use a specific auth profile  [string]
+  -v, --version         Show version number  [boolean]
+
+OPTIONS
+      --command     The SQL query you wish to execute, or multiple queries separated by ';'  [string]
+      --file        A .sql file to ingest  [string]
+  -y, --yes         Answer "yes" to any prompts  [boolean]
+      --local       Execute commands/files against a local DB for use with wrangler dev  [boolean]
+      --remote      Execute commands/files against a remote D1 database for use with remote bindings or your deployed Worker  [boolean]
+      --persist-to  Specify directory to use for local persistence (for use with --local)  [string]
+      --json        Return output as JSON  [boolean] [default: false]
+      --preview     Execute commands/files against a preview D1 database  [boolean] [default: false]
+
+You must provide either --command or --file for this command to run successfully.

@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## Limits
 
 - A GitHub App installation token expires after one hour. `useForge()` caches it until one minute before that. Pass `refresh: true` to mint a new one.
-- `VITEHUB_GITHUB_TOKEN`, GitLab, and Forgejo tokens have no expiry that `useForge()` knows, so `expiresAt` is `undefined`.
+- `VITEHUB_GITHUB_TOKEN`, GitLab, Forgejo, and Gitea tokens have no expiry that `useForge()` knows, so `expiresAt` is `undefined`.
 
 ## Errors
 

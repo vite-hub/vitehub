@@ -50,7 +50,7 @@ describe("queue operations", () => {
       { command: "list", namespace: "queue" },
       { command: "send", namespace: "queue" },
       { command: "jobs list", namespace: "queue" },
-      { command: "jobs show", namespace: "queue" },
+      { command: "jobs get", namespace: "queue" },
       { command: "jobs retry", namespace: "queue" },
       { command: "jobs clear", namespace: "queue" },
     ])
@@ -192,7 +192,7 @@ describe("queue job operations", () => {
     const shown = await run("queue.jobs-show", { id }) as { job: { error?: { message: string, stack?: string } } }
     expect(shown.job.error).toMatchObject({ message: "SMTP down", name: "Error" })
     expect(shown.job.error?.stack).toContain("operations.test.ts")
-    const format = operation("queue.jobs-show").cli?.format as (result: unknown) => string
+    const format = (operation("queue.jobs-show").cli || undefined)?.format as (result: unknown) => string
     expect(format(shown)).toContain("Error: SMTP down\nStack:\nError: SMTP down\n    at ")
   })
 
