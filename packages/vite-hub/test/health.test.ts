@@ -9,7 +9,7 @@ import { checkBlobStoreHealth, setBlobRuntimeConfig } from "@vite-hub/blob/runti
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { healthVitePlugin, renderHealthHandler, type HealthTargets } from "../src/health-vite.ts"
+import { healthVitePlugin, renderHealthHandler, selectHealthTargets, type HealthTargets } from "../src/health-vite.ts"
 import { readViteHubVersion } from "../src/version.ts"
 
 type Handler = { fetch(): Promise<Response> }
@@ -100,6 +100,31 @@ describe("health route", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ ok: false, commit: "abc123", vitehub: "0.0.9", checks: { blob: { uploads: false } } })
     expect(log).toHaveBeenCalledWith("[vitehub] Blob store \"uploads\" did not answer the health check.", new Error("No answer within 2000 ms."))
+  })
+
+  it("checks only the primitives in `checks`, and fails the build for one that the app does not turn on", () => {
+    const targets = { database: true, kv: ["default"], blob: ["default", "uploads"] }
+
+    expect(selectHealthTargets(undefined, targets)).toEqual(targets)
+    expect(selectHealthTargets(["database"], targets)).toEqual({ database: true, kv: [], blob: [] })
+    expect(selectHealthTargets(["kv", "blob"], targets)).toEqual({ database: false, kv: ["default"], blob: ["default", "uploads"] })
+    expect(selectHealthTargets([], targets)).toEqual({ database: false, kv: [], blob: [] })
+    expect(() => selectHealthTargets(["blob"], { database: true, kv: [], blob: [] })).toThrow(expect.objectContaining({ name: "VITE_HUB_HEALTH_CHECK_DISABLED" }))
+    expect(() => selectHealthTargets(["database"], { database: false, kv: ["default"], blob: [] })).toThrow(expect.objectContaining({ name: "VITE_HUB_HEALTH_CHECK_DISABLED" }))
+  })
+
+  it("leaves a Blob store out of the generated route with `checks: [\"database\"]`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-health-"))
+    roots.push(root)
+    await writeFile(join(root, "package.json"), "{}")
+    const config: Record<string, unknown> = { root }
+
+    await (healthVitePlugin({ checks: ["database"] }, { database: true, kv: ["default"], blob: ["default"] }).config as (config: object) => Promise<void>)(config)
+
+    const source = await readFile(join(root, ".vitehub/nitro/health.mjs"), "utf8")
+    expect(source).toContain("pingDatabases")
+    expect(source).not.toContain("checkBlobStoreHealth")
+    expect(source).not.toContain("vite-hub/kv")
   })
 
   it("registers the route with the app version, the commit of the build, and the installed ViteHub version", async () => {
