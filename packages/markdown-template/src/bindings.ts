@@ -14,6 +14,28 @@ function pathValue(value: unknown, parts: string[]): { value: unknown } | undefi
   return undefined
 }
 
+function isJsonLiteral(value: string): boolean {
+  try {
+    JSON.parse(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function bindingRoot(value: string): string | undefined {
+  return isJsonLiteral(value) ? undefined : value.split(".", 1)[0]
+}
+
+const bindingRoots: ReadonlySet<string> = new Set(["data", "frontmatter", "meta", "props"])
+
+/** Rejects a bound path that starts with no known name, such as `{{ name }}` from templates before `data.` paths. */
+export function assertBindingRoot(value: string): void {
+  const root = bindingRoot(value)
+  if (root !== undefined && !bindingRoots.has(root)) throw diagnostics.MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA({ path: value })
+}
+
 export function resolveTemplateAttributes(
   attributes: Record<string, unknown>,
   renderData: NodeRenderData,
@@ -22,8 +44,8 @@ export function resolveTemplateAttributes(
   const rewritten = { ...attributes }
   for (const [key, value] of Object.entries(attributes)) {
     if (!key.startsWith(":") || typeof value !== "string") continue
-    try { JSON.parse(value); continue }
-    catch { }
+    if (isJsonLiteral(value)) continue
+    assertBindingRoot(value)
     const alias = `binding${Object.keys(values).length}`
     values[alias] = pathValue(renderData, value.split("."))?.value
     rewritten[key] = `props.${alias}`

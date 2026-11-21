@@ -1,7 +1,7 @@
 import { expect, it } from "vitest"
 
 import { renderMarkdownTemplate } from "../src/index.ts"
-import { inferMarkdownTemplateDataType } from "../src/internal/vite.ts"
+import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "../src/internal/vite.ts"
 
 it("types every data binding that a template reads", async () => {
   const template = [
@@ -110,4 +110,53 @@ it.each(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])("k
     required: false,
     type: "Record<string, never>",
   })
+})
+
+const strataTemplate = [
+  "Strata could not complete the archaeology run for `{{ repoPath }}`.",
+  "",
+  "```text",
+  "{{ errorMessage }}",
+  "```",
+  "",
+  "[Open the analysis]({{ resultUrl }})",
+].join("\n")
+
+it("names the migration for a binding that does not start with data.", async () => {
+  for (const template of [strataTemplate, "[Open the analysis](){:href=\"resultUrl\"}", "<img :src=\"url\">", "::if{:condition=\"ready\"}\nReady.\n::"]) {
+    await expect(inferMarkdownTemplateDataType(template), template).rejects.toMatchObject({
+      code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA",
+      fix: expect.stringContaining("{{ data.name }}"),
+    })
+  }
+  await expect(renderMarkdownTemplate(strataTemplate, { data: { resultUrl: "https://strata.vitehub.dev/a/1" } })).rejects.toMatchObject({
+    code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA",
+    message: expect.stringContaining("\"resultUrl\""),
+  })
+  await expect(inferMarkdownTemplateDataType("::if{:condition=\"true\"}\n{{ frontmatter.title }}\n::")).resolves.toEqual({ required: false, type: "Record<string, never>" })
+})
+
+it("does not validate roots on attributes that the renderer preserves", async () => {
+  const template = "![Logo](/logo.png){:class=\"logo\"}\n\n# Status {:class=\"notice\"}\n\n::notice{:title=\"hello\"}\n::"
+  await expect(inferMarkdownTemplateDataType(template)).resolves.toEqual({ required: false, type: "Record<string, never>" })
+})
+
+it("rejects a binding inside inline code or a code block, which would stay unfilled", async () => {
+  for (const [template, path] of [
+    ["`{{ command }}`", "command"],
+    ["Strata finished mapping `{{ data.repoPath }}`.", "data.repoPath"],
+    ["`{{ data.full name || unknown }}`", "data.full name"],
+    ["<div>\nRun `{{ data.command }}`.\n</div>", "data.command"],
+    ["```text\n{{ data.errorMessage }}\n```", "data.errorMessage"],
+    ["```text\n: {{ data.command }}\n```", "data.command"],
+    ["<pre>\n{{ data.log }}\n</pre>", "data.log"],
+  ]) {
+    await expect(assertNoBindingsInCode(template!), template).rejects.toMatchObject({
+      code: "MARKDOWN_TEMPLATE_BINDING_IN_CODE",
+      message: expect.stringContaining(`{{ ${path} }}`),
+      fix: expect.stringContaining(":insert"),
+    })
+  }
+  await expect(assertNoBindingsInCode("Strata finished mapping **{{ data.repoPath }}**. Run `pnpm build`.")).resolves.toBeUndefined()
+  await expect(renderMarkdownTemplate("Write `{{ data.name }}`.", { data: {} })).resolves.toBe("Write `{{ data.name }}`.")
 })

@@ -463,8 +463,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       contentReadDone = undefined
     }
     const afterContentRead = (source: () => string): string | Promise<string> => contentReadDone ? contentRead.then(source) : source()
-    /** Copies the pages of each Content Source into the build, where the server and the agent copies read them. */
+    let sourcePages = new Map<string, string>()
     function writeSources(files: DocsContentSnapshot["files"]) {
+      sourcePages = new Map(files.map(file => [`${file.source}/${file.file}`, file.markdown]))
       rmSync(sourcesDir, { force: true, recursive: true })
       for (const file of files) {
         const target = join(sourcesDir, file.source, file.file)
@@ -475,7 +476,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     writeSources(read.files)
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
     const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
-    const readPage = (page: DocsPage): string => readFileSync(pageFile(page), "utf8")
+    const readPage = (page: DocsPage): string => sourcePages.get(`${page.source}/${page.file}`) ?? readFileSync(pageFile(page), "utf8")
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the

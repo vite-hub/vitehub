@@ -1,9 +1,7 @@
 import { parseMarkdown } from "comark"
 import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { htmlPlugins } from "./parser.ts"
-
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+import { htmlPlugins, literalHtmlTags } from "./parser.ts"
 
 export async function prepareTemplate(source: string) {
   const prefix = `VITEHUBCODE${crypto.randomUUID().replaceAll("-", "")}`

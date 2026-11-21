@@ -1,6 +1,6 @@
 import { markdownTemplateErrorDiagnostics } from "../error-diagnostics.ts"
 
-export { inferMarkdownTemplateDataType } from "./data-type.ts"
+export { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "./data-type.ts"
 export type { MarkdownTemplateDataType } from "./data-type.ts"
 
 export const markdownTemplateFileSuffix = ".template.md"

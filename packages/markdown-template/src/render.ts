@@ -4,7 +4,7 @@ import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
 import type { NodeHandler, NodeRenderData, State } from "comark/render"
 
-import { resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
+import { assertBindingRoot, resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
 import { hasMarkdownHtmlChildren, htmlPlugins, parserOptions } from "./parser.ts"
@@ -72,6 +72,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   return prepared.restore((await renderMarkdown(tree, {
     components: {
       Binding: async (node, state, parent) => {
+        if (typeof node[1][":value"] === "string") assertBindingRoot(node[1][":value"])
         rejectLinkDestinationBinding(node, parent)
         return state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true)
       },
