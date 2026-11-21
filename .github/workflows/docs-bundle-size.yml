@@ -4,8 +4,23 @@ on:
   pull_request:
     branches:
       - main
+    # Markdown pages change the bundled docs content, not the app code that users load. Most pull requests edit
+    # pages, so the analysis runs only for the pages that it measures (NUXT_BUNDLE_ANALYZER_URLS). The `docs` CI job
+    # still builds the whole site and checks the Worker size on every pull request.
     paths:
       - docs/**
+      - "!docs/content/**"
+      - "!docs/diagnostics/**"
+      - "!docs/skills/**"
+      - "!docs/evals/**"
+      - "!docs/test/**"
+      - "!docs/*.md"
+      # The navigation is on every page.
+      - docs/content/**/.navigation.yml
+      - docs/content/index.md
+      - docs/content/docs/getting-started/index.md
+      - docs/content/docs/kv/index.md
+      - docs/diagnostics/KV_STORE_NOT_FOUND.md
       - packages/docs/**
       - packages/ui/**
       - packages/icons/**
