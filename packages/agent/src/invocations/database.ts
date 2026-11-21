@@ -142,10 +142,8 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
 }
 
 /** A postgres.js client, as the Drizzle database of a Postgres Database Definition holds it in `$client`. */
-function postgresClient(value: unknown): AgentInvocationPostgresClient | undefined {
-  if (typeof value !== "function" || typeof Reflect.get(value, "begin") !== "function" || typeof Reflect.get(value, "unsafe") !== "function") return
-  // SAFETY: The runtime shape check verifies the postgres.js begin and unsafe methods used by the Postgres store.
-  return value as AgentInvocationPostgresClient
+function isPostgresClient(value: unknown): value is AgentInvocationPostgresClient {
+  return typeof value === "function" && typeof Reflect.get(value, "begin") === "function" && typeof Reflect.get(value, "unsafe") === "function"
 }
 
 /**
@@ -181,9 +179,9 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     ...postgresOptions,
     database: name,
     client() {
-      const client = postgresClient(runtime().$client)
+      const client = runtime().$client
       // Internal invariant: the driver was Postgres when this store was created.
-      if (!client) throw invariantError(`Database "${name}" changed from Postgres to another driver.`)
+      if (!isPostgresClient(client)) throw invariantError(`Database "${name}" changed from Postgres to another driver.`)
       // Count the journal's queries in the request's database stats. One tracked client per pool keeps the table check cached.
       let tracked = trackedClients.get(client)
       if (!tracked) {
@@ -194,7 +192,7 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     },
   })
   // A runtime proxy resolves its driver per request, so each operation picks the store for the current client.
-  const store = (): Required<Omit<AgentInvocationStore, "open">> => postgresClient(runtime().$client) ? postgresStore() : sqlite
+  const store = (): Required<Omit<AgentInvocationStore, "open">> => isPostgresClient(runtime().$client) ? postgresStore() : sqlite
   return {
     claim: async (...args) => await store().claim(...args),
     create: async input => await store().create(input),
