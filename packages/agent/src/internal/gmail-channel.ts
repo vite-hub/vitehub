@@ -1418,6 +1418,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       // A resumed checkpoint can end before the newest history.
       if (outcome === "stopped" || outcome === "resumed") unfinished = true
       if (outcome !== "stopped" && sync.topic && (!lease.record.watchExpiresAt || Date.parse(lease.record.watchExpiresAt) - Date.now() <= watchRenewalMarginMs)) {
+        if (finishing) await lease.write(lease.record)
         try {
           const watch = await startGmailWatch(sync.client, sync.topic)
           await lease.write({ ...lease.record, watchExpiresAt: watch.expiration })

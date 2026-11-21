@@ -49,14 +49,29 @@ export async function acquireLockWith(
   keys: readonly string[],
 ): Promise<{ lock: Lock | null, values: unknown[] }> {
   if (state.acquireLockWith) return await state.acquireLockWith(threadId, ttlMs, mutations, keys)
+  return await acquireLockWithSeparateCalls(state, threadId, ttlMs, mutations, keys)
+}
+
+export async function acquireLockWithSeparateCalls(
+  state: AtomicAgentStateLockAdapter,
+  threadId: string,
+  ttlMs: number,
+  mutations: readonly AgentStateCacheMutation[],
+  keys: readonly string[],
+): Promise<{ lock: Lock | null, values: unknown[] }> {
   const lock = await state.acquireLock(threadId, ttlMs)
   if (!lock) return { lock, values: [] }
-  if (mutations.length && !await state.mutateWithLock(lock, mutations)) {
-    // The lease ended before the mutations applied: the caller does not hold the lock.
-    await state.releaseLock(lock)
-    return { lock: null, values: [] }
+  try {
+    if (!mutations.length || await state.mutateWithLock(lock, mutations)) {
+      return { lock, values: await Promise.all(keys.map(key => state.get(key))) }
+    }
   }
-  return { lock, values: await Promise.all(keys.map(key => state.get(key))) }
+  catch (error) {
+    await state.releaseLock(lock).catch(() => undefined)
+    throw error
+  }
+  await state.releaseLock(lock)
+  return { lock: null, values: [] }
 }
 
 /** Applies `mutations` under the lease, releases the lock, then reads `keys`. A missing key reads as `null`. */
@@ -67,9 +82,18 @@ export async function releaseLockWith(
   keys: readonly string[],
 ): Promise<{ committed: boolean, values: unknown[] }> {
   if (state.releaseLockWith) return await state.releaseLockWith(lock, mutations, keys)
-  let committed = true
+  return await releaseLockWithSeparateCalls(state, lock, mutations, keys)
+}
+
+export async function releaseLockWithSeparateCalls(
+  state: AtomicAgentStateLockAdapter,
+  lock: Lock,
+  mutations: readonly AgentStateCacheMutation[],
+  keys: readonly string[],
+): Promise<{ committed: boolean, values: unknown[] }> {
+  let committed: boolean
   try {
-    if (mutations.length) committed = await state.mutateWithLock(lock, mutations)
+    committed = await state.mutateWithLock(lock, mutations)
   }
   finally {
     await state.releaseLock(lock)
