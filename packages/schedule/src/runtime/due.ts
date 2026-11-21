@@ -140,6 +140,6 @@ const weekdayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 export function cronWithWeekdayNames(cron: string): string {
   const fields = cron.trim().split(/\s+/)
   if (fields.length !== 5 || fields[4] === "*") return fields.join(" ")
-  fields[4] = parseCronExpression(cron).weekdays.map(day => weekdayNames[day]).join(",")
+  fields[4] = parseCronExpression(fields.join(" ")).weekdays.map(day => weekdayNames[day]).join(",")
   return fields.join(" ")
 }
