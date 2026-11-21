@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, isAgentEmulatorStandalone, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -40,6 +40,20 @@ describe("ViteHub CLI config loading", () => {
     roots.push(root)
     await writeFile(join(root, "vite.config.ts"), source, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
+  })
+
+  it("runs agent emulator without the project only for an explicit emulator, help, or no config", async () => {
+    const empty = await mkdtemp(join(tmpdir(), "vitehub-emulator-guard-"))
+    roots.push(empty)
+    const vite = await createProject("vite")
+    const nuxt = await createProject("nuxt")
+    expect(isAgentEmulatorStandalone([], {}, empty)).toBe(true)
+    expect(isAgentEmulatorStandalone([], {}, vite)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--json"], {}, nuxt)).toBe(false)
+    expect(isAgentEmulatorStandalone(["--url", "http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--url=http://localhost:3000"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone(["--help"], {}, vite)).toBe(true)
+    expect(isAgentEmulatorStandalone([], { VITEHUB_EMULATE_URL: "http://localhost:4014" }, vite)).toBe(true)
   })
 
   // A production install can leave out the optional `vite` peer, which the config scanner parses with.
@@ -308,6 +322,16 @@ describe("ViteHub CLI config loading", () => {
 
     expect(loadNuxt).not.toHaveBeenCalled()
     expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", mode ?? "development")
+  })
+
+  it("keeps the root of a Vite config file for CLI discovery", async () => {
+    const root = await createProject("vite")
+    await writeFile(join(root, "vite.config.ts"), "export default { root: \"web\" }\n", "utf8")
+    await mkdir(join(root, "web"))
+
+    const config = await loadViteHubCliConfig(root, "serve")
+
+    expect(config.root).toBe(join(root, "web"))
   })
 
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {

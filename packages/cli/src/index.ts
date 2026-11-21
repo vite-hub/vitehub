@@ -265,15 +265,20 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
 }
 
 async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
-  const { resolveConfig } = await import("vite")
+  const { loadConfigFromFile, mergeConfig, resolveConfig } = await import("vite")
+  const resolvedMode = mode ?? (command === "build" ? "production" : "development")
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
     root: rootDir,
     ...(mode ? { mode } : {}),
     vitehubCliDiscovery: true,
   }
+  // Vite lets an inline `root` win over the `root` of the config file. Load the file here, so a `root: "web"` in it
+  // resolves against the project directory, as `vite dev` in that directory resolves it.
+  const loaded = await loadConfigFromFile({ command, isPreview: false, isSsrBuild: false, mode: resolvedMode }, undefined, rootDir)
+  const config = loaded ? mergeConfig(loaded.config, { ...inlineConfig, configFile: false, root: resolve(rootDir, loaded.config.root ?? ".") }) : inlineConfig
   const nitro = createCliDiscoveryNitroCloser()
   try {
-    return await resolveConfig({ ...inlineConfig, plugins: [nitro.plugin] }, command, mode ?? (command === "build" ? "production" : "development"))
+    return await resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, command, resolvedMode)
   }
   finally {
     await nitro.close()

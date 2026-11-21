@@ -43,6 +43,18 @@ async function resolveNuxtKit(rootDir: string): Promise<{ loadNuxt: LoadNuxt, lo
   return await import(pathToFileURL(require.resolve("nuxt/kit")).href) as { loadNuxt: LoadNuxt, loadNuxtConfig: LoadNuxtConfig }
 }
 
+/**
+ * Vite lets an inline `root` win over the `root` of the config file. This loads the config file itself, so a
+ * `root: "web"` in it resolves against the project directory, as `vite dev` in that directory resolves it.
+ */
+async function withConfigFileRoot(inlineConfig: InlineConfig, command: ConfigEnv["command"], mode: string): Promise<InlineConfig> {
+  if (inlineConfig.configFile === false || !inlineConfig.root) return inlineConfig
+  const { loadConfigFromFile, mergeConfig } = await import("vite")
+  const loaded = await loadConfigFromFile({ command, isPreview: false, isSsrBuild: false, mode }, undefined, inlineConfig.root)
+  if (!loaded) return inlineConfig
+  return mergeConfig(loaded.config, { ...inlineConfig, configFile: false, root: resolve(inlineConfig.root, loaded.config.root ?? ".") })
+}
+
 async function defaultResolveViteConfig(
   inlineConfig: InlineConfig,
   command: ConfigEnv["command"],
@@ -51,7 +63,8 @@ async function defaultResolveViteConfig(
   const { resolveConfig } = await import("vite")
   const nitro = createCliDiscoveryNitroCloser()
   try {
-    return await resolveConfig({ ...inlineConfig, plugins: [...inlineConfig.plugins ?? [], nitro.plugin] }, command, mode)
+    const config = await withConfigFileRoot(inlineConfig, command, mode)
+    return await resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, command, mode)
   }
   finally {
     await nitro.close()
