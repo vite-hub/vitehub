@@ -178,14 +178,17 @@ describe("workflow operations", () => {
 
   it("delivers a signal through the resume operation", async () => {
     setWorkflowRuntimeConfig({ driver: "cloudflare" })
-    const { promise, resolve } = Promise.withResolvers<string>()
+    let resolveToken!: (token: string) => void
+    const tokenReady = new Promise<string>((resolve) => {
+      resolveToken = resolve
+    })
     setWorkflowRuntimeRegistry({ welcome: async () => ({ rootStep: false, handler: async ({ createSignal }) => {
       const signal = createSignal()
-      resolve(signal.token)
+      resolveToken(signal.token)
       return await signal.wait()
     } }) })
     const started = await unwrap(startWorkflow("welcome"))
-    const token = await promise
+    const token = await tokenReady
 
     expect(await call("workflow.resume", { token, payload: "approved" }, ["workflows"])).toMatchObject({ ok: true })
     await expect.poll(() => call("workflow.get", { runId: started.id, workflow: "welcome" })).toMatchObject({ value: { run: { result: "approved", status: "completed" } }, ok: true })
