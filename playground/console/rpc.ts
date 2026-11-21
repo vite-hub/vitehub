@@ -65,6 +65,8 @@ const fixtureRoutes: Record<string, string> = {
 const projectFixture = {
   build: {
     commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", repository: "vite-hub/vitehub", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+    framework: { name: "nuxt", version: "5.0.2" },
+    host: { name: "cloudflare", preset: "cloudflare-module" },
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",

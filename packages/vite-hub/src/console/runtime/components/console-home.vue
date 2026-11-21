@@ -15,7 +15,7 @@ import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDet
 import { recentTimestamp } from "../client/format";
 import { accountAppStatusLabels } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
-import { consoleCompareUrl } from "../client/project-link";
+import { consoleAuthorAvatarUrl, consoleCompareUrl, consoleFrameworkLabels, consoleHostLabels } from "../client/project-link";
 import { useConsoleProjects } from "../client/project-session";
 import ConsoleMark from "./console-mark.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -87,6 +87,8 @@ const agentsEnabled = computed(() => sections.value.includes("agents"));
 // The build that serves the app, from `project.get`. A development server has none.
 const build = computed(() => projects.info.value?.build);
 const compareUrl = computed(() => consoleCompareUrl(build.value));
+const authorAvatar = computed(() => build.value?.commit?.login && consoleAuthorAvatarUrl(build.value.commit.login));
+const failedAvatar = ref<string>();
 const siteUrl = computed(() => projects.current.value?.url ? `${projects.current.value.url.replace(/\/+$/, "")}/` : undefined);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
@@ -270,9 +272,10 @@ onBeforeUnmount(() => {
                   </li>
                   <template v-else>
                     <li v-if="build" class="vitehub-console__overview-row">
-                      <Icon name="i-lucide-rocket" class="vitehub-console__overview-icon" />
+                      <img v-if="authorAvatar && authorAvatar !== failedAvatar" :key="authorAvatar" :src="authorAvatar" alt="" width="16" height="16" class="vitehub-console__overview-icon rounded-full" loading="lazy" referrerpolicy="no-referrer" @error="failedAvatar = authorAvatar">
+                      <Icon v-else name="i-lucide-rocket" class="vitehub-console__overview-icon" />
                       <span class="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span class="shrink-0 font-medium text-highlighted">{{ build.commit?.author ?? "Someone" }}</span>
+                        <span class="shrink-0 font-medium text-highlighted">{{ build.commit?.author ?? build.commit?.login ?? "Someone" }}</span>
                         <span class="shrink-0 text-muted">deployed</span>
                         <span v-if="build.commit" class="shrink-0 font-mono text-xs text-muted">{{ build.commit.sha.slice(0, 7) }}</span>
                         <span v-if="build.commit?.message" class="truncate text-default">{{ build.commit.message }}</span>
@@ -331,6 +334,16 @@ onBeforeUnmount(() => {
                   <span class="min-w-0 flex-1 truncate">{{ accountAppStatusLabels[error ? "unreachable" : "connected"] }}</span>
                   <span class="vitehub-overview__detail-key">Status</span>
                 </li>
+                <li v-if="build?.host" class="vitehub-overview__detail">
+                  <Icon name="i-lucide-cloud" class="vitehub-overview__detail-icon" />
+                  <span class="flex min-w-0 flex-1 items-center gap-1.5"><span>{{ consoleHostLabels[build.host.name] }}</span><span class="truncate font-mono text-xs text-muted">{{ build.host.preset }}</span></span>
+                  <span class="vitehub-overview__detail-key">Host</span>
+                </li>
+                <li v-if="build?.framework" class="vitehub-overview__detail">
+                  <Icon name="i-lucide-layers" class="vitehub-overview__detail-icon" />
+                  <span class="flex min-w-0 flex-1 items-center gap-1.5"><span>{{ consoleFrameworkLabels[build.framework.name] }}</span><span v-if="build.framework.version" class="truncate font-mono text-xs">{{ build.framework.version }}</span></span>
+                  <span class="vitehub-overview__detail-key">Framework</span>
+                </li>
                 <li v-if="projects.info.value?.vitehub" class="vitehub-overview__detail">
                   <span class="vitehub-overview__detail-icon"><ConsoleMark class="size-3.5 text-highlighted" /></span>
                   <span class="flex min-w-0 flex-1 items-center gap-1.5"><span>vite-hub</span><span class="truncate font-mono text-xs">{{ projects.info.value.vitehub }}</span></span>
@@ -359,7 +372,7 @@ onBeforeUnmount(() => {
                   <Icon name="i-lucide-rocket" class="vitehub-overview__detail-icon" />
                   <span class="flex min-w-0 flex-1 items-center gap-1">
                     <ConsoleRelativeTime :value="build.time" class="shrink-0" />
-                    <span v-if="build.commit?.author" class="truncate text-muted">by {{ build.commit.author }}</span>
+                    <span v-if="build.commit?.author ?? build.commit?.login" class="truncate text-muted">by {{ build.commit?.author ?? build.commit?.login }}</span>
                   </span>
                   <span class="vitehub-overview__detail-key">Deployed</span>
                 </li>

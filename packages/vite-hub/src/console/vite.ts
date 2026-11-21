@@ -147,6 +147,8 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
 export interface ConsoleVitePluginOptions {
   /** The `name` option of `vitehub()`, which `project.get` reports. */
   name?: string
+  /** The host that `vitehub()` builds for, which `project.get` reports with the build. */
+  host?: NonNullable<ConsoleNitroPluginOptions["target"]>["host"]
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   contentImportBase?: string
@@ -276,6 +278,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedPlugins: readonly unknown[] | undefined
   let cliDiscovery = false
   let development = false
+  let nitroVersion: string | undefined
   let invoke = false
   let resolvedConsoleConfiguration: ConsoleOptions | undefined
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
@@ -298,6 +301,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       name: options.name,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
+      // `vitehub()` in a Vite config builds a Nitro server. Nuxt writes its own plugin and names itself.
+      ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
       ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
     }
@@ -340,6 +345,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     nitro: {
       setup(nitro) {
         if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers)
+        const framework = nitro.options.framework
+        nitroVersion = framework?.name === "nitro" ? framework.version : undefined
       },
     },
     transform: {
@@ -351,6 +358,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
     async config(config, environment) {
       development = environment.command === "serve"
+      nitroVersion = undefined
       // The Setup section writes the project, so only a development server has it.
       if (development) sections = insertConsoleSection(sections, "setup")
       root = resolve(config.root || process.cwd())

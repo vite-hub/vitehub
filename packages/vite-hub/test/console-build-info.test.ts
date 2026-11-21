@@ -42,7 +42,31 @@ describe("collectConsoleBuild", () => {
     }
     const build = await collectConsoleBuild({ cwd: "/app", env: { GITHUB_REF_NAME: "release", GITHUB_REPOSITORY: "ferries/timetable", GITHUB_SHA: sha }, git, now })
     expect(build.commit).toEqual({ author: "Grace Hopper", branch: "release", message: "fix: keep the ferry times", repository: "ferries/timetable", sha })
-    expect(calls).toEqual([["log", "-1", "--format=%H%x00%s%x00%an", sha]])
+    expect(calls).toEqual([["log", "-1", "--format=%H%x00%s%x00%an%x00%ae", sha]])
+  })
+
+  it("records the GitHub login of the author from Vercel, a GitHub Actions push, or a noreply email", async () => {
+    const vercel = { VERCEL_GIT_COMMIT_AUTHOR_LOGIN: "ada", VERCEL_GIT_COMMIT_AUTHOR_NAME: "Ada", VERCEL_GIT_COMMIT_MESSAGE: "feat: ship", VERCEL_GIT_COMMIT_SHA: sha }
+    expect((await collectConsoleBuild({ cwd: "/app", env: { ...vercel, VERCEL_GIT_PROVIDER: "github" }, git: noGit, now })).commit?.login).toBe("ada")
+    // A GitLab login has no GitHub avatar.
+    expect((await collectConsoleBuild({ cwd: "/app", env: { ...vercel, VERCEL_GIT_PROVIDER: "gitlab" }, git: noGit, now })).commit).not.toHaveProperty("login")
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-build-event-"))
+    roots.push(root)
+    const event = join(root, "event.json")
+    await writeFile(event, JSON.stringify({ head_commit: { author: { name: "Grace Hopper", username: "grace" }, id: sha } }))
+    const push = { GITHUB_EVENT_NAME: "push", GITHUB_EVENT_PATH: event, GITHUB_SHA: sha }
+    expect((await collectConsoleBuild({ cwd: "/app", env: push, git: noGit, now })).commit?.login).toBe("grace")
+    await writeFile(event, JSON.stringify({ head_commit: { author: { username: "grace" }, id: "a".repeat(40) } }))
+    expect((await collectConsoleBuild({ cwd: "/app", env: push, git: noGit, now })).commit).not.toHaveProperty("login")
+
+    const noreply = (email: string) => async (args: string[]) => args[0] === "log" ? `${sha}\0fix: x\0Joy\0${email}` : undefined
+    const login = async (email: string) => (await collectConsoleBuild({ cwd: "/app", env: { GITHUB_SHA: sha }, git: noreply(email), now })).commit?.login
+    expect(await login("12345+joy-dev@users.noreply.github.com")).toBe("joy-dev")
+    expect(await login("12345+mona-cat_octo@users.noreply.github.com")).toBe("mona-cat_octo")
+    expect(await login("joy@users.noreply.github.com")).toBe("joy")
+    expect(await login("joy@example.com")).toBeUndefined()
+    expect(await login("49699333+dependabot[bot]@users.noreply.github.com")).toBeUndefined()
   })
 
   it("prefers the pull request branch of GitHub Actions", async () => {

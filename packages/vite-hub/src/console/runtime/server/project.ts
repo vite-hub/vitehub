@@ -4,6 +4,8 @@ import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
 
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
+
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
@@ -17,6 +19,10 @@ declare global {
 export interface ConsoleProjectBuild {
   /** When the build ran, as an ISO time. */
   time: string
+  /** The host that the build targets, and the Nitro preset that ViteHub builds with for it. */
+  host?: { name: ViteHubHost, preset: string }
+  /** The framework that built the app, and its installed version. */
+  framework?: { name: "nitro" | "nuxt", version?: string }
   /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
   commit?: {
     sha: string
@@ -24,6 +30,8 @@ export interface ConsoleProjectBuild {
     message?: string
     /** The name of the commit author, without the email. */
     author?: string
+    /** The GitHub login of the commit author, so the Console shows the author's avatar. */
+    login?: string
     branch?: string
     /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
     repository?: string
