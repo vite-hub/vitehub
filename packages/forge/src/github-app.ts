@@ -71,7 +71,7 @@ const appProviders = new Map<string, Promise<ForgeProvider>>()
 // Weak keys keep token retention bounded by the 128 cached providers.
 const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
 const appProviderLimit = 128
-const appIdentities = new Map<string, Promise<{ id: number, slug: string, login: string, email: string }>>()
+const appIdentities = new Map<string, ReturnType<typeof appIdentity>>()
 const fetchIds = new WeakMap<typeof fetch, number>()
 let nextFetchId = 0
 
@@ -116,7 +116,7 @@ function positiveId(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
-async function appIdentity(input: GitHubAppInput): Promise<{ id: number, slug: string, login: string, email: string }> {
+async function appIdentity(input: GitHubAppInput) {
   const provider = await appProvider(input)
   const response = await provider.request<unknown>("GET", "/app")
   const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
@@ -130,7 +130,7 @@ async function appIdentity(input: GitHubAppInput): Promise<{ id: number, slug: s
   const userId = await github({ ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.fetch ? { fetch: input.fetch } : {}), userAgent: input.userAgent ?? "vitehub" })
     .request<unknown>("GET", `/users/${encodeURIComponent(login)}`)
     .then(user => positiveId(isRecord(user.data) ? user.data.id : undefined), () => undefined)
-  return { id, slug, login, email: userId ? `${userId}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
+  return { verified: userId !== undefined, identity: { id, slug, login, email: userId ? `${userId}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` } }
 }
 
 /**
@@ -174,14 +174,18 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
     },
     async app(signal) {
       const key = appProviderKey(input, "")
-      let identity = appIdentities.get(key)
-      if (!identity) {
-        identity = appIdentity(input)
-        identity.catch(() => appIdentities.delete(key))
-        appIdentities.set(key, identity)
+      let pending = appIdentities.get(key)
+      if (!pending) {
+        const lookup = appIdentity(input)
+        const evict = () => {
+          if (appIdentities.get(key) === lookup) appIdentities.delete(key)
+        }
+        void lookup.then(({ verified }) => { if (!verified) evict() }, evict)
+        appIdentities.set(key, lookup)
+        pending = lookup
         if (appIdentities.size > appProviderLimit) appIdentities.delete(appIdentities.keys().next().value!)
       }
-      return await withSignal(identity, signal)
+      return (await withSignal(pending, signal)).identity
     },
     async repositories(signal) {
       const provider = await withSignal(appProvider(input), signal)

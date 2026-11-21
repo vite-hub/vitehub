@@ -316,15 +316,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return appBot
   }
 
-  /** The configured identity, or else the bot of the App that unscoped credentials name. */
-  async function hostIdentity(): Promise<GitHubHostIdentity> {
-    if (options.identity) return options.identity
-    const config = await credentials({})
-    const appId = String(config.appId || "").trim()
-    const privateKey = secret(config.privateKey)?.trim().replace(/\\n/g, "\n") || ""
-    return appId && privateKey ? await appBotIdentity(positiveInteger(appId, "GitHub App appId"), privateKey) : {}
-  }
-
   function fallbackToken(config: GitHubHostCredentials): string {
     const configured = secret(config.token)?.trim()
     if (!configured) throw presetsErrorDiagnostics.PRESETS_GITHUB_AUTH_MISSING()
@@ -332,7 +323,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   }
 
   /** `commits: false` is for API calls only: they need no commit identity, so the App's identity is not read. */
-  async function scopedAccess(input: GitHubHostAccessOptions, commits = true): Promise<GitHubHostAccess & { credentialKey: string }> {
+  async function scopedAccess(input: GitHubHostAccessOptions, commits = true) {
     const config = await credentials({ repository: input.repository, signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
@@ -400,18 +391,22 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       env.GIT_AUTHOR_EMAIL = identity.email
       env.GIT_COMMITTER_EMAIL = identity.email
     }
-    return { env, credentialKey, token }
+    return { env, credentialKey, token, identity }
   }
 
-  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
+  async function commitAccess(input: GitHubHostAccessOptions) {
     const operation = controlledOperation(input)
     try {
-      const { env, token } = await scopedAccess({ ...input, signal: operation.signal, timeout: undefined })
-      return { env, token }
+      return await scopedAccess({ ...input, signal: operation.signal, timeout: undefined })
     }
     finally {
       operation.close()
     }
+  }
+
+  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
+    const { env, token } = await commitAccess(input)
+    return { env, token }
   }
 
   async function forge(input: GitHubHostForgeOptions = {}): Promise<GitHubProvider> {
@@ -630,10 +625,10 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       return github({
         ...channelOptions,
         app: {
-          token: async (_context, scope) => (await access(scope)).token,
-          identity: async () => {
-            const { login, appId, email } = await hostIdentity()
-            return login?.trim() ? { login: login.trim(), ...(appId ? { appId } : {}), ...(email ? { email } : {}) } : undefined
+          token: async (_context, scope) => {
+            const { token, identity: { login, appId, email } } = await commitAccess(scope)
+            const name = login?.trim()
+            return { token, identity: name ? { login: name, appId, email } : undefined }
           },
         },
       })

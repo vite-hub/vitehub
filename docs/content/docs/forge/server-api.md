@@ -59,7 +59,7 @@ export async function githubEnv(repository: string) {
 
 ## Know who the App is
 
-`app()` returns the App ID, its slug, its bot login, such as `acme-bot[bot]`, and the bot's commit email, such as `41898282+acme-bot[bot]@users.noreply.github.com`. GitHub shows commits with that email as the App's. ViteHub reads the identity once per App and keeps it. Use the login to find comments that the App wrote:
+`app()` returns the App ID, its slug, its bot login, such as `acme-bot[bot]`, and the bot's commit email, such as `41898282+acme-bot[bot]@users.noreply.github.com`. GitHub shows commits with that email as the App's. ViteHub caches the identity with the bot user ID. If the bot user lookup fails, `app()` returns the plain noreply email without the user ID and retries on the next call. Use the login to find comments that the App wrote:
 
 ```ts [server/utils/github-bot.ts]
 import { useForge } from 'vite-hub/forge'

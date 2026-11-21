@@ -277,12 +277,15 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 /** The GitHub user or App bot that a github() Channel App commits and comments as. */
 export interface GitHubAppIdentity { login: string, appId?: number, email?: string }
 
+type GitHubAppAccess = { token: string, identity?: GitHubAppIdentity }
+
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
    * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
+   * Return `{ token, identity }` to use the identity selected with that token instead of the App defaults.
    */
-  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | GitHubAppAccess | undefined | Promise<string | GitHubAppAccess | undefined>)
   /**
    * Trusted identity of the host's authenticated GitHub user or App, or a function that resolves it. Provider Drivers
    * and the `git()` Capability commit as `login` with `email`.
@@ -1899,22 +1902,24 @@ async function githubAppForge<TRuntimeConfig extends AgentRuntimeConfig>(
   })
 }
 
-async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
+async function githubAppInstallationAccess<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig>,
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
   minLifetime?: number,
-) {
+): Promise<GitHubAppAccess> {
   const options = githubAppOptions(app) || {}
   if (options.token) {
-    const token = typeof options.token === "function" ? await options.token(context, {
+    const access = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
       ...(minLifetime === undefined ? {} : { minLifetime }),
     }) : options.token
-    return requiredString(token, 'token')
+    return typeof access === "object"
+      ? { token: requiredString(access.token, "token"), identity: access.identity }
+      : { token: requiredString(access, "token") }
   }
   const configured = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
@@ -1928,14 +1933,14 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     ...(signal ? { signal } : {}),
     ...(minLifetime === undefined ? {} : { minLifetime }),
   })
-  if (!error) return minted.token
+  if (!error) return { token: minted.token }
   const status = forgeErrorStatus(error.cause)
   if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
   if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
   throw error
 }
 
-async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
+async function githubPullRequestAccess<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
@@ -1945,14 +1950,24 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
 ) {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
-  if (!app) return token
+  const fallback = token ? { token } : undefined
+  if (!app) return fallback
   try {
-    return await githubAppInstallationToken(app, context, installation, repository, signal, minLifetime)
+    return await githubAppInstallationAccess(app, context, installation, repository, signal, minLifetime)
   }
   catch (error) {
-    if (token) return token
+    if (fallback) return fallback
     throw error
   }
+}
+
+async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: GitHubAppContext<TRuntimeConfig>,
+  installation?: number,
+  repository?: string,
+) {
+  return (await githubPullRequestAccess(app, context, installation, repository))?.token
 }
 
 async function githubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2049,8 +2064,6 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
-  const configured = await resolveGithubAppOption(options.identity, context)
-  if (configured) return configured
   const forge = await githubAppForge(options, context)
   const [error, identity] = await forge.app(signal ? { signal } : {})
   if (!error) return { appId: identity.id }
@@ -2062,12 +2075,13 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   provider: ForgeProvider,
-  token: string,
+  access: GitHubAppAccess,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
-  const configured = await resolveGithubAppOption(githubAppOptions(app)?.identity, context)
+  const scoped = "identity" in access
+  const configured = scoped ? access.identity : await resolveGithubAppOption(githubAppOptions(app)?.identity, context)
   if (configured?.appId) return configured
   try {
     return await forgeIdentity(provider, { kind: "token" })
@@ -2079,11 +2093,12 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
   if (
     // The Actions token, passed as VITEHUB_GITHUB_TOKEN, acts as github-actions[bot].
     processEnv?.GITHUB_ACTIONS === "true"
-    && processEnv.GITHUB_TOKEN === token
+    && processEnv.GITHUB_TOKEN === access.token
   ) {
     return { login: "github-actions[bot]" }
   }
-  if (app) return githubAppIdentity(app, context, signal)
+  if (configured) return configured
+  if (app && !scoped) return githubAppIdentity(app, context, signal)
   throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
@@ -2372,13 +2387,13 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const hostProvider = services ? await githubActivityAwait(services.provider(context, fetcher), deadline) : undefined
         const apiBaseUrl = hostProvider?.baseUrl || githubApiBaseUrl
         const commentsTarget = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
-        const token = services ? services.kind : await githubActivityAwait(githubPullRequestMetadataToken(app, context, target.installationId, target.repository, deadline), deadline)
-        if (!token) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
+        const access = services ? { token: services.kind } : await githubActivityAwait(githubPullRequestAccess(app, context, target.installationId, target.repository, deadline), deadline)
+        if (!access) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
-          const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
+          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token: access.token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
+          const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, access, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
           const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
@@ -4433,7 +4448,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
         artifacts: app?.artifacts,
         fetch: app?.fetch,
         statusContext: app?.statusContext,
-        token: context => githubAppInstallationToken(appOptions, context),
+        token: async context => (await githubAppInstallationAccess(appOptions, context)).token,
         userAgent: app?.userAgent,
       })
     : undefined
@@ -4457,11 +4472,11 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
-      if (!token) return undefined
-      const identity = await resolveGithubAppOption(app?.identity, context as AgentCallbackContext<TRuntimeConfig>)
+      const access = await githubPullRequestAccess(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
+      if (!access) return undefined
+      const identity = "identity" in access ? access.identity : await resolveGithubAppOption(app?.identity, context as AgentCallbackContext<TRuntimeConfig>)
       return {
-        token,
+        token: access.token,
         baseUrl: app?.apiBaseUrl,
         ...(identity?.login ? { identity: { login: identity.login, ...(identity.email ? { email: identity.email } : {}) } } : {}),
       }

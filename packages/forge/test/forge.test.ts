@@ -19,6 +19,23 @@ function privateKeys(type: "pkcs1" | "pkcs8") {
 }
 
 describe("internal Forge client", () => {
+  it("retries the bot user lookup after returning its plain noreply email", async () => {
+    let lookups = 0
+    const fetcher: typeof fetch = async (input, init) => {
+      const path = new URL(input instanceof Request ? input.url : input).pathname
+      if (path === "/app") return Response.json({ id: 123, slug: "acme-bot" })
+      expect(path).toBe("/users/acme-bot%5Bbot%5D")
+      expect(new Headers(init?.headers).has("authorization")).toBe(false)
+      if (++lookups === 1) return Response.json({ message: "Bot user lookup failed" }, { status: 403 })
+      return Response.json({ id: 900 })
+    }
+    const credentials = githubAppCredentials({ appId: 123, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    await expect(credentials.app()).resolves.toMatchObject({ email: "900+acme-bot[bot]@users.noreply.github.com" })
+    expect(lookups).toBe(2)
+  })
+
   it("caches installation tokens and refreshes them when asked", async () => {
     const key = privateKeys("pkcs8")
     const fixture = fixtureFetch([
