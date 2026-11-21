@@ -1,3 +1,4 @@
+import { accessPageBeats } from "./access-pages.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { cachingRuleNames, createCachingRouteRuleFinder, methodOrder, type RouteRuleEntry, type RouteRules } from "./route-rule-cache.ts"
 
@@ -16,6 +17,14 @@ export interface PageGuardCacheOptions {
   sensitive?: boolean
   /** `access.pages` of the Auth Definition. It guards the pages that have no `auth` of their own. */
   accessPages?: AuthPages
+}
+
+/** The pattern of an `access.pages` key, and the requests it guards: its paths or their payloads. */
+interface AccessPage {
+  key: string
+  pattern: string
+  paths: string
+  mode: AuthPages[keyof AuthPages]
 }
 
 /** The requests that render a page: the HTML of the page, or its payload. */
@@ -139,7 +148,7 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
   const accessPages = Object.entries(options.accessPages ?? {}).flatMap(([key, mode]) => {
     const pattern = fold(key)
     const payload = payloadPattern(pattern)
-    return [pattern, ...payload ? [payload] : []].map(paths => ({ key, pattern, paths, mode }))
+    return [pattern, ...payload ? [payload] : []].map((paths): AccessPage => ({ key, pattern, paths, mode }))
   })
   const accessGuards = accessPages.filter(page => page.mode)
   for (const target of targets) {
@@ -163,17 +172,19 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
   }
 
   for (const guard of guards) {
-    const exempt = (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[]): boolean => {
+    const exempt = (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[], name: string): boolean => {
       // Vue Router selects a static page before a dynamic page. Two pages on one static path stay guarded.
       if (open.has(entry.pattern) && entry.pattern !== guard.pattern) return true
       if (guard.accessPage) {
-        // The cached paths of the page keep no guard when no pattern guards them, or when a `false` pattern covers them
-        // that is narrower than each pattern that guards them.
-        // Nuxt strips `/_payload.json` before it picks the guard of a payload, so the `false` key itself must cover the
-        // page paths behind the cached payloads.
+        // The cached paths of the page keep no guard when no pattern guards them, or when a pattern covers them that
+        // wins over each pattern that guards them, as the guard picks it, and that is `false`, or `'guest'` for a
+        // prerender.
+        // Nuxt strips `/_payload.json` before it picks the guard of a payload, so that key itself must cover the page
+        // paths behind the cached payloads.
         const on = accessGuards.filter(on => routesOverlap(on.paths, entry.pattern) && routesOverlap(on.paths, guard.pattern))
         const pages = [payloadPages(entry.pattern), [guard.payload ? parentPath(guard.pattern) : guard.pattern]]
-        if (!on.length || accessPages.some(off => off.mode === false && pages.some(paths => paths.every(path => covers(off.pattern, path))) && on.every(on => compareRoutes(on.pattern, off.pattern) === "superset"))) return true
+        const unguards = (off: AccessPage) => off.mode === false || (off.mode === "guest" && name === "prerender")
+        if (!on.length || accessPages.some(off => unguards(off) && pages.some(paths => paths.every(path => covers(off.pattern, path))) && on.every(on => on.key === off.key || accessPageBeats(off.pattern, on.pattern)))) return true
       }
       // With `ssr: false`, Nuxt sends an empty page shell and runs the page guard only in the browser. A cached shell
       // is the same for every visitor. The `ssr: false` rule must match every cached path: every path of the rule

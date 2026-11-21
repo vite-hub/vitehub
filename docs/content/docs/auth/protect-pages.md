@@ -121,7 +121,7 @@ To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'us
 
 The page guard decides which page the browser shows. It does not protect data, because a request straight to an API route skips it. Guard API routes with `access.routes` in `server/auth.ts`, for example `'/api/dashboard/**'`. Do not put page paths in `access.routes`. A direct load of the page then gets `401`, or starts the `access.signIn` provider sign-in, while a navigation in the browser goes to the login page.
 
-Do not cache a guarded page with a route rule such as `swr`, `isr`, or `prerender`. The cached page is rendered for one visitor and served to all visitors.
+Do not cache a guarded page with a route rule such as `swr`, `isr`, or `prerender`. The cached page is rendered for one visitor and served to all visitors. A path whose most specific key is `false` may be cached, and a path whose most specific key is `'guest'` may be prerendered, also inside a `'user'` pattern.
 
 ## Choose where visitors go
 

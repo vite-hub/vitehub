@@ -29,6 +29,24 @@ function decodePath(path: string): string {
   }
 }
 
+/** Nuxt orders matches by their segments from the left: a static segment, then `:name` or `*`, then `**`. */
+function segmentRank(segment: string | undefined): number {
+  if (segment === undefined) return 3
+  if (segment.startsWith("**")) return 0
+  return segment.startsWith(":") || segment === "*" ? 1 : 2
+}
+
+/** True when the pattern `a` wins over the pattern `b` on every path that both match. */
+export function accessPageBeats(a: string, b: string): boolean {
+  const left = a.split("/").slice(1)
+  const right = b.split("/").slice(1)
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const order = segmentRank(left[index]) - segmentRank(right[index])
+    if (order) return order > 0
+  }
+  return false
+}
+
 /** A static segment or `:name`. */
 const pageSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*)$/
 

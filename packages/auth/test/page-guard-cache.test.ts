@@ -233,6 +233,20 @@ describe("Nuxt page guard of access.pages with cache route rules", () => {
     await expect(check({ "/team/admin/_payload.json": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/**": "user", "/team/admin": false })).resolves.toBeUndefined()
   })
 
+  it("passes a prerender of a path whose most specific key is 'guest'", async () => {
+    const access = { "/dashboard/**": "user", "/dashboard/welcome": "guest" } as const
+    await expect(check({ "/dashboard/welcome": { prerender: true } }, [{ path: "/dashboard/welcome" }, { path: "/dashboard/:id()" }], access)).resolves.toBeUndefined()
+    // A prerender renders without a cookie, but a cache keeps the redirect of the first signed-in visitor.
+    await expect(check({ "/dashboard/welcome": { swr: 60 } }, [{ path: "/dashboard/:id()" }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+  })
+
+  it("exempts a path only when its `false` key wins over each guarding key, as the guard orders them", async () => {
+    // `/team/:id` wins over `/:org/admin` on `/team/admin`: Nuxt compares the static `team` with `:org` first.
+    const access = { "/:org/admin": "user", "/team/:id": false } as const
+    await expect(check({ "/team/admin": { swr: 60 } }, [{ path: "/:slug(.*)*" }], access)).resolves.toBeUndefined()
+    await expect(check({ "/acme/admin": { swr: 60 } }, [{ path: "/:slug(.*)*" }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+  })
+
   it("reads access.pages of server/auth.ts in the build", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-page-cache-"))
     try {
