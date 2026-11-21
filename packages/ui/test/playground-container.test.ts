@@ -143,7 +143,7 @@ describe("PlaygroundContainer", () => {
     expect(wrapper.emitted("update:open")).toEqual([[true]]);
     expect(wrapper.get(".vh-pc-run-state").text()).toBe("Running");
     expect(wrapper.get(".vh-pc-path").text()).toBe("server/api/health.get.ts");
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console"]);
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console"]);
 
     await context!.workspace.setFiles({ "server/api/health.get.ts": "export default () => 'edited'\n" });
     await flushPromises();
@@ -254,11 +254,11 @@ describe("PlaygroundContainer", () => {
     wrapper.unmount();
   });
 
-  it("puts the preview in a tab in a tutorial, and adds Connect and the tabs of the page", async () => {
+  it("puts the preview in the first tab, and adds Connect and the tabs of the page", async () => {
     const wrapper = mount(PlaygroundContainer, {
       global,
       props: {
-        layout: "tutorial",
+        layout: "guide-side",
         templates: [kv],
         share: false,
         connect: defineConnect({ github: true }),

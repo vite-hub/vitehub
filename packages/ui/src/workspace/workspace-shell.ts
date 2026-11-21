@@ -1,7 +1,14 @@
 import { computed, defineComponent, h, onMounted, type PropType, ref, type Slots, type VNode, watch } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 
-export type WorkspaceLayout = "tutorial" | "playground";
+/**
+ * Where the guide, the code, and the output go.
+ * - `side`: the code, and the output at the side.
+ * - `guide-top`: the guide over the code, and the output at the side. Drag the line under the guide to resize it.
+ * - `guide-side`: the guide in a column on the left. On the right, the output takes 40% at the top and the code sits
+ *   under it.
+ */
+export type WorkspaceLayout = "side" | "guide-top" | "guide-side";
 /** A built-in panel, or the slot name of a panel that the page adds. */
 export type WorkspaceTab = "preview" | "terminal" | "connect" | (string & {});
 
@@ -13,24 +20,28 @@ export interface WorkspaceTabItem {
   badge?: string | number;
 }
 
-/** Split sizes. `files` is in pixels. `main` and `side` are percents of the shell. */
+/**
+ * Split sizes. `files` is the width of the files in pixels. `code` is the width of the code column in percent of the
+ * shell, in `side` and `guide-top`. `guide` is the height of the guide in percent of the code column, in `guide-top`.
+ */
 export interface WorkspaceSplits {
   files: number;
-  main: number;
-  side: number;
+  code: number;
+  guide: number;
 }
 
+// The files take 199px and their 1px line, so the editor starts at 200px.
 const defaultSplits: Record<WorkspaceLayout, WorkspaceSplits> = {
-  // `main` is the editor height above the panels. `side` is the preview width of a playground.
-  playground: { files: 200, main: 68, side: 40 },
-  tutorial: { files: 180, main: 55, side: 45 },
+  "side": { files: 199, code: 50, guide: 46 },
+  "guide-top": { files: 199, code: 54, guide: 46 },
+  "guide-side": { files: 199, code: 50, guide: 46 },
 };
 
 const limits: Record<keyof WorkspaceSplits, [number, number, number]> = {
   // [min, max, keyboard step]
   files: [120, 420, 16],
-  main: [20, 80, 5],
-  side: [25, 75, 5],
+  code: [25, 75, 5],
+  guide: [15, 75, 5],
 };
 
 const builtInTabs: readonly WorkspaceTabItem[] = [
@@ -117,15 +128,21 @@ function separator(options: {
   });
 }
 
+/**
+ * The frame of a workspace. Slots: `bar` (44px, over everything), `files`, `editor-head` (32px, over the editor),
+ * `editor`, `status` (24px, under the editor), `guide`, one slot per tab (`preview`, `terminal`, `connect`, or the
+ * `value` of a tab in `tabs`), and `overlay` (over the body). The tab bar is 32px too, so its bottom line meets the
+ * bottom line of `editor-head`.
+ */
 export const WorkspaceShell = defineComponent({
   name: "WorkspaceShell",
   props: {
-    layout: { default: "tutorial", type: String as PropType<WorkspaceLayout> },
+    layout: { default: "side", type: String as PropType<WorkspaceLayout> },
     /** The visible tab. Use `v-model:tab`. */
     tab: { default: undefined, type: String as PropType<WorkspaceTab> },
     /**
-     * The tabs of the panel group, in order. Each tab shows the slot with the name of its `value`. Defaults to Preview,
-     * Terminal, and Connect, for the slots that are set. A playground shows the preview at the side, never as a tab.
+     * The tabs of the output, in order. Each tab shows the slot with the name of its `value`. Defaults to Preview,
+     * Terminal, and Connect, for the slots that are set.
      */
     tabs: { default: undefined, type: Array as PropType<readonly WorkspaceTabItem[]> },
     /** The localStorage key for split sizes. `false` keeps them in memory. Defaults to one key per layout. */
@@ -152,9 +169,7 @@ export const WorkspaceShell = defineComponent({
       catch { /* The split still applies for this page. */ }
     }
 
-    // In a playground the preview sits at the side, so the tabs under the editor never hold it.
-    const items = computed(() => (props.tabs ?? builtInTabs.filter(item => slots[item.value]))
-      .filter(item => props.layout !== "playground" || item.value !== "preview"));
+    const items = computed(() => props.tabs ?? builtInTabs.filter(item => slots[item.value]));
     const tabs = computed(() => items.value.map(item => item.value));
     const active = computed(() => {
       const wanted = props.tab ?? localTab.value;
@@ -172,7 +187,7 @@ export const WorkspaceShell = defineComponent({
 
     // UTabs draws the strip and moves between tabs with the arrow keys. The panels stay here, mounted and laid over each
     // other, so the terminal keeps its size and output and the preview keeps its page while another tab shows.
-    function tabList(): VNode | undefined {
+    function output(): VNode | undefined {
       if (tabs.value.length === 0) return undefined;
       const panels = tabs.value.map(name => h("div", {
         "aria-label": items.value.find(item => item.value === name)?.label,
@@ -182,7 +197,7 @@ export const WorkspaceShell = defineComponent({
         key: name,
         role: "tabpanel",
       }, renderSlot(slots, name, slotProps())));
-      return h("div", { class: "vh-ws-tabs" }, [
+      return h("div", { class: "vh-ws-pane vh-ws-pane--output" }, [
         h(UTabs, {
           "aria-label": "Workspace panels",
           class: "vh-ws-tab-list",
@@ -200,60 +215,79 @@ export const WorkspaceShell = defineComponent({
 
     return () => {
       const s = splits.value;
-      const container = () => root.value?.querySelector<HTMLElement>(".vh-ws-body") ?? null;
-      const filesSplit = slots.files
-        ? [
-            h("div", { class: "vh-ws-pane vh-ws-pane--files", style: { flexBasis: `${s.files}px` } }, renderSlot(slots, "files", slotProps())),
-            separator({ container, label: "Resize files", measure: (event, rect) => event.clientX - rect.left, name: "files", orientation: "vertical", set, splits: s }),
-          ]
-        : [];
-      const editor = h("div", { class: "vh-ws-pane vh-ws-pane--editor" }, renderSlot(slots, "editor", slotProps()));
+      const layout = props.layout;
+      const body = () => root.value?.querySelector<HTMLElement>(".vh-ws-body") ?? null;
 
-      let body: VNode;
-      if (props.layout === "playground") {
-        const panels = tabList();
-        const center = panels
-          ? h("div", { class: "vh-ws-stack" }, [
-              h("div", { class: "vh-ws-pane", style: { flexBasis: `${s.main}%` } }, [editor]),
+      // The files and the editor column: the head row, the editor, and the status line.
+      const code = (style?: Record<string, string>) => h("div", { class: "vh-ws-pane vh-ws-code", style }, [
+        ...slots.files
+          ? [
+              h("div", { class: "vh-ws-pane vh-ws-pane--files", style: { flexBasis: `${s.files}px` } }, renderSlot(slots, "files", slotProps())),
               separator({
-                container: () => root.value?.querySelector<HTMLElement>(".vh-ws-stack") ?? null,
-                label: "Resize panels",
+                container: () => root.value?.querySelector<HTMLElement>(".vh-ws-code") ?? null,
+                label: "Resize files",
+                measure: (event, rect) => event.clientX - rect.left,
+                name: "files",
+                orientation: "vertical",
+                set,
+                splits: s,
+              }),
+            ]
+          : [],
+        h("div", { class: "vh-ws-pane vh-ws-pane--editor" }, [
+          slots["editor-head"] ? h("div", { class: "vh-ws-head vh-ws-editor-head" }, renderSlot(slots, "editor-head", slotProps())) : undefined,
+          h("div", { class: "vh-ws-pane vh-ws-editor-body" }, renderSlot(slots, "editor", slotProps())),
+          slots.status ? h("div", { class: "vh-ws-status" }, renderSlot(slots, "status", slotProps())) : undefined,
+        ]),
+      ]);
+      const guide = (style?: Record<string, string>) => slots.guide
+        ? h("div", { class: "vh-ws-pane vh-ws-guide", style }, renderSlot(slots, "guide", slotProps()))
+        : undefined;
+      const codeSeparator = () => separator({
+        container: body,
+        label: "Resize code",
+        measure: (event, rect) => ((event.clientX - rect.left) / rect.width) * 100,
+        name: "code",
+        orientation: "vertical",
+        set,
+        splits: s,
+      });
+
+      let children: (VNode | undefined)[];
+      if (layout === "guide-side") {
+        // The output does not need the full height, so it takes a fixed part and the code sits under it.
+        children = [guide(), h("div", { class: "vh-ws-pane vh-ws-stack" }, [output(), code()])];
+      }
+      else {
+        const panels = output();
+        // Without an output the code takes the full width.
+        const width = panels ? { flex: `0 0 ${s.code}%` } : undefined;
+        const column = layout === "guide-top" && slots.guide
+          ? h("div", { class: "vh-ws-pane vh-ws-column", style: width }, [
+              guide({ flex: `0 0 ${s.guide}%` }),
+              separator({
+                container: () => root.value?.querySelector<HTMLElement>(".vh-ws-column") ?? null,
+                label: "Resize guide",
                 measure: (event, rect) => ((event.clientY - rect.top) / rect.height) * 100,
-                name: "main",
+                name: "guide",
                 orientation: "horizontal",
                 set,
                 splits: s,
               }),
-              h("div", { class: "vh-ws-pane vh-ws-pane--panels" }, [panels]),
+              code(),
             ])
-          : editor;
-        body = h("div", { class: "vh-ws-body vh-ws-body--row" }, [
-          ...filesSplit,
-          h("div", { class: "vh-ws-pane vh-ws-pane--center" }, [center]),
-          ...slots.preview
-            ? [
-                separator({ container, label: "Resize preview", measure: (event, rect) => ((rect.right - event.clientX) / rect.width) * 100, name: "side", orientation: "vertical", set, splits: s }),
-                h("div", { class: "vh-ws-pane vh-ws-pane--side", style: { flexBasis: `${s.side}%` } }, renderSlot(slots, "preview", slotProps())),
-              ]
-            : [],
-        ]);
-      }
-      else {
-        body = h("div", { class: "vh-ws-body vh-ws-body--column" }, [
-          h("div", { class: "vh-ws-row", style: { flexBasis: `${s.main}%` } }, [...filesSplit, editor]),
-          separator({ container, label: "Resize editor", measure: (event, rect) => ((event.clientY - rect.top) / rect.height) * 100, name: "main", orientation: "horizontal", set, splits: s }),
-          h("div", { class: "vh-ws-pane vh-ws-pane--panels" }, [tabList()]),
-        ]);
+          : code(width);
+        children = panels ? [column, codeSeparator(), panels] : [column];
       }
 
       return h("section", {
         "aria-label": props.label,
-        class: ["vh-ws-shell", `vh-ws-shell--${props.layout}`],
-        "data-layout": props.layout,
+        class: ["vh-ws-shell", `vh-ws-shell--${layout}`],
+        "data-layout": layout,
         ref: root,
       }, [
-        slots.toolbar ? h("div", { class: "vh-ws-toolbar" }, renderSlot(slots, "toolbar", slotProps())) : undefined,
-        body,
+        slots.bar ? h("div", { class: "vh-ws-bar" }, renderSlot(slots, "bar", slotProps())) : undefined,
+        h("div", { class: "vh-ws-body" }, children),
         slots.overlay ? h("div", { class: "vh-ws-overlay" }, renderSlot(slots, "overlay", slotProps())) : undefined,
       ]);
     };
