@@ -12,6 +12,8 @@ import type {
 } from "@ai-sdk/provider"
 import type { ChatGPTCredential } from "@vite-hub/connections/agent"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
+import { aiGatewayLanguageModel } from "@vite-hub/gateways/internal"
+import type { AiGatewayLanguageModelRoute } from "@vite-hub/gateways/internal"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentProviderCredentialContext } from "../types.ts"
 import { chatgptProviderError, resolveChatGPTCredential } from "./chatgpt-gateway.ts"
@@ -207,7 +209,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
       throw planError(error, gateway.connection)
     }
   }
-  return {
+  const model: LanguageModelV4 = {
     specificationVersion: "v4",
     provider: "chatgpt",
     modelId,
@@ -215,4 +217,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
     doStream,
     doGenerate: async options => await collectStream(await doStream(options)),
   }
+  // With VITEHUB_MODELS=emulate, the Agent sends this model to the AI emulator as an OpenAI Responses model.
+  const route: AiGatewayLanguageModelRoute = Object.freeze({ api: "responses", gateway: "chatgpt", modelId })
+  return Object.defineProperty(model, aiGatewayLanguageModel, { value: route })
 }

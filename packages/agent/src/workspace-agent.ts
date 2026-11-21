@@ -35,6 +35,7 @@ import {
 } from "./instruction-composition.ts"
 import { inheritAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { emulatedGateway, emulatedModelApi, isModelEmulationRequested, languageModelRoute } from "./internal/agent-emulation.ts"
 import { gatewayModelDescriptor } from "./internal/agent-model.ts"
 import { consumesMessageChannelInstructions, inspectMessageChannelInstructions } from "./internal/channels.ts"
 import { colocatedAgentSkillsSymbol, discoveredSkillsSetter, type ColocatedAgentSkills } from "./internal/colocated-agent-skills.ts"
@@ -734,7 +735,7 @@ function resolvedDriverExecutionAuthority<
   driver: ReturnType<typeof normalizeAgentDriver<TRuntimeConfig, CALL_OPTIONS>>,
   runtime?: AgentRuntimeName,
 ): ExecutionAuthority {
-  if (driver.kind === "model" || driver.kind === "ask") return noExecutionAuthority
+  if (driver.kind === "model" || driver.kind === "ask" || driver.kind === "external") return noExecutionAuthority
   if (driver.kind === "provider" && (runtime === "cloudflare-agents" || runtime === "deno")) return noExecutionAuthority
   return driver.kind === "provider" ? staticDriverExecutionAuthority(driver) : unknownExecutionAuthority
 }
@@ -762,10 +763,23 @@ function modelProviderFromId(id: string | undefined): string | undefined {
 
 /** A model on the ChatGPT plan: an OpenAI model that the Connection's grant pays for. */
 function chatgptModelMetadata(id: string): AgentInspectionModelMetadata {
+  if (isModelEmulationRequested()) return { gateway: emulatedGateway, id, provider: `${emulatedGateway}.responses` }
   return { id, provider: "openai", transport: "chatgpt" }
 }
 
+/** The model that `VITEHUB_MODELS=emulate` sends to the AI emulator, or undefined when the switch is off or the model cannot go there. */
+function emulatedModelMetadata(model: AgentModelInput | undefined, dynamic: boolean): AgentInspectionModelMetadata | undefined {
+  if (!isModelEmulationRequested()) return
+  if (model === undefined) return dynamic ? { dynamic: true, gateway: emulatedGateway } : undefined
+  const id = gatewayModelDescriptor(model)?.id.trim()
+  const route = id ? { api: emulatedModelApi(id), modelId: id } : languageModelRoute(model)
+  if (!route) return
+  return { ...(dynamic ? { dynamic: true } : {}), gateway: emulatedGateway, id: route.modelId, provider: `${emulatedGateway}.${route.api}` }
+}
+
 function modelMetadata(model: AgentModelInput | undefined, dynamic = false): AgentInspectionModelMetadata {
+  const emulated = emulatedModelMetadata(model, dynamic)
+  if (emulated) return emulated
   if (model === undefined) return dynamic ? { dynamic: true } : {}
   const gateway = gatewayModelDescriptor(model)
   if (gateway) {
@@ -976,6 +990,7 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
@@ -1022,6 +1037,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "ask") return { executionAuthority: noExecutionAuthority, kind: "ask" }
+  if (driver.kind === "external") return { executionAuthority: noExecutionAuthority, kind: "external" }
   return { executionAuthority: unknownExecutionAuthority, kind: "run" }
 }
 
