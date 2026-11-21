@@ -1,5 +1,5 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { runtimeErrorDiagnostics } from "@vite-hub/runtime"
+import { runtimeErrorDiagnostics } from "@vite-hub/runtime/internal/error-diagnostics"
 
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"

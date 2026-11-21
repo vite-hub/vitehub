@@ -188,6 +188,16 @@ export function parseTaskWrapperLog(wrapper: string): string | undefined {
   return wrapper.match(/^\$log = '((?:[^']|'')*)'\r?$/m)?.[1]?.replaceAll("''", "'")
 }
 
+/**
+ * The base64 PowerShell command that runs the wrapper and exits with its exit code. Task Scheduler expands `%NAME%` in
+ * the arguments of a task and has no escape for `%`, so a wrapper path in the arguments breaks under a folder such as
+ * `C:\Users\pct %PATH%`. Base64 has no `%`.
+ */
+function runWrapperCommand(wrapper: string): string {
+  const script = `$global:LASTEXITCODE = 1\n& ${powerShellString(wrapper)}\nexit $global:LASTEXITCODE`
+  return Buffer.from(script, "utf16le").toString("base64")
+}
+
 /** The task XML. The description ends with a hash of the XML and the wrapper, which a later install compares. */
 export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options: { scope: OsScheduleScope, userId: string, wrapper: string, wrapperText: string }): string {
   const render = (description: string) => [
@@ -237,7 +247,7 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
     "  <Actions Context=\"Author\">",
     "    <Exec>",
     "      <Command>powershell.exe</Command>",
-    `      <Arguments>${xml(`-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "${options.wrapper}"`)}</Arguments>`,
+    `      <Arguments>${xml(`-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${runWrapperCommand(options.wrapper)}`)}</Arguments>`,
     "    </Exec>",
     "  </Actions>",
     "</Task>",

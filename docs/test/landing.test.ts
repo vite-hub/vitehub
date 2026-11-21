@@ -99,6 +99,11 @@ describe("landing page", () => {
       "i18n",
       "comments",
       "ui",
+      "sync",
+      "device",
+      "forge",
+      "webhooks",
+      "mcp",
     ]);
     for (const primitive of landingPrimitives) {
       expect(primitive.to).toMatch(/^\/docs\//);

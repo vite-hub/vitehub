@@ -1362,7 +1362,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
-export type AgentDriverKind = "ask" | "model" | "provider" | "run"
+export type AgentDriverKind = "ask" | "external" | "model" | "provider" | "run"
 
 export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -2182,6 +2182,23 @@ export interface AgentAskDriver<
   sandbox?: never
   sessionKey?: never
   workDir?: never
+}
+
+/**
+ * The options of an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner:
+ * `defineAgent({ driver: "external" })`. The Agent has a description, a Workspace, and a journal for the sessions that
+ * you import with `importAgentSession()`, but ViteHub never runs it: `runAgent()`, `streamAgent()`, and
+ * `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN`.
+ */
+export interface ExternalAgentOptions {
+  description?: string
+  driver: "external"
+  invocations?: AgentInvocationsSetting
+  name?: string
+  /** An external Agent has no runtime. */
+  runtime?: false
+  version?: string
+  workspace?: WorkspaceAgentWorkspaceConfig
 }
 
 export type AgentDriver<
