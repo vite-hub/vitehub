@@ -1,6 +1,7 @@
 import type { Snapshot } from "./inbox/store.ts";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { isBabysitterCheckRun } from "./check-run.ts";
+import { actionLocation } from "./inbox/ci-evidence.ts";
 
 /** GitHub REST reads, as GitHub returns them. */
 export interface BaseFreshnessReader {
@@ -22,27 +23,55 @@ const pushMarginMs = 2 * 60_000;
  */
 export async function checksTestedBase(reader: BaseFreshnessReader, snapshot: Snapshot, head: string, baseRef: string, conclusions: ReadonlySet<string>, signal: AbortSignal): Promise<string | undefined> {
   const { repository } = snapshot;
-  const runIds = [...new Set(Object.values(snapshot.checks).flatMap((check) => {
-    if (check.deleted || check.head_sha !== head || isBabysitterCheckRun(check) || !conclusions.has(String(check.conclusion).toLowerCase())) return [];
-    const id = String(check.html_url ?? check.details_url ?? "").match(/\/actions\/runs\/(\d+)/)?.[1];
+  const source = snapshot.pr?.head;
+  const sourceRepository = source?.repo?.full_name;
+  const fork = sourceRepository != null && sourceRepository.toLowerCase() !== repository.toLowerCase();
+  const readRun = (id: number) => reader.page(`repos/${repository}/actions/runs/${id}`, signal);
+  const candidates = Object.values(snapshot.checks).filter(check => !check.deleted && check.head_sha === head && !isBabysitterCheckRun(check) && conclusions.has(String(check.conclusion).toLowerCase()));
+  const checkTime = (check: (typeof candidates)[number]) => String(check.started_at ?? check.completed_at ?? "");
+  const ordered = candidates.sort((left, right) => checkTime(right).localeCompare(checkTime(left)));
+  const newest = new Map<string, (typeof candidates)[number]>();
+  const reads = new Map<number, ReturnType<typeof readRun>>();
+  // A rerun or a reopen adds a newer run of the same check; only the newest run of each check counts.
+  for (const check of ordered) {
+    const name = String(check.name);
+    if (newest.has(name)) continue;
+    if (fork) {
+      const id = actionLocation(repository, check)?.runId;
+      if (!id) continue;
+      const pending = reads.get(id) ?? readRun(id);
+      reads.set(id, pending);
+      const run = await pending;
+      if (!isRuntimeRecord(run) || run.event !== "pull_request" || run.head_sha !== head || !source?.ref || run.head_branch !== source.ref
+        || !isRuntimeRecord(run.head_repository) || String(run.head_repository.full_name).toLowerCase() !== sourceRepository.toLowerCase()) continue;
+    }
+    newest.set(name, check);
+  }
+  const runIds = [...new Set([...newest.values()].flatMap((check) => {
+    const id = actionLocation(repository, check)?.runId;
     return id ? [id] : [];
   }))];
-  const runs = await Promise.all(runIds.map(async (id) => {
-    const run = await reader.page(`repos/${repository}/actions/runs/${id}`, signal);
+  const runs = (await Promise.all(runIds.map(async (id) => {
+    const run = await (reads.get(id) ?? readRun(id));
     if (!isRuntimeRecord(run)) return { created: Number.NaN, base: undefined, hasPullRequestMetadata: false };
     const bases = Array.isArray(run.pull_requests)
-      ? run.pull_requests.map(pr => isRuntimeRecord(pr) && isRuntimeRecord(pr.base) ? pr.base.sha : undefined).filter((base): base is string => hasRuntimeType(base, "string"))
+      ? run.pull_requests.flatMap(pr => isRuntimeRecord(pr) && isRuntimeRecord(pr.base)
+        && (!fork || (pr.number === snapshot.number && pr.base.ref === baseRef)) && hasRuntimeType(pr.base.sha, "string") ? [pr.base.sha] : [])
       : [];
+    if (fork && Array.isArray(run.pull_requests) && !run.pull_requests.length) {
+      // Use creation, not execution or rerun time: the checkout may have been chosen before the job ran.
+      return { created: Date.parse(String(run.created_at)), base: undefined, hasPullRequestMetadata: false };
+    }
     // An array returned by the Actions API is metadata, even when it is
     // empty or contains unusable entries. In that case the run is
     // ambiguous and must not fall back to an activity timestamp guess.
     return { created: Date.parse(String(run.created_at)), base: bases.length === 1 ? bases[0] : undefined, hasPullRequestMetadata: Array.isArray(run.pull_requests) };
-  }));
+  })));
   // A non-PR or ambiguous run is never evidence for the PR's tested base.
   const exactBases = runs.filter(run => run.hasPullRequestMetadata).map(run => run.base);
   if (exactBases.length && exactBases.some(base => !base)) return undefined;
   const exact = runs.slice().sort((a, b) => a.created - b.created).find(run => run.hasPullRequestMetadata && run.base)?.base;
-  if (exact) return exact;
+  if (exact && (!fork || runs.every(run => run.hasPullRequestMetadata))) return exact;
   const started = runs.map(run => run.created);
   const ranAt = Math.min(...started.filter(Number.isFinite));
   if (!Number.isFinite(ranAt)) return undefined;
@@ -70,12 +99,12 @@ export async function staleBaseOverlap(reader: BaseFreshnessReader, snapshot: Sn
     checksTestedBase(reader, snapshot, live.head.sha, live.base.ref, testedConclusions, signal),
   ]);
   const changed = new Set(files.flatMap(file => isRuntimeRecord(file) ? [file.filename, file.previous_filename] : []).filter(file => hasRuntimeType(file, "string")));
-  // Without an exact Actions run base, checks do not prove that the current
-  // base was tested. Force a retest before allowing a direct merge.
+  // Without tested-base evidence, force a retest before allowing a direct merge.
   if (!testedBase) return [...changed];
   // The first page has the complete file list; later pages only add commits.
   const compare = await reader.page(`repos/${repository}/compare/${testedBase}...${encodeURIComponent(live.base.ref)}?per_page=100`, signal);
-  if (!isRuntimeRecord(compare) || !compare.ahead_by) return [];
+  if (!isRuntimeRecord(compare) || typeof compare.ahead_by !== "number" || Number(compare.behind_by) > 0) return [...changed];
+  if (compare.ahead_by === 0) return [];
   // GitHub exposes at most 300 files for a comparison. Each response item is
   // one changed file, so renamed files and null previous names do not inflate
   // the truncation count.

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/ui",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
@@ -49,6 +49,11 @@
       "import": "./dist/markdown-editor.js",
       "default": "./dist/markdown-editor.js"
     },
+    "./motion": {
+      "types": "./dist/motion.d.ts",
+      "import": "./dist/motion.js",
+      "default": "./dist/motion.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -92,7 +97,8 @@
     "test:parity": "node --test test/browser/parity.browser.mjs",
     "test:anchored": "node --test test/browser/anchored.browser.mjs",
     "test:ui-sdk": "node --test test/browser/ui-sdk.browser.mjs",
-    "test:editor": "node --test test/browser/editor.browser.mjs"
+    "test:editor": "node --test test/browser/editor.browser.mjs",
+    "test:motion": "node --test --test-concurrency=1 test/browser/motion*.browser.mjs"
   },
   "dependencies": {
     "reka-ui": "catalog:ui",
