@@ -140,7 +140,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` prints the emulator URL once, and the Agent answers from the rule:
+`vite dev` prints the emulator URL once, and an Agent with a model Driver, such as `driver: { model: 'openai/gpt-5.1' }` in `server/agents/greeter.ts`, answers from the rule:
 
 ```sh
 [vitehub] AI emulator: http://127.0.0.1:35207. Agent models answer from its rules with no AI key (VITEHUB_MODELS=emulate). Open the URL to see the calls.
