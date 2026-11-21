@@ -90,7 +90,7 @@ Give `steps` to show the steps menu in the bar and the guide next to the code. `
 
 `useWorkspace()` returns the workspace around the calling component. Call it in a slot of `Workspace`. The slots also get the same values as props.
 
-```ts
+```ts fragment
 const { files, setFile, edited, show, showTab, guard } = useWorkspace();
 
 setFile("locales/de.json", solution);
@@ -105,7 +105,7 @@ guard("Replace your code with the solution?", "Solve", () => setFile("app.vue", 
 
 `useWorkspaceDevice(runner)` tells the page where it runs, after mount. Use it to place a workspace next to a lesson on a desktop and under it on a phone.
 
-```ts
+```ts fragment
 const { device, supported } = useWorkspaceDevice(runner);
 // device: "pending" | "phone" | "tablet" | "desktop"
 ```
