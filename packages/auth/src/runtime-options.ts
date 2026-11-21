@@ -100,7 +100,7 @@ function withRateLimitDefaults(
 
 /**
  * Better Auth reads the client IP from `X-Forwarded-For` by default, which a client can set and Cloudflare does not
- * send. Auth gives it the address that the host reports instead, also with `trustedProxyHeaders`: behind a proxy,
+ * send. Auth gives it the address that the host reports instead, also with `trustedProxyHeaders`: on the Node host behind a proxy,
  * `vitehub({ trustProxy: true })` makes that address the last `X-Forwarded-For` value, which the proxy adds.
  */
 function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonNullable<BetterAuthOptions["advanced"]> {

@@ -124,6 +124,21 @@ describe("installRequestPolicy", () => {
     expect(calls).toHaveLength(1)
   })
 
+  it("keeps the host's client address when only forwarded protocol is trusted", () => {
+    const { app, requestHooks } = nitroApp()
+    installRequestPolicy(app, { trustProxy: true })
+    const request = new Request("http://app.test/", {
+      headers: { "x-forwarded-for": "203.0.113.9", "x-forwarded-proto": "https" },
+    })
+    Object.defineProperty(request, "ip", { configurable: true, value: "198.51.100.7" })
+    const event = new H3Event(request)
+    const [hook] = requestHooks
+    if (typeof hook !== "function") throw new TypeError("Missing request hook")
+    hook(event)
+    expect(event.url.protocol).toBe("https:")
+    expect(getRequestIP(event)).toBe("198.51.100.7")
+  })
+
   it("puts the trustProxy hook before the request hooks of other plugins, and changes nothing when both are off", () => {
     const { app, requestHooks } = nitroApp()
     const fetch = app.fetch
@@ -131,7 +146,7 @@ describe("installRequestPolicy", () => {
     expect(app.fetch).toBe(fetch)
     expect(requestHooks).toHaveLength(1)
 
-    installRequestPolicy(app, { trustProxy: true, sameOriginWrites: false })
+    installRequestPolicy(app, { trustProxy: true, trustProxyAddress: true, sameOriginWrites: false })
     expect(requestHooks[0]).toBe(trustProxyHeaders)
     expect(app.fetch).toBe(fetch)
   })
@@ -143,14 +158,14 @@ describe("request policy Vite plugin", () => {
       .toContain(`installRequestPolicy(nitroApp, {"trustProxy":true,"sameOriginWrites":{"exclude":["/hooks"]}})`)
   })
 
-  it("registers the generated plugin before configured async plugins", async () => {
+  it.each(["node", "cloudflare", "netlify", "vercel", "deno"] as const)("registers the %s policy before configured async plugins", async (host) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-request-policy-"))
     try {
       const config: { root: string, nitro?: { plugins?: string[] } } = { root, nitro: { plugins: ["async-plugin.mjs"] } }
-      await (requestPolicyVitePlugin({ sameOriginWrites: true }, undefined).config as (config: object, env: object) => Promise<void>)(config, { command: "build", mode: "production" })
+      await (requestPolicyVitePlugin(host, { trustProxy: true, sameOriginWrites: true }, undefined).config as (config: object, env: object) => Promise<void>)(config, { command: "build", mode: "production" })
       const file = join(root, ".vitehub/nitro/request-policy.mjs")
       expect(config.nitro?.plugins).toEqual([file, "async-plugin.mjs"])
-      expect(await readFile(file, "utf8")).toContain(`{"trustProxy":false,"sameOriginWrites":{"exclude":[]}}`)
+      expect(await readFile(file, "utf8")).toContain(`{"trustProxy":true,"trustProxyAddress":${host === "node"},"sameOriginWrites":{"exclude":[]}}`)
     }
     finally {
       await rm(root, { force: true, recursive: true })

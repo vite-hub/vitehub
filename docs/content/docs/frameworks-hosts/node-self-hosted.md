@@ -191,9 +191,10 @@ address used by Auth and Rate Limit to bypass IP-based rate limits and set
 your proxy configuration before upgrading.
 ::
 
-Both options work on every host. On Cloudflare, Vercel, Netlify, and Deno
-Deploy, the request URL is already `https://`, so `trustProxy` changes nothing
-there.
+Only the Node host reads `X-Forwarded-For` through `trustProxy`. Cloudflare,
+Vercel, and Netlify keep the address that their Nitro preset reports. Deno
+Deploy keeps the peer address, which can be the edge server instead of the
+client. The request URL on these hosts is already `https://`.
 
 ## Check health
 

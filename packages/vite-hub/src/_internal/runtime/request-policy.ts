@@ -3,6 +3,7 @@ import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origi
 /** The request options of `vitehub({ trustProxy, sameOriginWrites })` that the generated Nitro plugin passes. */
 export interface RequestPolicyOptions {
   trustProxy?: boolean
+  trustProxyAddress?: boolean
   /** Path prefixes that skip the same-origin check, or `false` for no check. */
   sameOriginWrites?: false | { exclude: string[] }
 }
@@ -46,7 +47,7 @@ export function trustForwardedFor(event: RequestEventLike): void {
   if (address) Object.defineProperty(event.req, "ip", { configurable: true, enumerable: true, value: address })
 }
 
-/** The `request` hook of `trustProxy`: the protocol and the client address that the proxy sends. */
+/** The Node `request` hook of `trustProxy`: the protocol and client address the proxy sends. */
 export function trustProxyHeaders(event: RequestEventLike): void {
   trustForwardedProto(event)
   trustForwardedFor(event)
@@ -90,9 +91,10 @@ function crossOriginWriteResponse(): Response {
  */
 export function installRequestPolicy(nitroApp: NitroAppLike, options: RequestPolicyOptions): void {
   if (options.trustProxy && nitroApp.hooks) {
+    const hook = options.trustProxyAddress ? trustProxyHeaders : trustForwardedProto
     const requestHooks = nitroApp.hooks._hooks?.request
-    if (Array.isArray(requestHooks)) requestHooks.unshift(trustProxyHeaders)
-    else nitroApp.hooks.hook("request", trustProxyHeaders)
+    if (Array.isArray(requestHooks)) requestHooks.unshift(hook)
+    else nitroApp.hooks.hook("request", hook)
   }
   const sameOriginWrites = options.sameOriginWrites
   const fetch = nitroApp.fetch
