@@ -19,23 +19,12 @@ describe("Babysitter instructions", () => {
     expect(rendered).not.toContain("use wake:")
   })
 
-  it("renders the generic repair rules every Babysitter gets", async () => {
-    const rendered = await composeInstructionDocument(babysitterInstructions.replace("{{{ instructions }}}", "Agent instructions."))
-    for (const rule of [
-      "P0 (security hole, data loss or a broken main path)",
-      "deliberately forged or hostile runtime objects",
-      "Do not push for P2 or P3 findings alone",
-      "fix the class once at its root",
-      "do not set reviewedHead while it is unfixed",
-      "Never park a PR to ask a maintainer to choose between requirements",
-      "Failing required checks come before review findings",
-      "Do not push for a check that fails the same way on the base",
-      "`git diff HEAD...origin/<base> -- <file>`",
-      "Make at most one repair commit per pass",
-      "Never search outside the checkout",
-      "Set reviewedHead only for the exact commit you assessed",
-      "Do not create direction-validation markers",
-    ]) expect(rendered).toContain(rule)
+  // 2026-11-19: vitehub#4857, #4913, #4922 and #4614 reproduced flaky tests on main's code while main's CI
+  // passed them, reported them as inherited, and sat unmerged because the host only bypasses failures main's CI shows.
+  it("makes a flake that the base tip's CI passed the pass's work", () => {
+    expect(babysitterInstructions).toContain("the host's live-base-attribution block verifies")
+    expect(babysitterInstructions).toContain("not as proof that the live tip still fails")
+    expect(babysitterInstructions).toContain("fix the flake at its root in this PR and never report it as inherited without live CI proof")
   })
 
   it("names no review service or repository", () => {

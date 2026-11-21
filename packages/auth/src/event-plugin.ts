@@ -80,9 +80,8 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
         await onEvent(event)
       }
       catch (error) {
-        const diagnostic = authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: event.type, cause: error })
-        if (log) log.error(diagnostic, { authEvent: { type: event.type } })
-        else console.error(diagnostic)
+        if (log) log.error("AUTH_EVENT_CALLBACK_FAILED: Auth event callback failed.", { authEvent: { type: event.type } })
+        else console.error(authErrorDiagnostics.AUTH_EVENT_CALLBACK_FAILED({ type: event.type, cause: error }))
       }
     })()
     if (waitUntil) {

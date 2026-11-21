@@ -272,8 +272,8 @@ export interface ConsoleRealtimeUser {
 export interface ConsoleRealtimeAccess {
   /** The Console user, or a guest of an open Console. Null without Console access. */
   identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
-  /** Whether the request includes the section; writes require its full grant instead of a read-only grant. */
-  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
+  /** Whether the request includes the section. `mode: "write"` requires its full grant instead of a read-only grant. */
+  authorize(context: { event: unknown, mode: "read" | "write" }): Promise<boolean>
   /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
   user(context: { event: unknown }): Promise<ConsoleUser | null>
 }
@@ -317,9 +317,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
       // An open Console has no accounts: each connection is a guest.
       return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
     },
-    async authorize({ event, kind }) {
+    async authorize({ event, mode }) {
       const allowed = await access(event)
-      return Boolean(allowed && (kind !== "write" || consoleAccessWrites(allowed, section)))
+      return Boolean(allowed && (mode === "read" || consoleAccessWrites(allowed, section)))
     },
     async user({ event }) {
       const allowed = await access(event)

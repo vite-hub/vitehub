@@ -28,7 +28,7 @@ Provider Output is the files ViteHub generates so a host can deploy and run your
 
 Production builds write Provider Output. Vite dev writes only discovery and local generated files. Netlify local dev also writes package functions for the Netlify CLI.
 
-`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect output` lists the files of the active packages and the host, and which exist. `--json` adds parsed JSON content, with credentials and Worker `vars` hidden. See the [CLI guide](/docs/cli/inspect#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build
@@ -42,7 +42,7 @@ find dist -maxdepth 4 -type f | sort
 
 Rate Limit writes `.vitehub/rate-limit/manifest.json` when Vite resolves its config, and updates it with the rest of Provider Output. This `schemaVersion: 2` file holds sorted `rateLimits` entries shaped as `{ name, provider, capabilities }`. Inspect it before deploy. Do not import it.
 
-On Cloudflare, each `requireRateLimit()` policy in a handler adds a `ratelimits` entry to `wrangler.json`, with a ViteHub binding name, a stable namespace id, the static `limit`, and a 10-second or 60-second period.
+On Cloudflare, each `requireRateLimit()` policy with a `10s` or `1m` window adds a `ratelimits` entry to `wrangler.json`, with a ViteHub binding name, a stable namespace id, the static `limit`, and a 10-second or 60-second period. A policy with another window counts in KV and adds no entry.
 
 Rate Limit owns only the binding names it makes from declared stable IDs. It keeps other entries. It removes old ones when you rename or delete a handle, or build for another provider with Rate Limit still on.
 

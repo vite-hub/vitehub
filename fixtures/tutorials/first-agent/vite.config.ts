@@ -2,11 +2,5 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [
-    vitehub({
-      host: "node",
-      agent: true,
-      workflow: false,
-    }),
-  ],
+  plugins: [vitehub()],
 })

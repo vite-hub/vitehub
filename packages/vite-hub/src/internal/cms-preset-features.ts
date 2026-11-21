@@ -30,6 +30,10 @@ function usesForms(project: { projectRoot: string, serverDirs?: readonly string[
   return ownerModules.formsVite?.usesForms(project) ?? false
 }
 
+function usesSync(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.syncVite?.usesSync(project) ?? false
+}
+
 /** A `github()` Source in `server/content.ts` keeps its head commit in KV. */
 function usesGitHubSources(project: { projectRoot: string, serverDirs?: readonly string[] }) {
   return ownerModules.contentVite?.usesGitHubSources(project, parseAst) ?? false
@@ -42,7 +46,7 @@ function projectOf(config: CmsPresetConfig): { projectRoot: string, serverDirs?:
   return { projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] }
 }
 
-/** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
+/** Options whose features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
 /** The features that the `cms` preset needs. `vitehub()` turns on the ones left unset. */
@@ -68,15 +72,23 @@ export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(opti
 function resolveStorageFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
   const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
-  // Comments and Forms need the Database only.
+  // Comments, Forms, and Sync need the Database only.
   if (options.database !== undefined) return options
-  return (options.comments !== false && (options.comments || usesComments(project))) || usesForms(project) ? { ...options, database: true } : options
+  return (options.comments !== false && (options.comments || usesComments(project))) || usesForms(project) || usesSync(project) ? { ...options, database: true } : options
 }
 
-/** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
+/**
+ * Marks options whose `cms` preset features and Definition features are resolved, so `vitehub()` does not resolve them
+ * again.
+ */
 export function markCmsPresetFeaturesResolved<T extends CmsPresetFeatureOptions>(options: T): T {
   resolvedFeatureOptions.add(options)
   return options
+}
+
+/** Whether a framework integration resolved the features of these options with `markCmsPresetFeaturesResolved()`. */
+export function featureOptionsResolved(options: object): boolean {
+  return resolvedFeatureOptions.has(options)
 }
 
 function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "github" | undefined {
@@ -115,7 +127,7 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
 function selectsDatabaseOwner(config: CmsPresetConfig, comments: unknown): boolean {
   const project = projectOf(config)
   // `comments: false` keeps `server/comments.ts` from turning the Database on, as `resolveCmsPresetFeatures()` does.
-  return (comments !== false && usesComments(project)) || usesForms(project)
+  return (comments !== false && usesComments(project)) || usesForms(project) || usesSync(project)
 }
 
 /**

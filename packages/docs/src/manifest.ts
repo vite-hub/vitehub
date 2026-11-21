@@ -1,16 +1,17 @@
 import { existsSync } from "node:fs"
 import { join, matchesGlob, resolve } from "node:path"
 
-import { defineContent } from "@vite-hub/content"
-import { createSource, glob } from "@vite-hub/source"
+import { contentSource, defineContent } from "@vite-hub/content"
+import { glob, useSource } from "@vite-hub/source"
 import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
-import type { ContentRuntime } from "@vite-hub/content"
+import type { ContentCheckOptions, ContentRuntime, ContentSourceInput } from "@vite-hub/content"
 import type { Source } from "@vite-hub/source"
 import type { DocsSectionFile } from "./schema.ts"
 import type { z } from "zod"
@@ -68,45 +69,55 @@ export function resolveDocsSources(inputs: readonly DocsSourceInput[], rootDir: 
     const { source, ...options } = typeof input === "string" || isContentSource(input) ? { source: input } : input
     const mount = normalizeDocsBase(options.mount ?? "/")
     if (mount.split("/").some((part) => part === "." || part === "..") || /[?#\\]/.test(mount))
-      throw new Error(`Invalid docs source mount: ${mount}`);
+      throw docsErrorDiagnostics.DOCS_SOURCE_MOUNT_INVALID({ mount });
     return typeof source === "string" ? { ...options, dir: resolve(rootDir, source) } : { ...options, source }
   })
 }
 
-/** A page whose frontmatter or section file does not match the schema. The build stops on it. */
-export class DocsContentError extends Error {
-  constructor(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
-    const details = issues
-      .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
-      .join("; ");
-    super(`Invalid docs frontmatter in ${file}: ${details}`)
-    this.name = "DocsContentError"
-  }
+/** A page whose frontmatter or section file does not match the schema: `DOCS_CONTENT_INVALID`. The build stops on it. */
+function docsContentError(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
+  const details = issues
+    .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
+    .join("; ")
+  return docsErrorDiagnostics.DOCS_CONTENT_INVALID({ details, file })
 }
 
 /** The name of the Content Source of a docs source. Content names allow no `-`, so it is not the page's `docs-<index>`. */
-const contentName = (index: number) => `docs_${index}`
+export const contentName = (index: number): string => `docs_${index}`
 
 /**
  * One Content Source per docs source, with its Markdown pages and its `.navigation.yml` files as YAML documents. A
  * folder is a `glob()` Source of those files. A Content Source, such as `github()`, is read as it is, from `rootDir`.
  */
-export function createDocsContent(sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[], rootDir: string = process.cwd()): ContentRuntime {
+export function createDocsContent(
+  sources: readonly Pick<ResolvedDocsSource, "dir" | "source">[],
+  rootDir: string = process.cwd(),
+  options: DocsContentOptions = {},
+): ContentRuntime {
   return defineContent({
     route: false,
     live: false,
     // A `.navigation.yml` that does not parse stops the build, like a page whose frontmatter does not parse.
     plugins: [yaml({ onError: "throw" })],
-    sources: Object.fromEntries(sources.map(({ dir, source }, index) => [
-      contentName(index),
-      source
-        ? () => createSource(source, { rootDir })
+    ...options.check ? { check: options.check } : {},
+    sources: Object.fromEntries(sources.map(({ dir, source }, index) => {
+      const input: ContentSourceInput = source
+        ? () => useSource(source, { rootDir })
         // A folder that does not exist yet has no pages.
         : dir && existsSync(dir)
-          ? () => createSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
-          : { items: async () => [] },
-    ])),
+          ? () => useSource(glob({ include: ["**/*.md", "**/.navigation.yml"], dot: true }), { rootDir: dir })
+          : { items: async () => [] }
+      const url = options.url
+      return [contentName(index), url ? contentSource(input, { url: ({ id }) => url(index, id) }) : input]
+    })),
   })
+}
+
+/** What `createDocsContent()` adds for `content.check()`. */
+export interface DocsContentOptions {
+  /** The page URL of a document of the source at `index`, by its Content id, such as `guide/start`, or null for no page. */
+  url?: (index: number, id: string) => string | null
+  check?: ContentCheckOptions
 }
 
 interface DocsContentFile {
@@ -124,7 +135,7 @@ interface DocsContentFile {
 /**
  * The pages and `.navigation.yml` files of each docs source, from `content.list()`. Content keys a document by its
  * URL, so it lists one of two files with the same URL, such as `guide.md` and `guide/index.md`, and no empty file.
- * Those are read from the Source, so the manifest still names both files or the empty one in a `DocsContentError`.
+ * Those are read from the Source, so the manifest still names both files or the empty one in a `DOCS_CONTENT_INVALID` error.
  */
 async function listDocsContent(content: ContentRuntime, sources: readonly ResolvedDocsSource[]): Promise<DocsContentFile[]> {
   const files: DocsContentFile[] = []
@@ -183,7 +194,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
     }
     const previous = files.get(logical);
     if (previous)
-      throw new DocsContentError(entry.label, [
+      throw docsContentError(entry.label, [
         { path: ["path"], message: `${logical} is also produced by ${previous.label}` },
       ]);
     files.set(logical, entry);
@@ -268,7 +279,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   for (const page of docsManifestPages(manifest)) {
     const existing = paths.get(page.path)
     if (existing)
-      throw new DocsContentError(join(options.dir, page.file), [
+      throw docsContentError(join(options.dir, page.file), [
         { path: ["path"], message: `${page.path} is also produced by ${existing}` },
       ]);
     paths.set(page.path, page.file)
@@ -278,7 +289,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
 
 function parse<TOutput>(file: string, schema: z.ZodType<TOutput>, input: unknown): TOutput {
   const result = schema.safeParse(input)
-  if (!result.success) throw new DocsContentError(file, result.error.issues)
+  if (!result.success) throw docsContentError(file, result.error.issues)
   return result.data
 }
 

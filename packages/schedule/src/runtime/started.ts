@@ -209,6 +209,10 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
   // Occurrences that another process held at an earlier tick. A Schedule that is gone now ran its last time or was cancelled.
   const held = runtime.held ??= new Map()
   const byId = new Map(schedules.map(schedule => [schedule.id, schedule]))
+  const failing = runtime.failing ??= new Map()
+  for (const id of failing.keys()) {
+    if (!byId.has(id)) failing.delete(id)
+  }
   for (const [runId, entry] of held) {
     const schedule = byId.get(entry.scheduleId)
     if (!schedule) held.delete(runId)
@@ -217,7 +221,6 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     }
   }
   const results = await Promise.allSettled(occurrences.map(({ schedule, scheduledAt }) => runOccurrence(runtime, schedule, scheduledAt, context.waitUntil)))
-  const failing = runtime.failing ??= new Map()
   results.forEach((result, index) => {
     const { schedule, scheduledAt } = occurrences[index]!
     const runId = toRunId("started", schedule.id, scheduledAt)

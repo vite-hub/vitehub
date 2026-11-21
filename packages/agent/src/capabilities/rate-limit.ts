@@ -27,7 +27,7 @@ export type RateLimitIdentityResolver = (
 ) => MaybePromise<string | null | undefined>
 
 /** Required Capability operations, with optional inspection methods. `createRateLimiter()` supplies all methods. */
-export type RateLimitCapabilityLimiter = Pick<RateLimiter, "capabilities" | "consume" | "policy"> & Partial<Pick<RateLimiter, "peek" | "reset">>
+export type RateLimitCapabilityLimiter = Pick<RateLimiter, "capabilities" | "consume" | "policy"> & Partial<Pick<RateLimiter, "peek" | "refund" | "reset">>
 
 export type RateLimitLimiter =
   | RateLimitCapabilityLimiter
@@ -187,7 +187,7 @@ async function resolveScope(
 }
 
 function hasInspectionMethods(limiter: RateLimitCapabilityLimiter): limiter is RateLimiter {
-  return v.is(v.object({ peek: v.function(), reset: v.function() }), limiter)
+  return v.is(v.object({ peek: v.function(), refund: v.function(), reset: v.function() }), limiter)
 }
 
 async function resolveLimiter(
@@ -204,6 +204,7 @@ async function resolveLimiter(
     consume: resolved.consume.bind(resolved),
     policy: resolved.policy,
     peek: resolved.peek?.bind(resolved) ?? (async () => ({ limit: resolved.policy.limit, reason: "This Capability limiter does not support peek().", status: "unsupported", windowMs: resolved.policy.windowMs })),
+    refund: resolved.refund?.bind(resolved) ?? (async () => ({ reason: "This Capability limiter does not support refund().", status: "unsupported" })),
     reset: resolved.reset?.bind(resolved) ?? (async () => ({ reason: "This Capability limiter does not support reset().", status: "unsupported" })),
   }
 }

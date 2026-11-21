@@ -16,12 +16,12 @@ The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error,
 - `docs`: a link to the code in [Comments diagnostics](/docs/comments/diagnostics).
 
 ```ts [server/api/threads/[id].get.ts] fragment
-import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError } from 'h3'
 import { comments } from '../../comments'
 
 export default defineEventHandler(async (event) => {
   const [error, thread] = await comments.get(getRouterParam(event, 'id')!)
-  if (error?.code === 'COMMENTS_NOT_FOUND') throw createError({ status: 404, message: error.why })
+  if (error?.code === 'COMMENTS_NOT_FOUND') throw new HTTPError({ status: 404, message: error.why })
   if (error) throw error
   return thread
 })
@@ -101,13 +101,13 @@ The API also returns it for a `POST` or `DELETE` from another origin. Behind a p
 
 ### COMMENTS_SIGN_IN_OFF
 
-A request reached `/api/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
+A request reached `/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
 
 ### COMMENTS_SIGN_IN_FAILED
 
 GitHub sign-in could not start. Check that the client ID and secret belong to the same GitHub App. In production, `VITEHUB_SECRET` must be set, with at least 32 characters.
 
-When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/api/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
+When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
 
 ### COMMENTS_RESOLVED
 

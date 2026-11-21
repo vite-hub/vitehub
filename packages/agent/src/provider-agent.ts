@@ -50,12 +50,16 @@ import { agentToolJsonSchema, hasAgentToolStandardSchema } from "./tool-schema.t
 import { agentOutputInstructions } from "./internal/agent-structured-output.ts"
 import { registerAgentInvocationInputHandler } from "./internal/agent-invocation-control.ts"
 import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { agentSteeringInput } from "./internal/model-steering.ts"
 import { isAuxiliaryAgentAdapterContext, markAuxiliaryMessageChannelInstructionContext, resolveMessageChannelInstructions } from "./internal/channels.ts"
-import { attachmentStringBytes, currentInputAttachments, getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { attachmentStringBytes, currentInputAttachments, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 export { isArrayBufferValue, isBlobValue, isUint8ArrayValue } from "./messages.ts"
 import { workspaceAutoCommitDisabled, workspaceDefinitionWithAutoCommitRules } from "./workspace-agent.ts"
 import { approveAgentToolRequest, executeApprovedAgentTool, withAgentToolExecutionBudget } from "./tool-runtime.ts"
-import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent } from "./trace.ts"
+import { agentInvocationTraceIdContextKey, createAgentStreamEventTracer, traceAgentEvent, traceAgentInputAttachments } from "./trace.ts"
+import { attachmentFetchFailure, inputAttachmentEntry, retainedUserMessages, selectedOutAttachments } from "./internal/input-attachments.ts"
+import type { InputAttachmentOrigin, InputAttachmentsReport } from "./internal/input-attachments.ts"
 
 import type {
   ProviderApprovalDecision,
@@ -377,7 +381,7 @@ const chatgptLaunchEnvironmentKeys = new Set<string>([
   providerPassEnvironmentKey,
   "CODEX_HOME",
   chatgptTokenEnvironment,
-  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_MCP_BEARER_TOKEN",
   "VITEHUB_BROWSER_ACTIVE",
   "AGENT_BROWSER_SESSION",
   "AGENT_BROWSER_SOCKET_DIR",
@@ -2142,17 +2146,6 @@ async function resolveInstructions<
   }) : undefined
 }
 
-function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
-  const index = messageId
-    ? messages.findIndex(message => message.id === messageId)
-    : messages.findLastIndex(message => message.role === "user")
-  const chat = messages[index]?.metadata?.chat
-  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
-  if (typeof skippedCount !== "number" || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
-  // Queue and steer coalescing retain these messages for the current Invocation.
-  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
-}
-
 function latestUserMessages(messages: Message[]): Message[] {
   const index = messages.findLastIndex(message => message.role === "user")
   return index === -1 ? messages.slice(-1) : [...retainedUserMessages(messages), ...messages.slice(index)]
@@ -2189,13 +2182,8 @@ function providerMessageContent(message: Message, includeAttachments: boolean): 
     if (part.type === "approval-request") return JSON.stringify({ input: part.input, reason: part.reason, toolCallId: part.toolCallId || part.id, toolName: part.name, type: part.type })
     if (part.type === "approval-decision") return JSON.stringify({ approved: part.approved, reason: part.reason, toolCallId: part.id, type: part.type })
     if (part.type === "data" || part.type.startsWith("data-")) {
-      if (message.role === "assistant" && !part.type.startsWith("data-chat-reply-") && part.type !== "data-chat-user-message-context") return []
-      // Chat context parts may carry the exact text for the model in `data.modelText`.
-      const data = part.data
-      const isChatContext = part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-      return isChatContext && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-        ? data.modelText
-        : JSON.stringify(data)
+      if (message.role === "assistant" && !isChatReplyPartType(part.type)) return []
+      return chatContextModelText(part) ?? JSON.stringify(part.data)
     }
     return []
   }).filter(Boolean).join("\n")
@@ -2207,6 +2195,11 @@ function attachmentId(threadId: string): string {
 }
 
 const defaultProviderAttachmentMaxBytes = 25 * 1024 * 1024
+// The image types that the provider runtime sends to the model as image input
+// (`isProviderSendTurnSupportedImageMimeType` in `@t3tools/contracts`).
+const providerInlineImageMediaTypes = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"])
+// `attachmentBytes` raises these when an attachment does not fit in the remaining bytes.
+const overBudgetAttachmentCodes = new Set(["AGENT_R0702", "AGENT_R0705", "AGENT_R0706", "AGENT_R0707"])
 
 async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<Uint8Array> {
   if (typeof part.size === "number" && part.size > maxBytes) throw agentDiagnostics.AGENT_R0702({ message: `[vitehub] Provider attachment exceeds maxBytes (${maxBytes}).` })
@@ -2229,17 +2222,27 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
  * Current and coalesced input attachments use the byte budget first and must resolve. Images
  * from the other user messages in this turn's prompt, such as chat history kept by
  * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
+ * The report names every attachment that the model receives or that was left out, with the reason.
  */
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean, provider: ProviderAgentAdapterOptions["provider"]) {
+  const owners = new Map<AttachmentPart, Message>(context.messages.flatMap(message => message.parts.filter(isAttachmentPart).map(part => [part, message] as const)))
+  const entry = (part: AttachmentPart, origin: InputAttachmentOrigin) => inputAttachmentEntry(part, owners.get(part), origin)
   const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
   const currentParts = new Set<AttachmentPart>(current)
-  const history = includeHistory
-    ? (resumed ? latestUserMessages(context.messages) : context.messages)
-        .filter(message => message.role === "user")
-        .flatMap(message => message.parts.filter(isAttachmentPart))
-        .filter(part => !currentParts.has(part) && part.type === "image" && (part.data !== undefined || typeof part.fetchData === "function"))
-    : []
-  if (!current.length && !history.length) return
+  const historyMessages = (resumed ? latestUserMessages(context.messages) : context.messages).filter(message => message.role === "user")
+  const report: InputAttachmentsReport = { sent: [], skipped: selectedOutAttachments(historyMessages) }
+  const history: AttachmentPart[] = []
+  for (const part of historyMessages.flatMap(message => message.parts.filter(isAttachmentPart))) {
+    if (currentParts.has(part)) continue
+    const reason = !includeHistory
+      ? "sandbox"
+      : part.type !== "image" ? "not-image"
+      : provider === "claude-code" && !providerInlineImageMediaTypes.has(part.mediaType.toLowerCase()) ? "not-inline"
+      : part.data === undefined && typeof part.fetchData !== "function" ? "no-data" : undefined
+    if (reason) report.skipped.push({ ...entry(part, "history"), reason })
+    else history.push(part)
+  }
+  if (!current.length && !history.length) return { report }
   let remaining = maxBytes
   const resolved = new Map<AttachmentPart, Uint8Array>()
   for (const part of current) {
@@ -2249,14 +2252,20 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     resolved.set(part, bytes)
   }
   for (const part of history) {
-    if (remaining <= 0) break
+    if (remaining <= 0) {
+      report.skipped.push({ ...entry(part, "history"), reason: "byte-budget" })
+      continue
+    }
     try {
       const bytes = await attachmentBytes(part, remaining)
       remaining -= bytes.byteLength
       resolved.set(part, bytes)
-    } catch {}
+    } catch (error) {
+      const code = isRuntimeRecord(error) ? error.code : undefined
+      report.skipped.push({ ...entry(part, "history"), reason: typeof code === "string" && overBudgetAttachmentCodes.has(code) ? "byte-budget" : attachmentFetchFailure(error) })
+    }
   }
-  if (!resolved.size) return
+  if (!resolved.size) return { report }
   await mkdir(runtime.attachmentsDirectory, { recursive: true })
   const attachments = []
   // Keep message order so the images line up with the history they came from.
@@ -2266,6 +2275,10 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
     const id = attachmentId(threadId)
     const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
+    const staged = { ...entry(part, currentParts.has(part) ? "current" : "history"), bytes: bytes.byteLength }
+    // The provider runtime gives the model only the saved path of other image types.
+    if (providerInlineImageMediaTypes.has(part.mediaType.toLowerCase())) report.sent.push(staged)
+    else report.skipped.push({ ...staged, reason: "not-inline" })
     attachments.push({
       id,
       mimeType: part.mediaType,
@@ -2275,7 +2288,7 @@ async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapte
       type: "image" as const,
     })
   }
-  return attachments
+  return { attachments, report }
 }
 
 function approvalDecision(approved: boolean): ProviderApprovalDecision {
@@ -2700,6 +2713,7 @@ function providerEvent(event: ProviderRuntimeEvent, tools: AgentToolSet | undefi
     case "content.delta":
       if (event.payload.streamKind === "assistant_text") return [{ id: providerTextDeltaId(event), messageId: event.itemId ?? event.turnId ?? "provider", phase: isSubAgentText(event) ? "commentary" : event.itemId ? messagePhases.get(event.itemId) ?? "final" : "final", text: event.payload.delta, type: "text-delta" }]
       if (event.payload.streamKind === "command_output") return [providerDataEvent(event)]
+      if (event.payload.streamKind === "reasoning_text" || event.payload.streamKind === "reasoning_summary_text") return [{ id: providerTextDeltaId(event), text: event.payload.delta, type: "reasoning-delta" }]
       return [{ id: providerTextDeltaId(event), phase: "commentary", text: event.payload.delta, type: "text-delta" }]
     case "item.started": {
       const details = providerToolDetails(event)
@@ -2934,7 +2948,7 @@ async function* runProvider<
     const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
     return workspaceBrowserEnvironment(
       browserRuntimeEnvironment(context.context),
-      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", VITEHUB_MCP_BEARER_TOKEN: "" } : {}) } : environment,
     )
   }
   let developerInstructionsDigest: string | undefined
@@ -3077,7 +3091,7 @@ async function* runProvider<
     }
     if (options.toolchain !== undefined && !options.sandbox && !auxiliary) {
       // SAFETY: The split specifier keeps @vite-hub/sandbox optional for bundlers. It resolves to the toolchain module.
-      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/_internal/toolchain") as typeof import("@vite-hub/sandbox/_internal/toolchain")
+      const { prepareHostToolchain } = await import("@vite-hub/" + "sandbox/internal/toolchain") as typeof import("@vite-hub/sandbox/internal/toolchain")
       const toolchain = await waitForProviderOperation(
         prepareHostToolchain(options.toolchain, preparedWorkspace?.projectRoot ?? root, { abortSignal: effectiveSignal }),
         effectiveSignal,
@@ -3204,6 +3218,9 @@ async function* runProvider<
       && providerEnvironmentOverrides?.T3CODE_CODEX_LAUNCH_ARGS !== undefined) {
       throw agentDiagnostics.AGENT_R0714({ message: "[vitehub] Codex reasoning options cannot be combined with resolved driver.env.T3CODE_CODEX_LAUNCH_ARGS." })
     }
+    if (options.provider === "codex" && providerEnvironmentOverrides?.T3_MCP_BEARER_TOKEN !== undefined && providerEnvironmentOverrides.VITEHUB_MCP_BEARER_TOKEN === undefined) {
+      throw agentDiagnostics.AGENT_MCP_BEARER_TOKEN_RENAMED()
+    }
     const finalizeLateRuntimeCreation = async () => {
       releaseDeferredRuntimeStopped?.()
       await workspaceCleanup
@@ -3269,13 +3286,13 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
+      providerRuntimeEnvironment.VITEHUB_MCP_BEARER_TOKEN = ""
       chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
@@ -3286,8 +3303,8 @@ async function* runProvider<
       providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
       delete providerRuntimeEnvironment.PATHEXT
       if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
-      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "VITEHUB_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "VITEHUB_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
     }
@@ -3298,7 +3315,7 @@ async function* runProvider<
       const requiredEnvironment = Object.freeze([
         "VITEHUB_BROWSER_ACTIVE",
         ...(codexCredentialHome ? ["CODEX_HOME"] : []),
-        ...(Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : []),
+        ...(Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : []),
         ...Object.keys(gateway?.environment || {}),
       ])
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, requiredEnvironment)
@@ -3507,7 +3524,7 @@ async function* runProvider<
       if (claudeSandboxPromptFile) claudePromptFile = posix.join(providerSandbox.home, claudeSandboxPromptFile)
       const explicitEnvironment = Object.keys(providerEnvironmentOverrides || {})
       const preparedEnvironment = { ...providerRuntimeEnvironment }
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["T3_MCP_BEARER_TOKEN"] : [])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, Object.keys(context.tools || {}).length ? ["VITEHUB_MCP_BEARER_TOKEN"] : [])
       providerLaunchDiagnosticPath = join(launchRoot, "sandbox-diagnostic.json")
       providerSandboxRelay = await startProviderSandboxRelay({
         sandbox: providerSandbox,
@@ -3550,18 +3567,21 @@ async function* runProvider<
       // reject them before the host receives the request. Shell policy stays intact.
       ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
-          ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
-          '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
+          ...(toolServer ? [`-c 'mcp_servers.vitehub-invocation.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
+          '-c \'mcp_servers.vitehub-invocation.bearer_token_env_var="VITEHUB_MCP_BEARER_TOKEN"\'',
           // Clear only this invocation's transport token in native shell tools.
           // Preserve the caller's existing environment exclusions.
-          '-c \'shell_environment_policy.set.T3_MCP_BEARER_TOKEN=""\'',
+          '-c \'shell_environment_policy.set.VITEHUB_MCP_BEARER_TOKEN=""\'',
           // CLI override paths split on dots without parsing quoted TOML keys.
           // An inline table preserves the exact tool names, including punctuation.
-          `-c '${(`mcp_servers.t3-code.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
+          `-c '${(`mcp_servers.vitehub-invocation.tools={${Object.keys(context.tools ?? {}).map(name => `${JSON.stringify(name)}={approval_mode="approve"}`).join(",")}}`).replaceAll("'", "'\\''")}'`,
         ]
         : []),
-      // Login profiles reset PATH and hide the invocation's managed browser CLI.
-      ...(options.provider === "codex" && capabilityEnvironment?.PATH ? ['-c "allow_login_shell=false"'] : []),
+      // A login shell reads /etc/profile, which sets PATH again on Debian. It drops the PATH that the run sets (managed
+      // browser CLI, toolchain, driver.env) and, on a launched runner such as SSH, the folder of Codex's apply_patch.
+      ...(options.provider === "codex" && (options.launch !== undefined || capabilityEnvironment?.PATH || toolchainPath.length || providerEnvironmentOverrides?.PATH)
+        ? ['-c "allow_login_shell=false"']
+        : []),
       ...(codexCredentialHome ? ['-c "cli_auth_credentials_store=\\"file\\""'] : []),
     ].filter(Boolean).join(" ") || undefined
     if (options.provider === "claude-code"
@@ -3671,9 +3691,9 @@ async function* runProvider<
         type: "run",
       })
     }
-    const attachments = await waitForProviderOperation(
+    const { attachments, report: attachmentReport } = await waitForProviderOperation(
       // A Sandbox provider cannot read host attachment files, so it gets no history images.
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox, options.provider),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,
@@ -3693,14 +3713,10 @@ async function* runProvider<
       unregister = registerAgentInvocationInputHandler(invocationId, {
         async sendInput(input, inputOptions) {
           if (inputOptions.mode === "steer") {
-            const messages = input.messages ?? (Array.isArray(input.prompt) ? input.prompt : input.message && typeof input.message !== "string" ? [input.message] : [])
-            if (messages.some(message => !Array.isArray(message.parts) || message.parts.some(part => part.type !== "text"))) return "unsupported"
-            const text = typeof input.prompt === "string"
-              ? input.prompt
-              : typeof input.message === "string"
-                ? input.message
-                : messages.map(getMessageText).filter((value): value is string => typeof value === "string").join("\n\n")
-            if (!acceptingSteering || drainingSteering || !activeTurnId || !text?.trim()) return "unsupported"
+            const steering = agentSteeringInput(input)
+            if ("issue" in steering) return { outcome: "unsupported", reason: steering.issue }
+            const text = steering.text
+            if (!acceptingSteering || drainingSteering || !activeTurnId) return "unsupported"
             let finishSteering!: () => void
             const pending = new Promise<void>((resolve) => { finishSteering = resolve })
             pendingSteering.add(pending)
@@ -3765,6 +3781,16 @@ async function* runProvider<
     }
     if (effectiveSignal?.aborted) abort()
     else effectiveSignal?.addEventListener("abort", abort, { once: true })
+    // Recorded once the provider accepts the turn, so a rejected or cancelled turn shows no images as sent.
+    // The abort handler is already installed, so a slow trace write cannot delay cancelling the turn.
+    await Promise.race([traceAgentInputAttachments({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, attachmentReport), aborted])
     for (;;) {
       if (pendingToolEvents.length) {
         yield pendingToolEvents.shift()!

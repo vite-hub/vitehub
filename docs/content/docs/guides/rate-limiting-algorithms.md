@@ -116,7 +116,7 @@ Enable Rate Limit in the Vite config:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', rateLimit: true },
+  vitehub: { rateLimit: true },
 })
 ```
 :::
@@ -128,7 +128,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ rateLimit: true }), nitro()],
 })
 ```
 :::
@@ -139,7 +139,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true })],
+  plugins: [vitehub({ rateLimit: true })],
 })
 ```
 :::
@@ -236,7 +236,7 @@ For a per-user limit, pass the signed-in user's identity as the Invoker. Use `id
 A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. `runAgent()` returns it as `error.cause` of `AGENT_RUN_FAILED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getViteHubErrorShape } from 'vite-hub/runtime'
 import support from '../agents/support'
@@ -245,7 +245,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ question?: string }>(event)
   const [error, result] = await runAgent(support, { prompt: body?.question ?? '' })
   if (getViteHubErrorShape(error?.cause)?.code === 'RATE_LIMIT_REJECTED') {
-    throw createError({ statusCode: 429, message: 'Too many questions. Try again in a minute.' })
+    throw new HTTPError({ status: 429, message: 'Too many questions. Try again in a minute.' })
   }
   if (error) throw error
   return { text: result.text }

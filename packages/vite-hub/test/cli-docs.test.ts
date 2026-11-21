@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { hubBlob } from "@vite-hub/blob/vite";
+import { hubBundle } from "@vite-hub/bundle/vite";
 import { createAgentCliContributor } from "@vite-hub/agent/cli";
 import { runViteHubCli } from "@vite-hub/cli";
 import { createCmsCliContributor } from "@vite-hub/cms/vite";
 import { createContentCliContributor } from "@vite-hub/content/cli";
-import { createDecisionsCliNamespace } from "@vite-hub/decisions/cli";
+import { createChoicesCliNamespace } from "@vite-hub/choices/cli";
 import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
@@ -31,7 +32,7 @@ import { viteHubCachePlugin } from "../src/cache/vite.ts";
 import { viteHubDurabilityPlugin } from "../src/durability/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-const cliReference = join(repoRoot, "docs/content/docs/development/cli.md");
+const cliReference = join(repoRoot, "docs/content/docs/cli/index.md");
 const evalFixtureRoot = join(repoRoot, "packages/agent/test/fixtures");
 
 function stream() {
@@ -105,10 +106,11 @@ describe("CLI documentation contract", () => {
       // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
       { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.") || operation.name === "usage.get"), module: "vite-hub/console/server" }] } },
       typesPlugin,
+      hubBundle(),
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
     const rootHelp = stream();
-    const runtimeNamespaces = [createDecisionsCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
+    const runtimeNamespaces = [createChoicesCliNamespace(), createMigrateCliNamespace(), createSandboxCliNamespace()];
 
     await expect(
       runViteHubCli({ args: ["--help"], loadConfig, runtimeNamespaces, stdout: rootHelp }),
@@ -138,7 +140,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["init", "add", "remove", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "drain"]);
+    expect(projectCommands).toEqual(["init", "add", "remove", "update", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "drain"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

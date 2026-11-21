@@ -8,7 +8,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import type { HtmlTagDescriptor, Plugin } from "vite"
 
 /** Below the app base. */
-export const browserErrorsRoute = "/api/_vitehub/browser-errors"
+export const browserErrorsRoute = "/_vitehub/browser-errors"
 
 /**
  * The browser code that reports uncaught errors to `endpoint`, a JavaScript expression. It defines `report(kind, error)`
@@ -58,7 +58,7 @@ export function browserErrorsNuxtPluginSource(): string {
 }
 
 /**
- * `observability.browserErrors`: the route `POST <base>/api/_vitehub/browser-errors`, and in a Vite app the reporter
+ * `observability.browserErrors`: the route `POST <base>/_vitehub/browser-errors`, and in a Vite app the reporter
  * script in `index.html`. Nuxt renders its own HTML, so `installBrowserErrorsNuxt()` adds a client plugin instead.
  */
 export function browserErrorsVitePlugin(): Plugin & { config: (config: object) => void, transformIndexHtml: () => HtmlTagDescriptor[] } {

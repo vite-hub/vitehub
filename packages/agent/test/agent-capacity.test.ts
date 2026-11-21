@@ -1,3 +1,4 @@
+import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
 import { agentWithColocatedInstructions, defineAgent, defineCapability, startAgentInvocation } from "../src/index.ts"
@@ -1102,22 +1103,41 @@ describe("Agent Driver capacity", () => {
     expect(starts).toEqual(["first", "second"])
   })
 
-  it("shares capacity when colocated instructions decorate a model Agent", () => {
+  it("shares capacity when colocated instructions decorate a model Agent", async () => {
+    const prompts: string[] = []
+    const firstGate = deferred()
     const agent = defineAgent({
       driver: {
-        capacity: { concurrency: 2 },
-        model: {} as never,
+        capacity: { concurrency: 1, queue: { maxPending: 1 } },
+        model: new MockLanguageModelV3({
+          async doGenerate(options) {
+            const prompt = JSON.stringify(options.prompt)
+            prompts.push(prompt.includes("first") ? "first" : "second")
+            if (prompt.includes("first")) await firstGate.promise
+            return {
+              content: [{ type: "text", text: "done" }],
+              finishReason: { raw: "stop", unified: "stop" },
+              usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+              warnings: [],
+            }
+          },
+        }),
       },
       runtime: false,
     })
-    const capacitySymbol = Object.getOwnPropertySymbols(agent)
-      .find(symbol => symbol.description === "vitehub.agentCapacityScope")!
-
     const decorated = agentWithColocatedInstructions(agent, "Use the colocated instructions.")
-
     expect(decorated).not.toBe(agent)
-    expect(Object.getOwnPropertyDescriptor(decorated, capacitySymbol)?.value)
-      .toBe(Object.getOwnPropertyDescriptor(agent, capacitySymbol)?.value)
+
+    const first = runAgentInline(agent, runtime(), { prompt: "first" })
+    await vi.waitFor(() => expect(prompts).toEqual(["first"]))
+    const second = runAgentInline(decorated, runtime(), { prompt: "second" })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(prompts).toEqual(["first"])
+
+    firstGate.resolve()
+    await first
+    await second
+    expect(prompts).toEqual(["first", "second"])
   })
 
   it("exposes configured capacity and live scheduler status through Agent inspection", async () => {
@@ -1255,6 +1275,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first[Symbol.asyncIterator]()
     await expect(firstIterator.next()).resolves.toEqual({ done: false, value: "first" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1289,6 +1310,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
     const firstIterator = first.stream[Symbol.asyncIterator]()
     await firstIterator.next()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1320,6 +1342,7 @@ describe("Agent Driver capacity", () => {
     const secondResult = streamAgentInline(agent, runtime(), { prompt: "second" }, { output: "ui-message-stream" })
     const firstStream = first.toUIMessageStream()
     expect(() => first.toUIMessageStream()).toThrow("UI-message stream has already been created")
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()
@@ -1674,6 +1697,7 @@ describe("Agent Driver capacity", () => {
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as { textStream: AsyncIterable<string> }
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.textStream) {} })()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
     gate.resolve()
     await consumption
@@ -1897,7 +1921,7 @@ describe("Agent Driver capacity", () => {
     controller.abort(new DOMException("stop", "AbortError"))
     await vi.waitFor(() => expect(returned).toEqual([true, true]))
     gates[0].resolve()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates[1].resolve()
@@ -2134,7 +2158,8 @@ describe("Agent Driver capacity", () => {
     expect(first.textStream).toBe("metadata")
     const second = runAgentInline(agent, runtime(), { prompt: "second" })
     const consumption = (async () => { for await (const _chunk of first.fullStream) {} })()
-    await vi.waitFor(() => expect(starts).toEqual(["first"]))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(starts).toEqual(["first"])
     gate.resolve()
     await consumption
     await second
@@ -2604,6 +2629,7 @@ describe("Agent Driver capacity", () => {
 
     const first = await runAgentInline(agent, runtime(), { prompt: "first" }) as Response
     const secondResult = runAgentInline(agent, runtime(), { prompt: "second" })
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(starts).toEqual(["first"])
 
     gates.first.resolve()

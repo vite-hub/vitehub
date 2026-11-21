@@ -6,6 +6,7 @@ import { runtimeEnv, standardSource } from "./internal/runtime-env.ts"
 
 import type { Result } from "@vite-hub/runtime"
 import type { RequestEvent } from "./internal/runtime-env.ts"
+import type { StandardSchemaV1 } from "./schema.ts"
 
 const webhookErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
@@ -13,8 +14,13 @@ const webhookErrors = /*#__PURE__*/ defineErrors({
     // Runtime errors. `verifyWebhook()` returns them as `[error, undefined]`.
     ENV_WEBHOOK_BODY_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_body_invalid",
-      why: "The webhook has a valid signature, but its body is not JSON.",
-      fix: "Set the provider to send JSON. In GitHub webhook settings, set Content type to `application/json`.",
+      why: "The webhook has a valid signature, but its body is not JSON, or a GitHub form delivery has no JSON `payload` field.",
+      fix: "Set the provider to send JSON. GitHub can send `application/json` or `application/x-www-form-urlencoded`, and `verifyWebhook()` reads both.",
+    },
+    ENV_WEBHOOK_SCHEMA_MISMATCH: {
+      docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_schema_mismatch",
+      why: "The webhook has a valid signature and a JSON body, but the body does not match `schema`.",
+      fix: "Read `error.cause` for the schema issues. Check that the provider sends the event that the route expects, and change `schema` when the provider changed the shape of its events.",
     },
     ENV_WEBHOOK_SECRET_UNSET: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_secret_unset",
@@ -30,7 +36,7 @@ const webhookErrors = /*#__PURE__*/ defineErrors({
 })
 
 /** The codes that `verifyWebhook()` returns. */
-export type WebhookErrorCode = "ENV_WEBHOOK_BODY_INVALID" | "ENV_WEBHOOK_SECRET_UNSET" | "ENV_WEBHOOK_SIGNATURE_INVALID"
+export type WebhookErrorCode = "ENV_WEBHOOK_BODY_INVALID" | "ENV_WEBHOOK_SCHEMA_MISMATCH" | "ENV_WEBHOOK_SECRET_UNSET" | "ENV_WEBHOOK_SIGNATURE_INVALID"
 
 /** How `verifyWebhook()` checks the signature. `secret` is the name of the server variable that holds the signing secret. */
 export type VerifyWebhookOptions =
@@ -63,6 +69,12 @@ export type VerifyWebhookOptions =
     secretEncoding?: "utf8" | "base64"
   }
 
+/** `VerifyWebhookOptions` with a Standard Schema, such as a Valibot or Zod schema, that checks the body. */
+export type VerifyWebhookSchemaOptions<TBody> = VerifyWebhookOptions & {
+  /** Checks the parsed body. `verifyWebhook()` returns its output, or `ENV_WEBHOOK_SCHEMA_MISMATCH`. */
+  schema: StandardSchemaV1<TBody>
+}
+
 function readSecrets(value: unknown): string[] {
   return typeof value === "string" ? value.split(",").map(secret => secret.trim()).filter(Boolean) : []
 }
@@ -79,24 +91,36 @@ function verifySignature(options: VerifyWebhookOptions, secret: string, header: 
   return verifyViteHubHmacSignature(secret, header, body, options)
 }
 
+// GitHub signs the raw form body and puts the JSON in its `payload` field when the webhook content type is form.
+function webhookJson(options: VerifyWebhookOptions, headers: Headers, text: string): string | null {
+  if (options.provider !== "github" || !headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return text
+  return new URLSearchParams(text).get("payload")
+}
+
 /**
  * Checks the signature of a webhook that Stripe, GitHub, or another provider sends to a route, and returns
- * `[error, body]` with the parsed JSON body. It reads the raw body once, so do not read the body before you call it.
+ * `[error, body]` with the parsed JSON body. For a GitHub delivery with the form content type, `body` is the JSON
+ * of its `payload` field. Pass `schema` to check the body and type it; without it, `body` is `unknown`.
+ * It reads the raw body once, so do not read the body before you call it.
  * It reads the secret from the server variable `secret` on each request. The variable holds one secret, or a
  * comma-separated list while you rotate. It compares in constant time and runs on every host.
  *
  * ```ts [server/api/stripe/webhook.post.ts]
  * import { defineEventHandler, HTTPError } from "h3"
+ * import * as v from "valibot"
  * import { verifyWebhook } from "vite-hub/env"
  *
  * export default defineEventHandler(async (event) => {
- *   const [error, stripeEvent] = await verifyWebhook<{ type: string }>(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
+ *   const schema = v.object({ type: v.string() })
+ *   const [error, stripeEvent] = await verifyWebhook(event, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema })
  *   if (error) throw new HTTPError({ status: 400, message: error.message })
  *   return { received: stripeEvent.type }
  * })
  * ```
  */
-export async function verifyWebhook<TBody = unknown>(event: RequestEvent, options: VerifyWebhookOptions): Promise<Result<TBody, WebhookErrorCode>> {
+export function verifyWebhook<TBody>(event: RequestEvent, options: VerifyWebhookSchemaOptions<TBody>): Promise<Result<TBody, WebhookErrorCode>>
+export function verifyWebhook(event: RequestEvent, options: VerifyWebhookOptions): Promise<Result<unknown, WebhookErrorCode>>
+export async function verifyWebhook(event: RequestEvent, options: VerifyWebhookOptions & { schema?: StandardSchemaV1 }): Promise<Result<unknown, WebhookErrorCode>> {
   const source = standardSource(event)
   const name = options.secret
   const secrets = readSecrets(runtimeEnv(source)[name])
@@ -110,12 +134,19 @@ export async function verifyWebhook<TBody = unknown>(event: RequestEvent, option
   let valid = false
   for (const secret of secrets) valid = await verifySignature(options, secret, header, body) || valid
   if (!valid) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]
+  const json = webhookJson(options, request.headers, new TextDecoder().decode(body))
+  if (json === null) return [webhookErrors.ENV_WEBHOOK_BODY_INVALID(), undefined]
+  let parsed: unknown
   try {
-    return [undefined, JSON.parse(new TextDecoder().decode(body)) as TBody]
+    parsed = JSON.parse(json)
   }
   catch (cause) {
     return [webhookErrors.ENV_WEBHOOK_BODY_INVALID({ cause }), undefined]
   }
+  if (!options.schema) return [undefined, parsed]
+  const result = await options.schema["~standard"].validate(parsed)
+  if (result.issues) return [webhookErrors.ENV_WEBHOOK_SCHEMA_MISMATCH({ cause: result.issues }), undefined]
+  return [undefined, result.value]
 }
 
 /** How `signWebhook()` signs an outgoing body. */

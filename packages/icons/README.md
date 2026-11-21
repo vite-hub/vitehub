@@ -27,7 +27,8 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `connections` | Connections |
 | `content` | Content |
 | `database` | Database |
-| `decisions` | Decisions |
+| `choices` | Choices |
+| `device` | Device |
 | `email` | Email |
 | `env` | Env |
 | `forge` | Forge |
@@ -37,14 +38,19 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `kv` | KV |
 | `logs` | Logs |
 | `mcp` | MCP server |
+| `markdown-template` | Markdown templates |
+| `presets` | Agent presets |
 | `queue` | Queue |
 | `rate-limit` | Rate Limit |
 | `realtime` | Realtime |
+| `runtime` | Runtime |
 | `sandbox` | Sandbox and Sandbox Tasks |
 | `schedule` | Schedule |
 | `shell` | Shell |
 | `source` | Source |
+| `sync` | Sync |
 | `ui` | UI |
+| `webhooks` | Webhooks |
 | `workflow` | Workflows |
 | `workspace` | Workspace |
 | `skills` | Agent Skills |
@@ -52,7 +58,9 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `docs` | Docs site |
 | `start` | Get started |
 | `guides` | Guides |
-| `development` | Development and the CLI |
+| `development` | Development |
+| `cli` | CLI |
+| `console` | The ViteHub Console |
 | `hosts` | Frameworks and hosts |
 | `web-container` | WebContainer |
 | `bundle` | Bundle reports |

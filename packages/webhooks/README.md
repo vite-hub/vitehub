@@ -21,6 +21,7 @@ export default defineWebhook({
 | `secret` | The name of the server variable that holds the signing secret. |
 | `signature` | `"github"` (default) sends `x-hub-signature-256: sha256=<hex>`. `"stripe"` sends `stripe-signature: t=<time>,v1=<hex>`. `verifyWebhook()` from `@vite-hub/env` checks both. |
 | `debounce` | Optional. Waits this long after the last send, then delivers once. A duration such as `"30 minutes"` or `"10s"`, at most 24 hours, the longest delay of Cloudflare Queues. |
+| `events` | Optional. Events that ViteHub sends by itself: `"invocation.failed"`, `"workflow.failed"`, and `"schedule.failed"`. See [Failure alerts](#failure-alerts). |
 
 The file name is the webhook name: lowercase letters, digits, and dashes. The app needs `queue` and `database` in `vitehub()`, with a SQLite Default Database such as libSQL or D1. Without them, the build fails with `WEBHOOKS_QUEUE_OFF` or `WEBHOOKS_DATABASE_OFF`. Run `vitehub database generate` and `vitehub database migrate` to add the table.
 
@@ -52,6 +53,23 @@ The receiver gets a `POST` with the JSON body and these headers:
 | `x-vitehub-delivery` | The delivery id. It stays the same for every retry, so the receiver can drop a duplicate. |
 | `x-vitehub-events` | How many sends the debounce collapsed into this delivery |
 
+## Failure alerts
+
+A webhook that lists `events` gets each failed run without a `sendWebhook()` call:
+
+```ts [server/webhooks/alerts.ts]
+import { defineWebhook } from "@vite-hub/webhooks"
+
+export default defineWebhook({
+  url: "ALERTS_WEBHOOK_URL",
+  secret: "ALERTS_WEBHOOK_SECRET",
+  events: ["invocation.failed", "workflow.failed", "schedule.failed"],
+  debounce: "10 minutes",
+})
+```
+
+Agent, Workflow, and Schedule send the event when a run fails with no retry left. The body has the `event`, the Agent, Workflow, or Schedule name, the run or Invocation id, `error: { message, code? }`, `failedAt`, and `text`, one line that a Slack incoming webhook shows as the message. With `debounce`, failures of the same Agent, Workflow, or Schedule collapse into one delivery. The run must execute in a process that loads the app's Webhooks. Standalone cron entries, including Vercel and Netlify cron functions, and Vercel Workflow DevKit (`native`) runs do not send these events.
+
 ## How a delivery works
 
 1. `sendWebhook()` stores the delivery in the `vitehub_webhook_deliveries` table of the Default Database, then sends a wake job to the internal `vitehub-webhooks` Queue with the debounce as its delay.
@@ -67,13 +85,31 @@ Errors and stored fields never hold the URL, its query, or the secret. A deliver
 
 | Function | Does |
 | --- | --- |
-| `listWebhooks()` | Every webhook, with the names of its variables and whether they are set |
+| `listWebhooks()` | Every webhook, with the names of its variables, whether they are set, and the URL host |
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first |
 | `getWebhookDelivery(id)` | One delivery |
 | `flushWebhookDelivery(id)` | Delivers a pending delivery now |
 | `cancelWebhookDelivery(id)` | Cancels a pending delivery |
 | `redeliverWebhookDelivery(id)` | Sends a sent, dead, or cancelled delivery again as a new delivery |
+| `testWebhook(name, { body? })` | Sends a test delivery now, without the debounce, with the event `webhooks.test` |
+
+The same actions run from the terminal, the Console, and MCP as the `webhooks.*` operations on the app's operation RPC. `vitehub webhooks` reaches `vite dev`, or a deployed app with `--url`, and prints JSON:
+
+```bash
+vitehub webhooks list
+vitehub webhooks deliveries --webhook t3 --state dead --limit 20
+vitehub webhooks pending
+vitehub webhooks get whd_...
+vitehub webhooks test t3 --body '{"thread":"thr_1"}'
+vitehub webhooks flush whd_...
+vitehub webhooks cancel whd_...
+vitehub webhooks redeliver whd_...
+```
+
+`list`, `deliveries`, `pending`, and `get` only read, so MCP marks them read-only. The output shows the host of a URL, never its path, query, or the secret.
+
+The Webhooks section of the Console shows each webhook with its host, signature, debounce, and the names of its URL and secret variables, then the pending timers with a countdown and the delivery log. Its buttons run Send test, Send now, Cancel, and Redeliver through the same operations. Set the variables in the Env section.
 
 ## Public imports
 
@@ -81,7 +117,8 @@ Errors and stored fields never hold the URL, its query, or the secret. A deliver
 | --- | --- |
 | `@vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, and the types |
 | `@vite-hub/webhooks/runtime` | The delivery functions above, `installWebhooks()` for tests, and the Queue handler |
+| `@vite-hub/webhooks/operations` | `webhooksOperations`, the operations of the Console, `vitehub webhooks`, and MCP |
 | `@vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore(db)` |
-| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you |
+| `@vite-hub/webhooks/vite` | `hubWebhooks()`, which `vite-hub` adds for you, and `webhooksConsoleSection` |
 
 In a ViteHub app, import the same functions from `vite-hub/webhooks`.

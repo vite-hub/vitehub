@@ -20,6 +20,7 @@ export interface DocsPackedFiles {
 
 /** What `#docs/files` exports in development: a reader that loads each file through Vite. */
 export interface DocsDevFiles {
+  has: (store: string, file: string) => boolean
   /** The file of a store, or null when the store or the file is unknown. */
   read: (store: string, file: string) => Promise<string | null>
 }
@@ -74,10 +75,11 @@ export function docsDevFilesModule(stores: DocsFileStore[]): string {
   const loaders = stores.map(store => `  ${JSON.stringify(store.name)}: {\n${markdownFiles(store.dir).map(file => `    ${JSON.stringify(file)}: () => import(${JSON.stringify(`${join(store.dir, file).split(sep).join("/")}?raw`)}),`).join("\n")}\n  },`)
   return [
     `const files = {\n${loaders.join("\n")}\n}`,
+    "const has = (store, file) => Object.hasOwn(files, store) && Object.hasOwn(files[store], file)",
     "export default {",
+    "  has,",
     "  async read(store, file) {",
-    "    const load = Object.hasOwn(files, store) && Object.hasOwn(files[store], file) ? files[store][file] : undefined",
-    "    return load ? (await load()).default : null",
+    "    return has(store, file) ? (await files[store][file]()).default : null",
     "  },",
     "}",
     "",

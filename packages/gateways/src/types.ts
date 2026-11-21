@@ -1,3 +1,4 @@
+import type { Diagnostic } from "nostics"
 import type { AskAnswers, AskQuestions } from "./ask.ts"
 
 /** What a gateway value resolver receives. */
@@ -61,10 +62,27 @@ export interface AiGatewayAskOptions {
 }
 
 /**
- * Answers TypeSafe Jev questions about `state`. Build the questions with `ask`. Large question sets are sent in
- * sequential bounded requests, and transient provider failures are retried.
+ * Why `gateway.ask()` or `askWithModel().ask()` returned no answers. `GATEWAYS_R0008`: the provider rejected the key.
+ * `GATEWAYS_R0009`: Jev kept failing after retries. `GATEWAYS_ASK_MODEL_FAILED`: the model request of `askWithModel()` failed.
  */
-export type AiGatewayAsk = <const Q extends AskQuestions>(state: unknown, questions: Q, options?: AiGatewayAskOptions) => Promise<AskAnswers<Q>>
+export type AiGatewayAskError =
+  | Diagnostic<unknown, "GATEWAYS_ASK_MODEL_FAILED">
+  | (Diagnostic<unknown, "GATEWAYS_R0008"> & { status: 503, providerStatus: 401 | 403, requestId?: string | undefined })
+  | (Diagnostic<unknown, "GATEWAYS_R0009"> & { status: 502, providerStatus?: number | undefined, requestId?: string | undefined })
+
+/** `[error, answers]`. Check `error` first. When `error` is `undefined`, `answers` has one answer per question key. */
+export type AiGatewayAskResult<Q extends AskQuestions> = [error: AiGatewayAskError, answers: undefined] | [error: undefined, answers: AskAnswers<Q>]
+
+/**
+ * Answers TypeSafe Jev questions about `state` as `[error, answers]`. Build the questions with `ask`. Large question
+ * sets are sent in sequential bounded requests, and transient provider failures are retried. A provider failure
+ * returns an `AiGatewayAskError`. A question that the `ask` builders did not make throws.
+ */
+export type AiGatewayAsk = <const Q extends AskQuestions>(
+  state: unknown,
+  questions: Q,
+  options?: AiGatewayAskOptions,
+) => Promise<AiGatewayAskResult<Q>>
 
 /** How a provider Driver or an AI SDK model reaches an AI gateway: a base URL per model API, the key, and extra headers. */
 export interface AiGatewayDefinition {

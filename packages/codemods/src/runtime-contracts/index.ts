@@ -1,16 +1,17 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, indentAt, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
-import { parse as parseSfc } from "@vue/compiler-sfc"
+import { detectStyle, end, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
 import { readDependencies } from "../shared/detect.ts"
 import { bindingResolver } from "../shared/binding-resolver.ts"
+import { rewriteResultCalls, scriptBlocks } from "../shared/result-calls.ts"
 
 import type { File, Identifier, ImportDeclaration, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
+import type { ScriptBlock } from "../shared/result-calls.ts"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
 /** The exports of one import path that moved, or that are no longer public. */
@@ -41,7 +42,7 @@ const nodeNames = new Set(["nodeRuntimeResources", "NodeRuntimeResourceInspector
 const logNames = new Set(["createLogBuffer", "LogBuffer", "LogCursorExpiredError", "parseLogQuery", "LogEntry", "LogLevel", "LogPage", "LogQuery", "LogSource", "LogSourceInfo"])
 
 const authSetter = "ViteHub sets it in generated code. Remove the call. To read host bindings, use the request event: `getStandardContext(event).runtime.cloudflare.env` from `vite-hub/runtime`."
-const authFactory = "Read the discovered Better Auth instance with `useAuth(event)` or `auth`, or create a handler for another Definition with `createAuthHandler(definition)`."
+const authFactory = "Read the discovered Better Auth instance with `useAuth(event)` in a route or `useAuth()` outside a request. To create a handler for another Definition, use `createAuthHandler(definition)`."
 const authAccess = "Configure `access.routes` in `defineAuth()`. The generated middleware checks them on each request."
 const authRemoved = new Map<string, string>([
   ["resetAuth", authSetter],
@@ -84,34 +85,8 @@ const moduleCalls = new Set(["mock", "doMock", "unmock", "doUnmock", "importActu
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 
-interface Block {
-  code: string
-  offset: number
-  lineOffset: number
-  jsx: boolean
-  typescript: boolean
-}
-
-function scriptBlocks(file: string, source: string): Block[] {
-  if (!file.endsWith(".vue")) {
-    return [{ code: source, offset: 0, lineOffset: 0, jsx: /\.[jt]sx$/.test(file), typescript: !/\.(?:c|m)?jsx?$/.test(file) }]
-  }
-  const { descriptor } = parseSfc(source, { filename: file })
-  return [descriptor.script, descriptor.scriptSetup].flatMap((block) => {
-    if (!block || block.src) return []
-    const lang = block.lang ?? "js"
-    return [{
-      code: block.content,
-      offset: block.loc.start.offset,
-      lineOffset: block.loc.start.line - 1,
-      jsx: lang === "tsx" || lang === "jsx",
-      typescript: lang === "ts" || lang === "tsx",
-    }]
-  })
-}
-
 interface FileContext {
-  block: Block
+  block: ScriptBlock
   file: string
   followUps: FollowUp[]
   output: MagicString
@@ -226,140 +201,23 @@ function checkRateLimitBindings(program: File): Set<Identifier> {
   return bindings
 }
 
-/** Names that a declaration, parameter, or import in `program` binds. */
-function declaredNames(program: File): Set<string> {
-  const names = new Set<string>()
-  walk(program, (node) => {
-    if (node.type === "Identifier") names.add(node.name)
-  })
-  return names
-}
-
-/** Whether `child` is the part of `parent` that runs first, so the code can read it in a statement before. */
-function runsFirst(parent: Node, child: Node): boolean {
-  switch (parent.type) {
-    case "UnaryExpression":
-    case "TSAsExpression":
-    case "TSNonNullExpression":
-    case "TSSatisfiesExpression":
-      return true
-    case "MemberExpression":
-      return parent.object === child
-    case "BinaryExpression":
-    case "LogicalExpression":
-      return parent.left === child
-    case "ConditionalExpression":
-      return parent.test === child
-    case "CallExpression":
-      // `f(await checkRateLimit(...))` reads `f` first, which has no side effect when it is a name or a property path.
-      return parent.callee === child || (parent.arguments[0] === child && isNamePath(parent.callee))
-    default:
-      return false
-  }
-}
-
-function isNamePath(node: Node): boolean {
-  if (node.type === "Identifier") return true
-  return node.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && isNamePath(node.object)
-}
-
-/** The statement that runs `node` before anything else, when it is in a statement list. */
-function leadingStatement(node: Node, ancestors: readonly Node[]): Node | undefined {
-  let child = node
-  for (let index = ancestors.length - 1; index >= 0; index--) {
-    const parent = ancestors[index]!
-    const owner = ancestors[index - 1]
-    const inList = owner && (owner.type === "BlockStatement" || owner.type === "Program") && (owner.body as readonly Node[]).includes(parent)
-    switch (parent.type) {
-      case "ExpressionStatement":
-        return inList && parent.expression === child ? parent : undefined
-      case "ReturnStatement":
-      case "ThrowStatement":
-        return inList && parent.argument === child ? parent : undefined
-      case "IfStatement":
-        return inList && parent.test === child ? parent : undefined
-      case "VariableDeclarator":
-        if (parent.init !== child || owner?.type !== "VariableDeclaration" || owner.declarations[0] !== parent) return undefined
-        child = parent
-        continue
-      case "VariableDeclaration":
-        return inList ? parent : undefined
-    }
-    if (!runsFirst(parent, child)) return undefined
-    child = parent
-  }
-  return undefined
-}
-
-/**
- * The source range of `node`, with one pair of parentheses around it, such as `(await checkRateLimit(...))`. Other
- * parentheses, or a comment beside them, stay: an identifier in their place is valid code too.
- */
-function rangeWithParentheses(code: string, node: Node): [number, number] {
-  const extra = node.extra as { parenthesized?: boolean, parenStart?: number } | undefined
-  const close = /^\s*\)/.exec(code.slice(end(node)))
-  if (!extra?.parenthesized || extra.parenStart === undefined || !close || !/^\(\s*$/.test(code.slice(extra.parenStart, start(node)))) return [start(node), end(node)]
-  return [extra.parenStart, end(node) + close[0].length]
-}
-
 /**
  * `checkRateLimit()` returns `[error, decision]` now. It threw before, so each call becomes a Result read that throws
- * the error, which keeps the behavior of the code:
- * - `const decision = await checkRateLimit(...)` becomes `const [error, decision] = await checkRateLimit(...)`.
- * - A call that its statement runs first, such as `refuse(await checkRateLimit(...))` or
- *   `if (!(await checkRateLimit(...)).allowed)`, moves to a `const` before the statement, and the statement reads the
- *   decision.
- * Other calls get a follow-up.
+ * the error, which keeps the behavior of the code. Other calls get a follow-up.
  */
 function rewriteCheckRateLimit(context: FileContext): number {
-  const { block, output, program, style } = context
-  const bindings = checkRateLimitBindings(program)
+  const bindings = checkRateLimitBindings(context.program)
   if (!bindings.size) return 0
-  const resolveBinding = bindingResolver(program)
-  const taken = declaredNames(program)
-  let rewritten = 0
-  const freeName = (base: string) => {
-    let index = 1
-    let name = base
-    while (taken.has(name)) name = `${base}${++index}`
-    taken.add(name)
-    return name
-  }
-  walk(program, (node, ancestors) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
-    const binding = resolveBinding(node.callee)
-    if (!binding || !bindings.has(binding)) return
-    const awaited = ancestors.at(-1)
-    const statement = awaited?.type === "AwaitExpression" ? leadingStatement(awaited, ancestors.slice(0, -1)) : undefined
-    if (!awaited || !statement) {
-      followUp(context, node, "`checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`.")
-      return
-    }
-    const error = freeName("checkRateLimitError")
-    const semicolon = style.semicolons || block.code[end(statement) - 1] === ";" ? ";" : ""
-    const indent = indentAt(block.code, start(statement))
-    const check = `if (${error}) throw ${error}${semicolon}`
-    const declarator = statement.type === "VariableDeclaration" && statement.declarations.length === 1 ? statement.declarations[0] : undefined
-    const id = declarator?.init === awaited ? declarator.id : undefined
-    // A pattern such as `const { allowed } = ...` would read the decision before the error check, so it takes the last branch.
-    if (id?.type === "Identifier" && !id.typeAnnotation) {
-      // `const decision = await checkRateLimit(...)` keeps its statement.
-      output.overwrite(block.offset + start(id), block.offset + end(id), `[${error}, ${block.code.slice(start(id), end(id))}]`)
-      output.appendLeft(block.offset + end(statement), `\n${indent}${check}`)
-    }
-    else if (statement.type === "ExpressionStatement" && statement.expression === awaited) {
-      // A call whose decision nobody reads only throws its error.
-      output.overwrite(block.offset + start(statement), block.offset + end(statement), `const [${error}] = ${block.code.slice(start(awaited), end(awaited))}${semicolon}\n${indent}${check}`)
-    }
-    else {
-      const decision = freeName("decision")
-      const [from, to] = rangeWithParentheses(block.code, awaited)
-      output.appendLeft(block.offset + start(statement), `const [${error}, ${decision}] = ${block.code.slice(start(awaited), end(awaited))}${semicolon}\n${indent}${check}\n${indent}`)
-      output.overwrite(block.offset + from, block.offset + to, decision)
-    }
-    rewritten++
-  })
-  return rewritten
+  const resolveBinding = bindingResolver(context.program)
+  return rewriteResultCalls(
+    context,
+    (call) => {
+      if (call.callee.type !== "Identifier") return undefined
+      const binding = resolveBinding(call.callee)
+      return binding && bindings.has(binding) ? { error: "checkRateLimitError", value: "decision" } : undefined
+    },
+    call => followUp(context, call, "`checkRateLimit()` returns `[error, decision]` now, and it no longer throws when the request has no key or the Cloudflare binding is missing. Read the decision from the Result: `const [error, decision] = await checkRateLimit(...)`."),
+  )
 }
 
 /** Rewrites one script block. Returns true when it changed. */

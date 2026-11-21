@@ -80,8 +80,8 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     const log = requestLogger()
     const response = await server({ authorize: () => false })("guides/welcome.md", { log })
 
-    expect(response.status).toBe(403)
-    expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 403 }])
+    expect(response.status).toBe(401)
+    expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 401 }])
     expect(log.error).not.toHaveBeenCalled()
   })
 
@@ -94,7 +94,7 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
 
     expect(response.status).toBe(500)
     expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 500 }])
-    expect(log.error).toHaveBeenCalledWith(failure)
+    expect(log.error).toHaveBeenCalledExactlyOnceWith("Realtime refused a connection.")
     expect(consoleError).toHaveBeenCalledWith("[vitehub] Realtime refused a connection.", expect.objectContaining({ refused: "authorize", status: 500 }), failure)
   })
 
@@ -112,13 +112,13 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
     await server({ document: false, authorize: () => false })("tabs/0b6c8f9e-2f6d-4d2a-9a51-7f1f3c0e1d2a", { log })
 
     const [fields] = realtimeFields(log) as Array<{ room: string }>
-    expect(fields).toMatchObject({ definition: "docs", refused: "authorize", status: 403 })
+    expect(fields).toMatchObject({ definition: "docs", refused: "authorize", status: 401 })
     expect(fields!.room).toMatch(/^#[0-9a-f]{8}$/)
   })
 
   it("sets a refusal of a document request", async () => {
     const log = requestLogger()
-    const response = await server({ authorize: ({ mode }) => mode === "read" })("guides/welcome.md?document=save", { method: "POST", log })
+    const response = await server({ identify: () => ({ id: "writer" }), authorize: ({ mode }) => mode === "read" })("guides/welcome.md?document=save", { method: "POST", log })
 
     expect(response.status).toBe(403)
     expect(realtimeFields(log)).toEqual([{ definition: "docs", room: "guides/welcome.md", refused: "authorize", status: 403 }])

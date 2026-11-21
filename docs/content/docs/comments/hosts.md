@@ -19,7 +19,7 @@ The [`comments()` plugin](/docs/comments/get-started) keeps threads in the datab
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
 | Vercel, Netlify | Yes | A Turso database, set in the project's environment variables. |
 
-`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. The SQLite file needs Node.js 22.5 or newer for `node:sqlite`. It has no presence, edits in place, or Console section.
+`comments()` runs on the [Nitro](https://nitro.build) server, which builds for the host it detects. Set `NITRO_PRESET=cloudflare_module` to build for Workers. It has no presence, edits in place, or Console section.
 
 [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) stores nothing on the server, because the session is a cookie. It works the same in a ViteHub app on every host.
 
@@ -185,7 +185,7 @@ Pages with the page tools loader get `cache-control: private, no-store`. Other p
 
 ## Content Security Policy
 
-The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
+The page gets one same-origin script: the page tools loader at `/_vitehub/page/assets/loader.js`. It imports the overlay from `/_vitehub/comments/assets/overlay.js`. With a base path such as Vite `base: '/docs/'`, both paths start with `/docs`.
 
 - When the `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the loader script gets that nonce. `'strict-dynamic'` then trusts the overlay it imports.
 - The overlay adds styles inside its shadow root, so `style-src` must allow inline styles.
@@ -193,4 +193,4 @@ The page gets one same-origin script: the page tools loader at `/_vitehub/page/a
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.

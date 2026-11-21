@@ -6,7 +6,7 @@ import { telegram } from "@vite-hub/agent/channels"
 import { remoteMcpServer } from "@vite-hub/agent/mcp"
 import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
-import { fetch as fetchSource } from "@vite-hub/workspace"
+import { url } from "@vite-hub/workspace"
 import { useServerEnv } from "#vitehub/env/server"
 import { formatUsageMessage } from "./usage"
 
@@ -19,7 +19,7 @@ export default defineAgent({
   },
   workspace: {
     sources: {
-      nuxt: fetchSource({
+      nuxt: url({
         responseType: "text",
         url: new URL("https://nuxt.com/llms.txt"),
         workspacePath: "nuxt/llms.txt",
@@ -39,7 +39,7 @@ export default defineAgent({
           secretToken: telegram.webhookSecretToken.unseal(),
         })
       },
-      webhooks: { secretToken: () => useServerEnv().telegram.webhookSecretToken.unseal() },
+      webhooks: { secret: () => useServerEnv().telegram.webhookSecretToken.unseal() },
     }),
   },
   driver: { kind: "codex", model: "gpt-5.6-terra" },

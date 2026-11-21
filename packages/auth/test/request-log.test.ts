@@ -1,4 +1,5 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
+import { createRequestLogger, initLogger } from "evlog"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { handleAuthRequest, resetAuth, withAuth } from "../src/internal/server.ts"
@@ -13,6 +14,7 @@ const credentials = { email: "ada@shop.example", password: "passwordpassword" }
 afterEach(() => {
   resetAuth()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 function evlogLogger() {
@@ -33,13 +35,13 @@ function createDefinition(options: Partial<AuthRuntimeOptions> = {}) {
 }
 
 /** A Nitro v3 request event. With `log`, it has evlog's request logger where evlog's Nitro plugin puts it. */
-function event(path: string, init: RequestInit = {}, log?: ReturnType<typeof evlogLogger>) {
+function event(path: string, init: RequestInit = {}, log?: ReturnType<typeof evlogLogger> | ReturnType<typeof createRequestLogger>) {
   const request = new Request(new URL(path, origin), init)
   if (log) Object.assign(request, { context: { log } })
   return requestEvent(request)
 }
 
-function post(path: string, body: object, log?: ReturnType<typeof evlogLogger>) {
+function post(path: string, body: object, log?: Parameters<typeof event>[2]) {
   return event(path, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", origin } }, log)
 }
 
@@ -72,6 +74,97 @@ describe("Auth outcomes on the request's wide event", () => {
 
     expect(response.status).toBe(200)
     expect(authFields(log)).toEqual([{ path: "/sign-in/email", outcome: "success", userId: user.id }])
+  })
+
+  it.each([{ requireEmailVerification: true }, { autoSignIn: false }])("logs account creation without a session (%j)", async (options) => {
+    const definition = createDefinition({ emailAndPassword: { enabled: true, ...options } })
+    const log = evlogLogger()
+    const payload = { ...credentials, name: "Ada" }
+    const response = await handleAuthRequest(definition, post("/api/auth/sign-up/email", payload, log))
+    const { user, token } = await response.json() as { user: { id: string }, token: string | null }
+
+    expect(response.status).toBe(200)
+    expect(token).toBeNull()
+    expect(authFields(log)).toEqual([{ outcome: "success", path: "/sign-up/email", userId: user.id }])
+
+    const duplicate = evlogLogger()
+    const duplicateResponse = await handleAuthRequest(definition, post("/api/auth/sign-up/email", payload, duplicate))
+    expect(duplicateResponse.status).toBe(200)
+    expect(authFields(duplicate)).toEqual([])
+  })
+
+  it.each([false, true])("classifies a GitHub callback by its Auth outcome, not the app query (fails: %s)", async (fails) => {
+    vi.stubGlobal("fetch", async (input: Parameters<typeof fetch>[0]) => {
+      const url = new URL(input instanceof Request ? input.url : String(input))
+      if (url.href === "https://github.com/login/oauth/access_token") return Response.json({ access_token: "github-token", token_type: "bearer" })
+      if (url.href === "https://api.github.com/user") return Response.json({ id: 7, login: "ada", name: "Ada", email: credentials.email })
+      if (url.href === "https://api.github.com/user/emails") return Response.json([{ email: credentials.email, primary: true, verified: true }])
+      throw new Error(`Unexpected fetch: ${url.href}`)
+    })
+    const definition = createDefinition()
+    const signIn = await handleAuthRequest(definition, post("/api/auth/sign-in/social", {
+      provider: "github",
+      callbackURL: "/app?error=draft-not-found",
+      errorCallbackURL: "/sign-in?source=github",
+    }))
+    const { url } = await signIn.json() as { url: string }
+    const state = new URL(url).searchParams.get("state")!
+    const cookie = signIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const params = new URLSearchParams({ state, ...(fails ? { error: "access_denied" } : { code: "github-code" }) })
+
+    const log = evlogLogger()
+    const response = await handleAuthRequest(definition, event(`/api/auth/callback/github?${params}`, { headers: { cookie } }, log))
+    expect(response.status).toBe(302)
+    expect(new URL(response.headers.get("location")!, origin).pathname).toBe(fails ? "/sign-in" : "/app")
+    expect(authFields(log)).toEqual([{
+      path: "/callback/:id",
+      provider: "github",
+      ...(fails ? { outcome: "failure", status: 302, code: "access_denied" } : { outcome: "success", userId: expect.any(String) }),
+    }])
+  })
+
+  it("does not treat a form-post handoff to the GET callback as a failure", async () => {
+    const log = evlogLogger()
+    const response = await handleAuthRequest(createDefinition(), event("/api/auth/callback/github", {
+      method: "POST",
+      headers: { origin },
+      body: new URLSearchParams({ error: "access_denied" }),
+    }, log))
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toContain("/api/auth/callback/github?error=access_denied")
+    expect(authFields(log)).toEqual([])
+  })
+
+  it("keeps callback causes and rejected URLs out of serialized Evlog events", async () => {
+    initLogger({ redact: false, silent: true, drain: vi.fn() })
+    const callbackLog = createRequestLogger()
+    const validationLog = createRequestLogger()
+    const appLog = vi.fn()
+    const privateURL = "https://other.example/ada%40shop.example?token=private-token"
+    const definition = createDefinition({
+      advanced: { disableOriginCheck: false },
+      emailAndPassword: { enabled: true, autoSignIn: false },
+      logger: { log: appLog },
+      events: {
+        store: { append: vi.fn(), list: vi.fn(), aggregate: vi.fn() },
+        onEvent: () => { throw new Error(`Delivery to ${credentials.email} failed: ${privateURL}`) },
+      },
+    })
+    const signUp = await handleAuthRequest(definition, post("/api/auth/sign-up/email", { ...credentials, name: "Ada" }, callbackLog))
+    expect(signUp.status).toBe(200)
+    const callbackEvent = JSON.stringify(callbackLog.emit())
+    expect(callbackEvent).toContain("AUTH_EVENT_CALLBACK_FAILED")
+    expect(callbackEvent).toContain("user.signed_up")
+
+    const rejected = await handleAuthRequest(definition, post("/api/auth/sign-in/social", { provider: "github", callbackURL: privateURL }, validationLog))
+    expect(rejected.status).toBe(403)
+    const validationEvent = JSON.stringify(validationLog.emit())
+    expect(validationEvent).toContain("[Better Auth] Invalid callbackURL")
+    expect(appLog).toHaveBeenCalledWith("error", `Invalid callbackURL: ${privateURL}`)
+    for (const secret of [credentials.email, "ada%40shop.example", "other.example", "private-token"]) {
+      expect(callbackEvent).not.toContain(secret)
+      expect(validationEvent).not.toContain(secret)
+    }
   })
 
   it("sets the error of a failed OAuth callback, which the browser gets only as a redirect", async () => {

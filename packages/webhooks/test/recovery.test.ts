@@ -29,7 +29,7 @@ it("reschedules an early recovery wake until the interrupted claim expires", asy
     await store.claim(recorded.id, recorded.revision, now, now - 70_000)
     await deliverWebhookWake(recorded)
     expect(wake).toHaveBeenCalledExactlyOnceWith(
-      { id: recorded.id, revision: recorded.revision }, { delaySeconds: 70 },
+      { id: recorded.id, revision: recorded.revision }, { delay: "70s" },
     )
     expect(await store.get(recorded.id)).toMatchObject({ state: "sending", attempts: 1 })
     expect(request).not.toHaveBeenCalled()

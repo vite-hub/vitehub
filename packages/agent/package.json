@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/agent",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
@@ -89,6 +89,11 @@
       "types": "./dist/eval.d.ts",
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
+    },
+    "./internal/agent-invocations-cli": {
+      "types": "./dist/internal/agent-invocations-cli.d.ts",
+      "import": "./dist/internal/agent-invocations-cli.js",
+      "default": "./dist/internal/agent-invocations-cli.js"
     },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
@@ -238,7 +243,6 @@
     "birpc": "catalog:runtime",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
-    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -266,6 +270,7 @@
     "@vite-hub/workflow": "workspace:*",
     "@whatwg-node/node-fetch": "0.8.6",
     "drizzle-orm": "catalog:database",
+    "esbuild": "catalog:tooling",
     "evalite": "catalog:ai",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
@@ -397,6 +402,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

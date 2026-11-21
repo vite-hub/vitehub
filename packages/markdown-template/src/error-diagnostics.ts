@@ -7,7 +7,7 @@ const dynamicError = {
 // Each code identifies one ViteHub failure site. Keep published codes stable.
 // Retired codes. Do not reuse them: MARKDOWN_TEMPLATE_R0001, MARKDOWN_TEMPLATE_R0003 to MARKDOWN_TEMPLATE_R0010, MARKDOWN_TEMPLATE_R0016, MARKDOWN_TEMPLATE_R0019, and MARKDOWN_TEMPLATE_R0028.
 export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: "https://vitehub.dev/docs/agents/diagnostics",
+  docsBase: "https://vitehub.dev/docs/markdown-template/diagnostics",
   codes: {
     MARKDOWN_TEMPLATE_R0002: { ...dynamicError, fix: "Bind the condition to a `data.<path>` path that the template may read, or to a JSON literal, such as `:condition=\"data.ready\"`." },
     MARKDOWN_TEMPLATE_B0001: { ...dynamicError, fix: "Pass a path that starts with `./`, ends with `.template.md`, and uses `/` between folders, such as `./review/PULL_REQUEST.template.md`." },

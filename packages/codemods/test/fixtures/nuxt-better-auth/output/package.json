@@ -1,0 +1,12 @@
+{
+  "name": "notes-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nuxthub/core": "^0.10.5",
+    "@vite-hub/auth": "^<version>",
+    "better-auth": "^1.7.15",
+    "nuxt": "^5.0.0",
+    "vite-hub": "^<version>"
+  }
+}

@@ -23,7 +23,7 @@ import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
 import { servedSkillsConsoleSection } from "../../packages/vite-hub/src/skills/console.ts"
-import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
+import { playgroundCommentsSection, playgroundConsoleContributions, playgroundWebhooksSection } from "./sections.ts"
 
 // SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
 const fixture = fixtureDocument as { invocations: AgentInvocationStoreCreateInput[] }
@@ -59,6 +59,7 @@ const sections = [
   "workflows",
   "queues",
   "schedules",
+  "webhooks",
   "comments",
   "site",
 ] as const;
@@ -169,7 +170,7 @@ async function captureEmailOutbox(): Promise<void> {
   }, provider: "resend" }) })
   const failing = createEmail({ driver: () => createEmailDevOutboxDriver({ deliver: true, driver: {
     name: "resend",
-    send: () => ({ data: null, error: emailProviderError("resend", "AUTH", "Resend rejected the API key.") }),
+    send: () => [emailProviderError("resend", "AUTH", "Resend rejected the API key."), undefined],
   }, provider: "resend" }) })
   await capture.send({
     attachments: [{ content: "date,amount\n2026-09-01,42.00\n", contentType: "text/csv", filename: "usage-september.csv" }],
@@ -509,7 +510,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/_vitehub/api/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, playgroundWebhooksSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
     return true
   }
 

@@ -7,7 +7,7 @@ import { runAgentInline } from "../src/internal/agent-run.ts"
 import type { Result } from "@vite-hub/runtime"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, content, email, git, gmail, inputCommands, mcp, modelsDevPricing, openapi, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
-import { channelAdapter, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { channelAdapter, github, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/agent-output.ts"
@@ -1426,7 +1426,8 @@ describe("agent public types", () => {
             reply: reviewFinishEffect,
           },
         }),
-        portal: http({
+        // `webChat()` types the route body and auth. `channelAdapter("http")` keeps an old `http()` Channel, untyped.
+        portal: webChat({
           // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
           adapter: () => ({}) as never,
           route: {
@@ -2080,9 +2081,6 @@ describe("agent public types", () => {
 
     // @ts-expect-error Workspace Sources do not own access scopes.
     githubSource({ repo: "acme/docs", scopes: ["customer"] })
-
-    // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
-    github({ events: { pullRequestComments: true } })
 
     defineAgent({
       channels: {

@@ -4,9 +4,12 @@ import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { evlogBridge, logFailure, setEvlogBridge } from "@vite-hub/internal/runtime/request-log"
+import { executeStaticSchedule } from "@vite-hub/schedule/runtime/static"
 import { createLogger, createRequestLogger, initLogger } from "evlog"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createDriver } from "../../blob/src/drivers/fs.ts"
+import { createBlobStorage } from "../../blob/src/storage.ts"
 import { evlogBridgeVitePlugin, renderEvlogBridgeNitroPlugin } from "../src/evlog-bridge-vite.ts"
 
 interface NitroAppStub {
@@ -91,6 +94,16 @@ describe("ViteHub failures with the real evlog", () => {
   // A failure whose message names a user's file, as an `fs` error does.
   const failure = () => Object.assign(new Error("EACCES: permission denied, open '/srv/data/.vitehub/blob-hashes/users/42/passport.jpg.json'"), { code: "EACCES" })
 
+  it("keeps the reason when a Schedule throws a string", async () => {
+    initLogger({ enabled: true, silent: true, drain: () => {} })
+    const { drained } = await runBridge({ evlog: {} })
+    const cron = "0 8 * * *"
+    const handler = () => Promise.reject("quota exceeded")
+
+    await expect(executeStaticSchedule({ cron, definition: { cron, handler }, name: "digest" })).rejects.toBe("quota exceeded")
+    expect(drained).toMatchObject([{ error: { message: "quota exceeded" }, schedule: { name: "digest", outcome: "failure" } }])
+  })
+
   it("puts a fixed message and the code on the request's wide event, never the error's message", async () => {
     initLogger({ enabled: true, silent: true, drain: () => {} })
     await runBridge({ evlog: {} })
@@ -106,6 +119,36 @@ describe("ViteHub failures with the real evlog", () => {
     expect(JSON.stringify(event)).not.toContain("passport.jpg.json")
     expect(JSON.stringify(event)).not.toContain("permission denied")
     expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it("keeps the last Blob transform failure's metadata together on the request", async () => {
+    initLogger({ enabled: true, silent: true, drain: () => {} })
+    await runBridge({ evlog: {} })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-evlog-blob-"))
+    roots.push(directory)
+    const driver = createDriver({ driver: "fs", base: directory })
+    const storage = createBlobStorage(driver, "photos")
+    const pathname = "passport.txt"
+    await storage.put(pathname, "photo", { contentType: "text/plain" })
+    const get = driver.get.bind(driver)
+    const put = driver.put.bind(driver)
+    vi.spyOn(driver, "get").mockImplementation(async (path) => {
+      if (path.startsWith("_vitehub/derived/")) throw Object.assign(new Error("read failed"), { code: "EIO" })
+      return get(path)
+    })
+    vi.spyOn(driver, "put").mockImplementation(async (path, ...args) => {
+      if (path.startsWith("_vitehub/derived/")) throw new Error("write failed")
+      return put(path, ...args)
+    })
+    const log = createRequestLogger({ method: "GET", path: "/photos/passport.txt" })
+    const request = Object.assign(new Request("https://photos.example/passport.txt"), { context: { log } })
+
+    const response = await storage.serve(request, pathname, { transform: { key: "public-v1", run: blob => blob } })
+    expect(await response.text()).toBe("photo")
+    const event = log.emit()
+    expect(event?.blob).toEqual({ op: "transform-cache-write", store: "photos", driver: "fs" })
+    expect(JSON.stringify(event?.requestLogs)).toContain("Blob transform cache read failed")
+    expect(JSON.stringify(event?.requestLogs)).toContain("Blob transform cache write failed")
   })
 
   it("sends an event of its own to the app's drain hooks, without the error's message or stack", async () => {

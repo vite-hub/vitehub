@@ -6,8 +6,7 @@ navigation.order: 1
 icon: i-lucide-book-open-check
 ---
 
-Read these after [Installation](/docs/getting-started/installation). Each
-solves one deployment or provider task.
+Use these after [Installation](/docs/getting-started/installation). Each covers one deployment or provider task.
 
 ## Deploy an Agent
 
@@ -34,6 +33,7 @@ solves one deployment or provider task.
 - [Use Upstash Redis for KV](/docs/guides/upstash-redis).
 - [Store files in Cloudflare R2](/docs/guides/cloudflare-r2).
 - [Use Vercel Blob](/docs/guides/vercel-blob).
+- [Cache server results with tags](/docs/guides/cache-server-results).
 
 ## Run server work
 
@@ -59,6 +59,4 @@ solves one deployment or provider task.
 - [Rate limiting vs throttling, and the four rate limiting algorithms](/docs/guides/rate-limiting-algorithms).
 - [Durable execution: steps, retries, replay, and idempotency](/docs/guides/durable-execution).
 
-Each service sets its own access, prices, quotas, and limits. One API does not
-make them the same or move data between services. The
-[support matrix](/docs/frameworks-hosts/support-matrix) shows what we tested.
+Each service sets its own access, pricing, quotas, and limits. One API does not make them the same or move data between services. The [support matrix](/docs/frameworks-hosts/support-matrix) shows what we tested.

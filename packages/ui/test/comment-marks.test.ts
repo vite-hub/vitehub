@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { commentLeaveMs } from "../src/headless/comment-visibility.ts";
 
 const marks = await readFile(new URL("../comment-marks.css", import.meta.url), "utf8");
 const built = await readFile(new URL("../dist/comment-marks.css", import.meta.url), "utf8");
@@ -27,6 +28,13 @@ describe("@vite-hub/ui/comment-marks.css", () => {
       '[data-leaving="true"]',
     ]) expect(marks, selector).toContain(selector);
     expect(marks).toContain("--vh-comment-pin-size: var(--vh-ui-comment-pin-size, 28px);");
+  });
+
+  it("pops a mark out in commentLeaveMs, and with no animation under reduced motion", () => {
+    expect(marks).toContain(`animation: vh-comment-mark-leave ${commentLeaveMs}ms cubic-bezier(0.4, 0, 1, 1) forwards;`);
+    expect(marks).toMatch(/@keyframes vh-comment-mark-leave \{\s*to \{ opacity: 0; scale: calc\(var\(--vh-comment-zoom, 1\) \* 0\.8\); \}/);
+    const reduced = marks.slice(marks.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reduced).toMatch(/\[data-leaving="true"\] > \* \{\s*animation: none;\s*opacity: 0;/);
   });
 
   it("draws a saved area as a neutral line, and keeps the comment blue for the area being drawn", () => {

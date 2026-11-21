@@ -374,7 +374,7 @@ export function resolveRealtimeDefinition(definition: RealtimeDocumentDefinition
   if (cached) return cached
   assertRealtimeCheckpoint(definition)
   const document = definition.document
-  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace)
+  const adapter = isDocumentAdapter(document) ? document : workspaceDocument(document.workspace, document.checkpointAuthor)
   const persistence = definition.persistence === false
     ? false as const
     : {
@@ -650,7 +650,7 @@ function errorCode(error: unknown): string | undefined {
 }
 
 async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
-  if (definition.auth && !definition.identify) {
+  if (definition.authorize === true && !definition.identify) {
     let auth
     try {
       auth = await assertAuthOrigin(request, event)
@@ -669,23 +669,28 @@ async function identify(request: Request, event: H3Event, definitionName: string
   // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
   // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
   // `origins` lets other origins in for definitions that read a credential the page sends.
-  if (origin && origin !== forwardedRequestOrigin(request)
-    && !(await refusing("origin", () => definition.origins?.({ definition: definitionName, event, origin, request })))) {
+  const foreign = !!origin && origin !== forwardedRequestOrigin(request)
+  const readsCallbackSession = typeof definition.authorize === "function" && !definition.identify && !!origin && (!foreign || !definition.origins)
+  if (foreign && !readsCallbackSession && !(await refusing("origin", () => definition.origins?.({ definition: definitionName, event, origin, request })))) {
     throw refusal("origin", new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." }))
   }
-  if (definition.identify) {
-    const user = toRealtimeUser(await refusing("identify", () => definition.identify?.({ definition: definitionName, event, request })))
-    if (definition.auth && !user) throw refusal("session", new HTTPError({ status: 401 }))
+  const identifyUser = definition.identify
+  if (identifyUser) {
+    const user = toRealtimeUser(await refusing("identify", () => identifyUser.call(definition, { definition: definitionName, event, request })))
+    if (definition.authorize === true && !user) throw refusal("session", new HTTPError({ status: 401 }))
     return user
   }
   // A Definition with `scope: "user"` reads the Auth session when the app has one, and needs none.
-  if (definition.document !== false || definition.scope !== "user") return null
+  const readsSession = typeof definition.authorize === "function"
+    ? readsCallbackSession
+    : definition.document === false && definition.scope === "user"
+  if (!readsSession) return null
   let auth
   try {
     auth = await assertAuthOrigin(request, event)
   }
   catch (error) {
-    if (isMissingAuth(error)) return null
+    if (!foreign && isMissingAuth(error)) return null
     throw refusal("origin", new HTTPError({ status: 403 }), error)
   }
   const session = await refusing("session", () => auth.api.getSession({ headers: request.headers }))
@@ -701,10 +706,12 @@ async function allows(
   definition: RealtimeDefinition,
   context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
-  if (definition.authorize) return (await refusing("authorize", () => definition.authorize?.(context))) !== false
-  // `assertRealtimeAccess()` let the definition load, so it is `auth: true` (identify() already required a user) or
-  // `access: "public"`.
-  return definition.auth === true || definition.access === "public"
+  // `authorize: true`: identify() already required a user.
+  if (definition.authorize === true) return true
+  // Only `true` allows. A callback that returns nothing, such as one that checks only `write`, denies.
+  const authorize = definition.authorize
+  if (authorize) return (await refusing("authorize", () => authorize.call(definition, context))) === true
+  return definition.access === "public"
 }
 
 function errorMessage(error: unknown): string {
@@ -1464,7 +1471,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
-    // ponytail: full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
+    // Full snapshots keep recovery atomic; use compacted update logs when document write cost becomes measurable.
     const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
     try {
       room.sql.exec(
@@ -2067,7 +2074,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       snapshot = await adapter.checkpoint!(room.context, {
         digest: saved.digest,
         message: configured === true ? undefined : configured?.message,
-        user: user ?? saved.savedBy ?? undefined,
+        user: user ?? undefined,
       })
     }
     catch (error) {
@@ -2114,7 +2121,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const log = requestLog(event)
     log?.set({ realtime: fields })
     if (!upgrade || status < 500) return
-    log?.error(error instanceof Error ? error : String(error))
+    log?.error("Realtime refused a connection.")
     // Also without evlog, or when evlog excludes this path: its request logger then never emits.
     console.error("[vitehub] Realtime refused a connection.", fields, error)
   }
@@ -2136,7 +2143,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
       throw new HTTPError({ status: 404 })
     }
     if (!(await request.access("read")) || (action !== "refresh" && !(await request.access("write")))) {
-      throw refusal("authorize", new HTTPError({ status: 403 }))
+      throw refusal("authorize", new HTTPError({ status: request.user ? 403 : 401 }))
     }
     const state = action === "refresh" ? undefined : await readRealtimeRequestState(event.req)
     if (state && !state.byteLength) throw new HTTPError({ status: 400, message: "Realtime document state is required." })
@@ -2158,7 +2165,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   const websocketHandler = defineWebSocketHandler(async (event) => {
     const request = await requestContext(event)
-    if (!(await request.access("read"))) throw refusal("authorize", new HTTPError({ status: 403 }))
+    if (!(await request.access("read"))) throw refusal("authorize", new HTTPError({ status: request.user ? 403 : 401 }))
     const writable = !request.workspaceEvents && !!request.resolved && await request.access("write")
     const identity: RealtimeIdentity | undefined = request.user ? createRealtimeIdentity({ ...request.user }) : undefined
     const room = await refusing<Room>("room", () => request.workspaceEvents

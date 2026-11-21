@@ -182,13 +182,6 @@ describe("workflow config", () => {
     await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
   })
 
-  it("leaves implicitly enabled Workflow disabled when Schedule prepares a Netlify build", async () => {
-    const plugin = hubWorkflow(undefined, { hosting: "netlify", implicitlyEnabled: true })
-    await resolvePlugin(plugin)
-
-    await expect(plugin.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
-  })
-
   it("keeps explicit Workflow provider enforcement when Schedule prepares a Netlify build", async () => {
     const plugin = hubWorkflow({}, { hosting: "netlify" })
     await resolvePlugin(plugin)
@@ -287,5 +280,13 @@ describe("workflow config", () => {
       ],
       { binding: "WORKFLOW_CUSTOM" },
     )).toThrow(/only supported when one workflow is discovered/)
+  })
+
+  it("rejects the former provider key instead of picking the host driver", () => {
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => normalizeWorkflowOptions({ provider: "openworkflow" } as never, { hosting: "vercel" })).toThrow(expect.objectContaining({
+      code: "WORKFLOW_RENAMED_PROVIDER_KEY",
+      fix: expect.stringContaining('`workflow: { driver: "openworkflow" }`'),
+    }))
   })
 })

@@ -9,7 +9,7 @@ This package is private and in progress. `vitehub console deploy` comes next.
 1. A person signs in with GitHub or a passkey. A new account gets a personal team. People can make more teams and invite others.
 2. An owner or admin of a team links an app with its URL. The Console makes an Ed25519 key pair for the link. It keeps the private key encrypted and shows the public key and the variable that holds it, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`.
 3. You set that variable on the app and deploy. The app needs `console: true`.
-4. The Console page calls `/p/<project>/_vitehub/rpc` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/development/console#sign-console-requests).
+4. The Console page calls `/p/<project>/_vitehub/rpc` on the Console origin. The Console server checks that the person is a member of the team that owns the project, then signs the call and sends it to the app. The signature covers the exact body bytes and the person who calls: their user id, name, email, team id, and role. The app's `console.authorize` receives them with `via: "console"`. See [Sign Console requests](https://vitehub.dev/docs/console/signed-requests).
 
 Each link has its own variable, so two teams can link the same app, and unlinking one leaves the other.
 
@@ -130,6 +130,7 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
 | `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
+| `PATCH /api/projects/<id>` | Owners and admins rename a project: `{ "label": "Docs" }`. `{ "label": null }` removes the label, so the Console shows the name that the app reports. The key of the link does not change. |
 | `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |

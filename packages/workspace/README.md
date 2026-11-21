@@ -1,9 +1,9 @@
 # @vite-hub/workspace
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -162,7 +162,7 @@ import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
 ```
 
-```ts [server/workspaces/drop.ts]
+```ts [server/workspaces/notes.ts]
 import { blob } from "@vite-hub/blob"
 import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
@@ -172,7 +172,7 @@ export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
     blob: blob.store("workspace-history"),
     database: () => useDatabase("history").db,
-    workspace: "drop-123",
+    workspace: "notes-123",
   }),
 })
 ```
@@ -180,12 +180,12 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
-const workspace = useWorkspace("drop", { mode: "write" })
+const workspace = useWorkspace("notes", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
   files: { "index.html": "<h1>Hello</h1>" },
   message: "Publish",
-  metadata: { author: "maxi" },
+  metadata: { author: "ada" },
 })
 const version = await workspace.history.open(revision.id)
 await version.readFile("index.html")
@@ -326,11 +326,11 @@ Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource, glob } from "@vite-hub/source"
+import { glob, useSource } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
-const reader = createSource(docs)
+const reader = useSource(docs)
 await reader.read("intro.md")
 
 export default defineWorkspace({
@@ -346,7 +346,7 @@ placement, materialization, sync, and access rules. Source owns retrieval.
 Without a `mount` path, the Source kind picks the mount, not the import. A file
 Source (`file()` or `markdown()` from either package, or the `"README.md"` and
 `{ path }` shorthands) puts its one file at its own key, so
-`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+`readme: file("README.md")` appears at `README.md`. `url()` also puts its one
 file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
 `readme: { source: file("README.md"), mount: "docs" }` appears at
 `docs/README.md`.
@@ -420,7 +420,7 @@ export default defineNuxtConfig({
     workspace: {
       store: {
         driver: "github",
-        repository: "owner/repo",
+        repo: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
       },
@@ -457,7 +457,7 @@ export default defineConfig({
 })
 ```
 
-The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. It reads a definition's `store` by loading the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store that is not `cloudflare-artifacts`; set the store in the `workspace` config then. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
+The Vite Integration writes matching module-level and discovered definition-level Artifacts bindings into generated Cloudflare Provider Output. It reads a definition's `store` by loading the definition at build time. If the build cannot load a definition, it fails with `WORKSPACE_B0005`, unless the source shows a literal object with no `store` or with a literal store whose `driver` is not `cloudflare`; set the store in the `workspace` config then. Each named Workspace uses its own repository by default, and a successful `workspace.snapshot()` pushes a Git commit whose SHA is the snapshot id. The Worker adapter keeps its checkout in isolate memory, so use it for deliberately small Workspaces. Cloudflare Artifacts is in open beta and is not available on Workers Free; Cloudflare hosting therefore continues to default to the `memory` Store.
 
 Artifacts repositories are private Git storage, not public attachment hosting. Use `@vite-hub/blob` with R2 or another Blob provider when an Agent needs a stable public delivery URL.
 
@@ -484,14 +484,14 @@ import { defineWorkspace } from "@vite-hub/workspace"
 export default defineWorkspace({
   store: {
     driver: "github",
-    repository: "owner/repo",
+    repo: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",
   },
 })
 ```
 
-The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot moves the changes onto the new head and commits once more. A path that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`; `details.paths` names the paths. A Store without staged writes reads the branch head again when it loaded it more than 5 seconds ago, so one cached Store serves many requests without `resetWorkspaceStoreCache()`. The Cloudflare Artifacts Store does the same. Writes stay staged until `snapshot()`. When a request, a Schedule run, or a Queue job throws, a Store that holds only its staged writes drops them and loads the branch again on its next call, so a later snapshot cannot commit them. This holds for every writer of the Store, Source materialization included, and for Workspaces that live longer than one request. Requests that overlap in one instance share one Store, so their staged writes stay until one of them snapshots.
+The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, `history.open(id).preload(paths)` reads many files from one archive, and `history.open(id).lastChanged(paths)` finds the last commit of 100 paths per request. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot moves the changes onto the new head and commits once more. A path that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`; `details.paths` names the paths. A Store without staged writes reads the branch head again when it loaded it more than 5 seconds ago, so one cached Store serves many requests without `resetWorkspaceStoreCache()`. The Cloudflare Artifacts Store does the same. Writes stay staged until `snapshot()`. When a request, a Schedule run, or a Queue job throws, a Store that holds only its staged writes drops them and loads the branch again on its next call, so a later snapshot cannot commit them. This holds for every writer of the Store, Source materialization included, and for Workspaces that live longer than one request. Requests that overlap in one instance share one Store, so their staged writes stay until one of them snapshots.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 
@@ -502,6 +502,10 @@ views read the configured Workspace root from the commit tree and fetch file byt
 that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
+
+`lastChanged(paths)` returns only changes it can confirm on the first-parent history,
+including deletions. A `null` value means no change. A missing key means the Store
+could not confirm an answer.
 
 The GitHub Store also writes history. `history.commit()` creates one commit, checks `ifHead` and
 `ifHeads` against the branch heads, and starts a missing branch from the `refs.published` branch when it is set, else from the default branch. `startFrom` names the revision a missing ref starts from. Options:

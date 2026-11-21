@@ -6,6 +6,7 @@ import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 import { isScheduleDate, scheduleIdempotencyKey, validateScheduledAt } from "./date.ts"
 import { isScheduleDue, latestCronMinute } from "./due.ts"
@@ -193,23 +194,33 @@ export function createStaticScheduleRun(
 export async function executeStaticSchedule(options: ExecuteStaticScheduleOptions): Promise<unknown> {
   const scheduledAt = validateScheduledAt(options.scheduledAt)
   const execute = () => runInRunScopes(() => runWithScheduleWaitUntil(
-    waitUntil => options.definition.handler(createStaticScheduleRun({ ...options, scheduledAt, waitUntil })),
+    async (waitUntil) => {
+      const run = createStaticScheduleRun({ ...options, scheduledAt, waitUntil })
+      try {
+        return await options.definition.handler(run)
+      }
+      catch (error) {
+        await emitRunFailed({ event: "schedule.failed", schedule: run.scheduleId, runId: run.id, error: toRunFailedError(error), failedAt: new Date().toISOString() })
+        throw error
+      }
+    },
     options.waitUntil,
   ))
   // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
   if (options.name === startedSchedulesTickName) return await execute()
   const run = { name: options.name, source: "static" as const, scheduledAt }
-  const waitUntil = options.waitUntil ? { waitUntil: (promise: Promise<unknown>) => options.waitUntil?.(promise) } : {}
   const startedAt = performance.now()
-  try {
-    const value = await execute()
-    logScheduleRun(run, startedAt, "success", waitUntil)
-    return value
-  }
-  catch (error) {
-    if (logScheduleRun(run, startedAt, "failure", { error, ...waitUntil })) options.onRunLogged?.()
-    throw error
-  }
+  return await runWithScheduleWaitUntil(async (waitUntil) => {
+    try {
+      const value = await execute()
+      logScheduleRun(run, startedAt, "success", { waitUntil })
+      return value
+    }
+    catch (error) {
+      if (logScheduleRun(run, startedAt, "failure", { error: normalizeScheduleRuntimeError(error), waitUntil })) options.onRunLogged?.()
+      throw error
+    }
+  }, options.waitUntil)
 }
 
 export async function executeMatchingStaticSchedules(options: ExecuteMatchingStaticSchedulesOptions): Promise<unknown[]> {
@@ -340,7 +351,7 @@ function isCallable(value: unknown): value is CallableFunction {
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
+// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

@@ -148,7 +148,7 @@ export function emitLogEvent(event: PrimitiveLogEvent): boolean {
 
 /**
  * Logs a failure that the caller survives, with a fixed message and the `code` of the error. With the evlog request
- * logger of `request`, it sets `[field]` on the request's wide event and adds a warning. Pass `request` only when the
+ * logger of `request`, it replaces `[field]` on the request's wide event and adds a warning. Pass `request` only when the
  * request has not answered yet: evlog drops fields after it emits the wide event. Otherwise it emits an event of its
  * own. Without evlog, or with evlog off, it calls `fallback`, which prints to the server console as before. It never
  * throws.
@@ -159,6 +159,7 @@ export function logFailure(failure: Omit<PrimitiveLogEvent, "level" | "withError
   const log = failure.request !== undefined && activeBridge() ? requestLog(failure.request) : undefined
   if (log) {
     try {
+      log.set({ [failure.field]: false })
       log.warn(failure.message, { [failure.field]: fields })
       return
     }

@@ -208,6 +208,12 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
+  // The `index.ts` that the page shows types the payload of the Workflow in `WorkflowRegistry`.
+  for (const snippet of pageSnippets) {
+    const index = /(?:^|\/)workflows\/(.+)\/index\.m?ts$/.exec(snippet.label ?? "")
+    const definition = index && isAppFile(snippet) ? workflows.get(index[1]) : undefined
+    if (definition) definition.handler = snippet.file
+  }
   const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets), ...await emailTemplateDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
@@ -283,10 +289,22 @@ const registries = [
     type: "auth",
   },
   {
+    // @vite-hub/source: `writeSourceArtifacts()` names each file under server/sources by its relative path.
+    definitions: label => [/^server\/sources\/(.+)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => ["declare global {", "  interface ViteHubSourceMap {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}", "export {}"],
+    type: "source",
+  },
+  {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
     definitions: collectionNames,
     render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
     type: "collections",
+  },
+  {
+    // @vite-hub/webhooks: `renderWebhooksTypes()` in src/vite.ts. One file of `server/webhooks/` is one webhook.
+    definitions: label => [/^server\/webhooks\/([a-z0-9][a-z0-9-]*)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => [`import "@vite-hub/webhooks"`, `declare module "@vite-hub/webhooks" {`, "  interface WebhookRegistry {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}"],
+    type: "webhooks",
   },
   {
     // @vite-hub/database: src/internal/generated.ts. `src/database.ts` defines the `default` Database.

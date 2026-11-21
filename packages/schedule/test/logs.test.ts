@@ -14,9 +14,10 @@ import type { ScheduleDefinitionRegistry } from "../src/types.ts"
 
 interface LoggedEvent { fields: Record<string, unknown>, info: string[], warn: string[], error: unknown[] }
 
-function evlogStub(): LoggedEvent[] {
+function evlogStub(drain?: () => void): LoggedEvent[] {
   const events: LoggedEvent[] = []
   setEvlogBridge({
+    ...(drain ? { drain } : {}),
     createLogger(fields) {
       const event: LoggedEvent = { fields, info: [], warn: [], error: [] }
       events.push(event)
@@ -119,18 +120,18 @@ describe("Schedule runs in logs", () => {
   })
 
   it("logs a thrown string once, and keeps evlog's drain alive with waitUntil", async () => {
-    const events = evlogStub()
+    const events = evlogStub(() => {})
     const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
     const kept: unknown[] = []
     const registry: ScheduleDefinitionRegistry = {
       // eslint-disable-next-line no-throw-literal -- An app can throw a string, and it must be logged once.
       broken: async () => ({ cron: "0 8 * * *", handler: async () => { throw "quota exceeded" } }),
     }
-    setEvlogBridge({ createLogger: fields => ({ info() {}, warn() {}, error() {}, emit: () => { events.push({ fields, info: [], warn: [], error: [] }); return fields } }), drain: () => {} })
 
     await expect(executeMatchingStaticSchedules({ cron: "0 8 * * *", registry, waitUntil: promise => kept.push(promise) })).rejects.toBe("quota exceeded")
 
     expect(events).toHaveLength(1)
+    expect(events[0]?.error[0]).toMatchObject({ message: "quota exceeded" })
     expect(kept).toHaveLength(1)
     expect(console).not.toHaveBeenCalled()
   })
@@ -144,13 +145,29 @@ describe("Schedule runs in logs", () => {
       return updateRun(id, patch)
     })
 
-    const run = await executeSchedule({ captureHandlerFailure: true, definition: { handler: () => "sent" }, runStore: store, scheduleId: "digest", scheduledAt: new Date("2026-11-17T08:00:00Z"), target: "digest" })
-
-    expect(run.status).toBe("failed")
+    await expect(executeSchedule({ captureHandlerFailure: true, definition: { handler: () => "sent" }, runStore: store, scheduleId: "digest", scheduledAt: new Date("2026-11-17T08:00:00Z"), target: "digest" })).rejects.toMatchObject({ code: "KV_OPERATION_FAILED" })
     expect(events.map(event => event.fields)).toEqual([
       { action: "schedule", message: "Schedule run succeeded", schedule: expect.objectContaining({ name: "digest", outcome: "success" }) },
-      { action: "schedule", message: "Schedule could not record a finished run", schedule: { op: "record-run", name: "digest", runId: run.id, code: "KV_OPERATION_FAILED" } },
+      { action: "schedule", message: "Schedule could not record a finished run", schedule: { op: "record-run", name: "digest", runId: expect.any(String), code: "KV_OPERATION_FAILED" } },
     ])
+  })
+
+  it("reports a handler failure and a failed store update separately", async () => {
+    const events = evlogStub()
+    const store = createMemoryScheduleRunStore()
+    const updateRun = store.updateRun.bind(store)
+    const onRunLogged = vi.fn()
+    const failure = new Error("handler failed")
+    const storeError = Object.assign(new Error("write failed"), { code: "DB_WRITE_FAILED" })
+    vi.spyOn(store, "updateRun").mockImplementation(async (id, patch) => {
+      if (patch.status === "failed") throw storeError
+      return updateRun(id, patch)
+    })
+
+    await expect(executeSchedule({ definition: { handler: () => { throw failure } }, onRunLogged, runStore: store, scheduleId: "digest", target: "digest" })).rejects.toBe(storeError)
+    expect(onRunLogged).not.toHaveBeenCalled()
+    expect(events[0]?.error).toEqual([failure])
+    expect(events[1]?.fields.schedule).toMatchObject({ op: "record-run", code: "DB_WRITE_FAILED" })
   })
 
   it("logs a started Schedule that keeps failing at each tick once, until the cause changes", async () => {

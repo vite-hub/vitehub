@@ -6,13 +6,9 @@ navigation.group: Develop and deploy
 icon: i-lucide-arrow-right-left
 ---
 
-This page moves a Nuxt app from NuxtHub (`@nuxthub/core` v0.10) to ViteHub.
-For KV and Blob, you mostly change imports and error handling. Database needs
-more care, because ViteHub uses Drizzle 1.0 and tracks migrations in a
-different table. The baseline steps cover SQLite and Cloudflare D1.
+This guide moves a Nuxt app from NuxtHub `@nuxthub/core` v0.10 to ViteHub. For KV and Blob, you mostly change imports and error handling. Database needs more care, because ViteHub uses Drizzle 1.0 and tracks migrations in a different table. The baseline steps cover SQLite and Cloudflare D1.
 
-After the move, [Agents](/docs/agents) can also use KV, Blob, and Database
-through [Capabilities](/docs/agents/capabilities).
+After the move, [Agents](/docs/agents) can also use KV, Blob, and Database through [Capabilities](/docs/agents/capabilities).
 
 ## Compare the features
 
@@ -40,20 +36,14 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub.
+Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-Add the package of each feature that you use. For Database, also keep or add
-`drizzle-orm` as a direct dependency because your schema imports it.
-`@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, and `drizzle-kit`
-1.0.0-rc.5 or 1.x for the migration commands. With an older version, the
-package manager installs a second copy, and the query types stop matching. Do
-not use `^1.0.0-rc.5`: it also allows Drizzle snapshot builds such as
-`1.0.0-rc.5-ab785fc`, which sort above the release.
+Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, plus `drizzle-kit` 1.0.0-rc.5 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 
 ```bash [Terminal]
 pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
@@ -65,9 +55,7 @@ Replace those imports in the same way as the newer `@nuxthub/*` imports below.
 `hub:db:schema` has no ViteHub alias: import the tables from your schema file,
 as [Move the database](#move-the-database) shows.
 
-Replace the NuxtHub module with `vite-hub/nuxt` and rename the `hub` key to
-`vitehub`. Add a [deployment host](/docs/frameworks-hosts#choose-a-host).
-Each feature is off until you turn it on.
+Replace the NuxtHub module with `vite-hub/nuxt`, and rename the `hub` key to `vitehub`. Add a [deployment host](/docs/frameworks-hosts#choose-a-host). Each feature is off until you turn it on:
 
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
@@ -111,7 +99,8 @@ instead of throwing, so check the error.
 | --- | --- |
 | `getItem`, `setItem`, `hasItem` | `get`, `set`, `has` |
 | `del`, `remove`, `removeItem` | `delete` |
-| `getKeys` | `keys`, or `list()` for pages |
+| `getKeys(base)` or `keys(base)` | `list({ prefix: 'base:' })`, then read `page.keys` from the Result data |
+| `clear(base)` | `clear({ prefix: 'base:' })` |
 | `getItemRaw` | `get(key, { type: "bytes" })` or `{ type: "text" }` |
 | `getItems`, `setItems` | One `get` or `set` for each key |
 | `mount`, `unmount` | Named stores with `kv.store(name)` |
@@ -122,7 +111,7 @@ instead of throwing, so check the error.
 before you write them. In development, the local `fs-lite` store ignores
 `ttl`: a key stays until you delete it.
 
-`get`, `set`, `has`, `keys`, and `clear` keep their names. Check other calls against ViteHub's
+`get`, `set`, `has`, and `clear()` without arguments keep their names. To keep matching only keys below a base, end the prefix with `:`. Check other calls against ViteHub's
 [server API](/docs/kv/server-api) before you remove NuxtHub. `set` passes
 options such as `ttl` to the store driver, so TTL support depends on the
 driver. See [KV](/docs/kv) for named stores and paginated `list()`.
@@ -130,8 +119,8 @@ driver. See [KV](/docs/kv) for named stores and paginated `list()`.
 NuxtHub moved KV to Redis on its own when the build had `REDIS_URL`. ViteHub
 does not, because that variable often belongs to another service. If your KV
 used Redis, set `kv: { driver: "redis" }`. The codemod does this when an env
-file or `nuxt.config` names `REDIS_URL`, and the build warns when it finds
-`REDIS_URL` without a KV driver.
+file or `nuxt.config` names `REDIS_URL`, and the build reports the hint
+`KV_REDIS_URL_UNUSED` when it finds `REDIS_URL` without a KV driver.
 
 NuxtHub keeps Redis and Upstash keys at the root of the database. ViteHub keeps
 them under `vitehub:kv:<store>`, such as `vitehub:kv:default:settings`. Before
@@ -174,7 +163,7 @@ For a custom serving route on Nitro 3, see
 -  const meta = await blob.head(pathname)
 +  const [error, meta] = await blob.head(pathname)
 +  if (error) throw error
-+  if (!meta) throw createError({ statusCode: 404 })
++  if (!meta) throw new HTTPError({ status: 404 })
 ```
 
 `blob.serve()` sends `Cache-Control: private, no-cache` and
@@ -548,8 +537,9 @@ preview database. Read [Database](/docs/database).
 ### Not available yet
 
 - The `neon-http` driver. Use Neon's Postgres URL in `connection.url`.
-- `nuxt db sql`, `mark-as-migrated`, `squash`, `drop`, and `drop-all`.
-  `vitehub database` has `generate`, `migrate`, `up`, and `export`.
+- `nuxt db mark-as-migrated`, `squash`, and `drop` for one table.
+  `vitehub database sql` replaces `nuxt db sql`, and `vitehub database drop`
+  replaces `drop-all`. See [Run SQL and drop tables](/docs/database/configure#run-sql-and-drop-tables).
 - Drizzle Studio from Nuxt DevTools.
 - Local D1 data in `.wrangler/state`, from NuxtHub's `driver: "d1"` in
   development. ViteHub development uses local SQLite in
@@ -610,95 +600,11 @@ export default defineNuxtConfig({
 })
 ```
 
-### Cache tags
+### Cache tags and stale values
 
-Tags clear related cache entries together. Import `defineCachedFunction()` and
-`defineCachedHandler()` from `vite-hub/cache`. They take Nitro's options, plus
-`tags`:
-
-```ts [server/utils/posts.ts]
-import { defineCachedFunction } from "vite-hub/cache"
-
-export const getPost = defineCachedFunction(
-  async (id: string) => {
-    const response = await fetch(`https://api.example.com/posts/${id}`)
-    return response.json()
-  },
-  { maxAge: 3600, getKey: (id: string) => id, tags: (id: string) => ["posts", `post:${id}`] },
-)
-```
-
-Call `invalidateTag()` after the data changes:
-
-```ts [server/api/posts/[id].put.ts]
-import { defineHandler, getRouterParam } from "nitro/h3"
-import { invalidateTag } from "vite-hub/cache"
-
-export default defineHandler(async (event) => {
-  // Save the post, then:
-  await invalidateTag(`post:${getRouterParam(event, "id")}`)
-  return { ok: true }
-})
-```
-
-- `tags` is a list, or a function of the cached function's arguments. For
-  `defineCachedHandler()`, the function gets the event.
-- `invalidateTag()` takes one tag or a list. The next call of each entry with
-  one of these tags runs the function again. It does not serve the old value,
-  also with `swr: true`. Entries without these tags do not change.
-- A result is not stored when one of its tags is invalidated while the function
-  runs.
-- ViteHub stores one record per tag in the `cache` mount, under `tags:` and
-  the URI-encoded tag, with no TTL. Each read of a tagged entry reads its tag records. It
-  never lists keys, so tags work with every `cache` driver.
-- Cloudflare KV can take up to 60 seconds to show a new tag record in other
-  locations. Until then, those locations can serve the old entry.
-- Vercel Runtime Cache can evict any record, also a tag record. An entry whose
-  tag record was evicted can come back until its `maxAge` ends.
-- Without the `cache` option, Nitro keeps the cache in memory, and the tag
-  records too. Each server instance then has its own tags.
-- In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
-  `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
-  have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
-
-### Serve the stored value when a call fails
-
-An exchange-rate API, a price feed, or a GitHub read can fail for a few
-minutes. Set `staleIfError` to the number of seconds after `maxAge` during
-which a call that throws returns the stored value instead of the error:
-
-```ts [server/utils/rates.ts]
-import { defineCachedFunction } from "vite-hub/cache"
-
-export const getRates = defineCachedFunction(
-  async (base: string) => {
-    const response = await fetch(`https://api.frankfurter.dev/v1/latest?base=${base}`)
-    if (!response.ok) throw new Error(`Frankfurter answered ${response.status}`)
-    const body: { rates: Record<string, number> } = await response.json()
-    return body.rates
-  },
-  { maxAge: 60 * 60 * 12, staleIfError: 60 * 60 * 24 * 7, getKey: (base: string) => base },
-)
-```
-
-For 12 hours, `getRates("USD")` returns the stored rates. After that, it calls
-the API again. When the API throws, it returns the stored rates for up to 7
-more days, and the next call tries the API again.
-
-- The error goes to `onError`, or to the console as a warning.
-- A call that throws keeps the stored entry and its time. It does not start a
-  new `maxAge`.
-- With nothing stored, or after `maxAge` plus `staleIfError`, the call throws.
-- The stored entry stays in the `cache` mount, or in your `storage`, for
-  `maxAge` plus `staleIfError`.
-- `staleIfError` with `serialize` fails when you define the function.
-- It works with `swr: true`, `tags`, and `expire()`. After `invalidateTag()`,
-  a call that throws also returns the stored value. `invalidate()` deletes the
-  entry, so nothing is left to return.
-- The window starts from the `maxAge` of the function, not from Nitro's
-  `cache.defaults`.
-- `defineCachedHandler()` has no `staleIfError`. Cache the call that can fail
-  with `defineCachedFunction()` and call it from the handler.
+`vite-hub/cache` adds `tags` and `invalidateTag()` to Nitro's cached functions
+and handlers, and `staleIfError` to cached functions. See
+[Cache server results](/docs/guides/cache-server-results).
 
 ## Modules that expect NuxtHub
 
@@ -812,7 +718,7 @@ export default defineNuxtConfig({
 | --- | --- |
 | Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --host cloudflare` to resolve the D1 database ID. |
 | Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
-| Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
+| Node | The default when ViteHub detects no other host. KV and Blob use the file system under `.vitehub/data/`. |
 
 Netlify and Deno have their own hosts. See
 [Frameworks and hosts](/docs/frameworks-hosts) for each feature's default
