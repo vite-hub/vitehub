@@ -2,6 +2,7 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import { blobError, blobHttpError, blobResult } from "./errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -224,6 +225,13 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   warnRemoteStore(hostDriver.options, store)
   const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
+  /**
+   * Logs a cache failure that the operation survives. `request` is the request that waits for the operation. Blob
+   * operations get no `waitUntil()`, so an event of its own drains on its own.
+   */
+  function logCacheFailure(op: string, message: string, error: unknown, fallback: () => void, request?: Request) {
+    logFailure({ field: "blob", fields: { op, store, driver: hostDriver.name }, message, error, ...(request ? { request } : {}) }, fallback)
+  }
   async function clearDerived(pathname: string) {
     try {
       const prefix = await derivedCachePrefix(driver.canonicalPathname?.(pathname) ?? pathname)
@@ -237,7 +245,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (paths.length) await driver.delete(paths)
     }
     catch (error) {
-      console.error("[vitehub/blob] Derived cache cleanup failed", error)
+      logCacheFailure("derived-cache-cleanup", "Blob derived cache cleanup failed", error, () => console.error("[vitehub/blob] Derived cache cleanup failed", error))
     }
   }
   // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
@@ -576,7 +584,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
 
         const cached = cachePath
           ? await driver.get(cachePath).catch((error) => {
-            console.error("[vitehub/blob] Transform cache read failed", error)
+            logCacheFailure("transform-cache-read", "Blob transform cache read failed", error, () => console.error("[vitehub/blob] Transform cache read failed", error), request)
             return null
           })
           : null
@@ -619,7 +627,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
                   if (!await driver.head(normalizedPath)) await driver.delete([key])
                 }
                 catch (error) {
-                  console.error("[vitehub/blob] Transform cache write failed", error)
+                  logCacheFailure("transform-cache-write", "Blob transform cache write failed", error, () => console.error("[vitehub/blob] Transform cache write failed", error), request)
                 }
               }
               return derived

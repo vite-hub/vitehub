@@ -177,6 +177,10 @@ const [error, answer] = await requestRealtimeRoom("tabs", tabId, { want: "title"
 - One WebSocket message is limited to 1 MiB. Document state and awareness state are each limited to 8 MiB per room, and one peer can own at most 1,024 awareness clients.
 - Changing or disabling the document, or disposing its Vue scope, destroys the document provider. `save()`, `history.checkpoint()`, and `refresh()` return `[error, data]` with a `RealtimeRequestErrorCode`. A `REALTIME_REQUEST_FAILED` error has the HTTP status in `error.data.status`. A refused request returns the code that the server names, such as `REALTIME_SOURCE_CHANGED` when the stored document changed, or `REALTIME_SYNC_PENDING` after 20 retries. A checkpoint returns `REALTIME_DISCONNECTED` during a document switch until the Vue watcher creates the new document, and when its original document is disconnected or replaced during a retry. The application still owns editor disposal, checkpoint error handling, and reconnect UX.
 
+## Refusals and failures in logs
+
+With the evlog Nitro module registered, a refused connection, save, checkpoint, or refresh gets a `realtime` field on its request's wide event: `{ definition, room, refused, status, code? }`. A room id of a `document: false` Definition is a short hash, because it can be a token. After the WebSocket opens, close codes, connection errors, failed sync between Node instances, and failed background saves are their own evlog events, `{ action: "realtime", message, realtime: { definition, room, closed | failed } }`. Without evlog, Realtime prints the sync and save failures to the console. See [Limits and errors](https://vitehub.dev/docs/realtime/limits-and-errors#see-refusals-and-failures-in-logs).
+
 ## Public imports
 
 | Import | Purpose |
