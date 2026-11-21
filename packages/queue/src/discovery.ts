@@ -63,7 +63,7 @@ export function discoverQueueDefinitions(options:
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
-  const serverScanDirs = options.serverDirs || [...new Set(options.serverRootDirs || roots)].map(root => resolve(root, "server"))
+  const serverScanDirs = [...new Set(options.serverDirs?.map(dir => resolve(dir)) ?? (options.serverRootDirs ?? roots).map(root => resolve(root, "server")))]
 
   return mergeContributedQueueDefinitions(discoverDefinitions("queue", [
     createSuffixDefinitionSource("vite-suffix", roots, queueSuffixPattern, normalizeSuffixQueueName),

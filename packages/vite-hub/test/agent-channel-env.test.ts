@@ -25,7 +25,7 @@ it("adds canonical sources for discovered gateway and Channel fields", async () 
     await writeFile(join(root, "server", "agents", "support.ts"), [
       'import { codexDriver, defineAgent } from "vite-hub/agent"',
       'import { cliproxy, cloudflareAccess } from "vite-hub/gateways"',
-      'import { telegram } from "vite-hub/agent/channels"',
+      'import { telegram } from "vite-hub/channels/adapters"',
       'export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: cloudflareAccess() }) }), channels: { telegram: telegram() } })',
     ].join("\n"))
     const envPlugin = hubEnv()
@@ -51,7 +51,7 @@ it("adds canonical sources for discovered gateway and Channel fields", async () 
 })
 
 it.each([
-  ["a github() Channel", 'import { github } from "vite-hub/agent/channels"', "channels: { github: github() }"],
+  ["a github() Channel", 'import { github } from "vite-hub/channels/adapters"', "channels: { github: github() }"],
   ["the forge() Capability", 'import { forge } from "vite-hub/agent/capabilities"', 'capabilities: [forge({ repositories: ["acme/web"] })]'],
 ])("asks for @vite-hub/forge when an Agent uses %s", async (_name, importLine, option) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-forge-feature-"))
@@ -66,6 +66,42 @@ it.each([
     expect(assertFeaturePackages).toHaveBeenCalledWith(["forge"])
   }
   finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each([
+  ["agent.channels.simulate", { simulate: true }, undefined],
+  ["VITEHUB_CHANNELS=simulate", {}, "simulate"],
+])("lets a dev server with %s run a Telegram Channel without its bot token", async (_name, options, variable) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-simulated-channel-env-"))
+  const previous = process.env.VITEHUB_CHANNELS
+  if (variable) process.env.VITEHUB_CHANNELS = variable
+  try {
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), [
+      'import { defineAgent } from "vite-hub/agent"',
+      'import { telegram } from "vite-hub/agent/channels"',
+      'export default defineAgent({ driver: { model: "openai/gpt-5.1-mini" }, channels: { telegram: telegram({ mode: "webhook" }) } })',
+    ].join("\n"))
+    const botToken = async (command: "build" | "serve") => {
+      const envPlugin = hubEnv()
+      const configHook = envPlugin.config
+      if (!configHook) throw new Error("Expected the Server Env config hook")
+      envPlugin.config = { order: "post", handler: "handler" in configHook ? configHook.handler : configHook }
+      // SAFETY: hubEnv uses the same Vite plugin API across workspace peer dependency contexts.
+      await resolveConfig({ root, configFile: false, plugins: [agentChannelEnvPlugin(options), envPlugin as Plugin] }, command)
+      const { describeServerEnv } = await import(`${join(root, ".vitehub", "env", "description.mjs")}?${command}`) as { describeServerEnv: () => { entries: { path?: string, required: boolean }[] } }
+      return describeServerEnv().entries.find(entry => entry.path?.endsWith("telegram.botToken"))
+    }
+    // The simulated chat needs no bot token, so `useServerEnv()` must not fail without it.
+    expect(await botToken("serve")).toMatchObject({ required: false })
+    // A build talks to the real Telegram, so the token stays required.
+    expect(await botToken("build")).toMatchObject({ required: true })
+  }
+  finally {
+    if (previous === undefined) delete process.env.VITEHUB_CHANNELS
+    else process.env.VITEHUB_CHANNELS = previous
     await rm(root, { recursive: true, force: true })
   }
 })

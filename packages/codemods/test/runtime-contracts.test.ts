@@ -14,6 +14,9 @@ describe("runtime-contracts", () => {
   it("moves the runtime, logs, and node imports, and reads checkRateLimit() as a Result", async () => {
     const input = join(fixture, "input")
     const run = await runCodemod("runtime-contracts", { cwd: input, dryRun: true })
+    const ownerEntries = run.result.edits.find(edit => edit.path.endsWith("owner-entries.post.ts"))?.after
+    expect(ownerEntries).toContain('import { resolveRegisteredWorkspaceDefinition } from "vite-hub/workspace/runtime"')
+    expect(ownerEntries).toContain('import { invalidateWorkspaceStore } from "@vite-hub/workspace/runtime"')
     for (const edit of run.result.edits) {
       const { after } = edit
       // This codemod edits files and never deletes one.

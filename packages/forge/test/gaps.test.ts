@@ -78,6 +78,7 @@ describe("forgeGitCredentials", () => {
     [{ forge: "gitlab", repository: "group/sub/app", token: "t" }, { url: "https://gitlab.com/group/sub/app.git", username: "oauth2", password: "t" }],
     [{ forge: "gitlab", baseUrl: "https://git.example.com/gitlab/", repository: "group/app.git", token: "t" }, { url: "https://git.example.com/gitlab/group/app.git", username: "oauth2", password: "t" }],
     [{ forge: "forgejo", baseUrl: "https://forgejo.example.com", repository: "acme/app", token: "t" }, { url: "https://forgejo.example.com/acme/app.git", username: "oauth2", password: "t" }],
+    [{ forge: "gitea", repository: "acme/app", token: "t" }, { url: "https://gitea.com/acme/app.git", username: "oauth2", password: "t" }],
   ] as const)("builds the remote for %o", (input, expected) => {
     expect(forgeGitCredentials(input)).toEqual(expected)
   })

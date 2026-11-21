@@ -9,7 +9,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConversationExport } from "../operations.ts"
 
-const usage = "vitehub conversations export <agent> <channel> <thread> [--format markdown|json] [--output <directory>] [--media | --no-media] [--url <origin>]"
+const usage = "vitehub agent conversations export <agent> <channel> <thread> [--format markdown|json] [--output <directory>] [--media | --no-media] [--url <origin>]"
 
 interface Parsed {
   agent?: string
@@ -61,9 +61,9 @@ function parse(args: readonly string[]): Parsed {
 }
 
 /**
- * `vitehub conversations export`: read a conversation through the `conversations.export`
+ * `vitehub agent conversations export`: read a conversation through the `conversations.export`
  * operation of the running dev server or `--url`. Without `--output` it prints the Markdown or JSON, so
- * `vitehub conversations export … > chat.md` works. With `--output <directory>` it writes the file and the attachments
+ * `vitehub agent conversations export … > chat.md` works. With `--output <directory>` it writes the file and the attachments
  * in `media/`, as `vitehub channels history` does.
  */
 export async function runConversationsExportCli(args: string[], context: Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir" | "stderr" | "stdout">): Promise<number> {

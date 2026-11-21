@@ -6,7 +6,9 @@ import { workflowOperations } from "../src/operations.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { hubWorkflow } from "../src/vite.ts"
 import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
+import { startWorkflow } from "../src/runtime/client.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 import type { WorkflowExecutionContext } from "../src/types.ts"
 
@@ -174,9 +176,22 @@ describe("workflow operations", () => {
     expect(await call("workflow.start", { workflow: "welcome" })).toMatchObject({ code: "WORKFLOW_DISABLED", fix: expect.any(String), ok: false, status: 409 })
   })
 
-  it("reports operations that a provider does not support", async () => {
-    setWorkflowRuntimeConfig({ driver: "cloudflare" } as never)
-    expect(await call("workflow.resume", { token: "token" })).toMatchObject({ code: "WORKFLOW_OPERATION_UNSUPPORTED", ok: false, status: 501 })
+  it("delivers a signal through the resume operation", async () => {
+    setWorkflowRuntimeConfig({ driver: "cloudflare" })
+    let resolveToken!: (token: string) => void
+    const tokenReady = new Promise<string>((resolve) => {
+      resolveToken = resolve
+    })
+    setWorkflowRuntimeRegistry({ welcome: async () => ({ rootStep: false, handler: async ({ createSignal }) => {
+      const signal = createSignal()
+      resolveToken(signal.token)
+      return await signal.wait()
+    } }) })
+    const started = await unwrap(startWorkflow("welcome"))
+    const token = await tokenReady
+
+    expect(await call("workflow.resume", { token, payload: "approved" }, ["workflows"])).toMatchObject({ ok: true })
+    await expect.poll(() => call("workflow.get", { runId: started.id, workflow: "welcome" })).toMatchObject({ value: { run: { result: "approved", status: "completed" } }, ok: true })
   })
 
   it("lets a read-only grant read runs but not start, cancel, or resume", async () => {
