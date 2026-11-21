@@ -419,6 +419,27 @@ export default defineAuth({
 - The policy needs stored sessions: a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0066`.
 - Define `allow` outside the Definition callback. A new function on each call builds a new Better Auth instance on each request.
 
+## See auth outcomes on each request
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Auth puts the outcome of a request on the request's wide event, in an `auth` field. A failed OAuth sign-in shows its reason here, also when the browser only gets a redirect:
+
+```json
+{ "path": "/api/auth/callback/github", "status": 302, "auth": { "path": "/callback/:id", "provider": "github", "outcome": "failure", "status": 302, "code": "state_mismatch" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `outcome` | `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, `refused` for a refusal of an Auth guard, such as `requireAuth()`. |
+| `path` | The Better Auth endpoint, such as `/sign-in/email`. It is not set when Better Auth refused the request before an endpoint ran, such as for its rate limit, or for a guard. |
+| `provider` | The OAuth provider of a callback or a social sign-in. |
+| `status` | The HTTP status of a failure or a refusal. |
+| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
+| `userId` | The user of a completed sign-in or sign-up. |
+
+Better Auth's warnings and errors also go on the event, with `[Better Auth]` before the message. Auth keeps your `logger` option: your `logger.log`, or Better Auth's console output, still gets every message.
+
+The event never holds an email address, a password, a token, or the query of a URL. Only the message of a Better Auth log line goes on the event, not its other values, because they can hold a provider response. Auth event log failures (`AUTH_EVENT_WRITE_FAILED`, `AUTH_EVENT_CALLBACK_FAILED`) also go on the event, or to the server console without evlog. Without evlog, Auth sets nothing.
+
 ## Typed user fields
 
 The default client and server guards get their types from the discovered Auth Definition. When the Definition adds user or session fields with `additionalFields` or a plugin such as `admin()`, `useUserSession()`, `requireAuth()`, and `withAuth()` have these fields too.
