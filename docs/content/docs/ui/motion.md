@@ -86,6 +86,8 @@ Each part continues from where it is when its value changes again in the middle 
 
 `MorphText` and `RollNumber` keep the final text in the element while the letters move, so a screen reader reads the new text at once and never a half state. `SwapIcon` is hidden from screen readers: give the control that holds it a label or an `aria-label`. With reduced motion turned on in the system, nothing travels and the parts crossfade in 150ms.
 
+`installMotion(root)` from `@vite-hub/ui/motion` starts the motion layer with every effect, in a shadow root or an element that Vue does not render. A script with its own small bundle, such as a toolbar that you add to other pages, imports `installMotion` from `@vite-hub/ui/motion/core` and lists its effects, so the others stay out of the bundle: `installMotion(shadowRoot, { effects: [pressEffect, appearEffect] })`.
+
 ## API Reference
 
 ### MorphText

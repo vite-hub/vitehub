@@ -20,14 +20,24 @@ vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
   return { default: defineComponent({ setup(_props, { attrs }) { return () => h("span", attrs) } }) }
 })
 vi.mock("../src/console/runtime/client/request", () => ({
+  // The error state of a failed load checks for this class.
+  ConsoleRequestError: class ConsoleRequestError extends Error {},
   requestConsole: async (base: string, options?: { query?: Record<string, string> }) => {
     if (base.endsWith("/status")) return { agents: [] }
     requests.push(options?.query)
-    return responses.shift()
+    const response = responses.shift()
+    if (response instanceof Error) throw response
+    return response
   },
 }))
 
 import Usage from "../src/console/runtime/components/console-usage.vue"
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
 
 function totals(overrides: Record<string, unknown> = {}) {
   return {
@@ -284,20 +294,63 @@ describe("Console Usage URL state", () => {
 
   it("starts history from the first page when a filter changes and keeps the section", async () => {
     route.query = { section: "sessions" }
+    const filtered = deferred<ReturnType<typeof summary>>()
     responses.push(
       summary({ cursor: "next", sessionCount: 2, sessions: [session("first")] }),
       summary({ sessionCount: 2, sessions: [session("second")] }),
-      summary({ sessionCount: 1, sessions: [session("failed")] }),
+      filtered.promise,
     )
     const { app, root } = await mount()
     try {
       root.querySelector<HTMLElement>("button[aria-label='Next history page']")!.click()
       await vi.waitFor(() => expect(root.textContent).toContain("second"))
       route.query = { ...route.query, status: "failed" }
-      await vi.waitFor(() => expect(root.textContent).toContain("failed"))
-      expect(requests.at(-1)).toEqual({ status: "failed", window: "30d" })
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ status: "failed", window: "30d" }))
+      expect(root.querySelector("[data-slot=session-history]")).toBeNull()
+      filtered.resolve(summary({ sessionCount: 1, sessions: [session("failed")] }))
+      await vi.waitFor(() => expect(root.querySelector("[data-slot=session-history]")?.textContent).toContain("failed"))
       expect(root.querySelector("#session-history-heading")).not.toBeNull()
       expect(root.querySelector("button[aria-label='Previous history page']")?.hasAttribute("disabled")).toBe(true)
+    }
+    finally { app.unmount() }
+  })
+
+  it("keeps the headline while another period loads, so its digits roll from the old totals", async () => {
+    route.query = { metric: "sessions" }
+    const nextPeriod = deferred<ReturnType<typeof summary>>()
+    responses.push(summary({ sessionCount: 1_204 }), nextPeriod.promise)
+    const { app, root } = await mount()
+    try {
+      const value = root.querySelector(".usage-headline__value")
+      expect(value?.textContent).toBe("1,204")
+      route.query = { ...route.query, window: "7d" }
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ window: "7d" }))
+      await nextTick()
+      expect(root.querySelector(".usage-headline__value")).toBe(value)
+      expect(value?.textContent).toBe("1,204")
+      expect(root.querySelector(".usage-page__caption")?.textContent).toContain("Previous results · 30 days")
+      expect(root.querySelector("#usage-ranked-heading")).toBeNull()
+      nextPeriod.resolve(summary({ sessionCount: 1_342 }))
+      // The digits roll: the element holds the rolling glyphs and names the new total for screen readers.
+      await vi.waitFor(() => expect(value?.querySelector("[data-motion-copy]")?.textContent).toBe("1,342"))
+      expect(value?.querySelector("[data-motion-glyphs]")).not.toBeNull()
+      expect(root.querySelector(".usage-headline__value")).toBe(value)
+      expect(root.querySelector(".usage-page__caption")?.textContent).toContain("7 days")
+      expect(root.querySelector(".usage-page__caption")?.textContent).not.toContain("Previous results")
+    }
+    finally { app.unmount() }
+  })
+
+  it("drops the numbers of the last period when the next one fails to load", async () => {
+    route.query = { metric: "sessions" }
+    responses.push(summary({ sessionCount: 1_204 }), new Error("Usage is down"))
+    const { app, root } = await mount()
+    try {
+      expect(root.querySelector(".usage-headline__value")).not.toBeNull()
+      route.query = { ...route.query, window: "7d" }
+      await vi.waitFor(() => expect(requests.at(-1)).toEqual({ window: "7d" }))
+      await vi.waitFor(() => expect(root.querySelector("main")?.getAttribute("aria-busy")).toBe("false"))
+      expect(root.querySelector(".usage-headline__value")).toBeNull()
     }
     finally { app.unmount() }
   })

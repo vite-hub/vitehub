@@ -1,8 +1,8 @@
-import { createSpring, installMotion, springs, writeMotionStyle } from "@vite-hub/ui/motion"
+import { appearEffect, createSpring, installMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
 
 import { mountViteHubPageAccount } from "./page-account.ts"
 import { invariant } from "../invariant.ts"
-import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
+import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon, viteHubPillMotion } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
 import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 
@@ -258,7 +258,7 @@ function mountOffMark(stopped: AbortSignal, turnOn: () => void, focus: boolean, 
   watchPageAsk(place, watching.signal)
   const shadow = mark.attachShadow({ mode: "open" })
   // The motion layer squashes the mark's icon when it is pressed.
-  const stopMotion = installMotion(shadow)
+  const stopMotion = installMotion(shadow, viteHubPillMotion)
   watching.signal.addEventListener("abort", stopMotion, { once: true })
   const style = document.createElement("style")
   style.textContent = `${viteHubPagePillStyles}\n${offMarkStyles}`
@@ -414,6 +414,8 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn },
     signal: pillController.signal,
   })
+  // A tab of a tool comes out from under the bar with the appear effect, so the page tools add it to the press of the pill.
+  pillController.signal.addEventListener("abort", installMotion(pill, { effects: [pressEffect, appearEffect] }), { once: true })
   if (session.account) {
     const bar = document.createElement("vitehub-account")
     bar.slot = accountSlot
@@ -462,7 +464,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     }
     const mountLaunch = () => {
       const shadow = bar.attachShadow({ mode: "open" })
-      const stopMotion = installMotion(shadow)
+      const stopMotion = installMotion(shadow, viteHubPillMotion)
       signal.addEventListener("abort", stopMotion, { once: true })
       const style = document.createElement("style")
       style.textContent = viteHubPillButtonStyles

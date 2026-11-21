@@ -205,6 +205,39 @@ describe("installs", () => {
     await context.close()
   })
 
+  test("an install from the core runs only its effects, and its bundle has only those", async () => {
+    const result = await build({
+      configFile: false,
+      logLevel: "silent",
+      build: {
+        write: false,
+        minify: false,
+        lib: { entry: fileURLToPath(new URL("../../src/motion-core.ts", import.meta.url)), formats: ["es"] },
+        rollupOptions: { input: "virtual:press-only" },
+      },
+      plugins: [{
+        name: "press-only",
+        resolveId: id => id === "virtual:press-only" ? id : undefined,
+        load: id => id === "virtual:press-only"
+          ? `import { installMotion, listMotionEffects, pressEffect } from ${JSON.stringify(fileURLToPath(new URL("../../src/motion-core.ts", import.meta.url)))}\nwindow.MotionCore = { installMotion, listMotionEffects, pressEffect }`
+          : undefined,
+      }],
+    })
+    const code = result[0].output[0].code
+    // The tooltip effect, the select effect, and the toast effect stay out of a bundle that runs only the press.
+    for (const name of ["tooltip", "select", "toast"]) assert.ok(!code.includes(`name: "${name}"`), `the bundle has no ${name} effect`)
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    await page.setContent(`<button>Save</button>`)
+    await page.addScriptTag({ content: code })
+    const names = await page.evaluate(() => {
+      window.MotionCore.installMotion(document, { effects: [window.MotionCore.pressEffect] })
+      return window.MotionCore.listMotionEffects().map(effect => effect.name)
+    })
+    assert.deepEqual(names, ["press"])
+    await context.close()
+  })
+
   test("two copies that cover the same element press it once", async () => {
     const { context, page } = await openCopies()
     const pressed = await page.evaluate(() => {

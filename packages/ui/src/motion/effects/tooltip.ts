@@ -537,22 +537,8 @@ function stopWatchingMoves(): void {
   document.removeEventListener("focusin", onMove, { capture: true });
 }
 
-/**
- * Something appears next to its trigger: a tooltip rises from behind its trigger, narrow and without its label,
- * widens to fit, and blurs its label in. An element with `data-motion-appear` that is not a tooltip, such as a comment's
- * draft bubble or a tab that comes out of a bar, appears the same way when it is added to the page. Its trigger is the
- * nearest element around it, or a sibling, that the attribute's value selects; with an empty value it rises from 8px
- * past its own edge, on the side that `data-side` names. Its parts are revealed, not squeezed, while it widens. When the next trigger opens its tooltip while this one leaves, the new one
- * takes the place, size, and speed of the old one and slides over. A tooltip that closes narrows and sinks back behind
- * its trigger. Under reduced motion it crossfades in 150ms.
- *
- * Floating UI or Reka still places the tooltip. The effect only adds `translate`, `scale`, `clip-path`, `opacity`, and
- * `filter` to that.
- */
-export const tooltip: MotionEffect = {
-  name: "tooltip",
-  // Reka puts `role=tooltip` on a visually hidden copy of the label inside the box, so the box is its parent.
-  selector: `[role=tooltip], :has(> [role=tooltip]), ${appearSelector}`,
+/** The hooks of a tooltip and of an element with `data-motion-appear`: both appear the same way. */
+const appearHooks: Pick<MotionEffect, "enter" | "state"> = {
   enter(element) {
     if (visualBox(element) !== element || !isOpen(element)) return;
     open(element);
@@ -563,4 +549,33 @@ export const tooltip: MotionEffect = {
     if (isOpen(element)) open(element);
     else if (tip) leave(element, tip);
   },
+};
+
+/**
+ * A tooltip appears next to its trigger: it rises from behind its trigger, narrow and without its label, widens to
+ * fit, and blurs its label in. When the next trigger opens its tooltip while this one leaves, the new one takes the
+ * place, size, and speed of the old one and slides over. A tooltip that closes narrows and sinks back behind its
+ * trigger. Under reduced motion it crossfades in 150ms.
+ *
+ * Floating UI or Reka still places the tooltip. The effect only adds `translate`, `scale`, `clip-path`, `opacity`, and
+ * `filter` to that.
+ */
+export const tooltip: MotionEffect = {
+  name: "tooltip",
+  // Reka puts `role=tooltip` on a visually hidden copy of the label inside the box, so the box is its parent.
+  selector: "[role=tooltip], :has(> [role=tooltip])",
+  ...appearHooks,
+};
+
+/**
+ * An element with `data-motion-appear` that is not a tooltip, such as a comment's draft bubble or a tab that comes out
+ * of a bar, appears as a tooltip does when it is added to the page, but never takes the place of another one. Its
+ * trigger is the nearest element around it, or a sibling, that the attribute's value selects; with an empty value it
+ * rises from 8px past its own edge, on the side that `data-side` names. Its parts are revealed, not squeezed, while it
+ * widens.
+ */
+export const appear: MotionEffect = {
+  name: "appear",
+  selector: appearSelector,
+  ...appearHooks,
 };

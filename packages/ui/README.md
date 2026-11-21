@@ -20,6 +20,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
 | `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
 | `@vite-hub/ui/motion` | The motion layer: press, toggle, select, drag, and appear motion by role, the shared spring engine, and reduced motion. No Vue, so a plain TypeScript page or a shadow root can use it | Nothing: `createViteHubUI()` and the Nuxt module install it |
+| `@vite-hub/ui/motion/core` | The same layer, where `installMotion(root, { effects })` runs only the effects that you list, such as `pressEffect`, so a small script bundles only those | Which effects the script runs |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
@@ -301,6 +302,16 @@ import { installMotion } from "@vite-hub/ui/motion";
 const host = document.createElement("div");
 document.body.append(host);
 const uninstall = installMotion(host.attachShadow({ mode: "open" }));
+```
+
+That brings every effect. A script with its own small bundle, such as a toolbar that you put on other pages, takes `installMotion` from `@vite-hub/ui/motion/core` and lists the effects it runs, so the others stay out of the bundle:
+
+```ts
+import { appearEffect, installMotion, pressEffect } from "@vite-hub/ui/motion/core";
+
+const bar = document.createElement("div");
+document.body.append(bar);
+const uninstall = installMotion(bar.attachShadow({ mode: "open" }), { effects: [pressEffect, appearEffect] });
 ```
 
 Four parts move with the helpers of the motion layer, for events that only the component knows:
