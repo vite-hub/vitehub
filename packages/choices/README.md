@@ -52,7 +52,9 @@ selection.chart // { value: null, confidence: 0, ranked: [{ value: 'line', proba
 | `signal` | Cancels the gateway request. |
 | `onUsage` | Receives the model, provider, and token counts the gateway reports. Jev sends at most 60 KB of questions per request, so it can run more than once in one `resolve()`. It does not run when no question is sent or the gateway reports no usage. |
 
-Each multi-select option is one question, each single-select group is one question (none for an `infer` group with one option), and the `supported` check is one more unless every group infers. A multi-select group with 100 options sends 101 questions. A single-select group with 100 options sends 2, or 1 with `infer: true`.
+No callback does not mean that no request was sent or no tokens were used.
+
+Each multi-select option is one question, and each non-empty single-select group is one question, except that an `infer` group with one option sends none. The `supported` check adds one question if at least one non-empty group does not infer. With one group and 100 options, multi-select sends 101 questions and single-select sends 2, or 1 with `infer: true`.
 
 ## The bridges
 

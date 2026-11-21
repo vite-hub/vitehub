@@ -273,11 +273,17 @@ describe("defineChoices().resolve() onUsage", () => {
   })
 
   it("leaves onUsage out of the gateway options when resolve() gets none", async () => {
-    const { ask: jev } = typesafe({ apiKey: "ts-key", fetch: jevFetch() })
-    const ask = vi.fn<typeof jev>((state, questions, options) => jev(state, questions, options))
+    const { ask: answer } = wordGateway()
+    const recordOptions = vi.fn<(options: Parameters<typeof answer>[2]) => void>()
+    const ask: typeof answer = (state, questions, options) => {
+      recordOptions(options)
+      return answer(state, questions, options)
+    }
     const choices = defineChoices({ gateway: { ask }, groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } } })
-    await choices.resolve("line")
-    expect(ask.mock.calls[0]![2]).not.toHaveProperty("onUsage")
+    const [error] = await choices.resolve("line")
+    expect(error).toBeUndefined()
+    expect(recordOptions).toHaveBeenCalledTimes(1)
+    expect(recordOptions.mock.calls[0]![0]).not.toHaveProperty("onUsage")
   })
 
   it("does not report usage when no question is asked", async () => {

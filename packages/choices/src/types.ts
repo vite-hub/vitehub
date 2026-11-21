@@ -120,8 +120,8 @@ export interface ChoicesRequest<TContext> {
   /** Passed to `options` functions. Put what they need here, such as the tenant. */
   context: TContext
   /**
-   * Receives the model, provider, and token counts of each gateway request. Jev sends one request per 60 KB of questions,
-   * so it can run more than once in one `resolve()`. It does not run when no question is asked.
+   * Receives the model, provider, and token counts when the gateway reports usage.
+   * Jev can report usage for multiple batches in one `resolve()`. With `model`, this runs at most once.
    */
   onUsage?: AiGatewayAskOptions["onUsage"]
   /** Cancels the request to the gateway. */

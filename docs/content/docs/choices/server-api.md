@@ -79,7 +79,7 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check. An `infer` group with one option sends no question, and the `supported` check is not sent when every group infers.
+The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option and one per non-empty single-select group, except that an `infer` group with one option sends none. The `supported` check adds one question if at least one non-empty group does not infer.
 
 `error.code` is `DECISIONS_R0002` to `DECISIONS_R0006` ([Limits and errors](/docs/choices/limits-and-errors)).
 
@@ -122,9 +122,9 @@ await forecast.resolve(text, {
 })
 ```
 
-`onUsage` can run more than once in one `resolve()`. Jev sends at most 60 KB of questions in one request, so a large plan goes in more than one request, and each request reports its own usage. With `model`, it runs at most once. It runs only when the gateway reports usage: not when no question is sent, not when a TypeSafe response has no token counts, and not when a `model` response fails validation.
+Jev sends at most 60 KB of questions per request, so it can report usage for multiple batches in one `resolve()`. With `model`, `onUsage` runs at most once. It runs only when the gateway reports usage. If no question is sent, a TypeSafe response has no token counts, or a `model` response fails validation, the callback does not run. No callback does not mean that no request was sent or no tokens were used.
 
-The number of questions sets the cost. A multi-select group with 100 options sends 101 questions: one per option, and `supported`. A single-select group with 100 options sends 2: one for the group, and `supported`. With `infer: true` it sends 1, since nothing is left for `supported` to check.
+With one group and 100 options, multi-select sends 101 questions: one per option plus `supported`. Single-select without inference sends 2: one for the group plus `supported`. With `infer: true` it sends 1, since there is no `supported` check.
 
 ## Inspect
 
@@ -132,7 +132,7 @@ The number of questions sets the cost. A multi-select group with 100 options sen
 
 ```ts fragment
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
-plan.questions // one question for each option of a multiple group, one for each single group, and `supported` unless every group infers
+plan.questions // the questions for this input, including `supported` when needed
 ```
 
 The CLI runs both functions on a file, with no route or dev server:
