@@ -21,4 +21,4 @@ const component = defineComponent({
   },
 });
 
-export default { component, ready: ".vh-ws-editor-head .vh-pc-path" } satisfies WorkspacePartFixture;
+export default { component, ready: ".vh-ws-editor-head .vh-ws-breadcrumb" } satisfies WorkspacePartFixture;

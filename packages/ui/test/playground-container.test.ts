@@ -142,13 +142,13 @@ describe("PlaygroundContainer", () => {
     expect(fake.runs).toEqual(["dev"]);
     expect(wrapper.emitted("update:open")).toEqual([[true]]);
     expect(wrapper.get(".vh-pc-run-state").text()).toBe("Running");
-    expect(wrapper.get(".vh-pc-path").text()).toBe("server/api/health.get.ts");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/health.get.ts");
     expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console"]);
 
     await context!.workspace.setFiles({ "server/api/health.get.ts": "export default () => 'edited'\n" });
     await flushPromises();
     expect(context!.edited).toEqual(["server/api/health.get.ts"]);
-    expect(wrapper.text()).toContain("Edited");
+    expect(wrapper.findComponent({ name: "WorkspaceFileTree" }).props("edited")).toEqual(["server/api/health.get.ts"]);
 
     // Blob has the same snapshot and manifest, so it opens in place after the question.
     await wrapper.get("[data-item='Blob']").trigger("click");
@@ -159,7 +159,7 @@ describe("PlaygroundContainer", () => {
     expect(fake.boots).toHaveLength(1);
     expect(fake.disk.get("server/api/note.get.ts")).toBe(blob.files["server/api/note.get.ts"]);
     expect(context!.edited).toEqual([]);
-    expect(wrapper.get(".vh-pc-path").text()).toBe("server/api/note.get.ts");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
 
     // Agent has another snapshot, so it boots again. Without edits there is no question.
     await wrapper.get("[data-item='Agent']").trigger("click");
@@ -249,7 +249,7 @@ describe("PlaygroundContainer", () => {
     await wrapper.get("[data-item='Agent']").trigger("click");
     await flushPromises();
     expect(fake.boots.at(-1)?.files).toEqual(agent.files);
-    expect(wrapper.get(".vh-pc-path").text()).toBe("package.json");
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("package.json");
     expect(selected.value).toBe("package.json");
     wrapper.unmount();
   });

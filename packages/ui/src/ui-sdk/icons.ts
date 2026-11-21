@@ -81,6 +81,7 @@ export const uiSdkIcons: Readonly<Record<string, IconShapes>> = {
   "i-lucide-strikethrough": [["path",{"d":"M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6m-2-8h16"}]],
   "i-lucide-sun": [["circle",{"cx":"12","cy":"12","r":"4"}],["path",{"d":"M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"}]],
   "i-lucide-terminal": [["path",{"d":"M12 19h8M4 17l6-6l-6-6"}]],
+  "i-lucide-text-wrap": [["path",{"d":"m16 16l-3 3l3 3"}],["path",{"d":"M3 12h14.5a1 1 0 0 1 0 7H13M3 19h6M3 5h18"}]],
   "i-lucide-trash-2": [["path",{"d":"M10 11v6m4-6v6m5-11v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"}]],
   "i-lucide-triangle-alert": [["path",{"d":"m21.73 18l-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4m0 4h.01"}]],
   "i-lucide-type": [["path",{"d":"M12 4v16M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2M9 20h6"}]],
