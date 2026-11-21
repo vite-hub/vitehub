@@ -1,5 +1,5 @@
 import { prefersReducedMotion } from "../reduced-motion.ts";
-import type { MotionEffect } from "../registry.ts";
+import type { MotionEffect, MotionRoot } from "../registry.ts";
 import { writeMotionStyle } from "../registry.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
@@ -24,6 +24,7 @@ const resizeSpring = { stiffness: 420, damping: 30 };
 const panelSelector = "[data-motion-panel]";
 const resizes = new WeakMap<HTMLElement, Resize>();
 const widths = new WeakMap<HTMLElement, number>();
+const tracking = new WeakMap<HTMLElement, number>();
 // The spring counts in hundreds of pixels, so it settles when the width is still to the eye, as a spring from 0 to 1 does.
 const unit = 100;
 
@@ -34,7 +35,7 @@ function stopResize(element: HTMLElement): void {
   writeMotionStyle(element, { width: null });
 }
 
-export function watchPanels(root: Document | ShadowRoot): () => void {
+function watchPanels(root: MotionRoot): () => void {
   const panels = new Set<HTMLElement>();
   const resize = new ResizeObserver(entries => {
     for (const { target } of entries) {
@@ -44,20 +45,28 @@ export function watchPanels(root: Document | ShadowRoot): () => void {
     }
   });
   function track(element: HTMLElement): void {
-    if (panels.has(element) || element.getRootNode() !== root || !element.matches(panelSelector)) return;
+    if (panels.has(element) || !root.contains(element) || !element.matches(panelSelector)) return;
     panels.add(element);
-    widths.set(element, element.getBoundingClientRect().width);
+    const count = tracking.get(element) ?? 0;
+    if (count === 0) widths.set(element, element.getBoundingClientRect().width);
+    tracking.set(element, count + 1);
     resize.observe(element, { box: "border-box" });
   }
   function untrack(element: HTMLElement): void {
     panels.delete(element);
     resize.unobserve(element);
+    const count = tracking.get(element) ?? 1;
+    if (count > 1) {
+      tracking.set(element, count - 1);
+      return;
+    }
+    tracking.delete(element);
     stopResize(element);
     widths.delete(element);
   }
   const observer = new MutationObserver(records => {
     for (const element of panels) {
-      if (element.getRootNode() !== root || !element.matches(panelSelector)) untrack(element);
+      if (!root.contains(element) || !element.matches(panelSelector)) untrack(element);
     }
     for (const record of records) {
       if (record.type === "attributes" && record.target instanceof HTMLElement) track(record.target);
@@ -68,6 +77,7 @@ export function watchPanels(root: Document | ShadowRoot): () => void {
       }
     }
   });
+  if (root instanceof HTMLElement) track(root);
   for (const element of root.querySelectorAll<HTMLElement>(panelSelector)) track(element);
   observer.observe(root, { subtree: true, childList: true, attributeFilter: ["data-motion-panel"] });
   return () => {
@@ -90,6 +100,7 @@ function write(element: HTMLElement, resize: Resize): void {
 export const panel: MotionEffect = {
   name: "panel",
   selector: panelSelector,
+  watch: watchPanels,
   state(element) {
     let resize = resizes.get(element);
     const from = resize?.spring.active ? resize.spring.value * unit : widths.get(element);

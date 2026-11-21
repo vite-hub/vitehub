@@ -15,6 +15,7 @@ vi.mock("../src/overlay/marker.ts", async importOriginal => ({
 }))
 
 const ada = { id: "ada", name: "Ada Lovelace" }
+const highlightImage = (shadow: ShadowRoot) => shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="comment-image-stack"] img[alt="highlight.webp"]')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -109,7 +110,7 @@ describe("Highlight in the Comments segment", () => {
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
 
     button(bar, "Done")!.click()
-    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([{ tip: "marker", color: "#ec4899", points: [[20, 20], [70, 22], [120, 24]] }])
     // The strokes stay on the page, where they were drawn, while the comment is written. The toolbar is back.
     expect(layer()!.hasAttribute("data-frozen")).toBe(true)
@@ -204,7 +205,7 @@ describe("Highlight in the Comments segment", () => {
 
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
     button(bar, "Done")!.click()
-    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
       { tip: "pen", color: "#2563eb", points: [[20, 20], [60, 30], [100, 20]] },
       { tip: "arrow", color: "#16a34a", points: [[20, 80], [140, 140]] },
@@ -242,7 +243,7 @@ describe("Highlight in the Comments segment", () => {
     stroke([[300, 300]])
     await type(layer()!.querySelector<HTMLInputElement>("input")!, "Send")
     press(layer()!.querySelector("input")!, "Enter", { metaKey: true })
-    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
       { tip: "text", color: "#ec4899", points: [[241, 150]], text: "Move me" },
       { tip: "pen", color: "#ec4899", points: [[20, 20], [60, 20]] },
@@ -259,7 +260,7 @@ describe("Highlight in the Comments segment", () => {
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
     button(bar, "Done")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
-    expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).toBeNull()
+    expect(highlightImage(shadow)).toBeNull()
     expect(shadow.querySelector(".toast")?.textContent).toContain("could not be drawn")
   })
 })

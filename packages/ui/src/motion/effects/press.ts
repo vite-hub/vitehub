@@ -21,17 +21,22 @@ const iconSelector = "svg, img, .iconify, [data-slot=icon], [data-slot$=Icon], [
 
 const pressed = new WeakMap<Element, { spring: Spring; amount: number }>();
 
+/** How much a control of this height squashes: 3% from 40px high, 4% from 32px, and 5% below. */
+const amountFor = (height: number) => height >= 40 ? 0.03 : height >= 32 ? 0.04 : 0.05;
+
 /**
  * How much a press squashes, from the prototype: an icon-only control squashes its icon by 15%, and a control squashes
- * by 3% from 40px high, 4% from 32px, and 5% below.
+ * by its height. A control that another element draws, such as the mark of the folded page pill, names that element
+ * with `data-motion-press-target`, a selector that `closest()` finds from the control. Then that element squashes.
  */
 function squash(element: HTMLElement): { target: HTMLElement | SVGElement; amount: number } {
+  const drawnBy = element.dataset.motionPressTarget ? element.closest(element.dataset.motionPressTarget) : null;
+  if (drawnBy instanceof HTMLElement) return { target: drawnBy, amount: amountFor(drawnBy.offsetHeight) };
   const icon = element.firstElementChild;
   if (element.childElementCount === 1 && !element.textContent?.trim() && (icon instanceof HTMLElement || icon instanceof SVGElement) && icon.matches(iconSelector)) {
     return { target: icon, amount: 0.15 };
   }
-  const height = element.offsetHeight;
-  return { target: element, amount: height >= 40 ? 0.03 : height >= 32 ? 0.04 : 0.05 };
+  return { target: element, amount: amountFor(element.offsetHeight) };
 }
 
 /**

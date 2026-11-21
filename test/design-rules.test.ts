@@ -78,7 +78,6 @@ const motionSurfaces = [
   ...surfaces,
   "packages/ui/theme.css",
   "packages/ui/comment-marks.css",
-  "packages/ui/icon-swap.css",
   "packages/kit/src",
   "packages/internal/src/runtime",
   "packages/comments/src",
@@ -107,24 +106,6 @@ const ownMotionFigures: Array<{ path: string, reason: string }> = [
     reason: "The styles of the same hero figure scenes.",
   },
 ]
-
-type Wave = "W2" | "W3" | "W4" | "W5"
-
-/**
- * Hand-written motion that exists today, by file, with the wave of the motion plan that moves it onto the layer or a
- * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
- */
-const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
-  "packages/comments/src/overlay/styles.ts": { count: 8, wave: "W5" },
-  "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-loader.ts": { count: 7, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-shared.ts": { count: 2, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-window.ts": { count: 1, wave: "W5" },
-  "packages/ui/comment-marks.css": { count: 7, wave: "W5" },
-  "packages/ui/icon-swap.css": { count: 1, wave: "W5" },
-  "packages/ui/styles.css": { count: 28, wave: "W5" },
-}
 
 const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path|grid-template-(?:rows|columns)|flex-basis)$/
 const motionDeclaration = /(?:^|[\s;{])(?:transform|translate|scale|rotate|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path)\s*:/
@@ -352,27 +333,15 @@ describe("design rules", () => {
 
   describe("hand-written motion", () => {
     const motion = scanMotionSurfaces()
-    const byFile = new Map<string, Finding[]>()
-    for (const finding of motion) byFile.set(finding.file, [...byFile.get(finding.file) ?? [], finding])
 
-    it("has no hand-written motion outside the motion layer and the allowlist", () => {
-      const found = [...byFile].filter(([file]) => !motionAllowlist[file]).flatMap(([, list]) => list).map(finding => `${finding.file}:${finding.line} ${finding.text}`)
+    it("has no hand-written motion outside the motion layer and the own-motion figures", () => {
+      const found = motion.map(finding => `${finding.file}:${finding.line} ${finding.text}`)
       expect(found, `${found.length} × hand-written motion. Use the motion layer of @vite-hub/ui/motion or a motion helper. See docs/design/motion.md.\n${found.join("\n")}`).toEqual([])
     })
 
     it("lists only own-motion figures that exist, each with its reason", () => {
       const wrong = ownMotionFigures.filter(figure => !existsSync(join(repoRoot, figure.path)) || !figure.reason.trim()).map(figure => figure.path)
       expect(wrong, `Remove or explain these own-motion figures:\n${wrong.join("\n")}`).toEqual([])
-    })
-
-    it("keeps each allowlisted file at its count", () => {
-      const wrong = Object.entries(motionAllowlist).flatMap(([file, { count }]) => {
-        const list = byFile.get(file) ?? []
-        if (list.length > count) return [`${file}: ${list.length} spots, the allowlist has ${count}. Do not add motion by hand.\n${list.map(finding => `  ${finding.line} ${finding.text}`).join("\n")}`]
-        if (list.length < count) return [`${file}: ${list.length} spots, the allowlist has ${count}. Lower the count${list.length ? "" : " or remove the file"}.`]
-        return []
-      })
-      expect(wrong, wrong.join("\n")).toEqual([])
     })
 
     const keyframes = collectKeyframes([["fixture.css", "@keyframes fade { from { opacity: 0 } } @keyframes rise { from { transform: translateY(4px) } } @keyframes turn { to { transform: rotate(1turn) } }"]])

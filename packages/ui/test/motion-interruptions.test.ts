@@ -27,8 +27,8 @@ afterEach(() => {
 
 const mutations = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 
-function startMotion(): void {
-  stop = installMotion();
+function startMotion(root?: HTMLElement): void {
+  stop = installMotion(root);
   defineMotionEffect({ name: "slider", selector: "[role=slider]" });
 }
 
@@ -39,12 +39,12 @@ function mountPanel(): HTMLElement {
   vi.spyOn(panel, "getBoundingClientRect").mockImplementation(() =>
     new DOMRect(0, 0, Number.parseFloat(panel.style.width) || (panel.hasAttribute("data-open") ? 232 : 52), 0));
   document.body.append(panel);
-  startMotion();
   return panel;
 }
 
 it("does not rewrite panel state to measure its width", async () => {
   const panel = mountPanel();
+  startMotion();
   const set = vi.spyOn(panel, "setAttribute");
   const remove = vi.spyOn(panel, "removeAttribute");
   panel.setAttribute("data-open", "");
@@ -56,6 +56,7 @@ it("does not rewrite panel state to measure its width", async () => {
 
 it("cancels a panel spring when the new width is already reached", async () => {
   const panel = mountPanel();
+  startMotion();
   panel.setAttribute("data-open", "true");
   await mutations();
   expect(panel.style.width).toBe("52px");
@@ -66,6 +67,46 @@ it("cancels a panel spring when the new width is already reached", async () => {
   expect(panel.style.width).toBe("");
 });
 
+it("tracks a panel that is itself the installed element", async () => {
+  const panel = mountPanel();
+  startMotion(panel);
+  panel.setAttribute("data-open", "");
+  await mutations();
+  expect(panel.style.width).toBe("52px");
+});
+
+it("keeps a panel tracked when an overlapping install stops", async () => {
+  const panel = mountPanel();
+  startMotion();
+  const stopPanel = installMotion(panel);
+  stopPanel();
+  panel.setAttribute("data-open", "");
+  await mutations();
+  expect(panel.style.width).toBe("52px");
+});
+
+it("dispatches added nodes once across overlapping roots", async () => {
+  const parent = document.body.appendChild(document.createElement("section"));
+  const child = document.createElement("p");
+  const enter = vi.fn();
+  const content = vi.fn();
+  startMotion();
+  const stopParent = installMotion(parent);
+  const stopEnter = defineMotionEffect({ name: "test-enter", selector: "section > p", enter });
+  const stopContent = defineMotionEffect({ name: "test-content", selector: "section", content });
+  try {
+    parent.appendChild(child);
+    await mutations();
+    expect(enter.mock.calls).toEqual([[child]]);
+    expect(content.mock.calls).toEqual([[parent, { added: [child], removed: [], oldText: undefined }]]);
+  }
+  finally {
+    stopEnter();
+    stopContent();
+    stopParent();
+  }
+});
+
 it("stops turning a chevron when code closes its disclosure", async () => {
   document.body.innerHTML = `
     <style>[aria-expanded=true] svg { rotate: 90deg; }</style>
@@ -74,12 +115,18 @@ it("stops turning a chevron when code closes its disclosure", async () => {
   const button = document.querySelector("button")!;
   const icon = document.querySelector("svg")!;
   startMotion();
-  button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
-  button.setAttribute("aria-expanded", "true");
-  await mutations();
-  expect(icon.style.rotate).not.toBe("");
-  button.setAttribute("aria-expanded", "false");
-  await mutations();
-  frame();
-  expect(icon.style.rotate).toBe("");
+  const stopButton = installMotion(button);
+  try {
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+    button.setAttribute("aria-expanded", "true");
+    await mutations();
+    expect(icon.style.rotate).not.toBe("");
+    button.setAttribute("aria-expanded", "false");
+    await mutations();
+    frame();
+    expect(icon.style.rotate).toBe("");
+  }
+  finally {
+    stopButton();
+  }
 });
