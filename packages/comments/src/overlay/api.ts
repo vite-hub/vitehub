@@ -2,6 +2,9 @@ import { commentsApiRoute, commentsRoute } from "../page.ts"
 import { Diagnostic } from "nostics"
 
 import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
+import { createCommentSendTransport } from "../send-transport.ts"
+
+import type { CommentSendTransport } from "../client-send.ts"
 
 import type { RestTransport } from "../rest-transport.ts"
 import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
@@ -19,6 +22,8 @@ export interface CommentsSession {
   /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
   presence?: false
   content: boolean
+  /** Send is on, and this person may hand the waiting comments to their agent. */
+  send?: true
   /** The subject of the page, which `page` of `defineComments()` decides on the server. */
   subject?: CommentSubject
   /** The version of the subject that new threads start on. */
@@ -124,4 +129,9 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
     resolve: changed(rest.resolve),
     reopen: changed(rest.reopen),
   }
+}
+
+/** The transport of Send in the pill, over the Send routes of the page's Comments API. */
+export function createOverlaySendTransport(page: () => string): CommentSendTransport {
+  return createCommentSendTransport({ base: route.slice(0, -commentsRoute.length), page })
 }

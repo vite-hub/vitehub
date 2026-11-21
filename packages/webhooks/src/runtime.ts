@@ -3,7 +3,7 @@ import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
-import { readString, serverEnv, unsealEndpoint } from "./sealing.ts"
+import { memberBodyLabel, readString, sealedMemberBodyPrefix, serverEnv, unsealEndpoint, unsealWebhooksText } from "./sealing.ts"
 import { resolveWebhookUrl } from "./url-guard.ts"
 
 import type { LookupAddress } from "node:dns"
@@ -234,7 +234,7 @@ export async function deliverMemberClaim(installed: InstalledWebhooks, claim: We
     await store.sent(claim, { status: null, error: null }, Date.now())
     return [undefined, { id: claim.id, status: "inbox" }]
   }
-  const result = await postDelivery(claim, { ...target, signature: "github", guard: true })
+  const result = await postDelivery(claim, { ...target, signature: "github", guard: true }, installed.developmentKey)
   if (result.ok) {
     await store.sent(claim, { status: result.status, error: null }, Date.now())
     return [undefined, { id: claim.id, status: "sent" }]
@@ -362,7 +362,7 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
     await store.failed(claim, { status: null, error: targetError }, Date.now(), true)
     return
   }
-  const result = await postDelivery(claim, target)
+  const result = await postDelivery(claim, target, installed.developmentKey)
   if (result.ok) {
     await store.sent(claim, { status: result.status, error: null }, Date.now())
     return
@@ -410,7 +410,7 @@ async function postWithCheckedAddresses(url: URL, addresses: LookupAddress[], bo
 }
 
 /** Posts a claimed delivery once, signed, with a 10 second timeout and no redirects. */
-export async function postDelivery(claim: WebhookDelivery, target: Target): Promise<PostResult> {
+export async function postDelivery(claim: WebhookDelivery, target: Target, developmentKey?: string): Promise<PostResult> {
   let checked: ResolvedWebhookUrl | undefined
   if (target.guard) {
     const [refused, resolved] = await resolveWebhookUrl(target.url)
@@ -418,7 +418,13 @@ export async function postDelivery(claim: WebhookDelivery, target: Target): Prom
     checked = resolved
   }
   // The stored body is JSON text, so this gives the same bytes that the last send stored.
-  const body = JSON.stringify(claim.body)
+  const sealed = sealedMemberBody(claim)
+  let body = JSON.stringify(claim.body)
+  if (sealed !== undefined) {
+    const [error, opened] = await unsealWebhooksText(memberBodyLabel(claim.webhook, claim.event), sealed, developmentKey)
+    if (error) return { ok: false, status: null, failure: error.message, final: true }
+    body = opened
+  }
   try {
     const signed = await signWebhook(body, { provider: target.signature, secret: target.secret })
     const headers = {
@@ -498,12 +504,12 @@ export function listWebhooks(): WebhookInfo[] {
 
 /** Deliveries, newest first. */
 export function listWebhookDeliveries(options?: ListWebhookDeliveriesOptions): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(installed => installed.store.list(options))
+  return attempt(async installed => (await installed.store.list(options)).map(inspectDelivery))
 }
 
 /** Pending deliveries, the soonest due first: the debounce timers that run now. */
 export function listPendingWebhookDeliveries(options?: { webhook?: string, limit?: number }): Promise<Result<WebhookDelivery[], WebhookDeliveryErrorCode>> {
-  return attempt(installed => installed.store.pending(options))
+  return attempt(async installed => (await installed.store.pending(options)).map(inspectDelivery))
 }
 
 async function findDelivery(installed: InstalledWebhooks, id: string): Promise<WebhookDelivery> {
@@ -513,7 +519,17 @@ async function findDelivery(installed: InstalledWebhooks, id: string): Promise<W
 }
 
 export function getWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
-  return attempt(installed => findDelivery(installed, id))
+  return attempt(async installed => inspectDelivery(await findDelivery(installed, id)))
+}
+
+function sealedMemberBody(delivery: WebhookDelivery): string | undefined {
+  if (delivery.webhook.startsWith(memberWebhookPrefix) && typeof delivery.body === "string" && delivery.body.startsWith(sealedMemberBodyPrefix)) {
+    return delivery.body.slice(sealedMemberBodyPrefix.length)
+  }
+}
+
+export function inspectDelivery(delivery: WebhookDelivery): WebhookDelivery {
+  return sealedMemberBody(delivery) === undefined ? delivery : { ...delivery, body: null }
 }
 
 /** What the delivery functions that send take. */
@@ -552,7 +568,7 @@ export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionO
     }
     const error = await wake(installed, delivery, 0)
     if (error) throw error
-    return delivery
+    return inspectDelivery(delivery)
   })
 }
 
@@ -560,7 +576,7 @@ export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionO
 export function cancelWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
   return attempt(async (installed) => {
     const delivery = await installed.store.cancel(id, Date.now())
-    if (delivery) return delivery
+    if (delivery) return inspectDelivery(delivery)
     const current = await findDelivery(installed, id)
     throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_PENDING({ id: JSON.stringify(id), state: current.state })
   })

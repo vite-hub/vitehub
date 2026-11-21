@@ -143,6 +143,14 @@ export type MemberEndpointErrorCode =
   | "WEBHOOKS_ENDPOINT_NOT_FOUND"
   | "WEBHOOKS_STORE_FAILED"
 
+/** The codes that `startMemberPairing()`, `pairMemberEndpoint()`, `getMemberPairing()`, `cancelMemberPairing()`, and `allowMemberPairing()` return. */
+export type MemberPairingErrorCode =
+  | "WEBHOOKS_DATABASE_MISSING"
+  | "WEBHOOKS_ENDPOINT_INVALID"
+  | "WEBHOOKS_KEY_INVALID"
+  | "WEBHOOKS_KEY_UNSET"
+  | "WEBHOOKS_STORE_FAILED"
+
 /** The codes that `sendToMemberEndpoint()` returns. A failed post is not an error: it returns `status: "failed"`. */
 export type SendToMemberEndpointErrorCode =
   | "WEBHOOKS_BODY_INVALID"
@@ -152,6 +160,7 @@ export type SendToMemberEndpointErrorCode =
   | "WEBHOOKS_KEY_INVALID"
   | "WEBHOOKS_KEY_UNSET"
   | "WEBHOOKS_STORE_FAILED"
+  | "WEBHOOKS_URL_REFUSED"
   | "WEBHOOKS_WAKE_FAILED"
 
 /**

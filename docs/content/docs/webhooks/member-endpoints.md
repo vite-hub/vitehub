@@ -42,7 +42,7 @@ export async function connectAgent(user: { id: string, name: string, email: stri
 }
 ```
 
-- `owner` is the member, such as the Auth user id. A member has one endpoint. A new one replaces the old one.
+- `owner` is the member, such as the Auth user id. A member has one endpoint per `address`; a new one replaces the endpoint at the same address. Omit `address` for a receiver that is not tied to a thread.
 - `ownerName` is the name that admins see in the Console. `ownerEmail` is the member's email, only when it is verified. See [Who owns an endpoint](#who-owns-an-endpoint).
 - `url` must be `https` on the T3 Code relay, `relay.t3.codes`. Pass `hosts` to allow other hosts. See [The URL guard](#the-url-guard).
 - `kind: 'inbox'` takes no URL. Webhooks posts nothing, and the member's agent reads the delivery, such as Claude Code or Codex through MCP.
@@ -77,7 +77,7 @@ Each send is a delivery in `vitehub_webhook_deliveries`, with `webhook` set to `
 
 ## The URL guard
 
-A member gives the URL, so ViteHub checks it before it stores it and again before each post. `checkWebhookUrl(url, { hosts })` runs the same check:
+A member gives the URL, so ViteHub checks it with `hosts` before it stores it, and checks its address again before each post. `checkWebhookUrl(url, { hosts })` runs the same check:
 
 ```ts [server/utils/check-receiver.ts]
 import { checkWebhookUrl } from 'vite-hub/webhooks'
@@ -114,13 +114,13 @@ openssl rand -base64 32
 
 | Function | Does |
 | --- | --- |
-| `getMemberEndpoint(owner)` | The endpoint of a member, or `null` |
-| `listMemberEndpoints()` | Every endpoint, with `last`, the newest delivery to it |
+| `getMemberEndpoint(owner, { address? })` | The member's endpoint at that address, otherwise their newest endpoint, or `null` |
+| `listMemberEndpoints({ limit?, after? })` | A page of endpoints, with `last`, the newest delivery to each |
 | `removeMemberEndpoint(owner, id)` | Removes the endpoint when the member owns it |
 | `disableMemberEndpoint(id, { by })` | Stops sends to the endpoint. `by` names who did it. Check that the caller is an admin first. |
 | `enableMemberEndpoint(id)` | Starts sends to a disabled endpoint again |
 
-Each returns `[error, endpoint]`. An endpoint has `id`, `owner`, `ownerName`, `ownerEmail`, `name`, `kind`, `agent`, `host`, `disabledAt`, `disabledBy`, `createdAt`, and `updatedAt`. It never holds the URL or the secret.
+Each returns `[error, data]`. An endpoint has `id`, `owner`, `ownerName`, `ownerEmail`, `name`, `address`, `kind`, `agent`, `host`, `disabledAt`, `disabledBy`, `createdAt`, and `updatedAt`. It never holds the receiver URL or the secret.
 
 ## In the Console
 

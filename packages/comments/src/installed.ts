@@ -2,10 +2,13 @@ import { commentsRuntime, hasCommentsRuntime } from "./operations-core/server.ts
 
 import type { Comments } from "./index.ts"
 import type { CommentsRuntime } from "./operations-core/service.ts"
+import type { CommentSendService } from "./send/service.ts"
 
 export interface Installed {
   runtime: CommentsRuntime
   sync?: (threadId: string) => Promise<void>
+  /** Send, when `defineComments({ send })` is on and the app has Webhooks. */
+  send?: CommentSendService
 }
 
 /** The runtime that `installComments()` connected to each definition. */
@@ -38,4 +41,10 @@ export function commentsRuntimeOf(comments: Comments): CommentsRuntime | undefin
 /** The runtime of a definition, or the one that the generated Nitro plugin builds on first use, for the overlay API. */
 export async function resolveCommentsRuntime(comments: Comments): Promise<CommentsRuntime | undefined> {
   return runtimeOf(comments)
+}
+
+/** The Send service of a definition, after the runtime is built. Undefined while Send is off. */
+export async function commentSendOf(comments: Comments): Promise<CommentSendService | undefined> {
+  await runtimeOf(comments)
+  return runtimes.get(comments)?.send
 }

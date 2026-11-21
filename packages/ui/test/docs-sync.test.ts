@@ -66,6 +66,7 @@ const pages: Record<string, string> = {
   CommentPin: "comments",
   CommentReply: "comments",
   CommentSelectionBar: "comments",
+  CommentSend: "comments",
   CommentThread: "comments",
   CommentToolbar: "comments",
   Marker: "marker",

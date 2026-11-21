@@ -112,6 +112,10 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module registered, Comments logs it with `comments: { hook, step?, thread, code }`: a failed `onComment` on the wide event of the request, the others as their own evlog events. Without evlog, they go to the console. See [Limits and errors](https://vitehub.dev/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs).
 
+## Send to an agent
+
+`defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields. The `comments_get_send` MCP tool reads a send. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
+
 ## Deployment and security boundaries
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
@@ -128,7 +132,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
@@ -291,6 +295,10 @@ const client = createCommentsClient({ transport, user: ana });
 ```
 
 `transport.as(user)` gives another person on the same store, and `transport.reconnect()` sends `reconnected` to the listeners.
+
+### Send
+
+`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. `createCommentSendTransport({ page })` is the transport over the Send routes of `send: true`. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
 
 ## Errors
 

@@ -55,7 +55,7 @@ describe("member endpoints at build time", () => {
     expect(await plugin.vitehub.queues(context)).toEqual([])
     expect(await plugin.vitehub.databases(context)).toEqual([
       expect.objectContaining({ name: "webhooks", definition: { export: "webhooksSchema", module: "@vite-hub/webhooks/database" } }),
-      expect.objectContaining({ name: "webhook-endpoints", definition: { export: "webhookEndpointsSchema", module: "@vite-hub/webhooks/database" }, tables: { webhookEndpoints: "vitehub_webhook_endpoints" } }),
+      expect.objectContaining({ name: "webhook-endpoints", definition: { export: "webhookEndpointsSchema", module: "@vite-hub/webhooks/database" }, tables: { webhookEndpoints: "vitehub_webhook_endpoints", webhookPairings: "vitehub_webhook_pairings" } }),
     ])
     expect(plugin.api.deploymentEnv({ host: "node" })).toEqual([{ names: ["VITEHUB_WEBHOOKS_KEY"], required: true, secret: true, hasDefault: false, owners: ["webhooks"] }])
   })

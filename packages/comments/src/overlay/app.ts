@@ -1,4 +1,4 @@
-import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
@@ -9,8 +9,9 @@ import { computed, createApp, defineComponent, h, nextTick, onMounted, ref, shal
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { base64 } from "../client-files.ts"
+import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -393,6 +394,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
+  /** Send, for signed-in people who may write, when the app turned it on. It counts the threads of the current page. */
+  const send = computed(() => {
+    const path = page.value
+    return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
+  })
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
     (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
@@ -729,6 +735,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (status === "ready" && !room) void joinRoom()
       })
       watch(() => state.counts.value.open, () => tick.value++)
+      // A new comment, a reply, or another page changes how many threads Send carries.
+      if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"
@@ -925,6 +933,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             type: "button",
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
+      // Send N hands the threads that wait for an answer to the person's agent, and pairs one in place first.
+      send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),

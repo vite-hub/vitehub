@@ -447,6 +447,62 @@ A thread passes its size on to its messages, its reply box, and its edit box. Fo
 </template>
 ```
 
+## Send to an agent
+
+`CommentSend` is the **Send** segment of a comment pill, as in Drop and the ViteHub pill. One click hands the comments that wait for an answer to the member's own agent, such as T3 Code. The button then shows what happens: Sending, Sent, Working with **Open thread**, or Not delivered with **Retry**.
+
+Give it a client from `createCommentSend()`. The client is the state, and the transport talks to your server:
+
+```ts
+import { createCommentSend, type CommentSendTransport } from "vite-hub/comments/client";
+
+// Successful Send routes return JSON in the shape that the transport method returns.
+const api = async <T>(path: string, method = "GET"): Promise<T> => {
+  const response = await fetch(`/api/send${path}`, { method });
+  if (!response.ok) throw new Error(`Send request failed (${response.status})`);
+  return response.json();
+};
+
+const transport: CommentSendTransport = {
+  status: () => api("/status"),
+  startPairing: () => api("/pair", "POST"),
+  pollPairing: code => api(`/pair/${code}`),
+  allow: code => api(`/pair/${code}/allow`, "POST"),
+  cancel: async (code) => {
+    const response = await fetch(`/api/send/pair/${code}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Cancel request failed (${response.status})`);
+  },
+  send: () => api("", "POST"),
+};
+
+export const send = createCommentSend(transport);
+```
+
+```vue
+<template>
+  <CommentSend :client="send" />
+</template>
+```
+
+With Comments `send: true`, the server has these routes already: `createCommentSendTransport({ page })` of `vite-hub/comments/client` is the transport, and the ViteHub pill uses the same one. See [Send comments to your agent](/docs/comments/send).
+
+A member without an agent pairs one in place. **Send 2** copies a setup prompt and says where to paste it. The agent uses the one-time code in the prompt, and the pill asks once: **Allow and send 2**. `×` or `Esc` stops it, and nothing is saved.
+
+Give your pill a viewport-safe maximum width and let it scroll horizontally if its controls do not fit. `CommentSend` keeps its actions on one row and shortens the setup and confirmation messages on narrow screens.
+
+| State | The pill shows |
+| --- | --- |
+| `idle` | **Send N**, or **To inbox N** for an agent that picks comments up itself. Nothing when no comment waits. |
+| `pairing` | Setup prompt copied, a spinner, and `×`. With `reason`: **Setup code expired** or **That URL isn't `host`**, and **Copy again**. |
+| `confirm` | The agent's logo, name, and host, and **Allow and send N**. |
+| `sending` | Sending, as wide as **Send N**, so the pill holds still. |
+| `sent` | Sent, for 2 seconds. |
+| `working` | Working and **Open thread**. **Send N** comes back beside them when a new comment waits. |
+| `failed` | Not delivered and **Retry**. |
+| `limited` | Limit reached, and the time to try again. |
+
+The client asks `status()` while the agent works. Give the transport `subscribe` to push `working`, `done`, and `count` events instead. In a unit test, give it a fake transport: every state is plain data in `send.state`.
+
 ## Anchors
 
 An anchor says where a comment sits. `createAnchor()` makes one from an element, a point, a selection, or `"page"`. `resolveAnchor()` finds it again.
@@ -464,6 +520,7 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 - Deleting the first message asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
 - The bar over selected text is a `group` named "Selected text". Its buttons have `aria-keyshortcuts`, `C` for Comment and `E` for Suggest.
+- The Send segment is a `group` named "Send comments to your agent". Each change of state is read out, such as "Sent." or "Not delivered.", and the focus moves to the new button when the pressed one goes. `Esc` stops pairing. Under `prefers-reduced-motion` the spinner and the Working dot stay still.
 - Under `prefers-reduced-motion` the composer does not shake. Its border flashes. A pin that stops showing fades without shrinking.
 - A pin that stops showing is `inert` during its pop-out.
 
@@ -534,6 +591,16 @@ The bar over selected text. Renders a `div` with `data-slot="comment-selection-b
 | --- | --- |
 | `comment` | Comment was clicked. |
 | `suggest` | Suggest was clicked. |
+
+### CommentSend
+
+The Send segment of a comment pill. Renders a `div` with `data-slot="comment-send"` and `data-state` set to the state. Its buttons have `data-action`: `send`, `allow`, `cancel`, `copy-again`, `retry`, and the `open` link. It starts the client when it mounts and stops it when it unmounts. It takes the pill's `--vitehub-pill-*` colors, and else the Nuxt UI tokens around it.
+
+#### Props
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `client` | `CommentSendClient` | Required | The client from `createCommentSend(transport)`. |
 
 ### CommentThread
 
