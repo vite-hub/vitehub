@@ -1,7 +1,7 @@
 import { expect, it } from "vitest"
 
 import { webContainerErrorDiagnostics } from "../src/error-diagnostics.ts"
-import { hubWebContainer } from "../src/vite.ts"
+import { webContainerVitePlugin } from "../src/vite.ts"
 
 it("gives each WebContainer code a fix and its own docs page", () => {
   for (const [code, create] of Object.entries(webContainerErrorDiagnostics)) {
@@ -11,17 +11,17 @@ it("gives each WebContainer code a fix and its own docs page", () => {
   }
 })
 
-it("reports hubWebContainer() without routes with its code and fix", () => {
-  expect(() => hubWebContainer({ routes: [] })).toThrow(expect.objectContaining({
+it("reports webContainer without routes with its code and fix", () => {
+  expect(() => webContainerVitePlugin({ routes: [] })).toThrow(expect.objectContaining({
     code: "WEB_CONTAINER_ROUTES_MISSING",
-    fix: expect.stringContaining("routes: [\"/playground/**\"]"),
+    fix: expect.stringContaining("webContainer: { routes: [\"/playground/**\"] }"),
   }))
 })
 
-it("reports a hubWebContainer() route without a leading slash with its code and fix", () => {
-  expect(() => hubWebContainer({ routes: ["playground/**"] })).toThrow(expect.objectContaining({
+it("reports a webContainer route without a leading slash with its code and fix", () => {
+  expect(() => webContainerVitePlugin({ routes: ["playground/**"] })).toThrow(expect.objectContaining({
     code: "WEB_CONTAINER_ROUTE_INVALID",
     fix: expect.stringContaining("`/`"),
-    message: "hubWebContainer() route \"playground/**\" must start with \"/\".",
+    message: "`webContainer` route \"playground/**\" must start with \"/\".",
   }))
 })

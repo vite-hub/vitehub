@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-lucide-bot
 ---
 
-Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
+Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/channels/adapters` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
 
 ## What a ViteHub Discord bot is
 
@@ -89,7 +89,7 @@ The `node` host starts the Gateway listener in the server process. The Agent run
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { access } from 'vite-hub/agent/capabilities'
-import { discord } from 'vite-hub/agent/channels'
+import { discord } from 'vite-hub/channels/adapters'
 
 const allowedUsers = new Set(['discord:111111111111111111'])
 
@@ -149,7 +149,7 @@ The Gateway connection goes out from your machine to Discord, so you need no pub
 Check what ViteHub found:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent assistant --url http://localhost:3000
+pnpm vitehub agent get assistant --dev --url http://localhost:3000
 ```
 
 If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener failed and will retry.` in the server log. ViteHub retries 5 seconds after a failure. Listener start, stop, and failure events also show in the JSON logs under the `vitehub.channel.listener` scope. See [Inspect delivery custody](/docs/agents/channels#inspect-delivery-custody).

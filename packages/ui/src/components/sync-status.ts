@@ -1,4 +1,5 @@
 import { defineComponent, h, inject, type InjectionKey, type PropType, provide, ref, type Ref, toRef } from "vue";
+import { MorphText } from "./motion.ts";
 
 // The values follow Liveblocks' Yjs sync status (`loading`, `synchronizing`, `synchronized`), plus `error` for a save
 // the server rejected. The parts split as Kibo UI's Status. Pair it with ConnectionStatus: a disconnected editor can
@@ -47,6 +48,7 @@ export const SyncStatusLabel = defineComponent({
   name: "SyncStatusLabel",
   setup(_props, { slots }) {
     const status = inject(statusKey, ref<SyncStatusValue>("loading"));
-    return () => h("span", { "data-slot": "sync-status-label", "data-status": status.value }, slots.default?.({ status: status.value }) ?? labels[status.value]);
+    // The default label changes letter by letter, such as "Saving" to "Saved".
+    return () => h("span", { "data-slot": "sync-status-label", "data-status": status.value }, slots.default?.({ status: status.value }) ?? [h(MorphText, { text: labels[status.value] })]);
   },
 });

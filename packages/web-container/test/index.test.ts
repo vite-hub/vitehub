@@ -47,7 +47,7 @@ describe("bootWebContainer outside an isolated page", () => {
   it("reports unsupported without loading @webcontainer/api", async () => {
     expect(checkWebContainerSupport()).toMatchObject({ supported: false })
     const statuses: WebContainerStatus[] = []
-    await expect(bootWebContainer({ onStatus: status => statuses.push(status) })).rejects.toMatchObject({ code: "WEB_CONTAINER_UNSUPPORTED", fix: expect.stringContaining("hubWebContainer") })
+    await expect(bootWebContainer({ onStatus: status => statuses.push(status) })).rejects.toMatchObject({ code: "WEB_CONTAINER_UNSUPPORTED", fix: expect.stringContaining("webContainer.routes") })
     expect(statuses.map(status => status.stage)).toEqual(["checking", "unsupported"])
     expect(statuses.at(-1)?.steps.map(step => [step.stage, typeof step.ms])).toEqual([["checking", "number"], ["unsupported", "number"]])
   })

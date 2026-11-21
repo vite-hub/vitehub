@@ -444,6 +444,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_DISPATCH_QUEUE_OWNERSHIP_INVALID",
   "AGENT_DRAIN_MS_INVALID",
   "AGENT_EXTENDS_INVALID",
+  "AGENT_EXTERNAL_DRIVER_RUNTIME",
   "AGENT_INSTRUCTIONS_EXTEND_INVALID",
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
@@ -2242,7 +2243,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0490: {
       ...dynamicError,
-      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object, not a string.",
+      fix: "Set driver to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver object. The only string Driver is \"external\", for an Agent that runs outside the app.",
     },
     AGENT_R0491: {
       ...dynamicError,
@@ -2270,19 +2271,19 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0497: {
       ...dynamicError,
-      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.",
+      fix: "Set driver in defineAgent() to codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver.",
     },
     AGENT_R0498: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names, such as vitehub agent info --agent support.",
+      fix: "Put a value after the option that the message names, such as vitehub agent get support --url http://localhost:3000.",
     },
     AGENT_R0499: {
       ...dynamicError,
-      fix: "Remove the unknown option. Run vitehub agent info --help to list the options.",
+      fix: "Remove the unknown option. Run vitehub agent get --help to list the options.",
     },
     AGENT_R0500: {
       ...dynamicError,
-      fix: "Remove the extra argument. Pass the Agent with vitehub agent info --agent <name>.",
+      fix: "Remove the extra argument. Pass one Agent name: vitehub agent get <name>.",
     },
     AGENT_R0501: {
       ...dynamicError,
@@ -2290,7 +2291,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0502: {
       ...dynamicError,
-      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations show <id>.",
+      fix: "Put a value after the option that the message names. For undo, pass --change <id> from vitehub agent invocations get <id>.",
     },
     AGENT_R0503: {
       ...dynamicError,
@@ -2310,7 +2311,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0507: {
       ...dynamicError,
-      fix: "Pass the invocation ID after the action, such as vitehub agent invocations show <id>. Run vitehub agent invocations list to find it.",
+      fix: "Pass the invocation ID after the action, such as vitehub agent invocations get <id>. Run vitehub agent invocations list to find it.",
     },
     AGENT_R0508: {
       ...dynamicError,
@@ -4359,11 +4360,11 @@ const agentDiagnosticHandles = defineDiagnostics({
         option: `Unknown option ${value}.`,
         value: `${value} requires a value.`,
       })[problem],
-      fix: "Pass the Agent, the Channel, and the thread to `vitehub conversations export <agent> <channel> <thread>`, and only the options that `vitehub conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
+      fix: "Pass the Agent, the Channel, and the thread to `vitehub agent conversations export <agent> <channel> <thread>`, and only the options that `vitehub agent conversations export --help` lists. Add `--output <directory>` when you pass `--media`.",
     },
     AGENT_CONVERSATIONS_EXPORT_DEV_SERVER_MISSING: {
       why: ({ root }: { root: string }) => `No dev server is running for ${root}. Start \`vite dev\` or pass --url <origin>.`,
-      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub conversations export`.",
+      fix: "Start `vite dev` in the app, or pass `--url <origin>` of a running app to `vitehub agent conversations export`.",
     },
     AGENT_CONVERSATIONS_EXPORT_OUTPUT_EXISTS: {
       why: ({ directory }: { directory: string }) => `The output directory already exists: ${directory}`,
@@ -4421,6 +4422,26 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] agent.shutdown.drainMs must be a finite number of milliseconds, 0 or more.",
       fix: "Set `vitehub({ agent: { shutdown: { drainMs } } })` to a number of milliseconds, 0 or more, such as `45_000`.",
     },
+    AGENT_EMULATOR_CLOSED: {
+      why: "[vitehub] The AI emulator of emulateModels() is closed.",
+      fix: "Read `calls()` and `rules()` before `close()`, or call `emulateModels()` again to start a new emulator.",
+    },
+    AGENT_EMULATOR_DEV_APPS_CONFLICT: {
+      why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
+      fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
+    },
+    AGENT_EMULATOR_PACKAGES_MISSING: {
+      why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
+      fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
+    },
+    AGENT_EMULATOR_RULES_INVALID: {
+      why: ({ detail }: { detail: string }) => `[vitehub] The AI emulator rejected the rules: ${detail}`,
+      fix: "Fix the rule field that the message names. Each rule needs an `id`, a `match`, and one of `reply`, `variants`, or `error`. See https://emulate.dev/docs/ai.",
+    },
+    AGENT_EMULATOR_SCOPE_ACTIVE: {
+      why: "[vitehub] An emulateModels() scope is already active in this test worker.",
+      fix: "Close the active emulator before starting another. Do not use concurrent tests that each call `emulateModels()` in the same worker.",
+    },
     AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED: {
       why: "[vitehub] Execution budgets require AI SDK wrapLanguageModel support.",
       fix: "Upgrade the `ai` package to a version that exports `wrapLanguageModel`, or turn the execution budget off.",
@@ -4428,6 +4449,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_EXTENDS_INVALID: {
       why: "[vitehub] defineAgent({ extends }) requires an Agent Definition created by defineAgent().",
       fix: "Import the parent Agent Definition that `defineAgent()` returns and pass it to `defineAgent({ extends })`.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUN: {
+      why: ({ agent }: { agent: string }) => `[vitehub] Agent ${JSON.stringify(agent)} has driver: "external", so a process outside this app runs it. ViteHub does not run it.`,
+      fix: "Run the Agent where it lives, such as Codex or Claude Code on a laptop or a CI runner, and import its session with `importAgentSession()` from `@vite-hub/agent/sessions`. To run the Agent in this app, give it a model, provider, run, or ask Driver.",
+    },
+    AGENT_EXTERNAL_DRIVER_RUNTIME: {
+      why: "[vitehub] defineAgent({ driver: \"external\" }) cannot have a Workflow runtime. A process outside the app runs the Agent, so no Workflow can run it.",
+      fix: "Remove `runtime` from the Agent Definition. An external Agent has no runtime.",
     },
     AGENT_GITHUB_ACTIVITY_AGENT_MISSING: {
       why: "GitHub activity session links require an Agent identity.",
@@ -4542,6 +4571,44 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_MEMORY_EVENT_INVALID: {
       why: ({ issues, line, path }: { issues: string, line: number, path: string }) => `[vitehub] Line ${path}:${line} of the workspaceJsonlMemoryStore() file is JSON, but not a memory event: ${issues}`,
       fix: "Fix or remove that line. The memory tools write each line as an upsert, supersede, or delete event, so do not edit the file by hand or with another tool.",
+    },
+    AGENT_MODELS_EMULATE_ASK_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent asks Jev questions. The AI emulator does not answer Jev questions, and ViteHub does not send them to a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to ask Jev, or give the Agent a model Driver, such as `driver: { model: 'openai/gpt-5.1' }`, while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CLAUDE_CODE_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Agent uses the Claude Code Driver. The AI emulator rejects the `system` turns that Claude Code sends, and ViteHub does not start Claude Code against a real provider while the switch is on.",
+      fix: "Unset `VITEHUB_MODELS` to run Claude Code, or give the Agent a model Driver, such as `driver: { model: 'anthropic/claude-sonnet-4.5' }`, or `codexDriver()` without Capability tools while you run it on the emulator.",
+    },
+    AGENT_MODELS_EMULATE_CODEX_TOOLS_UNSUPPORTED: {
+      why: ({ tools }: { tools: number }) => `[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent has ${tools} Capability ${tools === 1 ? "tool" : "tools"}. Codex sends Capability tools as one \`namespace\` tool, which the AI emulator rejects, and ViteHub does not start Codex against a real provider while the switch is on.`,
+      fix: "Remove the Capabilities that add tools while you run this Agent on the emulator, or give it a model Driver, such as `driver: { model: 'openai/gpt-5.5' }`, which sends Capability tools as function tools. Unset `VITEHUB_MODELS` to run Codex with tools.",
+    },
+    AGENT_MODELS_EMULATE_IN_PRODUCTION: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set in a production build or while NODE_ENV is production. The AI emulator is for dev and tests, so ViteHub does not send model requests to it in production.",
+      fix: "Remove `VITEHUB_MODELS` from the production environment. Set it only in dev and tests.",
+    },
+    AGENT_MODELS_EMULATE_MODEL_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] VITEHUB_MODELS=emulate is set, but the Agent model of provider "${provider}" cannot be sent to the AI emulator. ViteHub does not call the real provider while the switch is on.`,
+      fix: "Set the model as a model ID, such as `'openai/gpt-5.1'`, or build it with `languageModel(gateway, id)` from `vite-hub/gateways/ai-sdk`. ViteHub sends those to the emulator. A model from an AI SDK provider, such as `createOpenAI()`, always calls its provider.",
+    },
+    AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED: {
+      why: ({ source, tool }: { source: "gateway" | "switch", tool: string }) => `[vitehub] ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "The Agent model uses the emulate() gateway"}, so the Agent ran without the hosted provider tool "${tool}". The AI emulator rejects hosted tools, such as the web search of webSearch({ mode: "model" }).`,
+      fix: ({ source }: { source: "gateway" | "switch", tool: string }) => source === "switch"
+        ? "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or unset `VITEHUB_MODELS` to run with the hosted tool. The run continues without it."
+        : "Use `webSearch({ mode: 'tool', provider })` to search through a search provider on the emulator, or set the Agent model to one that supports hosted tools, such as `'openai/gpt-5.1'`, instead of `languageModel(emulate(), id)`. The run continues without it.",
+    },
+    AGENT_MODELS_EMULATE_SANDBOX_UNSUPPORTED: {
+      why: "[vitehub] VITEHUB_MODELS=emulate is set, but this Codex Agent runs in a Sandbox. The Sandbox cannot reach the AI emulator on this host, and ViteHub does not start Codex against a real provider while the switch is on.",
+      fix: "Remove `sandbox` from the Agent while you run it on the emulator, or unset `VITEHUB_MODELS`.",
+    },
+    AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED: {
+      why: ({ choice, source }: { choice: string, source: "gateway" | "switch" }) => `[vitehub] The Agent tool choice is ${choice}, but ${source === "switch" ? "VITEHUB_MODELS=emulate is set" : "the Agent model uses the emulate() gateway"} and the AI emulator rejects the hosted tool that it needs. The run uses tool choice "auto".`,
+      fix: "Use `webSearch({ mode: 'tool', provider })`, which gives the emulator a `web_search` tool that the tool choice can name. The run continues with tool choice \"auto\".",
+    },
+    AGENT_MODELS_INVALID: {
+      why: ({ value }: { value: string }) => `[vitehub] VITEHUB_MODELS must be "emulate" or unset, not "${value}".`,
+      fix: "Set `VITEHUB_MODELS=emulate` to send model requests to the AI emulator, or unset it to call the real providers.",
     },
     AGENT_NAME_DUPLICATE: {
       why: ({ name }: { name: string }) => `[vitehub] Duplicate Agent name "${name}" discovered.`,
@@ -4949,6 +5016,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_GITHUB_PULL_REQUEST_TRIGGER_DISABLED: {
       why: ({ trigger }: { trigger: string }) => `[vitehub] The github() Channel has the pull request trigger "${trigger}", but \`pullRequest\` is not set, so the Channel does not read pull request events.`,
       fix: "Set `pullRequest` on the github() Channel, such as `pullRequest: { reply: false }`, or remove the trigger.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] sendChannelTrigger() for the GitHub pull request trigger "${trigger}" needs \`{ pullRequest: { repository: "owner/repo", number } }\`, with an optional string \`id\` and \`body\`.`,
+      fix: "Pass `{ pullRequest: { repository: \"owner/repo\", number: 42 } }`. Set `id` to a non-empty string to send the run once, and `body` to the request text.",
+    },
+    AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID: {
+      why: ({ trigger }: { trigger: string }) => `[vitehub] A queued sendChannelTrigger() run of the GitHub pull request trigger "${trigger}" has no stored command or pull request. A deploy can change the stored input while the run waits.`,
+      fix: "Call sendChannelTrigger() again. Before you deploy a change to the trigger, let queued server sends finish.",
     },
     AGENT_GMAIL_AGENT_AMBIGUOUS: {
       why: ({ agents }: { agents: string }) => `[vitehub] gmailChannelStatus() found more than one Agent that uses this Channel: ${agents}. Pass the \`agent\` option.`,

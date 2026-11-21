@@ -162,6 +162,10 @@ function extractAgentRuntime(file: string, seen = new Set<string>()): { masked?:
     }
     else if (depth === 1) {
       const previous = masked.slice(0, index).trimEnd().at(-1)
+      // An Agent with `driver: "external"` has no runtime, as `runtime: false`. Another runtime fails in `defineAgent()`.
+      if ((previous === "{" || previous === ",") && /^(?:driver|(["'])driver\1)\s*:\s*(["'`])external\2\s*(?:,|})/.test(source.slice(index))) {
+        return { masked: "false", raw: "false" }
+      }
       if ((previous === "{" || previous === ",") && /^runtime\s*(?:,|})/.test(masked.slice(index))) {
         return { masked: "runtime", raw: "runtime" }
       }

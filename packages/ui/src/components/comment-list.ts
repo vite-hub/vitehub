@@ -1,5 +1,6 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
+import { RollNumber } from "./motion.ts";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
 import { deliveryAttributes } from "../internal/comment-status.ts";
@@ -28,11 +29,13 @@ export const CommentFilters = defineComponent({
             "data-slot": "comment-filter",
             "data-state": comments.filters[key] ? "on" : "off",
             key,
-            label: count === undefined ? label : `${label} ${count}`,
+            label: count === undefined ? label : undefined,
             onClick: () => (comments.filters[key] = !comments.filters[key]),
             size: "xs",
             variant: comments.filters[key] ? "soft" : "ghost",
           },
+          // A count rolls its digits when it changes.
+          count === undefined ? undefined : { default: () => [`${label} `, h(RollNumber, { value: count })] },
         );
       return h("div", { "aria-label": "Filter comments", "data-slot": "comment-filters", role: "group" }, [
         button("open", "Open", comments.counts.value.open),
