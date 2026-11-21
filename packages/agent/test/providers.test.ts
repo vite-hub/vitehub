@@ -177,7 +177,6 @@ async function stubNetlifyAgentRuntime(root: string) {
     "export const createDiscordGatewayRouteHandler = () => async () => new Response(null, { status: 204 })",
     "export const installChannelsConsoleHost = () => {}",
     "export const setAgentWorkflowCapabilityLoaders = () => {}",
-    "export const setAgentHostCapabilities = () => {}",
   ].join("\n"), "utf8")
   return (["index", "server/internal", "server/workspace", "internal/workspace/internal/runtime/hosted", "internal/workspace/internal/runtime/hosted-vercel-blob"] as const).map(entry => ({ find: agentRuntimeModule(entry), replacement: runtime }))
 }
