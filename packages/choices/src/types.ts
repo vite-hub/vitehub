@@ -86,7 +86,7 @@ export interface MultipleSelection<TValue extends ChoiceValue = ChoiceValue> {
 
 /** A group with `multiple: false`: the best option, or `null`, and every option by probability. */
 export interface SingleSelection<TValue extends ChoiceValue = ChoiceValue> {
-  /** How much the best option stands out, from 0 to 1. */
+  /** The probability of `value`, from 0 to 1. It is `0` when `value` is `null`. */
   confidence: number
   /** Every option, from the most to the least likely. */
   ranked: { probability: number, value: TValue }[]

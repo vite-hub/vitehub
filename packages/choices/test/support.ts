@@ -2,12 +2,16 @@ import type { AiGatewayAsk } from "@vite-hub/gateways"
 
 type Plan = { groups: { infer?: true, label: string, options: { label: string }[] }[], query: string }
 
-const choiceAnswer = (choice: string, labels: string[], probability = 0.9) => ({
-  choice,
-  confidence: probability,
-  probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? probability : (1 - probability) / Math.max(1, labels.length - 1)])),
-  type: "choice" as const,
-})
+/** Like Jev, `confidence` is a margin: the probability of `choice` minus the probability of each other label. */
+const choiceAnswer = (choice: string, labels: string[], probability = 0.9) => {
+  const other = (1 - probability) / Math.max(1, labels.length - 1)
+  return {
+    choice,
+    confidence: probability - other,
+    probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? probability : other])),
+    type: "choice" as const,
+  }
+}
 
 /**
  * A gateway that answers by word match, so tests need no model. An option is included when the text names its label,
