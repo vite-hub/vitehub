@@ -11,6 +11,8 @@ export type ProcessScheduleEntry = ScheduleCronRecord
 export interface ProcessScheduleWake {
   scheduleId: string
   scheduledAt: Date
+  /** Last minute, in epoch milliseconds, in which the occurrence can start. Defaults to `scheduledAt` plus `catchUpMs`. */
+  startBy?: number
 }
 
 export interface ProcessWakeContext {
@@ -106,7 +108,7 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     for (const [key, input] of queued) {
       queued.delete(key)
       // Completion markers outlast this window. Old queued work must not run after its marker can expire.
-      if (input.scheduledAt.getTime() < floorUTCMinute(now()) - catchUpMs) continue
+      if (floorUTCMinute(now()) > (input.startBy ?? input.scheduledAt.getTime() + catchUpMs)) continue
       return input
     }
     return undefined
