@@ -5,7 +5,7 @@ import { sendChannelTrigger } from "@vite-hub/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { github, githubPullRequestTrigger, ignored } from "../src/channels.ts"
-import type { GitHubPullRequestTriggerEvent } from "../src/channels.ts"
+import type { GitHubAppOptions, GitHubPullRequestTriggerEvent } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { readAgentChannelDeliveries } from "../src/internal/channel-delivery.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -36,7 +36,7 @@ async function stateFile() {
   return state
 }
 
-function reviewerAgent(invoke: Invoke, options: { debounceMs?: number, state?: "open" | "closed" } = {}) {
+function reviewerAgent(invoke: Invoke, options: { app?: Pick<GitHubAppOptions, "identity" | "token">, debounceMs?: number, state?: "open" | "closed" } = {}) {
   const fetcher = vi.fn(async (url: string | URL | Request) => Response.json(String(url).endsWith("/pulls/42") ? {
     base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
     head: { ref: "feature", repo: { full_name: "acme/app" }, sha: "head-sha" },
@@ -53,7 +53,7 @@ function reviewerAgent(invoke: Invoke, options: { debounceMs?: number, state?: "
     channels: {
       github: github({
         // SAFETY: This fixture supplies the Fetch-compatible mock used for GitHub requests.
-        app: { apiBaseUrl: "https://api.github.test", fetch: fetcher as typeof fetch, token: "app-token" },
+        app: { apiBaseUrl: "https://api.github.test", fetch: fetcher as typeof fetch, token: "app-token", ...options.app },
         pullRequest: { reconcile: { events: [] }, reply: false, workspace: false },
         triggers: {
           reviewFeedback: githubPullRequestTrigger({
@@ -304,6 +304,21 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
       { outcome: "input", trigger: "reviewFeedback", type: "trigger.completed" },
       expect.objectContaining({ type: "invocation.started" }),
     ])))
+  })
+
+  it.each([
+    { app: { identity: { login: "configured[bot]" } }, login: "configured[bot]" },
+    { app: { identity: async () => ({ login: "resolved[bot]" }) }, login: "resolved[bot]" },
+    { app: { identity: { login: "configured[bot]" }, token: () => ({ token: "app-token", identity: { login: "scoped[bot]" } }) }, login: "scoped[bot]" },
+    { app: { identity: { login: "configured[bot]" }, token: () => ({ token: "fallback-token" }) }, login: "" },
+  ])("uses the expected server send actor ($login)", async ({ app, login }) => {
+    const state = await stateFile()
+    const { agent, calls } = reviewerAgent(() => ({ input: { prompt: "Handle this pull request." } }), { app })
+    const { completed } = serve(agent, state)
+    await expect(sendChannelTrigger("github", "reviewFeedback", { pullRequest: { repository: "acme/app", number: 42 }, id: "actor" }))
+      .resolves.toEqual([undefined, { deliveryId: "reviewFeedback:actor", queued: true }])
+    await vi.waitFor(() => expect(completed("reviewFeedback:actor")).toBe(true), { timeout: 5_000 })
+    expect(calls.mock.calls[0]?.[0].actor).toEqual(login ? { login, type: "Bot" } : { login })
   })
 
   it("rejects a server send without a pull request and skips a closed pull request", async () => {

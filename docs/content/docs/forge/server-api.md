@@ -14,7 +14,7 @@ Import `useForge()` from `vite-hub/forge`. It re-exports `@vite-hub/forge`.
 | `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
 | `forge.token({ repository, installation, refresh, minLifetime, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `installation`, such as `installation.id` of a webhook delivery, else for the owner of `repository` (see [Installations](/docs/forge/configure#installations)), or for `VITEHUB_GITHUB_INSTALLATION_ID` without `repository`. |
 | `forge.provider({ repository, installation, refresh, minLifetime, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
-| `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
+| `forge.app({ signal })` | `[error, { id, slug, login, email }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
 
 `baseUrl` is the API base for GitHub Enterprise Server, or the instance root for GitLab, Forgejo, and Gitea. A cancelled call rejects with the abort reason.
 
@@ -59,7 +59,7 @@ export async function githubEnv(repository: string) {
 
 ## Know who the App is
 
-`app()` returns the App ID, its slug, and its bot login, such as `acme-bot[bot]`. Use the login to find comments that the App wrote:
+`app()` returns the App ID, its slug, its bot login, such as `acme-bot[bot]`, and the bot's commit email, such as `41898282+acme-bot[bot]@users.noreply.github.com`. GitHub shows commits with that email as the App's. ViteHub caches the identity with the bot user ID. If the bot user lookup fails, `app()` returns the plain noreply email without the user ID and retries on the next call. Use the login to find comments that the App wrote:
 
 ```ts [server/utils/github-bot.ts]
 import { useForge } from 'vite-hub/forge'
