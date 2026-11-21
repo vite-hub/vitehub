@@ -1011,6 +1011,29 @@ export default defineAgent({
 
 The trigger needs a webhook queue: a durable State, such as SQLite or libSQL, and the `x-github-delivery` header that GitHub sends. The queue stores the delivery before it answers GitHub, so a restart during `debounceMs` keeps it. A repeated or redelivered `x-github-delivery` does not run `invoke` again. If `invoke` throws or the process stops while it runs, the queue runs it again, up to three attempts. Send `event.deliveryId` as an idempotency key when a repeated call has an effect. Without `x-github-delivery`, such as a call from code, `invoke` runs before the answer.
 
+#### Start a pull request trigger from server code
+
+Server code, such as a Schedule that finds a stuck pull request, can start the same trigger with [`sendChannelTrigger()`](/docs/channels/server-api#start-a-trigger-from-code). Pass the pull request, an optional `id`, and an optional `body`:
+
+```ts [server/utils/wake.ts]
+import { sendChannelTrigger } from 'vite-hub/channels'
+
+export async function wakePullRequest(number: number) {
+  const [error] = await sendChannelTrigger('github', 'reviewFeedback', {
+    pullRequest: { repository: 'acme/app', number },
+    id: `wake:${number}:${new Date().toISOString().slice(0, 10)}`,
+    body: 'Rebase on main and fix the failing checks.',
+  })
+  if (error) throw error
+}
+```
+
+- The send waits for the pull request's queue slot, like a webhook delivery, so it does not run next to an Agent run of the same pull request.
+- `invoke` gets `event: 'server'`, `body` from the send, and the `pullRequest` that ViteHub reads from GitHub when the slot is free. `filter`, `events`, `mentions`, and `debounceMs` do not apply, because the send names the trigger.
+- The delivery ID is `<trigger>:<id>`. A second send with the same `id` is a duplicate and returns `queued: false`. Without `id`, every send runs.
+- With `pullRequest.reconcile`, the send follows the branch rules of a queued webhook run. A close while it waits or runs stops it. A push by a person while it waits adds a notice to the prompt, or drops it with `headMoves: 'cancel'`, and a push while it runs stops it with `headMoves: 'cancel'`.
+- A closed pull request finishes with `ignored('pull_request_closed')`, at the send and again when the slot is free. Input without an `owner/repo` repository and a positive `number` returns `CHANNEL_TRIGGER_FAILED` with the cause `AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID`.
+
 The Channel delivery record of each delivery shows what the trigger did. `trigger.started` names the `trigger`. `trigger.completed` has `outcome: 'response'` with the `status` and `reason` of the answer, or `outcome: 'input'` when the Agent starts. `trigger.failed` has the `error`. A delivery that no trigger matches ends with a `completed` event whose `reason` says why, such as `not_command` or `filtered`.
 
 ### Pull request Workspace

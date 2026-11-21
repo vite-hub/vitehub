@@ -2086,6 +2086,9 @@ async function executeQueuedWebhookDelivery(
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
+        // A GitHub pull request trigger sent from server code tracks its run in `prepare`. Releasing any other signal
+        // does nothing.
+        reconcileSignal ??= prepared.input.abortSignal
         if (prepared.agent) executionAgent = prepared.agent
       }
     }
