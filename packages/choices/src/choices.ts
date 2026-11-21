@@ -236,9 +236,10 @@ function readSelection(answers: AskAnswers<AskQuestions>, groups: readonly Loade
       if (typeof answer !== "object" || answer.type !== "choice") return [fail("DECISIONS_R0006", `The model did not answer the group "${group.key}".`)]
       const byLabel = new Map(group.options.map(option => [option.label, option.value]))
       const ranked = [...byLabel].map(([label, value]) => ({ probability: probability(Reflect.get(answer.probabilities, label)), value })).sort((a, b) => b.probability - a.probability)
-      const best = ranked[0]
       const chosen = answer.choice === noneLabel ? undefined : byLabel.get(answer.choice)
-      selection[group.key] = { confidence: probability(answer.confidence), ranked, value: chosen !== undefined && best && probability(Reflect.get(answer.probabilities, answer.choice)) >= threshold ? chosen : null }
+      const chance = probability(Reflect.get(answer.probabilities, answer.choice))
+      // Not `answer.confidence`: Jev gives a margin over the other labels, and it can be the margin of "(none)".
+      selection[group.key] = chosen !== undefined && chance >= threshold ? { confidence: chance, ranked, value: chosen } : { confidence: 0, ranked, value: null }
       continue
     }
     const include: ChoiceValue[] = []

@@ -80,6 +80,8 @@ export default defineConfig({
       "src/operations.ts",
       "src/page.ts",
       "src/invocations/index.ts",
+      // `vitehub agent emulator` loads only this entry, so it runs without a project or Agent config.
+      "src/internal/agent-emulator-cli.ts",
       // `vitehub agent invocations` loads only this entry, so it runs where `vite` is not installed.
       "src/internal/agent-invocations-cli.ts",
       // `vitehub agent state migrate` loads only this entry, for the same reason.

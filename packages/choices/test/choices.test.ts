@@ -37,10 +37,34 @@ describe("defineChoices().resolve()", () => {
     expect(selection?.supplier.include).toEqual(["S2"])
   })
 
+  it("sets confidence to the probability of value, not the gateway's margin", async () => {
+    const [, selection] = await forecast().resolve("show bar for nord parts")
+    expect(selection?.chart).toMatchObject({ confidence: 0.8, value: "bar" })
+    expect(selection?.chart.ranked[0]).toEqual({ probability: 0.8, value: "bar" })
+  })
+
   it("returns an empty selection when the text names nothing but is supported", async () => {
     const [error, selection] = await forecast().resolve("something else")
     expect(error).toBeUndefined()
     expect(selection).toMatchObject({ chart: { value: null }, supplier: { exclude: [], include: [] } })
+  })
+
+  it("sets confidence to 0 when the model chooses \"(none)\"", async () => {
+    const [, selection] = await forecast().resolve("something else")
+    // The gateway is sure of "(none)", but "(none)" is not an option, so nothing has a probability to report.
+    expect(selection?.chart).toMatchObject({ confidence: 0, value: null })
+    expect(selection?.chart.ranked.map(item => item.value).sort()).toEqual(["bar", "line"])
+  })
+
+  it("sets confidence to 0 when the chosen option is below the threshold", async () => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] } },
+      thresholds: { option: 0.95 },
+    })
+    const [, selection] = await choices.resolve("bar")
+    expect(selection?.chart).toMatchObject({ confidence: 0, value: null })
+    expect(selection?.chart.ranked[0]).toEqual({ probability: 0.8, value: "bar" })
   })
 
   it("returns DECISIONS_R0004 when the model says the options cannot express the text", async () => {
@@ -135,7 +159,8 @@ describe("defineChoices() with a model", () => {
 
     const [error, selection] = await inbox.resolve("the queue tab crashes")
     expect(error).toBeUndefined()
-    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.8, 5), value: "console" })
+    // The model says 0.9 for Console. The selection reports that probability, not the 0.8 margin over Docs.
+    expect(selection?.project).toMatchObject({ confidence: expect.closeTo(0.9, 5), value: "console" })
     expect(JSON.stringify(prompts[0])).toContain("Console: Runs, queues, and logs.")
   })
 
@@ -183,7 +208,7 @@ describe("defineChoices() with infer", () => {
 
   it("keeps a weak guess out of value but ranks it", async () => {
     const [, selection] = await router().resolve("hello")
-    expect(selection?.project.value).toBeNull()
+    expect(selection?.project).toMatchObject({ confidence: 0, value: null })
     expect(selection?.project.ranked[0]).toEqual({ probability: 0.4, value: "scratch" })
   })
 

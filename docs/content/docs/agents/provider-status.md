@@ -15,6 +15,12 @@ The Console shows status on Usage, from the `status.get` operation of the Consol
 
 A result has `agent`, `provider`, `checkedAt`, `stale`, `installed`, `authenticated`, `readiness`, and optional subscription `usageLimits`. When the provider gives authoritative evidence, it also has `modelCompatibility` for the configured model and `workspaceCapacity` for workspace or project spending capacity. Quota windows hold percentages and reset times, not money costs.
 
+When `VITEHUB_MODELS=emulate` is set, the check does not call `status()` and reads no credentials. It applies the Driver rules of the [AI emulator](/docs/agents/agent-drivers#run-on-the-ai-emulator) to the Agent definition:
+
+- `ready` with `emulated: { url }`: a model Driver with a model ID, or Codex without Capability tools and without a Sandbox.
+- `unavailable` with `code`: a Driver that an Invocation rejects, such as Jev questions (`AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`), Claude Code, Codex with Capability tools or a Sandbox, a model object from an AI SDK provider, or any Agent when `NODE_ENV` is `production`.
+- `unknown`: a Driver that the definition alone cannot judge, such as a `run` Driver, a model resolver, or Codex with tools that resolve in an Invocation.
+
 Each check is:
 
 - `ready`: the executable, authentication, and available quota passed.
