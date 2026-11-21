@@ -1,3 +1,5 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { KVPageOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -88,7 +90,8 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
   let sweeping = false
-  let sweepWarned = false
+  /** The sweep failed and has not run since. A streak of failures logs once. */
+  let sweepFailing = false
 
   async function ready(): Promise<KVSqlClient> {
     pending ??= (async () => {
@@ -134,7 +137,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   /**
    * Deletes expired rows of this namespace in background batches. A full batch lets the next write sweep again;
    * otherwise cleanup waits a minute. Reads already skip expired rows. A failed sweep, for example on a lock
-   * timeout, does not fail the write that runs it. It warns once and runs again a minute later.
+   * timeout, does not fail the write that runs it. It runs again a minute later, and a streak of failures logs once.
    */
   async function sweep(): Promise<void> {
     if (sweeping || Date.now() - sweptAt < sweepIntervalMs) return
@@ -146,11 +149,17 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const rows = await query(`delete from ${table} where (namespace, "key") in (
         select namespace, "key" from ${table} where namespace = ? and expires_at <= {now} limit ${sweepBatchSize}${lock}
       ) returning 1`, [namespace])
+      sweepFailing = false
       if (rows.length === sweepBatchSize) sweptAt = 0
     }
     catch (error) {
-      if (!sweepWarned) console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
-      sweepWarned = true
+      if (!sweepFailing) {
+        // A write starts the sweep in the background, after its request may have answered. No `waitUntil()` reaches it.
+        logFailure({ field: "kv", fields: { op: "expiry-sweep", driver: "database", namespace }, message: "KV could not delete expired rows", error }, () => {
+          console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
+        })
+      }
+      sweepFailing = true
     }
     finally {
       sweeping = false

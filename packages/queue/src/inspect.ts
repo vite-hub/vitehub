@@ -5,6 +5,7 @@ import { getCloudflareQueueBindingName } from "./integrations/cloudflare.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
 import type { CollectedQueueContribution } from "./contributions.ts"
+import type { DiscoveredQueueDefinition } from "./types.ts"
 import type { ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 
@@ -17,8 +18,7 @@ export interface QueueInspectionOptions {
 }
 
 /** Summarizes discovered Queue Definitions for the CLI and Console. */
-export function inspectQueueDefinitions(options: QueueInspectionOptions): ViteHubDefinitionSummary[] {
-  const definitions = discoverQueueDefinitions({ contributions: options.contributions, rootDir: options.rootDir, serverDirs: options.serverDirs })
+export function inspectQueueDefinitions(options: QueueInspectionOptions, definitions: readonly DiscoveredQueueDefinition[] = discoverQueueDefinitions(options)): ViteHubDefinitionSummary[] {
   return summarizeDefinitions(options.projectRoot, definitions, "queue").map((summary, index) => {
     const { contributor, reason } = definitions[index]!
     if (!contributor) return summary
@@ -27,8 +27,8 @@ export function inspectQueueDefinitions(options: QueueInspectionOptions): ViteHu
 }
 
 /** Lists the Cloudflare Queues that Queue Definitions bind by name. Reads local files only. */
-export function inspectQueueResources(options: QueueInspectionOptions & { binding?: string, namePrefix?: string }): ViteHubResourceSummary[] {
-  return discoverQueueDefinitions({ contributions: options.contributions, rootDir: options.rootDir, serverDirs: options.serverDirs }).map(definition => ({
+export function inspectQueueResources(options: QueueInspectionOptions & { binding?: string, namePrefix?: string }, definitions: readonly DiscoveredQueueDefinition[] = discoverQueueDefinitions(options)): ViteHubResourceSummary[] {
+  return definitions.map(definition => ({
     binding: options.binding ?? getCloudflareQueueBindingName(definition.name),
     definition: definition.name,
     host: "cloudflare",

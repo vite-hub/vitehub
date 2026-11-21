@@ -27,15 +27,16 @@ It needs the AI SDK provider package of its model API. The `api` option selects 
 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
-| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
-The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need.
+The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need. `openai()` uses `@ai-sdk/openai` for both, so an OpenAI app installs only that package.
 
 - The gateway rereads its URL, key, and headers per request, so a rotated key applies at once.
 - `languageModel()` reads `process.env`, like a direct `ask()` call. Pass `fetch` for a custom implementation.
-- Put `providerOptions` under the name the API reads: the gateway name for `'chat'` (such as `{ openrouter: { ... } }`), `openai` for `'responses'`, and `anthropic` for `'messages'`.
+- Put `providerOptions` under the gateway name for compatible Chat (such as `{ openrouter: { ... } }`), `openai` for `openai()` Chat and Responses, and `anthropic` for Messages. Compatible Chat passes request fields to the gateway. `openai()` Chat reads native SDK options and still sends raw Chat Completions fields such as `parallel_tool_calls`. A raw field takes precedence over its SDK option.
+- `openai()` Chat keeps JSON mode for schema output, so `ask()` validates the result locally and accepts schemas with optional fields.
 
 ## Get typed data from a model
 
@@ -145,6 +146,32 @@ if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 ```
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
+### Test without a key
+
+`scriptedAsk(script)` from `vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. Build the answers with `answers`, so they pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from 'vite-hub/gateways'
+import { answers, scriptedAsk } from 'vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+calls[0]?.state // 'MERCADONA 23.10 -34.90 EUR'
+```
+
+| Helper | Answer |
+| --- | --- |
+| `answers.choice(question, label, probability?)` | `label` gets `probability` (default `1`), and the other labels share the rest. The chosen label must tie for or have the highest probability. |
+| `answers.score(question, level, probability?)` | `level` gets `probability` (default `1`), with the `score`, `ratio`, and `legend` that Jev returns. |
+| `answers.chance(probability)` | `{ chance }`. |
+| `answers.first(question)` | The first label, level `0`, or yes. |
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option, zero by default. Pass `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` to return a rejected key or a failing provider instead, with the same public message as a real gateway.
 
 ## Custom gateways
 

@@ -31,6 +31,7 @@ import {
   resolveChatSessionId,
   resolveChatTriggerHistory,
   uiMessagesToAgentMessages,
+  withDriverTriggerHistoryDefaults,
 } from "../chat-message-input.ts"
 import { channelDeliveryFinishEffectsContextKey, normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -201,6 +202,7 @@ import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding }
 import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
 import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
+import { chatStateAgentPrefix, chatStateChannelPrefix, chatStateScopedKey } from "../internal/chat-state-scope.ts"
 
 const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
 const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
@@ -613,6 +615,9 @@ function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   return normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
 }
 
+// The Driver kind that defineAgent() stores on each Agent Definition.
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   if (!isRecord(agent)) return undefined
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -622,12 +627,16 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
 }
 
 function getChannelChatOptions(agent: unknown, channelId: string | undefined, options: AgentChatOptions | undefined): AgentChatOptions | undefined {
-  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
+  const driverKind = isRecord(agent) ? Reflect.get(agent, baseAgentDriverKind) : undefined
+  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const channel = agent.channels[channelId]
-  if (!isRecord(channel)) return options
+  if (!isRecord(channel)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const merged = isRecord(channel.messages) ? { ...options, ...channel.messages } : options
   // `channels.<name>.transcripts` sets the transcripts of this Channel only.
-  return channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] }
+  return withDriverTriggerHistoryDefaults(
+    channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] },
+    driverKind,
+  )
 }
 
 /**
@@ -2078,6 +2087,9 @@ async function executeQueuedWebhookDelivery(
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
+        // A GitHub pull request trigger sent from server code tracks its run in `prepare`. Releasing any other signal
+        // does nothing.
+        reconcileSignal ??= prepared.input.abortSignal
         if (prepared.agent) executionAgent = prepared.agent
       }
     }
@@ -3310,7 +3322,7 @@ function getInMemoryChatState(key: string): StateAdapter {
 }
 
 function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPrefix: string): StateAdapter {
-  const key = (value: string) => `${value.startsWith("transcripts:user:") ? agentPrefix : channelPrefix}${value}`
+  const key = (value: string) => chatStateScopedKey(value, agentPrefix, channelPrefix)
   const lock = (value: Lock) => ({ ...value, threadId: key(value.threadId) })
   const scoped: StateAdapter & { durable: boolean } = {
     durable: isDurableAgentState(state),
@@ -3352,6 +3364,16 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   if (typeof leaseState.mutateWithLock === "function") {
     Object.assign(scoped, {
       mutateWithLock: (held: Lock, mutations: readonly AgentStateCacheMutation[]) => leaseState.mutateWithLock!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) }))),
+      ...(typeof leaseState.acquireLockWith === "function" ? {
+        acquireLockWith: async (threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) => {
+          const result = await leaseState.acquireLockWith!.call(state, key(threadId), ttlMs, mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key))
+          return { ...result, lock: result.lock ? { ...result.lock, threadId } : null }
+        },
+      } : {}),
+      ...(typeof leaseState.releaseLockWith === "function" ? {
+        releaseLockWith: (held: Lock, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) =>
+          leaseState.releaseLockWith!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key)),
+      } : {}),
       ...(typeof leaseState.forCacheLocks === "function" ? {
         forCacheLocks: () => requireAtomicAgentStateLock(withChatStateScope(leaseState.forCacheLocks!.call(state), channelPrefix, agentPrefix)),
       } : {}),
@@ -3381,8 +3403,8 @@ async function resolveChatState(
 ): Promise<{ state: StateAdapter; titleKeyPrefix: string }> {
   const agentName = routeAgentIdentity(handlerOptions)?.name || context.agentIdentity?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
-  const agentKeyPrefix = `chat:${agentName}:`
-  const stateKeyPrefix = `${agentKeyPrefix}${origin}:`
+  const agentKeyPrefix = chatStateAgentPrefix(agentName)
+  const stateKeyPrefix = chatStateChannelPrefix(agentName, origin)
   const state = await resolveMaybe(
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
@@ -6749,7 +6771,7 @@ async function handleChatSdkMessage(
       let workflowRunContext = runContext
       let workflowSettlementError: DurableSteerQueueMessage["settlementError"]
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
-      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
+      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput, run?.messageId)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
         capabilities: workflowCapabilities,
         input: workflowInput,

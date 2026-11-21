@@ -197,6 +197,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
     },
+    DATABASE_MIGRATION_CONVERSION_FAILED: {
+      why: ({ problem }: { problem: string }) => `ViteHub could not convert the old migration layout. ${problem}`,
+      fix: "Fix the problem above and run `vitehub database up` again. Keep the file names and journal timestamps of applied migrations. If the history cannot be converted, move it to the Drizzle Kit 1.0 layout manually and verify it on a copy of the database before migrating.",
+    },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
@@ -206,8 +210,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Fix the SQL of the migration, or the data that it conflicts with, and apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node host and a `file:` or Postgres connection URL. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files, Cloudflare D1 over HTTP, and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node host and a `file:` or Postgres connection URL, or `cloudflare.http`. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
     },
     DATABASE_MIGRATION_BACKUP_FAILED: {
       why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
@@ -301,6 +305,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding, first, kind, second }: { binding: string, first: string, kind: "D1" | "Hyperdrive", second: string }) => `${first} and ${second} use the same Cloudflare ${kind} binding "${binding}".`,
       fix: "Set `cloudflare.binding` to a different name for each Database Definition.",
     },
+    DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED: {
+      why: ({ databases, missing, restore }: { databases: readonly string[], missing: readonly string[], restore: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList([...missing, ...restore.map(file => `the SQL file ${file}`)])}\nRequests that use them could fail after the deploy.`,
+      fix: ({ missing, restore }: { missing: readonly string[], restore: readonly string[] }) => [
+        restore.length ? "Restore the missing `migration.sql` files from the original migrations and commit them." : "",
+        missing.length ? "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy." : "",
+        "Then build again.",
+      ].filter(Boolean).join(" "),
+    },
     DATABASE_DUPLICATE_DEFINITION: {
       why: ({ database, files }: { database: string, files: readonly string[] }) => `${database === "default" ? "Only one default Database Definition is allowed." : `Only one definition is allowed for the database "${database}".`}${fileList(files)}`,
       fix: "Remove one of the definitions, or give it another name.",
@@ -371,8 +383,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass `defineRelations()` the same table objects that the schema of the database holds. When a layer replaces a table, define the relations of that table in the same layer.",
     },
     DATABASE_MIGRATIONS_OLD_LAYOUT: {
-      why: ({ database, dir }: { database?: string, dir: string }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} use the layout of Drizzle Kit 0.x, with \`meta/_journal.json\`. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
-      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied.",
+      why: ({ database, dir, layout }: { database?: string, dir: string, layout: "journal" | "flat" }) => `${database ? `The migrations of the database "${database}" in ` : ""}${dir} ${layout === "journal" ? "use the layout of Drizzle Kit 0.x, with `meta/_journal.json`" : "are flat `.sql` files, as Wrangler writes them"}. Drizzle Kit 1.0 and ViteHub read one \`<timestamp>_<name>/migration.sql\` folder per migration.`,
+      fix: "Run `vitehub database up` once to convert the folder, then commit the new folders. Applied migrations stay applied, and D1 keeps the file names that Wrangler applied.",
     },
     DATABASE_RESERVED_SCHEMA_KEY: {
       why: ({ key, owner }: { key: string, owner: string }) => `${owner} uses the reserved schema key "${key}".`,

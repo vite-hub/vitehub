@@ -614,6 +614,59 @@ describe("resolveAuthViteConfig", () => {
     })
   })
 
+  it("reads the plugins that a local module of the Definition calls", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "src/server/auth-plugins.ts", [
+      "import { stripe } from '@better-auth/stripe'",
+      "import { jwt } from 'better-auth/plugins'",
+      "export { twoFactorPlugins } from './two-factor'",
+      "export function authPlugins(stripeClient) {",
+      "  return [jwt(), stripe({ stripeClient, stripeWebhookSecret: '' })]",
+      "}",
+    ])
+    await writeAuthSource(rootDir, "src/server/two-factor.ts", [
+      "import { twoFactor } from 'better-auth/plugins'",
+      "export const twoFactorPlugins = () => [twoFactor()]",
+    ])
+    await writeAuthSource(rootDir, "src/server/types.ts", [
+      "import { username } from 'better-auth/plugins'",
+      "export const unused = () => username()",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import type { Plan } from '../src/server/types.ts'",
+      "import { authPlugins, twoFactorPlugins } from '../src/server/auth-plugins.ts'",
+      "export default defineAuth(({ env }) => ({",
+      "  database: authDatabase(),",
+      "  plugins: [...authPlugins(env.stripe), ...twoFactorPlugins()],",
+      "}))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
+  })
+
+  it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins/index.mjs", [
+      "import { twoFactor, username } from 'better-auth/plugins'",
+      "import { keys } from '../keys.js'",
+      "const secondFactor = () => twoFactor()",
+      "export const accountProtection = () => [secondFactor(), ...keys()]",
+      "export const loginByUsername = () => [username()]",
+    ])
+    await writeAuthSource(rootDir, "server/keys.tsx", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export const keys = () => [apiKey()]",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { accountProtection } from './plugins'",
+      "export default defineAuth({ database: authDatabase(), plugins: accountProtection() })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["apiKey", "twoFactor"] } })
+  })
+
   it.each([
     ["{ database: authDatabase(), user: { additionalFields: profileFields } }", /user.additionalFields must be an inline object literal/],
     ["{ database: authDatabase(), user: { additionalFields: { plan: planField } } }", /user.additionalFields.plan must be an inline object/],

@@ -47,12 +47,6 @@ export interface AuthTableSpec {
   unique?: readonly (readonly string[])[]
 }
 
-const requiredString = { type: "string", required: true } as const
-const optionalString = { type: "string" } as const
-const optionalDate = { type: "date" } as const
-const optionalBoolean = { type: "boolean" } as const
-const userReference = { model: "user", field: "id", onDelete: "cascade" } as const
-
 // A plain literal, so that `AuthSqliteSchema` and `AuthPostgresSchema` can type each column from it.
 const coreTableSpecs = {
   user: {
@@ -318,65 +312,61 @@ interface AuthPluginSchema {
   tables?: Readonly<Record<string, AuthTableSpec>>
 }
 
-/**
- * The tables and columns of each plugin of `AuthSchemaPlugin`, with all of its options on: a column or table that the
- * options turn off stays empty. A test checks the plugins of `better-auth/plugins` against Better Auth's own
- * `getAuthTables()`. `apiKey()` and `stripe()` are copied from `@better-auth/api-key` and `@better-auth/stripe` 1.7.
- */
-export const authPluginSchemas: Readonly<Record<AuthSchemaPlugin, AuthPluginSchema>> = {
+// A plain literal, so that `createAuthSqliteSchema()` and `createAuthPostgresSchema()` can type the plugin columns.
+const pluginSchemas = {
   anonymous: { fields: { user: { isAnonymous: { type: "boolean", defaultValue: false } } } },
   apiKey: {
     tables: {
       apikey: {
         fields: {
           configId: { type: "string", required: true, index: true, defaultValue: "default" },
-          name: optionalString,
-          start: optionalString,
+          name: { type: "string" },
+          start: { type: "string" },
           referenceId: { type: "string", required: true, index: true },
-          prefix: optionalString,
+          prefix: { type: "string" },
           key: { type: "string", required: true, index: true },
           refillInterval: { type: "number", bigint: true },
           refillAmount: { type: "number" },
-          lastRefillAt: optionalDate,
+          lastRefillAt: { type: "date" },
           enabled: { type: "boolean", defaultValue: true },
           rateLimitEnabled: { type: "boolean", defaultValue: true },
           rateLimitTimeWindow: { type: "number", bigint: true, defaultValue: 86_400_000 },
           rateLimitMax: { type: "number", defaultValue: 10 },
           requestCount: { type: "number", defaultValue: 0 },
           remaining: { type: "number" },
-          lastRequest: optionalDate,
-          expiresAt: optionalDate,
+          lastRequest: { type: "date" },
+          expiresAt: { type: "date" },
           createdAt: { type: "date", required: true },
           updatedAt: { type: "date", required: true },
-          permissions: optionalString,
-          metadata: optionalString,
+          permissions: { type: "string" },
+          metadata: { type: "string" },
         },
       },
     },
   },
-  lastLoginMethod: { fields: { user: { lastLoginMethod: optionalString } } },
-  phoneNumber: { fields: { user: { phoneNumber: { type: "string", unique: true }, phoneNumberVerified: optionalBoolean } } },
+  lastLoginMethod: { fields: { user: { lastLoginMethod: { type: "string" } } } },
+  phoneNumber: { fields: { user: { phoneNumber: { type: "string", unique: true }, phoneNumberVerified: { type: "boolean" } } } },
   stripe: {
-    fields: { user: { stripeCustomerId: optionalString }, organization: { stripeCustomerId: optionalString } },
+    fields: { user: { stripeCustomerId: { type: "string" } }, organization: { stripeCustomerId: { type: "string" } } },
     tables: {
       subscription: {
         fields: {
-          plan: requiredString,
-          referenceId: requiredString,
-          stripeCustomerId: optionalString,
-          stripeSubscriptionId: optionalString,
+          plan: { type: "string", required: true },
+          referenceId: { type: "string", required: true },
+          stripeCustomerId: { type: "string" },
+          stripeSubscriptionId: { type: "string" },
           status: { type: "string", defaultValue: "incomplete" },
-          periodStart: optionalDate,
-          periodEnd: optionalDate,
-          trialStart: optionalDate,
-          trialEnd: optionalDate,
+          periodStart: { type: "date" },
+          periodEnd: { type: "date" },
+          trialStart: { type: "date" },
+          trialEnd: { type: "date" },
           cancelAtPeriodEnd: { type: "boolean", defaultValue: false },
-          cancelAt: optionalDate,
-          canceledAt: optionalDate,
-          endedAt: optionalDate,
+          cancelAt: { type: "date" },
+          canceledAt: { type: "date" },
+          endedAt: { type: "date" },
           seats: { type: "number" },
-          billingInterval: optionalString,
-          stripeScheduleId: optionalString,
+          billingInterval: { type: "string" },
+          stripeScheduleId: { type: "string" },
         },
       },
     },
@@ -387,17 +377,27 @@ export const authPluginSchemas: Readonly<Record<AuthSchemaPlugin, AuthPluginSche
       twoFactor: {
         fields: {
           secret: { type: "string", required: true, index: true },
-          backupCodes: requiredString,
-          userId: { type: "string", required: true, index: true, references: userReference },
+          backupCodes: { type: "string", required: true },
+          userId: { type: "string", required: true, index: true, references: { model: "user", field: "id", onDelete: "cascade" } },
           verified: { type: "boolean", defaultValue: true },
           failedVerificationCount: { type: "number", defaultValue: 0 },
-          lockedUntil: optionalDate,
+          lockedUntil: { type: "date" },
         },
       },
     },
   },
-  username: { fields: { user: { username: { type: "string", unique: true }, displayUsername: optionalString } } },
-}
+  username: { fields: { user: { username: { type: "string", unique: true }, displayUsername: { type: "string" } } } },
+} as const
+
+/** The literal type of `authPluginSchemas`, which types the plugin tables and columns. */
+export type AuthPluginSchemas = typeof pluginSchemas
+
+/**
+ * The tables and columns of each plugin of `AuthSchemaPlugin`, with all of its options on: a column or table that the
+ * options turn off stays empty. A test checks the plugins of `better-auth/plugins` against Better Auth's own
+ * `getAuthTables()`. `apiKey()` and `stripe()` are copied from `@better-auth/api-key` and `@better-auth/stripe` 1.7.
+ */
+export const authPluginSchemas: Readonly<Record<AuthSchemaPlugin, AuthPluginSchema>> = pluginSchemas
 
 /** What an Auth Definition adds to the tables of `authDatabase()`. The Auth Vite plugin reads it from the Definition. */
 export interface AuthSchemaOptions {

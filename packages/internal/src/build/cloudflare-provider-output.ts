@@ -37,7 +37,11 @@ function cloneProviderValue(value: unknown): unknown {
   return value
 }
 
-function compatibleEntries<T extends Record<string, unknown>>(existing: unknown, incoming: T[] | undefined, identityKey: keyof T & string, conflictKeys: Array<keyof T & string>, owner: string): T[] {
+/**
+ * The incoming entries that the app config does not have yet. An entry that the app already has must agree on
+ * `conflictKeys`, and on each of `setKeys` that the incoming entry sets, because the app's entry is the one that stays.
+ */
+function compatibleEntries<T extends Record<string, unknown>>(existing: unknown, incoming: T[] | undefined, identityKey: keyof T & string, conflictKeys: Array<keyof T & string>, owner: string, setKeys: Array<keyof T & string> = []): T[] {
   const current = Array.isArray(existing) ? existing.map(cloneProviderRecord) : []
   return (incoming ?? []).filter((entry) => {
     const identity = entry[identityKey]
@@ -48,6 +52,10 @@ function compatibleEntries<T extends Record<string, unknown>>(existing: unknown,
     }
     if (conflictKeys.some((key) => !isDeepStrictEqual(match[key], entry[key]))) {
       throw internalErrorDiagnostics.INTERNAL_B0001({ message: `[vitehub] Cloudflare ${identityKey} ${JSON.stringify(identity)} from ${owner} is already assigned to an incompatible resource.` })
+    }
+    const differentKey = setKeys.find(key => entry[key] !== undefined && !isDeepStrictEqual(match[key], entry[key]))
+    if (differentKey) {
+      throw internalErrorDiagnostics.INTERNAL_B0001({ message: `[vitehub] The Cloudflare ${identityKey} ${JSON.stringify(identity)} in the app's Wrangler config has ${differentKey} ${JSON.stringify(match[differentKey]) ?? "unset"}, but ${owner} sets ${JSON.stringify(entry[differentKey])}. Remove the entry from the Wrangler config, because ViteHub writes it, or give it the same value.` })
     }
     return false
   })
@@ -108,7 +116,7 @@ function mergeContribution(wrangler: Record<string, unknown>, owner: string, con
   const queues = cloneProviderRecord(wrangler.queues)
   const secrets = cloneProviderRecord(wrangler.secrets)
   const environments = cloneProviderRecord(wrangler.env)
-  const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner)
+  const consumers = compatibleEntries(queues.consumers, contribution.queues?.consumers, "queue", [], owner, ["max_batch_size"])
   const producers = compatibleEntries(queues.producers, contribution.queues?.producers, "binding", ["queue"], owner)
   const r2Buckets = compatibleEntries(wrangler.r2_buckets, contribution.r2Buckets, "binding", ["bucket_name", "jurisdiction"], owner)
   const rateLimits = compatibleEntries(wrangler.ratelimits, contribution.rateLimits, "name", ["namespace_id", "simple"], owner)

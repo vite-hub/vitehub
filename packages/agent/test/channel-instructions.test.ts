@@ -10,7 +10,7 @@ import { bindMessageChannelInstructions, inheritMessageChannelInstructions, mark
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 import { createMessage } from "../src/messages.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
-import { createExecutionBudget } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
 
 import type { AgentRuntimeContext } from "../src/index.ts"
 

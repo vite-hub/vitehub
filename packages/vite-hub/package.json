@@ -1,6 +1,6 @@
 {
   "name": "vite-hub",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
@@ -56,11 +56,6 @@
       "types": "./dist/agent/capabilities.d.ts",
       "import": "./dist/agent/capabilities.js",
       "default": "./dist/agent/capabilities.js"
-    },
-    "./agent/channels": {
-      "types": "./dist/agent/channels.d.ts",
-      "import": "./dist/agent/channels.js",
-      "default": "./dist/agent/channels.js"
     },
     "./agent/cloudflare": {
       "types": "./dist/agent/cloudflare.d.ts",
@@ -252,6 +247,11 @@
       "import": "./dist/channels.js",
       "default": "./dist/channels.js"
     },
+    "./channels/adapters": {
+      "types": "./dist/channels/adapters.d.ts",
+      "import": "./dist/channels/adapters.js",
+      "default": "./dist/channels/adapters.js"
+    },
     "./channels/server": {
       "types": "./dist/channels/server.d.ts",
       "import": "./dist/channels/server.js",
@@ -266,6 +266,11 @@
       "types": "./dist/choices/vue.d.ts",
       "import": "./dist/choices/vue.js",
       "default": "./dist/choices/vue.js"
+    },
+    "./choices/testing": {
+      "types": "./dist/choices/testing.d.ts",
+      "import": "./dist/choices/testing.js",
+      "default": "./dist/choices/testing.js"
     },
     "./cms": {
       "types": "./dist/cms.d.ts",
@@ -542,6 +547,11 @@
       "import": "./dist/gateways/ai-sdk.js",
       "default": "./dist/gateways/ai-sdk.js"
     },
+    "./gateways/testing": {
+      "types": "./dist/gateways/testing.d.ts",
+      "import": "./dist/gateways/testing.js",
+      "default": "./dist/gateways/testing.js"
+    },
     "./i18n": {
       "types": "./dist/i18n.d.ts",
       "import": "./dist/i18n.js",
@@ -797,6 +807,11 @@
       "import": "./dist/ui/markdown-editor.js",
       "default": "./dist/ui/markdown-editor.js"
     },
+    "./ui/motion": {
+      "types": "./dist/ui/motion.d.ts",
+      "import": "./dist/ui/motion.js",
+      "default": "./dist/ui/motion.js"
+    },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",
       "import": "./dist/ui/vite.js",
@@ -978,6 +993,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./logs/client": {
+      "types": "./dist/logs/client.d.ts",
+      "import": "./dist/logs/client.js",
+      "default": "./dist/logs/client.js"
     }
   },
   "scripts": {
@@ -1120,7 +1140,7 @@
     "yjs": "catalog:realtime"
   },
   "peerDependencies": {
-    "@ai-sdk/provider": "catalog:ai",
+    "@ai-sdk/provider": "^4.0.24",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/lib-storage": "^3.700.0",
     "@aws-sdk/s3-presigned-post": "^3.700.0",

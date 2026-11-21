@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { readdir } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
@@ -9,6 +9,25 @@ import type { ProvisionProvider, ProvisionStep } from "./provision.ts"
 
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { isPlainObject } from "./object.ts"
+
+/** Validate an explicit `--url` before sending a Console request. The caller adds the RPC path. */
+export function appUrlError(url: string): string | undefined {
+  let base: URL
+  try {
+    base = new URL(url)
+  }
+  catch {
+    return "--url must be a URL."
+  }
+  const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+  if (base.protocol !== "https:" && !(local && base.protocol === "http:")) return "--url must use HTTPS, except for localhost."
+  if (base.username || base.password || base.search || base.hash) return "--url must not contain credentials, a query, or a fragment."
+  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
+  if (consolePath) {
+    const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
+    return `--url is the app URL, not the Console URL. Pass --url ${app}.`
+  }
+}
 
 export interface ViteHubCliStreams {
   stderr: { write: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => unknown }
@@ -224,6 +243,32 @@ export function createCliDiscoveryNitroCloser(): { close: () => Promise<void>, p
       name: "vite-hub/cli-discovery-nitro",
       nitro: { setup: nitro => { instances.push(nitro) } },
     },
+  }
+}
+
+/** The inline config of {@link viteCliProjectConfig}. Its plugin is typed structurally, because this package does not depend on Vite. */
+export interface ViteCliProjectConfig {
+  configFile?: string
+  plugins: { config: { handler: (config: { root?: string }) => { root: string }, order: "pre" }, enforce: "pre", name: string }[]
+  root?: string
+}
+
+/** Let Vite load its config normally, without overriding the root declared by the project. */
+export function viteCliProjectConfig(rootDir: string): ViteCliProjectConfig {
+  const configFile = ["js", "mjs", "ts", "cjs", "mts", "cts"]
+    .map(extension => resolve(rootDir, `vite.config.${extension}`))
+    .find(file => existsSync(file))
+  if (!configFile) return { root: rootDir, plugins: [] }
+  return {
+    configFile,
+    plugins: [{
+      name: "vite-hub/cli-discovery-root",
+      enforce: "pre" as const,
+      config: {
+        order: "pre" as const,
+        handler: ({ root }: { root?: string }) => ({ root: resolve(rootDir, root || ".") }),
+      },
+    }],
   }
 }
 
@@ -570,7 +615,11 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   if (!response.ok) {
-    options.stderr.write(`No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
+    // A server error carries its cause, such as an Agent module that does not load.
+    const message = response.status >= 500 ? redactInspectionText((await response.text().catch(() => "")).trim()) : ""
+    options.stderr.write(message
+      ? `The Vite Development Server at ${devServerDisplayUrl(options.serverUrl)} failed with HTTP ${response.status}: ${message}\n`
+      : `No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
     return
   }
   const payload: unknown = await response.json().catch(() => ({}))

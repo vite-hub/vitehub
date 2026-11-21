@@ -159,7 +159,14 @@ changed its files after its checks ran, gets a branch update instead of a merge
 or a model pass. A head that already contains the base tip needs no update. When
 GitHub refuses `update-branch`, as it does for some stacked PRs, the host merges
 the base into a same-repository head branch through `POST /repos/{owner}/{repo}/merges`
-after checking that the head did not move.
+after checking that the head did not move. GitHub refuses App pushes to a fork,
+so a fork PR whose base changed its files, or that needs a retest on the current
+base, is closed and reopened instead, at most hourly. Its `pull_request` workflows
+then run again on the merge with the current base. GitHub lists no pull request on
+a fork's Actions runs, so the host matches the workflow run to the fork branch and
+head, then uses base branch activity before the run was created. Push runs do not
+count. The host records the close first and recovers an interrupted reopen only
+when its own GitHub identity closed the PR.
 
 PRs whose head branch starts with `mainRepairBranchPrefix` still get a repair pass when their failure repeats the base.
 
@@ -184,8 +191,9 @@ pushes to the repository, like pkg.pr.new. Such a check never reports on a fork
 PR's head. When it is missing, the host pushes the head to that branch, once per
 head. A push runs the workflow files of the pushed commit with the repository's
 permissions, so the host first rereads GitHub and pushes only when a reviewer with
-write access approved that exact head, no change request stands, and the head's
-`.github` folder is the same as the base branch's. It moves and deletes only a
+write access approved that exact head, no change request stands, and any local
+action, reusable workflow, or workflow triggered by pushing or creating that
+branch still matches the live base. It moves and deletes only a
 branch it created, and deletes it once the PR closes.
 
 `markDraftsReady` lists GitHub logins, such as maintainers and their bots, whose
@@ -404,7 +412,7 @@ still revoke further repair operations.
 
 ## Babysitter GitHub host
 
-`createGitHubHost()` from `@vite-hub/presets/babysitter/server` is the GitHub host that `createBabysitterRuntime()` takes. Use it to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
+`createGitHubHost()` from `@vite-hub/presets/babysitter/server` is the GitHub host that `createBabysitterRuntime()` takes. Use it to resolve GitHub App or fallback credentials, call GitHub through `@vite-hub/forge`, and run against an exact pull-request head in a temporary checkout. With App credentials, the host commits and comments as the App's bot, such as `my-app[bot]` with its noreply email. The host resolves the identity from the credentials it uses for that repository. Set `identity: { login, email, appId }` only for a token without an App. `withPullRequestCheckout()` uses Git over HTTPS, fetches the source branch directly, verifies the requested head, and removes the checkout contents after success, failure, cancellation, or timeout. Cleanup is best effort and preserves the callback result or error if filesystem discovery or deletion fails. Cleanup retains an empty temporary directory because removing its pathname could delete a concurrent replacement. Checkout and push operations need Git but do not need the GitHub CLI. Include `headRepository` and `headRef` to make an ordinary `git push` target the pull request's source branch. The callback keeps base repository access for reads from `origin`; use its `push()` after long-running work so the host resolves fresh source repository credentials before pushing. Push checks that the repair descends from the last verified head and uses a lease to reject a changed source branch. It returns the pushed SHA and advances the lease for later pushes in the same callback. Pass the Agent Invocation's abort signal and use the callback signal for work inside the checkout:
 
 ```ts fragment
 await github.withPullRequestCheckout(pullRequest, async ({ env, path, push, signal }) => {

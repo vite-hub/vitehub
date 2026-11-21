@@ -13,10 +13,11 @@ import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-opt
 import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
-import { inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
+import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
@@ -407,13 +408,18 @@ interface EmailTemplateTypes {
 }
 
 /** Types each template's `data` from the `data.*` bindings that the template reads. */
-async function renderEmailTemplateTypes(templates: Array<{ name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
+async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
   if (!templates.length) return { modules: "" }
-  const typed = await Promise.all(templates.map(async template => ({
-    ...template,
-    // A template that does not parse fails when it renders, with the error of the renderer. Keep its `data` open here.
-    data: await inferMarkdownTemplateDataType(template.source, "    ").catch(() => ({ required: false, type: "Record<string, unknown>" })),
-  })))
+  const typed = await Promise.all(templates.map(async (template) => {
+    try {
+      const data = await inferMarkdownTemplateDataType(template.source, "    ")
+      await assertNoBindingsInCode(template.source)
+      return { ...template, data }
+    }
+    catch (cause) {
+      throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
+    }
+  }))
   const modules = typed.map(({ data, name }) => [
     `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
     `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
@@ -444,7 +450,9 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
-      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
+      // The entry imports only the template file and `@vite-hub/markdown-template`. Nuxt materializes templates before
+      // it writes the `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir, tsconfig: false })
     }
     finally {
       await rm(entry, { force: true })
@@ -646,6 +654,9 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
           rootDir: config.root,
+          // The entry imports only ViteHub's own modules, and `nuxt prepare` reaches it before Nuxt writes the
+          // `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+          tsconfig: false,
         })
       }
       finally {
@@ -679,7 +690,8 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           }
           catch (error) {
             refreshed = false
-            server.config.logger.error(String(error))
+            const cause = emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID.is(error) ? error.cause : undefined
+            server.config.logger.error(cause === undefined ? String(error) : `${String(error)}\n${formatRuntimeDiagnosticError(cause)}`)
           }
           finally {
             if (!closed) server.watcher.add([...watchFiles])

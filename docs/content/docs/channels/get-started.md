@@ -110,7 +110,8 @@ The Vite terminal prints `[release] Build finished.`, and the response has the r
 Create `server/channels/builds.ts`. A webhook is an HTTP request that a service sends to tell your app about an event:
 
 ```ts [server/channels/builds.ts]
-import { defineChannel, webhook } from 'vite-hub/channels'
+import { defineChannel } from 'vite-hub/channels'
+import { webhook } from 'vite-hub/channels/adapters'
 
 export default defineChannel({
   adapter: webhook<{ id: string }>({ signature: 'bearer', secret: 'BUILDS_WEBHOOK_SECRET' }),

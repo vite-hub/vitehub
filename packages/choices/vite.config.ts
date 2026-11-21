@@ -10,6 +10,6 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/cli.ts", "src/vue.ts"],
+    entry: ["src/index.ts", "src/cli.ts", "src/testing.ts", "src/vue.ts"],
   },
 })

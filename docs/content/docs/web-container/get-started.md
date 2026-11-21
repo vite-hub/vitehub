@@ -21,21 +21,45 @@ pnpm add vite-hub @vite-hub/web-container
 
 A WebContainer needs `SharedArrayBuffer`. The browser gives it only to a page that sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: credentialless`. Send these headers only on the routes that boot a container, so cross-origin embeds like videos keep working on other pages.
 
-Add `hubWebContainer()` to `vite.config.ts`:
+List the pages that boot a container in the `webContainer` option of ViteHub:
 
-```ts [vite.config.ts]
-import { defineConfig } from "vite"
-import { hubWebContainer } from "@vite-hub/web-container/vite"
-
-export default defineConfig({
-  plugins: [hubWebContainer({ routes: ["/playground/**"] })],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: { webContainer: { routes: ["/playground/**"] } },
 })
 ```
+:::
 
-- The plugin sets the headers in `vite dev` and `vite preview`.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from "nitro/vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({ webContainer: { routes: ["/playground/**"] } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vitehub({ webContainer: { routes: ["/playground/**"] } })],
+})
+```
+:::
+::
+
+- ViteHub sends the headers in `vite dev`, in `vite preview`, and from the built server.
 - `/playground` matches that path only. `/playground/**` matches it and every path below it.
-
-Production needs the same headers. [Configure](/docs/web-container/configure#set-the-headers-in-production) shows the Nitro route rules.
+- In Nuxt, a link into or out of these routes loads a new document, because a page keeps the headers it loaded with.
 
 ## Boot the app
 
@@ -84,11 +108,11 @@ To show a notice before the reader starts the app, call `checkWebContainerSuppor
 
 ## In production
 
-The container runs in each reader's tab, so your host only serves the page and static assets. Send the isolation headers on playground routes, and provide a prebuilt [snapshot](/docs/web-container/snapshots) of `node_modules` so containers skip `npm install`.
+The container runs in each reader's tab, so your host only serves the page and static assets. ViteHub sends the isolation headers on the playground routes. Provide a prebuilt [snapshot](/docs/web-container/snapshots) of `node_modules` so containers skip `npm install`.
 
 ::card-group
   :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/web-container/configure"}
-  Set production headers, pass secrets to a process, and describe accounts.
+  Choose the preview port, pass secrets to a process, and describe accounts.
   :::
 
   :::card{title="Skip the install" icon="i-lucide-package" to="/docs/web-container/snapshots"}
