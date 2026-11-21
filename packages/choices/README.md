@@ -39,7 +39,7 @@ const [error, selection] = await forecast.resolve('nord parts except vak supply'
 if (error) return handle(error)
 
 selection.supplier // { include: ['S2'], exclude: ['S1'] }
-selection.chart // { value: null, confidence: 0.9, ranked: [{ value: 'line', probability: 0.5 }, ...] }
+selection.chart // { value: null, confidence: 0, ranked: [{ value: 'line', probability: 0.1 }, ...] }
 ```
 
 `resolve()` returns `[error, data]` and never throws. Definition errors throw when you define the choices.
@@ -64,7 +64,7 @@ options: async ({ tenantId }: { tenantId: string }) => toOptions(await loadSites
 | Option | Meaning |
 | --- | --- |
 | `multiple: true` (default) | Any number of options. The selection is `{ include, exclude }`. |
-| `multiple: false` | At most one option. The selection is `{ value, confidence, ranked }`. `value` is `null` below `thresholds.option`. |
+| `multiple: false` | At most one option. The selection is `{ value, confidence, ranked }`. `confidence` is the probability of `value`. `value` is `null` and `confidence` is `0` below `thresholds.option`. |
 | `hints` | A short note for the model about this group. |
 
 The top-level `hints` apply to every question. Put your domain words there, such as "mtop means Make to order".
@@ -123,7 +123,7 @@ A newer request cancels the older one through `signal`, and the older result nev
 
 ## Test
 
-`@vite-hub/choices/testing` has two gateways that need no key. `selectionGateway(selection)` answers with the selection that you give, by group key and option value, and the answers go through the same checks as a model answer:
+`@vite-hub/choices/testing` has two gateways that need no key. `selectionGateway(selection)` returns the selection that you give, by group key and option value. It validates the values against the loaded groups without applying model thresholds. Leave a group out to select nothing, even when it has `infer: true`:
 
 ```ts fragment
 import { selectionGateway, unsupported } from '@vite-hub/choices/testing'

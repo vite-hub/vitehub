@@ -25,8 +25,12 @@ function invalid(problem: string): Error {
   return gatewayDiagnostics.GATEWAYS_TESTING_ANSWER_INVALID({ problem })
 }
 
+function isProbability(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+}
+
 function checkProbability(helper: string, probability: number): void {
-  if (!Number.isFinite(probability) || probability < 0 || probability > 1) throw invalid(`${helper} got the probability ${probability}. It must be from 0 to 1.`)
+  if (!isProbability(probability)) throw invalid(`${helper} got the probability ${probability}. It must be from 0 to 1.`)
 }
 
 function choice<const T extends AskChoiceCriteria>(question: AskChoiceQuestion<T>, label: keyof T & string, probability?: number): AskChoiceAnswer<T>
@@ -36,8 +40,10 @@ function choice(question: AskQuestion, label: string, probability = 1): AskChoic
   if (!Object.hasOwn(question.criteria, label)) throw invalid(`answers.choice() got the label ${JSON.stringify(label)}. The question has ${Object.keys(question.criteria).map(item => JSON.stringify(item)).join(", ")}.`)
   checkProbability("answers.choice()", probability)
   const labels = Object.keys(question.criteria)
-  const rest = (1 - probability) / (labels.length - 1)
-  return { choice: label, confidence: probability, probabilities: Object.fromEntries(labels.map(item => [item, item === label ? probability : rest])), type: "choice" }
+  const minimum = 1 / labels.length
+  if (probability < minimum) throw invalid(`answers.choice() needs a probability of at least ${minimum} so the chosen label has a highest probability. It got ${probability}.`)
+  const rest = labels.length === 1 ? 0 : probability === minimum ? probability : (1 - probability) / (labels.length - 1)
+  return { choice: label, confidence: probability - rest, probabilities: Object.fromEntries(labels.map(item => [item, item === label ? probability : rest])), type: "choice" }
 }
 
 function score<const T extends AskScoreCriteria>(question: AskScoreQuestion<T>, level: number, probability?: number): AskScoreAnswer<T>
@@ -80,7 +86,7 @@ function first(question: AskQuestion): AskAnswer<AskQuestion> {
 export const answers: {
   /** `{ chance }`, the probability of yes. */
   chance: typeof chance
-  /** `label` gets `probability` (default 1), and the other labels share the rest. */
+  /** `label` gets `probability` (default 1), and the other labels share the rest. The chosen label must tie for or have the highest probability. */
   choice: typeof choice
   /** The first label of a choice or switch question, level 0 of a score question, and yes for chance and if questions. */
   first: typeof first
@@ -93,9 +99,34 @@ function scriptedError(code: NonNullable<ScriptedAskOptions["error"]>): AiGatewa
   return Object.assign(gatewayDiagnostics.GATEWAYS_R0009({ attempts: 3, provider: "scripted", status: 503 }), { providerStatus: 503, status: 502 } as const)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function validAnswer(question: AskQuestion, answer: unknown): boolean {
+  switch (question.type) {
+    case "if": return typeof answer === "boolean"
+    case "switch": return typeof answer === "string" && Object.hasOwn(question.criteria, answer)
+    case "chance": return isRecord(answer) && answer.type === "chance" && isProbability(answer.chance)
+    case "score": {
+      if (!isRecord(answer) || answer.type !== "score" || !isProbability(answer.confidence) || !isProbability(answer.ratio)
+        || typeof answer.score !== "number" || !Number.isFinite(answer.score) || answer.score < 0 || answer.score > question.criteria.length - 1
+        || !isRecord(answer.legend) || !isRecord(answer.probabilities)) return false
+      const { legend, probabilities } = answer
+      return question.criteria.every((_, level) => Object.hasOwn(legend, level) && legend[level] !== undefined && isProbability(probabilities[level]))
+    }
+    case "choice": {
+      if (!hasValidChoiceAnswer(question, answer)) return false
+      // SAFETY: The Jev check validates that `choice` and every probability have the expected types.
+      const { choice, probabilities } = answer as unknown as AskChoiceAnswer
+      return Object.values(probabilities).every(item => item <= probabilities[choice]!)
+    }
+  }
+}
+
 /**
  * A gateway with `ask()` that answers each question with `script(key, question, state)`, so tests need no model or key.
- * It checks the answers as a real gateway does, records each call in `calls`, and calls `onUsage` after each `ask()`.
+ * It checks answers against their questions, records each call in `calls`, and calls `onUsage` after each successful `ask()`.
  *
  * @example
  * const { gateway, calls } = scriptedAsk((key, question) => answers.first(question))
@@ -109,11 +140,14 @@ export function scriptedAsk(script: AskScript, options: ScriptedAskOptions = {})
     const entries = Object.entries(questions).map(([name, question]) => {
       const answer = script(name, question, state)
       if (answer === undefined) throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "missing" })
-      if (question.type === "choice" && !hasValidChoiceAnswer(question, answer)) throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "choice" })
+      if (!validAnswer(question, answer)) {
+        if (question.type === "choice") throw gatewayDiagnostics.GATEWAYS_JEV_RESPONSE_INVALID({ name, problem: "choice" })
+        throw invalid(`scriptedAsk() got an invalid answer for the ${question.type} question ${JSON.stringify(name)}.`)
+      }
       return [name, answer] as const
     })
     askOptions?.onUsage?.({ provider: "scripted", usage: options.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 } })
-    // SAFETY: Each question key has the script's answer, and choice answers pass the Jev distribution check.
+    // SAFETY: Each answer passes the check for its question type and criteria.
     return [undefined, Object.fromEntries(entries) as AskAnswers<typeof questions>]
   }
   return { calls, gateway: { ask } }

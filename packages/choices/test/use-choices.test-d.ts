@@ -22,7 +22,7 @@ describe("useChoices types", () => {
     expectTypeOf<Selection["supplier"]>().toEqualTypeOf<MultipleSelection<"S2">>()
     const choices = useChoices<typeof forecast>({
       onSelect: selection => expectTypeOf(selection.supplier.include).toEqualTypeOf<"S2"[]>(),
-      resolve: async () => ({ chart: { confidence: 1, ranked: [], value: null }, supplier: { exclude: [], include: [] } }),
+      resolve: async () => ({ chart: { confidence: 0, ranked: [], value: null }, supplier: { exclude: [], include: [] } }),
     })
     expectTypeOf(choices.selection.value?.chart.value).toEqualTypeOf<"bar" | "line" | null | undefined>()
   })

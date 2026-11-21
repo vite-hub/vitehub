@@ -2,9 +2,10 @@ import { ask, askWithModel } from "@vite-hub/gateways"
 import { getPublicAiGatewayDiagnostic } from "@vite-hub/gateways/internal"
 
 import { choicesDiagnostics } from "./diagnostics.ts"
-import { attachPlanRequest } from "./plan-request.ts"
+import { resolveSelection } from "./selection-gateway.ts"
 
 import type { AiGatewayAsk, AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
+import type { SelectionGateway } from "./selection-gateway.ts"
 import type {
   ChoiceGroup,
   ChoiceGroups,
@@ -51,6 +52,10 @@ function define(message: string): never {
 
 function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | "DECISIONS_R0006", message: string): ChoicesError {
   return choicesDiagnostics[code]({ message: `[vitehub] ${message}` })
+}
+
+function unsupportedText(): ChoicesError {
+  return fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")
 }
 
 /** Exposes trusted gateway diagnostics while keeping unknown failures in `cause`. */
@@ -237,9 +242,10 @@ function readSelection(answers: AskAnswers<AskQuestions>, groups: readonly Loade
       if (typeof answer !== "object" || answer.type !== "choice") return [fail("DECISIONS_R0006", `The model did not answer the group "${group.key}".`)]
       const byLabel = new Map(group.options.map(option => [option.label, option.value]))
       const ranked = [...byLabel].map(([label, value]) => ({ probability: probability(Reflect.get(answer.probabilities, label)), value })).sort((a, b) => b.probability - a.probability)
-      const best = ranked[0]
       const chosen = answer.choice === noneLabel ? undefined : byLabel.get(answer.choice)
-      selection[group.key] = { confidence: probability(answer.confidence), ranked, value: chosen !== undefined && best && probability(Reflect.get(answer.probabilities, answer.choice)) >= threshold ? chosen : null }
+      const chance = probability(Reflect.get(answer.probabilities, answer.choice))
+      // Not `answer.confidence`: Jev gives a margin over the other labels, and it can be the margin of "(none)".
+      selection[group.key] = chosen !== undefined && chance >= threshold ? { confidence: chance, ranked, value: chosen } : { confidence: 0, ranked, value: null }
       continue
     }
     const include: ChoiceValue[] = []
@@ -274,7 +280,6 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
     const loaded = await loadGroups(base, limits, request?.context)
     if ("error" in loaded) return [loaded.error]
     const plan = buildPlan(trimmed, loaded.groups, hints)
-    attachPlanRequest(plan.state, { context: request?.context, keys: loaded.groups.map(group => group.key) })
     return [undefined, { groups: loaded.groups, plan, text: trimmed }]
   }
 
@@ -288,6 +293,18 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       const request = args[0]
       const [error, prepared] = await prepare(text, request)
       if (error) return [error]
+      const scripted = (asker as Partial<SelectionGateway>)[resolveSelection]
+      if (scripted) {
+        try {
+          request?.signal?.throwIfAborted()
+          const selection = await scripted(prepared.plan.state, prepared.groups.map(group => group.key), request?.context)
+          // SAFETY: The testing gateway validates the scripted values against the loaded groups.
+          return selection ? [undefined, selection as ChoicesSelection<TGroups>] : [unsupportedText()]
+        }
+        catch (cause) {
+          return [gatewayFailed(cause)]
+        }
+      }
       let answers: AskAnswers<AskQuestions> = {}
       // Every group can be answered without the model, such as an infer group with one option.
       if (Object.keys(prepared.plan.questions).length) {
@@ -304,7 +321,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (needsSupported(prepared.groups)) {
         const supported = answers.supported
         if (typeof supported !== "object" || supported.type !== "chance") return [fail("DECISIONS_R0006", "The model did not answer the supported check.")]
-        if (probability(supported.chance) < thresholds.supported) return [fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")]
+        if (probability(supported.chance) < thresholds.supported) return [unsupportedText()]
       }
       const [readError, selection] = readSelection(answers, prepared.groups, thresholds.option)
       if (readError) return [readError]

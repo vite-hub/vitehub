@@ -166,7 +166,7 @@ calls[0]?.state // 'MERCADONA 23.10 -34.90 EUR'
 
 | Helper | Answer |
 | --- | --- |
-| `answers.choice(question, label, probability?)` | `label` gets `probability` (default `1`), and the other labels share the rest. |
+| `answers.choice(question, label, probability?)` | `label` gets `probability` (default `1`), and the other labels share the rest. The chosen label must tie for or have the highest probability. |
 | `answers.score(question, level, probability?)` | `level` gets `probability` (default `1`), with the `score`, `ratio`, and `legend` that Jev returns. |
 | `answers.chance(probability)` | `{ chance }`. |
 | `answers.first(question)` | The first label, level `0`, or yes. |

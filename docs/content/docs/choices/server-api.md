@@ -135,7 +135,7 @@ pnpm vitehub choices run server/utils/forecast-choices.ts "nord parts" --inspect
 
 `vite-hub/choices/testing` has two gateways that need no key. Pass one as the `gateway` of `defineChoices()`.
 
-`selectionGateway(selection)` answers with the selection that you give, by group key and option value. The answers go through the same checks as a model answer, so `resolve()` returns what your code would get:
+`selectionGateway(selection)` returns the selection that you give, by group key and option value. It validates values against the loaded groups without applying model thresholds. Leave a group out to select nothing, even when it has `infer: true`:
 
 ```ts [forecast.test.ts]
 import { defineChoices } from 'vite-hub/choices'

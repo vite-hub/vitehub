@@ -88,7 +88,7 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     GATEWAYS_TESTING_ANSWER_INVALID: {
       why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
-      fix: "Pass `answers.choice()` a choice question and one of its labels, `answers.score()` a score question and a level from 0, and a probability from 0 to 1.",
+      fix: "Return an answer for the question's type. With `answers.choice()`, give the chosen label a highest probability. With `answers.score()`, use a level from 0 to the last index.",
     },
   },
 })

@@ -23,7 +23,7 @@ describe("scriptedAsk()", () => {
     const [error, output] = await gateway.ask("Pay the landlord", questions, { onUsage, signal: controller.signal })
     expect(error).toBeUndefined()
     expect(output).toEqual({
-      category: { choice: "rent", confidence: 0.7, probabilities: { groceries: expect.closeTo(0.15), other: expect.closeTo(0.15), rent: 0.7 }, type: "choice" },
+      category: { choice: "rent", confidence: expect.closeTo(0.55), probabilities: { groceries: expect.closeTo(0.15), other: expect.closeTo(0.15), rent: 0.7 }, type: "choice" },
       fits: { chance: 1, type: "chance" },
       size: expect.objectContaining({ score: 0, type: "score" }),
       spam: true,
@@ -56,12 +56,25 @@ describe("scriptedAsk()", () => {
     controller.abort()
     await expect(scriptedAsk(firstAnswer).gateway.ask("x", questions, { signal: controller.signal })).rejects.toThrow()
   })
+
+  it("rejects answers that do not match their questions", async () => {
+    const cases = [
+      [questions.spam, answers.chance(0)],
+      [questions.tone, "unknown"],
+      [questions.fits, true],
+      [questions.size, answers.chance(1)],
+      [questions.category, { choice: "rent", confidence: 0.4, probabilities: { groceries: 0.6, other: 0, rent: 0.4 }, type: "choice" as const }],
+    ] as const
+    for (const [question, answer] of cases) {
+      await expect(scriptedAsk(() => answer).gateway.ask("x", { question })).rejects.toThrow()
+    }
+  })
 })
 
 describe("answers", () => {
   it("builds choice answers that pass the Jev check", () => {
     expect(hasValidChoiceAnswer(questions.category, answers.choice(questions.category, "groceries"))).toBe(true)
-    expect(hasValidChoiceAnswer(questions.category, answers.choice(questions.category, "other", 0.2))).toBe(true)
+    expect(hasValidChoiceAnswer(questions.category, answers.choice(questions.category, "other", 1 / 3))).toBe(true)
     expect(hasValidChoiceAnswer(questions.category, answers.first(questions.category))).toBe(true)
   })
 
@@ -79,6 +92,7 @@ describe("answers", () => {
   it("throws GATEWAYS_TESTING_ANSWER_INVALID for a wrong label, level, probability, or question type", () => {
     const code = { code: "GATEWAYS_TESTING_ANSWER_INVALID" }
     expect(() => answers.choice(questions.category, "food" as never)).toThrow(expect.objectContaining(code))
+    expect(() => answers.choice(questions.category, "other", 0.2)).toThrow(expect.objectContaining(code))
     expect(() => answers.choice(questions.fits, "yes")).toThrow(expect.objectContaining(code))
     expect(() => answers.score(questions.size, 3)).toThrow(expect.objectContaining(code))
     expect(() => answers.chance(1.5)).toThrow(expect.objectContaining(code))

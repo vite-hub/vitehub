@@ -1,10 +1,11 @@
-import { answers, scriptedAsk } from "@vite-hub/gateways/testing"
+import { answers } from "@vite-hub/gateways/testing"
 
 import { choicesDiagnostics } from "./diagnostics.ts"
-import { readPlanRequest } from "./plan-request.ts"
+import { resolveSelection } from "./selection-gateway.ts"
 
-import type { AiGatewayAsk, AskAnswer, AskQuestion } from "@vite-hub/gateways"
-import type { ChoiceGroups, ChoicesPlan, ChoiceValue, GroupsContext, GroupValue } from "./types.ts"
+import type { AiGatewayAsk, AskAnswers, AskQuestion } from "@vite-hub/gateways"
+import type { SelectionGateway } from "./selection-gateway.ts"
+import type { ChoiceGroups, ChoicesPlan, ChoiceValue, GroupsContext, GroupValue, MultipleSelection, SingleSelection } from "./types.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -35,7 +36,7 @@ function invalid(problem: string): Error {
 /**
  * A gateway for unit tests: `resolve()` returns the selection that you give, keyed by your own groups and option values.
  * Pass a function to answer from the text and the `context` of the request. Return `unsupported` for `DECISIONS_R0004`,
- * and throw for `DECISIONS_R0005`. The answers go through the same checks as a model answer.
+ * and throw for `DECISIONS_R0005`. The values are checked against the loaded options without applying model thresholds.
  *
  * @example
  * defineChoices({ gateway: selectionGateway({ supplier: { include: ['nord'] }, chart: 'line' }), groups })
@@ -43,48 +44,41 @@ function invalid(problem: string): Error {
 export function selectionGateway<TGroups extends ChoiceGroups = ChoiceGroups>(
   selection: TestAnswer<TGroups> | ((text: string, context: TestContext<TGroups>) => MaybePromise<TestAnswer<TGroups>>),
 ): { ask: AiGatewayAsk } {
-  const ask: AiGatewayAsk = async (state, questions) => {
-    const request = readPlanRequest(state)
-    if (!request) throw invalid("selectionGateway() answers only the questions of defineChoices(). Pass it as the `gateway` of defineChoices().")
-    // SAFETY: A state with a plan request comes from buildPlan().
-    const plan = state as ChoicesPlan["state"]
-    // SAFETY: `resolve()` types `context` from the `options` functions of the same groups.
-    const answer = typeof selection === "function" ? await selection(plan.query, request.context as TestContext<TGroups>) : selection
-    const selected: Readonly<Record<string, GroupSelection<ChoiceValue>>> = answer === unsupported ? {} : answer
-    const unknown = Object.keys(selected).filter(key => !request.keys.includes(key))
-    if (unknown.length) throw invalid(`The selection names ${unknown.map(key => JSON.stringify(key)).join(", ")}, but the groups are ${request.keys.map(key => JSON.stringify(key)).join(", ")}.`)
+  const gateway: SelectionGateway = {
+    async ask() {
+      throw invalid("selectionGateway() only works as the gateway of defineChoices().")
+    },
+    async [resolveSelection](plan, keys, context) {
+      const selected = typeof selection === "function" ? await selection(plan.query, context as TestContext<TGroups>) : selection
+      if (selected === unsupported) return undefined
+      const values: Readonly<Record<string, GroupSelection<ChoiceValue>>> = selected
+      const unknown = Object.keys(values).filter(key => !keys.includes(key))
+      if (unknown.length) throw invalid(`The selection names ${unknown.map(key => JSON.stringify(key)).join(", ")}, but the groups are ${keys.map(key => JSON.stringify(key)).join(", ")}.`)
 
-    const output: Record<string, AskAnswer<AskQuestion>> = {}
-    if (questions.supported) output.supported = answers.chance(answer === unsupported ? 0 : 1)
-    plan.groups.forEach((group, groupIndex) => {
-      const key = request.keys[groupIndex]!
-      const value = selected[key]
-      const labelOf = (item: ChoiceValue) => {
-        const option = group.options.find(candidate => candidate.value === item)
-        if (!option) throw invalid(`Group "${key}" has no option with the value ${JSON.stringify(item)}.`)
-        return option.label
-      }
-      const single = questions[`g${groupIndex}`]
-      if (single) {
-        if (typeof value === "object" && value !== null) throw invalid(`Group "${key}" has multiple: false. Select one option value or null, not { include, exclude }.`)
-        if (value !== undefined && value !== null) output[`g${groupIndex}`] = answers.choice(single, labelOf(value))
-        else if (!group.infer) output[`g${groupIndex}`] = answers.choice(single, "(none)")
-        // An infer group has no "none" answer. Equal probabilities are below the default threshold for three or more options.
-        else output[`g${groupIndex}`] = answers.choice(single, group.options[0]!.label, 1 / group.options.length)
-        return
-      }
-      if (value !== undefined && (typeof value !== "object" || value === null)) throw invalid(`Group "${key}" takes any number of options. Select { include, exclude }, not one value.`)
-      const include = new Set(value?.include?.map(labelOf))
-      const exclude = new Set(value?.exclude?.map(labelOf))
-      group.options.forEach((option, optionIndex) => {
-        const question = questions[`g${groupIndex}_o${optionIndex}`]
-        if (question) output[`g${groupIndex}_o${optionIndex}`] = answers.choice(question, include.has(option.label) ? "include" : exclude.has(option.label) ? "exclude" : "none")
-      })
-    })
-    // SAFETY: The answers follow the question keys that buildPlan() makes, and the `answers` helpers build valid Jev answers.
-    return [undefined, output as never]
+      return Object.fromEntries(plan.groups.map((group, index): [string, MultipleSelection | SingleSelection] => {
+        const key = keys[index]!
+        const value = Object.hasOwn(values, key) ? values[key] : undefined
+        const optionValues = group.options.map(option => option.value)
+        const checkValue = (item: ChoiceValue) => {
+          if (!optionValues.includes(item)) throw invalid(`Group "${key}" has no option with the value ${JSON.stringify(item)}.`)
+        }
+        if (!group.multiple) {
+          if (typeof value === "object" && value !== null) throw invalid(`Group "${key}" has multiple: false. Select one option value or null, not { include, exclude }.`)
+          const chosen = value ?? null
+          if (chosen !== null) checkValue(chosen)
+          const ranked = optionValues.map(item => ({ probability: item === chosen ? 1 : 0, value: item })).sort((left, right) => right.probability - left.probability)
+          return [key, { confidence: chosen === null ? 0 : 1, ranked, value: chosen }]
+        }
+        if (value !== undefined && (typeof value !== "object" || value === null || Array.isArray(value))) throw invalid(`Group "${key}" takes any number of options. Select { include, exclude }, not one value.`)
+        const include = value?.include ?? []
+        const exclude = value?.exclude ?? []
+        if (!Array.isArray(include) || !Array.isArray(exclude)) throw invalid(`Group "${key}" needs arrays of option values for include and exclude.`)
+        for (const item of [...include, ...exclude]) checkValue(item)
+        return [key, { exclude: optionValues.filter(item => !include.includes(item) && exclude.includes(item)), include: optionValues.filter(item => include.includes(item)) }]
+      }))
+    },
   }
-  return { ask }
+  return gateway
 }
 
 function escapeRegExp(text: string): string {
@@ -98,31 +92,38 @@ function escapeRegExp(text: string): string {
  * from the option descriptions. Text with the word "unsupported" fails the supported check, so you can see `DECISIONS_R0004`.
  */
 export function wordGateway(): { ask: AiGatewayAsk } {
-  return scriptedAsk((key, question, state) => {
+  const ask: AiGatewayAsk = async (state, questions, options) => {
+    options?.signal?.throwIfAborted()
     // SAFETY: defineChoices() sends the state that buildPlan() makes.
     const { groups, query } = state as ChoicesPlan["state"]
     const text = query.toLowerCase()
-    if (key === "supported") return answers.chance(text.includes("unsupported") ? 0.1 : 0.95)
-    const [, groupIndex, optionIndex] = /^g(\d+)(?:_o(\d+))?$/.exec(key) ?? []
-    const group = groups[Number(groupIndex)]
-    if (!group || question.type !== "choice") return answers.first(question)
-    const labels = group.options.map(option => option.label)
-    const named = labels.filter(label => text.includes(label.toLowerCase()))
-    if (optionIndex === undefined && group.infer) {
-      // Descriptions are in the question criteria, not in the state.
-      const words = (label: string) => {
-        const criteria = question.criteria[label]
-        return typeof criteria === "string" ? criteria.toLowerCase().match(/\w{5,}/g) ?? [] : []
+    const answer = (key: string, question: AskQuestion) => {
+      if (key === "supported") return answers.chance(text.includes("unsupported") ? 0.1 : 0.95)
+      const [, groupIndex, optionIndex] = /^g(\d+)(?:_o(\d+))?$/.exec(key) ?? []
+      const group = groups[Number(groupIndex)]
+      if (!group || question.type !== "choice") return answers.first(question)
+      const labels = group.options.map(option => option.label)
+      const named = labels.filter(label => text.includes(label.toLowerCase()))
+      if (optionIndex === undefined && group.infer) {
+        // Descriptions are in the question criteria, not in the state.
+        const words = (label: string) => {
+          const criteria = question.criteria[label]
+          return typeof criteria === "string" ? criteria.toLowerCase().match(/\w{5,}/g) ?? [] : []
+        }
+        const fit = labels.find(label => named.includes(label) || words(label).some(word => text.includes(word)))
+        return answers.choice(question, fit ?? labels[0]!, fit ? 0.8 : Math.max(0.4, 1 / labels.length))
       }
-      const fit = labels.find(label => named.includes(label) || words(label).some(word => text.includes(word)))
-      return answers.choice(question, fit ?? labels[0]!, fit ? 0.8 : 0.4)
+      if (optionIndex === undefined) {
+        const best = named[0] ?? "(none)"
+        return answers.choice(question, best, best === "(none)" ? 0.9 : 0.8)
+      }
+      const label = labels[Number(optionIndex)]!.toLowerCase()
+      const excluded = new RegExp(`(except|not|without)\\s+(\\w+\\s+)?${escapeRegExp(label)}`).test(text)
+      return answers.choice(question, !text.includes(label) ? "none" : excluded ? "exclude" : "include", 0.9)
     }
-    if (optionIndex === undefined) {
-      const best = named[0] ?? "(none)"
-      return answers.choice(question, best, best === "(none)" ? 0.9 : 0.8)
-    }
-    const label = labels[Number(optionIndex)]!.toLowerCase()
-    const excluded = new RegExp(`(except|not|without)\\s+(\\w+\\s+)?${escapeRegExp(label)}`).test(text)
-    return answers.choice(question, !text.includes(label) ? "none" : excluded ? "exclude" : "include", 0.9)
-  }).gateway
+    const entries = Object.entries(questions).map(([key, question]) => [key, answer(key, question)] as const)
+    options?.onUsage?.({ provider: "scripted", usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } })
+    return [undefined, Object.fromEntries(entries) as AskAnswers<typeof questions>]
+  }
+  return { ask }
 }

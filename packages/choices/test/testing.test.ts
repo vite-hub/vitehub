@@ -23,6 +23,23 @@ describe("selectionGateway()", () => {
     expect(selection).toMatchObject({ chart: { value: null }, supplier: { exclude: [], include: [] } })
   })
 
+  it("matches options that share a label by value", async () => {
+    const sites = { site: { label: "Site", options: [{ label: "Main", value: "east" }, { label: "Main", value: "west" }] } }
+    const gateway = selectionGateway({ site: { exclude: ["west"], include: ["east"] } })
+    await expect(defineChoices({ gateway, groups: sites }).resolve("x")).resolves.toEqual([undefined, { site: { exclude: ["west"], include: ["east"] } }])
+  })
+
+  it("accepts null for an empty single group and a value for a singleton infer group", async () => {
+    const mixed = {
+      ...groups,
+      empty: { label: "Empty", multiple: false, options: [] },
+      project: { infer: true, label: "Project", multiple: false, options: [{ label: "Docs", value: "docs" }] },
+    } as const
+    const [error, selection] = await defineChoices({ gateway: selectionGateway({ empty: null, project: "docs" }), groups: mixed }).resolve("x")
+    expect(error).toBeUndefined()
+    expect(selection).toMatchObject({ empty: { confidence: 0, value: null }, project: { confidence: 1, value: "docs" } })
+  })
+
   it("answers from the text and the request context", async () => {
     const seen: unknown[] = []
     const sites = async (context: { tenant: string }) => [{ label: `${context.tenant} Mill`, value: context.tenant }]
@@ -37,14 +54,20 @@ describe("selectionGateway()", () => {
   })
 
   it("gives an infer group no value when you leave it out", async () => {
-    const options = [{ label: "Docs", value: "docs" }, { label: "Console", value: "console" }, { label: "Thai", value: "thai" }]
+    const options = [{ label: "Docs", value: "docs" }, { label: "Console", value: "console" }]
     const [, selection] = await defineChoices({ gateway: selectionGateway({}), groups: { project: { infer: true, label: "Project", multiple: false, options } } }).resolve("x")
     expect(selection?.project.value).toBeNull()
   })
 
   it("returns DECISIONS_R0004 for unsupported", async () => {
-    const [error] = await defineChoices({ gateway: selectionGateway(unsupported), groups }).resolve("price above 100")
-    expect(error?.code).toBe("DECISIONS_R0004")
+    const gateway = selectionGateway(unsupported)
+    const inferOnly = { project: { infer: true, label: "Project", multiple: false, options: [{ label: "Docs", value: "docs" }] } } as const
+    for (const resolve of [defineChoices({ gateway, groups, thresholds: { supported: 0 } }).resolve, defineChoices({ gateway, groups: inferOnly }).resolve]) {
+      const [error] = await resolve("price above 100")
+      expect(error?.code).toBe("DECISIONS_R0004")
+    }
+    const [error] = await defineChoices({ gateway: selectionGateway(() => ({ project: "missing" })), groups: inferOnly }).resolve("x")
+    expect(error?.cause).toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
   })
 
   it("returns DECISIONS_R0005 when the function throws", async () => {
