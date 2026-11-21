@@ -110,7 +110,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
   <PlaygroundContainer
     v-model:open="open"
     v-model:selected="selected"
-    layout="tutorial"
+    layout="guide-side"
     :templates="templates"
     :share="false"
     :port="3000"
