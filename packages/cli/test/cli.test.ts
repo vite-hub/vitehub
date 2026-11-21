@@ -157,13 +157,13 @@ export default ({ mode }) => ({
     }
   })
 
-  it("passes the root of the Vite config file to commands", async () => {
+  it("passes the root selected by Vite's config environment to commands", async () => {
     const rootDir = await createTempDir()
     await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
     await mkdir(join(rootDir, "web"))
     await writeFile(join(rootDir, "vite.config.mjs"), `
 export default {
-  root: "web",
+  root: process.env.NODE_ENV === "development" ? "web" : "wrong",
   plugins: [{
     name: "root-contributor",
     vitehub: { cli: { namespaces: [{ name: "probe", features: [{ name: "root", run(args, context) { context.stdout.write(context.rootDir); return 0 } }] }] } },
@@ -173,7 +173,13 @@ export default {
     const stdout = stream()
     const stderr = stream()
 
-    expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
     expect(stderr.output()).toBe("")
     expect(stdout.output()).toBe(join(rootDir, "web"))
   })

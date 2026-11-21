@@ -324,14 +324,19 @@ describe("ViteHub CLI config loading", () => {
     expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", mode ?? "development")
   })
 
-  it("keeps the root of a Vite config file for CLI discovery", async () => {
+  it("keeps the root selected by Vite's config environment for CLI discovery", async () => {
     const root = await createProject("vite")
-    await writeFile(join(root, "vite.config.ts"), "export default { root: \"web\" }\n", "utf8")
+    await writeFile(join(root, "vite.config.ts"), 'export default { root: process.env.NODE_ENV === "development" ? "web" : "wrong" }\n', "utf8")
     await mkdir(join(root, "web"))
 
-    const config = await loadViteHubCliConfig(root, "serve")
-
-    expect(config.root).toBe(join(root, "web"))
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      const config = await loadViteHubCliConfig(root, "serve")
+      expect(config.root).toBe(join(root, "web"))
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import process from "node:process"
 
-import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, viteCliProjectConfig, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -265,20 +265,18 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
 }
 
 async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
-  const { loadConfigFromFile, mergeConfig, resolveConfig } = await import("vite")
+  const { resolveConfig } = await import("vite")
   const resolvedMode = mode ?? (command === "build" ? "production" : "development")
+  const project = viteCliProjectConfig(rootDir)
+  const nitro = createCliDiscoveryNitroCloser()
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
-    root: rootDir,
+    ...project,
     ...(mode ? { mode } : {}),
+    plugins: [...project.plugins, nitro.plugin],
     vitehubCliDiscovery: true,
   }
-  // Vite lets an inline `root` win over the `root` of the config file. Load the file here, so a `root: "web"` in it
-  // resolves against the project directory, as `vite dev` in that directory resolves it.
-  const loaded = await loadConfigFromFile({ command, isPreview: false, isSsrBuild: false, mode: resolvedMode }, undefined, rootDir)
-  const config = loaded ? mergeConfig(loaded.config, { ...inlineConfig, configFile: false, root: resolve(rootDir, loaded.config.root ?? ".") }) : inlineConfig
-  const nitro = createCliDiscoveryNitroCloser()
   try {
-    return await resolveConfig({ ...config, plugins: [...config.plugins ?? [], nitro.plugin] }, command, resolvedMode)
+    return await resolveConfig(inlineConfig, command, resolvedMode)
   }
   finally {
     await nitro.close()
