@@ -1,3 +1,5 @@
+import { prefersReducedMotion } from "./reduced-motion.ts";
+
 /** The attributes whose change the motion layer reports to the `state` hook of an effect. */
 export const motionStateAttributes = [
   "aria-checked",
@@ -9,9 +11,13 @@ export const motionStateAttributes = [
   "data-state",
   "data-checked",
   "data-open",
+  // A native `<details>` opens and closes with its `open` attribute.
+  "open",
+  "data-leaving",
 ] as const;
 
 export type MotionStateAttribute = (typeof motionStateAttributes)[number];
+export type MotionRoot = Document | ShadowRoot | Element;
 
 export interface MotionStateChange {
   attribute: MotionStateAttribute;
@@ -52,6 +58,8 @@ export interface MotionEffect {
   name: string;
   /** The elements of the interaction, such as `[role=tab]`. The innermost element on the event path wins. */
   selector: string;
+  /** Starts tracking state in an installed root and returns its cleanup. */
+  watch?(root: MotionRoot): () => void;
   /**
    * A pointer went down on the element (main button only), or Space or Enter went down while it had focus. Return a
    * `MotionPress` to hear the rest of the press. Not called under reduced motion.
@@ -68,23 +76,67 @@ export interface MotionEffect {
   content?(element: HTMLElement | SVGElement, change: MotionContentChange): void;
 }
 
-const effects = new Map<string, MotionEffect>();
-const defaults = new Map<string, MotionEffect>();
+interface EffectRegistration {
+  effect: MotionEffect;
+  isReduced: () => boolean;
+  removeFromShared?: () => void;
+}
+
+const effects = new Map<string, EffectRegistration>();
 const changeListeners = new Set<() => void>();
 
-export function defineDefaultMotionEffect(effect: MotionEffect): void {
-  defaults.set(effect.name, effect);
+/**
+ * A page can load more than one copy of this module, such as the app's, the one in the bundle of the page pill, and the
+ * one that Comark UI inlines in a document. The first copy that installs is the shared layer: the copies that install
+ * after it give it their effects and their installs, so one set of listeners and one observer serve every copy, and
+ * an element that two copies cover moves once.
+ */
+export interface SharedMotionLayer {
+  define(effect: MotionEffect, isReduced: () => boolean): () => void;
+  install(root: Document | ShadowRoot | Element, effects: readonly MotionEffect[], isReduced: () => boolean): () => void;
+}
+
+const sharedKey = Symbol.for("vite-hub.motion.layer");
+let ownLayer: SharedMotionLayer | undefined;
+
+/** The shared layer of another copy of this module, when that copy installed first. */
+export function otherMotionLayer(): SharedMotionLayer | undefined {
+  const shared: unknown = Reflect.get(globalThis, sharedKey);
+  if (!shared || shared === ownLayer || typeof shared !== "object" || !("define" in shared) || !("install" in shared)) return undefined;
+  // SAFETY: only copies of this module write the key, with an object of this shape.
+  return shared as SharedMotionLayer;
+}
+
+/** Makes this copy the shared layer when no copy is yet. */
+export function claimMotionLayer(layer: SharedMotionLayer): void {
+  ownLayer = layer;
+  if (!Reflect.get(globalThis, sharedKey)) Reflect.set(globalThis, sharedKey, layer);
+}
+
+export function handOffMotionEffects(shared: SharedMotionLayer): void {
+  const registrations = [...effects.values()];
+  effects.clear();
+  for (const registration of registrations) registration.removeFromShared = shared.define(registration.effect, registration.isReduced);
 }
 
 /**
  * Adds an effect to the motion layer. Every installed layer runs it from the next interaction on. Returns a function
- * that removes it.
+ * that removes it. When another copy of the module is the shared layer, the effect goes to that copy.
  */
 export function defineMotionEffect(effect: MotionEffect): () => void {
-  effects.set(effect.name, effect);
+  const shared = otherMotionLayer();
+  if (!shared) return defineOwnEffect(effect);
+  handOffMotionEffects(shared);
+  return shared.define(effect, prefersReducedMotion);
+}
+
+export function defineOwnEffect(effect: MotionEffect, isReduced = prefersReducedMotion): () => void {
+  const registration: EffectRegistration = { effect, isReduced };
+  effects.set(effect.name, registration);
   for (const listener of changeListeners) listener();
   return () => {
-    if (effects.get(effect.name) !== effect) return;
+    if (registration.removeFromShared) return registration.removeFromShared();
+    if (effects.get(effect.name) !== registration) return;
     effects.delete(effect.name);
     for (const listener of changeListeners) listener();
   };
@@ -92,7 +144,11 @@ export function defineMotionEffect(effect: MotionEffect): () => void {
 
 /** The effects of the motion layer, in the order they were defined. */
 export function listMotionEffects(): MotionEffect[] {
-  return [...new Map([...defaults, ...effects]).values()];
+  return [...effects.values()].map(registration => registration.effect);
+}
+
+export function motionEffectRegistrations(): EffectRegistration[] {
+  return [...effects.values()];
 }
 
 export function onMotionEffectsChange(listener: () => void): () => void {
@@ -102,9 +158,9 @@ export function onMotionEffectsChange(listener: () => void): () => void {
 
 /**
  * The CSS properties that the motion layer may write. `clip-path` hides the part of a tooltip that is still behind its
- * trigger.
+ * trigger. `width` is only for a panel that opens beside the page, as a sidebar does.
  */
-export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path";
+export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path" | "width";
 
 /** Writes motion properties inline. An empty string or `null` removes the property, so the stylesheet applies again. */
 export function writeMotionStyle(element: HTMLElement | SVGElement, values: Partial<Record<MotionStyleProperty, string | null>>): void {

@@ -185,7 +185,7 @@ function hover(event: PointerEvent): void {
     </UEmpty>
     <details v-if="points.length" class="group mt-3 text-xs" data-slot="usage-chart-data">
       <summary class="inline-flex cursor-pointer items-center gap-1 rounded-md text-muted select-none hover:text-highlighted">
-        <Icon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+        <Icon name="i-lucide-chevron-right" class="size-3.5 group-open:rotate-90" aria-hidden="true" />
         Show data table
       </summary>
       <div class="mt-2 max-h-64 overflow-y-auto rounded-lg border border-default">
