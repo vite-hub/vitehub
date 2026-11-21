@@ -144,14 +144,14 @@ const deleteBudget: Record<string, number> = {
   "cloudflare": cleared.length,
 }
 
-describe.each(Object.keys(targets))("%s clear(base)", (name) => {
+describe.each(Object.keys(targets))("%s clear(prefix)", (name) => {
   it("deletes keys under the base in batches and keeps sibling prefixes", { timeout: 60_000 }, async () => {
     const { storage, deletes } = await targets[name]!()
     cleanups.push(() => storage.dispose())
     for (const key of [...cleared, ...kept]) await storage.setItem(key, "value")
     const before = deletes()
 
-    await storage.clear("a")
+    await storage.clear("a:")
 
     expect(deletes() - before).toBeLessThanOrEqual(deleteBudget[name]!)
     expect((await storage.getKeys()).sort()).toEqual([...kept].sort())

@@ -9,8 +9,8 @@ export interface WebhookRedeliverySource {
 /**
  * Progress events that a later event of the same run replaces. A lost `check_run.created` or
  * `workflow_run.in_progress` changes nothing once its `completed` event arrives, and change detection
- * reads running checks anyway. On 2026-11-16 they were 80% of the failed deliveries, and sending them
- * first delayed the `completed` events that let a green PR merge.
+ * reads running checks anyway. They are most of the failed deliveries, and sending them first delays
+ * the `completed` events that let a green PR merge.
  */
 const superseded = new Set(["check_run.created", "check_run.rerequested", "check_suite.requested", "check_suite.rerequested", "workflow_run.requested", "workflow_run.in_progress", "workflow_job.queued", "workflow_job.in_progress", "workflow_job.waiting"]);
 
@@ -40,9 +40,8 @@ export interface WebhookRedeliveryOptions {
 
 /**
  * Sends failed GitHub App webhook deliveries again. GitHub does not retry a delivery that timed out
- * after 10 seconds or failed. On 2026-11-16 about a third of deliveries timed out while the disk was
- * busy, so `check_suite.completed` events got lost and green pull requests waited 30 minutes or more
- * for the change detection to find them. The inbox deduplicates by delivery ID, so an event that the
+ * after 10 seconds or failed. When the receiver is slow, `check_suite.completed` events get lost and
+ * green pull requests wait for the change detection to find them. The inbox deduplicates by delivery ID, so an event that the
  * receiver stored after GitHub stopped waiting is not processed twice.
  */
 export function createWebhookRedelivery(options: WebhookRedeliveryOptions) {

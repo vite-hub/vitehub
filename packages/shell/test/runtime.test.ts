@@ -1,3 +1,5 @@
+import { setImmediate } from "node:timers/promises"
+
 import { describe, expect, it, vi } from "vitest"
 import { InMemoryFs } from "just-bash"
 
@@ -1071,13 +1073,15 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(Array.from(await workspace.readFile("data.bin", { encoding: "binary" }) as Uint8Array)).toEqual([0, 128, 255])
   })
 
-  it("does not refresh workspace paths when creating a shell filesystem", () => {
+  it("does not refresh workspace paths when creating a shell filesystem", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
     })
     const list = vi.spyOn(workspace, "list")
 
     createReadonlyWorkspaceFs(workspace)
+    // A refresh starts in a later microtask, so wait for the next macrotask before checking.
+    await setImmediate()
 
     expect(list).not.toHaveBeenCalled()
   })

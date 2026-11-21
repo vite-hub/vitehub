@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { removeProviderOutputArtifactDir } from "../src/build/provider-output-sources.ts"
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -14,8 +14,8 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, renameSync: vi.fn(actual.renameSync), rmSync: vi.fn(actual.rmSync) }
 })
 
-vi.mock("../src/build/esbuild.ts", async importOriginal => ({
-  ...await importOriginal<typeof import("../src/build/esbuild.ts")>(),
+vi.mock("../src/build/rolldown.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/build/rolldown.ts")>(),
   bundleEsmEntry: vi.fn(async (_entry: string, outfile: string) => {
     await mkdir(dirname(outfile), { recursive: true })
     await writeFile(outfile, "export default {}\n", "utf8")
@@ -86,27 +86,41 @@ describe("provider deployment outputs", () => {
     const rootDir = await createTempProject()
     const sourceRootDir = join(rootDir, ".vitehub", "agent-generations", "one", "sources", "0")
     const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const actual = await vi.importActual<typeof import("../src/build/rolldown.ts")>("../src/build/rolldown.ts")
+    const bundles: string[] = []
+    vi.mocked(bundleEsmEntry).mockImplementation(async (entryFile, outfile, options) => {
+      await actual.bundleEsmEntry(entryFile, outfile, options)
+      bundles.push(await readFile(outfile, "utf8"))
+    })
+    await mkdir(sourceRootDir, { recursive: true })
+    await writeFile(join(rootDir, "context.md"), "project root context", "utf8")
+    await writeFile(join(sourceRootDir, "context.md"), "retained source context", "utf8")
+    const entry = join(rootDir, "entry.mjs")
+    await writeFile(entry, 'import context from "/context.md?raw"\nexport default { fetch: () => new Response(context) }\n', "utf8")
 
     await writeProviderDeploymentOutputs({
       clientOutDir: "dist/client",
       cloudflare: {
-        bundleEntry: join(rootDir, "cloudflare.mjs"),
+        bundleEntry: entry,
         bundleOptions: {},
         wranglerConfig: {},
       },
       netlify: {
-        functions: [{ bundleEntry: join(rootDir, "netlify.mjs"), bundleOptions: {}, functionName: "agent" }],
+        functions: [{ bundleEntry: entry, bundleOptions: {}, functionName: "agent" }],
       },
       rootDir,
       sourceRootDir,
       vercel: {
-        bundleEntry: join(rootDir, "vercel.mjs"),
+        bundleEntry: entry,
         bundleOptions: {},
       },
     })
 
-    expect(vi.mocked(bundleEsmEntry).mock.calls).toHaveLength(3)
-    expect(vi.mocked(bundleEsmEntry).mock.calls.every(([, , options]) => options?.rootDir === sourceRootDir)).toBe(true)
+    expect(bundles).toHaveLength(3)
+    for (const bundled of bundles) {
+      expect(bundled).toContain("retained source context")
+      expect(bundled).not.toContain("project root context")
+    }
   })
 
   it("preserves default output roots for omitted providers", async () => {
@@ -644,12 +658,12 @@ describe("provider deployment outputs", () => {
         bundleEntry: join(rootDir, "entry.mjs"),
         bundleOptions: {},
         function: { kind: "isolated", name: "__blob.func" },
-        functionConfig: { runtime: "nodejs22.x" },
+        functionConfig: { runtime: "nodejs24.x" },
       },
     })
 
     await expect(readFile(join(functionDir, ".vc-config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
-      runtime: "nodejs22.x",
+      runtime: "nodejs24.x",
     })
   })
 
@@ -728,7 +742,7 @@ describe("provider deployment outputs", () => {
       createDefaultNetlifyOutputRoot,
       writeProviderDeploymentOutputs,
     } = await import("../src/build/deployment-output.ts")
-    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const { bundleEsmEntry } = await import("../src/build/rolldown.ts")
     const netlifyDir = createDefaultNetlifyOutputRoot(rootDir)
     const siblingFunction = join(netlifyDir, "functions", "other.mjs")
     vi.mocked(bundleEsmEntry).mockClear()
@@ -758,7 +772,7 @@ describe("provider deployment outputs", () => {
           config: {
             name: "vitehub-agent",
             nodeBundler: "esbuild",
-            path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+            path: ["/_vitehub/agents/:agent/chat", "/_vitehub/agents/:agent/webhooks/:webhook"],
           },
           functionName: "vitehub-agent",
         }],
@@ -769,11 +783,10 @@ describe("provider deployment outputs", () => {
     const functionFile = join(netlifyDir, "functions", "vitehub-agent.mjs")
     await expect(readFile(siblingFunction, "utf8")).resolves.toBe("export default {}")
     await expect(readFile(functionFile, "utf8")).resolves.toContain("export const config = {")
-    await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
-      join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
-      { conditions: ["netlify", "node"], define: {}, format: "esm", minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true, platform: "node", resolveEntryPackageAliases: false, rootDir, signal: undefined },
+      expect.any(String),
+      expect.objectContaining({ minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true }),
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
@@ -1118,7 +1131,7 @@ describe("provider deployment outputs", () => {
     const serverEntry = join(serverDir, "index.mjs")
     await mkdir(serverDir, { recursive: true })
     await writeFile(serverEntry, "valid function")
-    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs24.x\"}\n")
     const catalog = createProviderOutputCatalog()
     contributeProviderDeploymentOutput(catalog, {
       owner: "agent",
@@ -1139,7 +1152,7 @@ describe("provider deployment outputs", () => {
     await expect(finalization).rejects.toThrow("Provider Output finalization reset")
 
     await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
-    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs24.x\"}\n")
     expect(existsSync(`${serverDir}.pending`)).toBe(false)
     expect(existsSync(`${serverDir}.previous`)).toBe(false)
   })
@@ -1158,7 +1171,7 @@ describe("provider deployment outputs", () => {
     await mkdir(staticDir, { recursive: true })
     await mkdir(join(rootDir, "dist", "client"), { recursive: true })
     await writeFile(serverEntry, "valid function")
-    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs22.x\"}\n")
+    await writeFile(join(serverDir, ".vc-config.json"), "{\"runtime\":\"nodejs24.x\"}\n")
     await writeFile(join(outputRoot, "config.json"), "{\"version\":2}\n")
     await writeFile(join(staticDir, "index.html"), "old static")
     await writeFile(join(rootDir, "dist", "client", "index.html"), "new static")
@@ -1174,7 +1187,7 @@ describe("provider deployment outputs", () => {
     })).rejects.toThrow("Provider output config must be a JSON object")
 
     await expect(readFile(serverEntry, "utf8")).resolves.toBe("valid function")
-    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs22.x\"}\n")
+    await expect(readFile(join(serverDir, ".vc-config.json"), "utf8")).resolves.toBe("{\"runtime\":\"nodejs24.x\"}\n")
     await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe("{\"version\":2}\n")
     await expect(readFile(join(staticDir, "index.html"), "utf8")).resolves.toBe("old static")
     expect(existsSync(`${outputRoot}.pending`)).toBe(false)

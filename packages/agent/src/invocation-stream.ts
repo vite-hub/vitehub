@@ -8,6 +8,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
 export const agentInvocationStreamHeaderValue = "1"
+export const agentDevLoopTokenScopeHeader = "x-vitehub-agent-dev-token-scope"
 
 export interface AgentDevLoopAgentSummary {
   aliases?: string[]

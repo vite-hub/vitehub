@@ -22,9 +22,9 @@ export const failed = (item: Pick<GitHubEvidence, 'status' | 'conclusion'>) => i
 const sourceUrl = (repository: string, job: ActionJob) => `https://github.com/${repository}/actions/runs/${job.run_id}/job/${job.id}`
 
 /**
- * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. On
- * onmax/comark-plugins#87 and #103 the push and pull_request runs of one workflow shared a concurrency
- * group, the later one was cancelled, and the PRs waited 17 h on checks that had already passed.
+ * The run of one check that counts: the newer one, unless it was cancelled beside a finished run. When
+ * the push and pull_request runs of one workflow share a concurrency group, the later one is cancelled,
+ * and the PR must not wait on checks that already passed.
  */
 export function newestCheckRun<T extends { id?: unknown; status?: unknown; state?: unknown; conclusion?: unknown }>(previous: T | undefined, check: T): T {
   if (!previous) return check

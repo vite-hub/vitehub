@@ -22,7 +22,7 @@ it("uses each evaluated Definition's store before the module default", () => {
     files: { store: { driver: "local", root: "instance-data" } },
     shared: {},
     agent,
-  }, { root: ".vitehub/workspaces", store: { driver: "github", repository: "acme/workspaces" } }, context())
+  }, { root: ".vitehub/workspaces", store: { driver: "github", repo: "acme/workspaces" } }, context())
   expect(reports).toMatchObject([
     { name: "docs", store: "memory", scope: "process" },
     { name: "files", store: "local", scope: "host" },

@@ -1,4 +1,5 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
+import definitionForApp, { getAuthApp } from "#vitehub/auth/definition"
 import { createAuthMiddleware } from "better-auth/api"
 import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
@@ -15,6 +16,7 @@ import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
+import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
@@ -25,6 +27,7 @@ import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
+import { createDeleteAccount, validateDeleteAccount } from "./delete-account.ts"
 import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
 
 import type { BetterAuthOptions } from "better-auth"
@@ -132,11 +135,13 @@ function stripViteHubOptions(
   options: AuthRuntimeOptions & Record<string, unknown>,
   environment: ProviderEnvironment,
 ): AuthBetterAuthRuntimeOptions {
+  validateDeleteAccount(options)
   const {
     access,
     adminClaim: _adminClaim,
     console: _console,
     database,
+    deleteAccount,
     events,
     route: _route,
     secondaryStorage,
@@ -179,8 +184,10 @@ function stripViteHubOptions(
   const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
   const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const adminClaimPlugin = adminClaim ? createAdminClaimPlugin(adminClaim, declaredPlugins) : undefined
+  const accountDeletion = deleteAccount ? createDeleteAccount(deleteAccount, definition === definitionForApp ? getAuthApp() : undefined) : undefined
   const plugins = [
     ...declaredPlugins,
+    ...(accountDeletion ? [accountDeletion.plugin] : []),
     ...(impersonation ? [createImpersonationPlugin()] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
@@ -196,11 +203,14 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(accountDeletion ? { user: { ...rest.user, deleteUser: accountDeletion.deleteUser } } : {}),
     ...(membersGate ? { socialProviders: withMemberScopes(members, rest.socialProviders) } : {}),
     // Claim reservations need the database's primary key, including when sessions use secondary storage.
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
-    plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
+    plugins: [...plugins, ...(eventPlugin ? [eventPlugin] : []), createRequestLogPlugin()],
+    // Better Auth's warnings and errors also go on the request's wide event, when the app registers evlog.
+    logger: withRequestLogger(rest.logger),
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,
     ...(eventPlugin ? {

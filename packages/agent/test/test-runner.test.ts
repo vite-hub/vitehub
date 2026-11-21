@@ -9,7 +9,7 @@ const inspectTools = vi.fn(() => ({}))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const workflowMock = vi.hoisted(() => {
-  const start = vi.fn((_payload?: unknown, _options?: unknown) => "workflow")
+  const start = vi.fn((_payload?: unknown, _options?: unknown) => [undefined, "workflow"])
   return { create: vi.fn(() => ({ start })), start }
 })
 

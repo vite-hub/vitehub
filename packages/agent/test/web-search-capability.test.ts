@@ -88,3 +88,26 @@ describe("webSearch capability", () => {
     }])
   })
 })
+
+describe("webSearch model mode with the AI SDK", () => {
+  it("sends the provider tool to the model", async () => {
+    const { MockLanguageModelV3 } = await import("ai/test")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentWithContext } = await import("../src/internal/agent-run.ts")
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ type: "text", text: "Sunny." }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const agent = defineAgent({
+      capabilities: [webSearch({ mode: "model" })],
+      driver: { instructions: "Be brief.", model },
+      runtime: false,
+    })
+
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Weather in Paris?" })
+
+    expect(model.doGenerateCalls[0]?.tools).toEqual([{ args: {}, id: "openai.web_search", name: "web_search", type: "provider" }])
+  })
+})

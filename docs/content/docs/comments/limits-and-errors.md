@@ -56,6 +56,23 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 | Cursor updates | One every 80 ms per person |
 | Presence rooms with `driver: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
 
+## See hook and sync failures in logs
+
+A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Comments logs each one with a `comments` field:
+
+```json
+{ "path": "/api/_vitehub/comments/threads", "status": 201, "level": "warn", "comments": { "hook": "onComment", "thread": "thr_7f3c", "code": "EMAIL_REFUSED" } }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `hook` | `onComment`, `onMention`, or `forgeSync`. |
+| `step` | The sync step that failed: `sync`, `summary`, `delete-comment`, `hide-comment`, `show-comment`, or `author-token`. |
+| `thread` | The thread id. |
+| `code` | The `code` of the error, else its class name. |
+
+`onComment` runs before the answer, so its failure goes on the wide event of the request. `onMention` and the sync run after the answer, so each failure is its own evlog event, `{ action: "comments", message, comments }`. The event has a fixed message and the `code`, never the error's message, the comment text, or a token. Without evlog, or with evlog's `enabled: false`, Comments prints the failure to the server console.
+
 ## Runtime errors
 
 ### COMMENTS_NOT_INSTALLED
@@ -84,13 +101,13 @@ The API also returns it for a `POST` or `DELETE` from another origin. Behind a p
 
 ### COMMENTS_SIGN_IN_OFF
 
-A request reached `/api/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
+A request reached `/_vitehub/comments/auth/`, but the server has no GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
 
 ### COMMENTS_SIGN_IN_FAILED
 
 GitHub sign-in could not start. Check that the client ID and secret belong to the same GitHub App. In production, `VITEHUB_SECRET` must be set, with at least 32 characters.
 
-When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/api/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
+When GitHub returns an error, such as for a callback URL the App does not list, sign-in shows `/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
 
 ### COMMENTS_RESOLVED
 

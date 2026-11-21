@@ -17,7 +17,7 @@ const providerWindow = {
 }
 const durable = { durable: true, maxMessages: 100, mode: "durable-transcripts", transcripts: true, ttlMs: 604_800_000 }
 
-const simulatorRoute = (agent: string, channel: string) => `/api/_vitehub/agents/${agent}/webhooks/${channel}`
+const simulatorRoute = (agent: string, channel: string) => `/_vitehub/agents/${agent}/webhooks/${channel}`
 
 const channels = [
   { agent: "release-engineer", channel: "slack", conversations: true, provider: "slack", retention: simulated, simulated: true, simulator: simulatorRoute("release-engineer", "slack") },

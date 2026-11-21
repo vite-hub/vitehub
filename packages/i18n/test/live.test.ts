@@ -6,6 +6,7 @@ import { dirname, join } from "node:path"
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
@@ -38,8 +39,12 @@ function memoryWorkspace() {
           readFile: async path => files[path]!,
         }
       },
-      async commit({ ref, ifHead, changes }) {
-        if ((heads.get(ref) ?? null) !== ifHead) throw new Error("conflict")
+      async commit({ ref, ifHead, onHeadConflict, changes }) {
+        if ((heads.get(ref) ?? null) !== ifHead) {
+          const conflict = Object.assign(new Error("conflict"), { code: "WORKSPACE_CONFLICT" })
+          onHeadConflict?.(conflict)
+          throw conflict
+        }
         const base = ifHead ? revisions.get(ifHead)! : {}
         const id = `${ref}-${revisions.size + 1}`
         const files = { ...base, ...changes.put }
@@ -241,9 +246,42 @@ describe("translations in a Workspace", () => {
     const head = store.heads.get("draft")
     const rejected = (await translations.list("es", { ref: "draft" }))[1]![deploy.id]!
 
-    await expect(translations.save({ ...input, review: "verified", by: "ben" })).rejects.toThrow(/rejected.*edit/)
+    const [error] = await translations.save({ ...input, review: "verified", by: "ben" })
+    expect(error).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringMatching(/rejected.*edit/), status: 400 })
     expect(store.heads.get("draft")).toBe(head)
     expect((await translations.list("es", { ref: "draft" }))[1]![deploy.id]).toEqual(rejected)
+  })
+
+  it("returns I18N_SAVE_CONFLICT when another save moves the draft first", async () => {
+    const { store } = setup()
+    const translations = useTranslations()
+    const commit = store.workspace.history.commit
+    store.workspace.history.commit = async (options) => {
+      // Another save lands between the head read and this commit.
+      store.workspace.history.commit = commit
+      await commit({ ...options, onHeadConflict: undefined, message: "Other save" })
+      return await commit(options)
+    }
+
+    const [error, saved] = await translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente", review: "machine" })
+
+    expect(saved).toBeUndefined()
+    expect(error).toMatchObject({ code: "I18N_SAVE_CONFLICT", status: 409, cause: expect.objectContaining({ code: "WORKSPACE_CONFLICT" }) })
+    expect(toResponse(error).status).toBe(409)
+  })
+
+  it.each(["published", "draft"])("propagates a conflict on %s from a hook after the draft was committed", async (ref) => {
+    const { store } = setup()
+    const translations = useTranslations()
+    const commit = store.workspace.history.commit
+    const conflict = Object.assign(new Error(`${ref} moved`), { code: "WORKSPACE_CONFLICT", details: { ref, expected: null, actual: `${ref}-1` } })
+    store.workspace.history.commit = async (options) => {
+      await commit(options)
+      throw conflict
+    }
+
+    await expect(translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente" })).rejects.toBe(conflict)
+    expect((await translations.list("es", { ref: "draft" }))[1]?.[deploy.id]?.text).toBe("Publica tu agente")
   })
 
   it.each(["Publica tu agente", "Despliega tu agente"])("edits rejected text to %s before verification", async (translation) => {
@@ -524,6 +562,54 @@ describe("the browser with a Workspace", () => {
       expect(getI18n()._(deploy)).toBe("Despliega tu agente")
     }
     finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    ["Hola {name}", { name: "Ana" }, "Hola Ana"],
+    ["{n, plural, offset:1 one {uno} other {{name}: #}}", { n: 3, name: "Ana" }, "Ana: 2"],
+    ["{n, selectordinal, one {primero} other {otro}}", { n: 2 }, "otro"],
+    ["{kind, select, a {{n, plural, one {uno} other {varios}}} other {otro}}", { kind: "a", n: 2 }, "varios"],
+  ])("loads valid compiled live messages: %s", async (message, values, expected) => {
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", async () => Response.json({ revision: "rev-2", messages: { [deploy.id]: compileMessage(message) } }))
+    try {
+      configureI18n({ ...config, live: "/_vitehub/i18n", catalogs: {} })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy.id, values)).toBe(expected)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each<[string, unknown]>([
+    ["messages that are not a record", { revision: "rev-2", messages: "Publica tu agente" }],
+    ["a message that is not compiled", { revision: "rev-2", messages: { [deploy.id]: 42 } }],
+    ...[
+      [], ["n", "plural", null], ["n", "select", { other: [null] }],
+      ["n", "plural", { other: [["n", "selectordinal", null]] }],
+      ["n", "plural", { one: ["one"] }], ["n", "plural", { offset: "bad", other: ["many"] }],
+    ].map<[string, unknown]>(token => ["a malformed placeholder", { revision: "rev-2", messages: { [deploy.id]: [token] } }]),
+    ["a revision that is not a string", { revision: 2, messages: {} }],
+    ["a body that is not an object", ["Publica tu agente"]],
+  ])("keeps the build catalog and warns I18N_LIVE_CATALOG_INVALID for %s", async (_name, body) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", async () => Response.json(body))
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "I18N_LIVE_CATALOG_INVALID" }))
+    }
+    finally {
+      warn.mockRestore()
       vi.unstubAllGlobals()
     }
   })

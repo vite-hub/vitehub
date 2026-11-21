@@ -55,8 +55,8 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
  */
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
-  "blob", "browser", "channels", "comments", "content",
-  "database", "decisions", "email", "forms", "forms/database", "forms/operations", "forms/runtime",
+  "blob", "browser", "channels", "channels/adapters", "comments", "content",
+  "choices", "database", "email", "forms", "forms/database", "forms/operations", "forms/runtime",
   "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
@@ -105,7 +105,7 @@ const ownerPackages = new Set(Object.keys({ ...frameworkPackageManifest.dependen
 /** Paths after `vite-hub/` that re-export the owner path after `@vite-hub/`, such as `blob` and `rate-limit/drivers/memory`. */
 const facadePaths = new Set(Object.keys(frameworkPackageManifest.exports).flatMap((subpath) => {
   const path = subpath.replace(/^\.\/?/, "")
-  return path && !path.startsWith("_internal/") && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
+  return path && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
 }))
 /** The `vite-hub` package and the owner packages import each other through `@vite-hub/*`. */
 const viteHubPackage = /^(?:vite-hub|@vite-hub\/.+)$/

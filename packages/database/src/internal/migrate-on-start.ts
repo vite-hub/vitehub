@@ -4,7 +4,7 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
 import type { MigrationBackup, StartMigration } from "../runtime/migrate-on-start.ts"
-import type { DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
+import type { DatabaseDialect, DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
 
 /** The Nitro plugin that applies migrations at boot, relative to the Database project root. */
 export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-start.mjs"
@@ -72,7 +72,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
   const databases: Record<string, { dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
     try {
-      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir), name)
+      const migrations = readStartMigrations(resolve(config!.rootDir, config!.databases[name]!.migrationsDir), config!.databases[name]!.dialect, name)
       if (migrations.length) databases[name] = { dialect: config!.databases[name]!.dialect, migrations }
     }
     catch (error) {
@@ -88,7 +88,7 @@ export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | und
  * when no database has migrations.
  */
 export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options: RenderMigrateOnStartOptions): string | undefined {
-  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), name).length)
+  const databases = options.databases.filter(name => readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir), config.databases[name]!.dialect, name).length)
   if (!databases.length) return
   return [
     `import { databases } from ${JSON.stringify(options.registryImport)}`,
@@ -136,10 +136,10 @@ function assertMigrationBackupSupported(config: ResolvedDBViteConfig | undefined
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+export function readStartMigrations(migrationsDir: string, dialect: DatabaseDialect, database?: string): StartMigration[] {
   const entries = readMigrations(migrationsDir, database)
   return entries.map((entry) => {
-    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
+    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries, dialect)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
 }

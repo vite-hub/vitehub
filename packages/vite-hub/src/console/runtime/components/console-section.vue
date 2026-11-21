@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RollNumber } from "@vite-hub/ui";
 import { computed, useId, useTemplateRef } from "vue";
 
 /**
@@ -54,7 +55,7 @@ defineExpose({
           class="flex min-w-0 scroll-mt-4 items-center gap-2 text-sm font-medium text-highlighted"
         >
           <span class="min-w-0 break-words">{{ title }}</span>
-          <UBadge v-if="count !== undefined" :label="String(count)" class="tabular-nums" />
+          <UBadge v-if="count !== undefined" class="tabular-nums"><RollNumber v-if="typeof count === 'number'" :value="count" /><template v-else>{{ count }}</template></UBadge>
           <slot name="title" />
         </component>
         <p v-if="description" class="mt-0.5 text-xs text-pretty text-muted">{{ description }}</p>

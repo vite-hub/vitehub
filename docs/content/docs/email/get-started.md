@@ -8,17 +8,17 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Email sends email from your server code. You write the message once. A provider, such as Resend, delivers it.
+Email sends messages from your server code through a provider, such as Resend. You write the message once, and the provider delivers it.
 
-In this tutorial, you send a real welcome email through Resend from an API route, and you check that it arrived.
+In this tutorial, you send a real welcome email from an API route through Resend and check that it arrives.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation) and a POSIX shell such as bash or zsh. You also need a Resend account with an API key, a sender address that Resend verified, and an inbox that you can check. Run the commands from the root of the app. The last step sends a real email.
+> Use the app from [Installation](/docs/getting-started/installation) and a POSIX shell, such as bash or zsh. You also need a Resend account with an API key, a verified sender address in Resend, and an inbox you can check. Run every command from the app root. The last step sends a real email.
 
 ::tutorial-step{title="Install the email dependencies"}
 ## Install the email dependencies
 
-Add the Email package. It includes the Resend driver.
+Install the Email package, which includes the Resend driver.
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/email
@@ -29,7 +29,7 @@ pnpm add @vite-hub/email
 ::tutorial-step{title="Configure Resend"}
 ## Configure Resend
 
-Add `email` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep the other options of your app.
+Add `email` to the ViteHub options in `nuxt.config.ts` or `vite.config.ts`. Keep your other options.
 
 :::tabs{sync="framework"}
 ::::tabs-item{label="Nuxt"}
@@ -39,7 +39,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -61,7 +60,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -82,7 +80,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     email: {
       driver: 'resend',
       options: {
@@ -97,33 +94,33 @@ export default defineConfig({
 :::
 
 - `driver: 'resend'` sends the email through Resend.
-- `apiKey` reads the key from the `RESEND_API_KEY` environment variable when the server sends an email. Do not write the key itself in this file. Values in the config go into the build output.
-- `remote: true` makes `vite dev` send real email. Without it, `vite dev` keeps each email in the [development outbox](/docs/email/hosts#development-outbox) and sends nothing to Resend. A build ignores `remote`.
+- `apiKey` reads `RESEND_API_KEY` from the environment when the server sends an email. Do not write the key itself in this file, because config values go into the build output.
+- `remote: true` tells `vite dev` to send real email. Without it, `vite dev` keeps each email in the [development outbox](/docs/email/hosts#development-outbox) and sends nothing to Resend. A build ignores `remote`.
 
 ::
 
 ::tutorial-step{title="Provide the Resend secret"}
 ## Provide the Resend secret
 
-Set `RESEND_API_KEY` in the terminal where you start Vite. Replace `re_...` with your API key. A variable that you set in another terminal does not get to the server.
+Set `RESEND_API_KEY` in the same terminal where you start Vite. Replace `re_...` with your API key. A variable that you set in another terminal does not reach the server.
 
 ```bash [commands/secret]
 export RESEND_API_KEY='re_...'
 ```
 
-In production, put the key in the secret store of your host. Do not start the name with `VITE_`. Vite can send `VITE_` values to the browser.
+In production, put the key in the secret store of your host. Do not start the variable name with `VITE_`, because Vite can send `VITE_` values to the browser.
 
 ::
 
 ::tutorial-step{title="Send from server code"}
 ## Send from server code
 
-Create `server/api/welcome.post.ts`. Then change the two addresses:
+Create `server/api/welcome.post.ts` and update the two addresses:
 
-- Set `from` to the sender address that Resend verified.
-- Set `to` to an inbox that you can check.
+- Set `from` to your verified Resend sender address.
+- Set `to` to an inbox you can check.
 
-Each request to this route sends one more real email.
+Every request to this route sends a real email.
 
 ```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
@@ -169,15 +166,15 @@ When Resend accepts the email, the response looks like this:
 }
 ```
 
-`id` comes from Resend. The first send also prints this line in the server terminal:
+Resend returns the message `id`. On the first send, the server terminal also prints:
 
 ```text [output/terminal.txt]
 [vitehub] Email is remote: `vite dev` sends real email through resend.
 ```
 
-If the key is wrong, the request fails with `EMAIL_AUTHENTICATION: The resend Email provider rejected the credentials.` in the server terminal. If `RESEND_API_KEY` is not set in that terminal, it fails with `ENV_R0010`.
+If the key is wrong, the request fails with `EMAIL_AUTHENTICATION: The resend Email provider rejected the credentials.` in the server terminal. If `RESEND_API_KEY` is missing in that terminal, the request fails with `ENV_R0010`.
 
-Now open the inbox and find the email. You can also look in the Resend delivery log. An `id` tells you that Resend accepted the email. It does not tell you that the email got to the inbox.
+Now check your inbox for the email. You can also look in the Resend delivery log. An `id` means that Resend accepted the email. It does not mean that the email got to the inbox.
 
 ::
 

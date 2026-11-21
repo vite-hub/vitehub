@@ -991,7 +991,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
    * When each of `paths` last changed on the ref of a revision. Walks the ref backwards: Content commits name the
    * documents they changed, and any other commit is compared with its parent. A revision whose answer for a path is
    * already known ends the walk for that path. Only the asked paths cost a walk, so reading one document does not compare
-   * the history of every document.
+   * the history of every document. Use proven `lastChanged()` results when available. Walk first parents directly for
+   * unresolved GitHub paths, since a GitHub history page can also contain side commits.
    */
   async function updatedAtOf(opened: OpenedRevision, paths: Iterable<string>): Promise<ReadonlyMap<string, string | null>> {
     const id = opened.revision.id
@@ -1005,20 +1006,34 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (digest === undefined) known.set(path, null)
       else pending.set(path, digest)
     }
+    if (pending.size && opened.view.lastChanged) {
+      const changes = await opened.view.lastChanged([...pending.keys()]).catch(() => undefined)
+      for (const [path, change] of changes ?? []) {
+        if (pending.delete(path)) known.set(path, change?.createdAt ?? null)
+      }
+    }
     const retained = pending.size ? await history() : undefined
     const ref = opened.revision.ref
     let queue: WorkspaceRevision[] = [opened.revision]
     let cursor: string | undefined = opened.revision.id
+    let parentId: string | null = null
     let scanned = 0
     while (retained && pending.size && scanned < maxUpdatedAtScan) {
       if (!queue.length) {
-        if (!cursor) break
-        const page = await retained.list({ ref, cursor, limit: 100 })
-        queue = page.revisions
-        cursor = page.cursor
-        if (!queue.length) break
+        if (opened.view.lastChanged) {
+          if (!parentId) break
+          queue = [(await openRevision(parentId)).revision]
+        }
+        else {
+          if (!cursor) break
+          const page = await retained.list({ ref, cursor, limit: 100 })
+          queue = page.revisions
+          cursor = page.cursor
+          if (!queue.length) break
+        }
       }
       const revision = queue.shift()!
+      parentId = revision.parentId
       scanned++
       const earlier = revision.id === id ? undefined : updatedAtKnown.get(revision.id)
       if (earlier) {
@@ -1599,14 +1614,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const opened = (await refState("draft")).opened
       if (!opened) return null
       const updatedAt = (await updatedAtOf(opened, [target.path])).get(target.path) ?? null
-      if (target.document) {
+      const frontmatter = target.document && normalizeFrontmatter(target.document.data)
+      // Fields that are not data render the stored draft.
+      if (target.document && frontmatter && "data" in frontmatter) {
         try {
-          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
+          const text = renderDocumentFile(inFieldOrder(frontmatter.data), format === "markdown" ? target.document.body ?? "" : "", format)
           const parsed = await parseText(text)
           if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt, sourceLocale)
         }
         catch {
-          // Fields that are not data render the stored draft.
+          // A draft that its format cannot write renders the stored draft too.
         }
       }
       const digest = opened.files.get(target.path)
@@ -1858,13 +1875,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (format !== "markdown" && body) {
         throw contentInvalid(name, id, path, [{ message: `${format === "json" ? "JSON" : "YAML"} documents have no body. Store the value in a field.`, path: ["body"] }])
       }
-      let frontmatter: Record<string, unknown>
-      try {
-        frontmatter = normalizeFrontmatter(input.data)
-      }
-      catch (cause) {
-        throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
-      }
+      const normalized = normalizeFrontmatter(input.data)
+      if ("issue" in normalized) throw contentInvalid(name, id, path, [{ message: normalized.issue, path: [] }])
+      const frontmatter = normalized.data
       const { sourceDigest } = writeOptions
       if (sourceDigest !== undefined && (locale === undefined || locale === sourceLocale)) {
         throw contentErrorDiagnostics.CONTENT_SOURCE_DIGEST_INVALID({ problem: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })

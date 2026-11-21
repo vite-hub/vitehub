@@ -127,9 +127,18 @@ export async function readBuiltInEnv(
     }
     // The canonical name comes first. An empty host variable counts as unset, so the next name can supply the value.
     const names = specs[field] ? [...new Set([canonicalBuiltInEnvName(group, field), ...specs[field].names])] : []
-    values[field] = names
-      .map(name => cloudflareEnv?.[name] ?? globalThis.process?.env?.[name])
-      .find(value => value !== undefined && value !== "")
+    values[field] = readHostEnv(names, context)
   }
   return values
+}
+
+/**
+ * The first host variable of `names` that is set: from the Cloudflare bindings of the context, else from `process.env`.
+ * An empty host variable counts as unset.
+ */
+export function readHostEnv(names: readonly string[], context: BuiltInEnvContext): unknown {
+  const cloudflareEnv = context.cloudflare?.env
+  return names
+    .map(name => cloudflareEnv?.[name] ?? globalThis.process?.env?.[name])
+    .find(value => value !== undefined && value !== "")
 }

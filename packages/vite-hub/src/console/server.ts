@@ -13,7 +13,8 @@ import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
 
-import { consoleInvocationUrl, resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
+import { resolvePublicUrl, type RuntimeHostContext } from "@vite-hub/runtime"
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ConsoleInvocationLink {

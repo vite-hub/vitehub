@@ -42,7 +42,7 @@ describe("Blob resource inspection", () => {
   it("lists the R2 bucket when only the resolved host selects Cloudflare", () => {
     const options = { bucketName: "uploads" }
 
-    expect(inspectBlobResources(options, { env: {} })).toEqual([])
+    expect(() => inspectBlobResources(options, { env: {} })).toThrow(expect.objectContaining({ code: "BLOB_UNKNOWN_STORE_OPTION" }))
     expect(inspectBlobResources(options, { env: {}, hosting: "cloudflare" })).toMatchObject([{ kind: "cloudflare-r2-bucket", name: "uploads", source: "name" }])
   })
 

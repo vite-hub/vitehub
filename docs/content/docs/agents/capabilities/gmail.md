@@ -29,7 +29,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     connections: true,
     env: {
       server: {
@@ -53,7 +52,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     connections: true,
     env: {
       server: {
@@ -76,7 +74,6 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     connections: true,
     env: {
       server: {
@@ -187,7 +184,7 @@ Every Google request, including reads and denied calls, is recorded as activity 
 
 ## Verify Gmail access
 
-1. `vitehub agent info --agent inbox --json` lists `gmail_search` and `gmail_read`, plus `gmail_draft` with `draft`.
+1. `vitehub agent get inbox --json` lists `gmail_search` and `gmail_read`, plus `gmail_draft` with `draft`.
 2. On a test account, search `in:inbox` and create a draft.
 3. Check that it stays in Drafts, unsent.
 4. Check the Agent's activity entries.

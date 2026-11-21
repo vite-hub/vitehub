@@ -15,7 +15,7 @@ All operations belong to the Console section `comments`. Run them from the Conso
 | `comments.list` | read | `{ subject?, subjectKind?, page?, status?, mine?, mentions?, revision?, limit?, before? }` | `CommentThread[]`, newest first. |
 | `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null` when it is missing or you may not read it. |
 | `comments.create` | write | `{ subject, anchor, body, mentions?, attachments?, metadata?, revision?, requestId? }` | The new thread. A retry by the same author with the same `requestId` and subject returns the first thread. Another author or subject with that key gets `409` `COMMENTS_R0022`. |
-| `comments.reply` | write | `{ threadId, body, mentions?, attachments? }` | The thread. |
+| `comments.reply` | write | `{ threadId, body, mentions?, attachments?, requestId? }` | The thread. A retry by the same author with the same `requestId` in the thread returns it with the first message. Another author with that key gets `409` `COMMENTS_R0022`. |
 | `comments.edit` | write | `{ threadId, messageId, body, mentions? }` | The thread. Author only. |
 | `comments.delete` | destructive | `{ threadId, messageId? }` | The thread, or `null` when it is gone. |
 | `comments.resolve` | write | `{ threadId }` | The thread. |
@@ -46,10 +46,10 @@ import { createRpcTransport } from 'vite-hub/comments/rpc'
 const client = createCommentsClient({ transport: createRpcTransport({ base: '/portal' }) })
 ```
 
-`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. It has no `subscribe`, so the client refreshes on window focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
+`createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc`, one birpc call for each request. `files` in `create` and `reply` go to `comments.upload` first, and their keys to `attachments`. It has no `subscribe`, so the client refreshes on window focus. A failure throws a diagnostic with `code`, `message`, `fix`, and `status`.
 
 > [!WARNING]
-> `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/development/console#sign-console-requests) on `/_vitehub/rpc`.
+> `createRpcTransport()` is for development only. A browser cannot sign Console calls, so it works only on a development server with `console: { auth: false }` or without the `console` option. In production, the app takes only [signed calls](/docs/console/signed-requests) on `/_vitehub/rpc`.
 
 Your pages use [`createRestTransport()`](/docs/comments/server-api#rest-transport) from `vite-hub/comments/client`. It calls the same actions and policy through the Comments API, for signed-in users, guests, and share link readers, and adds `upload` and `attachmentUrl(key)`.
 

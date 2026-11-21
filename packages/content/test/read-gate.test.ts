@@ -93,8 +93,14 @@ describe("generated Content readers", { timeout: 30_000 }, () => {
   })
 
   it("keeps robots.txt public, because it names no page", async () => {
-    const response = await defineContentRobotsHandler(handbook(() => false, { robots: true })).fetch(new Request("https://example.com/robots.txt"))
+    const policy = vi.fn<ContentAuthorize>(() => false)
+    const content = handbook(policy, { robots: true, markdown: true })
+    const app = new H3().use(defineContentMarkdownHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))
+    const response = await app.request("https://example.com/robots.txt", { headers: { "user-agent": "GPTBot/1.2", accept: "*/*" } })
     expect(response.status).toBe(200)
+    expect(await response.text()).toContain("User-agent: *")
+    expect(policy).not.toHaveBeenCalled()
+    expect((await app.request("https://example.com/handbook/salary", { headers: { "user-agent": "GPTBot/1.2", accept: "*/*" } })).status).toBe(401)
   })
 
   it("requires a decision before any reader serves a github() Source", () => {

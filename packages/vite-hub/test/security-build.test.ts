@@ -35,14 +35,13 @@ function chunks(text: string): ReadableStream<Uint8Array> {
 
 describe("security in a built Node server", () => {
   it("adds the headers to routes, errors, and static files, and caps request bodies", async () => {
-    const root = await build({ host: "node", sameOriginWrites: true, security: { headers: { "X-Robots-Tag": "noindex" }, maxBodySize: "1kb" } })
+    const root = await build({ host: "node", sameOriginWrites: true, security: { headers: { "X-Frame-Options": "SAMEORIGIN", "X-Robots-Tag": "noindex" }, maxBodySize: "1kb" } })
     const server = await startBuiltServer(root, {})
     try {
       const page = await server.fetch("/api/page")
       expect(Object.fromEntries([...page.headers].filter(([name]) => name !== "content-type" && name !== "content-length" && name !== "date" && name !== "connection" && name !== "keep-alive"))).toEqual({
-        "permissions-policy": "camera=(), geolocation=(), microphone=()",
         "referrer-policy": "strict-origin-when-cross-origin",
-        "strict-transport-security": "max-age=31536000; includeSubDomains",
+        "strict-transport-security": "max-age=31536000",
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN",
         "x-robots-tag": "noindex",
@@ -70,12 +69,31 @@ describe("security in a built Node server", () => {
     }
   }, 180_000)
 
-  it("adds nothing when security is unset", async () => {
+  it("sends the default headers and no body limit when security is unset", async () => {
     const root = await build({ host: "node" })
     const server = await startBuiltServer(root, {})
     try {
-      expect((await server.fetch("/api/page")).headers.has("x-content-type-options")).toBe(false)
+      const page = await server.fetch("/api/page")
+      expect(page.headers.get("strict-transport-security")).toBe("max-age=31536000")
+      expect(page.headers.get("x-content-type-options")).toBe("nosniff")
+      expect(page.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin")
+      expect(page.headers.has("x-frame-options")).toBe(false)
+      expect(page.headers.has("permissions-policy")).toBe(false)
+      expect((await server.fetch("/embed")).headers.get("x-frame-options")).toBe("DENY")
       expect((await server.fetch("/api/notes", { method: "POST", body: "a".repeat(4096) })).status).toBe(200)
+    }
+    finally {
+      server.close()
+    }
+  }, 180_000)
+
+  it("sends no headers with headers: false", async () => {
+    const root = await build({ host: "node", security: { headers: false } })
+    const server = await startBuiltServer(root, {})
+    try {
+      const page = await server.fetch("/api/page")
+      expect(page.headers.has("strict-transport-security")).toBe(false)
+      expect(page.headers.has("x-content-type-options")).toBe(false)
     }
     finally {
       server.close()
@@ -84,22 +102,20 @@ describe("security in a built Node server", () => {
 })
 
 describe("security headers for static files on hosts that serve them without the server", () => {
-  it("adds a rule to the Cloudflare _headers file, after the route rules", async () => {
-    const root = await build({ host: "cloudflare", security: { headers: true } }, {}, { routeRules: { "/embed/**": { headers: { "X-Frame-Options": "DENY" } } } })
+  it("adds the default rule to the Cloudflare _headers file, after the route rules", async () => {
+    const root = await build({ host: "cloudflare" }, {}, { routeRules: { "/embed/**": { headers: { "Referrer-Policy": "no-referrer" } } } })
     expect(await readFile(join(root, ".output/public/_headers"), "utf8")).toBe([
       "/embed/*",
-      "  X-Frame-Options: DENY",
+      "  Referrer-Policy: no-referrer",
       "/*",
-      "  Strict-Transport-Security: max-age=31536000; includeSubDomains",
+      "  Strict-Transport-Security: max-age=31536000",
       "  X-Content-Type-Options: nosniff",
-      "  Referrer-Policy: strict-origin-when-cross-origin",
-      "  Permissions-Policy: camera=(), geolocation=(), microphone=()",
       "",
     ].join("\n"))
   }, 180_000)
 
   it("adds a hit-phase route to the Vercel Build Output config", async () => {
-    const root = await build({ host: "vercel", security: { headers: { "Permissions-Policy": false } } })
+    const root = await build({ host: "vercel", security: { headers: { "Permissions-Policy": "camera=()", "Referrer-Policy": false } } })
     const config = JSON.parse(await readFile(join(root, ".vercel/output/config.json"), "utf8")) as { routes: Array<Record<string, unknown>> }
     const hit = config.routes.findIndex(route => route.handle === "hit")
     expect(hit).toBeGreaterThan(config.routes.findIndex(route => route.handle === "filesystem"))
@@ -107,10 +123,9 @@ describe("security headers for static files on hosts that serve them without the
       src: "/(.*)",
       continue: true,
       headers: {
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Strict-Transport-Security": "max-age=31536000",
         "X-Content-Type-Options": "nosniff",
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-        "X-Frame-Options": "SAMEORIGIN",
+        "Permissions-Policy": "camera=()",
       },
     })
   }, 180_000)

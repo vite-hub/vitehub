@@ -2,6 +2,14 @@ import { defineErrors } from "@vite-hub/runtime"
 
 export type RealtimeRequestAction = "checkpoint" | "refresh" | "save"
 
+/** The `data` of a `REALTIME_REQUEST_FAILED` error. */
+export type RealtimeRequestFailure = {
+  /** HTTP status of the server answer, such as `409` when the stored document changed. `undefined` for a network error. */
+  status: number | undefined
+}
+
+type RealtimeInvalidAccessReason = "auth" | "not-authorize" | "not-public" | "origins-without-identify" | "public-with-rule"
+
 // Keep published codes stable. Each code has a heading on the docs page.
 export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/realtime/diagnostics",
@@ -15,6 +23,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ action }: { action: RealtimeRequestAction }) => `The realtime document disconnected or changed during \`${action}()\`.`,
       fix: "Call the method again after the new document connects. Read `synced` to know when it is ready.",
     },
+    REALTIME_INVALID_DOCUMENT: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room body does not fit the editor schema, so \`${action}()\` did not write it. Writing it would lose content.`,
+      fix: "Keep editing until the document fits the editor extensions of the Realtime Definition, then call the method again. The room keeps the edits.",
+    },
     REALTIME_INVALID_RESPONSE: {
       why: ({ action }: { action: RealtimeRequestAction }) => `The realtime server answered \`${action}()\` with a response that the client cannot use.`,
       fix: "Use the same `@vite-hub/realtime` version on the client and the server, and build again.",
@@ -23,10 +35,23 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ action }: { action: RealtimeRequestAction }) => `\`${action}()\` needs a document, and \`documentId\` is empty.`,
       fix: "Pass a document path to `useRealtimeTiptap(definition, documentId)` before you call the method.",
     },
+    REALTIME_READ_ONLY: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room is read-only, so \`${action}()\` cannot write the document.`,
+      fix: "Read `readOnlyReason` of `useRealtimeTiptap()` for the reason. Do not offer save or publish while it is set.",
+    },
     REALTIME_REQUEST_FAILED: {
       why: ({ action, message, status }: { action: RealtimeRequestAction, message?: string, status?: number }) =>
         `The realtime \`${action}()\` request failed${status === undefined ? "" : ` with HTTP ${status}`}${message ? `: ${message}` : "."}`,
-      fix: "Read `error.why` for the server message, and `error.cause` for a network error. Retry when the server is available again.",
+      fix: "Read `error.why` for the server message, `error.data.status` for the HTTP status, and `error.cause` for a network error. Retry when the server is available again.",
+      data: ({ status }: { action: RealtimeRequestAction, message?: string, status?: number }): RealtimeRequestFailure => ({ status }),
+    },
+    REALTIME_SOURCE_CHANGED: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The server refused \`${action}()\` because the stored document changed outside the room.`,
+      fix: "Tell the person that the stored document changed. Use `onReset()` to detect a room reset and read unsaved edits from the event's `previous` document.",
+    },
+    REALTIME_SYNC_PENDING: {
+      why: ({ action }: { action: RealtimeRequestAction }) => `The room did not receive every edit of this client in time, so \`${action}()\` did not run. The composable tried 20 times.`,
+      fix: "Call the method again when `synced` is true. When it keeps failing, check that the WebSocket stays connected.",
     },
 
     // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
@@ -102,6 +127,10 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Config errors. The server throws them, because the code or the deployment must change.
+    REALTIME_BLOB_ETAG_MISSING: {
+      why: ({ pathname }: { pathname: string }) => `The Blob store returned no \`httpEtag\` for ${pathname}, so \`blobDocument()\` cannot save the file only if it is unchanged.`,
+      fix: "Pass a ViteHub Blob store, such as `blob` from `vite-hub/blob`, whose `head()` returns `httpEtag` on every driver. A store of your own must return `httpEtag` from `head()` and accept `ifMatch` in `put()`.",
+    },
     REALTIME_INVALID_PERSISTENCE: {
       why: ({ name, reason }: { name: "debounce" | "maxWait", reason: "below-debounce" | "not-milliseconds" }) => reason === "below-debounce"
         ? "Realtime `persistence.maxWait` must be at least `persistence.debounce`."
@@ -110,17 +139,25 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     REALTIME_MISSING_ACCESS: {
       why: "The Realtime definition sets no access rule, so it does not say who can read and write its rooms.",
-      fix: "Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
+      fix: "Set `authorize: true` to require a signed-in user, set `authorize()` to decide each request, or set `access: \"public\"` to let anyone read and write.",
     },
     REALTIME_INVALID_ACCESS: {
-      why: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "public-with-rule"
-        ? "The Realtime definition sets `access: \"public\"` together with `auth` or `authorize()`, so its access rule is not clear."
-        : reason === "not-public"
-          ? "The Realtime definition sets `access` to a value other than \"public\"."
-          : "The Realtime definition sets `origins()` with `auth: true` and no `identify()`. The ViteHub Auth session is a cookie, so ViteHub accepts it only from the app's own origin.",
-      fix: ({ reason }: { reason: "public-with-rule" | "not-public" | "origins-without-identify" }) => reason === "origins-without-identify"
-        ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
-        : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `auth: true` or `authorize()`.",
+      why: ({ reason }: { reason: RealtimeInvalidAccessReason }) => reason === "auth"
+        ? "The Realtime definition sets `auth`. Realtime replaced it with `authorize: true`, and an `authorize()` callback now also runs for signed-out callers."
+        : reason === "public-with-rule"
+          ? "The Realtime definition sets `access: \"public\"` together with `authorize`, so its access rule is not clear."
+          : reason === "not-public"
+            ? "The Realtime definition sets `access` to a value other than \"public\"."
+            : reason === "not-authorize"
+              ? "The Realtime definition sets `authorize` to a value that is not `true` or a function."
+              : "The Realtime definition sets `origins()` with `authorize: true` and no `identify()`. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.",
+      fix: ({ reason }: { reason: RealtimeInvalidAccessReason }) => reason === "auth"
+        ? "Replace `auth: true` with `authorize: true`. With an `authorize()` callback, remove `auth` and return `false` from the callback when `user` is `null`."
+        : reason === "origins-without-identify"
+          ? "Remove `origins()`, or add `identify()` that reads a credential the page sends on purpose, such as a ticket in `params`."
+          : reason === "not-authorize"
+            ? "Set `authorize: true` to require a signed-in user, or set `authorize()` to a function that returns `true` to allow."
+            : "Use `access: \"public\"` alone for open rooms. To limit access, remove `access` and set `authorize`.",
     },
     REALTIME_CHECKPOINT_UNSUPPORTED: {
       why: "The Realtime definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method, so `history.checkpoint()` could never run.",

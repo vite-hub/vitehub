@@ -312,13 +312,21 @@ export const noViteHubPluginInNuxt: DoctorRule = createRule({
 /** Feature keys that owner plugins no longer read from the top level of a Vite config. */
 const topLevelFeatureKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "workflow", "workspace"]
 
-function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string) {
+/** Option objects, such as `cloudflare`, that hold a removed nested key. */
+const nestedRemovedParents = new Set(Object.keys(removedViteHubOptions).flatMap(key => key.includes(".") ? [key.slice(0, key.indexOf("."))] : []))
+
+function checkViteHubOptions(ctx: RuleContext, options: unknown, where: string, parent?: string) {
   const target = unwrap(options)
   if (!isNodeType(target, "ObjectExpression")) return
   for (const property of objectProperties(target)) {
     const name = propertyName(property)
+    if (parent === undefined && name !== undefined && nestedRemovedParents.has(name)) {
+      checkViteHubOptions(ctx, property.value, `${where}.${name}`, name)
+      continue
+    }
     let report: { why: string, fix: string } | undefined
-    const removed = name !== undefined && Object.hasOwn(removedViteHubOptions, name) ? removedViteHubOptions[name] : undefined
+    const key = name !== undefined && parent !== undefined ? `${parent}.${name}` : name
+    const removed = key !== undefined && Object.hasOwn(removedViteHubOptions, key) ? removedViteHubOptions[key] : undefined
     if (removed) {
       report = { why: `${removed.why} The build fails on this key.`, fix: removed.fix }
     }
@@ -338,10 +346,24 @@ export const validViteHubOptions: DoctorRule = createRule({
     if (nuxtConfigFile.test(ctx.file.relativePath)) {
       const config = configObject(ctx)
       if (!config) return
-      const module = nuxtModules(config).find(entry => entry.name === "vite-hub/nuxt")
-      if (!module) return
-      checkViteHubOptions(ctx, objectValue(config, "vitehub"), "the `vitehub` key")
-      checkViteHubOptions(ctx, module.options, "the inline `vite-hub/nuxt` options")
+      const scopes = [{ name: "", config }, ...objectProperties(config).flatMap((item) => {
+        const name = propertyName(item)
+        const scope = unwrap(item.value)
+        if (!name?.startsWith("$") || !isNodeType(scope, "ObjectExpression")) return []
+        if (name !== "$env") return [{ name, config: scope }]
+        return objectProperties(scope).flatMap((entry) => {
+          const environment = propertyName(entry)
+          const override = unwrap(entry.value)
+          return environment && isNodeType(override, "ObjectExpression") ? [{ name: `${name}.${environment}`, config: override }] : []
+        })
+      })]
+      const hasBaseModule = nuxtModules(config).some(entry => entry.name === "vite-hub/nuxt")
+      for (const scope of scopes) {
+        const module = nuxtModules(scope.config).find(entry => entry.name === "vite-hub/nuxt")
+        if (!hasBaseModule && !module) continue
+        checkViteHubOptions(ctx, objectValue(scope.config, "vitehub"), scope.name ? `the \`${scope.name}.vitehub\` key` : "the `vitehub` key")
+        checkViteHubOptions(ctx, module?.options, "the inline `vite-hub/nuxt` options")
+      }
       return
     }
     if (!viteConfigFile.test(ctx.file.relativePath)) return
