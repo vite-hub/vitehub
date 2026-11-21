@@ -147,7 +147,7 @@ describe("packed Source capability closures", () => {
           include: ["src/**/*.ts"],
         }, null, 2)),
         writeFile(join(appDir, "src/lightweight.ts"), `
-import { createSource, defineSource, file, github, glob, markdown } from "vite-hub/source"
+import { useSource, defineSource, file, github, glob, markdown } from "vite-hub/source"
 
 const local = defineSource({ name: "local", getKeys: async () => ["ok"], getItem: async key => ({ key, content: "ok" }) })
 const inline = file({ content: "ok", workspacePath: "inline.txt" })
@@ -155,7 +155,7 @@ const remote = github({ auth: false, repo: "vite-hub/vitehub" })
 const matches = glob({ include: "**/*.md" })
 const document = markdown({ content: "# ok", workspacePath: "readme.md" })
 
-export default { fetch: async () => new Response(await createSource(local).read("ok") + await createSource(inline).read("inline.txt") + remote.name + matches.name + document.name) }
+export default { fetch: async () => new Response(await useSource(local).read("ok") + await useSource(inline).read("inline.txt") + remote.name + matches.name + document.name) }
 `),
         writeFile(join(appDir, "src/mcp.ts"), `
 import { mcpResources } from "vite-hub/source/mcp"
@@ -176,7 +176,7 @@ const sourceTransport: McpResourcesTransport = {
 void sourceTransport
 `),
         writeFile(join(appDir, "mcp-run.mjs"), `
-import { createSource, defineSource, file } from "vite-hub/source"
+import { useSource, defineSource, file } from "vite-hub/source"
 import { mcpResources } from "vite-hub/source/mcp"
 
 const transport = {
@@ -193,10 +193,10 @@ const transport = {
   },
 }
 const source = mcpResources({ server: { transport } })
-const item = await createSource(source).get("packed/readme.txt")
-const inline = createSource(file({ workspacePath: "readme.md", content: "direct reader ok" }))
+const item = await useSource(source).get("packed/readme.txt")
+const inline = useSource(file({ workspacePath: "readme.md", content: "direct reader ok" }))
 if (await inline.read("readme.md") !== "direct reader ok") throw new Error("Direct file reader failed")
-const records = createSource(defineSource({ name: "records", getKeys: async () => ["one"], getItem: async key => ({ key, data: { count: 1 } }) }))
+const records = useSource(defineSource({ name: "records", getKeys: async () => ["one"], getItem: async key => ({ key, data: { count: 1 } }) }))
 if ((await records.get("one")).data.count !== 1) throw new Error("Direct record reader failed")
 if (item.content !== "packed MCP runtime ok") throw new Error(String(item.content))
 console.log(item.content)

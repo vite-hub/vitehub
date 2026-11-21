@@ -25,6 +25,15 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorPeers = {
+  "@tiptap/core": "both",
+  "@tiptap/extension-image": "both",
+  "@tiptap/extension-list": "both",
+  "@tiptap/extension-table": "both",
+  "@tiptap/pm": "both",
+  "@tiptap/starter-kit": "both",
+} satisfies Readonly<Record<string, OptionalPeerUsage>>
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -50,10 +59,9 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // The assistant preset is an Agent Definition on the ChatGPT gateway.
   ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
-  // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
-  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
+  ["@vite-hub/content/editor", { ...contentEditorPeers, "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { ...contentEditorPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
@@ -140,7 +148,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "sync", "ui", "web-container", "webhooks", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "device", "docs", "forge", "forms", "i18n", "mcp", "presets", "realtime", "schedule", "shell", "sync", "ui", "web-container", "webhooks", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

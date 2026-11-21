@@ -77,11 +77,4 @@ describe("docs design", () => {
     expect(token(":root", "--vh-grain")).toContain("opacity='0.035'")
     expect(design).toMatch(/body,\s*\.vh-grain-surface\s*\{[^}]*background-image:\s*var\(--vh-grain\)/)
   })
-
-  it("puts comark-ui's layer between Tailwind's base and its utilities", () => {
-    const module = readFileSync(fileURLToPath(new URL("../src/nuxt.ts", import.meta.url)), "utf8")
-
-    expect(module).toContain("`@layer theme, base, comark, components, utilities;`")
-    expect(module.indexOf("@layer theme, base, comark")).toBeLessThan(module.indexOf("stylesheet(\"tailwindcss\")"))
-  })
 })

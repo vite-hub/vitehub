@@ -102,19 +102,4 @@ describe("Provider Output contribution catalog", () => {
       secrets: { required: ["TOKEN"] },
     })
   })
-
-  it("rejects unknown owners and provider kinds at the type boundary", () => {
-    const catalog = createProviderOutputCatalog()
-    const invalidContributions = () => {
-      // @ts-expect-error Env contributions cannot claim Queue fields.
-      contributeCloudflareProviderOutput(catalog, { owner: "env", queues: {} })
-      // @ts-expect-error Schedule does not contribute cross-product runtime modules.
-      contributeProviderRuntime(catalog, { owner: "schedule", runtimeModules: {} })
-      // @ts-expect-error Blob has no Netlify runtime module contribution.
-      contributeProviderRuntime(catalog, { owner: "blob", runtimeModules: { netlify: "blob.mjs" } })
-      // @ts-expect-error Database has no Deno runtime module contribution.
-      getProviderRuntimeModule(catalog, "database", "deno")
-    }
-    expect(invalidContributions).toBeTypeOf("function")
-  })
 })

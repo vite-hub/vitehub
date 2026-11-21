@@ -146,6 +146,20 @@ export async function teardownCloudflare({ accountId, apiToken, prefix, fetch = 
     }
   });
 
+  // Cloudflare refuses to delete a Worker that consumes a Queue (10064), and a Queue that a Worker still binds (11005).
+  // Remove the consumers of this run's Queues first; the Queues go after the Worker.
+  await step("queue consumer", async () => {
+    for (const queue of await listAll(request, "/queues")) {
+      if (!isScratchName(queue?.queue_name, prefix)) continue;
+      const path = `/queues/${encodeURIComponent(queue.queue_id)}/consumers`;
+      for (const consumer of await listAll(request, path)) {
+        if (!consumer?.consumer_id) continue;
+        const name = `${queue.queue_name} <- ${consumer.script ?? consumer.script_name ?? consumer.consumer_id}`;
+        record("queue consumer", name, await deleteOne(request, `${path}/${encodeURIComponent(consumer.consumer_id)}`));
+      }
+    }
+  });
+
   await step("worker", async () => {
     record("worker", prefix, await deleteOne(request, `/workers/scripts/${encodeURIComponent(prefix)}`, { force: "true" }));
   });

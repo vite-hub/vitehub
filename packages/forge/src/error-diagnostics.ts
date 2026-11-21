@@ -31,7 +31,7 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     FORGE_UNSUPPORTED: {
       why: "Unsupported Forge.",
-      fix: "Set `forge` of the Forge connection to `github`, `gitlab`, or `forgejo`.",
+      fix: "Set `forge` of the Forge connection to `github`, `gitlab`, `forgejo`, or `gitea`.",
     },
   },
 })

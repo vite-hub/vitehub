@@ -25,7 +25,7 @@ it("lists the definitions and their changes without row data", async () => {
   const handler = createSyncHandler({ definitions: { notes: defineSync({ table: notes, where: () => ({}), write: false }) }, db: () => db })
   expect(await operation("sync.list").run({}, undefined as never)).toEqual([expect.objectContaining({ triggers: false, changes: 0 })])
   // The first request adds the triggers and raises the floor. From then on, every write of the table is in the change log.
-  expect((await handler.fetch(new Request("https://app.test/api/_vitehub/sync/notes"))).status).toBe(200)
+  expect((await handler.fetch(new Request("https://app.test/_vitehub/sync/notes"))).status).toBe(200)
   await db.insert(notes).values([{ id: "n1", body: "secret text" }, { id: "n2", body: "more" }])
 
   const summary = await operation("sync.list").run({}, undefined as never)

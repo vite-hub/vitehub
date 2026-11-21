@@ -8,7 +8,6 @@ export default defineConfig({
       agent: true,
       console: false,
       schedule: true,
-      workflow: false,
       kv: {
         driver: 'deno-kv',
       },

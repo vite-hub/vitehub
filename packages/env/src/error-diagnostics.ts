@@ -20,7 +20,7 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0006: withFix("Remove `required`: a value is required by default. Set `optional: true` for a value that can be missing, or a `default` for a fallback value, not both."),
     ENV_R0008: withFix("Change the Env declaration at the path in the error details, as the message says."),
     ENV_R0009: withFix("Load Server Env with `await loadServerEnv()`, or run the code in `runWithServerEnv()`. A provider value cannot be read without `await`."),
-    ENV_R0010: withFix("Give the variable a value at its source: set it in `.env` or in the host environment, or return it from the provider or the custom source. Or set `optional: true` on the declaration, or a `default` if the variable is not secret. Run `vitehub env check` to list the missing variables."),
+    ENV_R0010: withFix("Give the variable a value at its source: set a variable that the error names in `.env` or in the host environment, or return it from the provider or the custom source. Or set `optional: true` on the declaration, or a `default` if the variable is not secret. Run `vitehub env check` to list the missing variables."),
     ENV_R0011: withFix("Change the value at its source, or the `default` of the declaration, so that it matches the type of the variable. The message names each issue. If the message names a provider, make its `read()` return a plain object with a value for each key, not a getter."),
     ENV_R0012: withFix("Make package.json contain one JSON object."),
     ENV_R0013: withFix("Pass an object with a `read({ env, keys, signal })` method to `defineEnvProvider()`."),

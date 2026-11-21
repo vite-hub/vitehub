@@ -127,7 +127,7 @@ describe("Email outbox clear confirmation", () => {
 })
 
 describe("Email outbox failure output", () => {
-  it.each([["show", "--json"], ["list", "--json", "--html"], ["send", "--json"], ["--json"]])("returns JSON for outbox argument errors: %j", async (...args) => {
+  it.each([["get", "--json"], ["list", "--json", "--html"], ["send", "--json"], ["--json"]])("returns JSON for outbox argument errors: %j", async (...args) => {
     const output = context()
     const fetch = vi.fn()
     await expect(runEmailOutboxCli(args, output.context, { fetch })).resolves.toBe(1)
@@ -190,7 +190,7 @@ describe("vitehub email outbox", () => {
   it("shows one message as a summary, HTML, text, or JSON", async () => {
     const human = context()
     const fetch = devServer({ message: captured })
-    await expect(runEmailOutboxCli(["show", "outbox-2"], human.context, { fetch })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["get", "outbox-2"], human.context, { fetch })).resolves.toBe(0)
     expect(sentCall(fetch).body).toEqual({ input: { id: "outbox-2" }, operation: "email.outbox-show" })
     expect(human.stdout.output()).toBe([
       "Message: outbox-2",
@@ -212,22 +212,22 @@ describe("vitehub email outbox", () => {
     ].join("\n"))
 
     const html = context()
-    await expect(runEmailOutboxCli(["show", "outbox-2", "--html"], html.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["get", "outbox-2", "--html"], html.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
     expect(html.stdout.output()).toBe("<p>Your invoice.</p>\n")
 
     const text = context()
-    await expect(runEmailOutboxCli(["show", "--text", "outbox-2"], text.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["get", "--text", "outbox-2"], text.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
     expect(text.stdout.output()).toBe("Your invoice.\n")
 
     const json = context()
-    await expect(runEmailOutboxCli(["show", "outbox-2", "--json"], json.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["get", "outbox-2", "--json"], json.context, { fetch: devServer({ message: captured }) })).resolves.toBe(0)
     expect(JSON.parse(json.stdout.output())).toEqual(captured)
   })
 
   it("shows the failed delivery reason", async () => {
     const failed = context()
     const message = { ...captured, delivery: { error: { code: "AUTH", message: "Invalid key." }, status: "failed" } }
-    await expect(runEmailOutboxCli(["show", "outbox-2"], failed.context, { fetch: devServer({ message }) })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["get", "outbox-2"], failed.context, { fetch: devServer({ message }) })).resolves.toBe(0)
     expect(failed.stdout.output()).toContain("Delivery: failed AUTH: Invalid key.\n")
   })
 
@@ -246,11 +246,11 @@ describe("vitehub email outbox", () => {
   it("prints runtime failures as text or JSON", async () => {
     const error = { error: { code: "EMAIL_OUTBOX_MESSAGE_NOT_FOUND", message: "Outbox message was not found." } }
     const human = context()
-    await expect(runEmailOutboxCli(["show", "outbox-9"], human.context, { fetch: devServer(error, { status: 404 }) })).resolves.toBe(1)
+    await expect(runEmailOutboxCli(["get", "outbox-9"], human.context, { fetch: devServer(error, { status: 404 }) })).resolves.toBe(1)
     expect(human.stderr.output()).toBe("Outbox message was not found.\n")
 
     const json = context()
-    await expect(runEmailOutboxCli(["show", "outbox-9", "--json"], json.context, { fetch: devServer(error, { status: 404 }) })).resolves.toBe(1)
+    await expect(runEmailOutboxCli(["get", "outbox-9", "--json"], json.context, { fetch: devServer(error, { status: 404 }) })).resolves.toBe(1)
     expect(JSON.parse(json.stdout.output())).toEqual(error)
 
     const disabled = context()
@@ -271,10 +271,10 @@ describe("vitehub email outbox", () => {
   it("validates arguments before it calls the server", async () => {
     const fetch = vi.fn()
     const missingId = context()
-    await expect(runEmailOutboxCli(["show"], missingId.context, { fetch })).resolves.toBe(1)
+    await expect(runEmailOutboxCli(["get"], missingId.context, { fetch })).resolves.toBe(1)
     expect(missingId.stderr.output()).toContain("Missing outbox message id.")
     const formats = context()
-    await expect(runEmailOutboxCli(["show", "outbox-1", "--html", "--text"], formats.context, { fetch })).resolves.toBe(1)
+    await expect(runEmailOutboxCli(["get", "outbox-1", "--html", "--text"], formats.context, { fetch })).resolves.toBe(1)
     expect(formats.stderr.output()).toContain("Use only one of --html, --text, and --json.")
     const unknown = context()
     await expect(runEmailOutboxCli(["list", "--html"], unknown.context, { fetch })).resolves.toBe(1)
@@ -284,10 +284,10 @@ describe("vitehub email outbox", () => {
     expect(command.stderr.output()).toContain("Unknown outbox command: send")
     const none = context()
     await expect(runEmailOutboxCli([], none.context, { fetch })).resolves.toBe(1)
-    expect(none.stderr.output()).toContain("Usage: vitehub email outbox <list|show|clear>")
+    expect(none.stderr.output()).toContain("Usage: vitehub email outbox <list|get|clear>")
     const help = context()
-    await expect(runEmailOutboxCli(["show", "--help"], help.context, { fetch })).resolves.toBe(0)
-    expect(help.stdout.output()).toContain("Usage: vitehub email outbox show <id> [--html|--text|--json] [--url <url>]")
+    await expect(runEmailOutboxCli(["get", "--help"], help.context, { fetch })).resolves.toBe(0)
+    expect(help.stdout.output()).toContain("Usage: vitehub email outbox get <id> [--html|--text|--json] [--url <url>]")
     expect(fetch).not.toHaveBeenCalled()
   })
 

@@ -51,10 +51,6 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Writing a comment needs a signed-in user.",
       fix: "Sign in, then try again. Without ViteHub Auth or `identify`, sign in with GitHub so comments know who writes.",
     },
-    COMMENTS_R0013: {
-      why: "The comments request did not get an answer from the server.",
-      fix: "Check the connection and the app URL, then try again.",
-    },
     COMMENTS_R0014: {
       why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
       fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
@@ -90,8 +86,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
     COMMENTS_R0022: {
-      why: "Another comment thread of this scope already uses this requestId: it has another author or another subject, or you may not read it.",
-      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment. Send the same requestId again only to retry the same comment.",
+      why: "Another comment thread of this scope, or another reply in this thread, already uses this requestId: it has another author or another subject, or you may not read it.",
+      fix: "Send a new requestId, such as crypto.randomUUID(), for each new comment or reply. Send the same requestId again only to retry the same one.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
@@ -109,13 +105,44 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file: string }) => `The \`database\` option of defineComments() in ${file} is not a string literal. The build reads it without running the file, so Comments would use the default Database.`,
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
+    // Named errors. Keep these codes in alphabetical order.
+    COMMENTS_DATABASE_TOKEN_IN_BUILD: {
+      why: "The `database` option of `comments()` has an `authToken` in its URL, so the token ends up in the build output.",
+      fix: "Put the URL with its token in a variable, and pass the variable: `comments({ database: \"env:COMMENTS_DATABASE_URL\" })`.",
+    },
+    COMMENTS_GITHUB_CREDENTIALS_MISSING: {
+      why: "Comments needs GitHub credentials to post to pull requests: VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_TOKEN.",
+      fix: "Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` of a GitHub App that is installed on the repository, or set `VITEHUB_GITHUB_TOKEN`.",
+    },
+    COMMENTS_GITHUB_REQUEST_FAILED: {
+      why: ({ path, status }: { path: string, status: number }) => `GitHub GET ${path} failed with ${status}`,
+      fix: "Sign in with GitHub again, because a status of 401 means that the token expired. For other statuses, check that the GitHub OAuth app of the Comments login is active and that GitHub is reachable.",
+    },
+    COMMENTS_GITHUB_SYNC_FAILED: {
+      why: ({ reason, request, status }: { reason: string, request: string, status: number }) => `GitHub ${request} failed with ${status}: ${reason}`,
+      fix: "Check that the GitHub App or `VITEHUB_GITHUB_TOKEN` can write pull request comments in the repository. A retry helps for a 5xx status.",
+    },
     COMMENTS_GUEST_RATE_LIMITED: {
       why: ({ retryAfter }: { retryAfter: number | undefined }) => `This address sent too many guest comments${retryAfter === undefined ? "" : `. It may write again in ${Math.ceil(retryAfter)} seconds`}.`,
       fix: "Wait, then try again. Sign in to write without the guest limit of defineComments({ rateLimit }).",
     },
+    COMMENTS_MIGRATION_DATABASE_UNSUPPORTED: {
+      why: ({ dialect }: { dialect: "postgresql" | "sqlite" }) => dialect === "postgresql"
+        ? "[vitehub] migrateComments() needs a Postgres Drizzle database with transaction()."
+        : "[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.",
+      fix: "Pass `migrateComments()` the Drizzle database of `useDatabase()`, or of another driver with `transaction()` on Postgres, or `batch()` or `transaction()` on SQLite.",
+    },
+    COMMENTS_MIGRATION_LIVE_POSTGRES: {
+      why: "[vitehub] The live-site comments model had no Postgres tables, so there is nothing to move.",
+      fix: "Use `from: \"outdated\"` for a Postgres Database. Only SQLite, libSQL, and D1 have tables of the live-site model.",
+    },
     COMMENTS_RATE_LIMIT_INVALID: {
       why: ({ issue }: { issue: string }) => `defineComments(): ${issue}`,
       fix: "Pass rateLimit as { limit, window }, such as { limit: 5, window: \"1m\" }, or remove it to let guests write without a limit.",
+    },
+    COMMENTS_SECRET_TOO_SHORT: {
+      why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
+      fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
     },
   },
 })

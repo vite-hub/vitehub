@@ -44,6 +44,7 @@
     "packages/agent/src/provider-agent.ts": 3,
     "packages/agent/src/server/routes.ts": 3,
     "packages/agent/src/state/providers/cloudflare.ts": 1,
-    "packages/agent/src/stream-output.ts": 1
+    "packages/agent/src/stream-output.ts": 1,
+    "packages/agent/src/test/emulate-models.ts": 1
   }
 }

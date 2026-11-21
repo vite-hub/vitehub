@@ -1,3 +1,5 @@
+import * as v from "valibot"
+
 import { defineCapability } from "../capability-runtime.ts"
 import { defineInternalTool, jsonObjectSchema } from "./internal.ts"
 
@@ -149,6 +151,52 @@ export interface WorkspaceJsonlMemoryStoreOptions {
 
 type MemoryEvent = MemoryUpsertEvent | MemorySupersedeEvent | MemoryDeleteEvent
 
+const memoryScopeSchema = v.object({
+  agent: v.optional(v.string()),
+  environment: v.optional(v.string()),
+  project: v.optional(v.string()),
+  session: v.optional(v.string()),
+  tenant: v.optional(v.string()),
+  thread: v.optional(v.string()),
+  user: v.optional(v.string()),
+  workspace: v.optional(v.string()),
+})
+
+const memoryEventEntries = {
+  digest: v.string(),
+  id: v.string(),
+  scope: memoryScopeSchema,
+  store: v.string(),
+  version: v.number(),
+}
+
+const memoryEventSchema = v.variant("op", [
+  v.object({
+    ...memoryEventEntries,
+    op: v.literal("upsert"),
+    confidence: v.optional(v.number()),
+    content: v.string(),
+    createdAt: v.string(),
+    kind: v.string(),
+    metadata: v.optional(v.record(v.string(), v.unknown())),
+    pinned: v.optional(v.boolean()),
+    provenance: v.optional(v.object({
+      messageIds: v.optional(v.array(v.string())),
+      runId: v.optional(v.string()),
+      source: v.optional(v.string()),
+      threadId: v.optional(v.string()),
+      toolName: v.optional(v.string()),
+    })),
+    status: v.picklist(["active", "superseded"]),
+    supersedes: v.optional(v.array(v.string())),
+    tags: v.optional(v.array(v.string())),
+    title: v.optional(v.string()),
+    updatedAt: v.string(),
+  }),
+  v.object({ ...memoryEventEntries, op: v.literal("supersede"), supersededAt: v.string(), supersededBy: v.string() }),
+  v.object({ ...memoryEventEntries, op: v.literal("delete"), deletedAt: v.string(), reason: v.optional(v.string()), tombstoneId: v.string() }),
+])
+
 interface MemoryUpsertEvent extends Omit<MemoryRecord, "status"> {
   op: "upsert"
   status: "active" | "superseded"
@@ -299,15 +347,19 @@ async function readWorkspaceJsonl(path: string, context: AgentCapabilityContext)
     throw error
   }
   const events: MemoryEvent[] = []
-  for (const line of contents.split(/\r?\n/)) {
+  for (const [index, line] of contents.split(/\r?\n/).entries()) {
     if (!line.trim()) continue
+    let value: unknown
     try {
-      const event = JSON.parse(line) as MemoryEvent
-      if (event && typeof event === "object" && "op" in event) events.push(event)
+      value = JSON.parse(line)
     }
     catch {
+      // An append that stopped early leaves a line that is not JSON. The events before it are whole.
       continue
     }
+    const result = v.safeParse(memoryEventSchema, value)
+    if (!result.success) throw agentDiagnostics.AGENT_MEMORY_EVENT_INVALID({ issues: v.summarize(result.issues), line: index + 1, path })
+    events.push(result.output)
   }
   return events
 }

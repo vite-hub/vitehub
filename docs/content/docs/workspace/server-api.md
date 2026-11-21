@@ -12,7 +12,8 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
+| `isWorkspaceName` from `vite-hub/workspace` | [Check a Workspace name](#check-a-workspace-name) that comes from a request or a database. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `url`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
 | `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
@@ -35,6 +36,21 @@ const workspace = useWorkspace('docs', { refresh: false })
 ```
 
 This reuses the saved snapshots of Sources with `materialize: 'startup'` when they are ready and match the current Source config, even if the upstream content changed. Missing or outdated snapshots still materialize. Without `refresh`, or with `true`, startup Sources refresh as normal. Custom Stores without `getMeta` or `setMeta` keep ownership and Source snapshots only while the Store instance lives.
+
+### Check a Workspace name
+
+When a name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to `ValidatedWorkspaceName`, which `useWorkspace()` and `useWorkspaceFiles()` accept alongside generated names. The check confirms runtime registration, not membership in the generated `WorkspaceName` union:
+
+```ts [server/api/projects/[project]/files.get.ts]
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
+import { isWorkspaceName, useWorkspace } from 'vite-hub/workspace'
+
+export default defineHandler(async (event) => {
+  const project = getRouterParam(event, 'project') ?? ''
+  if (!isWorkspaceName(project)) throw new HTTPError({ status: 404, message: `No project ${project}.` })
+  return await useWorkspace(project).fs.list('', { recursive: true })
+})
+```
 
 Before build and startup overwrite existing files, they save a pending checkpoint. Cleanup accepts the new owner only after the checkpoint completes, so failed rollback metadata cannot give ownership of restored files after the Store reopens. If completion fails after the file and owner were committed, the operation reports the error and keeps the output. Cleanup keeps that output unless completion was saved. Retry the Source operation to set ownership again.
 
@@ -89,7 +105,7 @@ Retained history publishes a full folder and lets you read earlier versions. It 
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const workspace = useWorkspace('drop', { mode: 'write' })
+const workspace = useWorkspace('notes', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
   ifHead: base?.id ?? null,
@@ -98,7 +114,7 @@ const revision = await workspace.history.commit({
     'assets/data.bin': new Uint8Array([0, 255]),
   },
   message: 'Publish the site',
-  metadata: { author: 'maxi' },
+  metadata: { author: 'ada' },
 })
 
 const version = await workspace.history.open(revision.id)
@@ -131,7 +147,7 @@ const saved = await workspace.history.commit({
   ref: 'draft',
   ifHead: draft?.id ?? null,
   changes: {
-    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'maxi' } } },
+    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'ada' } } },
     delete: ['posts/old.md'],
   },
   message: 'Save hello',
@@ -157,6 +173,19 @@ A commit always builds on the head of its own ref. There is no `base` option. To
 
 In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run on every changed path. A `put` with the same content as the head skips them. With `{ content, mediaType, metadata }`, a different MIME type or metadata counts as a change.
 
+When you no longer need a ref, such as the ref of one Agent run, delete it:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
+It removes the ref or returns `false` when the ref does not exist and no `ifHead` was supplied. A head that does not match `ifHead` throws `WORKSPACE_CONFLICT`. Deleting `main` or the Store's working ref throws `WORKSPACE_DEFAULT_REF_DELETE`, including through a GitHub ref alias.
+
+- The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup fails and `history.head()` confirms the ref is still absent, call `deleteRef({ ref })` without `ifHead` to finish cleanup. This call returns `false` because there was no ref left to delete.
+  This cleanup includes bytes uploaded by commits that lost a head race on the deleted ref. Only committed revisions on other refs keep those bytes alive.
+- The GitHub Store only deletes the branch. Its commits and their bytes may still be readable by SHA. GitHub checks `ifHead` before sending the delete request, so it can still delete a branch whose head moves between the check and the delete. GitHub also refuses to delete the repository's default branch.
+
 ### Conflicts
 
 `ifHead` is required: `null` for the first revision on a ref, then a revision id. If the ref head changed, the commit fails with `WORKSPACE_CONFLICT` and `details.ref`, `details.expected`, and `details.actual`. Commits to other refs never conflict. Catch `isWorkspaceConflict(error)` and load the new head before you merge the edits. A conflict changes no ref. After any other error, read the head before you retry, because Database responses and post-write hooks can fail after publication.
@@ -168,16 +197,19 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. On the GitHub Store, revisions from `head()` and `list()` have no `files` and `bytes`, because counting them needs one more request per commit. `open(id).revision` has them. |
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
-| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
+| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
+| `history.deleteRef({ ref, ifHead? })` | `true` after deleting the ref, or `false` when the ref does not exist and no `ifHead` was supplied. Only Blob + Database deletes the revisions and their unshared bytes. |
 
-- Read mode has `head`, `list`, `refs`, `open`, and `usage`. `commit` needs write mode.
+- Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` needs write mode.
+- `deleteRef` needs write mode and access to the complete Workspace.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.
 - `history.checkpoint()` and `history.rebase()` work as before and use `main`. A checkpoint does not prove that every Store kept the file bytes.
 - History covers the Store file tree, not live Source responses or a running Session. Empty directories are not part of it.
 - The working tree follows `main`. A commit to `main` replaces staged `fs` writes. Commits to other refs leave them alone.
-- Committed revisions never change until the workspace is deleted.
+- Committed revisions never change until their ref or the workspace is deleted.
 
 A commit waits for Definition sync before it checks Source ownership. Sync can publish a Source revision and move the `main` head. The commit then reports `WORKSPACE_CONFLICT`, so read the new head and retry. No ref can change or delete Source-owned files, including materialized files not yet in a revision.
 
@@ -387,7 +419,7 @@ export async function testDocs() {
 - `target` defaults to `/workspace`.
 - `abortSignal` cancels setup. `onProgress` reports copy phases.
 
-Closing the Workspace Session does not close the Sandbox host. Custom hosts copy files one at a time unless they declare a positive `materializationConcurrency` they can safely handle. The local Node host declares `8`.
+Closing the Workspace Session does not close the Sandbox host. A Session can copy 32 or more files in one `tar.gz` archive on a host that declares `archiveMaxBytes`. Set it to the compressed upload size the host accepts after transport overhead. Workspace also caps the uncompressed archive at that limit or 64 MiB, whichever is smaller. If the archive is too large, the upload fails, or `tar` is unavailable, the Session copies files individually. Hosts copy one file at a time unless they declare a positive `materializationConcurrency`. The local Node host declares `8` and a 64 MiB archive limit.
 
 Control what the Session writes back:
 

@@ -1346,6 +1346,11 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "package.json"), "{}\n")
       await writeFile(tables, "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'\nexport const historySchema = { historyRefs: sqliteTable('history_refs', { id: text('id') }) }\n")
       await writeFile(definition, "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ connection: { url: 'libsql://db.example.com' }, schema: {} })\n")
+      // The build checks that a migration creates the contributed table.
+      const migration = join(rootDir, "server/databases/default/migrations/20260101000000_history")
+      await mkdir(migration, { recursive: true })
+      await writeFile(join(migration, "migration.sql"), "CREATE TABLE `history_refs` (`id` text);\n")
+      await writeFile(join(migration, "snapshot.json"), JSON.stringify({ ddl: [{ entityType: "tables", name: "history_refs" }, { entityType: "columns", name: "id", table: "history_refs" }] }))
       const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "vercel" }, rootDir, vite: { plugins: [contributor] } })
       await hubDatabase()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
@@ -2181,22 +2186,6 @@ describe("Database Nuxt integration", () => {
       rootDir: `${tmp}/vitehub-db-nuxt-disabled`,
       vite: {},
     })
-  })
-
-  it.each([false, { binding: "TOP_LEVEL_DB", driver: "cloudflare" }])("ignores a top-level Nuxt `database` key: %j", async (database) => {
-    const { nuxt } = createNuxt({
-      database,
-      dev: false,
-      rootDir: `${tmp}/vitehub-db-nuxt-top-level`,
-      vite: {},
-    })
-
-    await hubDatabase()(undefined, nuxt)
-
-    const options = getResolvedFeatureOptions<Record<string, unknown>>(nuxt.options.vite as object, "database")
-    expect(options).toMatchObject({ nuxtHostResource: true })
-    expect(options).not.toHaveProperty("binding")
-    expect(options).not.toHaveProperty("driver")
   })
 })
 

@@ -92,8 +92,14 @@ describe("CMS roles", () => {
 describe("the default policy of defineContent({ extends: cms })", () => {
   const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
 
-  it("rejects unsupported access modes", () => {
-    expect(() => defineContent({ extends: [cms, { access: "implicit" as never }], collections, logger: false })).toThrow('option "access" must be "roles"')
+  it("rejects a roles value other than true, and the renamed access option", () => {
+    // SAFETY: the test passes values that the option types reject, as plain JavaScript can.
+    expect(() => defineContent({ extends: [cms, { roles: false as never }], collections, logger: false })).toThrow('option "roles" must be true')
+    // SAFETY: an old config still sets the renamed option.
+    expect(() => defineContent({ extends: [cms, { access: "roles" as never }], collections, logger: false })).toThrow(expect.objectContaining({
+      code: "CONTENT_CMS_OPTION_INVALID",
+      message: expect.stringContaining("Replace `access: \"roles\"` with `roles: true`."),
+    }))
   })
 
   it("does not grant access from an unrelated application role", async () => {
@@ -110,7 +116,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("applies the CMS roles only when the preset opts in", async () => {
-    const content = defineContent({ extends: [cms, { access: "roles" }], collections, logger: false })
+    const content = defineContent({ extends: [cms, { roles: true }], collections, logger: false })
     try {
       expect(content.hasPolicy).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
@@ -127,7 +133,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("keeps the roles for writes when visitors read publicly", async () => {
-    const content = defineContent({ extends: [cms, { access: "roles" }], access: "public", collections, logger: false })
+    const content = defineContent({ extends: [cms, { roles: true }], access: "public", collections, logger: false })
     try {
       expect(content.access).toBe("public")
       expect(await content.can({ collection: "posts", action: "write" })).toBe(false)
@@ -140,7 +146,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("uses the app's authorize instead", async () => {
-    const content = defineContent({ extends: [cms, { workspace: "site", access: "roles" }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
+    const content = defineContent({ extends: [cms, { workspace: "site", roles: true }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
     try {
       expect(await content.can({ user: { id: "owner" }, collection: "posts", action: "publish" })).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read-draft" })).toBe(false)

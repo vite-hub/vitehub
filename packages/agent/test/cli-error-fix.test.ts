@@ -24,7 +24,7 @@ const commands: [string, Run, string, string][] = [
   ["agent dev", cli => runAgentDevCli(["--prompt", " "], cli), "AGENT_R0390", "Put the prompt text after -p or --prompt"],
   ["agent dev --input", cli => runAgentDevCli(["--input", "[]"], cli), "AGENT_R0398", "Pass --input a JSON object"],
   ["agent invocations", cli => runAgentInvocationsCli(["list", "--bogus"], cli), "AGENT_R0504", "Run vitehub agent invocations --help"],
-  ["agent info", cli => runAgentInfoCli(["--bogus"], cli), "AGENT_R0499", "Run vitehub agent info --help"],
+  ["agent get", cli => runAgentInfoCli(["--bogus"], cli), "AGENT_R0499", "Run vitehub agent get --help"],
   ["channels history", cli => runAgentChannelHistoryCli(["--bogus"], cli), "AGENT_R0522", "Run vitehub channels history --help"],
   ["channels replay", cli => runAgentChannelReplayCli(["--agent=support", "--channel=slack", "stray"], cli), "AGENT_R0934", "Pass replayChannel()"],
   ["channels sync", cli => runAgentChannelSyncCli(["--bogus"], cli), "AGENT_R0536", "Run vitehub channels sync --help"],

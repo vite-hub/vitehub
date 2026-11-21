@@ -21,6 +21,7 @@ import type { ChannelsConsoleHost } from "./channels-console-host.ts"
 import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
+import type { AgentChannelDeliveryInspection, AgentChannelDeliveryStatus } from "./types.ts"
 
 /** The HTTP status that the CLI, the Console, and Agents report for each code of a failed Channels operation. */
 const channelsOperationStatus: Readonly<Record<string, number>> = {
@@ -282,6 +283,80 @@ const channelsStatus = defineOperation({
   section: "channels",
 })
 
+const defaultDeliveries = 50
+const maximumDeliveries = 500
+
+/** One message a Channel received, with its outcome: the Invocation it reached, or why it reached none. */
+export interface ChannelDeliveryView {
+  error?: string
+  events: { at: string, error?: string, reason?: string, runId?: string, status?: number, type: string }[]
+  id: string
+  invocationId?: string
+  reason?: string
+  receivedAt: string
+  sourceId: string
+  status: AgentChannelDeliveryStatus
+}
+
+function deliveryView(delivery: AgentChannelDeliveryInspection): ChannelDeliveryView {
+  const failure = delivery.status === "failed" ? delivery.events.findLast(event => event.type === "failed" && event.error)?.error : undefined
+  const reason = delivery.events.findLast(event => event.reason)?.reason
+  return {
+    ...(failure ? { error: failure } : {}),
+    events: delivery.events.map(event => ({
+      at: event.at,
+      ...(event.error ? { error: event.error } : {}),
+      ...(event.reason ? { reason: event.reason } : {}),
+      ...(event.runId ? { runId: event.runId } : {}),
+      ...(event.status !== undefined ? { status: event.status } : {}),
+      type: event.type,
+    })),
+    id: delivery.id,
+    ...(delivery.invocationId ? { invocationId: delivery.invocationId } : {}),
+    ...(reason ? { reason } : {}),
+    receivedAt: delivery.receivedAt,
+    sourceId: delivery.sourceId,
+    status: delivery.status,
+  }
+}
+
+function formatDeliveries({ deliveries }: { deliveries: readonly ChannelDeliveryView[] }): string {
+  if (deliveries.length === 0) return "No deliveries.\n"
+  return `${table([
+    ["RECEIVED", "SOURCE", "STATUS", "REASON", "INVOCATION"],
+    ...deliveries.map(delivery => [delivery.receivedAt, delivery.sourceId, delivery.status, delivery.reason ?? delivery.error ?? "-", delivery.invocationId ?? "-"]),
+  ])}\n`
+}
+
+const channelsDeliveries = defineOperation({
+  cli: { format: formatDeliveries, positional: ["agent", "channel"] },
+  description: "List the newest messages a Channel received, with the outcome of each one: the Invocation it started or steered, or why it started none.",
+  input: v.strictObject({ agent: text, channel: text, limit: page(maximumDeliveries) }),
+  kind: "read",
+  name: "channels.deliveries",
+  run: async (input, context) => {
+    // Deliveries name the messages and errors of every thread, so an Agent needs access to every conversation.
+    if (context.surface === "agent" && context.conversations !== "all") {
+      throw channelsFailure(agentDiagnostics.AGENT_CHANNELS_FORBIDDEN({ problem: "deliveries" }))
+    }
+    const installed = host()
+    const handler = handlerOf(installed, input.agent)
+    const options = installed.options(input.agent, context.env)
+    try {
+      const channels = await handler.channels(requestOf(context), options)
+      if (!channels.some(entry => entry.id === input.channel)) {
+        throw channelsFailure(agentDiagnostics.AGENT_CHANNELS_NOT_FOUND({ agent: JSON.stringify(input.agent), channel: JSON.stringify(input.channel), problem: "channel" }))
+      }
+      const deliveries = await handler.deliveries(requestOf(context), undefined, { ...options, channelId: input.channel, limit: input.limit ?? defaultDeliveries })
+      return { agent: input.agent, channel: input.channel, deliveries: deliveries.map(deliveryView) }
+    }
+    catch (error) {
+      throw failureOf(error)
+    }
+  },
+  section: "channels",
+})
+
 interface ChannelMessageView {
   attachments: { mimeType?: string, name?: string, size?: number, type?: string, url?: string }[]
   author: { id?: string, isBot?: boolean, name?: string }
@@ -367,12 +442,8 @@ export interface ConversationExport {
 }
 
 const conversationsExport = defineOperation({
-  cli: {
-    command: "export",
-    format: (output: ConversationExport) => output.text,
-    namespace: "conversations",
-    positional: ["agent", "channel", "thread"],
-  },
+  // `vitehub agent conversations export` writes the export and its attachments to a directory.
+  cli: false,
   description: "Export one Channel conversation as Markdown or as the JSON archive, with its attachments.",
   input: v.strictObject({
     agent: text,
@@ -440,7 +511,8 @@ type ChannelOperationDefinitions = readonly [
   }>,
   OperationDefinition<ChannelTarget & { format: "json" | "markdown", media: boolean, thread: string }, ConversationExport>,
   OperationDefinition<ChannelTarget, ChannelTarget & AgentChannelStatus>,
+  OperationDefinition<ChannelTarget & { limit?: number }, ChannelTarget & { deliveries: ChannelDeliveryView[] }>,
 ]
 
 /** The Channel operations of `@vite-hub/agent`. The section is `channels`. */
-export const agentChannelOperations: ChannelOperationDefinitions = [channelsList, channelsThreads, channelsConversation, conversationsExport, channelsStatus] as const satisfies readonly AnyOperation[]
+export const agentChannelOperations: ChannelOperationDefinitions = [channelsList, channelsThreads, channelsConversation, conversationsExport, channelsStatus, channelsDeliveries] as const satisfies readonly AnyOperation[]

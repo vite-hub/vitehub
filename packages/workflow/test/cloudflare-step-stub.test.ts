@@ -52,9 +52,9 @@ describe("Cloudflare Workflow step stub", () => {
       registry: {
         nap: async () => ({
           default: {
-            options: { rootStep: false },
-            handler: async (payload: { name: string }, context: Pick<WorkflowExecutionContext, "sleep"> & { step?: WorkflowProviderStep }) => {
-              const greeting = await context.step!.do!("greet", {}, () => `hello ${payload.name}`)
+            rootStep: false,
+            handler: async (context: Pick<WorkflowExecutionContext<{ name: string }>, "payload" | "sleep"> & { step?: WorkflowProviderStep }) => {
+              const greeting = await context.step!.do!("greet", {}, () => `hello ${context.payload.name}`)
               await context.sleep("1 second")
               await context.sleep(new Date(0))
               return greeting

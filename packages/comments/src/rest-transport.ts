@@ -1,3 +1,5 @@
+import { commentsAnswerError, commentsUnansweredError } from "./client-diagnostics.ts"
+import { outboxAccountHeader, retryAfterOf, withCommentFiles } from "./client-files.ts"
 import { commentsRoute } from "./page.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
@@ -6,6 +8,7 @@ import type {
   CommentCreateInput,
   CommentDeleteInput,
   CommentEditInput,
+  CommentFiles,
   CommentGetInput,
   CommentListQuery,
   CommentReplyInput,
@@ -26,7 +29,7 @@ export interface CommentsGuest {
 export interface RestTransportOptions {
   /**
    * The app origin and mount, such as `https://app.example.com` or `/portal`. The routes are
-   * `<base>/api/_vitehub/comments/**`. Default: the page origin.
+   * `<base>/_vitehub/comments/**`. Default: the page origin.
    */
   base?: string
   /**
@@ -44,23 +47,6 @@ export interface RestTransportOptions {
   onAnswer?: (answer: CommentsRestAnswer<unknown>) => void
 }
 
-/** A failed request of the Comments API: the code, `why`, and `fix` of the error object, and the HTTP status. */
-export class CommentsRestError extends Error {
-  readonly code: string
-  readonly why: string
-  readonly fix?: string
-  readonly status: number
-
-  constructor(failure: { code: string, why: string, fix?: string, status: number }) {
-    super(failure.why)
-    this.name = "CommentsRestError"
-    this.code = failure.code
-    this.why = failure.why
-    this.status = failure.status
-    if (failure.fix) this.fix = failure.fix
-  }
-}
-
 /** A thread as the API answers it: with what the reader may do with it. */
 export type RestCommentThread = CommentThread & { can?: { comment: boolean, resolve: boolean, delete?: boolean } }
 
@@ -75,14 +61,14 @@ export interface CommentsRestAnswer<T> {
 /** The request function of the Comments API that the overlay and `createRestTransport()` share. */
 export type CommentsRestRequest = <T>(path: string, init?: RequestInit) => Promise<CommentsRestAnswer<T>>
 
-/** The URL of an attachment key below the Comments API, such as `/api/_vitehub/comments/attachments/comments/<id>/shot.png`. */
+/** The URL of an attachment key below the Comments API, such as `/_vitehub/comments/attachments/comments/<id>/shot.png`. */
 export function commentAttachmentUrl(key: string, base = ""): string {
   return `${base.replace(/\/+$/, "")}${commentsRoute}/attachments/${key.split("/").map(part => encodeURIComponent(part)).join("/")}`
 }
 
 /**
- * Requests to the Comments API at `<base>/api/_vitehub/comments`, with the guest headers and the session cookie. A
- * failure throws `CommentsRestError` with the error object of the answer.
+ * Requests to the Comments API at `<base>/_vitehub/comments`, with the guest headers and the session cookie. A
+ * failure throws a diagnostic with the `code`, `why`, and `fix` of the error object of the answer, and its `status`.
  */
 export function createCommentsRestRequest(options: RestTransportOptions & { route?: string } = {}): CommentsRestRequest {
   const route = options.route ?? `${(options.base ?? "").replace(/\/+$/, "")}${commentsRoute}`
@@ -101,12 +87,14 @@ export function createCommentsRestRequest(options: RestTransportOptions & { rout
       response = await send(`${route}${path}`, { ...init, headers, credentials: options.credentials ?? "same-origin", cache: "no-store" })
     }
     catch (cause) {
-      throw new CommentsRestError({ code: "COMMENTS_R0013", why: `The request failed: ${cause instanceof Error ? cause.message : String(cause)}`, fix: "Check the connection and the app URL, then try again.", status: 0 })
+      throw commentsUnansweredError(0, cause)
     }
     const value: unknown = await response.json().catch(() => undefined)
+    const retryAfter = retryAfterOf(response)
     if (isRecord(value) && isRecord(value.error)) {
       const { code, why, fix } = value.error
-      throw new CommentsRestError({ code: typeof code === "string" ? code : "COMMENTS_R0013", why: typeof why === "string" ? why : `The server answered ${response.status}.`, ...(typeof fix === "string" ? { fix } : {}), status: response.status })
+      if (typeof code !== "string" || typeof why !== "string") throw commentsUnansweredError(response.status, undefined, retryAfter)
+      throw commentsAnswerError({ code, why, ...(typeof fix === "string" ? { fix } : {}), ...(retryAfter === undefined ? {} : { retryAfter }), status: response.status })
     }
     if (isRecord(value) && "data" in value) {
       const answer: CommentsRestAnswer<T> = {
@@ -119,7 +107,7 @@ export function createCommentsRestRequest(options: RestTransportOptions & { rout
       options.onAnswer?.(answer)
       return answer
     }
-    throw new CommentsRestError({ code: "COMMENTS_R0013", why: `The server answered ${response.status} without data.`, status: response.status })
+    throw commentsUnansweredError(response.status, undefined, retryAfter)
   }
 }
 
@@ -151,10 +139,14 @@ export interface RestTransport extends CommentsTransport {
 }
 
 const thread = (id: string) => `/threads/${encodeURIComponent(id)}`
-const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+const post = (body?: unknown, account?: string): RequestInit => ({
+  method: "POST",
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  ...(account === undefined ? {} : { headers: { [outboxAccountHeader]: encodeURIComponent(account) } }),
+})
 
 /**
- * A transport over the Comments API at `<base>/api/_vitehub/comments`: the routes that the overlay uses. The server
+ * A transport over the Comments API at `<base>/_vitehub/comments`: the routes that the overlay uses. The server
  * runs the `authorize` policy of `server/comments.ts` for the user of the request: the app session, or a guest that
  * `guest` names. Guests and share-link readers can use it. It has no
  * `subscribe`: the client refreshes when the window gets focus.
@@ -162,6 +154,7 @@ const post = (body?: unknown): RequestInit => ({ method: "POST", ...(body === un
 export function createRestTransport(options: RestTransportOptions = {}): RestTransport {
   const request = createCommentsRestRequest(options)
   const base = (options.base ?? "").replace(/\/+$/, "")
+  const upload = async (input: CommentUploadInput, account?: string) => (await request<CommentAttachment>("/attachments", post(input, account))).data
   return {
     async list(query: CommentListQuery) {
       return (await request<RestCommentThread[]>(`/threads?${listSearch(query)}`)).data
@@ -170,12 +163,14 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
       const path = "id" in input ? thread(input.id) : `/scopes/${encodeURIComponent(input.scope)}/threads/${input.n}`
       return (await request<RestCommentThread | null>(path)).data
     },
-    async create(input: CommentCreateInput) {
-      return (await request<RestCommentThread>("/threads", post(input))).data
+    async create({ files, outbox, ...input }: CommentCreateInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, input.subject, data => upload(data, outbox?.account))
+      return (await request<RestCommentThread>("/threads", post(body, outbox?.account))).data
     },
-    async reply({ threadId, ...input }: CommentReplyInput) {
-      const answer = await request<unknown>(`${thread(threadId)}/comments`, post(input))
-      if (!answer.thread) throw new CommentsRestError({ code: "COMMENTS_R0013", why: "The server answered the reply without its thread.", status: 200 })
+    async reply({ threadId, subject, files, outbox, ...input }: CommentReplyInput & CommentFiles) {
+      const body = await withCommentFiles(input, { files, outbox }, subject, data => upload(data, outbox?.account))
+      const answer = await request<unknown>(`${thread(threadId)}/comments`, post(body, outbox?.account))
+      if (!answer.thread) throw commentsUnansweredError(200)
       return answer.thread
     },
     async edit({ threadId, messageId, ...input }: CommentEditInput) {
@@ -201,9 +196,7 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
       }
       return (await request<CommentUser[]>(`/people?${params}`)).data
     },
-    async upload(input: CommentUploadInput) {
-      return (await request<CommentAttachment>("/attachments", post(input))).data
-    },
+    upload: input => upload(input),
     attachmentUrl: key => commentAttachmentUrl(key, base),
   }
 }

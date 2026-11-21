@@ -9,6 +9,7 @@ export type {
   CloudflareQueueErrorCode,
   CloudflareQueueMessage,
   CloudflareQueueMessageBatch,
+  CloudflareQueueSendBatchItem,
   DiscoveredQueueDefinition,
   LocalQueueClient,
   LocalQueueErrorCode,

@@ -232,7 +232,7 @@ async function assertNetlifyFunctionOutput() {
     "export const config = {",
     "\"name\": \"vitehub-agent\"",
     "\"nodeBundler\": \"esbuild\"",
-    "\"/api/_vitehub/agents/:agent/chat\"",
+    "\"/_vitehub/agents/:agent/chat\"",
     "VITEHUB_HOST",
     "globalThis.__filename",
     "globalThis.__dirname",
@@ -245,7 +245,7 @@ async function assertNetlifyFunctionOutput() {
 }
 
 async function postChat(port) {
-  const response = await fetch(`http://127.0.0.1:${port}/api/_vitehub/agents/support/chat`, {
+  const response = await fetch(`http://127.0.0.1:${port}/_vitehub/agents/support/chat`, {
     body: JSON.stringify({
       id: "real-project-thread",
       messages: [{

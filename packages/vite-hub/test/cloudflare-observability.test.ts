@@ -41,7 +41,7 @@ async function configure(
 describe("Cloudflare Workers observability", () => {
   it("enables native observability for every Cloudflare build", async () => {
     expect(await configure({ host: "cloudflare" })).toMatchObject({ observability: { enabled: true } });
-    expect(await configure({ host: "cloudflare", observability: { logs: true } })).toMatchObject({
+    expect(await configure({ host: "cloudflare", logs: true })).toMatchObject({
       observability: { enabled: true },
     });
   });

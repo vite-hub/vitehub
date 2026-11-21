@@ -9,8 +9,9 @@ import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 import * as v from "valibot"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { askOnTerminal, requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { isLoopbackHost } from "./api-key.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -22,6 +23,8 @@ import type { ConnectionApproval, ConnectionInspection } from "./types.ts"
 type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout"> & Partial<Pick<ViteHubCliContext, "rootDir">>
 
 export interface ConnectionsCliOptions {
+  /** Asks a yes or no question. Defaults to the terminal, and to no answer without one. */
+  confirm?: (question: string) => Promise<boolean>
   fetch?: typeof fetch
   /** Browser opener. Pass false for non-interactive callers. */
   openBrowser?: false | ((url: string) => Promise<void>)
@@ -34,7 +37,6 @@ export interface ConnectionsCliOptions {
 }
 
 interface ParsedArgs {
-  confirm?: string
   /** The app session cookie of `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. */
   credentials: Headers
   flags: Map<string, string | true>
@@ -45,7 +47,7 @@ interface ParsedArgs {
 
 const errorBody = v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) })
 
-const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
+const valueFlags = new Set(["--before", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
 function parse(args: string[], context: CliContext): ParsedArgs {
   const env = context.env
@@ -60,10 +62,12 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     const separator = argument.indexOf("=")
     const flag = separator < 0 ? argument : argument.slice(0, separator)
     const inline = separator < 0 ? undefined : argument.slice(separator + 1)
-    if (flag === "-h" || flag === "--help" || flag === "--json") {
-      flags.set(flag === "-h" ? "--help" : flag, true)
+    if ((flag === "--yes" || flag === "-y") && inline !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `${flag} does not take a value.` })
+    if (flag === "-h" || flag === "--help" || flag === "--json" || flag === "--yes" || flag === "-y") {
+      flags.set(flag === "-h" ? "--help" : flag === "-y" ? "--yes" : flag, true)
       continue
     }
+    if (flag === "--confirm") throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "--confirm <name> is now --yes. Run the command again with --yes, or without it in a terminal to answer the question." })
     if (!valueFlags.has(flag)) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Unknown option: ${flag}.` })
     const value = inline ?? args[index + 1]
     if (!value || (inline === undefined && value.startsWith("-"))) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Missing value for ${flag}.` })
@@ -76,19 +80,21 @@ function parse(args: string[], context: CliContext): ParsedArgs {
   const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
   if (cookie) credentials.set("cookie", cookie)
   return {
-    confirm: stringFlag(flags.get("--confirm")),
     credentials,
     flags,
     json: flags.has("--json"),
     positionals,
-    url: url ?? devServerUrl(context),
+    // Read when a command calls the app, so help and local commands need no dev server.
+    get url() {
+      return url ?? devServerUrl(context)
+    },
   }
 }
 
-/** The dev server that runs in this project writes its URL, with the app base, to the project root. */
+/** The dev server that runs in this project writes its URL, with the app base, to the project root. It never guesses a port. */
 function devServerUrl(context: CliContext): string {
   const roots = context.rootDir ? [...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])] : []
-  return findViteHubDevServerUrl(roots, context.env) ?? defaultViteHubDevServerUrl
+  return requireViteHubDevServerUrl(roots, context.env, "connections")
 }
 
 function stringFlag(value: string | true | undefined): string | undefined {
@@ -502,10 +508,14 @@ const commands: Record<string, { description: string, run: Command, usage: strin
   },
   revoke: {
     description: "Revoke the provider grant and delete the stored token.",
-    usage: "vitehub connections revoke <name> --confirm <name> [--url <app>] [--json]",
+    usage: "vitehub connections revoke <name> [--yes] [--url <app>] [--json]",
     async run(parsed, context, options) {
       const name = requireName(parsed, "revoke")
-      if (parsed.confirm !== name) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `Pass --confirm ${name} to revoke this Connection.` })
+      if (!parsed.flags.has("--yes")) {
+        const question = `Revoke the Connection "${name}" at ${parsed.url}? The provider grant and the stored token are deleted. [y/N] `
+        const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+        if (!confirmed) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: `connections revoke deletes the token of "${name}" and was not confirmed. Answer y in a terminal, or run it again with --yes.` })
+      }
       const { connection } = await request(parsed, options, { action: "revoke", name }, connectionResponse)
       write(context, parsed, connection, () => `Revoked. ${describeConnection(connection)}`)
     },
@@ -521,7 +531,7 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
+    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project.",
     "  --cookie <value>  App session cookie (or VITEHUB_CONNECTIONS_COOKIE) that the app's Connections actor accepts.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
@@ -541,8 +551,13 @@ export async function runConnectionsCli(command: string, args: string[], context
     return (await entry.run(parsed, context, options)) ?? 0
   }
   catch (error) {
-    const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    if (error instanceof Error && "code" in error && error.code === "INTERNAL_DEV_SERVER_NOT_FOUND") {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    }
+    else {
+      const fix = connectionsErrorDiagnostics.is(error) && error.code.startsWith("CONNECTIONS_CLI_") ? error.fix : undefined
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : ""}`)
+    }
     return 1
   }
 }

@@ -4,6 +4,7 @@ import { workflowErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { createWorkflow, resumeWorkflow } from "../src/index.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { validatePayload } from "../src/runtime/payload.ts"
+import { unwrap } from "./unwrap.ts"
 
 /** The runtime codes that the Workflow client, its providers, and the Vercel and Cloudflare output can raise. */
 const runtimeCodes = [
@@ -31,10 +32,10 @@ describe("Workflow runtime error fixes", () => {
   })
 
   it("names the signal token of resumeWorkflow()", async () => {
-    await expect(resumeWorkflow("", {})).rejects.toMatchObject({
+    expect(await resumeWorkflow("", {})).toMatchObject([{
       code: "WORKFLOW_R0014",
       fix: expect.stringContaining("signal token"),
-    })
+    }, undefined])
   })
 
   it("names the schema methods that validatePayload() reads", async () => {

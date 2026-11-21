@@ -102,7 +102,7 @@ async function useDynamicQueue(name: string): Promise<QueueClient> {
   const test = getViteHubTestMode()
   if (test) return createTestQueueClient(test, name, config.driver === "local" ? config.rules ?? "local" : config.driver)
 
-  const bypassCache = definition.options?.cache === false || config.cache === false || config.driver === "cloudflare" || (config.driver === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
+  const bypassCache = definition.cache === false || config.cache === false || config.driver === "cloudflare" || (config.driver === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
   if (bypassCache) {
     return await createNamedQueueClient(name)
   }
@@ -132,7 +132,7 @@ function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueu
   const handleError = async (error: unknown) => {
     console.error(`[vitehub] Deferred queue dispatch failed for "${name}"`, error)
     try {
-      await (await loadNamedQueueDefinition(name))?.options?.onDispatchError?.(error, { name })
+      await (await loadNamedQueueDefinition(name))?.onDispatchError?.(error, { name })
     } catch (hookError) {
       console.error(`[vitehub] onDispatchError hook failed for "${name}"`, hookError)
     }

@@ -21,7 +21,6 @@ const entries = [
   { code: "VHUB0016", ruleId: "vitehub/queue-payload-options" },
   { code: "VHUB0017", ruleId: "vitehub/no-module-scope-dispatch" },
   { code: "VHUB0018", ruleId: "vitehub/no-destructure-non-tuples" },
-  { code: "VHUB0019", ruleId: "vitehub/check-response-results" },
   { code: "VHUB0020", ruleId: "vitehub/workflow-step-names" },
   { code: "VHUB0021", ruleId: "vitehub/valid-schedule-cron" },
   { code: "VHUB0022", ruleId: "vitehub/manual-schedule-run" },

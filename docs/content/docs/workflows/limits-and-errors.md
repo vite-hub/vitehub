@@ -14,35 +14,70 @@ Throw `ViteHubError` for failures that look the same on every provider. ViteHub'
 import { ViteHubError } from 'vite-hub/runtime'
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('transcribe', async (payload: { recordingId: string }) => {
-  try {
-    return await transcribeRecording(payload.recordingId)
-  }
-  catch (cause) {
-    throw new ViteHubError('TRANSCRIPTION_FAILED', 'Transcription failed.', {
-      cause,
-      details: { recordingId: payload.recordingId },
-    })
-  }
+export default defineWorkflow<{ recordingId: string }>({
+  handler: async ({ payload }) => {
+    try {
+      return await transcribeRecording(payload.recordingId)
+    }
+    catch (cause) {
+      throw new ViteHubError('TRANSCRIPTION_FAILED', 'Transcription failed.', {
+        cause,
+        details: { recordingId: payload.recordingId },
+      })
+    }
+  },
 })
 ```
 
 Every `ViteHubError` needs a stable `code` and a public `message`. `error.toJSON()` returns `name`, `code`, `message`, and JSON-safe `details`. It leaves out `cause`, which stays on the error in memory for debugging. Built-in codes have the `WorkflowErrorCode` type, with a message and details per code. When a run fails, `getWorkflowRun()` returns the thrown error as `run.error`: its `message`, and its `name` when it is not `Error`. Inline runs also keep its `code`. Cloudflare and OpenWorkflow store only the name and the message. Native Vercel runs read the error after Workflow DevKit serialization, which drops custom `code` properties on ordinary Errors. Application error codes are therefore not portable across providers. The stack, `cause`, and `details` stay out. A thrown error does not change its retry policy. To stop the retries, throw a [`NonRetryableError`](#stop-the-retries).
 
-When a provider call fails, ViteHub throws `WORKFLOW_PROVIDER_OPERATION_FAILED`. Its `details` tell you what happened:
+When a provider call fails, `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return the error `WORKFLOW_PROVIDER_OPERATION_FAILED` as `[error, undefined]`. `error.cause` is the provider error. `error.data` tells you what happened:
 
 | Field | Value |
 | --- | --- |
 | `provider`, `operation` | The provider and the call, for example `cloudflare` and `create`. |
 | `status` | The HTTP status of the provider, when it sent one. |
 | `reason` | The provider error name and the first line of its message, at most 200 characters. ViteHub removes URLs, file paths, and credentials. |
-| `acknowledgement` | `rejected`: the provider refused the call, so nothing started. `unknown`: the call can have reached the provider. Check the run before you start it again. |
+| `acknowledgement` | `rejected`: the provider refused the call, so nothing started. `unknown`: the call may have reached the provider. |
+
+If the outcome of a start is unknown and you supplied a run `id`, check that ID with `getWorkflowRun()` and reuse the same ID if you retry. If you do not know the original ID, verify whether the run started before trying again. A new ID does not identify the original run.
 
 In development, the server log also shows the full provider error.
 
 ## Retries and sleeps
 
-A step file has no retry option. On Cloudflare and OpenWorkflow, every step file uses the same policy: `limit: 3`, `delay: '10 seconds'`, and `backoff: 'exponential'`. A Vercel `native` entry follows the Workflow DevKit rules. An inline run does not retry. [What ViteHub stores on each host](/docs/guides/durable-execution#what-vitehub-stores-on-each-host) shows what each provider does with the policy.
+When a step file throws, the provider runs it again. By default, a step gets 3 retries after the first attempt: 10 seconds later, then 20, then 40. Export `retries` and `timeout` from a step file to change this for that step:
+
+```ts [server/workflows/sync-repo/01.fetch-issues.ts]
+import type { WorkflowStepContext, WorkflowStepRetries } from 'vite-hub/workflow'
+
+export const retries = { limit: 5, delay: '30 seconds', backoff: 'exponential' } satisfies WorkflowStepRetries
+export const timeout = '2 minutes'
+
+export default async function fetchIssues(input: { repo: string }, { signal }: WorkflowStepContext) {
+  const response = await fetch(`https://api.github.com/repos/${input.repo}/issues`, { signal })
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`)
+  const issues: { number: number, title: string }[] = await response.json()
+  return issues
+}
+```
+
+- `limit` is the number of retries after the first attempt. `0` runs the step once.
+- `delay` is the wait before the first retry, in milliseconds or as a duration such as `'30 seconds'`. `backoff: 'exponential'` doubles the wait after each retry. `'constant'` keeps it the same.
+- `timeout` is the time limit of one attempt. When it passes, `signal` aborts and the attempt fails with `WORKFLOW_STEP_TIMEOUT`. Then the step retries as `retries` says.
+- Write the values as literals. The build reads them from the file. It fails with `WORKFLOW_STEP_OPTIONS_NOT_STATIC` when it cannot read a value, and with `WORKFLOW_STEP_OPTIONS_INVALID` for a value that is not valid.
+
+| Provider | `retries` | `timeout` |
+| --- | --- | --- |
+| Cloudflare | Sent to `step.do()`. | Sent to `step.do()`. Without `timeout`, Cloudflare stops an attempt after 10 minutes. |
+| OpenWorkflow | Sent as the step's `retryPolicy`, with `maximumAttempts: limit + 1`. | ViteHub aborts `signal` and fails the attempt. |
+| Vercel, folder without `index.ts` | `limit` becomes Workflow DevKit's `maxRetries`. DevKit retries a step after about one second, so `delay` or `backoff` fails the build with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. | ViteHub aborts `signal` and fails the attempt. |
+| Inline (`vite dev`, normal Vercel handlers) | No retries. | ViteHub aborts `signal` and fails the attempt. |
+
+> [!NOTE]
+> Only Cloudflare enforces `timeout` itself. Elsewhere, ViteHub cannot stop code that ignores `signal`: the attempt fails, and the next attempt can start while the old one still runs. Pass `signal` to `fetch()` and to every other call that takes one.
+
+A Vercel `native` entry that you write follows the Workflow DevKit rules. [What ViteHub stores on each host](/docs/guides/durable-execution#what-vitehub-stores-on-each-host) compares the providers.
 
 ### Stop the retries
 
@@ -84,11 +119,13 @@ A `setTimeout` in a handler is not durable. Only a folder Workflow can sleep. It
 ```ts [server/workflows/remind-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
-export default defineWorkflow('remind-user', async (payload: { email: string, remindAt: string }, { sleep, steps }) => {
-  await steps.sendWelcome(payload)
-  await sleep('1 day')
-  await sleep(new Date(payload.remindAt))
-  await steps.sendReminder(payload)
+export default defineWorkflow<{ email: string, remindAt: string }>({
+  handler: async ({ payload, sleep, steps }) => {
+    await steps.sendWelcome(payload)
+    await sleep('1 day')
+    await sleep(new Date(payload.remindAt))
+    await steps.sendReminder(payload)
+  },
 })
 ```
 
@@ -106,6 +143,49 @@ After a sleep, the provider runs `index.ts` again from the start. Completed step
 `getWorkflowRun()` lists each OpenWorkflow sleep in `steps`, with the name `sleep-1` and the wake time in `sleepUntil`. A sleeping Cloudflare run reports `running`, and `metadata.status` is `waiting`.
 
 A single-file Workflow, such as `server/workflows/remind-user.ts`, runs as one root step. A replay after a sleep would run the code before the sleep again. So `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP` on every provider, and the run fails without a retry. Move the Workflow to a folder to fix it.
+
+## Wait for a signal
+
+A folder Workflow can also wait for a value from outside the run, such as a webhook. `context.createSignal<T>()` returns `{ token, wait() }`. Give `token` to the other service, then call `wait()`. `resumeWorkflow(token, value)` sends the value, and `wait()` returns it:
+
+```ts [server/workflows/summary/index.ts] fragment
+import { defineWorkflow } from 'vite-hub/workflow'
+
+export default defineWorkflow<{ callId: string }>({
+  handler: async ({ createSignal, payload, steps }) => {
+    const transcript = createSignal<{ text: string }>()
+    await steps.requestTranscript({ callId: payload.callId, token: transcript.token })
+    const { text } = await transcript.wait()
+    return await steps.summarize({ text })
+  },
+})
+```
+
+```ts [server/api/webhooks/transcript.post.ts] fragment
+import { resumeWorkflow } from 'vite-hub/workflow'
+
+export default defineEventHandler(async (event) => {
+  // Check the webhook signature first. The token is not a secret.
+  const { token, text } = await readBody(event)
+  const [error] = await resumeWorkflow(token, { text })
+  if (error?.code === 'WORKFLOW_SIGNAL_NOT_WAITING') throw createError({ status: 503 })
+  if (error) throw error
+  return { ok: true }
+})
+```
+
+ViteHub makes the token from the Workflow name, the run id, and the call order (`signal-1`, `signal-2`), so a replay gets the same token. Send the value as JSON.
+
+| Provider | Signal |
+| --- | --- |
+| Cloudflare | Durable. Uses `step.waitForEvent()` with the event type `vitehub-signal-1`, for at most 365 days. `resumeWorkflow()` calls `instance.sendEvent()` through the Workflow binding. |
+| OpenWorkflow | Durable. Uses `step.waitForSignal()`. A signal waits one year, then the run fails with `WORKFLOW_SIGNAL_TIMEOUT`. OpenWorkflow drops a value that comes before the wait, so `resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING`. Retry later. |
+| Inline runs (`vite dev`, Cloudflare without a binding) | Waits in memory. A value that comes before the wait is kept. Not durable: a restart loses the run. |
+| Vercel | Not supported yet. `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED`. A `native` entry can wait with `defineHook()` from Workflow DevKit, and `resumeWorkflow()` resumes its hook token. |
+
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_NOT_WAITING` if the run is missing or already finished. OpenWorkflow also returns this code when the run has not reached the wait or no longer waits for that token. An inline run accepts one value per signal, even before the wait. Cloudflare can queue an event before the wait. Success on Cloudflare confirms that the provider accepted the event, not that the run consumed it or that this was the first event for the token.
+
+`resumeWorkflow()` returns `WORKFLOW_SIGNAL_TOKEN_INVALID` for a string that `createSignal()` did not make, or for a token of another provider, such as an inline token from `vite dev`. A single-file Workflow cannot wait: `wait()` in a root step throws `WORKFLOW_ROOT_STEP_SIGNAL`.
 
 ## Production checks
 

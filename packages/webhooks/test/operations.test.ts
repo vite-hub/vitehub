@@ -155,9 +155,9 @@ describe("webhooks operations through the RPC", () => {
   it("lists the webhooks with the URL host, never its path, query, or the secret", async () => {
     const list = await value<Array<Record<string, unknown>>>("webhooks.list", {})
     expect(list).toEqual([
-      { name: "digest", url: "WEBHOOK_OPS_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 3_600_000, urlSet: true, secretSet: true, host: receiverHost },
-      { name: "now", url: "WEBHOOK_OPS_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 0, urlSet: true, secretSet: true, host: receiverHost },
-      { name: "unset", url: "WEBHOOK_OPS_UNSET_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 0, urlSet: false, secretSet: true, host: null },
+      { name: "digest", url: "WEBHOOK_OPS_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 3_600_000, events: [], urlSet: true, secretSet: true, host: receiverHost },
+      { name: "now", url: "WEBHOOK_OPS_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 0, events: [], urlSet: true, secretSet: true, host: receiverHost },
+      { name: "unset", url: "WEBHOOK_OPS_UNSET_URL", secret: "WEBHOOK_OPS_SECRET", signature: "github", debounceMs: 0, events: [], urlSet: false, secretSet: true, host: null },
     ])
     expect(JSON.stringify(list)).not.toMatch(new RegExp(`${token}|whsec_|/hooks`))
   })
@@ -237,6 +237,9 @@ describe("webhooks operations through the RPC", () => {
       "webhooks.flush": "write",
       "webhooks.cancel": "write",
       "webhooks.redeliver": "write",
+      "webhooks.endpoints": "read",
+      "webhooks.disable-endpoint": "write",
+      "webhooks.enable-endpoint": "write",
     })
     expect(await runOperation(registry, "webhooks.list", {}, context)).toMatchObject({ ok: true })
     expect(await runOperation(registry, "webhooks.pending", {}, context)).toMatchObject({ ok: true })

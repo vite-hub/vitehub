@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { checkGitHubOrgMember, isGitHubOrgMember } from "../src/index.ts"
+import { checkGitHubOrgMember } from "../src/index.ts"
+
+import type { GitHubOrgMemberOptions } from "../src/index.ts"
+
+/** `true` when `checkGitHubOrgMember()` confirms the membership. */
+const isGitHubOrgMember = async (token: string | undefined, org: string, options?: GitHubOrgMemberOptions) => !(await checkGitHubOrgMember(token, org, options))[0]
 
 function stubMembership(respond: () => Response | Promise<Response>) {
   const fetch = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => await respond())
@@ -15,7 +20,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("isGitHubOrgMember()", () => {
+describe("checkGitHubOrgMember() memberships", () => {
   it("returns true for an active membership and asks GitHub with the token", async () => {
     const fetch = stubMembership(active)
 

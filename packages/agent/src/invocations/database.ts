@@ -76,7 +76,6 @@ function statementResult<T = Record<string, unknown>>(rows: unknown[]): Invocati
   }
   return {
     meta: { changes: rows.length },
-    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The runtime guard establishes the row shape before applying the caller's projection type.
     // SAFETY: The runtime check above verifies every result is a named row object.
     results: rows as T[],
   }
@@ -108,7 +107,6 @@ async function runBatch(database: RuntimeDatabase, queries: readonly SQL[]): Pro
 function d1Client(value: unknown): RuntimeD1Client | undefined {
   if (!isRecord(value) || typeof Reflect.get(value, "prepare") !== "function" || typeof Reflect.get(value, "batch") !== "function") return
   // SAFETY: The runtime shape check verifies the D1 prepare and batch methods used by this adapter.
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- The shape guard establishes the methods used by this adapter.
   return value as unknown as RuntimeD1Client
 }
 
