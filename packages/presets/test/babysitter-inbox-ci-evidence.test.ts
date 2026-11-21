@@ -154,6 +154,7 @@ it('prunes expired CI logs and metadata while retaining recent logs and unrelate
  assert.equal(await inbox.meta(expiredKey), undefined)
  assert.equal(await inbox.meta('ci-evidence:v1:jobs:legacy'), undefined)
  assert.equal((await inbox.metaEntries('ci-evidence:v1:')).length, 1)
+ assert.deepEqual((await inbox.metaEntries('ci-evidence-at:v1:')).map(([key]) => key), ['ci-evidence-at:v1:job-log:recent'])
  assert.deepEqual(await inbox.meta('review-assessment:keep'), { head: 'head' })
 })
 
