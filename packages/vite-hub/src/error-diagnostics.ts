@@ -81,6 +81,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_CLOUDFLARE_RESOURCE_MISSING: {
+      why: ({ file, resources }: { file: string, resources: string }) => `${file} lacks ${resources}. ViteHub generates these resources for this build, and the Worker fails when code first reads a missing one.`,
+      fix: "Check the project Wrangler config and any Nitro hook or module that edits `cloudflare.wrangler` for a step that drops or renames the entry, and remove that step. Run `vitehub inspect resources` to list the resources and their names.",
+    },
     VITE_HUB_DEFINITION_PACKAGE_MISSING: {
       why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
       fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,

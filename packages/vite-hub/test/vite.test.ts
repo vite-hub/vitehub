@@ -1750,7 +1750,7 @@ describe("vitehub", () => {
     callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
     // Nitro applies the cloudflare-module preset defaults before modules run.
     const nitro = {
-      hooks: { hook: vi.fn() },
+      hooks: { beforeEach: vi.fn(), hook: vi.fn() },
       options: {
         cloudflare: nitroConfig.cloudflare,
         commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },
