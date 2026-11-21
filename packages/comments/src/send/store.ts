@@ -21,8 +21,8 @@ export interface CommentSendStore {
   send: (id: string) => Promise<SendRow | undefined>
   /** The latest send of a member with this key, among `states`. */
   sendByKey: (member: string, key: string, states: readonly CommentSendState[]) => Promise<SendRow | undefined>
-  /** The latest sends of a subject that reached the agent, newest first. */
-  subjectSends: (subject: { kind: string, id: string }, limit: number) => Promise<SendRow[]>
+  /** The latest sends among `states`, of one member, one subject, or both, newest first. */
+  listSends: (filter: { member?: string, subject?: { kind: string, id: string }, states: readonly CommentSendState[] }, limit: number) => Promise<SendRow[]>
   /** The latest send of a member on a subject, newest first. */
   latestSend: (member: string, subject?: { kind: string, id: string }, states?: readonly CommentSendState[]) => Promise<SendRow | undefined>
   /** The thread link of the latest send of a member to `endpoint`, or `null`. */
@@ -78,8 +78,12 @@ export function createCommentSendStore(db: CommentsDatabase, options: { create?:
       const [row] = await db.select().from(sends).where(and(eq(sends.member, member), eq(sends.key, key), inArray(sends.state, [...states]))).orderBy(desc(sends.createdAt)).limit(1)
       return row
     }),
-    subjectSends: run(async (subject, limit) => db.select().from(sends)
-      .where(and(eq(sends.subjectKind, subject.kind), eq(sends.subjectId, subject.id), inArray(sends.state, ["pending", "sent", "working", "done"])))
+    listSends: run(async ({ member, subject, states }, limit) => db.select().from(sends)
+      .where(and(
+        ...member === undefined ? [] : [eq(sends.member, member)],
+        ...subject ? [eq(sends.subjectKind, subject.kind), eq(sends.subjectId, subject.id)] : [],
+        inArray(sends.state, [...states]),
+      ))
       .orderBy(desc(sends.createdAt))
       .limit(limit)),
     latestSend: run(async (member, subject, states) => {

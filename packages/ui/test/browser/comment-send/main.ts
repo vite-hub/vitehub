@@ -60,7 +60,7 @@ function liveTransport(): CommentSendTransport {
     status: async () => (working && !done ? { count: 0, agent: t3, working: { id: "send-1", thread } } : { count: working ? 0 : 2, ...(working ? { agent: t3 } : {}) }),
     startPairing: async () => {
       calls.push("startPairing");
-      return { code: "K7Q-4MX", prompt, expiresAt: Date.now() + 600_000, agent: t3 };
+      return { code: "K7Q-4MX", prompt, expiresAt: Date.now() + 600_000, agent: t3, count: 2, selection: "two" };
     },
     pollPairing: async () => (pasted ? { status: "paired", agent: t3 } : { status: "waiting" }),
     allow: async (code) => {

@@ -22,6 +22,8 @@ export interface CommentSendStatus {
   pending?: boolean
   /** While the member may not send, the time in ms when the next send may go. */
   retryAt?: number
+  /** Names the `count` waiting threads and their last messages. Allow sends only the threads that it names. */
+  selection?: string
 }
 
 /** A new setup code. The member pastes `prompt` in the agent's thread, and the agent pairs with `code`. */
@@ -33,6 +35,9 @@ export interface CommentSendPairing {
   expiresAt: number
   /** The agent that the prompt is for. `host` is the only host its URL may have. */
   agent: CommentSendAgent
+  /** The threads that wait now, which Allow sends, and the selection that names them. */
+  count: number
+  selection: string
 }
 
 /** Where a setup code is: not used yet, used by an agent that waits for Allow, too old, or used with a URL on another host. */
@@ -42,11 +47,15 @@ export type CommentSendPairingCheck =
   | { status: "expired" }
   | { status: "refused" }
 
-/** The answer to a send: delivered, not delivered, or refused until `retryAt`. */
+/**
+ * The answer to a send: delivered, not delivered, or refused until `retryAt`. Allow answers `changed` when the waiting
+ * threads are not the ones that the member confirmed, and keeps the code for the new `count`.
+ */
 export type CommentSendResult =
   | { status: "sent" | "pending", id: string, thread?: string }
   | { status: "failed", reason: string }
   | { status: "limited", retryAt: number }
+  | { status: "changed", count: number, selection: string }
 
 /** What the server pushes: the agent started on a send, finished it, or the number of waiting threads changed. */
 export type CommentSendEvent =
@@ -59,8 +68,8 @@ export interface CommentSendTransport {
   status: () => Promise<CommentSendStatus>
   startPairing: () => Promise<CommentSendPairing>
   pollPairing: (code: string) => Promise<CommentSendPairingCheck>
-  /** Pairs the agent that used `code` and sends the waiting threads to it. */
-  allow: (code: string) => Promise<CommentSendResult>
+  /** Pairs the agent that used `code` and sends the waiting threads that `selection` names to it. */
+  allow: (code: string, selection: string) => Promise<CommentSendResult>
   /** Drops `code`, so no agent can use it. */
   cancel: (code: string) => Promise<void>
   send: () => Promise<CommentSendResult>
@@ -129,6 +138,9 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   let agent: CommentSendAgent | undefined
   let count = 0
   let countRevision = 0
+  // The threads that the member sees while they pair, as the server named them.
+  let selection = ""
+  let selections = 0
   // The setup code while the member pairs, and whether a new one is on its way.
   let code: string | undefined
   let fetching = false
@@ -205,6 +217,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       const status = await transport.status()
       if (!canApply()) return
       if (revision === countRevision) count = status.count
+      selection = status.selection ?? ""
       apply(status)
     }
     catch (error) {
@@ -213,11 +226,19 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     }
   }
 
-  const settle = (result: CommentSendResult, revision: number, paired?: CommentSendAgent): void => {
+  const settle = (result: CommentSendResult, revision: number, paired?: { code: string, agent: CommentSendAgent }): void => {
     const updates = pushed
     pushed = undefined
+    if (result.status === "changed") {
+      // Other threads wait now. The member confirms them, and the agent keeps its code.
+      count = result.count
+      selection = result.selection
+      if (!paired) return set({ status: "failed", count, reason: "The waiting comments changed." })
+      code = paired.code
+      return set({ status: "confirm", count, agent: paired.agent })
+    }
     if (result.status === "failed") return set({ status: "failed", count, reason: result.reason })
-    if (paired) agent = paired
+    if (paired) agent = paired.agent
     if (result.status === "limited") return limited(result.retryAt)
     if (result.status === "pending") return pending()
     sendId = result.id
@@ -227,7 +248,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     set({ status: "sent", count, inbox: inbox() })
     later(sentFor, update?.done ? finish : working)
   }
-  const deliver = async (request: () => Promise<CommentSendResult>, paired?: CommentSendAgent): Promise<void> => {
+  const deliver = async (request: () => Promise<CommentSendResult>, paired?: { code: string, agent: CommentSendAgent }): Promise<void> => {
     const revision = countRevision
     pushed = transport.subscribe ? new Map<string, { thread?: string, done?: boolean }>() : undefined
     set({ status: "sending", count })
@@ -277,6 +298,8 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       }
       if (code) drop(code)
       code = next.code
+      count = next.count
+      selection = next.selection
       set({ status: "pairing", count, prompt: next.prompt, expiresAt: next.expiresAt, agent: next.agent })
       poll()
     }
@@ -286,6 +309,18 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
         set({ status: "failed", count, reason: reasonOf(error) })
       }
     }
+  }
+
+  // While the member pairs, a new count loads the status again, so the count and the selection that Allow sends stay one.
+  const reselect = async (): Promise<void> => {
+    const at = ++selections
+    const pairing = code
+    const status = await transport.status().catch(() => undefined)
+    if (!status || at !== selections || !pairing || pairing !== code || (state.status !== "pairing" && state.status !== "confirm")) return
+    count = status.count
+    selection = status.selection ?? ""
+    state = { ...state, count }
+    notify()
   }
 
   return {
@@ -303,8 +338,9 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       const stop = transport.subscribe?.((event) => {
         if (current !== run) return
         if (event.type === "count") {
-          count = event.count
           countRevision++
+          if (state.status === "pairing" || state.status === "confirm") return void reselect()
+          count = event.count
           // A new count keeps the step: its timers and its answers on the way still count.
           if (state.status !== "sending") {
             state = state.status === "idle" ? idleState() : { ...state, count }
@@ -357,7 +393,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       if (state.status !== "confirm" || !code) return
       const used = code
       code = undefined
-      return deliver(() => transport.allow(used), state.agent)
+      return deliver(() => transport.allow(used, selection), { code: used, agent: state.agent })
     },
     async copyAgain(copy) {
       if (state.status !== "pairing" || !state.reason) return

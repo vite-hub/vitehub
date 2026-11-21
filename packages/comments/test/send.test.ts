@@ -106,7 +106,7 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
     const code: string = started.body.data.code
     const paired = await call("/send/pair", { json: { code, url, ...(thread === undefined ? {} : { thread }) }, origin: null })
     expect(paired.status).toBe(200)
-    return { code, allowed: await call(`/send/allow?page=${page}`, { json: { code }, as }) }
+    return { code, allowed: await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as }) }
   }
   return { comments, call, comment, reply, connect, page, store }
 }
@@ -215,12 +215,12 @@ describe("pairing", () => {
     const code = body.data.code
     await call("/send/pair", { json: { code, url: relay } })
     expect((await call(`/send/pair/${code}`, { as: "bob" })).body.data).toEqual({ status: "expired" })
-    const stolen = await call(`/send/allow?page=${page}`, { json: { code }, as: "bob" })
+    const stolen = await call(`/send/allow?page=${page}`, { json: { code, selection: body.data.selection }, as: "bob" })
     expect(stolen.status).toBe(403)
     expect(await getMemberEndpoint("bob")).toEqual([undefined, null])
     expect(deliveries).toHaveLength(0)
     expect((await call(`/send/pair/${code}`, { as: "ana" })).body.data.status).toBe("paired")
-    const allowed = await call(`/send/allow?page=${page}`, { json: { code }, as: "ana" })
+    const allowed = await call(`/send/allow?page=${page}`, { json: { code, selection: body.data.selection }, as: "ana" })
     expect(allowed.body.data).toMatchObject({ status: "sent" })
     expect(deliveries).toHaveLength(1)
     expect(deliveries[0]!.url).toBe(relay)
@@ -300,7 +300,7 @@ describe("origin", () => {
     expect(started.body.data.prompt).toContain(`${base}/_vitehub/comments/send/pair`)
     const code = started.body.data.code
     expect((await call("/send/pair", { json: { code, url: relay }, origin: null, base })).status).toBe(200)
-    expect((await call(`/send/allow?page=${page}`, { json: { code }, as: "ana", base })).body.data).toMatchObject({ status: "sent" })
+    expect((await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as: "ana", base })).body.data).toMatchObject({ status: "sent" })
     expect(deliveries[0]!.body.read!.url.startsWith(`${base}/_vitehub/comments/send/`)).toBe(true)
   })
 
@@ -318,7 +318,7 @@ describe("sends", () => {
     const { call, comment, reply, connect, page } = await setup()
     const own = await comment("ana", "Move the cozido note up")
     const other = await comment("bob", "Is the ferry still running in May")
-    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).toEqual({ count: 2 })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).toEqual({ count: 2, selection: expect.stringMatching(/^[0-9a-f]{64}$/) })
     await connect()
     expect(deliveries[0]!.body.threads.sort()).toEqual([own.id, other.id].sort())
     const after = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
@@ -327,7 +327,61 @@ describe("sends", () => {
     expect(deliveries).toHaveLength(1)
     await reply(other.id, "bob", "Also the bus times")
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
+    // Ana's send does not count for Bob: both threads still wait for his agent.
+    expect((await call(`/send/status?page=${page}`, { as: "bob" })).body.data.count).toBe(2)
+  })
+
+  it("keeps a thread waiting for a member after another member sent it", async () => {
+    const { call, comment, connect, page } = await setup()
+    const thread = await comment("cora", "Is the ferry still running in May")
+    await connect("ana")
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(0)
     expect((await call(`/send/status?page=${page}`, { as: "bob" })).body.data.count).toBe(1)
+    const { allowed } = await connect("bob")
+    expect(allowed.body.data.status).toBe("sent")
+    expect(deliveries.map(delivery => delivery.body.threads)).toEqual([[thread.id], [thread.id]])
+  })
+
+  it("counts a new message whose time is before the send, as from a server with a slower clock", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const { call, comment, reply, connect, page } = await setup()
+    const thread = await comment("ana", "Move the cozido note up")
+    const commented = Date.now()
+    vi.setSystemTime(commented + 5000)
+    await connect()
+    // A server whose clock is 5 seconds slow stores a reply. Its time is before the send, which did not carry it.
+    vi.setSystemTime(commented)
+    await reply(thread.id, "bob", "And the ferry times")
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
+    expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data.status).toBe("sent")
+    expect(deliveries).toHaveLength(2)
+  })
+
+  it("allows only the threads that the member saw, and keeps the code when they changed", async () => {
+    const { call, comment, page } = await setup()
+    const first = await comment("ana", "Shorter intro")
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    expect(started.body.data).toMatchObject({ count: 1, selection: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    const code: string = started.body.data.code
+    await call("/send/pair", { json: { code, url: relay }, origin: null })
+    const second = await comment("bob", "Add a map")
+    const changed = (await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as: "ana" })).body.data
+    expect(changed).toEqual({ status: "changed", count: 2, selection: expect.stringMatching(/^[0-9a-f]{64}$/) })
+    expect(changed.selection).not.toBe(started.body.data.selection)
+    expect((await call(`/send/allow?page=${page}`, { json: { code }, as: "ana" })).body.data).toEqual(changed)
+    expect(deliveries).toHaveLength(0)
+    expect(await getMemberEndpoint("ana")).toEqual([undefined, null])
+    const allowed = await call(`/send/allow?page=${page}`, { json: { code, selection: changed.selection }, as: "ana" })
+    expect(allowed.body.data.status).toBe("sent")
+    expect(deliveries[0]!.body.threads.sort()).toEqual([first.id, second.id].sort())
+  })
+
+  it("starts the setup prompt from `send.prompt`", async () => {
+    const { call, page } = await setup({ prompt: ({ code, pairUrl, user, subject, prompt }) => `Inbox for ${user.id} on ${subject.id}: ${pairUrl} ${code}\n\n${prompt}` })
+    const { body } = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const prompt: string = body.data.prompt
+    expect(prompt.startsWith(`Inbox for ana on ${page}: ${origin}/_vitehub/comments/send/pair ${body.data.code}\n\n`)).toBe(true)
+    expect(prompt).toContain("schedule_task")
   })
 
   it("sends others' threads as quotes, and the sender's own or last-spoken threads as asks", async () => {
@@ -503,7 +557,7 @@ describe("sends", () => {
     const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
     const code: string = started.body.data.code
     await call("/send/pair", { json: { code, inbox: "Codex" }, origin: null })
-    const allowed = await call(`/send/allow?page=${page}`, { json: { code }, as: "ana" })
+    const allowed = await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as: "ana" })
     const id: string = allowed.body.data.id
     const tools = commentsMcpTools(comments)
     const read = tools.find(tool => tool.name === "comments_get_send")!
@@ -568,5 +622,56 @@ describe("sends", () => {
     const retried = (await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data
     expect(retried.status).toBe("sent")
     expect(retried.id).not.toBe(send.id)
+  })
+})
+
+describe("the server API of Send", () => {
+  it("lists the member's sends with the threads they may read, and marks done the finished ones", async () => {
+    const { comments, comment, connect } = await setup()
+    const own = await comment("ana", "Fix the date")
+    const other = await comment("bob", "Add a map")
+    await connect()
+    const id = deliveries[0]!.body.send
+    const [, listed] = await comments.listSends(people.ana!)
+    expect(listed!.map(view => view.send)).toMatchObject([{ id, state: "sent" }])
+    expect(listed![0]!.threads.map(thread => [thread.id, thread.role]).sort()).toEqual([[own.id, "ask"], [other.id, "quote"]].sort())
+    hidden.add(other.id)
+    expect((await comments.listSends(people.ana!))[1]![0]!.threads.map(thread => thread.id)).toEqual([own.id])
+    expect(await comments.listSends(people.bob!)).toEqual([undefined, []])
+    expect((await comments.readSend(people.ana!, id))[1]!.send.state).toBe("working")
+    expect((await comments.readSend(people.bob!, id))[0]?.code).toBe("COMMENTS_NOT_FOUND")
+    await comments.resolve(own.id, { by: { id: "ana" } })
+    expect(await comments.listSends(people.ana!)).toEqual([undefined, []])
+    expect((await comments.listSends(people.ana!, { states: ["done"] }))[1]!.map(view => view.send.id)).toEqual([id])
+  })
+
+  it("answers COMMENTS_SEND_OFF without `send`", async () => {
+    const { comments } = await setup(false)
+    expect((await comments.listSends(people.ana!))[0]?.code).toBe("COMMENTS_SEND_OFF")
+    expect((await comments.readSend(people.ana!, "send_1"))[0]?.code).toBe("COMMENTS_SEND_OFF")
+  })
+
+  it("puts a send back when its thread opens again, from the server API and the REST route", async () => {
+    const { call, comments, comment, connect, page } = await setup()
+    const own = await comment("ana", "Fix the date")
+    const quote = await comment("bob", "Add a map")
+    await connect()
+    const id = deliveries[0]!.body.send
+    const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    await comments.resolve(own.id, { by: { id: "ana" } })
+    expect((await status()).working).toBeUndefined()
+    await comments.reopen(own.id)
+    expect(await status()).toMatchObject({ count: 0, working: { id } })
+
+    await comments.resolve(own.id, { by: { id: "ana" } })
+    expect((await status()).working).toBeUndefined()
+    expect((await call(`/threads/${own.id}/reopen`, { method: "POST", as: "ana" })).status).toBe(200)
+    expect(await status()).toMatchObject({ count: 0, working: { id } })
+
+    // A quote does not bring back a send that has asks.
+    await comments.resolve(own.id, { by: { id: "ana" } })
+    await comments.resolve(quote.id, { by: { id: "ana" } })
+    await comments.reopen(quote.id)
+    expect((await status()).working).toBeUndefined()
   })
 })
