@@ -5,14 +5,14 @@ import { useUIComponent } from "../internal/nuxt-ui.ts";
  * Where the guide, the code, and the output go.
  * - `side`: the code, and the output at the side.
  * - `guide-top`: the guide over the code, and the output at the side. Drag the line under the guide to resize it.
- * - `guide-side`: the guide in a column on the left. On the right, the output takes 40% at the top and the code sits
- *   under it.
+ * - `guide-side`: the guide in a column on the left, up to 360px and at most half the shell width. On the right, the
+ *   output takes 40% at the top and the code sits under it.
  */
 export type WorkspaceLayout = "side" | "guide-top" | "guide-side";
-/** A built-in panel, or the slot name of a panel that the page adds. */
+/** A built-in panel or the value of a panel that the page adds. */
 export type WorkspaceTab = "preview" | "terminal" | "connect" | (string & {});
 
-/** One tab of the panel group. It shows the slot with the name `value`. */
+/** One tab of the panel group. */
 export interface WorkspaceTabItem {
   value: WorkspaceTab;
   label: string;
@@ -43,12 +43,15 @@ const limits: Record<keyof WorkspaceSplits, [number, number, number]> = {
   code: [25, 75, 5],
   guide: [15, 75, 5],
 };
+const editorReserve = 120;
 
 const builtInTabs: readonly WorkspaceTabItem[] = [
   { label: "Preview", value: "preview" },
   { label: "Terminal", value: "terminal" },
   { label: "Connect", value: "connect" },
 ];
+
+const layoutSlots = new Set(["bar", "editor", "editor-head", "files", "guide", "overlay", "status"]);
 
 function clamp(key: keyof WorkspaceSplits, value: number) {
   const [min, max] = limits[key];
@@ -79,6 +82,7 @@ function readSplits(key: string | false, layout: WorkspaceLayout): WorkspaceSpli
 function separator(options: {
   name: keyof WorkspaceSplits
   label: string
+  max?: number
   orientation: "horizontal" | "vertical"
   splits: WorkspaceSplits
   container: () => HTMLElement | null
@@ -86,7 +90,9 @@ function separator(options: {
   measure: (event: PointerEvent, rect: DOMRect) => number
 }): VNode {
   const { name, orientation, splits } = options;
-  const [min, max, step] = limits[name];
+  const [defaultMin, defaultMax, step] = limits[name];
+  const max = options.max ?? defaultMax;
+  const min = Math.min(defaultMin, max);
   const decrease = orientation === "vertical" ? "ArrowLeft" : "ArrowUp";
   const increase = orientation === "vertical" ? "ArrowRight" : "ArrowDown";
   return h("div", {
@@ -130,8 +136,8 @@ function separator(options: {
 
 /**
  * The frame of a workspace. Slots: `bar` (44px, over everything), `files`, `editor-head` (32px, over the editor),
- * `editor`, `status` (24px, under the editor), `guide`, one slot per tab (`preview`, `terminal`, `connect`, or the
- * `value` of a tab in `tabs`), and `overlay` (over the body). The tab bar is 32px too, so its bottom line meets the
+ * `editor`, `status` (24px, under the editor), `guide`, one slot per tab (`preview`, `terminal`, `connect`, or
+ * `tab-<value>` for a custom tab), and `overlay` (over the body). The tab bar is 32px too, so its bottom line meets the
  * bottom line of `editor-head`.
  */
 export const WorkspaceShell = defineComponent({
@@ -141,8 +147,7 @@ export const WorkspaceShell = defineComponent({
     /** The visible tab. Use `v-model:tab`. */
     tab: { default: undefined, type: String as PropType<WorkspaceTab> },
     /**
-     * The tabs of the output, in order. Each tab shows the slot with the name of its `value`. Defaults to Preview,
-     * Terminal, and Connect, for the slots that are set.
+     * The tabs of the output, in order. Defaults to Preview, Terminal, and Connect, for the slots that are set.
      */
     tabs: { default: undefined, type: Array as PropType<readonly WorkspaceTabItem[]> },
     /** The localStorage key for split sizes. `false` keeps them in memory. Defaults to one key per layout. */
@@ -155,15 +160,31 @@ export const WorkspaceShell = defineComponent({
   },
   setup(props, { emit, slots }) {
     const root = ref<HTMLElement | null>(null);
+    const codePane = ref<HTMLElement | null>(null);
+    const filesMax = ref(limits.files[1]);
     const key = computed(() => props.storageKey === false ? false : props.storageKey ?? `vitehub:workspace:${props.layout}`);
     const splits = ref<WorkspaceSplits>({ ...defaultSplits[props.layout] });
     const localTab = ref<WorkspaceTab>();
 
     onMounted(() => { splits.value = readSplits(key.value, props.layout); });
     watch(() => props.layout, () => { splits.value = readSplits(key.value, props.layout); });
+    watch(codePane, (pane, _, onCleanup) => {
+      if (!pane || typeof ResizeObserver === "undefined") return;
+      const measure = (width: number) => {
+        const available = width - Math.min(editorReserve, width / 2) - 1;
+        filesMax.value = Math.max(0, Math.min(limits.files[1], Math.floor(available)));
+      };
+      measure(pane.clientWidth);
+      const observer = new ResizeObserver(([entry]) => {
+        if (entry) measure(entry.contentRect.width);
+      });
+      observer.observe(pane);
+      onCleanup(() => observer.disconnect());
+    }, { flush: "post" });
 
     function set(name: keyof WorkspaceSplits, value: number) {
-      splits.value = { ...splits.value, [name]: clamp(name, value) };
+      const size = clamp(name, value);
+      splits.value = { ...splits.value, [name]: name === "files" ? Math.min(filesMax.value, size) : size };
       if (!key.value) return;
       try { window.localStorage.setItem(key.value, JSON.stringify(splits.value)); }
       catch { /* The split still applies for this page. */ }
@@ -185,6 +206,12 @@ export const WorkspaceShell = defineComponent({
     const slotProps = () => ({ layout: props.layout, tab: active.value, showTab: select });
     const UTabs = useUIComponent("UTabs");
 
+    function panelContent(name: WorkspaceTab) {
+      const custom = slots[`tab-${name}`];
+      if (custom) return custom(slotProps());
+      if (!layoutSlots.has(name) && !name.startsWith("tab-")) return renderSlot(slots, name, slotProps());
+    }
+
     // UTabs draws the strip and moves between tabs with the arrow keys. The panels stay here, mounted and laid over each
     // other, so the terminal keeps its size and output and the preview keeps its page while another tab shows.
     function output(): VNode | undefined {
@@ -196,7 +223,7 @@ export const WorkspaceShell = defineComponent({
         inert: active.value === name ? undefined : "",
         key: name,
         role: "tabpanel",
-      }, renderSlot(slots, name, slotProps())));
+      }, panelContent(name)));
       return h("div", { class: "vh-ws-pane vh-ws-pane--output" }, [
         h(UTabs, {
           "aria-label": "Workspace panels",
@@ -214,18 +241,19 @@ export const WorkspaceShell = defineComponent({
     }
 
     return () => {
-      const s = splits.value;
+      const s = { ...splits.value, files: Math.min(splits.value.files, filesMax.value) };
       const layout = props.layout;
       const body = () => root.value?.querySelector<HTMLElement>(".vh-ws-body") ?? null;
 
       // The files and the editor column: the head row, the editor, and the status line.
-      const code = (style?: Record<string, string>) => h("div", { class: "vh-ws-pane vh-ws-code", style }, [
+      const code = (style?: Record<string, string>) => h("div", { class: "vh-ws-pane vh-ws-code", ref: codePane, style }, [
         ...slots.files
           ? [
               h("div", { class: "vh-ws-pane vh-ws-pane--files", style: { flexBasis: `${s.files}px` } }, renderSlot(slots, "files", slotProps())),
               separator({
-                container: () => root.value?.querySelector<HTMLElement>(".vh-ws-code") ?? null,
+                container: () => codePane.value,
                 label: "Resize files",
+                max: filesMax.value,
                 measure: (event, rect) => event.clientX - rect.left,
                 name: "files",
                 orientation: "vertical",

@@ -78,6 +78,7 @@ export const viteHubUIIcons: readonly string[] = [
   "lucide:strikethrough",
   "lucide:sun",
   "lucide:terminal",
+  "lucide:text-wrap",
   "lucide:trash-2",
   "lucide:triangle-alert",
   "lucide:type",

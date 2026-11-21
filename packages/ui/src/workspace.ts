@@ -21,10 +21,17 @@ export { bootChecklist, WorkspaceBootStatus, type BootStepState, type BootStepVi
 // The checklist formats its step times with the shared duration formatter. It stays public under its first name.
 export { formatDuration as formatElapsed } from "./internal/format.ts";
 export { WorkspaceEditor } from "./workspace/workspace-editor.ts";
+export { WorkspaceEditorHead } from "./workspace/workspace-editor-head.ts";
 export { groupExamples, WorkspaceExamples, type WorkspaceExample } from "./workspace/workspace-examples.ts";
+export { WorkspaceFileLink, injectWorkspaceFileOpener, provideWorkspaceFileOpener, type WorkspaceFileOpener } from "./workspace/workspace-file-link.ts";
 export { WorkspaceFileTree } from "./workspace/workspace-file-tree.ts";
+export { WorkspaceGuide } from "./workspace/workspace-guide.ts";
+export { WorkspaceIssues, type WorkspaceIssue } from "./workspace/workspace-issues.ts";
 export { WorkspacePreview, workspacePreviewScript, type WorkspacePreviewDevice } from "./workspace/workspace-preview.ts";
-export { WorkspaceSidebar, type WorkspaceSidebarAction } from "./workspace/workspace-sidebar.ts";
 export { WorkspaceShell, type WorkspaceLayout, type WorkspaceSplits, type WorkspaceTab, type WorkspaceTabItem } from "./workspace/workspace-shell.ts";
+export { WorkspaceSidebar, type WorkspaceSidebarAction } from "./workspace/workspace-sidebar.ts";
 export { WorkspaceStart } from "./workspace/workspace-start.ts";
+export { WorkspaceStatus, workspaceLanguage, type WorkspaceCursor } from "./workspace/workspace-status.ts";
+export { WorkspaceSteps, type WorkspaceStep } from "./workspace/workspace-steps.ts";
+export { WorkspaceTask } from "./workspace/workspace-task.ts";
 export { WorkspaceTerminal, type WorkspaceTerminalOutput } from "./workspace/workspace-terminal.ts";
