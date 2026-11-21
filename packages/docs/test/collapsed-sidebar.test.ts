@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -58,9 +58,19 @@ it("collapses the sidebar to a strip on pages that opt in, from frontmatter or p
     // An app page sets the same in its page meta.
     const play = await page("play")
     expect({ strip: strip(play), pages: pages(play), headerHidden: headerHidden(play) }).toEqual({ strip: true, pages: false, headerHidden: true })
+    // The app page fills the viewport: its root sits in one cell as tall as the viewport, and that cell scrolls, not the window.
+    const fill = (html: string) => html.includes('class="vh-docs-fill"')
+    expect(play).toMatch(/<div id="docs-content" tabindex="-1" class="vh-docs-fill"[^>]*>(?:\s|<!--[^>]*-->)*<div class="play"/)
+    expect(play).toContain('href="#docs-content" class="vh-skip-link"')
+    expect(play.match(/\bid="docs-content"/g)).toHaveLength(1)
+    const css = await Promise.all((await readdir(join(root, ".output/public/_nuxt"))).filter(file => file.endsWith(".css")).map(file => readFile(join(root, ".output/public/_nuxt", file), "utf8")))
+    expect([play, ...css].join("\n")).toMatch(/:root:has\(\.vh-docs-fill\)\{overflow:hidden\}/)
+    // Markdown pages keep the window scroll, with a collapsed sidebar too.
+    expect(fill(wide)).toBe(false)
     // Other pages show the open sidebar, which has no collapse button, or no sidebar.
     const guide = await page("guide")
-    expect({ strip: strip(guide), hide: hide(guide), pages: pages(guide) }).toEqual({ strip: false, hide: false, pages: true })
+    expect({ strip: strip(guide), hide: hide(guide), pages: pages(guide), fill: fill(guide) }).toEqual({ strip: false, hide: false, pages: true, fill: false })
+    expect(guide).toContain('id="docs-content" tabindex="-1" class="relative"')
     const plain = await page("guide/plain")
     expect({ strip: strip(plain), pages: pages(plain), headerHidden: headerHidden(plain) }).toEqual({ strip: false, pages: false, headerHidden: false })
   }

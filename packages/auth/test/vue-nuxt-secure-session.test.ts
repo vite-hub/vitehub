@@ -14,13 +14,15 @@ const nuxt = vi.hoisted(() => ({
   event: undefined as PageEvent | undefined,
   middleware: undefined as ((route: Route) => unknown) | undefined,
   state: { value: undefined as unknown },
+  guardRoute: { value: undefined as unknown },
 }))
 
 const nitro = vi.hoisted(() => ({ serverFetch: vi.fn<(request: Request) => Promise<Response>>() }))
 vi.mock("nitro", () => nitro)
 
 vi.mock("#app", () => ({
-  addRouteMiddleware: (_name: string, middleware: (route: Route) => unknown) => { nuxt.middleware = middleware },
+  // The plugin also adds the named guards of `access.pages`. This test checks the global guard.
+  addRouteMiddleware: (name: string, middleware: (route: Route) => unknown) => { if (name === "vitehub-auth") nuxt.middleware = middleware },
   createError: (input: unknown) => Object.assign(new Error("nuxt"), input),
   defineNuxtPlugin: (plugin: unknown) => plugin,
   navigateTo: (target: unknown) => target,
@@ -37,7 +39,7 @@ vi.mock("#app", () => ({
   },
   useRouter: () => ({ currentRoute: { value: { fullPath: "/", meta: {} } } }),
   useRuntimeConfig: () => ({ public: { vitehubAuth: { basePath: "/api/auth", signInPage: "/login", afterSignIn: "/" } } }),
-  useState: () => nuxt.state,
+  useState: (key: string) => key === "vitehub:auth:guard-route" ? nuxt.guardRoute : nuxt.state,
 }))
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -51,6 +53,7 @@ afterEach(() => {
   nuxt.event = undefined
   nuxt.middleware = undefined
   nuxt.state = { value: undefined }
+  nuxt.guardRoute = { value: undefined }
 })
 
 async function signUp(definition: AuthDefinition, url: string, headers: Record<string, string>): Promise<{ cookie: string, names: string[] }> {
