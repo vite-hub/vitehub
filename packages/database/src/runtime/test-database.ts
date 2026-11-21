@@ -1,4 +1,6 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { readOldMigrationsLayout } from "../internal/migrations-layout.ts"
+import { migrationParts } from "../internal/migration-sql.ts"
 
 import type { Client, InStatement, InValue, ResultSet, Transaction, TransactionMode } from "@libsql/client"
 
@@ -9,18 +11,16 @@ import type { Client, InStatement, InValue, ResultSet, Transaction, TransactionM
  */
 export function createTestDatabaseClient(root: string, migrationsDir: string): Client {
   const ready = (async () => {
-    const [{ createClient }, { existsSync }, { resolve }, { readOldMigrationsLayout }, { migrationParts }] = await Promise.all([
+    const [{ createClient }, fs, { resolve }] = await Promise.all([
       import("@libsql/client"),
       import("node:fs"),
       import("node:path"),
-      import("../internal/migrations-layout.ts"),
-      import("../internal/migration-sql.ts"),
     ])
     const migrationsFolder = resolve(root, migrationsDir)
-    const layout = readOldMigrationsLayout(migrationsFolder)
+    const layout = readOldMigrationsLayout(migrationsFolder, fs)
     if (layout) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ dir: migrationsFolder, layout })
     const client = createClient({ url: ":memory:" })
-    if (existsSync(migrationsFolder)) {
+    if (fs.existsSync(migrationsFolder)) {
       // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
       const { readMigrationFiles } = await import("drizzle-orm/migrator")
       for (const migration of readMigrationFiles({ migrationsFolder })) {

@@ -85,10 +85,14 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     ...actual,
     createWorkspaceTools,
     resolveRegisteredWorkspaceDefinition,
-    resolveWorkspaceAutoCommit,
     useWorkspace,
   }
 })
+
+vi.mock("@vite-hub/workspace/internal/workspace", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace/internal/workspace")>(),
+  resolveWorkspaceAutoCommit,
+}))
 
 vi.mock("@vite-hub/workspace/runtime", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace/runtime")>()

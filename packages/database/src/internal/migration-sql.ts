@@ -68,7 +68,7 @@ function addPartBreakpoints(sql: string): string {
   let result = ""
   let start = 0
   for (const cut of cuts) {
-    result += `${sql.slice(start, cut)}\n${statementBreakpoint}`
+    result += `${sql.slice(start, cut)}\n${statementBreakpoint}\n`
     start = cut
   }
   return result + sql.slice(start)

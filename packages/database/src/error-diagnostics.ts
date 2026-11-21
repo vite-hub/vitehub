@@ -197,6 +197,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
     },
+    DATABASE_MIGRATION_CONVERSION_FAILED: {
+      why: ({ problem }: { problem: string }) => `ViteHub could not convert the old migration layout. ${problem}`,
+      fix: "Fix the problem above and run `vitehub database up` again. Keep the file names and journal timestamps of applied migrations. If the history cannot be converted, move it to the Drizzle Kit 1.0 layout manually and verify it on a copy of the database before migrating.",
+    },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
@@ -300,6 +304,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_BINDING_CONFLICT: {
       why: ({ binding, first, kind, second }: { binding: string, first: string, kind: "D1" | "Hyperdrive", second: string }) => `${first} and ${second} use the same Cloudflare ${kind} binding "${binding}".`,
       fix: "Set `cloudflare.binding` to a different name for each Database Definition.",
+    },
+    DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED: {
+      why: ({ databases, missing, restore }: { databases: readonly string[], missing: readonly string[], restore: readonly string[] }) => `Vite plugins add tables or SQL migrations to the Database${databases.length > 1 ? "s" : ""} ${databases.join(", ")}, but its migrations do not have:${fileList([...missing, ...restore.map(file => `the SQL file ${file}`)])}\nRequests that use them could fail after the deploy.`,
+      fix: ({ missing, restore }: { missing: readonly string[], restore: readonly string[] }) => [
+        restore.length ? "Restore the missing `migration.sql` files from the original migrations and commit them." : "",
+        missing.length ? "Run `vitehub database generate`, commit the new migration folders, and apply them with `vitehub database migrate` or your deploy." : "",
+        "Then build again.",
+      ].filter(Boolean).join(" "),
     },
     DATABASE_DUPLICATE_DEFINITION: {
       why: ({ database, files }: { database: string, files: readonly string[] }) => `${database === "default" ? "Only one default Database Definition is allowed." : `Only one definition is allowed for the database "${database}".`}${fileList(files)}`,

@@ -18,7 +18,7 @@ Use this page to find the ViteHub API for each part of an agent harness. Read th
 
 Select a built-in Driver before you write your own agent loop. Attach only the Capabilities that the task needs. A Workspace or a Sandbox does not grant tools by itself.
 
-Prove the result with `vitehub agent info` and one real Invocation on the target host. Provider Drivers need a Node.js host.
+Prove the result with `vitehub agent get` and one real Invocation on the target host. Provider Drivers need a Node.js host.
 ::
 
 ## What is an agent harness
@@ -49,7 +49,7 @@ This Agent answers questions from the Markdown docs of a project in a web chat. 
 ```ts [server/agents/docs/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { workspaceShell } from 'vite-hub/agent/capabilities'
-import { webChat } from 'vite-hub/agent/channels'
+import { webChat } from 'vite-hub/channels/adapters'
 import { glob } from 'vite-hub/workspace'
 
 export default defineAgent({
@@ -143,7 +143,7 @@ A Channel tells the Agent where a message came from. It does not prove who sent 
 
 ### Invocations and traces
 
-Each run is an [Invocation](/docs/agents/invocations). ViteHub records it as events: text, tool calls, approvals, usage, errors, and the final state. `vitehub agent info` prints the resolved Agent Definition. The [Console](/docs/console) shows each run.
+Each run is an [Invocation](/docs/agents/invocations). ViteHub records it as events: text, tool calls, approvals, usage, errors, and the final state. `vitehub agent get` prints the resolved Agent Definition. The [Console](/docs/console) shows each run.
 
 An in-memory trace does not survive a restart. Keep records with [Invocation storage](/docs/agents/invocation-storage) or an [OTLP receiver](/docs/agents/capabilities/otlp). [Evals](/docs/agents/evals) run the same scenarios against an Agent each time and score the result.
 

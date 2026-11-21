@@ -44,7 +44,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 | [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
 | [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
-| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Replace simple Agent `http()` calls with `channelAdapter('http')`, and move webhook `secretToken` and signature names to the ones of Webhooks |
+| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Imports of `vite-hub/agent/channels` to `vite-hub/channels/adapters` and `vite-hub/channels`, simple Agent `http()` calls to `channelAdapter('http')`, and webhook `secretToken` and signature names to the ones of Webhooks |
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
 | [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |
@@ -52,6 +52,8 @@ The command finds every module in the app that a codemod supports and runs those
 | [`cli-url-flag`](/docs/codemods/upgrade-vitehub#cli-url-flag) | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL |
 | [`cms-roles`](/docs/codemods/upgrade-vitehub#cms-roles) | The `cms` preset option `access: "roles"` to `roles: true` |
 | [`choices-package`](/docs/codemods/upgrade-vitehub#choices-package) | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices` |
+| [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
+| [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |
 
 The codemods do not upgrade Nuxt or install packages. ViteHub supports Nuxt 5 and Nitro 3 only.
 

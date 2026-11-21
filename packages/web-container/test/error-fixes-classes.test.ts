@@ -19,7 +19,7 @@ it("rejects a page that is not cross-origin isolated with WEB_CONTAINER_UNSUPPOR
   await expect(bootWebContainer()).rejects.toMatchObject({
     code: "WEB_CONTAINER_UNSUPPORTED",
     docs: "https://vitehub.dev/docs/web-container/diagnostics/web_container_unsupported",
-    fix: expect.stringContaining("hubWebContainer"),
+    fix: expect.stringContaining("webContainer.routes"),
     message: expect.stringContaining("not cross-origin isolated"),
   })
 })

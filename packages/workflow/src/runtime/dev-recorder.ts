@@ -34,6 +34,8 @@ export type WorkflowDevRunner = <T>(run: () => Promise<T>) => Promise<T>
 export interface WorkflowDevRecorder {
   /** Removes all recorded runs and returns how many it removed. */
   clear(): number
+  /** One recorded run. */
+  get(workflow: string, id: string): WorkflowDevRunRecord | undefined
   /** The recorded runs, newest first. */
   list(): WorkflowDevRunRecord[]
   /** Records a new queued run. */

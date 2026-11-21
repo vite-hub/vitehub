@@ -40,4 +40,11 @@ describe("KV resource inspection", () => {
       { definition: "pinned", id: "ns-config", source: "config" },
     ])
   })
+
+  it("uses the build's host for a store without a driver", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-kv-resources-host-"))
+    directories.push(rootDir)
+    expect(inspectKVResources({}, rootDir, {})).toEqual([])
+    expect(inspectKVResources({}, rootDir, {}, "cloudflare-module")).toMatchObject([{ binding: "KV", definition: "default", kind: "cloudflare-kv-namespace" }])
+  })
 })
