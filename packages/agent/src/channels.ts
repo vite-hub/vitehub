@@ -122,7 +122,9 @@ import {
 import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, parseDuration, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, parseDuration, resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl, encodeRouteSegment } from "@vite-hub/runtime/internal/console"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 import type { Duration } from "@vite-hub/runtime"
 import { serverVariable } from "./internal/server-variable.ts"
 import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
@@ -132,6 +134,12 @@ import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { ChannelAdapter, ChannelDefinition, ChannelEvent, ChannelHandler, WebhookChannelAdapter } from "@vite-hub/channels"
+// The answers need no Agent, so `vite-hub/channels` exports them. Agent code reads the same ones.
+import { ignored } from "@vite-hub/channels"
+export { ignored, rejected, retryLater } from "@vite-hub/channels"
+// `vite-hub/channels/adapters` re-exports this entry, so it holds every adapter, also the ones of `@vite-hub/channels`.
+export { stripe, webhook } from "@vite-hub/channels/adapters"
+export type { StripeAdapterOptions, StripeEvent } from "@vite-hub/channels/adapters"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 
@@ -3448,31 +3456,6 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && typeof value.resolve === "function"
 }
 
-/**
- * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
- * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
- */
-export function ignored(reason: string): Response {
-  return Response.json({ accepted: false, ok: true, reason })
-}
-
-/**
- * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
- * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
- * when a queued delivery's trigger returns it on replay.
- */
-export function retryLater(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
-}
-
-/**
- * Refuses a webhook that the Channel will never handle, such as a malformed payload.
- * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
- */
-export function rejected(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
-}
-
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
   return githubPullRequestRunContextFromUnknown(input)
 }
@@ -4103,7 +4086,7 @@ function validateChannelHistoryDefinition(kind: string, history: unknown, trigge
 
 /**
  * The adapter of a platform that has no built-in one, such as your own Chat SDK adapter, for
- * `defineChannel({ adapter })` from `vite-hub/channels`. `message.methods` become calls on `event.message` in Agent
+ * `defineChannel({ adapter })`, from `vite-hub/channels/adapters`. `message.methods` become calls on `event.message` in Agent
  * hooks. A method receives the Channel context first; `context.message` is the data that the trigger returned.
  *
  * @example
@@ -4223,7 +4206,11 @@ function assertWebhookRegistrationNames(owner: string, webhooks: unknown): void 
   }
 }
 
-/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
+/**
+ * A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. It is the same
+ * trigger as `defineChannelTrigger()` from `vite-hub/channels`, typed without the module augmentation, so Agent code
+ * and presets get these types also when a program loads two copies of the Agent types.
+ */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -4347,6 +4334,8 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const handlers: Record<string, ChannelHandler> = {}
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
+    // `defineChannelTrigger()` from `vite-hub/channels` does not check the webhook option names, so they are checked here.
+    if (typeof target !== "function") assertWebhookRegistrationNames(`${adapter.kind}.${name}`, (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks)
     if (typeof target === "function") handlers[name] = target as ChannelHandler
     else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
       // Event names can contain dots and other characters that Agent trigger IDs cannot use.

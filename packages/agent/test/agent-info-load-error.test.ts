@@ -95,7 +95,7 @@ describe("Dev Loop commands with a broken Agent module", () => {
 
       const context = { cwd: root, env: { VITEHUB_DEV_SERVER_URL: url }, rootDir: root, stdout: stream() }
       const stderr = stream()
-      const exitCode = await runAgentInfoCli(["--url", url], { ...context, stderr }, { fetch })
+      const exitCode = await runAgentInfoCli(["--dev", "--url", url], { ...context, stderr }, { fetch })
 
       expect(exitCode).toBe(1)
       expect(stderr.output).toContain("AGENT_DEV_LOOP_FAILED")

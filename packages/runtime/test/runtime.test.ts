@@ -4,18 +4,13 @@ import { runInNewContext } from "node:vm"
 
 import {
   createExecutionContext,
-  createRuntimeWaitUntilController,
   createTraceEventLog,
   deriveTraceRuns,
   defineCapability,
-  emitTraceEvent,
   getCapability,
   getViteHubErrorShape,
   hasCapability,
   resolveCapabilityPolicy,
-  resolveRuntimeValue,
-  traceEventsToOpenTelemetryLogRecords,
-  traceEventsToOpenTelemetrySpans,
   type ApprovalDecision,
   type ApprovalRequest,
   type RuntimeCapabilities,
@@ -24,6 +19,8 @@ import {
   type TraceEventLogEntry,
   ViteHubError,
 } from "../src/index.ts"
+import { createRuntimeWaitUntilController, resolveRuntimeValue } from "../src/internal/context.ts"
+import { emitTraceEvent, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "../src/internal/trace.ts"
 
 describe("@vite-hub/runtime", () => {
   it("shares an active waitUntil flush and its failure with concurrent callers", async () => {
@@ -105,7 +102,7 @@ describe("@vite-hub/runtime", () => {
   })
 
   it("observes waitUntil rejections before a delayed flush in Node", () => {
-    const moduleUrl = new URL("../src/index.ts", import.meta.url).href
+    const moduleUrl = new URL("../src/internal/context.ts", import.meta.url).href
     const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
       import { createRuntimeWaitUntilController } from ${JSON.stringify(moduleUrl)}
       const controller = createRuntimeWaitUntilController()

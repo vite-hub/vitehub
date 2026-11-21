@@ -14,7 +14,7 @@ export interface ViteHubPageToolRoutesOptions {
 }
 
 /**
- * Adds the session route `GET <mount>/_vitehub/page/session` and the loader script at
+ * Adds the session route `GET <mount>/_vitehub/page/tools` and the loader script at
  * `<mount>/_vitehub/page/assets/loader.js` to a Nitro configuration. Each owner package of a page tool calls it from its
  * Vite plugin, so the routes exist without the Console. The first owner wins: a later call keeps the route and the asset
  * that are already there, because the page tools registry is shared by every copy of this package.

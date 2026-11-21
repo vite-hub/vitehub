@@ -20,7 +20,11 @@ vi.mock("@vite-hub/agent", () => ({
 vi.mock("@vite-hub/runtime", async importOriginal => ({
   resolvePublicUrl: (await importOriginal<typeof import("@vite-hub/runtime")>()).resolvePublicUrl,
   createExecutionContext: (context: unknown) => context,
+}))
+vi.mock("@vite-hub/runtime/internal/context", () => ({
   createRuntimeWaitUntilController: () => ({ waitUntil: () => {} }),
+}))
+vi.mock("@vite-hub/runtime/internal/console", () => ({
   encodeRouteSegment: (value: string) => value,
 }))
 vi.mock("../src/console/server.ts", () => ({ agentConsole: {} }))

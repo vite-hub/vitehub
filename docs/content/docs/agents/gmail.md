@@ -23,7 +23,7 @@ The [`gmail()` Capability](/docs/agents/capabilities/gmail) from `vite-hub/agent
 This Agent chooses a label for each new Inbox message, and the hook applies it.
 
 ```ts [server/lib/inbox.ts]
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 export const inbox = gmail({
   labels: {
@@ -80,7 +80,7 @@ Each label in `labels` accepts these settings. `vitehub channels sync` creates a
 | `labelListVisibility` | Sidebar display: `labelShow` (default), `labelShowIfUnread`, or `labelHide`. |
 | `messageListVisibility` | Display on messages in the message list: `show` (default) or `hide`. |
 
-Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/agent/channels`. `gmail()` checks each color at definition, so a wrong color fails before the application starts:
+Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/channels/adapters`. `gmail()` checks each color at definition, so a wrong color fails before the application starts:
 
 ```txt
 [vitehub] gmail() label "Work" color backgroundColor "#123456" is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8".
@@ -91,7 +91,7 @@ Colors are not case-sensitive. A label without `color` keeps its Gmail color.
 To hide unmanaged labels from the Gmail sidebar, set `hideUnmanagedLabels: true`:
 
 ```ts
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 gmail({
   hideUnmanagedLabels: true,
@@ -290,7 +290,7 @@ Call `pollGmailChannel()` from a [Schedule](/docs/schedule). Each call reads new
 
 ```ts [server/schedules/gmail-poll.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { pollGmailChannel } from 'vite-hub/agent/channels'
+import { pollGmailChannel } from 'vite-hub/channels/adapters'
 import { inbox } from '../lib/inbox'
 
 export default defineSchedule({
@@ -324,7 +324,7 @@ Gmail stops the watch seven days after the last renewal. The push route renews i
 
 ```ts [server/schedules/gmail-watch.ts]
 import { defineSchedule } from 'vite-hub/schedule'
-import { syncGmailChannel } from 'vite-hub/agent/channels'
+import { syncGmailChannel } from 'vite-hub/channels/adapters'
 import { inbox } from '../lib/inbox'
 
 export default defineSchedule({
@@ -383,7 +383,7 @@ Only the Inbox of one mailbox is watched. Mail that a Gmail filter moves past th
 A failed message does not block later mail. When a message keeps failing (Gmail cannot return it, its body fetch times out, or its Invocation cannot start), the Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in State and lets the cursor move on.
 
 ```ts
-import { gmail } from 'vite-hub/agent/channels'
+import { gmail } from 'vite-hub/channels/adapters'
 
 gmail({ maxAttempts: 3 })
 ```
@@ -410,7 +410,7 @@ Server code reads the same status with `gmailChannelStatus()`, for example for a
 
 ```ts [server/api/health.get.ts]
 import { defineEventHandler } from 'h3'
-import { gmailChannelStatus } from 'vite-hub/agent/channels'
+import { gmailChannelStatus } from 'vite-hub/channels/adapters'
 import { inbox } from '../lib/inbox'
 
 export default defineEventHandler(async () => {
@@ -451,7 +451,7 @@ See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `
 
 ```ts [server/api/old-promotions.get.ts]
 import { defineEventHandler } from 'h3'
-import { gmailClient } from 'vite-hub/agent/channels'
+import { gmailClient } from 'vite-hub/channels/adapters'
 import { getRuntimeContext } from 'vite-hub/runtime'
 import { inbox } from '../lib/inbox'
 
