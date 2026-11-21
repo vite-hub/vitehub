@@ -85,6 +85,28 @@ it("keeps a panel tracked when an overlapping install stops", async () => {
   expect(panel.style.width).toBe("52px");
 });
 
+it("dispatches added nodes once across overlapping roots", async () => {
+  const parent = document.body.appendChild(document.createElement("section"));
+  const child = document.createElement("p");
+  const enter = vi.fn();
+  const content = vi.fn();
+  startMotion();
+  const stopParent = installMotion(parent);
+  const stopEnter = defineMotionEffect({ name: "test-enter", selector: "section > p", enter });
+  const stopContent = defineMotionEffect({ name: "test-content", selector: "section", content });
+  try {
+    parent.appendChild(child);
+    await mutations();
+    expect(enter.mock.calls).toEqual([[child]]);
+    expect(content.mock.calls).toEqual([[parent, { added: [child], removed: [], oldText: undefined }]]);
+  }
+  finally {
+    stopEnter();
+    stopContent();
+    stopParent();
+  }
+});
+
 it("stops turning a chevron when code closes its disclosure", async () => {
   document.body.innerHTML = `
     <style>[aria-expanded=true] svg { rotate: 90deg; }</style>

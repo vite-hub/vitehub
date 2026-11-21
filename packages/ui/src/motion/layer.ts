@@ -178,7 +178,8 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
   }
 }
 
-function onMutations(records: MutationRecord[]): void {
+function onMutations(batch: MutationRecord[]): void {
+  const records = [...new Set(batch)];
   const effects = listMotionEffects();
   const dispatched = new Map<HTMLElement, Map<MotionStateAttribute, Set<string | null>>>();
   collectContent(records, effects);
@@ -311,7 +312,7 @@ function installOwn(root: MotionRoot, effects: readonly MotionEffect[], isReduce
   for (const effect of effects) if (!defined.has(effect.name)) defineOwnEffect(effect, isReduced);
   if (!observer) {
     startDocument();
-    const active = new MutationObserver(onMutations);
+    const active = new MutationObserver((records, source) => onMutations(records.concat(source.takeRecords())));
     observer = active;
     stopWatching.push(onMotionEffectsChange(() => {
       for (const [root, { watchers }] of roots) {
