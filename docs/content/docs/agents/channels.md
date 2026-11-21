@@ -547,8 +547,8 @@ pnpm vitehub channels threads support telegram
 pnpm vitehub channels conversation support telegram telegram:456
 pnpm vitehub channels status labeller gmail
 pnpm vitehub channels deliveries support teams
-pnpm vitehub conversations export support telegram telegram:456 > chat.md
-pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
+pnpm vitehub agent conversations export support telegram telegram:456 > chat.md
+pnpm vitehub agent conversations export support telegram telegram:456 --format json --output ./chat
 ```
 
 Without `--output`, the export goes to stdout without attachments. `--output <directory>` writes the file and a `media/` directory in the `channels history` layout, refusing server file names or paths that leave the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/cli/agents#export-a-channel-conversation).

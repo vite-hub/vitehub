@@ -24,7 +24,7 @@ pnpm vitehub --help
 
 `--help` lists the namespaces (command groups) that you have:
 
-- `agent`, `channels`, and `conversations` when `hubAgent()` is active.
+- `agent` and `channels` when `hubAgent()` is active. With the Console on, `agent` also has `list` and `invoke`.
 - `blob`, `database`, `env`, `kv`, `rate-limit`, `schedule`, `workflow`, and `workspace`, each when its plugin is active (`hubBlob()`, `hubDb()`, `hubEnv()`, `hubKv()`, `hubRateLimit()`, `hubSchedule()`, `hubWorkflow()`, `hubWorkspace()`).
 - `content` when the app defines `server/content.ts`.
 - `console` when `console` is enabled.
@@ -51,7 +51,6 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
   channels    External Channel registration workflows.
-  conversations  Export Channel conversations.
   content     Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.
   cms         Inspect the CMS roles and their permissions.
   database    Database development workflows.
@@ -96,7 +95,7 @@ Available namespaces:
 | `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
 | `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
-| `vitehub agent get` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
+| `vitehub agent get` | Available | Agent Package | Inspect one Agent by name through the running dev server, or a deployed app with `--url`. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
 | `vitehub agent invocations` | Available | Agent Package | List, inspect, follow, export, or cancel records in the application's Agent Invocation journal, locally or on a deployed Console, or wait until no Invocation is active. |
 
@@ -107,8 +106,8 @@ Available namespaces:
 | `vitehub blob delete` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
 | `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
-| `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
-| `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
+| `vitehub agent conversations` | Available | Agent Package | `export` one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
+| `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `agent conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent on the dev server of this project, or on the app of `--url`. |
 | `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |

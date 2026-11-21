@@ -22,7 +22,7 @@ pnpm dev
 Keep it running, then use another terminal in this directory to inspect the discovered Definition:
 
 ```sh
-pnpm vitehub agent get --agent greeting --json
+pnpm vitehub agent get greeting --json
 ```
 
 The JSON includes these fields:

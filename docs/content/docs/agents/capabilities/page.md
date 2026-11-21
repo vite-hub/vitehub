@@ -188,7 +188,7 @@ The server records each change in the Invocation journal as `agent.page.change`,
 
 - `vitehub agent invocations get <id>` prints the page changes. With `--json`, they are in `pageChanges`, and the approvals in `approvals`.
 - The Console shows them on the **Page** surface of the session, with an Undo button for each.
-- `vitehub invocations undo <id> --change <change>` asks the person's open page to put one change back, as the Console's Undo does. It sends no value: the page restores from its own record, with the same rules as `page.undo(id)`. The journal records `agent.page.undo` with who asked.
+- `vitehub agent invocations undo <id> --change <change>` asks the person's open page to put one change back, as the Console's Undo does. It sends no value: the page restores from its own record, with the same rules as `page.undo(id)`. The journal records `agent.page.undo` with who asked.
 
 ## Inspect calls
 

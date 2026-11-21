@@ -93,7 +93,7 @@ Sources, rules, and Actor Scope limit which paths the Agent sees and commits. Th
 
 ## Verify the Workspace shell
 
-1. Run `vitehub agent get --agent <name> --json` while the Vite dev server runs.
+1. Run `vitehub agent get <name> --json` while the Vite dev server runs.
 2. Check that `tools` has a `workspaceShell` entry. Its `commands` list shows `pwd`, `ls`, `find`, `rg`, `grep`, `cat`, `head`, `tail`, `wc` in read mode, plus `mkdir`, `touch`, `cp`, `mv`, and `rm` in write mode.
 3. For a Provider Agent with `commands`, check for one `workspace_exec (<command>)` item per allowed executable. Without `commands`, expect no `workspaceShell` entry.
 4. Set `commands` on a model-backed Agent. Tool resolution must fail with a diagnostic that points to `sandbox()`.

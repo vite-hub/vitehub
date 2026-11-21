@@ -20,7 +20,7 @@ function stream() {
 
 describe("discovered Agent inspection", () => {
   // nuxt-agent: a Workspace Agent in server/agents/<name>/ with a languageModel() Driver showed "Unknown Agent Driver".
-  it("names the Driver of a discovered Workspace Agent in vitehub agent info", async () => {
+  it("names the Driver of a discovered Workspace Agent in vitehub agent get", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-discovered-inspection-"))
     const handler = join(root, "nuxt", "agent.ts")
     try {
@@ -43,13 +43,14 @@ describe("discovered Agent inspection", () => {
       })
 
       const stdout = stream()
-      const exitCode = await runAgentInfoCli(["--agent", "nuxt", "--url", "http://127.0.0.1:4731"], {
+      const stderr = stream()
+      const exitCode = await runAgentInfoCli(["nuxt", "--dev", "--url", "http://127.0.0.1:4731"], {
         env: {},
         rootDir: root,
-        stderr: stream(),
+        stderr,
         stdout,
       }, { fetch: (async () => Response.json({ inspection: { ...inspection, name: "nuxt" }, root })) as never })
-      expect(exitCode).toBe(0)
+      expect(exitCode, stderr.output).toBe(0)
       expect(stdout.output).toContain("Driver: Model-backed Agent Driver (gpt-5.6-terra)")
     }
     finally {
