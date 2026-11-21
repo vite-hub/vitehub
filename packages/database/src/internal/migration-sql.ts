@@ -31,14 +31,30 @@ export function splitSqlStatements(sql: string): string[] {
   return scanSqlStatements(sql).statements
 }
 
+const statementBreakpoint = "--> statement-breakpoint"
+
 /**
- * Adds Drizzle's `--> statement-breakpoint` between the statements of a hand-written file, which Wrangler runs as one
- * script. Drizzle runs each part with one libSQL `execute()`, which runs only the first statement and drops the rest
- * without an error. A file that has breakpoints, or one statement, stays as it is, so its hash does not change. The
- * statements of a trigger body stay together.
+ * Adds Drizzle's `--> statement-breakpoint` between the statements of each part of a migration, such as a hand-written
+ * file that Wrangler runs as one script, or a custom migration. Drizzle runs each part with one libSQL `execute()`,
+ * which runs only the first statement and drops the rest without an error. A part with one statement stays as it is,
+ * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a trigger body stay together.
  */
 export function addStatementBreakpoints(sql: string): string {
-  if (sql.includes("--> statement-breakpoint")) return sql
+  return sql.split(statementBreakpoint).map(addPartBreakpoints).join(statementBreakpoint)
+}
+
+/**
+ * The parts of a migration that Drizzle runs one by one. A SQLite part has one statement, as `addStatementBreakpoints()`
+ * cuts it. Postgres runs a part of several statements in one query, so its parts stay as written.
+ */
+export function migrationParts(sql: string, dialect: DatabaseDialect): string[] {
+  return (dialect === "sqlite" ? addStatementBreakpoints(sql) : sql)
+    .split(statementBreakpoint)
+    .map(part => part.trim())
+    .filter(part => splitSqlStatements(part).length)
+}
+
+function addPartBreakpoints(sql: string): string {
   const { ends, statements } = scanSqlStatements(sql)
   if (statements.length < 2) return sql
   const cuts: number[] = []
@@ -52,7 +68,7 @@ export function addStatementBreakpoints(sql: string): string {
   let result = ""
   let start = 0
   for (const cut of cuts) {
-    result += `${sql.slice(start, cut)}\n--> statement-breakpoint\n`
+    result += `${sql.slice(start, cut)}\n${statementBreakpoint}\n`
     start = cut
   }
   return result + sql.slice(start)
