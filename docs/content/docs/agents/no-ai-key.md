@@ -142,6 +142,7 @@ ViteHub checks the switch before it reads a credential. When a case cannot run o
 | `VITEHUB_MODELS` set to a value other than `emulate` | `AGENT_MODELS_INVALID` | Set `emulate`, or unset it. |
 | The emulator packages are not installed | `AGENT_EMULATOR_PACKAGES_MISSING` | Install `@emulators/core` and `@emulators/ai`. |
 | The emulator rejects a rule | `AGENT_EMULATOR_RULES_INVALID` | Fix the rule field that the message names. |
+| Two dev servers in one Node.js process with different `emulate` settings | `AGENT_EMULATOR_DEV_APPS_CONFLICT` | Give both apps the same `emulate` setting, or run them in separate processes. |
 | `vitehub agent emulator` finds no emulator | `AGENT_EMULATOR_NOT_RUNNING` | Start the dev server with the option, or set `VITEHUB_EMULATE_URL`. |
 | Two `emulateModels()` scopes in one test worker | `AGENT_EMULATOR_SCOPE_ACTIVE` | Close the first scope before you start the next. |
 | A call after `emulateModels()` closes | `AGENT_EMULATOR_CLOSED` | Read the calls before `close()`. |
