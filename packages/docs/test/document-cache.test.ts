@@ -4,7 +4,7 @@ import { gzipSync } from "node:zlib"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
-const { getItem, parsed, read } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), read: vi.fn() }))
+const { getItem, parsed, read, config } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), read: vi.fn(), config: { appBase: "/" } }))
 // Development has no packed files, so the handlers read each file on its own.
 vi.mock("#docs/files", () => ({ default: { read } }))
 vi.mock("#docs/content", () => ({ content: undefined }))
@@ -12,7 +12,7 @@ vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/image-sizes", () => ({ default: {} }))
 vi.mock("#docs/agent", () => ({ default: { llms: {} } }))
 vi.mock("nitro", () => ({ serverFetch: () => new Response(null, { status: 404 }) }))
-vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: "/", site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
+vi.mock("nitro/runtime-config", () => ({ useRuntimeConfig: () => ({ public: { docs: { appBase: config.appBase, site: { name: "Docs", url: "", description: "" }, mcp: false } } }) }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] }, githubRepo: null }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
@@ -27,6 +27,7 @@ vi.mock("#docs/manifest", async () => {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  config.appBase = "/"
   read.mockImplementation((_store: string, file: string) => getItem(file))
   getItem.mockImplementation((key: string) =>
     readFile(resolve(import.meta.dirname, "fixtures/content", key), "utf8"),
@@ -120,6 +121,25 @@ it("serves exact raw URLs and reads only the requested page on a cold runtime", 
   for (const path of ["/raw/docs/GUIDE.md", "/raw/docs/guide/.md", "/raw/docs/missing.md"]) {
     expect((await request(path)).status).toBe(404)
   }
+})
+
+it("looks up raw URLs relative to the app base even when it contains /raw/", async () => {
+  config.appBase = "/raw/portal/"
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  manifest.pages.push({ ...page, path: "/portal/raw/docs/missing", file: "unrelated.md" })
+  onTestFinished(() => { manifest.pages.pop() })
+  read.mockImplementation((store: string, file: string) => store === "docs" ? `Body of ${file}` : null)
+  const { default: raw } = await import("../src/runtime/server/raw.ts")
+  const { default: markdown } = await import("../src/runtime/server/markdown.ts")
+  const server = new H3().use(markdown).get("/raw/portal/raw/**", raw)
+  const request = (path: string) => new Request(`https://docs.example.com/raw/portal/raw${path}.md`)
+
+  const direct = new H3().get("/raw/portal/raw/**", raw)
+  expect(await (await direct.fetch(request("/docs/kv"))).text()).toContain(`Body of ${page.file}`)
+  expect((await server.fetch(request("/docs/missing"))).status).toBe(404)
+  expect(read.mock.calls.filter(([store]) => store === "docs")).toEqual([["docs", page.file]])
 })
 
 it("retries a page after storage or parsing fails", async () => {

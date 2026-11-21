@@ -4,7 +4,7 @@ import manifest from "#docs/manifest"
 import { useRuntimeConfig } from "nitro/runtime-config"
 import { docsAgentCopy, docsAgentPages, docsContentSource } from "../agent-copy.ts"
 import { docsDocumentOf, docsMarkdown } from "../markdown.ts"
-import { docsManifestPages, docsRawPath } from "../navigation.ts"
+import { docsAppPath, docsManifestPages, docsRawPath } from "../navigation.ts"
 import { docsParserOptions } from "./documents.ts"
 import { readDocsFile } from "./files.ts"
 
@@ -54,7 +54,17 @@ async function readDocsPageCopy(page: DocsPage): Promise<string | null> {
 }
 
 /** Read an exact manifest URL without listing or parsing the Content Sources. */
-export async function readDocsRawCopy(rawPath: string): Promise<string | null> {
+export async function readDocsRawCopy(pathname: string): Promise<string | null> {
+  const prefix = docsAppPath("/raw/", useRuntimeConfig().public.docs.appBase)
+  if (!pathname.startsWith(prefix)) return null
+  let rawPath: string
+  try {
+    rawPath = `/raw/${decodeURIComponent(pathname.slice(prefix.length))}`
+  }
+  catch (error) {
+    if (!(error instanceof URIError)) throw error
+    return null
+  }
   const page = docsRawPage(rawPath)
   return page ? await readDocsPageCopy(page) : null
 }
@@ -76,17 +86,7 @@ export function docsMarkdownContent(raw = false): ContentMarkdownRuntime {
   return {
     seo: runtime.seo,
     async markdown(path, options) {
-      if (raw) {
-        let decoded: string
-        try {
-          decoded = decodeURIComponent(relativePath(path))
-        }
-        catch (error) {
-          if (!(error instanceof URIError)) throw error
-          return null
-        }
-        return await readDocsRawCopy(decoded)
-      }
+      if (raw) return await readDocsRawCopy(path)
       const page = twin(path)
       return page ? await readDocsPageCopy(page) : await runtime.markdown(path, options)
     },
