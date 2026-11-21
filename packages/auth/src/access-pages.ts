@@ -47,16 +47,21 @@ export function accessPageBeats(a: string, b: string): boolean {
   return false
 }
 
-/** The `access.pages` key that guards a page path: the most specific key that matches it. */
-export function accessPageOf(pages: AuthPages, path: string, sensitive = false): keyof AuthPages | undefined {
-  const segments = normalizePagePath(path.replace(/[?#].*$/, "").replace(/(.)\/$/, "$1"), sensitive).split("/").slice(1)
-  const matches = (key: string) => {
-    const parts = normalizePagePath(key, sensitive).split("/").slice(1)
-    const rest = parts.at(-1) === "**"
-    if (rest ? parts.length - 1 > segments.length : parts.length !== segments.length) return false
-    return parts.slice(0, rest ? -1 : undefined).every((part, index) => part.startsWith(":") ? segments[index] !== "" : part === segments[index])
+/** Finds the winning key in Nuxt's merge order: ordinary matches, then new matches through encoded slashes. */
+export async function createAccessPageMatcher(pages: AuthPages, sensitive = false): Promise<(path: string) => string | undefined> {
+  const { addRoute, createRouter, findAllRoutes } = await import("rou3")
+  const router = createRouter<string>()
+  for (const key of Object.keys(pages)) addRoute(router, "", normalizePagePath(key, sensitive), key)
+  const match = (path: string) => {
+    const normalized = normalizePagePath(path, sensitive).replace(/[\0-\x20"#<>^`{}\x7F-\uFFFC]+/g, run => encodeURIComponent(run.replace(/[\uD800-\uDFFF]/gu, "�")))
+    return findAllRoutes(router, "", normalized, { params: false }).map(route => route.data)
   }
-  return (Object.keys(pages) as Array<keyof AuthPages>).filter(matches).reduce<keyof AuthPages | undefined>((best, key) => best === undefined || accessPageBeats(key, best) ? key : best, undefined)
+  return (path) => {
+    const matches = match(path)
+    const split = path.replace(/%2f/gi, "/")
+    if (split !== path) matches.push(...match(split).filter(key => !matches.includes(key)))
+    return matches.at(-1)
+  }
 }
 
 /** A static segment or `:name`. */

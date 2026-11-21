@@ -1,8 +1,9 @@
-import { accessPageBeats, accessPageOf } from "./access-pages.ts"
+import { accessPageBeats, createAccessPageMatcher, normalizePagePath } from "./access-pages.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { cachingRuleNames, createCachingRouteRuleFinder, methodOrder, type RouteRuleEntry, type RouteRules } from "./route-rule-cache.ts"
 
 import type { AuthPages } from "./nuxt-types.ts"
+import type { RouteRecordRaw } from "vue-router"
 
 /** A Nuxt page, as `pages:resolved` gives it after Nuxt reads the literal values of `definePageMeta()`. */
 export interface NuxtPageLike {
@@ -15,6 +16,7 @@ export interface NuxtPageLike {
 export interface PageGuardCacheOptions {
   /** `router.options.sensitive` of Nuxt. When it is not true, Nuxt matches pages and route rules without case. */
   sensitive?: boolean
+  strict?: boolean
   /** `access.pages` of the Auth Definition. It guards the pages that have no `auth` of their own. */
   accessPages?: AuthPages
 }
@@ -93,11 +95,11 @@ function payloadPages(pattern: string): string[] {
 }
 
 /**
- * Folds the case of a rou3 pattern, as Nuxt does for route rules when its router is not case sensitive. Parameter
- * names, their constraints, and escaped characters keep their case.
+ * Normalizes the literal text of a rou3 pattern as Nuxt does for route rules. Parameter names, constraints, and
+ * escaped characters are not path text.
  */
-function foldPattern(pattern: string): string {
-  return pattern.replace(/\\.|:\w+(?:\([^)]*\))?|[^\\:]+/g, token => token[0] === "\\" || token[0] === ":" ? token : token.toLowerCase())
+function normalizePattern(pattern: string, sensitive?: boolean): string {
+  return pattern.replace(/\\.|:\w+(?:\([^)]*\))?|[^\\:]+/g, token => token[0] === "\\" || token[0] === ":" ? token : normalizePagePath(token, sensitive))
 }
 
 /**
@@ -141,12 +143,12 @@ function pageTargets(pages: readonly NuxtPageLike[], toPatterns: (path: string) 
 export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], routeRules: RouteRules, options: PageGuardCacheOptions = {}): Promise<void> {
   if (!pages.length || !Object.keys(routeRules).length) return
   const [{ vueRouterToRou3 }, { compareRoutes, routesOverlap }] = await Promise.all([import("unrouting"), import("rou3")])
-  const fold = options.sensitive ? (pattern: string) => pattern : foldPattern
-  const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(fold))
+  const normalize = (pattern: string) => normalizePattern(pattern, options.sensitive)
+  const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(normalize))
   const covers = (pattern: string, other: string) => ["equal", "superset"].includes(compareRoutes(pattern, other))
   // Nuxt renders the payload of a page with the route rules of the page path, so a key covers its payload paths too.
   const accessPages = Object.entries(options.accessPages ?? {}).flatMap(([key, mode]) => {
-    const pattern = fold(key)
+    const pattern = normalize(key)
     const payload = payloadPattern(pattern)
     return [pattern, ...payload ? [payload] : []].map((paths): AccessPage => ({ key, pattern, paths, mode }))
   })
@@ -164,7 +166,7 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
   if (!guards.length) return
   const open = new Set(targets.filter(target => !isGuarded(target.auth) && isStaticPath(target.path)).map(target => target.pattern))
   // Page paths and rule keys are both below `app.baseURL`.
-  const findCachingRule = await createCachingRouteRuleFinder(routeRules, fold)
+  const findCachingRule = await createCachingRouteRuleFinder(routeRules, normalize)
   // h3 merges a narrower pattern later, and on one pattern a later method. A partial overlap counts as later.
   const mergesAfter = (on: RouteRuleEntry, off: RouteRuleEntry) => {
     const relation = compareRoutes(on.pattern, off.pattern)
@@ -209,19 +211,29 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
 export async function assertSignInPagesOpen(pages: readonly NuxtPageLike[], signInPage: string | null, options: PageGuardCacheOptions = {}): Promise<void> {
   const accessPages = options.accessPages
   if (!accessPages || !Object.values(accessPages).includes("user")) return
-  const [{ vueRouterToRou3 }, { compareRoutes }] = await Promise.all([import("unrouting"), import("rou3")])
-  const fold = options.sensitive ? (pattern: string) => pattern : foldPattern
-  const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(fold)).filter(target => !target.payload)
-  const redirects = targets.flatMap((target) => {
-    const redirectTo = typeof target.auth === "object" && target.auth !== null ? Reflect.get(target.auth, "redirectTo") : undefined
+  const [{ createRouterMatcher, START_LOCATION }, accessPageOf] = await Promise.all([
+    import("vue-router"),
+    createAccessPageMatcher(accessPages, options.sensitive),
+  ])
+  const toRoute = (page: NuxtPageLike): RouteRecordRaw => ({
+    path: page.path,
+    alias: page.alias ?? [],
+    name: Symbol(),
+    meta: page.meta,
+    children: page.children?.map(toRoute) ?? [],
+  })
+  const matcher = createRouterMatcher(pages.map(toRoute), { sensitive: options.sensitive, strict: options.strict })
+  const redirects = pageTargets(pages, path => [path]).flatMap((target) => {
+    if (target.payload || isGuestGuard(target.auth) || typeof target.auth !== "object" || target.auth === null) return []
+    const redirectTo = Reflect.get(target.auth, "redirectTo")
     return typeof redirectTo === "string" ? [{ path: redirectTo, source: `the \`redirectTo\` of the page ${JSON.stringify(target.path)}` }] : []
   })
   for (const { path, source } of [...signInPage ? [{ path: signInPage, source: "`access.signIn`" }] : [], ...redirects]) {
-    const page = path.replace(/[?#].*$/, "").replace(/(.)\/$/, "$1")
-    if (!page.startsWith("/")) continue
-    const key = accessPageOf(accessPages, page, options.sensitive)
-    if (key === undefined || accessPages[key] !== "user") continue
-    if (targets.some(target => target.auth !== undefined && ["equal", "superset"].includes(compareRoutes(target.pattern, fold(page))))) continue
+    const page = path.replace(/[?#].*$/, "")
+    if (!page.startsWith("/") || page.startsWith("//")) continue
+    const key = accessPageOf(page)
+    if (key === undefined || Reflect.get(accessPages, key) !== "user") continue
+    if (matcher.resolve({ path: page }, START_LOCATION).meta.auth !== undefined) continue
     throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({
       message: `\`defineAuth()\` access.pages has ${JSON.stringify(key)}: "user", which guards the sign-in page ${JSON.stringify(page)} of ${source}. The page guard sends signed-out visitors there, and they cannot open it. Add ${JSON.stringify(page)}: "guest" or false to access.pages, or set \`definePageMeta({ auth: 'guest' })\` on the page.`,
     })

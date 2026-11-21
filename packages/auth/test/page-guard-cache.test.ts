@@ -177,6 +177,16 @@ describe("Nuxt page guard of access.pages with cache route rules", () => {
   ]
   const check = (routeRules: RouteRules, pages: Page[] = pagesWithoutMeta, access: Record<`/${string}`, "user" | "guest" | false> = accessPages) => assertNoCachedPageGuards(pages, routeRules, { accessPages: access })
 
+  it.each([
+    ["/dashboard/welcome", "/%64ashboard/welcome"],
+    ["/dashboard/σ", "/dashboard/ς"],
+  ] as const)("uses equivalent route keys for cache checks on %s", async (path, guest) => {
+    const access = { "/dashboard/**": "user", [guest]: "guest" } as const
+    await expect(check({ [path]: { prerender: true } }, [{ path }], access)).resolves.toBeUndefined()
+    await expect(check({ [path]: { swr: 60 } }, [{ path }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    await expect(check({ [path]: { swr: 60 } }, [{ path }], { ...access, [guest]: false })).resolves.toBeUndefined()
+  })
+
   it("fails the build when a route rule caches a page that access.pages guards, or its payload", async () => {
     await expect(check({ "/dashboard/**": { swr: 60 } })).rejects.toMatchObject({
       code: "AUTH_GUARDED_PAGE_CACHED",
@@ -286,5 +296,28 @@ describe("Nuxt sign-in page under access.pages", () => {
     await expect(build("{ pages: { '/**': 'user', '/login': false } }", [{ path: "/login" }])).resolves.toBeDefined()
     await expect(build("{ pages: { '/**': 'user' } }", [{ path: "/login", meta: { auth: "guest" } }])).resolves.toBeDefined()
     await expect(build("{ signIn: { provider: 'github' }, pages: { '/**': 'user' } }", [{ path: "/" }])).resolves.toBeDefined()
+  })
+
+  it("allows a guest-only page to redirect signed-in users to a guarded page", async () => {
+    await expect(build("{ pages: { '/dashboard': 'user' } }", [
+      { path: "/login", meta: { auth: { only: "guest", redirectTo: "/dashboard" } } },
+      { path: "/dashboard" },
+    ])).resolves.toBeDefined()
+  })
+
+  it("uses the auth meta of the selected sign-in route", async () => {
+    const access = "{ pages: { '/**': 'user' } }"
+    const dynamic = { path: "/:slug()", meta: { auth: false } }
+    await expect(build(access, [dynamic, { path: "/login" }])).rejects.toMatchObject({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    await expect(build(access, [
+      dynamic,
+      { path: "/account", alias: ["/login"], meta: { auth: false }, children: [{ path: "" }] },
+    ])).resolves.toBeDefined()
+  })
+
+  it("applies route rules that Nuxt matches after splitting encoded slashes", async () => {
+    const pages = [{ path: "/login/:slug(.*)*" }]
+    await expect(build("{ signIn: '/login/a%2Fb', pages: { '/login/a/b': 'user' } }", pages)).rejects.toMatchObject({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    await expect(build("{ signIn: '/login/a%2Fb', pages: { '/login/:slug': 'user', '/login/a/b': false } }", pages)).resolves.toBeDefined()
   })
 })

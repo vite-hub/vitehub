@@ -51,7 +51,7 @@ type NuxtLike = {
     rootDir?: string
     routeRules?: Record<string, Record<string, unknown>>
     router?: {
-      options?: { sensitive?: boolean }
+      options?: { sensitive?: boolean, strict?: boolean }
     }
     serverDir?: string
     srcDir?: string
@@ -318,7 +318,8 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- `NuxtLike` types only the hook that every caller passes; Nuxt calls `nitro:init` with the handler shape below, and nuxt.test.ts and page-guard-cache.test.ts check it.
     ;(nuxt.hook as unknown as (name: "nitro:init", handler: (nitro: NitroBuild) => void) => void)("nitro:init", (nitro) => {
       nitro.hooks.hook("build:config", async () => {
-        const options = { sensitive: nuxt.options.router?.options?.sensitive, accessPages: authConfig?.access.pages }
+        const { sensitive, strict } = nuxt.options.router?.options ?? {}
+        const options = { sensitive, strict, accessPages: authConfig?.access.pages }
         await assertSignInPagesOpen(pages, signInPage, options)
         if (nuxt.options.ssr !== false) await assertNoCachedPageGuards(pages, nitro.options.routeRules, options)
       })
