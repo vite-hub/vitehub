@@ -529,6 +529,8 @@ To guard pages from the Auth Definition, map route patterns to `'user'`, `'guest
 
 ```ts
 // server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   access: { pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } },
 })
