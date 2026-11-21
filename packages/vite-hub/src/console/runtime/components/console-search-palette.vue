@@ -924,14 +924,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- A ui-sdk scope root. The dialog renders here, in the top layer, so the kit styles reach it. -->
+  <!--
+    A ui-sdk scope root. The dialog renders here, in the top layer, so the kit styles reach it. The palette is read, so it
+    and its backdrop open and close at once (docs/design/motion.md). Results change at once as the person types: they
+    are read, and a list that moves on each key would delay the reading.
+  -->
   <div class="ui-sdk contents">
     <Dialog v-model:open="open">
-      <DialogBackdrop class="fixed inset-0 bg-black/40 transition-opacity duration-200 ease-out data-starting-style:opacity-0 data-ending-style:opacity-0 dark:bg-black/60" />
+      <DialogBackdrop class="fixed inset-0 bg-black/40 dark:bg-black/60" />
       <DialogContent
         :final-focus="finalFocus"
         initial-focus="input"
-        class="fixed top-1/2 left-1/2 m-0 flex h-full max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border-0 bg-default p-0 text-sm/6 text-default shadow-(--vh-shadow-dialog) transition-[opacity,scale] duration-200 ease-out data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0 sm:h-[28rem] sm:max-h-[calc(100dvh-4rem)] sm:max-w-3xl"
+        class="fixed top-1/2 left-1/2 m-0 flex h-full max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-0 overflow-hidden rounded-xl border-0 bg-default p-0 text-sm/6 text-default shadow-(--vh-shadow-dialog) sm:h-[28rem] sm:max-h-[calc(100dvh-4rem)] sm:max-w-3xl"
       >
         <DialogTitle class="sr-only">Search console</DialogTitle>
         <DialogDescription class="sr-only">Run actions and search pages, documents, Agents, definitions, KV keys, and sessions.</DialogDescription>
@@ -962,7 +966,7 @@ onBeforeUnmount(() => {
               @keydown="onInputKeydown"
             />
             <span class="absolute inset-y-0 end-0 flex items-center pe-2.5">
-              <DialogClose aria-label="Close" class="inline-flex h-auto items-center gap-1.5 rounded-md border-0 bg-transparent p-1.5 text-xs font-medium text-default transition-[color,background-color,box-shadow,transform] duration-150 ease-out hover:bg-elevated active:bg-elevated motion-safe:active:scale-[.97] motion-reduce:transition-none">
+              <DialogClose aria-label="Close" class="inline-flex h-auto items-center gap-1.5 rounded-md border-0 bg-transparent p-1.5 text-xs font-medium text-default transition-colors hover:bg-elevated active:bg-elevated motion-reduce:transition-none">
                 <Icon name="i-lucide-x" class="size-4 shrink-0 opacity-80" />
               </DialogClose>
             </span>
@@ -980,8 +984,13 @@ onBeforeUnmount(() => {
                     :disabled="item.disabled"
                     :page="item.children?.length ? valueOf(item) : undefined"
                     class="group relative isolate flex min-h-0 w-full items-start gap-1.5 rounded-none bg-transparent p-1.5 text-sm outline-none select-none before:absolute before:inset-px before:z-[-1] before:rounded-md data-disabled:cursor-not-allowed data-disabled:opacity-75 data-highlighted:bg-transparent"
-                    :class="item.active ? 'text-highlighted before:bg-elevated' : 'text-default transition-colors before:transition-colors data-highlighted:not-data-disabled:text-highlighted data-highlighted:not-data-disabled:before:bg-elevated/50'"
+                    :class="item.active ? 'text-highlighted before:bg-elevated' : 'text-default transition-colors data-highlighted:not-data-disabled:text-highlighted'"
                   >
+                    <!--
+                      The highlight. Each row has one and shows it while it is highlighted, so the select effect of the
+                      motion layer moves it from the old row to the new one.
+                    -->
+                    <span v-if="!item.active" data-motion-indicator aria-hidden="true" class="pointer-events-none absolute inset-px z-[-1] rounded-md bg-elevated/50 opacity-0 group-data-highlighted:not-group-data-disabled:opacity-100" />
                     <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
                     <span v-if="item.kind === 'document'" class="flex size-5 shrink-0 items-center justify-center">
                       <Status :tone="consoleDocumentStateColor(item.state ?? 'draft')" />

@@ -18,7 +18,6 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
             to="/docs/getting-started/first-server-primitive"
             label="Build your first primitive"
             trailing-icon="i-lucide-arrow-right"
-            class="closing-cta"
           />
           <NuxtLink
             to="/docs/getting-started/first-agent"
@@ -74,11 +73,7 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
 
 .closing-arrow {
   color: var(--ui-text-muted);
-  transition: color 180ms ease, transform 180ms ease;
-}
-
-.closing-cta :deep(.iconify) {
-  transition: transform 200ms ease;
+  transition: color 180ms ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -88,20 +83,6 @@ const hostNames = closingHosts.map((host) => host.name).join(", ");
 
   .closing-fact.is-link:hover .closing-arrow {
     color: var(--ui-text-highlighted);
-    transform: translate(1px, -1px);
-  }
-
-  .closing-cta:hover :deep(.iconify) {
-    transform: translateX(0.25rem);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .closing-fact,
-  .closing-arrow,
-  .closing-cta :deep(.iconify) {
-    transition: none;
-    transform: none;
   }
 }
 </style>

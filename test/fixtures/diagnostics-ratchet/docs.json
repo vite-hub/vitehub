@@ -4,6 +4,8 @@
   },
   "codesWithoutFix": [],
   "invariants": {
-    "packages/docs/src/nuxt.ts": 1
+    "packages/docs/src/nuxt.ts": 1,
+    "packages/docs/src/runnable/playground.ts": 1,
+    "packages/docs/src/runnable/snapshots.ts": 1
   }
 }
