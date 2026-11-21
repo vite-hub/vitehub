@@ -17,6 +17,33 @@ function pathValue(value: unknown, parts: string[]): { value: unknown } | undefi
   return undefined
 }
 
+function isJsonLiteral(value: string): boolean {
+  try {
+    JSON.parse(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * The first name of a bound path, such as `data` in `data.user.name`, or `undefined` for a JSON literal such as
+ * `true` or `"open"`, which Comark parses itself.
+ */
+function bindingRoot(value: string): string | undefined {
+  return isJsonLiteral(value) ? undefined : value.split(".", 1)[0]
+}
+
+/** The names that a binding can start with: the template `data`, and Comark's `frontmatter`, `meta`, and `props`. */
+const bindingRoots: ReadonlySet<string> = new Set(["data", "frontmatter", "meta", "props"])
+
+/** Rejects a bound path that starts with no known name, such as `{{ name }}` from templates before `data.` paths. */
+export function assertBindingRoot(value: string): void {
+  const root = bindingRoot(value)
+  if (root !== undefined && !bindingRoots.has(root)) throw diagnostics.MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA({ path: value })
+}
+
 export function resolveTemplateAttributes(
   attributes: Record<string, unknown>,
   renderData: NodeRenderData,
@@ -25,8 +52,9 @@ export function resolveTemplateAttributes(
   const rewritten = { ...attributes }
   for (const [key, value] of Object.entries(attributes)) {
     if (!key.startsWith(":") || typeof value !== "string") continue
-    try { JSON.parse(value); continue }
-    catch { /* Let Comark retain JSON literal parsing and attribute filtering. */ }
+    // Let Comark retain JSON literal parsing and attribute filtering.
+    if (isJsonLiteral(value)) continue
+    assertBindingRoot(value)
     const alias = `binding${Object.keys(values).length}`
     values[alias] = pathValue(renderData, value.split("."))?.value
     rewritten[key] = `props.${alias}`

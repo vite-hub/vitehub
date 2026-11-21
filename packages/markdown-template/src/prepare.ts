@@ -1,9 +1,7 @@
 import { parseMarkdown } from "comark"
 import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { htmlPlugins } from "./parser.ts"
-
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+import { htmlPlugins, literalHtmlTags } from "./parser.ts"
 
 // Comark's block components run before multiline code spans. Protect component
 // lines that its own code parser identifies as literal, then restore after rendering.
