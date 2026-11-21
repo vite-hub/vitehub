@@ -17,9 +17,7 @@ export type AskScoreCriteria = readonly [AskEntry, AskEntry, ...AskEntry[]]
 /** Optional descriptions of what counts as true or false. */
 export type AskChanceCriteria = { false?: AskEntry, true?: AskEntry } | null
 
-/** Labels become criteria with `null` descriptions. An object stays as it is. */
 type AskNamedCriteria<T> = T extends AskChoiceLabels ? { [K in T[number]]: null } : T
-/** Score level keys: the tuple indices for a fixed rubric, otherwise any numeric string. */
 type AskScoreLevel<T extends AskScoreCriteria> = number extends T["length"] ? `${number}` : Extract<keyof T, `${number}`>
 
 export interface AskChoiceAnswer<T extends AskChoiceCriteria = AskChoiceCriteria> {
@@ -179,16 +177,10 @@ export const ask: AskCall & {
   score: typeof score
   switch: typeof askSwitch
 } = Object.assign(askOnce, {
-  /** A yes or no question. Answers `{ chance }`, the probability of yes. */
   chance,
-  /** Selects one option. Answers `{ choice, confidence, probabilities }`. */
   choice,
-  /** Builds a keyed question map from a list. */
   each,
-  /** A yes or no question. Answers `true` when the probability of yes is above `threshold` (0 to 1, default `0.5`). */
   if: askIf,
-  /** Rates the state against 2 to 10 ordered levels. Answers `{ score, ratio, confidence, legend, probabilities }`. */
   score,
-  /** Selects one option. Answers with the selected label only. */
   switch: askSwitch,
 })

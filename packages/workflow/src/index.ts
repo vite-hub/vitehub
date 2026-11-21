@@ -7,7 +7,6 @@ export {
   type WorkflowOperationName,
   type WorkflowProviderName,
 } from "./errors.ts"
-// Agents read the Workflow binding name through this entry.
 export { getCloudflareWorkflowBindingName } from "./integrations/cloudflare.ts"
 export { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "./runtime/client.ts"
 export { readRequestPayload, readValidatedPayload, validatePayload } from "./runtime/payload.ts"

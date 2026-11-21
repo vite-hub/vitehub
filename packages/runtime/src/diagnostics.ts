@@ -213,7 +213,6 @@ function normalizeDetails(
   return normalized as Readonly<Record<string, unknown>>
 }
 
-// nostics' JSON drops Error causes (https://github.com/vercel-labs/nostics/pull/39).
 function normalizeError(value: unknown, state: ErrorNormalizationState, depth: number): RuntimeDiagnosticError | undefined {
   if (state.remainingNodes <= 0) return
   state.remainingNodes -= 1

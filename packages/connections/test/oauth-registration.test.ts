@@ -9,7 +9,6 @@ import type { ConnectionStore } from "../src/store.ts"
 
 const REDIRECT = "https://app.example.com/_vitehub/connections/callback"
 
-/** An MCP server and its Better Auth style authorization server, on one origin per tenant. */
 function authorizationServer(options: { challengeOnly?: boolean, registration?: boolean, secretTtl?: number } = {}) {
   const log: string[] = []
   const registrations: Array<Record<string, unknown>> = []
@@ -22,7 +21,6 @@ function authorizationServer(options: { challengeOnly?: boolean, registration?: 
     const method = init?.method ?? "GET"
     log.push(`${method} ${url.href}`)
     const issuer = `${url.origin}/api/auth`
-    // A server can name its metadata only in the challenge of the MCP endpoint, at any path.
     if (options.challengeOnly && url.pathname === "/mcp") {
       return new Response(null, { headers: { "www-authenticate": `Bearer resource_metadata="${url.origin}/auth/metadata"` }, status: 401 })
     }
@@ -40,7 +38,6 @@ function authorizationServer(options: { challengeOnly?: boolean, registration?: 
     }
     if (url.pathname === "/api/auth/oauth2/register" && method === "POST") {
       registrations.push(JSON.parse(String(init?.body)))
-      // Let concurrent registrations overlap.
       await new Promise(resolve => setTimeout(resolve, 5))
       const id = `${url.hostname}-client-${++registered}`
       const secret = options.secretTtl ? { client_secret: `${id}-secret`, client_secret_expires_at: Math.floor(Date.now() / 1000) + options.secretTtl } : {}
@@ -49,7 +46,6 @@ function authorizationServer(options: { challengeOnly?: boolean, registration?: 
     if (url.pathname === "/api/auth/oauth2/token") {
       const form = new URLSearchParams(String(init?.body))
       tokenRequests.push(form)
-      // MCP authorization servers bind each token to the resource of the request.
       if (form.get("resource") !== `${url.origin}/mcp`) return Response.json({ error: "invalid_target" }, { status: 400 })
       const next = tokenResponses.shift() ?? { body: { access_token: "access-1", expires_in: 3600, refresh_token: "refresh-1", token_type: "Bearer" } }
       return Response.json(next.body, { status: next.status ?? 200 })
@@ -101,7 +97,6 @@ describe("client registration", () => {
     }])
     expect(server.tokenRequests[0]?.get("client_id")).toBe("acme.example.com-client-1")
 
-    // A new process reads the stored client instead of registering again.
     const restarted = await connect(runtimeOf(server, store), "portal:acme")
     expect(restarted.searchParams.get("client_id")).toBe("acme.example.com-client-1")
     expect(server.registrations).toHaveLength(1)
@@ -140,7 +135,6 @@ describe("client registration", () => {
     expect(response.status).toBe(404)
     expect(Object.fromEntries(server.tokenRequests[0]!)).toMatchObject({ client_id: "acme.example.com-client-1", grant_type: "authorization_code", resource: "https://acme.example.com/mcp" })
     expect(Object.fromEntries(server.tokenRequests[1]!)).toEqual({ client_id: "acme.example.com-client-1", grant_type: "refresh_token", refresh_token: "refresh-1", resource: "https://acme.example.com/mcp" })
-    // The refreshed grant keeps its client for the next refresh.
     now.value += 2 * 3600_000
     server.tokenResponses.push({ body: { access_token: "access-3", expires_in: 3600, token_type: "Bearer" } })
     await runtime.client("portal:acme", { actor: "server" }).fetch("https://acme.example.com/mcp")
@@ -176,11 +170,9 @@ describe("client registration", () => {
 
   it("exchanges the code with the client that built the authorization URL, after the registration changed", async () => {
     const server = authorizationServer({ secretTtl: 120 })
-    // The store drops pending authorizations by the wall clock, so this test runs at the current time.
     const now = { value: Date.now() }
     const store = createStore()
     const first = await runtimeOf(server, store, now).authorize({ actor: "user:owner", name: "portal:acme", redirectUri: REDIRECT })
-    // Near the end of its secret, the next Connect registers another client while the first person still consents.
     now.value += 61_000
     const second = await runtimeOf(server, store, now).authorize({ actor: "user:owner", name: "portal:acme", redirectUri: REDIRECT })
     expect(new URL(second.url).searchParams.get("client_id")).toBe("acme.example.com-client-2")

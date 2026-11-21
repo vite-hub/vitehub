@@ -33,7 +33,6 @@ app.post("/api/workflows/welcome", async (event) => {
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = typeof body?.marker === "string" ? body.marker : event.req.headers.get("x-vitehub-e2e-marker") || undefined
-  // `deferWorkflow()` returns nothing, so the route picks the run ID that the caller polls.
   const id = resolveId(body, marker) || crypto.randomUUID()
   deferWorkflow(workflowName, buildPayload(body, marker), { id })
   return { ok: true, result: { id } }

@@ -6,8 +6,6 @@ const dynamicError = {
 
 type SshLaunchProblem = "command" | "connectRetryMs" | "environment" | "host" | "hostKey" | "identityFile" | "port" | "user"
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SANDBOX_R0001 to SANDBOX_R0019, SANDBOX_R0021, SANDBOX_R0065 to SANDBOX_R0087, SANDBOX_R0089, and SANDBOX_R0099.
 export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/sandbox/diagnostics",
   codes: {
@@ -57,7 +55,6 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0064: { ...dynamicError, fix: "Set `checkout.sha` to the full commit id of 40 or 64 hex characters, for example the output of `git rev-parse HEAD`. A short sha does not work." },
     SANDBOX_R0088: {
       why: ({ message }: { message: string; retryable: boolean | undefined }) => message,
-      // The Cloudflare host flag. ViteHub does not retry a request that can run twice, so the caller decides.
       data: ({ retryable }: { message: string; retryable: boolean | undefined }) => ({ retryable }),
       fix: "Read `error.cause` for the Cloudflare error. If `error.data.retryable` is `true` and the call can safely run twice, retry it. Otherwise, check the Sandbox Durable Object binding and the Container logs in the Cloudflare dashboard.",
     },
@@ -128,18 +125,16 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0155: { ...dynamicError, fix: "Check that the ViteHub process can reach the URL in the message, and read `error.cause` for the network error. Then retry, or pin a version that is already in the toolchain cache." },
     SANDBOX_R0156: { ...dynamicError, fix: "Remove `toolchain` from the Sandbox definition, or use a built-in runtime. Custom runtimes do not provision toolchains." },
     SANDBOX_R0159: { ...dynamicError, fix: "Read `stdout` and `stderr` of the process at the same time, or cancel the stream that you do not read. Each stream keeps at most 1 MiB of output that is not read." },
-    // container runtime
     SANDBOX_R0160: { ...dynamicError, fix: "Correct the option of `runtime: { kind: \"container\" }` that the message names. If the message names Docker, use rootful Docker Engine 28 or newer on native Linux." },
     SANDBOX_R0161: { ...dynamicError, fix: "Read the Docker error in the message. Check that `docker` can pull and start the image, and that the image runs as root or that `user` names a user of the image." },
     SANDBOX_R0162: { ...dynamicError, fix: "Call `session.close()` again. If it fails again, remove the containers and network that the message names with `docker rm -f` and `docker network rm`." },
     SANDBOX_R0163: { ...dynamicError, fix: "Read the error in the message. Check that the path is inside the Sandbox, that the image `user` can read or write it, and that the image has `sh`, coreutils, and GNU `find`." },
     SANDBOX_R0164: { ...dynamicError, fix: "Pass a signal name such as `SIGTERM` or `SIGKILL` to `child.kill()`. If the message says that the PID registration timed out, call `child.kill()` again." },
-    // process signals
     SANDBOX_R0165: {
       why: ({ runtime, signal }: { runtime: string; signal: string }) => `${runtime} Sandbox cannot send the signal ${signal}.`,
       fix: "On Crabbox, use SIGTERM. On Vercel, use SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGTERM, SIGCONT, SIGSTOP, or a signal number. On Cloudflare, use SIGALRM, SIGHUP, SIGINT, SIGKILL, SIGQUIT, SIGTERM, SIGUSR1, SIGUSR2, or a signal number.",
     },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     SANDBOX_CLOUDFLARE_COMMAND_TIMED_OUT: {
       why: ({ timeout }: { timeout: number }) => `Command timed out after ${timeout}ms.`,
       fix: "Give `exec()` a larger `timeout`, or make the command finish sooner. The Sandbox and its other processes keep running.",

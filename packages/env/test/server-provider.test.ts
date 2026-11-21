@@ -239,7 +239,6 @@ describe("Server Env providers", () => {
     const registry = createRuntimeRegistry({ token: env({ source: env.provider("secrets", "token") }) })
     const failures = [
       Object.assign(new Error("provider cancelled with private token"), { name: "AbortError" }),
-      // Deliberately bypass the public detail type to prove application errors cannot publish private fields.
       new ViteHubError("ENV_SOURCE_FAILED", "Application provider exposed a private token.", {
         details: { source: "provider", token: "private" } as never,
       }),
@@ -295,7 +294,6 @@ describe("Server Env providers", () => {
       failed: env({ optional: true, secret: true, source: env.provider("failed", "private/remote-key") }),
     })
     const values = defineEnvProvider({
-      // Deliberately bypass the public value type to prove runtime hardening at an untyped boundary.
       read: vi.fn(async () => Object.defineProperty({}, "invalid-value", {
         enumerable: true,
         value: { secret: "must-not-leak" },
@@ -362,7 +360,6 @@ describe("Server Env providers", () => {
     await expect(loadServerEnv(registry, undefined, {
       providers: {
         secrets: defineEnvProvider({
-          // Deliberately bypass the public return type to prove runtime hardening at an untyped boundary.
           read: async () => Object.create(new (class ProviderValues { token = "secret" })()),
         }),
       },

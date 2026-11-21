@@ -9,7 +9,6 @@ import type { LocalQueueRules, QueueClient } from "../../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-// One engine per directory, so every client of this process shares the delivery of its jobs.
 const engines = new Map<string, { development: boolean, engine: LocalQueueEngine }>()
 
 function getLocalQueueEngine({ base = defaultLocalQueueBase, development, rules = "local" }: { base?: string, development?: boolean, rules?: LocalQueueRules }): LocalQueueEngine {

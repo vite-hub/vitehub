@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// Prepares the package manifests for a pkg.pr.new preview. Run it after the build and before `pkg-pr-new publish`.
-//
-// pkg.pr.new changes ViteHub dependencies to preview URLs, but ViteHub peers keep the npm version. pnpm 10 and 11
-// install an optional peer that is elsewhere in the graph from npm at the version they find there, so a preview graph
-// got npm releases next to the preview packages. A preview version that npm does not have stops this. Each ViteHub
-// peer also keeps its npm range, because npm stops when it cannot fetch a peer version from the registry.
-// Because of that range, pnpm keeps npm peers that an app's lockfile already has when the app moves to a preview.
-// `pnpm update vite-hub "@vite-hub/*"` resolves them again, as the installation docs say.
 
 import { writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
@@ -19,7 +11,6 @@ export function previewVersion(sha) {
   return `0.0.0-preview-${sha.slice(0, 7)}`
 }
 
-// The range that `pnpm pack` writes for a `workspace:` range.
 function packedRange(range, version) {
   if (range === "workspace:*" || range === "workspace:") return version
   if (range === "workspace:^" || range === "workspace:~") return `${range.slice(-1)}${version}`

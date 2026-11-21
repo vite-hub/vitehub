@@ -46,9 +46,7 @@ export async function runWithScheduleWaitUntil<T>(
     try {
       await local.flush()
     }
-    catch {
-      // Preserve the first execution error after all locally owned work settles.
-    }
+    catch {}
     throw error
   }
 }

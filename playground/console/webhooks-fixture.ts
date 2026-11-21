@@ -82,13 +82,11 @@ deliveries.push(
 const fail = (status: number, code: string, message: string, fix?: string): ConsoleRpcResult => ({ code, message, ok: false, status, ...(fix ? { fix } : {}) })
 const notFound = (id: unknown) => fail(404, "WEBHOOKS_DELIVERY_NOT_FOUND", `No webhook delivery has the id ${String(id)}.`)
 
-/** Marks a delivery as sent now, as one good attempt does. */
 function send(entry: WebhookDelivery): void {
   const now = Date.now()
   Object.assign(entry, { attempts: entry.attempts + 1, dueAt: now, lastError: null, lastStatus: 200, sentAt: now, state: "sent", updatedAt: now })
 }
 
-/** Answers one `webhooks.*` operation, or `undefined` for another operation. */
 export function webhooksFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   if (!operation.startsWith("webhooks.")) return undefined
   const found = typeof input.id === "string" ? deliveries.find(entry => entry.id === input.id) : undefined

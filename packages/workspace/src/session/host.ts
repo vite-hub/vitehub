@@ -760,12 +760,9 @@ async function extractRevisionArchive(
   }
 }
 
-// One archive costs one host write and one `tar` run, where each file would cost a host write. Small trees and very
-// large trees keep the file writes: the archive is built in memory.
 const sessionArchiveMinFiles = 32
 const sessionArchiveMaxBytes = 64 * 1024 * 1024
 
-/** Extracts the archive into the Session root. Returns false when the host cannot run `tar`, so the caller writes each file. */
 async function extractSessionArchive(host: WorkspaceSessionHost, root: string, archive: Uint8Array, signal?: AbortSignal): Promise<boolean> {
   const path = posix.join(root, `.vitehub-workspace-${randomUUID()}.tar.gz`)
   signal?.throwIfAborted()

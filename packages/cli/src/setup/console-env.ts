@@ -16,14 +16,12 @@ const stagePattern = /^[a-z0-9][a-z0-9_-]{0,62}$/
 /** One line of a `.env` file. A value that a parser could read in two ways goes in quotes. */
 export function dotenvLine(name: string, value: string): string {
   if (/^[\w./:@+,-]*$/.test(value)) return `${name}=${value}`
-  // dotenv keeps backslashes in single/backtick quotes; Vite expands dollars in every quote style.
   const escaped = value.replace(/\$/g, "\\$")
   const quote = ["'", "`", '"'].find(candidate => !value.includes(candidate) && (candidate !== '"' || !/\\[nr]/.test(value)))
   if (!quote || value.includes("\r")) throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Cannot represent ${name} faithfully in a dotenv file. Use a value without carriage returns and with an available dotenv quote delimiter.` })
   return `${name}=${quote}${escaped}${quote}`
 }
 
-/** Run git in `cwd`. `undefined` when git is missing. */
 function git(cwd: string, args: string[]): Promise<number | undefined> {
   return new Promise((resolve) => {
     execFile("git", args, { cwd, env: { ...process.env, LC_ALL: "C" } }, (error) => {
@@ -34,10 +32,6 @@ function git(cwd: string, args: string[]): Promise<number | undefined> {
   })
 }
 
-/**
- * Git must not commit the file. In a repository, the file must be ignored and not tracked. Outside a repository, there is
- * nothing to commit it to.
- */
 async function checkIgnored(cwd: string, file: string): Promise<void> {
   const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"])
   if (inside !== 0) return
@@ -83,7 +77,6 @@ async function readJson(response: Response): Promise<Record<string, unknown>> {
 
 function consoleFailure(origin: string, path: string, status: number, body: Record<string, unknown>) {
   const why = typeof body.message === "string" ? body.message : `${origin} answered ${status} to ${path}.`
-  // A code of the Console catalog carries its own fix, such as the key to add for CONSOLE_ENV_KEY_MISSING.
   const message = typeof body.fix === "string" ? `${why} ${body.fix}` : why
   return cliErrorDiagnostics.CLI_ENV_PULL_FAILED({ code: typeof body.code === "string" ? body.code : String(status), message })
 }
@@ -135,7 +128,6 @@ export const envPullFeature: ViteHubCliFeature = {
       const pulled = answer.values instanceof Object ? Object.entries(answer.values as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string") : []
       const text = `# Pulled from ${credential.origin}, project ${project}, stage ${values.stage}. Do not commit this file.\n${pulled.map(([name, value]) => dotenvLine(name, value)).join("\n")}\n`
 
-      // Rename replaces the directory entry, never a symlink or hard-link target.
       const temporary = values.yes ? await mkdtemp(join(context.cwd, ".vitehub-env-")) : undefined
       try {
         const destination = temporary ? join(temporary, "values") : target

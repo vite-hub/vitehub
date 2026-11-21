@@ -90,7 +90,6 @@ it("reports the error of a failed OpenWorkflow run", async () => {
 it("reports the error of a failed native Vercel run", async () => {
   const native = Object.assign(async () => "done", { workflowId: "workflow//checkout" })
   const cause = Object.assign(new Error("payment API returned 503"), { code: "PAYMENT_UNAVAILABLE" })
-  // Exercise the same SDK Error serialization boundary as a persisted native run.
   const workflowRequire = createRequire(import.meta.resolve("workflow"))
   const coreRequire = createRequire(workflowRequire.resolve("@workflow/core"))
   const commonUrl = new URL("./serialization/reducers/common.js", pathToFileURL(workflowRequire.resolve("@workflow/core")))

@@ -539,13 +539,11 @@ export async function resolveSandbox<Context>(
   });
 }
 
-/** Read toolchain pins now unless they come from a checkout that exists only after open. */
 async function resolveToolchain(
   declaration: SandboxToolchain | undefined,
   projectRoot: string | undefined,
 ): Promise<SandboxToolchainInput | undefined> {
   if (declaration === undefined) return;
-  // Sandboxes without a toolchain do not load the provisioner or its Node.js dependencies.
   const [{ normalizeToolchain, readToolchainPins, toolchainReadsProject }, { readHostProjectFiles }] = await Promise.all([
     import("./internal/toolchain.ts"),
     import("./internal/host-toolchain.ts"),

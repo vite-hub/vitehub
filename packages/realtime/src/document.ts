@@ -70,12 +70,10 @@ function readRealtimeFields(document: Y.Doc): Record<string, RealtimeFieldValue>
 
 function readRealtimeBody(editor: RealtimeEditor, document: Y.Doc): JSONContent {
   const content = yXmlFragmentToProsemirrorJSON(document.getXmlFragment(realtimeDocumentLayout.body))
-  // Yjs stores the root's children and its JSON converter always wraps them in `doc`.
   return { ...content, type: realtimeEditorSchema(editor).topNodeType.name }
 }
 
 export async function readRealtimeYDoc(editor: RealtimeEditor, document: Y.Doc): Promise<Required<RealtimeDocumentSnapshot>> {
-  // Read both before the codec's first await, so a document that is destroyed meanwhile still reads whole.
   const content = readRealtimeBody(editor, document)
   const fields = readRealtimeFields(document)
   return { body: await editor.toMarkdown(content), fields }
@@ -117,7 +115,6 @@ function sameBody(left: string, right: string): boolean {
 export async function diffRealtimeYDoc(editor: RealtimeEditor, base: Y.Doc, target: RealtimeDocumentSnapshot): Promise<Uint8Array> {
   const current = await readRealtimeYDoc(editor, base)
   const next = sameBody(target.body, current.body) ? undefined : await editor.fromMarkdown(target.body)
-  // A stored form without `fields` leaves the live fields untouched.
   const fieldsChanged = target.fields !== undefined && !realtimeJsonEqual(current.fields, target.fields)
   if (!next && !fieldsChanged) return new Uint8Array()
   const clone = new Y.Doc({ gc: false })

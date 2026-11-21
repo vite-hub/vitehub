@@ -41,15 +41,10 @@ const previewBase = "https://pkg.pr.new/vite-hub/vitehub"
 const defaultRegistry = "https://registry.npmjs.org/"
 const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies"] as const
 
-/** `vite-hub` and every `@vite-hub/*` package. */
 function isViteHubPackage(name: string): boolean {
   return name === "vite-hub" || /^@vite-hub\/[a-z0-9][\w.-]*$/u.test(name)
 }
 
-/**
- * The package that an override or resolution key targets, such as `@vite-hub/env` for `foo>@vite-hub/env@0.1.0` or
- * `**\/@vite-hub/env`. Undefined when it is not a ViteHub package.
- */
 function overrideTarget(key: string): string | undefined {
   let part = key.split(">").at(-1)!.replace(/^\*\*\//u, "")
   const scoped = part.lastIndexOf("/@")
@@ -59,12 +54,10 @@ function overrideTarget(key: string): string | undefined {
   return isViteHubPackage(name) ? name : undefined
 }
 
-/** True for a specifier that names a release or a pkg.pr.new build, not `workspace:`, `catalog:`, a link, or git. */
 function isReplaceable(specifier: string): boolean {
   return specifier.startsWith(`${previewBase}/`) || specifier === "latest" || specifier === "next" || semver.validRange(specifier) !== null
 }
 
-/** Where a specifier is: a dependency or catalog entry keeps its range prefix, an override pins one version. */
 type Place = "dependency" | "override"
 
 interface Found {
@@ -72,7 +65,6 @@ interface Found {
   place: Place
 }
 
-/** The new specifier for `name`, from the resolved npm version or preview URL. */
 function nextSpecifier(name: string, current: string, place: Place, target: Resolved): string {
   if ("preview" in target) return target.url(name)
   const version = target.versions.get(name)!
@@ -84,7 +76,6 @@ function nextSpecifier(name: string, current: string, place: Place, target: Reso
 interface Resolved {
   preview?: string
   url: (name: string) => string
-  /** The `latest` version of each package on npm. */
   versions: Map<string, string>
 }
 
@@ -94,7 +85,6 @@ function isObject(value: unknown): value is JsonObject {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-/** Calls `visit` for every ViteHub specifier in the update fields of a package.json. */
 function visitManifest(manifest: JsonObject, visit: (holder: JsonObject, key: string, found: Found) => void): void {
   const entries = (holder: unknown, place: Place, nameOf: (key: string) => string | undefined) => {
     if (!isObject(holder)) return
@@ -104,7 +94,6 @@ function visitManifest(manifest: JsonObject, visit: (holder: JsonObject, key: st
         if (name && isReplaceable(value)) visit(holder, key, { name, place })
       }
       else if (place === "override" && isObject(value)) {
-        // npm nests overrides: `{ "vite-hub": { ".": "0.1.0", "@vite-hub/env": "0.1.0" } }`.
         if (name && typeof value["."] === "string" && isReplaceable(value["."])) visit(value, ".", { name, place })
         entries(value, place, overrideTarget)
       }
@@ -124,7 +113,6 @@ function visitManifest(manifest: JsonObject, visit: (holder: JsonObject, key: st
 interface YamlEntry {
   key: string
   value: string
-  /** Builds the line with a new value, keeping the key, quotes, and comment. */
   line: (value: string) => string
 }
 
@@ -133,7 +121,6 @@ function unquote(text: string): { quote: string, value: string } {
   return quote && text.endsWith(quote) && text.length > 1 ? { quote, value: text.slice(1, -1) } : { quote: "", value: text }
 }
 
-/** A `key: value` line inside a block, such as `  "@vite-hub/env": 0.1.0 # pinned`. Undefined for other lines. */
 function readYamlEntry(line: string): YamlEntry | undefined {
   const match = /^(\s+)("[^"]+"|'[^']+'|[^\s#'"][^:#]*?):\s+(.+?)(\s+#.*)?$/u.exec(line)
   if (!match) return
@@ -144,13 +131,11 @@ function readYamlEntry(line: string): YamlEntry | undefined {
   return { key, line: next => `${indent}${rawKey}: ${quote}${next}${quote}${comment}`, value }
 }
 
-/** The top-level key of a line without indentation, such as `overrides` for `overrides:`. */
 function topLevelKey(line: string): string | undefined {
   if (!line || /^\s/u.test(line) || line.startsWith("#") || line.startsWith("-")) return
   return /^("[^"]+"|'[^']+'|[^:#\s]+):/u.exec(line)?.[1]?.replace(/^["']|["']$/gu, "")
 }
 
-/** The line ranges of each top-level block of a YAML file. */
 function yamlBlocks(lines: readonly string[]): Map<string, { start: number, end: number }> {
   const blocks = new Map<string, { start: number, end: number }>()
   let current: string | undefined
@@ -164,7 +149,6 @@ function yamlBlocks(lines: readonly string[]): Map<string, { start: number, end:
   return blocks
 }
 
-/** The items of a top-level YAML list, such as `packages`, with their line numbers. */
 function yamlList(lines: readonly string[], range: { start: number, end: number } | undefined): { index: number, value: string }[] {
   if (!range) return []
   const inline = /^[^:]+:\s*\[(.*)\]\s*(#.*)?$/u.exec(lines[range.start]!)
@@ -175,13 +159,11 @@ function yamlList(lines: readonly string[], range: { start: number, end: number 
   })
 }
 
-/** The name of a `minimumReleaseAgeExclude` entry that pins versions, such as `@vite-hub/env` for `@vite-hub/env@0.1.0`. */
 function pinnedName(entry: string): string | undefined {
   const at = entry.indexOf("@", entry.startsWith("@") ? 1 : 0)
   return at > 0 ? entry.slice(0, at) : undefined
 }
 
-/** The patterns that let a fresh ViteHub release through pnpm's `minimumReleaseAge`. */
 const releaseAgePatterns = ["vite-hub", "@vite-hub/*"]
 
 interface WorkspaceFile {
@@ -190,10 +172,8 @@ interface WorkspaceFile {
   after: string
 }
 
-/** What to do with one ViteHub specifier: a new specifier, `null` to remove the entry, or `undefined` to keep it. */
 type Edit = (name: string, specifier: string, place: Place) => string | null | undefined
 
-/** Calls `edit` for each ViteHub entry of the `overrides`, `catalog`, and `catalogs` blocks, and returns the removed lines. */
 function editYamlEntries(lines: string[], edit: Edit): Set<number> {
   const blocks = yamlBlocks(lines)
   const removed = new Set<number>()
@@ -212,7 +192,6 @@ function editYamlEntries(lines: string[], edit: Edit): Set<number> {
   return removed
 }
 
-/** Rewrites the ViteHub entries of pnpm-workspace.yaml, and the settings that the target needs. */
 function updateWorkspaceYaml(text: string, edit: Edit, options: { preview: boolean }): string {
   const lines = text.split("\n")
   const removed = editYamlEntries(lines, edit)
@@ -243,7 +222,6 @@ function updateWorkspaceYaml(text: string, edit: Edit, options: { preview: boole
   return after.endsWith("\n") || !after ? after : `${after}\n`
 }
 
-/** The workspace package folders that `patterns` select, relative to `root`. */
 async function workspaceFolders(root: string, patterns: readonly string[]): Promise<string[]> {
   const find = async (selected: readonly string[]) => {
     if (!selected.length) return new Set<string>()
@@ -260,7 +238,6 @@ async function workspaceFolders(root: string, patterns: readonly string[]): Prom
   return [...included].filter(folder => !excluded.has(folder)).sort()
 }
 
-/** The workspace patterns of a root: `packages` of pnpm-workspace.yaml, else `workspaces` of package.json. */
 function workspacePatterns(yaml: string | undefined, manifest: JsonObject): string[] {
   if (yaml !== undefined) {
     const lines = yaml.split("\n")
@@ -271,11 +248,6 @@ function workspacePatterns(yaml: string | undefined, manifest: JsonObject): stri
   return list.filter(item => typeof item === "string")
 }
 
-/**
- * The root of the workspace that `start` belongs to: the nearest pnpm-workspace.yaml above, like pnpm finds it, or the
- * nearest package.json whose `workspaces` list `start`, like npm, Yarn, and Bun. `start` itself when it has a lockfile
- * or no workspace lists it.
- */
 async function workspaceRoot(start: string): Promise<string> {
   if (setupLockfiles.some(([file]) => existsSync(join(start, file)))) return start
   for (let folder = dirname(start), last = start; folder !== last; last = folder, folder = dirname(folder)) {
@@ -327,7 +299,6 @@ export function readUpdateArgs(args: readonly string[]): SetupUpdateArgs {
   return parsed
 }
 
-/** Asks npm for the `latest` version of each package, or pkg.pr.new whether the build has it. Undefined when it has not. */
 async function resolvePackages(names: readonly string[], preview: string | undefined, context: Pick<ViteHubCliContext, "env" | "fetch">): Promise<{ resolved: Resolved, missing: string[] }> {
   const request = context.fetch ?? fetch
   const registry = (context.env.npm_config_registry || defaultRegistry).replace(/\/?$/u, "/")
@@ -375,7 +346,6 @@ export async function planSetupUpdate(rootDir: string, args: Pick<SetupUpdateArg
   const yamlBefore = existsSync(yamlFile) ? await readFile(yamlFile, "utf8") : undefined
   const folders = [".", ...(await workspaceFolders(root, workspacePatterns(yamlBefore, rootManifest))).filter(folder => folder !== ".")]
 
-  // First pass: collect the names, so each package is resolved once.
   const manifests = await Promise.all(folders.map(async (folder) => {
     const path = join(root, folder, "package.json")
     const before = await readFile(path, "utf8")
@@ -398,7 +368,6 @@ export async function planSetupUpdate(rootDir: string, args: Pick<SetupUpdateArg
     throw setupFailure(cliErrorDiagnostics.CLI_UPDATE_PACKAGE_MISSING({ packages: blocking.join(", "), target: args.preview ? `the pkg.pr.new build of ${args.preview}` : "npm" }), setupExitCodes.error)
   }
 
-  // Second pass: write the new specifiers. An override of a package that the target does not have is removed.
   const packages: Record<string, string> = {}
   const next = (name: string, current: string, place: Place): string | null => {
     if (missing.includes(name)) return null
@@ -408,7 +377,6 @@ export async function planSetupUpdate(rootDir: string, args: Pick<SetupUpdateArg
   }
   const files: WorkspaceFile[] = []
   for (const manifest of manifests) {
-    // npm accepts an override of a direct dependency only when both use the same specifier, so the override copies it.
     const direct = new Map<string, string>()
     for (const field of dependencyFields) {
       const dependencies = manifest.value[field]
@@ -472,7 +440,6 @@ async function runUpdate(args: string[], context: ViteHubCliContext): Promise<nu
     }
     for (const file of files) await writeFile(file.path, file.after)
     if (parsed.install) {
-      // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(packageManager, installArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
         throw setupFailure(cliErrorDiagnostics.CLI_UPDATE_INSTALL_FAILED({ command: plan.install.command, exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)

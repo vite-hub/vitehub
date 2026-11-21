@@ -22,7 +22,6 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
       return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
     },
   }, {
-    // A one-time move of Chat State keys, run on the server that holds the State database.
     name: "state",
     run: async (args, context) => {
       const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-state-cli")), "agent")

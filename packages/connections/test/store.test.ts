@@ -80,7 +80,6 @@ it.each(["none", "secret", "state", "both"])("migrates legacy tables with %s alr
     const rotating = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey, key] })
     expect(rotating.rotate).toBeDefined()
     await rotating.rotate!()
-    // Simulate a database migrated by the older implementation, which retained the grant row.
     await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)
     const restarted = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey] })
     expect(await restarted.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })

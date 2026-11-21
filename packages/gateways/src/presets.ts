@@ -84,7 +84,6 @@ function present(value: unknown): boolean {
   return isRecord(value) || (typeof value === "string" && value.trim() !== "")
 }
 
-/** A resolver that reads one Server Env value and names its variables when the value is missing. */
 function requiredEnv<TPreset extends AiGatewayEnvPreset>(
   preset: TPreset,
   field: AiGatewayEnvFieldName<TPreset>,
@@ -103,10 +102,8 @@ function apiKeyFromEnv(gateway: "anthropic" | "cliproxy" | "litellm" | "openai" 
   }) as AiGatewaySecret
 }
 
-/** The model APIs of a gateway that you host. */
 type HostedRoutes = "claude-code" | "codex" | "openai-compatible"
 
-/** Base URLs for a hosted gateway. Without `url`, each invocation reads it from Server Env. */
 function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string | undefined, fallback?: string): Record<HostedRoutes, AiGatewayValue<string>> {
   if (url !== undefined || fallback !== undefined) {
     const root = origin(url ?? fallback, gateway)
@@ -123,22 +120,17 @@ function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string |
 }
 
 
-/** How a gateway answers Jev questions. Secrets resolve for each `ask()` call. */
 interface JevAskSpec {
   apiKey: AiGatewaySecret
   baseURL: (context: AiGatewayContext) => Promise<string>
   fetch?: typeof globalThis.fetch
-  /** Caller-supplied headers must resolve to non-empty values. */
   headers?: Record<string, AiGatewaySecret>
-  /** Built-in headers that may resolve to nothing, such as the token of an open gateway. */
   optionalHeaders?: Record<string, AiGatewaySecret>
-  /** The variables that hold the key, for the fix of a rejected key. Undefined when the caller passed it. */
   keyEnv?: string
   keyOption?: string
   label: string
   model: string | ((context: AiGatewayContext) => Promise<string>)
   protocol: JevRoute["protocol"]
-  /** Vercel: used only when no API key resolves. Keep the source separate from the credential value. */
   oidcToken?: AiGatewaySecret
 }
 
@@ -166,7 +158,6 @@ function jevRoute(name: string, spec: JevAskSpec): AskRouteResolver {
         if (/[\r\n]/.test(value)) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${name}" header "${header}" must not contain line breaks.` })
         headers[header] = value
       }
-      // advocaat accepts the token as apiKey; this header preserves OIDC authentication without mutating process.env.
       if (oidcToken) headers["ai-gateway-auth-method"] = "oidc"
       return {
         ...(apiKey ? { apiKey } : {}),
@@ -208,15 +199,12 @@ function unsupportedAsk(name: string): AiGatewayAsk {
   }
 }
 
-/** What a preset adds to its definition. */
 interface AiGatewayExtras {
-  /** The route that answers Jev questions. */
   route?: AskRouteResolver
   optional?: AiGatewayOptionalCredentials
   modelApis?: readonly AiGatewayCapabilities["apis"][]
   modelCredentials?: AiGatewayModelCredentialsResolver
   openAIChat?: true
-  /** The Chat Completions endpoint accepts a JSON schema. See `aiGatewayStructuredOutputs`. */
   structuredOutputs?: true
 }
 
@@ -228,7 +216,6 @@ function createAiGateway(definition: AiGatewayDefinition, { route, optional, mod
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
   if (structuredOutputs) Object.defineProperty(gateway, aiGatewayStructuredOutputs, { value: true })
-  // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
   Object.defineProperty(gateway, "ask", {
     value: route
       ? (async (state, questions, options = {}) => await askAiGateway(gateway, state, questions, options)) satisfies AiGatewayAsk
@@ -238,19 +225,15 @@ function createAiGateway(definition: AiGatewayDefinition, { route, optional, mod
   return Object.freeze(gateway)
 }
 
-/** A definition with a URL for each of `TRoutes`. */
 type AiRoutedGatewayDefinition<TRoutes extends AiGatewayRoute> = AiGatewayDefinition & { baseURL: Record<TRoutes, AiGatewayValue<string>> }
 
 function preset<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, options: AiGatewayPresetOptions | undefined): AiRoutedGatewayDefinition<TRoutes> {
   const value: AiRoutedGatewayDefinition<TRoutes> = { ...definition }
-  // A present apiKey replaces the preset variable even when it is undefined, so the invocation fails
-  // instead of using another account from the environment.
   if (options && Object.hasOwn(options, "apiKey")) value.apiKey = options.apiKey
   if (options?.headers !== undefined) value.headers = options.headers
   return value
 }
 
-/** Variables of the key, or undefined when the caller passed it. */
 function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | undefined): string | undefined {
   if (options && Object.hasOwn(options, "apiKey")) return undefined
   return [...aiGatewayVendorNames(preset, "apiKey"), ...(preset === "vercel" ? aiGatewayVendorNames(preset, "oidcToken") : [])].join(" or ")
@@ -260,8 +243,7 @@ function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | u
 export type AiModelGateway<TRoutes extends AiGatewayRoute> = AiGateway<{ ask: false, routes: TRoutes }>
 
 function modelGateway<TRoutes extends AiGatewayRoute>(definition: AiRoutedGatewayDefinition<TRoutes>, extras?: Omit<AiGatewayExtras, "route">): AiModelGateway<TRoutes> {
-  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. The baseURL has
-  // the TRoutes keys, and normalizeAiGateway keeps them.
+  // SAFETY: Without an ask route, createAiGateway attaches the diagnostic that the type rejects. The baseURL has the TRoutes keys, and normalizeAiGateway keeps them.
   return createAiGateway(definition, extras) as AiModelGateway<TRoutes>
 }
 
@@ -286,7 +268,6 @@ export function cloudflareAccess(options: CloudflareAccessOptions = {}): Record<
       throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway header "${header}" needs a value. Set ${names}, or pass cloudflareAccess({ ${field} }).` })
     }) as AiGatewaySecret
   }
-  // A present option replaces its variable even when it is undefined, so the invocation fails instead.
   return {
     "CF-Access-Client-Id": Object.hasOwn(options, "clientId") ? options.clientId : fromEnv("clientId", "CF-Access-Client-Id"),
     "CF-Access-Client-Secret": Object.hasOwn(options, "clientSecret") ? options.clientSecret : fromEnv("clientSecret", "CF-Access-Client-Secret"),
@@ -320,13 +301,11 @@ export function ollama(options: AiHostedGatewayOptions = {}): AiModelGateway<Hos
           "claude-code": root,
           "openai-compatible": async context => `${await root(context)}/v1`,
         },
-    // A local server does not check the key, but both CLIs need one to skip their own sign-in.
     // SAFETY: The environment holds a string or a sealed secret for this field, which resolveAiGatewaySecret accepts.
     apiKey: (async (context: AiGatewayContext) => await read("apiKey")(context) ?? "ollama") as AiGatewaySecret,
   }, options))
 }
 
-/** The model APIs of `emulate()`. It has no Codex URL, because the emulator rejects the tools that the Codex CLI sends. */
 type EmulateRoutes = "claude-code" | "openai-compatible"
 
 /**
@@ -347,7 +326,6 @@ export function emulate(options: EmulateGatewayOptions = {}): AiModelGateway<Emu
     baseURL: url !== undefined
       ? { "claude-code": url, "openai-compatible": `${url}/v1` }
       : { "claude-code": root, "openai-compatible": async context => `${await root(context)}/v1` },
-    // The emulator never checks the key, but the AI SDK providers need one.
     apiKey: "emulate",
   }, { structuredOutputs: true })
 }
@@ -448,9 +426,7 @@ function cloudflareRoot(options: { accountId?: string | undefined, gatewayId?: s
   return async (context: AiGatewayContext) => ({ accountId: await required(context, "accountId"), gatewayId: await required(context, "gatewayId") })
 }
 
-/** A token that may be missing, read from `options.token` or Server Env, as a `cf-aig-authorization` value. */
 function cloudflareToken(options: { token?: AiGatewaySecret }, preset: "cloudflare"): AiGatewaySecret {
-  // An open gateway has no token, so a missing one is left out instead of failing.
   const token: AiGatewaySecret = Object.hasOwn(options, "token")
     ? options.token
     // SAFETY: The environment holds a string or a sealed secret for the token.

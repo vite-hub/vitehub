@@ -1871,7 +1871,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     } finally {
       clearTimeout(timer);
       if (!signal.aborted) {
-        // A reconcile that ended, even with an error, shows the loop still turns.
         lastFinishedAt = Date.now();
         stallsInRow = 0;
         if (runningTick === tick) runningTick = undefined;

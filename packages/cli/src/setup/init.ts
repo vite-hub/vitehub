@@ -25,7 +25,6 @@ import type { SetupPackageManager, SetupProject } from "./project.ts"
 
 const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
-/** The command that starts a project. It runs from the `vite-hub` package, so it needs no install. */
 const initCommandPrefix = "pnpm dlx vite-hub init"
 
 const initHosts = ["cloudflare", "vercel", "netlify", "deno", "node"] as const satisfies readonly ViteHubHost[]
@@ -47,10 +46,8 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
 
-/** Pin the starter files and select Nuxt 5 explicitly instead of the live minimal registry entry. */
 const nuxtTemplate = "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548"
 
-/** Where the reproducing command lives in README.md. */
 const stackStart = "<!-- vitehub:stack -->"
 const stackEnd = "<!-- /vitehub:stack -->"
 
@@ -134,7 +131,6 @@ export function readInitArgs(args: readonly string[]): SetupInitArgs {
   return parsed
 }
 
-/** The `vitehub add` arguments for the features and options of `init`. */
 function addArgsOf(args: SetupInitArgs & { features: FeatureId[] }): SetupAddArgs {
   return { ...readAddArgs([...args.features, ...args.options.flatMap(option => ["--option", option])]), install: true, yes: true }
 }
@@ -143,7 +139,6 @@ interface InitCommandParts {
   dir: string
   host?: InitHost
   features?: readonly FeatureId[]
-  /** `--option` values, such as `email.driver=resend`. */
   options?: readonly string[]
   framework?: InitFramework
   pm?: SetupPackageManager
@@ -165,12 +160,10 @@ function initCommand(parts: InitCommandParts, extra: readonly string[]): string 
   ].join(" ")
 }
 
-/** The command that creates the same stack, for README.md and `vitehub status`. */
 function stackCommand(parts: InitCommandParts): string {
   return initCommand(parts, ["--yes"])
 }
 
-/** The `rerun` command: the same request with `--yes`. */
 function rerunInit(args: SetupInitArgs, parts: InitCommandParts): string {
   return initCommand(parts, [
     ...(args.install ? [] : ["--no-install"]),
@@ -183,7 +176,6 @@ function stackBlock(command: string): string {
   return `${stackStart}\nCreate the same stack with:\n\n\`\`\`sh\n${command}\n\`\`\`\n${stackEnd}\n`
 }
 
-/** README.md with the stack block, or undefined when it already holds the same block. */
 function readmeWithStack(readme: string | undefined, name: string, command: string): string {
   const block = stackBlock(command)
   if (readme === undefined) return `# ${name}\n\n${block}`
@@ -208,15 +200,12 @@ export async function readSetupStack(root: string): Promise<{ command: string } 
   return command ? { command } : null
 }
 
-/** The deployment name rules of `vitehub({ name })`, for the package.json name of a new app. */
 function packageNameOf(root: string): string {
   return basename(root).trim().toLowerCase().replace(/[^a-z0-9]+/gu, "-").replace(/^-|-$/gu, "") || "vitehub-app"
 }
 
-/** The files of a new Vite app, as `fixtures/docs-hosts/installation` has them. */
 function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
-    // `.env*` keeps stage files such as `.env.production` out of git. `.env.example` lists the names without values.
     ".gitignore": "node_modules\n.output\n.vitehub\n.env*\n!.env.example\n",
     "package.json": `${JSON.stringify({
       name,
@@ -243,7 +232,6 @@ function viteAppFiles(name: string, host: InitHost): Record<string, string> {
   }
 }
 
-/** The config that `nuxi init` and the adoption would give, to plan a new Nuxt app before `nuxi init` runs. */
 function nuxtAppFiles(name: string, host: InitHost): Record<string, string> {
   return {
     "nuxt.config.ts": `import viteHubNuxt from "vite-hub/nuxt"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { host: "${host}" }],\n  ],\n})\n`,
@@ -257,7 +245,6 @@ function packageName(spec: string): string {
 }
 
 function dlx(packageManager: SetupPackageManager, spec: string, args: readonly string[]): [string, string[]] {
-  // Yarn Classic has no dlx; keep Yarn for the scaffold's packageManager and the subsequent install.
   if (packageManager === "npm" || packageManager === "yarn") return ["npx", ["--yes", spec, ...args]]
   if (packageManager === "bun") return ["bunx", [spec, ...args]]
   return [packageManager, ["dlx", spec, ...args]]
@@ -286,11 +273,9 @@ interface InitInputs extends SetupInitArgs {
 
 interface InitPlanned {
   plan: SetupInitPlan
-  /** File writes in order: config last. `before` is undefined for a new file. */
   writes: { path: string, before?: string, after: string }[]
   install: { prod: string[], dev: string[] }
   scaffold?: [string, string[]]
-  /** The same request with `--yes`. */
   rerun: string
 }
 
@@ -309,7 +294,6 @@ function manualConfig(file: string, reason: string, host: InitHost, framework: I
   return setupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
 }
 
-/** The config of an existing app with ViteHub registered on `host`. */
 function adoptConfig(project: SetupProject, host: InitHost, framework: InitFramework): { file: string, before?: string, after: string } {
   const file = project.configFile ?? (framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts")
   const config = project.config
@@ -334,18 +318,15 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   return { after: edited.code, before, file }
 }
 
-/** Plans `vitehub init` without writing anything. Throws `SetupFailure` when the change needs input or is not possible. */
 async function planInit(args: InitInputs, root: string, state: DirState, context: ViteHubCliContext): Promise<InitPlanned> {
   const name = packageNameOf(root)
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw setupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
   if (state.kind === "adopt" && framework === "nuxt") await validateNuxtVersion(root)
-  // A new app can inherit a parent lockfile. With no package-manager evidence, init defaults to pnpm.
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
   const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
 
-  // The base files: a new app, or the existing app with ViteHub registered.
   const base = new Map<string, { before?: string, after: string }>()
   let configFile: string
   if (state.kind === "create") {
@@ -355,7 +336,6 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   }
   else {
     const status = setupStatus(state.project, context.env)
-    // Init adopts an app; migrating an enabled stack requires reviewing its providers and Definitions.
     if (state.project.config?.ok && status.host.name !== args.host && status.features.some(feature => feature.id !== "env" && feature.enabled !== "off")) {
       throw setupFailure(cliErrorDiagnostics.SETUP_INIT_HOST_MIGRATION({ host: args.host }), setupExitCodes.conflict)
     }
@@ -377,7 +357,6 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   }
   const willInstall = new Set([...install.prod, ...install.dev].map(packageName))
 
-  // The add planner reads the planned config, so a new app needs no files on disk before the plan.
   const configSource = base.get(configFile)!.after
   const planned: SetupProject = {
     config: locateViteHubConfig(configFile, configSource),
@@ -415,7 +394,6 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   for (const file of added.files) base.set(file.path, { after: file.content })
   if (added.configFile) base.set(configFile, { ...base.get(configFile), after: added.configFile.after })
 
-  // README.md and .gitignore.
   const stack = stackCommand(parts())
   const readme = state.kind === "create" ? undefined : await readOptional(join(root, "README.md"))
   base.set("README.md", { ...(readme === undefined ? {} : { before: readme }), after: readmeWithStack(readme, name, stack) })
@@ -424,9 +402,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
   }
 
-  // Config last, so the app turns ViteHub on only after the other files are written.
   const scaffolded = state.kind === "create" && framework === "nuxt"
-  // For a new Nuxt app, `nuxi init` writes these files. The plan is made again from them after it runs.
   const ordered = [...base.entries()]
     .filter(([path]) => !scaffolded || !Object.hasOwn(nuxtAppFiles(name, args.host), path))
     .sort(([left], [right]) => Number(left === configFile) - Number(right === configFile))
@@ -467,20 +443,17 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
     for (const [packages, dev] of [[planned.install.prod, false], [planned.install.dev, true]] as const) {
       if (!packages.length) continue
       const commandArgs = installArgs(plan.packageManager, packages, dev)
-      // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
         throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
       }
     }
   }
-  // An existing app installs first, like `vitehub add`. A new app needs its package.json before the install.
   if (plan.mode === "adopt") await runInstall()
   for (const write of planned.writes) {
     const file = join(plan.root, write.path)
     await mkdir(dirname(file), { recursive: true })
     if (write.before === undefined) {
-      // `wx` fails when the file appeared after the plan, so a file is never overwritten.
       try {
         await writeFile(file, write.after, { flag: "wx" })
       }
@@ -495,7 +468,6 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
   if (plan.mode === "create") await runInstall()
 }
 
-/** Runs `nuxi init` for a new Nuxt app. ViteHub then adopts the app that it created. */
 async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): Promise<void> {
   const [command, commandArgs] = planned.scaffold!
   await mkdir(dirname(planned.plan.root), { recursive: true })
@@ -506,13 +478,10 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   await validateNuxtVersion(planned.plan.root, true)
 }
 
-/** Accept nonempty ranges confined to Nuxt 5, including its prereleases and nightly aliases. */
 function supportsNuxt5(nuxt: JsonValue | undefined): boolean {
   if (typeof nuxt !== "string") return false
   const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/u, ""))
   if (!range || !minVersion(range)) return false
-  // Project Nuxt 5 prereleases onto their release so subset accepts every Nuxt 5 prerelease tuple.
-  // Other majors keep their prereleases and cannot fit within the supported range.
   const releases = new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
     typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
       ? `${operator}5.${semver.minor}.${semver.patch}`
@@ -520,7 +489,6 @@ function supportsNuxt5(nuxt: JsonValue | undefined): boolean {
   return subset(releases, ">=5.0.0 <6.0.0")
 }
 
-/** Validate both existing apps and scaffold output before planning adoption or installing packages. */
 async function validateNuxtVersion(root: string, scaffolded = false): Promise<void> {
   const manifest: JsonValue = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
@@ -545,7 +513,6 @@ async function ask(question: string): Promise<string> {
   }
 }
 
-/** Asks for missing inputs in a terminal. Without one, fails with the flag and its choices. */
 async function readInputs(args: SetupInitArgs): Promise<InitInputs> {
   if (interactive(args)) {
     const dir = args.dir ?? (await ask("Folder of the app: ") || ".")
@@ -625,11 +592,9 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
     }
     if (planned.scaffold) {
       await scaffoldNuxt(planned, context)
-      // The new app has no lockfile yet, so keep the package manager of the first plan.
       planned = await planInit({ ...args, pm: plan.packageManager }, root, await readDir(root, context.env), context)
     }
     await applyInit(planned, args.install, context, !!plan.scaffold)
-    // A new Nuxt app is planned again after `nuxi init`, as an adoption, but it is still a new app.
     const applied: SetupInitPlan = { ...planned.plan, mode: plan.mode, status: "applied", ...(plan.scaffold ? { scaffold: plan.scaffold } : {}) }
     if (args.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

@@ -443,8 +443,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     let read = await readDocsContent(manifestOptions)
     let manifest = read.manifest
     if (sources && options.base === undefined) {
-      // `sources` defaults to `/docs`. A site that moves from `dir` to `sources` without a `docs/` folder would move from
-      // `/` to `/docs` and lose its rail.
       const pages = docsManifestPages(manifest)
       const firstPage = pages[0]
       if (firstPage && !pages.some(page => isDocsPath(page.path, base))) {
@@ -465,12 +463,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       contentReadDone = undefined
     }
     const afterContentRead = (source: () => string): string | Promise<string> => contentReadDone ? contentRead.then(source) : source()
-    /**
-     * The Markdown of each Content Source page, by `<source>/<file>`. `nuxi build` empties the build folder after the
-     * modules load and generates the templates before `build:before` copies the pages again, so the module reads them here.
-     */
     let sourcePages = new Map<string, string>()
-    /** Copies the pages of each Content Source into the build, where the server reads them. */
     function writeSources(files: DocsContentSnapshot["files"]) {
       sourcePages = new Map(files.map(file => [`${file.source}/${file.file}`, file.markdown]))
       rmSync(sourcesDir, { force: true, recursive: true })

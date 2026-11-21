@@ -1,5 +1,3 @@
-// Shared by the Node snapshot builder and the browser, so this file imports nothing.
-
 /** The file in `node_modules` that lists what a snapshot cannot hold. */
 export const snapshotLinksFile = ".vitehub-snapshot-links.json"
 
@@ -66,7 +64,6 @@ export const restoreLinksScript = [
   `  if (!local(file) || typeof target !== "string" || path.isAbsolute(target) || !inside(path.resolve(root, path.dirname(file), target))) { skipped.push(file); continue }`,
   `  try { fs.symlinkSync(target, file); restored.push([file, target]) } catch (error) { if (error.code !== "EEXIST") throw error }`,
   `}`,
-  // Resolve one component at a time: normalizing `alias/..` before following the alias can hide an escape.
   `for (const [file, target] of restored) {`,
   `  if (!localTarget(file, target)) { fs.unlinkSync(file); skipped.push(file) }`,
   `}`,

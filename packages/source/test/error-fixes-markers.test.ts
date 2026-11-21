@@ -7,7 +7,6 @@ import { createCollectionCursorCodec } from "../src/core/collection-cursor.ts"
 import { sourceErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { parseGitHubArchive } from "../src/sources/github/archive.ts"
 
-/** A tar archive with one file header whose size field is `size`. */
 function archive(size: string): Uint8Array {
   const header = Buffer.alloc(512)
   header.write("repo/README.md", 0, "utf8")

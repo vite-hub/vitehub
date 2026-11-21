@@ -19,12 +19,10 @@ import { encodeSyncStep1, encodeSyncUpdate } from "../src/internal/server.ts"
 
 const messageSync = 0
 
-/** Lets queued promise continuations run without advancing fake timers. */
 export async function settle(rounds = 50): Promise<void> {
   for (let index = 0; index < rounds; index++) await Promise.resolve()
 }
 
-/** Plain-paragraph schema with an async codec: Markdown paragraphs separated by blank lines. */
 export function createStubEditor() {
   const calls = { fromMarkdown: 0, toMarkdown: 0 }
   const editor = defineRealtimeEditor({
@@ -57,7 +55,6 @@ interface StoredDocument {
   fields?: Record<string, RealtimeFieldValue>
 }
 
-/** In-memory document adapter with compare-and-set saves. */
 export function createMemoryAdapter(initial: Record<string, Omit<StoredDocument, "digest">> = {}, options: {
   issues?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => RealtimeIssue[]
   normalize?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => { body: string, fields?: Record<string, RealtimeFieldValue> }
@@ -104,7 +101,6 @@ type Hooks = {
 
 export interface TestClient {
   awareness: Uint8Array[]
-  /** The `requestRealtimeRoom()` frames this client received. */
   requests: RealtimeRequestFrame[]
   close(): void
   closed?: { code: number, reason: string }
@@ -114,7 +110,6 @@ export interface TestClient {
   response: Response
 }
 
-/** Drives the Realtime handler through its WebSocket hooks the way y-websocket clients do. */
 export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql, handler?: RealtimeHandlerOptions } = {}) {
   const handler = createRealtimeHandler(registryOf(definition) as never, options.handler)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
@@ -147,7 +142,6 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       peer: undefined as never,
       response,
     }
-    // crossws calls `upgrade` first; a Response refuses the socket with its status.
     const refusal = await response.crossws?.upgrade?.(new Request("https://example.com", { headers: { upgrade: "websocket" } }))
     if (!response.crossws || refusal instanceof Response) {
       client.closed = { code: refusal instanceof Response ? refusal.status : response.status, reason: "rejected" }
@@ -250,13 +244,10 @@ export function paragraphs(doc: Y.Doc): string[] {
   return doc.getXmlFragment("body").toArray().map(node => (node as Y.XmlElement).toArray().map(child => (child as Y.XmlText).toString()).join(""))
 }
 
-/** A carrier with the shape and receiver brand of workerd's native SqlStorage, which Cloudflare storage requires since #2410. */
 export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   function SqlStorage() {}
   const sql = Object.create(null) as Record<string, unknown>
   const prototype = {
-    // Use a native constructor in the carrier shape. The production detector
-    // treats the constructor as part of the platform object contract.
     constructor: SqlStorage,
     exec,
     get databaseSize() {
@@ -277,7 +268,6 @@ export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) =
   return sql
 }
 
-/** Minimal Durable Object SQLite surface for the statements the Realtime room issues. */
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
   updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update?: number }> = []
@@ -289,7 +279,6 @@ export class FakeSql {
     this.intermediateJournal = options.intermediateJournal ?? false
   }
 
-  /** The native SqlStorage carrier of this database, the `storage.sql` that a Durable Object request carries. */
   get carrier(): Record<string, unknown> {
     this.nativeCarrier ??= nativeSqlCarrier(this.exec)
     return this.nativeCarrier
@@ -347,18 +336,12 @@ export class FakeSql {
 }
 
 export interface MemoryBus extends RealtimeBus {
-  /** Leaves the network without the goodbye that `close()` sends, as a process that crashed. */
   crash(): void
   published: RealtimeBusMessage[]
 }
 
-/**
- * Buses of several instances in one process, with one shared room store. Messages arrive asynchronously and in order,
- * and never at the sender, as with Postgres and Redis.
- */
 export function createMemoryBusNetwork() {
   const records = new Map<string, RealtimeRoomRecord>()
-  /** Every record write, in order. */
   const writes: Array<{ room: string, epoch: string, digest: string | null }> = []
   const locks = new Map<string, Promise<void>>()
   const members = new Map<string, (message: RealtimeBusMessage) => void>()
@@ -433,7 +416,6 @@ export function createMemoryBusNetwork() {
   return { bus, records, writes }
 }
 
-/** One y-websocket style awareness for a test client, which sends its own state changes to the server. */
 export function createClientAwareness(client: TestClient) {
   const awareness = new awarenessProtocol.Awareness(client.doc)
   const hooks = (client.response as Response & { crossws: Hooks }).crossws
@@ -449,7 +431,6 @@ export function createClientAwareness(client: TestClient) {
   }
 }
 
-/** The presence that a test client sees: every awareness update it received, applied in order. */
 export function presence(client: TestClient): Map<number, Record<string, unknown>> {
   const awareness = new awarenessProtocol.Awareness(new Y.Doc())
   awareness.setLocalState(null)

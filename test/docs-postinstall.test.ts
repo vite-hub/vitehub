@@ -12,7 +12,6 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, { force: true, recursive: true })))
 })
 
-/** A PATH with `vp` and `nuxi` scripts that log their call and exit with the given codes. */
 async function fakeTools(exitCodes: { nuxi: number, vp: number }): Promise<{ calls: () => Promise<string[]>, path: string }> {
   const directory = await mkdtemp(join(tmpdir(), "vitehub-docs-postinstall-"))
   temporaryDirectories.push(directory)
@@ -56,7 +55,6 @@ describe("docs postinstall", () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stderr).toContain("failed (exit code 1)")
     expect(result.stderr).toContain("corepack pnpm --dir docs run postinstall")
-    // nuxi prepare needs the built packages, so it does not run after a failed build.
     expect(await tools.calls()).toEqual(["vp"])
   })
 

@@ -69,7 +69,6 @@ describe("checkServiceToken()", () => {
   it("reads an H3 event", () => {
     vi.stubEnv("INGEST_TOKEN", "runner-token-2026")
     const event = { context: {}, req: request("Bearer runner-token-2026"), res: { headers: new Headers() } }
-    // An H3 event before Nitro installs Standard Context, typed without `~standard`.
     expect(checkServiceToken(event, "INGEST_TOKEN")[0]).toBeUndefined()
   })
 })

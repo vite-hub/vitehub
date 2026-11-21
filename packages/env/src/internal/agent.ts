@@ -9,7 +9,6 @@ export function agentEnvAccess(agent: unknown, attribution: EnvAttribution = {})
   if (name === undefined) throw envBridgeError("untrusted");
   return grantEnvAccess(
     { actor: { kind: "agent", id: name }, traceId: attribution.traceId, invocationId: attribution.invocationId },
-    // The Agent runtime registered the parents with the identity. They never come from caller values.
     { kind: "agent", parents: readAgentEnvParents(agent) },
   );
 }

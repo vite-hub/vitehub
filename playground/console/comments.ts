@@ -1,11 +1,6 @@
 import type { CommentThread, CommentUser } from "../../packages/comments/src/operations-core/types.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
-/**
- * Synthetic comment threads for the Comments page. They answer the `comments.*` operations in memory, as the operations
- * of `@vite-hub/comments` do for a signed-in person who may read and write everything. A restart resets them.
- */
-
 const people: CommentUser[] = [
   { id: "user_maxi", name: "Maxi" },
   { id: "user_ana", name: "Ana Ruiz" },
@@ -89,7 +84,6 @@ function save(next: CommentThread): ConsoleRpcResult {
   return ok(next)
 }
 
-/** Answers one `comments.*` operation, or `undefined` for another operation. */
 export function callCommentsFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   if (!operation.startsWith("comments.")) return undefined
   const now = Date.now()

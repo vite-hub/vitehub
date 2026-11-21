@@ -4,11 +4,10 @@ import type { QueueDriver } from "./types.ts"
 
 export type QueueProviderOperation = "create-client" | "send" | "send-batch"
 
-// Keep published codes stable. Each code has a heading on the docs page.
 export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/queue/diagnostics",
   codes: {
-    // Runtime errors. `send()`, `sendBatch()`, and `sendQueue()` return them as `[error, undefined]`.
+    // Runtime errors.
     QUEUE_PROVIDER_FAILED: {
       why: ({ operation, provider }: { operation: QueueProviderOperation, provider: QueueDriver }) => `The ${provider} queue provider failed during ${operation}.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again. Pass `idempotencyKey` on Vercel so that a retry does not enqueue the job two times.",
@@ -26,7 +25,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
           : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
-    // Provider cause errors. They are the `cause` of `QUEUE_PROVIDER_FAILED`, as the provider error is in production.
+    // Provider cause errors.
     QUEUE_LOCAL_LIMIT_EXCEEDED: {
       why: ({ limit, max, min, provider, value }: { limit: "batch-bytes" | "batch-empty" | "batch-jobs" | "delay" | "delay-max" | "payload" | "retention", max?: number, min?: number, provider: string, value: number | string }) => ({
         "batch-bytes": `${provider} accepts up to ${max} bytes in one \`sendBatch()\`, got ${value} bytes of JSON.`,
@@ -48,7 +47,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Install `@vercel/queue` 0.10 or later, for example with `pnpm add @vercel/queue@latest`. Or pass a `client` that has `sendBatch()`.",
     },
 
-    // Operation errors. The `queue.*` operations of the CLI, the Console, and Agents throw them. The Queue operations give each code an HTTP status.
+    // Operation errors.
     QUEUE_DEFINITION_NAME_INVALID: {
       why: "The queue name is not a valid Queue Definition name.",
       fix: "Pass the name of a Queue Definition. `vitehub queue list` shows them.",
@@ -70,7 +69,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Wait for the attempt to end, then run `vitehub queue jobs get` for its state.",
     },
 
-    // Config errors. An operation throws them when it starts, because the code or the deployment must change.
+    // Config errors.
     QUEUE_BINDING_NOT_FOUND: {
       why: ({ binding }: { binding?: string }) => binding
         ? `The Cloudflare queue binding "${binding}" is not in the Worker env.`
@@ -140,7 +139,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Add `@vercel/queue` and `@vercel/functions` to the app dependencies. Read `error.cause` for the import error.",
     },
 
-    // Definition and build errors. ViteHub throws them when Vite reads the config or builds the app.
+    // Definition and build errors.
     QUEUE_BINDING_CONFLICT: {
       why: "A custom `queue.binding` works with one Queue Definition only, and this app has more.",
       fix: "Remove `queue.binding`, so that each Queue Definition gets its own generated binding.",

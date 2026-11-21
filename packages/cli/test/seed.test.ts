@@ -19,7 +19,6 @@ function stream() {
   return { output: () => value, write: (chunk: string | Uint8Array) => (value += String(chunk), true) }
 }
 
-/** A seed that records its options and returns `code`, or `undefined` like a primitive without seed files. */
 function seed(name: string, code: number | undefined, calls: Array<[string, ViteHubCliSeedOptions]>): ViteHubCliSeed {
   return { files: `server/seed/${name}/`, name, run: vi.fn(async (options) => {
     calls.push([name, options])
@@ -81,7 +80,6 @@ describe("vitehub seed", () => {
     expect(all.exitCode).toBe(1)
     expect(all.stderr).toBe("[vitehub] Nothing to seed. Add seed files:\n  database  server/seed/database/\n  kv        server/seed/kv/\n")
 
-    // A named primitive must have seed files, even when another one seeds data.
     const named = await run(["seed", "kv"], [seed("database", 0, calls), seed("kv", undefined, calls)])
     expect(named.exitCode).toBe(1)
     expect(named.stderr).toContain("  kv        server/seed/kv/")

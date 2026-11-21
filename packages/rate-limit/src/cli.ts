@@ -171,7 +171,6 @@ function parseInspection(operation: RateLimitCommand["name"], value: unknown): R
   return parsed.success ? { operation, value: parsed.output } : undefined
 }
 
-/** Writes a failure like the other primitive CLIs, but redacts the message, since it can echo a limited key. */
 function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: ViteHubCliFailure): number {
   return writeCliFailure(parsed.json, context, { ...failure, message: redactInspectionText(failure.message) })
 }
@@ -197,7 +196,6 @@ async function runRateLimitCommand(
     writeUsage(command, context.stdout)
     return 0
   }
-  // A reset deletes the counter, which lets a limited client through again.
   if (command.name === "reset" && !parsed.yes) {
     const question = `Reset the Rate Limit ${parsed.name} for key ${redactInspectionText(parsed.key!)}? The next request starts a new window. [y/N] `
     const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
@@ -217,7 +215,6 @@ async function runRateLimitCommand(
   if (!result) return writeFailure(parsed, context, { message: "The rate-limit operation answered with an invalid result." })
   const output = result.operation === "peek" ? formatPeek(result.value) : formatReset(result.value)
   context.stdout.write(parsed.json ? `${JSON.stringify(result.value, null, 2)}\n` : output)
-  // A counter that the provider cannot read or reset is a command failure, so scripts can check the exit code.
   return result.value.status === "unsupported" || result.value.status === "unavailable" ? 1 : 0
 }
 

@@ -14,13 +14,10 @@ export interface DropFieldSlots {
 export const DropField = defineComponent({
   name: "DropField",
   props: {
-    /** The file types of the file picker, as the `accept` attribute of an input. */
     accept: { default: undefined, type: String },
     multiple: { default: false, type: Boolean },
     disabled: { default: false, type: Boolean },
-    /** The text of the field. */
     label: { default: "Drop files to upload", type: String },
-    /** The second line, such as the size limit. */
     description: { default: "or click to browse", type: String },
   },
   emits: {
@@ -32,7 +29,6 @@ export const DropField = defineComponent({
     const root = ref<HTMLElement>();
     const over = ref(false);
     let field: DropFieldController | undefined;
-    // The helper marks the field with `data-over`, and the default text follows it.
     const watcher = typeof MutationObserver === "function" ? new MutationObserver(() => (over.value = root.value?.dataset.over !== undefined)) : undefined;
     onMounted(() => {
       if (!root.value) return;

@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Finds the public API that a branch removes and searches your consumer projects for it.
-// Run it before you open a pull request that removes an export, a subpath, a config key, a flag or an env var.
-//
-//   node scripts/consumer-check.mjs                         compare HEAD with origin/main
-//   node scripts/consumer-check.mjs --base <ref> --head <ref>
-//   node scripts/consumer-check.mjs --name <text> ...       also search text the diff cannot find:
-//                                                           config keys, CLI flags (--name=--flag), env vars, codes
-//
-// It reads commits, not uncommitted changes. The surfaces are the `package.json` export subpaths of public packages
-// that the branch removes (with the `vite-hub/<pkg>/<sub>` facade form) and the names that their entry files stop
-// exporting. A removed default export searches its module specifier. Each consumer root is searched with `rg`
-// (or `git grep --no-index` when rg is missing) and, when it is
-// a Git checkout, with `git grep` on its default branch as last fetched.
-//
-// The list of consumer projects stays on your machine. Give it in VITEHUB_CONSUMER_ROOTS (paths separated by ":"),
-// in a file named by VITEHUB_CONSUMER_ROOTS_FILE, or in ~/.config/vitehub/consumer-roots (one path per line, # for comments).
-//
-// Exit status: 0 no use, 1 a project uses a removed surface, 2 setup error or incomplete search.
 import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -80,8 +62,6 @@ function readRootsFile(path) {
   return readFileSync(path, "utf8").split(/\r?\n/).filter(line => !line.trim().startsWith("#"))
 }
 
-// The surface: what the branch removes from public packages.
-
 function listFiles(repo, ref) {
   return new Set(git(repo, ["ls-tree", "-r", "--name-only", ref, "--", "packages"]).split("\n").filter(Boolean))
 }
@@ -97,7 +77,6 @@ function importTarget(value) {
   return importTarget(value.import) ?? importTarget(value.default)
 }
 
-// `./dist/<path>.js` is built from `src/<path>.ts` or `src/<path>/index.ts` in every ViteHub package.
 function exportEntries(manifest, directory, files) {
   const entries = new Map()
   for (const [subpath, value] of Object.entries(manifest.exports ?? {})) {
@@ -161,7 +140,6 @@ function moduleExports(repo, ref, path, cache) {
   return exports
 }
 
-// Follows `export * from "./relative"` inside the package. A star export of another package is that package's surface.
 function entryNames(repo, ref, entry, files, cache) {
   const names = new Set()
   const seen = new Set()
@@ -231,11 +209,8 @@ function removedSurfaces(repo, base, head) {
   return { add, surfaces }
 }
 
-// The search: every consumer root, working tree and default branch.
-
 const wordCharacter = /[\w$]/
 
-// A fixed-string hit counts only when it is not part of a longer identifier or package specifier.
 function matchIndex(line, surface) {
   const { kind, text } = surface
   for (let index = line.indexOf(text); index !== -1; index = line.indexOf(text, index + 1)) {
@@ -261,7 +236,6 @@ const excludedPathspecs = [
   ...lockfiles.map(name => `:(exclude,glob)**/${name}`),
 ]
 
-// rg prints `file\0line:text`; git grep -z prints `file\0line\0text`.
 function parseGrep(output, prefix = "") {
   return output.split("\n").filter(Boolean).flatMap((record) => {
     const match = /^([^\0]*)\0(\d+)[:\0](.*)$/s.exec(record)
@@ -280,12 +254,10 @@ function searchOutput(result, command, root) {
 }
 
 function searchRoot(root, texts) {
-  // Hidden source and config count; exclude only known generated directories and nested worktree folders.
   const rg = run("rg", [
     "--hidden", "--no-heading", "--with-filename", "--line-number", "--null", "--fixed-strings",
     ...[...ignoredDirectories, ...lockfiles].flatMap(name => ["--glob", `!${name}`]),
     ...texts.map(text => `--regexp=${text}`),
-    // With no path, rg searches stdin when stdin is not a terminal.
     ".",
   ], root)
   const lines = rg.error?.code === "ENOENT"

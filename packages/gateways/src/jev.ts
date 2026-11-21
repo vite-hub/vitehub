@@ -69,7 +69,6 @@ export function cloudflareJevBaseURL(gateway: { accountId: string, gatewayId: st
 }
 
 function toEntry(value: unknown): AdvocaatEntry {
-  // Normalize each entry root to the SDK contract, preserving scalars inside JSON structures.
   const serialized = JSON.stringify(value)
   const parsed: AskEntry = serialized === undefined ? null : JSON.parse(serialized)
   return typeof parsed === "number" || typeof parsed === "boolean" ? String(parsed) : parsed
@@ -124,17 +123,12 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
-/** The SDK question for one Jev request: `if` asks a yes/no question and `switch` asks a choice. */
 function toJevQuestion(question: AdvocaatQuestion): JevQuestion {
   if (question.type === "if") return { instructions: question.instructions, type: "noul" }
   if (question.type === "switch") return { criteria: question.criteria, instructions: question.instructions, type: "choice" }
   return question
 }
 
-/**
- * Sends one batch through the SDK client, which also returns the model and the token usage,
- * and maps the answers as `advocaat.ask()` does.
- */
 async function requestJev(
   advocaat: Advocaat,
   state: AdvocaatEntry,
@@ -143,7 +137,6 @@ async function requestJev(
 ): Promise<JevResponse> {
   const { apiKey, baseURL, fetch, headers, protocol, signal } = options
   const wire: JevQuestions = Object.fromEntries(Object.entries(batch).map(([name, question]) => [name, toJevQuestion(question)]))
-  // A Cloudflare AI Gateway custom provider forwards the TypeSafe protocol, so it uses the TypeSafe client at its URL.
   const client = { ...(apiKey ? { apiKey } : {}), ...(baseURL ? { baseURL } : {}), ...(fetch ? { fetch } : {}), ...(options.model ? { model: options.model } : {}), provider: protocol }
   const result = await advocaat.typesafe(client).systemOne({ questions: wire, state }, { ...(headers ? { headers } : {}), signal })
   const answers: Record<string, unknown> = Object.create(null)
@@ -153,7 +146,6 @@ async function requestJev(
     else if (answer.type === "score") answers[name] = question?.type === "score" ? { ...answer, ratio: answer.score / (question.criteria.length - 1) } : answer
     else answers[name] = question?.type === "switch" ? answer.choice : answer
   }
-  // The TypeSafe API returns its response body as is, so read model and usage defensively.
   const model: unknown = result.model
   const usage: unknown = result.usage
   return {
@@ -170,7 +162,6 @@ const jevAttempts = 3
 
 function errorStatus(error: unknown): number | undefined {
   if (!isObject(error)) return undefined
-  // Advocaat exposes provider HTTP failures as `statusCode`; older adapters use `status`.
   const status = Number.isInteger(error.statusCode) ? Number(error.statusCode) : error.status
   return Number.isInteger(status) ? Number(status) : undefined
 }
@@ -194,11 +185,6 @@ function waitForRetry(attempt: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
-/**
- * Sends one batch and retries transient provider failures. Jev questions do not change state, so a retry is safe.
- * A rejected key fails at once with GATEWAYS_R0008. A provider that keeps failing ends with GATEWAYS_R0009.
- * Both keep the provider error as `cause` and expose `status`, `providerStatus`, and `requestId`.
- */
 async function requestJevWithRetry(
   advocaat: Advocaat,
   state: AdvocaatEntry,
@@ -217,10 +203,6 @@ async function requestJevWithRetry(
       if (status === 401 || status === 403) {
         return [Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, providerStatus: status, status: 503 } as const), undefined]
       }
-      // A failed fetch is surfaced as a TypeError without a status. Response
-      // decoding and validation can also throw TypeError, but those are
-      // deterministic failures and must not be retried. Fetch implementations
-      // attach the underlying transport error as `cause`.
       const transient = status === undefined
         ? error instanceof TypeError && isObject(error) && "cause" in error
         : retryableJevStatuses.has(status)
@@ -233,7 +215,6 @@ async function requestJevWithRetry(
   }
 }
 
-/** The usage record of one Jev request, or undefined when the response has no token counts. */
 function jevUsageRecord(provider: string, response: JevResponse): AiGatewayUsage | undefined {
   const inputTokens = response.usage?.inputTokens
   const outputTokens = response.usage?.outputTokens
@@ -249,7 +230,6 @@ function jevUsageRecord(provider: string, response: JevResponse): AiGatewayUsage
   }
 }
 
-/** The value a person reads first: the selected label, the score, the chance, or the boolean. */
 function jevAnswerValue(answer: unknown): unknown {
   if (!isObject(answer)) return answer
   if (answer.type === "choice") return answer.choice
@@ -258,10 +238,6 @@ function jevAnswerValue(answer: unknown): unknown {
   return undefined
 }
 
-/**
- * Records each question of one Jev request as `agent.tool.start`, then `agent.tool.finish` or `agent.tool.error`,
- * and the token usage of the request as `agent.usage.recorded`. Without an observer, nothing is recorded.
- */
 async function observeJevBatch(
   observe: JevRequestContext["observe"],
   options: { model?: string, provider: string },
@@ -276,9 +252,7 @@ async function observeJevBatch(
     try {
       await observe?.(event)
     }
-    catch {
-      // An observer must not change the answers.
-    }
+    catch {}
   }
   const batchAttributes = {
     "ask.batch.count": position.count,
@@ -392,7 +366,6 @@ function toAdvocaatQuestion(name: string, question: AskQuestion): AdvocaatQuesti
   throw invalidQuestion(name)
 }
 
-/** UTF-8 serialized bytes provide a conservative token bound, with room for request framing. */
 function jevInputSize(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength
 }

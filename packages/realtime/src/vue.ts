@@ -46,7 +46,6 @@ export type { RealtimeCaretOptions, RealtimeCaretUser } from "./caret.ts"
 
 export type RealtimeStatus = "connected" | "connecting" | "disconnected"
 
-/** The error for a code that the server put in `data.code` of a refused request, so the app can tell the reasons apart. */
 function serverRequestError(code: string | undefined, action: RealtimeRequestAction) {
   switch (code) {
     case realtimeInvalidDocumentCode: return realtimeErrorDiagnostics.REALTIME_INVALID_DOCUMENT({ action })
@@ -127,7 +126,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     : undefined
   const identity = () => options.identity === undefined ? sessionUser?.value : toValue(options.identity)
   const createExtensions = () => options.editor ? options.editor.extensions() : createRealtimeEditorExtensions({ collaborative: true })
-  // Each document gets its own caret extension, bound to that document's awareness.
   const createCarets = (awareness: Awareness): AnyExtension[] => {
     if (options.carets === false) return []
     const { render, selectionRender } = typeof options.carets === "object" ? options.carets : {}
@@ -260,15 +258,12 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       const control = decodeRealtimeControlPayload(decoder as decoding.Decoder)
       if (!control) return
       if (control.type === "session") {
-        // Reconnects present this seed; the server resets the client if the room was re-seeded meanwhile.
         nextProvider.params.epoch = control.epoch
         readOnlyReason.value = control.access === "read" ? control.reason ?? "access" : null
         return
       }
       reset(id, control.reason, control.epoch)
     }
-    // y-websocket sends every awareness change it sees, other clients' too. The server lets each connection change only
-    // the clients it owns and closes it otherwise, so send this client's own state only.
     nextProvider.awareness.off("update", nextProvider._awarenessUpdateHandler)
     nextProvider.awareness.on("update", ({ added, removed, updated }: { added: number[], removed: number[], updated: number[] }) => {
       const own = [...added, ...updated, ...removed].filter(client => client === nextDocument.clientID)
@@ -384,10 +379,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     return accepts(data) ? [undefined, data] : [realtimeErrorDiagnostics.REALTIME_INVALID_RESPONSE({ action }), undefined]
   }
 
-  /**
-   * Saves the room through its document adapter now, including every edit this client has sent.
-   * Returns `[error, saved]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
-   */
   async function save(): Promise<RealtimeRequestResult<RealtimeSaved>> {
     if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "save" }), undefined]
     saveRequests.value++
@@ -399,10 +390,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     }
   }
 
-  /**
-   * Saves the room and records a durable history entry through the document adapter.
-   * Returns `[error, checkpoint]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
-   */
   async function checkpoint(): Promise<RealtimeRequestResult<RealtimeCheckpoint>> {
     if (!enabled()) return [realtimeErrorDiagnostics.REALTIME_DISABLED({ action: "checkpoint" }), undefined]
     checkpointRequests.value++
@@ -414,10 +401,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     }
   }
 
-  /**
-   * Asks the room to compare its seed with the stored document. A changed source resets every client.
-   * Returns `[error, result]`; `error.code` is a `RealtimeRequestErrorCode`; `REALTIME_REQUEST_FAILED` has the HTTP status in `error.data.status`.
-   */
   async function refresh(): Promise<RealtimeRequestResult<{ digest: string | null, reseeded: boolean }>> {
     return await requestResult("refresh", isRefreshResult)
   }
@@ -427,7 +410,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     if (!active || !id || typeof window === "undefined") return
     connect(id)
   }, { immediate: true })
-  // Prepare editor extensions in setup, but keep the first render disconnected.
   if (!canConnect) onMounted(() => {
     canConnect = true
     const current = provider.value
@@ -468,7 +450,6 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     fields: computed(() => document.value?.getMap<unknown>(realtimeDocumentLayout.fields)),
     people,
     provider,
-    /** The server rejects edits from this connection. `readOnlyReason` tells why; `saveStatus` holds the details. */
     readOnly: computed(() => readOnlyReason.value !== null),
     readOnlyReason,
     refresh,

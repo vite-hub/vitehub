@@ -6,8 +6,6 @@ export { forceReducedMotion, onReducedMotionChange, prefersReducedMotion } from 
 export { createSpring, getMotionSlowFactor, setMotionSlowFactor, springs } from "./motion/spring.ts";
 export type { Spring, SpringFrame, SpringPreset, SpringTarget } from "./motion/spring.ts";
 export type { MotionContentChange } from "./motion/registry.ts";
-// The helpers for what only a component knows: a label, an icon, or a count that changes, a finished action, a list
-// that changes, work that runs, a file drop, and a delete that can be undone.
 export { morphText } from "./motion/helpers/text.ts";
 export { swapIcon } from "./motion/helpers/icon.ts";
 export type { IconEnter, IconExit, SwapIconOptions } from "./motion/helpers/icon.ts";

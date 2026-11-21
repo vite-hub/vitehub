@@ -1,14 +1,8 @@
-// The device storage in IndexedDB, with no dependency. One database holds the copies of one account: `meta` has one
-// record with the account, the version, and the generation, and `entries` has one record for each key. Each change is
-// one transaction, and a write checks the generation inside its transaction.
 import type { DeviceChannel, DeviceMessage, DeviceMeta, DeviceStorage, StoredEntry } from "./storage.ts"
 
 const databaseName = "vitehub-device"
-// The version of the database format. A database of another format starts empty.
 const format = 3
 const metaKey = "device"
-// The entries by age, with their size and their end of life: `[storedAt, bytes, expiresAt]`. The trim of each write reads
-// it without the values.
 const ageIndex = "age"
 const channelName = "vitehub-device"
 
@@ -35,7 +29,6 @@ export function openIndexedDB(): Promise<DeviceStorage> {
     }
     request.onsuccess = () => {
       const database = request.result
-      // A newer format in another tab must not wait for this tab to close.
       database.onversionchange = () => database.close()
       resolve(indexedDBStorage(database))
     }
@@ -43,10 +36,6 @@ export function openIndexedDB(): Promise<DeviceStorage> {
   })
 }
 
-/**
- * Deletes the entries that expired at `now`, then the oldest entries of every tab until the entries hold at most
- * `maxBytes`. Runs inside the write, so it picks from what the disk holds, not from what a tab remembers.
- */
 function trim(entries: IDBObjectStore, maxBytes: number, now: number): void {
   const rows: { key: IDBValidKey, bytes: number }[] = []
   let total = 0

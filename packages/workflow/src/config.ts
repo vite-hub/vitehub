@@ -144,7 +144,6 @@ function inferDriver(options: Record<string, unknown>, hosting: string, inline: 
   if (host === "vercel") return "vercel"
   if (hosting.includes("node") || hosting.includes("docker")) return "openworkflow"
   if (hasOpenWorkflowStorageConfig(options)) return "openworkflow"
-  // Without a host target, or when inline runs are allowed, the Vercel adapter runs each Workflow inline.
   if (!hosting || inline) return "vercel"
   throw workflowErrorDiagnostics.WORKFLOW_C0020({
     message: `\`workflow.driver\` cannot be inferred for ${JSON.stringify(hosting)} hosting. ViteHub infers Vercel Workflow only on Vercel. For durable runs, set \`workflow: { driver: "openworkflow", sqlite: { path: ".vitehub/data/workflow.sqlite" } }\`, or \`postgres: { url }\` instead of \`sqlite\`, and call \`startOpenWorkflowWorker()\` from \`@vite-hub/workflow/openworkflow\` in a long-lived process.`,
@@ -158,7 +157,6 @@ function resolveDriver(options: Record<string, unknown>, hosting: string, inline
   }
   const driver = options.driver
 
-  // Without `driver`, Workflow picks the host's driver, so the former `provider` key would be ignored silently.
   if (driver === undefined && Object.hasOwn(options, "provider")) {
     throw workflowErrorDiagnostics.WORKFLOW_RENAMED_PROVIDER_KEY({ value: JSON.stringify(options.provider) ?? String(options.provider) })
   }

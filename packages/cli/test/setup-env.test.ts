@@ -18,10 +18,8 @@ type Host = "cloudflare" | "vercel" | "netlify" | "deno"
 type DiffJson = EnvDiffOutput & { error?: SetupError, rerun?: string }
 type PushJson = EnvPushOutput & { error?: SetupError, rerun?: string }
 
-/** A value that must never leave the CLI except on the stdin of a host CLI or in a host API body. */
 const canary = "canary-7f3a9c1e5b2d"
 
-/** Names as `deployment.json` lists them: a primitive name, a Server Env secret with an alias, an optional value, and a prefix. */
 const envEntries = [
   { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["vite-hub"] },
   { path: "env.server.github.token", names: ["VITEHUB_GITHUB_TOKEN", "GITHUB_TOKEN"], required: true, secret: true, hasDefault: false },
@@ -38,7 +36,6 @@ const links = {
   vercel: { account: { id: "team_1" }, project: { id: "prj_1", name: "my-app" }, verified: true, linkedAt: "2026-11-15T00:00:00.000Z" },
 }
 
-/** The build output that the env commands read. A Cloudflare build also writes the Wrangler config with its plain vars. */
 function manifest(host: Host, env: readonly object[] = envEntries): Record<string, string> {
   return {
     [`${outputDirs[host]}/deployment.json`]: JSON.stringify({ env, host, identity: { name: "my-app", source: "package" } }),
@@ -51,7 +48,6 @@ function manifest(host: Host, env: readonly object[] = envEntries): Record<strin
   }
 }
 
-/** A built, linked project. `hosts` are the link targets, the first is the default. */
 async function linkedProject(hosts: readonly Host[], files: Record<string, string> = {}): Promise<string> {
   return await createProject({
     "package.json": JSON.stringify({ name: "my-app", packageManager: "pnpm@10.0.0", scripts: { build: "vite build" }, type: "module" }),
@@ -62,12 +58,10 @@ async function linkedProject(hosts: readonly Host[], files: Record<string, strin
   })
 }
 
-/** Seeds the fake hosts with variables, as if an earlier push or the dashboard set them. */
 async function seed(hosts: FakeHosts, state: object): Promise<void> {
   await writeFile(hosts.env.FAKE_HOST_STATE!, JSON.stringify({ deploys: 0, secrets: {}, ...state }))
 }
 
-/** The Netlify environment variables API, writing into the fake CLI state so `netlify env:list` sees the values. */
 function netlifyApi(hosts: FakeHosts): { fetch: typeof fetch, requests: { method: string, url: string, body?: unknown }[] } {
   const requests: { method: string, url: string, body?: unknown }[] = []
   const fakeFetch: typeof fetch = async (input, init) => {
@@ -115,7 +109,6 @@ const hostEnv: Record<Host, NodeJS.ProcessEnv> = {
 }
 const tokens = ["cf-token-1", "deno-token-1", "netlify-token-1", "vercel-token-1"]
 
-/** Host state with VITEHUB_SECRET and an unknown name set for the production target. */
 const seeded: Record<Host, object> = {
   cloudflare: { secrets: { OLD_TOKEN: "x", VITEHUB_SECRET: "x" } },
   deno: { denoApp: true, secrets: { OLD_TOKEN: "x", VITEHUB_SECRET: "x" } },
@@ -147,7 +140,6 @@ describe("vitehub env diff", () => {
       stage: "production",
       target: "production",
     })
-    // Only a read: one listing, no write.
     expect((await hosts.calls()).map(call => call.argv.slice(0, 3).join(" "))).toEqual([{
       cloudflare: "secret list --format",
       deno: "deploy env list",
@@ -393,7 +385,6 @@ describe("vitehub env push", () => {
     expect(await hosts.calls()).toEqual([])
     expect(result.stdout + result.stderr).not.toContain(canary)
 
-    // A plain value from a tracked file and a secret from the shell go through.
     git("add", "-f", ".env")
     const plain = await envCommand<PushJson>(["push", "--yes", "--only", "SENTRY_DSN"], root, hosts.env)
     expect(plain.json.pushed).toEqual([{ name: "SENTRY_DSN", replaced: false, secret: false, source: ".env" }])
@@ -402,7 +393,6 @@ describe("vitehub env push", () => {
   })
 
   describe("encrypted values", () => {
-    // `dotenvx encrypt -f .env.production` (dotenvx 2.38.2) wrote this file and the key below. The key is for tests only.
     const encryptedProduction = `#/-------------------[DOTENV_PUBLIC_KEY]--------------------/
 #/            public-key encryption for .env files          /
 #/       [how it works](https://dotenvx.com/encryption)     /
@@ -468,7 +458,6 @@ SENTRY_DSN=encrypted:BDVAnrfFrkI2lE2NgsxhgRJjKYVTuZ2NR70tJSQ2H95SbqxVLUXNFD3oFwh
         const alias = values.get(name)!
         expect({ name, encrypted: alias.encrypted, source: alias.source, value: alias.value }).toEqual({ name, encrypted: true, source: ".env.production", value: values.get("SHARED_TOKEN")!.value })
         expect(alias.encrypted).toBe(true)
-        // Decrypt only the alias, just as --only does: SHARED_TOKEN is not selected.
         const decrypted = await decryptEnvValues(root, [{ file: alias.source, name, value: alias.value }], env)
         expect(decrypted.values.get(name)).toBe(value)
       }
@@ -682,7 +671,6 @@ describe("vitehub env push value sources", () => {
     expect(result.json.pushed).toEqual([{ name: "VITEHUB_SECRET", replaced: false, secret: true, source: "config/.env.production" }])
     expect(await hosts.state()).toMatchObject({ secrets: { VITEHUB_SECRET: canary } })
 
-    // The tracked-file check follows envDir too.
     const git = gitIn(root)
     git("init", "-q")
     git("add", "-f", "config/.env.production")

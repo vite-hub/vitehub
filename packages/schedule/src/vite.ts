@@ -65,7 +65,6 @@ const generatedNitroScheduleModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroNetlifyEntry = ".vitehub/nitro/schedule/netlify-entry.mjs"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
-// The Nitro dev handler imports the registry in Nitro's own environment graph, so invalidate it there too.
 function invalidateScheduleRegistry(server: ViteDevServer): void {
   const registry = server.moduleGraph.getModuleById(RESOLVED_SCHEDULE_REGISTRY_ID)
   if (registry) server.moduleGraph.invalidateModule(registry)
@@ -111,19 +110,14 @@ export interface ScheduleNitroConfigOptions extends ScheduleOptions {
 }
 
 interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions {
-  /** Contributions that the Vite plugin already collected, so factories run once per config pass. */
   contributions?: readonly CollectedScheduleContribution[]
-  /** The module that exports `useLeases()`, when the app has the Database plugin. The Process Runtime claims occurrences there. */
   leaseDatabaseImport?: string
   memoryProcessStores?: boolean
-  /** Set in Vite's `config` hook, where plugins added later can still contribute the Schedule that `cron` names. */
   preliminary?: boolean
-  /** The resolved Vite config, which receives the build hints. */
   hints?: ViteHubHintsConfig
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleOptions {
-  /** The module that exports `useLeases()`. Defaults to `@vite-hub/database`. */
   databaseImport?: string
   importBase?: string
   requireKVPluginForProcessStores?: boolean
@@ -216,10 +210,6 @@ function hasVitePlugin(plugins: readonly unknown[] | undefined, name: string): b
   return (plugins ?? []).some(plugin => Array.isArray(plugin) ? hasVitePlugin(plugin, name) : isRecord(plugin) && plugin.name === name)
 }
 
-/**
- * Checks the build's `cron` map. `definitions` is the final Schedule set, or `undefined` while plugins can still
- * contribute Schedules. The Process Runtime owns Static Schedule wakes unless `providerOutput` is `nitro` or `standalone`.
- */
 function resolveCronOverrides(
   value: unknown,
   definitions: DiscoveredScheduleDefinition[] | undefined,
@@ -345,14 +335,11 @@ interface RenderNitroSchedulePluginOptions {
   hostTimings: Record<string, { cron: string, timeZone?: string }>
   inventoryRegistryFile?: string
   timeZoneCrons: ScheduleTimeZoneCrons
-  /** The module that exports the app's `databases`. The Process Runtime claims occurrences in its Default Database. */
   leaseDatabaseImport?: string
   memoryProcessStores?: boolean
   pluginFile: string
-  /** Set when a Definition has no `cron`: the registry of those Definitions, for `startSchedule()` and the tick. */
   startedRegistryFile?: string
   processRuntime?: ScheduleProcessRuntimeOptions
-  /** The static cron and time zone of each Process Runtime Schedule, so the runtime loads its module when it is due. */
   processTimings?: Record<string, { cron: string, timeZone?: string }>
   providerDefinitions: DiscoveredScheduleDefinition[]
   providerRegistryFile: string
@@ -360,7 +347,6 @@ interface RenderNitroSchedulePluginOptions {
   runtimeImport?: string
 }
 
-// Generated code imports these Schedule runtime modules by path, so they need no package export.
 const scheduleRuntimeModule = ownModule(import.meta.url, "runtime")
 const scheduleKVRuntimeModule = ownModule(import.meta.url, "runtime/kv")
 const scheduleProcessRuntimeModule = ownModule(import.meta.url, "runtime/process")
@@ -470,7 +456,6 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
           "  }",
           ...(leaseDatabaseImport
             ? [
-                // Every server of the app claims each occurrence in the Default Database, so one server runs it.
                 "  let leases",
                 "  try {",
                 "    leases = useLeases()",
@@ -512,7 +497,6 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
 
 interface NitroNetlifySchedule {
   cron: string
-  /** `true` when `cron` is the UTC cron of a Schedule with a `timeZone`. */
   inTimeZone?: boolean
   name: string
 }
@@ -527,10 +511,6 @@ interface RenderNitroScheduleModuleOptions {
   }
 }
 
-/**
- * On Cloudflare, adds the cron triggers. On Netlify, Nitro has no cron, so each Schedule gets a scheduled function
- * that runs it in Nitro's own server bundle: the plugins, aliases, and bindings of the app are the same as for requests.
- */
 function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): string {
   const { netlify } = options
   let netlifyFunctionNames = new Map<string, string>()
@@ -540,7 +520,6 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   }
   catch (error) {
     if (!scheduleErrorDiagnostics.SCHEDULE_R0006.is(error)) throw error
-    // The names are known now, but only Nitro's resolved Netlify preset may reject them.
     netlifyNameError = { ...error, code: error.code, message: error.message, name: error.name }
   }
   const netlifySchedules = netlify.schedules.map(schedule => ({ ...schedule, functionName: netlifyFunctionNames.get(schedule.name) }))
@@ -662,8 +641,6 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   const startedRegistryFile = options.startableDefinitions.length ? resolve(root, generatedNitroStartedRegistry) : undefined
   const inventoryRegistryFile = options.inventoryDefinitions.length ? resolve(root, generatedNitroInventoryRegistry) : undefined
-  // A CLI command that loads the project renders the same files while the dev server watches them. A rewrite of the
-  // same bytes would reload the dev server's Nitro worker, which can read the file while it is empty.
   const writes: Array<Promise<void>> = [
     writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
@@ -726,15 +703,10 @@ function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinitio
   return definitions.filter(isServerScheduleDefinition)
 }
 
-/** The Schedules that Nitro runs on the host's cron, such as a Cloudflare cron trigger. The Process Runtime runs its own. */
 function selectHostCronDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition[] {
   return resolveProcessRuntimeOptions(options.runtime) && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
 }
 
-/**
- * Lists the Cloudflare cron trigger of each Schedule that the build writes: Nitro's Wrangler config gets the Schedules
- * that Nitro runs, and the standalone Schedule Worker gets the others. Reads local files only.
- */
 async function inspectScheduleResources(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, output: { nitro: boolean, standalone: DiscoveredScheduleDefinition[] }): Promise<ViteHubResourceSummary[]> {
   const overrides = resolveCronOverrides(options.cron, definitions, options)
   const nitro = await readDefinitionCrons(output.nitro ? selectHostCronDefinitions(definitions, options) : [], overrides)
@@ -821,7 +793,6 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const nitroDefinitions = selectHostCronDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
   const timeZoneCrons = options.command === "build" ? readTimeZoneCrons(nitroDefinitions, cronOverrides) : {}
-  // Cloudflare triggers name each weekday, because Cloudflare numbers weekdays 1-7 from Sunday.
   const triggerCrons = Object.fromEntries([...nitroCrons].map(([name, cron]) => [name, cronWithWeekdayNames(cron)]))
   const crons = [...new Set(Object.values(triggerCrons))]
   const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, ...(Object.hasOwn(timeZoneCrons, name) ? { inTimeZone: true } : {}), name }))
@@ -830,8 +801,6 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     !nitroDefinitionNames.has(definition.name)
     && !(processRuntime && options.providerOutput === "standalone")
   )
-  // A build reads each static cron from source, so the server starts without importing the Schedule modules and what
-  // they import. `vite dev` loads them at startup, so an edited cron applies without a new plugin file.
   const processTimings = processRuntime && options.command === "build"
     ? Object.fromEntries(staticDefinitions.flatMap((definition) => {
         const timing = readStaticScheduleTiming(definition.handler)
@@ -958,7 +927,6 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       const roots = resolveSchedulePluginRoots(config.root, options)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
-      // The resolved list includes plugins that other plugins add after the `config` hook.
       contributions = await collectPluginScheduleContributions(config.plugins, roots)
       const definitions = discoverRegistrySchedules()
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
@@ -1059,7 +1027,6 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
-        // Only provider functions bundle with these aliases, and resolving every owner package export costs time.
         const bundles = definitions.length > 0 || Boolean(workflow)
         const contributedAliases = bundles
           ? await collectViteHubProviderImportAliases((config.plugins ?? []) as Array<Plugin & ViteHubProviderImportContributor>)
@@ -1104,7 +1071,6 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
               crons,
               rootDir,
               retainedSourcesDir: resolve(contributionArtifactDir, "sources"),
-              // Nitro resolves the preset of the server it builds. Without Nitro, the Vite config or the environment names the host.
               host: resolveHost({ nitro: nitroPreset ? { preset: nitroPreset } : (config as ResolvedConfig & { nitro?: unknown }).nitro }),
               runtimeImport: internalOptions.runtimeImport,
               signal,
@@ -1141,22 +1107,18 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
 
   // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
   const inspectable = plugin as ScheduleVitePlugin
-  // Nitro installs this module, which tells the plugin whether Nitro builds a server environment and for which preset.
   inspectable.nitro = {
     name: SCHEDULE_VITE_PLUGIN_NAME,
     setup(nitro: { options: { preset?: string, static?: boolean } }) {
-      // Nitro's prerenderer installs the modules again, with its own `nitro-prerender` preset, before the server build.
       if (nitro.options.preset !== "nitro-prerender") nitroPreset = nitro.options.preset
       providerOutputEnvironment.nitro.setup(nitro)
     },
   }
   inspectable.api = { deploymentEnv: context => scheduleDeploymentEnv(discoverRegistrySchedules().length, context) }
   inspectable.vitehub = {
-    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron.
     durability: () => options.runtime?.driver === "process"
       ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url), primitive: "schedule" }]
       : [],
-    // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: ownModule(import.meta.url, "operations") }],
     inspect: () => ({
       definitions: [{
@@ -1172,7 +1134,6 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           ? resolveHost({ nitro: { preset: nitroPreset } })
           : (resolved && getDeploymentHost(resolved)) ?? resolveHost({ nitro: Reflect.get(resolved ?? {}, "nitro") })
         const definitions = discoverRegistrySchedules()
-        // The standalone output resolves its host like the build does, and it writes Cloudflare output when no host is known.
         const standaloneHost = resolveHost({ nitro: nitroPreset ? { preset: nitroPreset } : Reflect.get(resolved ?? {}, "nitro") })
         const standalone = emitStandaloneProviderOutput && (standaloneHost === undefined || standaloneHost === "cloudflare")
           ? definitions.filter(definition => !standaloneProviderSource || definition.source === standaloneProviderSource)

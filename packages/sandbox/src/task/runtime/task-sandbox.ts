@@ -36,7 +36,6 @@ export function createTaskSandbox(
     id: session.id,
     files: session.files,
     provider,
-    // A local session sees the host file system, so its run files stay inside the session directory.
     tempDir: provider === 'local' ? `${session.cwd}/tmp` : '/tmp',
     closesAfterRun,
     async close() {

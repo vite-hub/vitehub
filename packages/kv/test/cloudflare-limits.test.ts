@@ -53,7 +53,6 @@ describe("Cloudflare KV limits", () => {
     })
     expect(puts).toEqual([])
 
-    // Two bytes per character in UTF-8, so 257 characters are 514 bytes.
     const [multibyteError] = await kv.set("é".repeat(257), "value")
     expect(multibyteError?.code).toBe("KV_KEY_TOO_LONG")
 

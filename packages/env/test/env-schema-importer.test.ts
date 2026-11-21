@@ -55,7 +55,6 @@ describe("envSchema()", () => {
     const error = capture(() => contract(source));
     expect(error).toMatchObject({
       code: "ENV_DECLARATION_INVALID",
-      // The ENV_B0006 diagnostic of the parser stays as the cause, so its code and fix stay visible.
       cause: { message: expect.stringMatching(diagnostic), cause: { code: "ENV_B0006" } },
     });
     expect(String(error.cause)).not.toContain("private-schema-marker");

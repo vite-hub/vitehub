@@ -134,10 +134,8 @@ import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { ChannelAdapter, ChannelDefinition, ChannelEvent, ChannelHandler, WebhookChannelAdapter } from "@vite-hub/channels"
-// The answers need no Agent, so `vite-hub/channels` exports them. Agent code reads the same ones.
 import { ignored } from "@vite-hub/channels"
 export { ignored, rejected, retryLater } from "@vite-hub/channels"
-// `vite-hub/channels/adapters` re-exports this entry, so it holds every adapter, also the ones of `@vite-hub/channels`.
 export { stripe, webhook } from "@vite-hub/channels/adapters"
 export type { StripeAdapterOptions, StripeEvent } from "@vite-hub/channels/adapters"
 
@@ -3727,7 +3725,6 @@ function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, inpu
   return input?.prompt ? { ...command, body: input.prompt } : command
 }
 
-/** What server code passes to `sendChannelTrigger()` for a GitHub pull request trigger. */
 interface GitHubPullRequestTriggerSend {
   pullRequest: { repository: string, number: number }
   id?: string
@@ -3755,7 +3752,6 @@ function githubPullRequestTriggerSend(trigger: string, value: unknown): GitHubPu
   }
 }
 
-/** Reads a pull request from the GitHub API with the Channel's App token. */
 async function readGitHubPullRequest<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: AgentCallbackContext<TRuntimeConfig>,
@@ -3771,7 +3767,6 @@ async function readGitHubPullRequest<TRuntimeConfig extends AgentRuntimeConfig>(
   return { pullRequest: isRecord(read.raw) ? read.raw : {}, access }
 }
 
-/** The webhook payload shape of a pull request read, so the run context and the trigger event read it as from a delivery. */
 function githubPullRequestServerPayload(command: GitHubPullRequestCommand, pullRequest: Record<string, unknown>): GitHubIssueCommentPayload {
   return {
     issue: {
@@ -3816,14 +3811,8 @@ function githubPullRequestServerEvent(command: GitHubPullRequestCommand, pullReq
   }
 }
 
-/** Input context key of the time a server send entered the queue, in milliseconds since the epoch. */
 const githubServerSendAcceptedAtKey = "githubServerSendAcceptedAt"
 
-/**
- * The Channel definition of a `githubPullRequestTrigger()`. Webhook deliveries reach it through the Channel's `webhook`
- * trigger. Server code reaches it with `sendChannelTrigger()`: `invoke` admits the send to the pull request's queue
- * slot, and `prepare` runs the trigger's `invoke` when the slot is free, as for a queued delivery.
- */
 function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   name: string,
   trigger: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
@@ -3840,8 +3829,6 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
       const { number } = send.pullRequest
       const { pullRequest, access } = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
       if (pullRequest.state === "closed") return closed()
-      // Webhook deliveries name the repository as GitHub spells it. The send uses the same spelling, so both share
-      // the pull request's queue slot and branch events.
       const base = isRecord(pullRequest.base) && isRecord(pullRequest.base.repo) ? pullRequest.base.repo : undefined
       const repository = maybeString(base?.full_name) ?? send.pullRequest.repository
       const appOptions = app ? githubAppOptions(app) : undefined
@@ -3866,7 +3853,6 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
       }
       const pullRequestContext = githubPullRequestRunContext(command, {
         ...options,
-        // Webhook runs on this pull request use its page as the thread.
         threadId: options.threadId || maybeString(pullRequest.html_url) || command.pullRequestUrl,
       }, githubPullRequestServerPayload(command, pullRequest))
       const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
@@ -3877,10 +3863,8 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
         }
       }
       return {
-        // Branch events after `acceptedAt` stop or annotate the run, as for a queued webhook delivery.
         input: { context: { github: command, pullRequest: pullRequestContext, [githubServerSendAcceptedAtKey]: Date.now() } },
         run,
-        // The same slot as a webhook delivery on this pull request, so runs on one pull request do not overlap.
         webhook: {
           concurrencyGroup: `${repository}#${number}`,
           concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
@@ -3893,8 +3877,6 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
       const stored = githubPullRequestRunContextFromUnknown(accepted.input.context?.pullRequest)
       if (!command || !stored) throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID({ trigger: name })
       const pullRequestKey = `${command.repository}#${command.issueNumber}`
-      // A close webhook, or a push with `headMoves: 'cancel'`, aborts the run through this signal, as for a queued
-      // webhook delivery. The webhook queue releases it when the delivery ends.
       let abortSignal: AbortSignal | undefined
       if (options.reconcile && context.channelState) {
         const { agentInvocationId } = await import("./invocations.ts")
@@ -3933,14 +3915,12 @@ function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfi
           ...triggerInput,
           ...commandInput,
           ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
-          // The queue adds its own abort signal to the run.
           ...(abortSignal ? { abortSignal } : {}),
           context: {
             ...accepted.input.context,
             ...triggerInput.context,
             github: command,
             pullRequest: refreshed,
-            // The queue does not store finish effects with a delivery, so the prepared input adds them again.
             ...(finishEffects ? { [channelDeliveryFinishEffectsContextKey]: [finishEffects] } : {}),
           },
         }
@@ -4583,7 +4563,6 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const handlers: Record<string, ChannelHandler> = {}
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
-    // `defineChannelTrigger()` from `vite-hub/channels` does not check the webhook option names, so they are checked here.
     if (typeof target !== "function") assertWebhookRegistrationNames(`${adapter.kind}.${name}`, (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks)
     if (typeof target === "function") handlers[name] = target as ChannelHandler
     else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {

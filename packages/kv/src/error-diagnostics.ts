@@ -12,11 +12,10 @@ const cursorProblems = {
 
 export type KVCursorProblem = keyof typeof cursorProblems
 
-// Keep published codes stable. The docs build generates a page for each code.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
-    // Runtime errors. KV operations return them as `[error, undefined]`.
+    // Runtime errors.
     KV_INVALID_CLEAR_OPTIONS: {
       why: "`kv.clear()` needs an options object with an optional string `prefix`, or no argument. It rejects a legacy string argument before deleting any keys.",
       fix: "Use `kv.clear({ prefix: 'drafts:' })` to clear the keys below `drafts`, or `kv.clear()` to clear the whole store.",
@@ -72,7 +71,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
           : "Use the `redis`, `database`, or `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
     },
 
-    // Operation errors. The `kv.*` operations of the CLI, the Console, and Agents throw them. `runKVOperation()` gives each code an HTTP status.
+    // Operation errors.
     KV_INVALID_INPUT: {
       why: ({ limit, operation, problem }: { limit?: number, operation?: string, problem: "key" | "key-length" | "limit" | "prefix-length" | "ttl" | "value" }) => ({
         "key": `The ${operation} operation requires a key.`,
@@ -93,7 +92,7 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value in the app with `kv.get()`. The `kv.get` operation shows JSON values, bigint values, and bytes, without getters, symbols, or class instances.",
     },
 
-    // Config errors. KV throws them because the code or the deployment must change.
+    // Config errors.
     KV_DATABASE_UNAVAILABLE: {
       why: ({ database, problem }: { database: string, problem: "missing" | "unsupported" }) => problem === "missing"
         ? `The KV \`database\` driver keeps keys in the Database "${database}", and the app has no Database with that name.`
@@ -193,7 +192,6 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Run `vitehub provision run --host cloudflare --dry-run` and check the Cloudflare token permissions.",
     },
 
-    // Build hints. A build prints them and writes them to `.vitehub/hints.json`.
     KV_REDIS_URL_UNUSED: {
       why: ({ name, store }: { name: string, store: string }) => store === "upstash"
         ? `KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own.`

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest"
 import { defineRealtime } from "../src/definition.ts"
 import type { RealtimeDefinition } from "../src/types.ts"
 
-// Reads a definition as plain data, like a JavaScript file that has no types.
 function untyped(value: object): RealtimeDefinition {
   return value as RealtimeDefinition
 }
@@ -24,7 +23,6 @@ describe("defineRealtime() access", () => {
     expect(() => defineRealtime(untyped({ access: "public", authorize: true, document: false }))).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_ACCESS" }))
     expect(() => defineRealtime(untyped({ access: "public", authorize: () => true, document: false }))).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_ACCESS" }))
     expect(() => defineRealtime(untyped({ authorize: false, document: false }))).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_ACCESS" }))
-    // The Auth session is a cookie, so another origin must not use it.
     expect(() => defineRealtime(untyped({ authorize: true, document: false, origins: () => true }))).toThrow(expect.objectContaining({ code: "REALTIME_INVALID_ACCESS" }))
     expect(defineRealtime({ authorize: true, document: false, identify: () => null, origins: () => true })).toMatchObject({ authorize: true })
   })

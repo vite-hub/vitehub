@@ -16,7 +16,6 @@ async function postThread(options: DefineCommentsOptions, log?: object) {
     headers: { "content-type": "application/json", origin },
     body: JSON.stringify({ page: "/pricing", anchor, body: "The price is wrong" }),
   })
-  // evlog's Nitro plugin gives each request its logger here.
   if (log) Object.assign(request, { context: { log } })
   const response = await handler.fetch(request)
   await comments.flush()
@@ -50,7 +49,6 @@ describe("Comments failures in logs", () => {
     setEvlogBridge({ createLogger: (fields, options) => { events.push(fields); if (options?.waitUntil) kept.push(options.waitUntil); return { info() {}, warn() {}, error: error => events.push(error), emit: () => fields } } })
     const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
     const comments = await createComments({ onMention: () => { throw new Error("push to grace@acme.dev failed") } })
-    // Grace must have written before, so that `@Grace` names a known person.
     await comments.create({ page: "/", anchor, body: "Hello", author: grace })
 
     const [error, thread] = await comments.create({ page: "/", anchor, body: "Hi @Grace", author: ada, mentions: ["grace"] })

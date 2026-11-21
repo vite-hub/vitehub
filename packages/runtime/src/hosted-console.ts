@@ -21,7 +21,6 @@ export function normalizeConsolePath(path: string): string | undefined {
   catch {
     return undefined
   }
-  // The URL parser drops tabs and newlines, so `/\t/example.com` becomes a protocol-relative URL here.
   if (url.origin !== pathBase) return undefined
   const pathname = url.pathname.replace(/^\/_vitehub(?=\/|$)/, "") || "/"
   if (pathname.startsWith("//")) return undefined

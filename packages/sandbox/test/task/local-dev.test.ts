@@ -34,7 +34,6 @@ async function createApp() {
   return root
 }
 
-// A real `vite dev` server of an app with one Sandbox Task, and no Cloudflare binding or Vercel credentials.
 async function startDevApp(config: AgentSandboxTaskConfig) {
   const root = await createApp()
   const server = await createServer({
@@ -45,7 +44,6 @@ async function startDevApp(config: AgentSandboxTaskConfig) {
     server: { middlewareMode: true, ws: false },
   })
   const runner = createServerModuleRunner(server.environments.ssr, { hmr: false })
-  // Nitro and `vite-hub` alias `@vite-hub/sandbox/task` to this generated dev facade. Plain Vite has no server alias.
   const task: typeof import("../../src/task/index.ts") = await runner.import(join(root, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"))
   return {
     task,

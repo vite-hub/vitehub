@@ -28,7 +28,6 @@ import { playgroundCommentsSection, playgroundConsoleContributions, playgroundWe
 // SAFETY: console.fixture.json holds Agent Invocation records in the shape that the journal store creates.
 const fixture = fixtureDocument as { invocations: AgentInvocationStoreCreateInput[] }
 const invocationAgents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
-// `meal-logger` stands for a retired Agent. Its sessions stay in invocation history, but the application no longer registers it.
 const agents = invocationAgents.filter(agent => agent !== "meal-logger")
 const store = createMemoryAgentInvocationStore()
 for (const record of fixture.invocations) store.create(record)
@@ -161,7 +160,6 @@ const definitions = {
     },
   ],
 } as const
-// Synthetic Email outbox. The real outbox driver captures the messages and the real Console reader maps them.
 let emailOutbox: Promise<void> | undefined
 
 async function captureEmailOutbox(): Promise<void> {
@@ -324,7 +322,6 @@ function summary(record: Awaited<ReturnType<typeof invocations.get>>): Record<st
   return value
 }
 
-/** Requests per Rate Limit counter, so the page has something to peek at and reset. */
 const rateLimitUsed = new Map<string, number>([["api-search:192.0.2.1", 42], ["invite:ada@example.test", 5]])
 
 function storeName(value: string | null): keyof typeof kvStores | undefined {
@@ -403,11 +400,6 @@ function databaseInspection(url: URL): Record<string, unknown> {
   }
 }
 
-/**
- * Fails chosen Console routes, so a contributor can see each error state. Set the `playground-fail` cookie to
- * `<route>=<status>` pairs, such as `agents=401,invocations=401` or `sections=503`. A route matches the path after
- * `/_vitehub/api/`, so `agents` also fails `agents/<name>/invocations`.
- */
 function playgroundFailure(request: IncomingMessage, path: string): number | undefined {
   const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-fail="))
   if (!cookie) return undefined
@@ -419,10 +411,6 @@ function playgroundFailure(request: IncomingMessage, path: string): number | und
   return undefined
 }
 
-/**
- * Keeps only some sections, so a contributor can see the Console of a smaller app, such as the "Add a primitive" list.
- * Set the `playground-sections` cookie to section ids, such as `comments,databases`.
- */
 function playgroundSections(request: IncomingMessage): readonly string[] {
   const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-sections="))
   if (!cookie) return sections
@@ -450,7 +438,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
 
   if (path === "/_vitehub/api/env" || path === "/_vitehub/api/env-inspect") {
-    // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
     const envEntries: Array<{ path?: string, names?: string[], source: string, provider?: string, secret: boolean, required: boolean, hasDefault: boolean, type?: string }> = [
       { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
@@ -475,18 +462,15 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       { source: "literal", secret: false, required: false, hasDefault: false },
       { source: "literal", secret: false, required: false, hasDefault: false },
     ]
-    // Env declarations read the canonical name first, then the name without the prefix, as `describeServerEnv()` lists them.
     const hostName = (path: string) => path.replace(/^env\.server\./, "").split(".").map(part => part.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()).join("_")
     const described = envEntries.map(entry => entry.source === "env" && entry.path ? { ...entry, names: [`VITEHUB_${hostName(entry.path)}`, hostName(entry.path)] } : entry)
     if (path === "/_vitehub/api/env") {
       json(response, { entries: described })
       return true
     }
-    // `env.inspect` answers like the Env operation: two required values are missing and the vault fails once.
     const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
     const entries = described.map((entry) => {
       const status = missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available"
-      // A value from the host comes from one of its names: the short name for most, the canonical one for a few.
       const name = status === "available" ? entry.names?.[entry.path === "env.server.executor.url" ? 0 : 1] : undefined
       return {
         blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
@@ -509,7 +493,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
   if (path === "/_vitehub/api/sections") {
-    // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
     json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection, playgroundWebhooksSection, servedSkillsConsoleSection], projectName: manifest.name, sections: playgroundSections(request) })
     return true
   }
@@ -525,7 +508,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     }
     else if (filePath !== null) {
       const content = files[filePath]
-      // The RPC bridge shows a failed body as its message, so failures answer with text, as the real handler words them.
       const failure = content === undefined ? [404, "This file is not bundled with this Agent."] as const : content.includes("\0") ? [415, "Binary files cannot be previewed as text."] as const : undefined
       if (failure) {
         response.statusCode = failure[0]
@@ -542,7 +524,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     json(response, {
       agents,
       invocationAgents,
-      // Every Agent accepts a new chat from the Console composer. The profiles are synthetic Invoker Profiles.
       invocation: Object.fromEntries(agents.map(agent => [agent, { profiles: agent === "product-reviewer"
         ? [{ id: "reviewer", label: "Reviewer" }, { id: "maintainer", label: "Maintainer" }]
         : [{ id: "default" }] }])),
@@ -587,7 +568,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
         json(response, { error: "Images must total at most 10 MiB." }, 413)
         return true
       }
-      // Synthetic sessions retain data URLs without writing to a Blob provider.
       images.push({ type: "image", url: file.url, name: file.filename.slice(0, 255), mediaType: match[1]!, size: bytes.length })
     }
     if (!prompt && !images.length) {
@@ -783,7 +763,6 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       return true
     }
     if (section === "databases") {
-      // Console search reads the Database catalog, like the real definitions route.
       json(response, {
         definitions: [{
           fields: [

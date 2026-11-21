@@ -13,7 +13,6 @@ export async function runCmsRoles(args: readonly string[], streams: ViteHubCliSt
     streams.stderr.write(`Unknown argument ${JSON.stringify(unknown)}. Usage: ${rolesUsage}\n`)
     return 1
   }
-  // Better Auth loads only for this command, so other commands of an app without Auth do not need it.
   const { cmsRoles } = await import("./access.ts")
   const roles = Object.entries(cmsRoles).map(([name, role]) => ({
     name,

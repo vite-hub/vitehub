@@ -37,7 +37,6 @@ afterEach(async () => {
 describe("root app secret", () => {
   it("generates and keeps a development secret when none is configured", async () => {
     vi.stubEnv("VITEHUB_SECRET", "")
-    // Nuxt's app secret is not a ViteHub root secret.
     vi.stubEnv("NUXT_APP_SECRET", "nuxt-root-secret-at-least-32-characters")
     vi.stubEnv("VITEHUB_SECRET_GENERATED", "")
     const root = await runConfig("serve")

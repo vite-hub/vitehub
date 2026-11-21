@@ -9,7 +9,6 @@ import type { TestClient } from "./harness.ts"
 
 const pages: RealtimePresenceDefinition = { access: "public", document: false, requests: true }
 
-/** The browser's answer to its last request, sent through the room's WebSocket hooks. */
 function answer(client: TestClient, value: { ok: true, body: unknown } | { ok: false, why: string }, peer: object = client.peer) {
   const request = client.requests.at(-1)
   if (!request) throw new Error("The client got no request.")
@@ -106,7 +105,6 @@ describe("requestRealtimeRoom()", () => {
     const server = createTestServer(pages, { durable: sql })
     const page = await server.connect("page-1")
     await settle()
-    // The Worker's binding: each request reaches the handler inside the Durable Object.
     const durableObjects = {
       idFromName: (name: string) => name,
       get: () => ({
@@ -134,7 +132,6 @@ describe("requestRealtimeRoom()", () => {
     await settle()
     const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0 })
     await settle()
-    // crossws restores the peer with a bare GET of its first URL and asks the app for hooks again.
     const restored = await server.handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page-1")) as Response & { crossws?: { message(peer: object, message: { uint8Array(): Uint8Array }): void } }
     const request = page.requests.at(-1)!
     restored.crossws!.message(page.peer, { uint8Array: () => encodeRealtimeRequestFrame({ kind: "answer", id: request.id, ok: true, body: "after hibernation" }) })
@@ -153,7 +150,6 @@ describe("requestRealtimeRoom()", () => {
 })
 
 describe("a Definition with scope: \"user\"", () => {
-  // `identify` stands in for the Auth session: the test names the person in a header.
   const perPerson: RealtimePresenceDefinition = {
     access: "public",
     document: false,
@@ -170,7 +166,6 @@ describe("a Definition with scope: \"user\"", () => {
     const ada = await server.connect("page-1", { headers: { "x-person": "ada" } })
     const grace = await server.connect("page-1", { headers: { "x-person": "grace" } })
     await settle()
-    // Two people in the same room id are not a crowd: each is alone in their own room.
     const pending = requestRealtimeRoom("docs", "page-1", { method: "snapshot" }, { wait: 0, user: "ada" })
     await settle()
     expect(ada.requests).toHaveLength(1)
@@ -178,7 +173,6 @@ describe("a Definition with scope: \"user\"", () => {
     answer(ada, { ok: true, body: "ada's page" })
     await expect(pending).resolves.toEqual([undefined, "ada's page"])
 
-    // Grace cannot answer for Ada's room, and a request for her room reaches only her.
     const forged = requestRealtimeRoom("docs", "page-1", {}, { wait: 0, timeout: 200, user: "ada" })
     await settle()
     answer(ada, { ok: true, body: "late" }, grace.peer)
@@ -212,7 +206,6 @@ describe("a Definition with scope: \"user\"", () => {
   it("keeps a room id from naming another person's scope", async () => {
     const server = createTestServer(perPerson)
     const ada = await server.connect("page-1", { headers: { "x-person": "ada" } })
-    // An anonymous visitor asks for a room whose id looks like Ada's scope.
     const visitor = await server.connect(encodeURIComponent("user:ada") + "/page-1")
     await settle()
     const pending = requestRealtimeRoom("docs", "page-1", {}, { wait: 0, user: "ada" })

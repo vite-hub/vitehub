@@ -59,7 +59,6 @@ describe("@vite-hub/source/drizzle", () => {
 
     expect(page.items.map(meal => meal.id)).toEqual(["c", "b"])
     expect(page.nextCursor).toEqual(expect.any(String))
-    // The Collection asks for one more row than the page size to detect the next page.
     expect(db.limits).toEqual([3])
   })
 
@@ -99,7 +98,6 @@ describe("@vite-hub/source/drizzle", () => {
     }
 
     it("does not give a table Collection without authorize a route", () => {
-      // A users table with password hashes was served to anyone at /api/users.
       // @ts-expect-error A routed Collection must set authorize.
       expect(() => defineCollectionHandler(defineCollection({ source: usersSource() })))
         .toThrow(expect.objectContaining({ code: "SOURCE_COLLECTION_ACCESS_REQUIRED" }))

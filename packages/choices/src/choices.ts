@@ -24,7 +24,6 @@ import type {
 
 const defaultLimits: ChoicesLimits = { groups: 40, options: 100, text: 300, totalOptions: 100 }
 const defaultThresholds = { option: 0.5, supported: 0.6 }
-/** The label of "no option" in a single group. Option labels cannot use it. */
 const noneLabel = "(none)"
 
 const includeCriteria = "Choose include when the text names this option or clearly refers to it by a common abbreviation, code, partial name, spelling error, synonym, prefix, or suffix. Match the closest specific option. Partial text alone is not permission to include neighboring options. Match each requested option independently."
@@ -52,7 +51,6 @@ function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | 
   return choicesDiagnostics[code]({ message: `[vitehub] ${message}` })
 }
 
-/** Exposes trusted gateway diagnostics while keeping unknown failures in `cause`. */
 function gatewayFailed(cause: unknown): ChoicesError {
   const diagnostic = getPublicAiGatewayDiagnostic(cause)
   return choicesDiagnostics.DECISIONS_R0005({ cause, fix: diagnostic?.fix, reason: diagnostic?.message.replace(/^\[vitehub\]\s*/, "") })
@@ -62,7 +60,6 @@ function probability(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
-/** Checks the definition and returns what answers the questions: the gateway, or the model through `askWithModel()`. */
 function checkDefinition(definition: ChoicesDefinition<ChoiceGroups>, limits: ChoicesLimits, thresholds: Required<NonNullable<ChoicesDefinition<ChoiceGroups>["thresholds"]>>): { ask: AiGatewayAsk } {
   const { gateway, model } = definition
   if ((gateway === undefined) === (model === undefined)) define("defineChoices() needs one of gateway or model: a gateway with ask(), such as vercel() from vite-hub/gateways, or an AI SDK model.")
@@ -127,7 +124,6 @@ function describe(option: ChoiceOption): string {
   return option.aliases?.length ? `${option.label} (also ${option.aliases.map(alias => JSON.stringify(alias)).join(", ")})` : option.label
 }
 
-/** What the model reads about one option of a single group: its description and its aliases. */
 function optionCriteria(option: ChoiceOption): string | null {
   const parts = [option.description?.trim(), option.aliases?.length ? `Also called ${option.aliases.join(", ")}.` : undefined].filter(Boolean)
   return parts.length ? parts.join(" ") : null
@@ -160,12 +156,10 @@ function singleInstructions(group: LoadedGroup, hints: string): string {
   ].filter(Boolean).join(" ")
 }
 
-/** The supported check covers the groups that do not infer. It is not asked when every group infers. */
 function needsSupported(groups: readonly LoadedGroup[]): boolean {
   return groups.some(group => !group.infer && group.options.length)
 }
 
-/** Asks if the options can express the text. With `infer` groups, it judges only the other groups, and text that sets none of them is supported. */
 function supportedQuestion(groups: readonly LoadedGroup[], hints: string): AskQuestion {
   const checked = groups.filter(group => !group.infer).map(group => JSON.stringify(group.group.label))
   if (checked.length === groups.length) {
@@ -189,7 +183,6 @@ function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string):
   if (needsSupported(groups)) questions.supported = supportedQuestion(groups, hints)
   groups.forEach((group, groupIndex) => {
     if (!group.options.length) return
-    // One option is the answer. The model only chooses between two or more.
     if (group.infer && group.options.length === 1) return
     if (group.multiple) {
       group.options.forEach((option, optionIndex) => {
@@ -211,7 +204,6 @@ function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string):
         ...(group.infer ? { infer: true as const } : {}),
         label: group.group.label,
         multiple: group.multiple,
-        // Descriptions go only into the question criteria, so a long description is sent once.
         options: group.options.map(option => ({ ...(option.aliases?.length ? { aliases: option.aliases } : {}), label: option.label, value: option.value })),
       })),
       query: text,
@@ -286,7 +278,6 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       const [error, prepared] = await prepare(text, request)
       if (error) return [error]
       let answers: AskAnswers<AskQuestions> = {}
-      // Every group can be answered without the model, such as an infer group with one option.
       if (Object.keys(prepared.plan.questions).length) {
         try {
           // SAFETY: The plan questions come from the `ask` builders.

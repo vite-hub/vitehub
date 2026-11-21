@@ -9,7 +9,6 @@ import type { Plugin } from "esbuild"
 
 const builtins = new Set(builtinModules)
 
-// Workflow DevKit leaves Node built-ins external in the flow bundle, and the flow sandbox has no `require`.
 const externalNodeBuiltins: Plugin = {
   name: "external-node-builtins",
   setup(build) {
@@ -19,7 +18,6 @@ const externalNodeBuiltins: Plugin = {
 
 it("keeps defineWorkflow loadable in the Vercel Workflow sandbox", async () => {
   const entry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
-  // Same options as the flow bundle of `@workflow/builders`.
   const result = await build({
     stdin: {
       contents: `import { defineWorkflow } from ${JSON.stringify(entry)}\nexport default defineWorkflow({ handler: async () => "ok" })\n`,

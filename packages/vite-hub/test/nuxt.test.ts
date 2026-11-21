@@ -4836,7 +4836,6 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       const { createMemoryHistory, createRouter } = await import("vue-router")
       const router = createRouter({ history: createMemoryHistory("/portal/"), routes: [{ path: "/:path(.*)*", component: {} }] })
       vi.doMock("vite-hub/web-container", async () => ({ matchesWebContainerRoute: (await import("@vite-hub/web-container")).matchesWebContainerRoute }))
-      // A copy inside this package resolves `vite-hub/web-container` to the file that the mock replaces.
       const copy = await mkdtemp(resolve(import.meta.dirname, ".web-container-plugin-"))
       try {
         await writeFile(resolve(copy, "plugin.mjs"), await readFile(src, "utf8"))

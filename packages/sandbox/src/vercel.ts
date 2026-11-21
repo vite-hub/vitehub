@@ -58,7 +58,6 @@ export interface VercelSandboxCreateOptions {
   token?: string;
 }
 
-/** The signals that the Vercel Sandbox SDK sends by name. Other signals use their number. */
 const vercelSignalNames = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGKILL", "SIGTERM", "SIGCONT", "SIGSTOP"] as const;
 
 export type VercelSandboxSignal = typeof vercelSignalNames[number] | number;
@@ -114,7 +113,6 @@ export interface VercelFileStat {
 }
 
 export function createVercelRuntime(options: VercelSandboxOptions = {}): SandboxRuntime {
-  // A snapshot already has its runtime. The Vercel SDK types forbid `runtime` with a snapshot source.
   const runtime = options.source?.type === "snapshot" ? options.runtime : options.runtime ?? "node24";
   const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
   return markBuiltInSandboxRuntime({
@@ -221,8 +219,6 @@ function ownNetworkPolicyMember<T extends object, K extends keyof T>(
   return value !== null && value !== undefined && Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
-// A literal specifier lets the server bundler include the SDK. Nitro output has no `node_modules`, so a variable
-// specifier cannot load the SDK there.
 export async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   try {
     const { Sandbox } = await import("@vercel/sandbox");
@@ -253,7 +249,6 @@ function createVercelSession(
   const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
     return instance.runCommand({
-      // Not a login shell: a profile, such as Debian's /etc/profile in a custom image, would set PATH again and drop `env.PATH`.
       args: ["-c", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
@@ -396,7 +391,6 @@ function createVercelSession(
     run,
     async spawn(options) {
       const process = await startCommand(options);
-      // The SDK signal only cancels the start request of a detached command.
       return killOnAbort(vercelProcess(process, options.stdin), options.abortSignal);
     },
     async stop() {},
@@ -434,7 +428,6 @@ function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined
   };
 }
 
-/** Bounds each channel independently so an unread channel cannot stall its sibling. */
 function streamLogs(command: VercelSandboxCommand) {
   const bufferLimit = 1024 * 1024;
   const encoder = new TextEncoder();
@@ -445,13 +438,10 @@ function streamLogs(command: VercelSandboxCommand) {
   const stop = async () => {
     if (stopped) return;
     stopped = true;
-    // Interrupt a pending SDK read before returning the async generator.
     abort.abort();
     try {
       await iterator.return?.();
-    } catch {
-      // The aborted log transport may reject during cleanup.
-    }
+    } catch {}
   };
   const stream = (name: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
     cancel() {
@@ -471,14 +461,12 @@ function streamLogs(command: VercelSandboxCommand) {
         const line = entry.value;
         const controller = open.get(line.stream);
         if (!controller || line.data.length === 0) continue;
-        // Bound the encoding allocation even when a single SDK entry is oversized.
         const chunk = new Uint8Array(Math.min(line.data.length * 3, controller.desiredSize ?? 0));
         const { read, written } = encoder.encodeInto(line.data, chunk);
         if (read < line.data.length) {
           controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
           open.delete(line.stream);
         } else {
-          // Do not retain unused encoding capacity in the stream queue.
           controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
         }
       }

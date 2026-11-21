@@ -210,7 +210,6 @@ function stripViteHubOptions(
     ...(adminClaimPlugin ? { verification: { ...rest.verification, storeInDatabase: true } } : {}),
     ...(databaseHooks ? { databaseHooks } : {}),
     plugins: [...plugins, ...(eventPlugin ? [eventPlugin] : []), createRequestLogPlugin()],
-    // Better Auth's warnings and errors also go on the request's wide event, when the app registers evlog.
     logger: withRequestLogger(rest.logger),
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,

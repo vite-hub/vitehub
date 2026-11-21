@@ -27,10 +27,6 @@ function isBareSpecifier(id: string) {
   return !/^(?:\.{1,2}(?:\/|$)|\/|[A-Za-z]:[\\/]|\0)/.test(id)
 }
 
-/**
- * Vite 8 bundles with Rolldown, so the app already has it. Load the copy next to `vite`, or `vite/rolldown` with
- * Vite+, instead of installing a second bundler.
- */
 async function importRolldown(): Promise<typeof Rolldown> {
   let entry: string
   try {

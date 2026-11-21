@@ -1,19 +1,10 @@
-/**
- * The Console page calls `/p/<project>/_vitehub/...` on the Console origin. The Console server signs that call with the
- * private key of the project link and sends it to the project, so the browser never holds the key and the project
- * needs no CORS.
- */
-
 import { signConsoleRequest } from "@vite-hub/internal/console-signature"
 
 import type { ConsoleCaller, ConsoleSigningKey } from "@vite-hub/internal/console-signature"
 
-/** The one Console route of a project: `POST /_vitehub/rpc`. */
 const forwardedPath = /^\/_vitehub\/rpc$/
 const forwardedMethods = new Set(["POST"])
-/** Cookies, `Origin`, and `Authorization` of the Console page never reach the project. */
 const requestHeaders = ["accept", "content-type", "if-none-match", "x-vitehub-console"]
-/** Set-Cookie never reaches the Console page. Fetch decodes the body, so the encoding and length headers stay out. */
 const responseHeaders = ["cache-control", "etag", "last-modified", "www-authenticate"]
 
 /** Largest file of one call. Files travel as base64 in the JSON body, such as in `media.upload` and `blob.put`. */
@@ -35,10 +26,6 @@ function problem(status: number, code: string, message: string, fix?: string): R
   return Response.json({ code, ...(fix ? { fix } : {}), message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
 }
 
-/**
- * Why a project answered the Console with a redirect. A Cloudflare Access application in front of the app sends every
- * call without an Access session to its sign-in page, often left over from an older Console that used Access.
- */
 function redirectProblem(response: Response, upstream: URL): Response {
   const route = `${upstream.host}${upstream.pathname}`
   const header = response.headers.get("location")
@@ -47,7 +34,6 @@ function redirectProblem(response: Response, upstream: URL): Response {
   if (access) {
     return problem(502, "CONSOLE_FORWARD_REDIRECT", `Cloudflare Access protects ${route}, so it sent the Console's call to its sign-in page.`, `In Cloudflare Zero Trust, delete the Access application that covers ${route}, or add an Access application for that path with a Bypass policy. The Console signs each call, so the app checks it without Access.`)
   }
-  // The query can hold a token, so the message names only the address.
   const target = location ? ` to ${location.origin}${location.pathname}` : ""
   return problem(502, "CONSOLE_FORWARD_REDIRECT", `${upstream.host} answered with a redirect${target}.`, "Link the project with the URL that serves it, such as the address after the redirect.")
 }
@@ -60,7 +46,6 @@ function redirectProblem(response: Response, upstream: URL): Response {
 export async function forwardProjectRequest(request: Request, target: ForwardTarget, path: string, send: typeof fetch = fetch): Promise<Response> {
   if (!forwardedMethods.has(request.method)) return problem(405, "CONSOLE_FORWARD_METHOD", `The Console does not send ${request.method} requests to a project.`)
   const base = new URL(target.url)
-  // The URL parser resolves `..` and its encoded forms, so the check reads the path that the project would get.
   const upstream = new URL(`${base.origin}${base.pathname.replace(/\/+$/, "")}${path.startsWith("/") ? path : `/${path}`}`)
   const appPath = upstream.pathname.slice(base.pathname.replace(/\/+$/, "").length)
   if (upstream.origin !== base.origin || !upstream.pathname.startsWith(base.pathname.replace(/\/+$/, "")) || !forwardedPath.test(appPath)) {
@@ -75,7 +60,6 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
     if (body.byteLength > maxForwardBodyBytes) return tooLarge()
   }
 
-  // The signature covers the exact bytes that the project receives, so it holds for the body of the page as it is.
   const headers = new Headers(await signConsoleRequest({ body: body ?? "", caller: target.caller, key: target.key, method: request.method, url: upstream }))
   for (const name of requestHeaders) {
     const value = request.headers.get(name)
@@ -89,11 +73,8 @@ export async function forwardProjectRequest(request: Request, target: ForwardTar
   catch {
     return problem(502, "CONSOLE_FORWARD_UNREACHABLE", `The Console could not reach ${base.host}.`)
   }
-  // A redirect could send the signed request to another address, so the Console stops there.
   if (response.status >= 300 && response.status < 400) return redirectProblem(response, upstream)
 
-  // Fetch clients can still read JSON and binary bodies. Documents get no Console origin or script access,
-  // and an inert media type with nosniff also prevents execution when loaded as a script or other resource.
   const type = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
   const out = new Headers({
     "content-disposition": "attachment",

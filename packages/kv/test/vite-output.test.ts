@@ -231,7 +231,6 @@ describe("KV Vite output", () => {
     ])
     await writeFile(entry, [
       `import { kv } from "@vite-hub/kv"`,
-      // The built driver, as `kvStorageDriver` from the built `@vite-hub/kv/vite` returns it.
       `import createKVStorageDriver from ${JSON.stringify(fileURLToPath(new URL("../dist/runtime/unstorage-driver.js", import.meta.url)))}`,
       `export default async () => {`,
       `  await createKVStorageDriver({ base: "nitro-cache" }).setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
@@ -926,7 +925,6 @@ describe("KV source type visibility", () => {
     }, null, 2))
 
     try {
-      // Keep this consumer compatibility fixture on TypeScript 6 regardless of the shared tsc executable.
       await execFileAsync(process.execPath, [join(repoRoot, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", join(rootDir, "tsconfig.json")])
     }
     catch (error) {

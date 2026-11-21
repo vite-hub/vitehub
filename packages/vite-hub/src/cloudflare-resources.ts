@@ -19,7 +19,6 @@ function section(config: Record<string, unknown>, key: string): Record<string, u
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-/** Where each Cloudflare resource kind lives in a Wrangler config, and how an entry names its binding and resource. */
 const wranglerFields: Record<string, { entries: (config: Record<string, unknown>) => WranglerEntries, binding: string, name?: string }> = {
   "cloudflare-d1": { binding: "binding", entries: config => entries(config.d1_databases) },
   "cloudflare-durable-object": { binding: "name", entries: config => entries(section(config, "durable_objects").bindings), name: "class_name" },
@@ -53,7 +52,6 @@ export function findMissingCloudflareResources(config: Record<string, unknown>, 
   })
 }
 
-/** The Durable Object that ViteHub binds for Realtime rooms on Cloudflare. ViteHub writes it, so no plugin lists it. */
 const realtimeDurableObject: ViteHubResourceSummary = { binding: "$DurableObject", definition: "rooms", host: "cloudflare", kind: "cloudflare-durable-object", name: "$DurableObject", owner: "realtime" }
 
 /**

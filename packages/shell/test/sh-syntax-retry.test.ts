@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { parseShellCommand } from "../src/command/parse.ts"
 
-// The parser fails to load once, as an import can fail when a dependency is reinstalled during development.
 const shSyntax = vi.hoisted(() => ({ failures: 1 }))
 
 vi.mock("sh-syntax", async (importOriginal) => {

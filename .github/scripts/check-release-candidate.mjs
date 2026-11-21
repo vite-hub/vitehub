@@ -34,9 +34,6 @@ for (const entry of readdirSync("packages", { withFileTypes: true })) {
 }
 if (packages.length === 0) throw new Error("No publishable packages found")
 
-// uppt's version commit must be the only commit a release branch needs. A workspace package that names a release
-// package at a version range would need a second commit on every release, so it must use a `workspace:` range or
-// `*`. The release workflow pins every internal range to the exact version when it packs.
 const releaseNames = new Set(packages.map(({ manifest }) => manifest.name))
 const workspaceGlobs = /^packages:\n((?:[ \t]+-.*\n)+)/m.exec(readFileSync("pnpm-workspace.yaml", "utf8"))?.[1]
   .split("\n")

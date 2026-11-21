@@ -208,7 +208,6 @@ export function importedConfigOptions(
       for (const entry of root.properties) {
         if (entry.type !== "ObjectProperty") continue
         const name = keyName(entry.key, entry.computed)
-        // Nuxt's literal environment overrides, including the named entries under `$env`.
         if (name?.startsWith("$") && propertyValue(root, name) === entry.value) override(config, entry.value, entry.value, name === "$env")
       }
     }

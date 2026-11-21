@@ -1,7 +1,3 @@
-// Serves built Vercel Provider Output (.vercel/output) on a local Node HTTP
-// server so Primitive Suites can run without a deployment. Routes follow
-// config.json: schedule function paths hit their own function, everything
-// else hits __server.func.
 import { createServer } from "node:http"
 import { existsSync } from "node:fs"
 import { pathToFileURL } from "node:url"
@@ -63,8 +59,6 @@ export async function createVercelBridge({ outputDir, port, env = {} }) {
         if (!loaded.has(path)) loaded.set(path, await route.load(path))
         handler = loaded.get(path)
       }
-      // Vercel Node functions are either web handlers (Request -> Response)
-      // or Node (req, res) handlers; detect by arity and result shape.
       if (handler.length >= 2) {
         await handler(req, res)
         return

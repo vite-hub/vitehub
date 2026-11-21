@@ -10,7 +10,6 @@ interface Authorization {
   scopes: string
 }
 
-/** A loopback OAuth server. Its fetch rejects destinations outside the fake's route map. */
 export async function createChatGPTFake(now: () => number = Date.now) {
   const issuer = "https://auth.openai.com"
   const resource = "https://api.openai.com/v1"
