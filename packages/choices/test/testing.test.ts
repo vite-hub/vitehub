@@ -53,6 +53,18 @@ describe("selectionGateway()", () => {
     expect(seen).toEqual([["acme", { tenant: "acme" }]])
   })
 
+  it("passes no context when the request contains only a signal", async () => {
+    const seen: unknown[] = []
+    const gateway = selectionGateway((_text, context) => {
+      seen.push(context)
+      return { chart: "bar" }
+    })
+    const [error, selection] = await defineChoices({ gateway, groups }).resolve("x", { signal: new AbortController().signal })
+    expect(error).toBeUndefined()
+    expect(selection?.chart.value).toBe("bar")
+    expect(seen).toEqual([undefined])
+  })
+
   it("gives an infer group no value when you leave it out", async () => {
     const options = [{ label: "Docs", value: "docs" }, { label: "Console", value: "console" }]
     const [, selection] = await defineChoices({ gateway: selectionGateway({}), groups: { project: { infer: true, label: "Project", multiple: false, options } } }).resolve("x")

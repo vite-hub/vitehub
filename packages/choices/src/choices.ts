@@ -297,7 +297,8 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (scripted) {
         try {
           request?.signal?.throwIfAborted()
-          const selection = await scripted(prepared.plan.state, prepared.groups.map(group => group.key), request?.context)
+          const context = request && "context" in request ? request.context : undefined
+          const selection = await scripted(prepared.plan.state, prepared.groups.map(group => group.key), context)
           // SAFETY: The testing gateway validates the scripted values against the loaded groups.
           return selection ? [undefined, selection as ChoicesSelection<TGroups>] : [unsupportedText()]
         }
