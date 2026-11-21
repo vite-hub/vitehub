@@ -219,7 +219,7 @@ already enables Database and KV, but its S3 credential cannot list the bucket,
 add this option to `vitehub` in `nuxt.config.ts` or to the `vitehub()` options
 in `vite.config.ts` for Nitro and Vite:
 
-```ts
+```ts fragment
 health: { checks: ['database', 'kv'] },
 ```
 
