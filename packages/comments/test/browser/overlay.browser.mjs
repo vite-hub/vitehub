@@ -17,7 +17,7 @@ const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
-/** Serves `/api/_vitehub/comments/**` from the real handler, with one signed-in person. */
+/** Serves `/_vitehub/comments/**` from the real handler, with one signed-in person. */
 function commentsApi() {
   let comments
   const files = new Map()
@@ -25,7 +25,7 @@ function commentsApi() {
     name: "comments-api",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (!req.url.startsWith("/api/_vitehub/comments/")) return next()
+        if (!req.url.startsWith("/_vitehub/comments/")) return next()
         const [{ createComments }, { createCommentsHandler }, { H3 }] = await Promise.all([server.ssrLoadModule(harness), server.ssrLoadModule(handlerFile), import("h3")])
         comments ??= await createComments({
           storeAttachment: (file) => {
@@ -34,7 +34,7 @@ function commentsApi() {
           },
           readAttachment: key => files.has(key) ? new Blob([files.get(key).data], { type: files.get(key).type }) : null,
         })
-        const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: () => ({ id: "u1", name: "Maxi" }) }))
+        const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) }))
         const chunks = []
         for await (const chunk of req) chunks.push(chunk)
         const response = await app.fetch(new Request(`http://127.0.0.1:${port}${req.url}`, { method: req.method, headers: req.headers, body: chunks.length ? Buffer.concat(chunks) : undefined }))
@@ -120,7 +120,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const strong = await page.locator("#first strong").boundingBox()
     await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: strong.x + strong.width * 0.8, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
-    const bar = page.locator("vitehub-comments .selection-bar")
+    const bar = page.locator("vitehub-comments [data-slot='comment-selection-bar']")
     await bar.waitFor({ timeout: 5000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
     await composer.waitFor({ timeout: 5000 })
@@ -210,24 +210,24 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
 
-  await t.test("an area is a soft line, and its thread opens in Drop's small card behind a round face", async () => {
+  await t.test("an area is a soft grey line, and its thread opens in Drop's small card behind a round face", async () => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
-    // Once no thread is open or hovered, its area is a 1px line with no fill. The fill fades out in 120ms.
+    // Once no thread is open or hovered, its area is a 1px line with no fill.
     await page.waitForFunction(() => {
       const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
-    // The line is the comment blue, as in Drop, not grey or black.
-    const [red, green, blue] = await page.evaluate(() => {
+    // The line is a soft neutral tint of the ink, not the comment blue, so a page with many areas stays calm.
+    const [red, green, blue, alpha] = await page.evaluate(() => {
       const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")).borderTopColor
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
       context.fillStyle = color
       context.fillRect(0, 0, 1, 1)
       return [...context.getImageData(0, 0, 1, 1).data]
     })
-    assert.ok(blue > red + 60 && blue > green, `the area line is rgb(${red}, ${green}, ${blue})`)
+    assert.ok(Math.max(red, green, blue) - Math.min(red, green, blue) <= 4 && alpha > 20 && alpha < 90, `the area line is rgba(${red}, ${green}, ${blue}, ${alpha})`)
     const pin = page.locator("vitehub-comments [data-slot='comment-layer-item'][data-kind='area'] [data-slot='comment-pin']")
     const corners = await pin.evaluate(element => [element, element.querySelector("[data-slot='avatar-stack-item']")].map(node => getComputedStyle(node).borderRadius))
     assert.deepEqual(corners, ["14px", "14px"])
@@ -235,6 +235,12 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
     await thread.waitFor({ timeout: 5000 })
     assert.equal(await thread.getAttribute("data-size"), "sm")
+    // Drop's card: 340px, and the one small corner is the one nearest the pin. offsetWidth ignores the pop-in scale.
+    const card = await thread.evaluate((element) => {
+      const style = getComputedStyle(element.parentElement)
+      return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.offsetWidth }
+    })
+    assert.deepEqual(card, { corners: ["16px", "16px", "16px", "6px"], width: 340 })
     await page.keyboard.press("Escape")
   })
 
@@ -330,7 +336,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       getSelection().removeAllRanges()
       getSelection().addRange(range)
     })
-    await page.locator("vitehub-comments .selection-bar").waitFor({ timeout: 5000 })
+    await page.locator("vitehub-comments [data-slot='comment-selection-bar']").waitFor({ timeout: 5000 })
     await page.keyboard.press("c")
     await composer.fill("Second quote")
     await composer.press("Enter")
@@ -543,7 +549,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         getSelection().removeAllRanges()
         getSelection().addRange(range)
       })
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
       // No hover color on a touch screen, where a tap would leave it on.
       await button.hover()
@@ -578,9 +584,9 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         return range.getBoundingClientRect().bottom
       })
       assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
-      const button = touch.locator("vitehub-comments .selection-bar button")
+      const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
-      const box = await touch.locator("vitehub-comments .selection-bar").boundingBox()
+      const box = await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
       // The system's text menu opens just above the selection, so the bar leaves it 64px.
@@ -605,6 +611,33 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
     finally {
       await touch.close()
+    }
+  })
+
+  await t.test("the Comment bar keeps its size and stays on screen when the page's root text is larger", async () => {
+    const large = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      await large.goto(`http://127.0.0.1:${port}/`)
+      await large.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      // Text near the top left corner, so the bar has to go under it and stay inside the left edge.
+      await large.evaluate(() => {
+        document.documentElement.style.fontSize = "24px"
+        const first = document.querySelector("#first")
+        Object.assign(first.style, { position: "fixed", left: "0", top: "20px", margin: "0" })
+        const range = document.createRange()
+        range.selectNodeContents(first.querySelector("strong"))
+        getSelection().removeAllRanges()
+        getSelection().addRange(range)
+      })
+      const bar = large.locator("vitehub-comments [data-slot='comment-selection-bar']")
+      await bar.waitFor({ timeout: 5000 })
+      await large.waitForTimeout(200)
+      const box = await bar.boundingBox()
+      assert.equal(Math.round(box.height), 38)
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 1024 && box.y + box.height <= 720, `bar at ${JSON.stringify(box)}`)
+    }
+    finally {
+      await large.close()
     }
   })
 

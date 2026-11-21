@@ -8,16 +8,16 @@ icon: i-lucide-cloud-cog
 
 ## Drivers
 
-| Host | Driver without `provider` |
+| Host | Driver without `driver` |
 | --- | --- |
 | Cloudflare | Cloudflare |
 | Vercel | Vercel |
-| Netlify | None. Set `provider`. |
+| Netlify | None. Set `driver`. |
 | Node and Docker, including `vite dev` with the Node host | OpenWorkflow, with an automatic worker |
 | Deno and other hosts | OpenWorkflow when you set `postgres.url` or `sqlite.path`. Else the build fails with `WORKFLOW_C0020`. |
 | `vite dev` on a host without a provider | Inline runs in the dev server |
 
-ViteHub infers Vercel only on Vercel. On Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On a host where only the Agent turns on Workflow, such as Deno, Agent Workflows run inline, and a restart loses their runs. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
+ViteHub infers Vercel only on Vercel. `agent: true` does not turn on Workflow: without `workflow`, Agents run inline, and a restart loses their runs. With `workflow: true` on Node and Docker, Agent turns are OpenWorkflow runs, so they survive a restart. On Node and Docker, an app without discovered Workflows or Agents starts no worker. `vitehub durability list` shows the store that the app uses.
 
 
 | Driver | Configure with | Driver output | Nuance |
@@ -39,6 +39,8 @@ For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
+
+ViteHub bundles the steps of the Workflow DevKit functions as it bundles the server. A step can import a `?markdown-template` file. A package that a step imports can load an optional peer that the app did not install, such as `@vite-hub/kv` in `@vite-hub/agent`: the build passes, and only the step that loads it fails.
 
 ### Upgrade the Vercel Workflow SDK
 
@@ -70,18 +72,16 @@ OpenWorkflow resolves storage at runtime in this order:
 2. With neither set, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
 3. Else `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
 4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
-5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see the upgrade step below).
+5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see below).
 
-### Upgrade from DATABASE_URL storage
+### `DATABASE_URL` is not read
 
-OpenWorkflow no longer selects Postgres from `DATABASE_URL` alone. Before upgrading an app that uses it, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the **same Postgres URL**, or add a Postgres Default Database pointing to that database. Keep the existing schema and namespace so queued and sleeping runs remain visible to every server.
-
-When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no storage was selected above, storage resolution fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before either dispatch or the worker opens SQLite. Set the Postgres storage explicitly to resume those runs. To select local storage intentionally, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not trigger this diagnostic. `vite dev` still pins its local SQLite file unless `workflow.remote` is `true`.
+OpenWorkflow does not select Postgres from `DATABASE_URL`. When `DATABASE_URL` starts with `postgres://` or `postgresql://` and no step above selected storage, startup fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` before dispatch or the worker opens SQLite. To keep runs in that database, set `OPENWORKFLOW_POSTGRES_URL` or `workflow.postgres.url` to the same URL, or add a Postgres Default Database for it. To use SQLite, set `workflow.sqlite.path` or `OPENWORKFLOW_SQLITE_PATH`. Other `DATABASE_URL` schemes, such as `libsql://`, do not cause this error. `vite dev` still uses its local SQLite file unless `workflow.remote` is `true`.
 
 > [!WARNING]
 > The SQLite default needs a writable filesystem. Its state lives only as long as that file. A new container or a temporary function filesystem can lose it. Set up persistent storage before production. Keep staging and production storage or namespaces apart.
 
-`workflow.database` is not supported and fails the config. It used to accept a Named Database without connecting OpenWorkflow to it. Use `workflow.postgres.url` or `workflow.sqlite.path` instead. Check where the old runtime really stored runs before you move them.
+`workflow.database` is not an option, and the config fails with it. Use `workflow.postgres.url` or `workflow.sqlite.path`.
 
 ## Run Workflows on Node
 
@@ -133,7 +133,7 @@ export default defineConfig({
 
 Every worker registers the Workflow files that ViteHub discovers, such as `server/workflows/<name>.ts`, and the Agents in `server/agents/`, when it starts. Any worker can take a run, so only those Workflows go to OpenWorkflow. The startup registry also installs the generated Agent State resolver and Capability loaders, so a fresh worker can restore persisted Channel deliveries without loading an Agent route first.
 
-- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
+- An Agent turn is an OpenWorkflow run. Any server's worker can execute it. A turn that waits in storage runs after a restart. Inspect it with `getWorkflowRun()`, `vitehub workflow runs get <id> --workflow <agent>`, or the Agent journal. A turn that stops during its Driver fails and does not run the Driver again. See [Recover after a restart](/docs/agents/invocations#recover-after-a-restart).
 - A turn of an Agent that is not discovered fails with `WORKFLOW_AGENT_NOT_DISCOVERED`, because no worker can run it. Move the Agent to `server/agents/`, or call `runAgent()` to run it without a Workflow.
 - A Workflow that code creates while the server runs, such as `createWorkflow('name', handler)`, runs inline in the request process. It is not durable, its run has `metadata.mode` set to `"inline"`, and the server logs a warning the first time. Move the Workflow to a file in `server/workflows/` to make it durable.
 

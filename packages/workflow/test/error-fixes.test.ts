@@ -28,8 +28,6 @@ const fixedCodes = [
   "WORKFLOW_C0015",
   "WORKFLOW_C0016",
   "WORKFLOW_C0017",
-  "WORKFLOW_C0018",
-  "WORKFLOW_C0019",
 ] as const
 
 async function buildConfig(options: WorkflowOptions, hosting = "node-server") {
@@ -63,9 +61,10 @@ it("names both storage options in the fix of two OpenWorkflow stores", async () 
   })
 })
 
-it("names the Workflow name in the fix of defineWorkflow() without one", () => {
-  expect(() => defineWorkflow("" as string, async () => {})).toThrow(expect.objectContaining({
-    code: "WORKFLOW_C0018",
-    fix: expect.stringContaining("first argument of `defineWorkflow()`"),
+it("names the one-object form in the fix of the removed defineWorkflow(name, handler)", () => {
+  // SAFETY: The test intentionally crosses the public type boundary to verify the removed form.
+  expect(() => defineWorkflow("onboard-user" as never, (async () => {}) as never)).toThrow(expect.objectContaining({
+    code: "WORKFLOW_C0015",
+    fix: expect.stringContaining("defineWorkflow({ handler, native })"),
   }))
 })

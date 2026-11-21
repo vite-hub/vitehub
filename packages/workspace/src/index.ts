@@ -3,12 +3,12 @@ export { createWorkspace } from "./core/workspace.ts"
 export { sourceIgnores } from "@vite-hub/source"
 export {
   custom,
-  fetch,
   file,
   github,
   glob,
   markdown,
   mcpResources,
+  url,
 } from "./sources/index.ts"
 export * as source from "./sources/index.ts"
 export type {
@@ -44,7 +44,7 @@ export { invalidateWorkspaceStore } from "./runtime/state.ts"
 export { resolveWorkspaceStoreTarget } from "./storage/target.ts"
 export type { WorkspaceStoreTarget } from "./storage/target.ts"
 export type { WorkspaceErrorCode } from "./core/errors.ts"
-export { resolveRegisteredWorkspaceDefinition } from "./core/registry.ts"
+export { isWorkspaceName, resolveRegisteredWorkspaceDefinition } from "./core/registry.ts"
 export { registerWorkspacePlugin } from "./core/plugins.ts"
 export { useWorkspace } from "./core/use-tools.ts"
 export { useWorkspaceFiles } from "./core/use.ts"

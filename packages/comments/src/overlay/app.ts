@@ -1,4 +1,4 @@
-import { CommentLayer, CommentPanel } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
@@ -7,8 +7,9 @@ import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Tel
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
+import { base64 } from "../client-files.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, base64, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -114,6 +115,23 @@ function style(text: string): HTMLStyleElement {
   const element = document.createElement("style")
   element.textContent = text
   return element
+}
+
+type RealtimePerson = ReturnType<RealtimeRoom["people"]>[number]
+
+/**
+ * The other people on the page, one entry per person with the number of tabs they have open. The overlay leaves out
+ * `me` whatever the sign-in, so a person never sees themselves.
+ */
+function others(people: readonly RealtimePerson[], me: string | undefined): { person: RealtimePerson, tabs: number }[] {
+  const byId = new Map<string, { person: RealtimePerson, tabs: number }>()
+  for (const person of people) {
+    if (person.id === me) continue
+    const seen = byId.get(person.id)
+    if (seen) seen.tabs++
+    else byId.set(person.id, { person, tabs: 1 })
+  }
+  return [...byId.values()]
 }
 
 function initials(name: string): string {
@@ -301,6 +319,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** The server-identified person. */
   const account = (): CommentUser | undefined => session?.user ?? undefined
+  /** `false` when the app shows its own presence: no faces in the toolbar and no cursors on the page. */
+  const showPresence = session?.presence !== false
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
@@ -738,10 +758,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
             const top = below ? Math.min(under, innerHeight - 46) : bar.top - (touch ? 64 : 8)
             nodes.push(h("div", {
-              class: "selection-bar",
+              class: "selection",
               "data-below": below ? "true" : undefined,
-              role: "group",
-              "aria-label": "Selected text",
               style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
               // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
@@ -754,8 +772,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
                   trackSelection()
                 }, 300), { capture: true, once: true })
               },
-              onMousedown: (event: MouseEvent) => event.preventDefault(),
-            }, h("button", { type: "button", "aria-keyshortcuts": "C", title: "Comment on the selected text (C)", onClick: () => commentOnSelection(barRange) }, [commentIcon(), "Comment"])))
+            }, h(CommentSelectionBar, { side: below ? "bottom" : "top", onComment: () => commentOnSelection(barRange) })))
           }
           if (panelTarget.value && !resolving.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
@@ -858,13 +875,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (marking.value || finishing.value) return markerToolbar()
     const signOutUrl = session?.signOut
     const github = signOutUrl ? session?.github : undefined
-    // Each person shows once, however many tabs they have open. The sign-out button shows the person themselves, so
-    // presence then lists only the others.
-    const seen = new Set(github && session?.user ? [session.user.id] : [])
-    const people = (room?.people() ?? []).filter(person => !seen.has(person.id) && seen.add(person.id))
-    const avatars = people.slice(0, 5).map(person =>
-      h("span", { class: "avatar", key: person.id, title: person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
-    const peopleLabel = `${people.length} ${github ? "other " : ""}${people.length === 1 ? "person" : "people"} on this page`
+    const people = showPresence ? others(room?.people() ?? [], me.value?.id) : []
+    const avatars = people.slice(0, 5).map(({ person, tabs }) =>
+      h("span", { class: "avatar", key: person.id, title: tabs > 1 ? `${person.name} · ${tabs} tabs` : person.name, style: { background: person.color } }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
+    const peopleLabel = `${people.length} other ${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
@@ -948,6 +962,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function cursors(): VNode[] {
     void tick.value
     const nodes: VNode[] = []
+    if (!showPresence) return nodes
     for (const [id, presence] of room?.states() ?? []) {
       // SAFETY: the overlay of each person sets `cursor` with `setLocal`. Each field is checked before use.
       const cursor = presence.cursor as Cursor | undefined
@@ -1075,7 +1090,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         const field = target ? fieldElementOf(target) : undefined
         if (field !== hover.value) hover.value = field
       }
-      if (!room || !target) return
+      if (!room || !target || !showPresence) return
       const box = target.getBoundingClientRect()
       room.setLocal("cursor", {
         selector: selectorOf(target),

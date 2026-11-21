@@ -12,7 +12,8 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
+| `isWorkspaceName` from `vite-hub/workspace` | [Check a Workspace name](#check-a-workspace-name) that comes from a request or a database. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `url`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
 | `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
@@ -35,6 +36,21 @@ const workspace = useWorkspace('docs', { refresh: false })
 ```
 
 This reuses the saved snapshots of Sources with `materialize: 'startup'` when they are ready and match the current Source config, even if the upstream content changed. Missing or outdated snapshots still materialize. Without `refresh`, or with `true`, startup Sources refresh as normal. Custom Stores without `getMeta` or `setMeta` keep ownership and Source snapshots only while the Store instance lives.
+
+### Check a Workspace name
+
+When a name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to `ValidatedWorkspaceName`, which `useWorkspace()` and `useWorkspaceFiles()` accept alongside generated names. The check confirms runtime registration, not membership in the generated `WorkspaceName` union:
+
+```ts [server/api/projects/[project]/files.get.ts]
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
+import { isWorkspaceName, useWorkspace } from 'vite-hub/workspace'
+
+export default defineHandler(async (event) => {
+  const project = getRouterParam(event, 'project') ?? ''
+  if (!isWorkspaceName(project)) throw new HTTPError({ status: 404, message: `No project ${project}.` })
+  return await useWorkspace(project).fs.list('', { recursive: true })
+})
+```
 
 Before build and startup overwrite existing files, they save a pending checkpoint. Cleanup accepts the new owner only after the checkpoint completes, so failed rollback metadata cannot give ownership of restored files after the Store reopens. If completion fails after the file and owner were committed, the operation reports the error and keeps the output. Cleanup keeps that output unless completion was saved. Retry the Source operation to set ownership again.
 
@@ -66,8 +82,8 @@ When the model turn is cancelled, AI SDK tool cancellation reaches the Shell dri
 | `rm(path, options?)` | `recursive?: boolean`, `force?: boolean` | Removes a file or directory if the write rules allow it. |
 | `movePath(from, to, options?)` | `overwrite?: boolean` | Moves a path. An existing destination fails without `overwrite`. |
 | `copyPath(from, to, options?)` | `overwrite?: boolean` | Copies a path. An existing destination fails without `overwrite`. |
-| `snapshot(options?)` | `name?: string` | Saves the current tree, with an optional name. |
-| `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store and keeps staged paths. A listed path takes the remote version only when both sides changed. Other overlapping changes stay conflicts. Listed paths must be writable, so a Source path fails. |
+| `snapshot(options?)` | `name?: string`, `author?: { name, email }` | Saves the current tree, with an optional name. The GitHub and Cloudflare Artifacts Stores write `author` as the Git author of the commit. Stores with retained history keep it as `metadata.author`. `history.checkpoint({ message, author })` takes the same `author`. On the GitHub and Cloudflare Artifacts Stores, when another writer moved the branch, it moves your changes onto the new head and tries once more. A path that both sides changed fails with `WORKSPACE_CONFLICT` and `details.paths`. |
+| `history.rebase(options?)` | `takeRemote?: string[]` | Reloads a remote Store and keeps staged paths. A listed path takes the remote version only when both sides changed. Other overlapping changes stay conflicts, listed in `details.paths`. Listed paths must be writable, so a Source path fails. |
 | `diff(options?)` | `from?: WorkspaceSnapshot` | Compares the current tree with the given snapshot or the Store baseline. |
 | `materializeSources(options?)` | `abortSignal?`, `details?: 'paths'`, `onProgress?`, `sources?`, `path?` | Copies in every Source, or selected Sources or paths, with cancellation and progress. |
 | `getMeta(key)` / `setMeta(key, value)` | Store-defined | Reads or writes Store metadata, if the Store supports it. Workspace reserves keys that start with `source:`, `workspace:`, `workspace-file-`, or `loader:`, and `setMeta` rejects them. |
@@ -89,7 +105,7 @@ Retained history publishes a full folder and lets you read earlier versions. It 
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
 
-const workspace = useWorkspace('drop', { mode: 'write' })
+const workspace = useWorkspace('notes', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
   ifHead: base?.id ?? null,
@@ -98,7 +114,7 @@ const revision = await workspace.history.commit({
     'assets/data.bin': new Uint8Array([0, 255]),
   },
   message: 'Publish the site',
-  metadata: { author: 'maxi' },
+  metadata: { author: 'ada' },
 })
 
 const version = await workspace.history.open(revision.id)
@@ -131,7 +147,7 @@ const saved = await workspace.history.commit({
   ref: 'draft',
   ifHead: draft?.id ?? null,
   changes: {
-    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'maxi' } } },
+    put: { 'posts/hello.md': { content: markdown, metadata: { author: 'ada' } } },
     delete: ['posts/old.md'],
   },
   message: 'Save hello',
@@ -168,11 +184,12 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. On the GitHub Store, revisions from `head()` and `list()` have no `files` and `bytes`, because counting them needs one more request per commit. `open(id).revision` has them. |
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
-| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. |
+| `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
+| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
-- Read mode has `head`, `list`, `refs`, `open`, and `usage`. `commit` needs write mode.
+- Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` needs write mode.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.
 - `history.checkpoint()` and `history.rebase()` work as before and use `main`. A checkpoint does not prove that every Store kept the file bytes.
 - History covers the Store file tree, not live Source responses or a running Session. Empty directories are not part of it.
@@ -234,7 +251,7 @@ The commands work the same on the GitHub Store, with these differences:
 - A revision id is a commit sha, and the digest of a file is its Git blob sha. `vitehub.lock` still records SHA-256.
 - Each instance of the app keeps the head of a ref for up to 5 seconds. A pull right after a commit on GitHub, or through another instance, can report the older head. A push still checks the real head before it commits, so it cannot overwrite that commit. If your push reaches an instance with an older head, the push can first undo the newer commit in your folder and then pull it again. A line that you also changed then gets conflict markers.
 - The media type of a file comes from its name. A push keeps the Git mode of an executable file or a symbolic link (`gitMode` metadata). The Store keeps no other file metadata.
-- GitHub records the account of the token as the author of each commit, and the revision `author` is that account. The signed-in user is in the `Vitehub-Metadata` trailer of the commit message. Anyone with write access to the repository can write that trailer, so the Store does not report it as the author.
+- A push writes the signed-in user as the Git author of the commit when the user has a name and an email, and the account of the token is the committer. The revision `author` is the Git author. Without a name and an email, the account of the token is the author. GitHub does not sign commits that have another author, so they show no "Verified" badge.
 - The first push to a ref that does not exist creates a branch from the published branch when the Store sets `refs.published`, else from the default branch. The push then pulls the files that the new branch has from that branch.
 - A pull reads up to two blobs for each changed file: the head version and the version at the last pull. The first pull reads one blob for each file. GitHub allows 5,000 API requests per hour for most tokens, so the first pull of a large Workspace can use a large part of that limit. `vitehub status` and `vitehub pull --dry-run` read no file content.
 - A force push can remove the revision that `vitehub.lock` records. A pull then fails with `WORKSPACE_NOT_FOUND`. Move the folder away, remove its entry from `vitehub.lock`, pull again, and copy your changes back.

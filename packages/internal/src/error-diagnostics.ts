@@ -5,7 +5,7 @@ const dynamicError = {
 }
 
 // Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: INTERNAL_B0002 to INTERNAL_B0014, INTERNAL_B0023, INTERNAL_B0024, INTERNAL_B0030, INTERNAL_B0034, INTERNAL_B0036 to INTERNAL_B0038, INTERNAL_B0041, INTERNAL_B0042, INTERNAL_B0044, INTERNAL_B0045, and INTERNAL_R0003.
+// Retired codes. Do not reuse them: INTERNAL_B0002 to INTERNAL_B0014, INTERNAL_B0023, INTERNAL_B0024, INTERNAL_B0030, INTERNAL_B0033, INTERNAL_B0034, INTERNAL_B0036 to INTERNAL_B0038, INTERNAL_B0041, INTERNAL_B0042, INTERNAL_B0044, INTERNAL_B0045, and INTERNAL_R0003.
 export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {
@@ -51,7 +51,6 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0029: { ...dynamicError, fix: "Stop the other builds that write the same Deno output folder, delete the `.vitehub-lock` folder next to that output folder, such as `.output.vitehub-lock`, then build again." },
     INTERNAL_B0031: { ...dynamicError, fix: "Import `./schedule/deno-cron.mjs` at the top level of the project-root `main.ts`, for example with `await import(new URL(\"./schedule/deno-cron.mjs\", import.meta.url).href)` outside any condition." },
     INTERNAL_B0032: { ...dynamicError, fix: "Import `./server/index.mjs` at the top level of the project-root `main.ts`, for example with `await import(new URL(\"./server/index.mjs\", import.meta.url).href)` outside any condition." },
-    INTERNAL_B0033: { ...dynamicError, fix: "Add a `main.ts` file at the project root that imports `./schedule/deno-cron.mjs` and then `./server/index.mjs`, or remove the Schedules from `server/schedules/`." },
     INTERNAL_B0035: { ...dynamicError, fix: "Delete the provider output folder that holds the file that the message names, such as `dist/<app>` for Cloudflare, and build again." },
     INTERNAL_B0039: { ...dynamicError, fix: "Fix the build error that ViteHub showed before this one. ViteHub stops writing the provider output when another part of the build fails." },
     INTERNAL_B0040: { ...dynamicError, fix: "Remove the custom Nitro `output.serverDir`, so that the Nitro preset of the host writes the server entry that the message names." },
@@ -90,7 +89,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_C0002: { ...dynamicError, fix: "Rename or remove one of the two files that the message lists. ViteHub takes the Definition name from the file path." },
     INTERNAL_R0001: { ...dynamicError, fix: "Set `host` in `vitehub()`, or in the `vitehub` options of `nuxt.config.ts`, to `cloudflare`, `deno`, `netlify`, `node`, or `vercel`. Or remove `host` so that ViteHub finds the host from the environment." },
     INTERNAL_R0002: { ...dynamicError, fix: "Stop using the feature that the message names, or set `host` in `vitehub()` to a host that provides it. For Blob, you can also set `blob: { driver: \"s3\" }` with a remote store." },
-    INTERNAL_R0004: { ...dynamicError, fix: "Set a larger `maxResponseBytes` on the HTTP request, such as the `fetch()` Source options, or ask the server for a smaller response." },
+    INTERNAL_R0004: { ...dynamicError, fix: "Set a larger `maxResponseBytes` on the HTTP request, such as the `url()` Source options, or ask the server for a smaller response." },
     INTERNAL_R0005: { ...dynamicError, fix: "Set `method` of the HTTP request to `GET`, `HEAD`, or `POST`." },
     INTERNAL_R0006: { ...dynamicError, fix: "Set `timeout` of the HTTP request to a number of milliseconds from 1 to 2147483647, or remove it to use the default." },
     INTERNAL_R0007: { ...dynamicError, fix: "Set `maxResponseBytes` of the HTTP request to a positive integer no greater than the limit that the message names, or remove it to use the default." },
@@ -114,6 +113,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_CONSOLE_PRIVATE_KEY_VARIABLE_INVALID: {
       why: ({ variable }: { variable: string }) => `[vitehub] ${variable} must be the 43-character private key that \`vitehub secret console-key\` prints, and its name 1 to 64 of A-Z, 0-9, and _.`,
       fix: "Set the variable that the message names to the private key that `vitehub secret console-key` prints, and name it `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` with A-Z, 0-9, and _ in `<NAME>`.",
+    },
+    INTERNAL_DEV_SERVER_NOT_FOUND: {
+      why: ({ command }: { command: string }) => `[vitehub] No dev server of this project is running, and --url is not set, so \`vitehub ${command}\` has no app to call.`,
+      fix: "Start the dev server of this project, such as with `pnpm dev`, or pass --url with the app URL, such as --url http://localhost:3000.",
     },
     INTERNAL_FORGE_NOT_INSTALLED: {
       why: ({ feature }: { feature: string }) => `${feature} needs @vite-hub/forge, and the app did not install it.`,

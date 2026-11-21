@@ -432,7 +432,7 @@ describe("blob config", () => {
     expect(normalizeBlobOptions({ serve: { access: "public" } })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "default",
       },
       store: {
@@ -568,6 +568,51 @@ describe("blob config", () => {
     })
   })
 
+  it("gives each named fs store without base its own folder", () => {
+    const stores = { avatars: { driver: "fs" as const }, default: { driver: "fs" as const }, exports: { driver: "fs" as const } }
+
+    expect(normalizeBlobOptions({ stores }, { env: {} })?.stores).toEqual({
+      avatars: { base: ".vitehub/data/blob-avatars", driver: "fs" },
+      default: { base: ".vitehub/data/blob", driver: "fs" },
+      exports: { base: ".vitehub/data/blob-exports", driver: "fs" },
+    })
+    // BLOB_FS_BASE moves every store, and named stores still get their own folder next to it.
+    expect(normalizeBlobOptions({ stores }, { env: { BLOB_FS_BASE: "/var/lib/app/blob" } })?.stores).toEqual({
+      avatars: { base: "/var/lib/app/blob-avatars", driver: "fs" },
+      default: { base: "/var/lib/app/blob", driver: "fs" },
+      exports: { base: "/var/lib/app/blob-exports", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ stores: { ...stores, avatars: { base: ".data/avatars", driver: "fs" } } }, { env: {} })?.stores?.avatars).toEqual({ base: ".data/avatars", driver: "fs" })
+  })
+
+  it.each(["/var/lib/app/blob/", "/var/lib/app/blob/."])("keeps named fs and R2 fallback roots beside %s", (base) => {
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        avatars: { driver: "fs" },
+        media: { driver: "cloudflare", binding: "MEDIA" },
+      },
+    }, { dev: true, env: { BLOB_FS_BASE: base } })
+
+    expect(config?.stores?.default).toMatchObject({ base })
+    expect(config?.stores?.avatars).toMatchObject({ base: "/var/lib/app/blob-avatars" })
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: "/var/lib/app/blob-media" } })
+  })
+
+  it.each(["media/avatars", "media\\avatars", "avatars."])("rejects %s as an implicit fs folder suffix", (name) => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs" } } }, { env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "cloudflare", binding: "MEDIA" } } }, { dev: true, env: {} }))
+      .toThrow(/cannot form a folder name/)
+    expect(normalizeBlobOptions({ stores: { default: { driver: "fs" }, [name]: { driver: "fs", base: "./my-files/" } } }, { env: {} })?.stores?.[name])
+      .toMatchObject({ base: "./my-files/" })
+  })
+
+  it("requires a folder name in BLOB_FS_BASE to generate a sibling folder", () => {
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "fs" }, media: { driver: "fs" } } }, { env: { BLOB_FS_BASE: "/" } }))
+      .toThrow(/BLOB_FS_BASE must name a folder/)
+  })
+
   it("normalizes serving from a configured named Blob store", () => {
     expect(normalizeBlobOptions({
       serve: {
@@ -587,7 +632,7 @@ describe("blob config", () => {
     })).toEqual({
       serve: {
         access: "public",
-        route: "/api/_vitehub/blob",
+        route: "/_vitehub/blob",
         store: "assets",
       },
       store: {
@@ -862,6 +907,27 @@ describe("blob config in vite dev", () => {
     })
   })
 
+  it("keeps an explicit cloudflare store on the dev runner's binding or the local fs store", () => {
+    // The Node dev runner of `vite dev` and `nuxt dev` has no R2 binding, so the store must not need one.
+    expect(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: {}, hosting: "cloudflare" })?.store).toEqual({
+      binding: "TASK_ASSETS",
+      bucketName: "task-assets",
+      driver: "cloudflare",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { binding: "BLOB", driver: "cloudflare" },
+        media: { binding: "MEDIA", driver: "cloudflare" },
+      },
+    }, { dev: true, env: {} })
+    expect(config?.stores?.default).toMatchObject({ localFallback: { base: ".vitehub/data/blob", driver: "fs" } })
+    // Each named store gets its own folder, so two buckets do not share files.
+    expect(config?.stores?.media).toMatchObject({ localFallback: { base: ".vitehub/data/blob-media", driver: "fs" } })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare", remote: true }, { dev: true, env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare", remote: true })
+    expect(normalizeBlobOptions({ binding: "BLOB", driver: "cloudflare" }, { env: {} })?.store).toEqual({ binding: "BLOB", driver: "cloudflare" })
+  })
+
   it("applies remote per named store", () => {
     const config = normalizeBlobOptions({
       stores: {
@@ -945,5 +1011,31 @@ describe("NuxtHub S3 env", () => {
     }))
     expect(() => normalizeBlobOptions({ stores: { default: store } } as never, { env: {} }))
       .toThrow(`\`blob.stores.default.${option}\``)
+  })
+})
+
+describe("renamed Blob drivers", () => {
+  it.each([
+    ["cloudflare-r2", "cloudflare"],
+    ["vercel-blob", "vercel"],
+  ])("names the new driver for the former %s", (driver, renamed) => {
+    const expected = expect.objectContaining({
+      code: "BLOB_C0001",
+      fix: expect.stringContaining(`blob: { driver: "${renamed}" }`),
+      why: expect.stringContaining(`renamed this driver to "${renamed}"`),
+    })
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeBlobOptions({ driver } as never, { env: {} })).toThrow(expected)
+    // SAFETY: An app config without types passes the former driver name.
+    expect(() => normalizeBlobOptions({ stores: { default: { driver } } } as never, { env: {} })).toThrow(expected)
+  })
+
+  it("keeps the driver list for a name that was never a driver", () => {
+    // SAFETY: An app config without types passes an unknown driver name.
+    expect(() => normalizeBlobOptions({ driver: "toString" } as never, { env: {} })).toThrow(expect.objectContaining({
+      code: "BLOB_C0001",
+      fix: expect.stringContaining("Check the spelling"),
+      why: "`blob.driver` \"toString\" is not a Blob driver.",
+    }))
   })
 })

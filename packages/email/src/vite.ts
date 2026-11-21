@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { emailDeploymentEnv } from "./deployment-env.ts"
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
@@ -164,9 +164,12 @@ function renderResolvedOptions(value: unknown, reference: string): string {
   ).join(", ")} }`
 }
 
+/** Driver names that ViteHub renamed to the host name. `npx @vite-hub/codemods driver-key` moves them. */
+const renamedEmailDrivers = new Map([["cloudflare-email", "cloudflare"]])
+
 function resolveDriverImport(driver: string): string {
   if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./drivers/${driver}.${extension}`, import.meta.url))
@@ -441,7 +444,9 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
     const entry = `${target}.entry.mjs`
     await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
     try {
-      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir })
+      // The entry imports only the template file and `@vite-hub/markdown-template`. Nuxt materializes templates before
+      // it writes the `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+      await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir, tsconfig: false })
     }
     finally {
       await rm(entry, { force: true })
@@ -467,7 +472,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
 
 export function hubEmail(options: EmailOptions): EmailVitePlugin {
   if (!options || typeof options !== "object") {
-    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER()
+    throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: "missing" })
   }
   const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
@@ -643,6 +648,9 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
           rootDir: config.root,
+          // The entry imports only ViteHub's own modules, and `nuxt prepare` reaches it before Nuxt writes the
+          // `.nuxt/tsconfig.*.json` files that the app tsconfig.json references.
+          tsconfig: false,
         })
       }
       finally {

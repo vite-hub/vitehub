@@ -177,7 +177,7 @@ describe("package task runner", { timeout: 60_000 }, () => {
     expect(result.stdout).toContain("FAIL @fixture/compound")
   })
 
-  it("builds through the Vite+ task cache with --cache", async () => {
+  it("builds through the Vite+ task cache without concurrent writers", async () => {
     const log = await tempFile("events.log")
     const workspace = join(log, "..")
     const binDir = join(workspace, "node_modules/.bin")
@@ -186,7 +186,8 @@ describe("package task runner", { timeout: 60_000 }, () => {
     await writeFile(join(workspace, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n")
     for (const [name, manifest] of Object.entries({
       shared: { name: "@fixture/shared", scripts: { build: "vp pack shared" } },
-      app: { name: "@fixture/app", dependencies: { "@fixture/shared": "workspace:*" }, scripts: { build: "vp pack app", test: "vp test" } },
+      sibling: { name: "@fixture/sibling", scripts: { build: "vp pack sibling" } },
+      app: { name: "@fixture/app", dependencies: { "@fixture/shared": "workspace:*", "@fixture/sibling": "workspace:*" }, scripts: { build: "vp pack app", test: "vp test" } },
     })) {
       await mkdir(join(workspace, "packages", name), { recursive: true })
       await writeFile(join(workspace, "packages", name, "package.json"), JSON.stringify(manifest))
@@ -194,19 +195,25 @@ describe("package task runner", { timeout: 60_000 }, () => {
     const fakeVp = join(binDir, "vp")
     await writeFile(fakeVp, [
       "#!/usr/bin/env node",
-      'require("node:fs").appendFileSync(process.env.VITEHUB_FIXTURE_LOG, JSON.stringify(process.argv.slice(2)) + "\\n")',
+      'const fs = require("node:fs")',
+      'const log = process.env.VITEHUB_FIXTURE_LOG',
+      'const lock = log + ".lock"',
+      'const cached = process.argv.includes("--cache")',
+      'if (cached) fs.writeFileSync(lock, "", { flag: "wx" })',
+      'fs.appendFileSync(log, JSON.stringify(process.argv.slice(2)) + "\\n")',
+      'if (cached) setTimeout(() => fs.unlinkSync(lock), 500)',
     ].join("\n"))
     await chmod(fakeVp, 0o755)
     await writeFile(`${fakeVp}.cmd`, `@node "${fakeVp}" %*`)
 
-    const result = await execFileAsync(process.execPath, [runner, "test", "--cache", "--packages", "@fixture/app", "--workspace", workspace], {
+    await execFileAsync(process.execPath, [runner, "test", "--cache", "--packages", "@fixture/app", "--workspace", workspace], {
       env: { ...process.env, VITEHUB_FIXTURE_LOG: log },
       timeout: 45_000,
     })
 
-    expect(result.stdout).toContain("PASS @fixture/app")
     expect(await readFile(log, "utf8")).toBe([
       '["run","--cache","--filter","@fixture/shared","build"]',
+      '["run","--cache","--filter","@fixture/sibling","build"]',
       '["run","--cache","--filter","@fixture/app","build"]',
       '["test"]',
       "",

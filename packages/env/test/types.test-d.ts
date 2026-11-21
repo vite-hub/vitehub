@@ -1,3 +1,4 @@
+import * as v from "valibot"
 import { describe, expectTypeOf, it } from "vitest"
 import type { Result } from "@vite-hub/runtime"
 import type { Plugin } from "vite"
@@ -14,6 +15,7 @@ import {
   type EnvVariableDeclaration,
   type ServerEnvInspection,
   type ServiceTokenErrorCode,
+  signWebhook,
   verifyWebhook,
   type WebhookErrorCode,
 } from "../src/index.ts"
@@ -30,10 +32,18 @@ describe("types", () => {
 
   it("types verifyWebhook()", () => {
     const request = new Request("https://example.test/")
-    expectTypeOf(verifyWebhook<{ type: string }>(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<{ type: string }, WebhookErrorCode>>>()
+    expectTypeOf(verifyWebhook(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET", schema: v.object({ type: v.string() }) })).toEqualTypeOf<Promise<Result<{ type: string }, WebhookErrorCode>>>()
+    // @ts-expect-error The body is not checked, so the caller cannot name its type. Pass `schema`.
+    void verifyWebhook<{ type: string }>(request, { provider: "stripe", secret: "STRIPE_WEBHOOK_SECRET" })
     expectTypeOf(verifyWebhook(request, { provider: "github", secret: "GITHUB_WEBHOOK_SECRET" })).toEqualTypeOf<Promise<Result<unknown, WebhookErrorCode>>>()
     // @ts-expect-error A custom HMAC needs the header that carries the signature.
     void verifyWebhook(request, { provider: "hmac", secret: "LULU_WEBHOOK_SECRET" })
+  })
+
+  it("types signWebhook()", () => {
+    expectTypeOf(signWebhook("{}", { provider: "github", secret: "s" })).toEqualTypeOf<Promise<Record<string, string>>>()
+    // @ts-expect-error Only GitHub and Stripe signatures can be created.
+    void signWebhook("{}", { provider: "hmac", secret: "s" })
   })
 
   it("types Vite integration and declarations", () => {
@@ -76,6 +86,14 @@ describe("types", () => {
     env.boolean({ schema: {} })
     // @ts-expect-error enum values are public metadata, so an enum cannot be secret
     env.enum(["draft", "send"], { secret: true })
+    expectTypeOf(env.list({ default: ["a.example"] })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.list(env.number(), { default: [80], secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.json(env.schemaFrom("./server/env.schema.ts", "settings"), { optional: true })).toMatchTypeOf<EnvVariableDeclaration>()
+    expectTypeOf(env.json({ default: { enabled: true } })).toMatchTypeOf<EnvVariableDeclaration>()
+    // @ts-expect-error a list default is an array
+    env.list({ default: "a.example" })
+    // @ts-expect-error env.json() owns its parser
+    env.json({ schema: {} })
 
     const provider = defineEnvProvider({
       async read({ env: localEnv, keys, signal }) {

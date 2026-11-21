@@ -8,7 +8,7 @@ import { promisify } from "node:util"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
-import { VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_DEPLOYMENT_HOST, VITEHUB_FEATURES, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createQueueNitroConfig, hubQueue } from "../src/vite.ts"
 
@@ -32,7 +32,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ binding, namePrefix: "preview-", driver: "cloudflare" })
     const config = { command: "build", nitro: { preset: "cloudflare_module" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
 
     const resources = await collectViteHubResourceSummaries([plugin])
@@ -99,8 +99,8 @@ describe("hubQueue", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nuxt-options-"))
     roots.push(root)
     const plugin = hubQueue(false)
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
-    config({ root, [VITEHUB_FEATURES]: { queue: { driver: "cloudflare" } } })
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<unknown>
+    await config({ root, [VITEHUB_FEATURES]: { queue: { driver: "cloudflare" } } })
     const nitro = await createQueueNitroConfig(plugin, {
       nitro: { preset: "cloudflare_module" }, projectRoot: root, root,
     })
@@ -149,14 +149,14 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
     const plugin = hubQueue({ driver: "cloudflare" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<unknown>
     const userConfig = {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
       nitro: { preset: "cloudflare_module" },
       root,
     }
 
-    config(userConfig)
+    await config(userConfig)
 
     expect(userConfig.nitro).toMatchObject({
       handlers: [{ handler: resolve(root, ".vitehub/nitro/queue/middleware.ts") }],
@@ -180,12 +180,12 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
     const plugin = hubQueue({ driver: "cloudflare" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<unknown>
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const external = /^node:/
     const userConfig = { nitro: { cloudflare: { wrangler: { compatibility_flags: ["custom"] } }, plugins: ["server/plugin.ts"], rollupConfig: { external } }, root }
 
-    config(userConfig)
+    await config(userConfig)
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: { wrangler: { compatibility_flags: ["custom", "nodejs_compat"], queues: { consumers: [{ queue: "queue--77656c636f6d65" }], producers: [{ binding: "QUEUE_77656C636F6D65", queue: "queue--77656c636f6d65" }] } } },
@@ -195,7 +195,7 @@ describe("hubQueue", () => {
       },
     })
     expect((userConfig.nitro.rollupConfig.external as unknown as unknown[])[0]).toBe(external)
-    config(userConfig)
+    await config(userConfig)
     expect(userConfig).toMatchObject({
       nitro: { plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] },
     })
@@ -362,7 +362,7 @@ describe("hubQueue", () => {
 
     const plugin = hubQueue({ namePrefix: "preview-" })
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(userConfig)
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
       consumers: [{ queue: "preview-queue--77656c636f6d65" }],
       producers: [{ binding: "QUEUE_77656C636F6D65", queue: "preview-queue--77656c636f6d65" }],
@@ -377,6 +377,61 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("createQueueCloudflareWorker({ definitions: queueDefinitions")
   })
 
+  it("sets max_batch_size on the Cloudflare consumer from maxBatchSize", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue({ handler: async () => undefined, \"maxBatchSize\": 5 })\n")
+    // A comment or a payload field with the same name sets nothing.
+    await writeFile(join(root, "server", "queues", "mail.ts"), "import { defineQueue } from 'vite-hub/queue'\n// maxBatchSize stays at the Cloudflare default.\nexport default defineQueue<{ maxBatchSize: number }>({ handler: async ({ payload }) => payload.maxBatchSize })\n")
+
+    const userConfig = { nitro: { preset: "cloudflare_module" }, root }
+    await (hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<void>)(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues.consumers", expect.arrayContaining([
+      { queue: "queue--6d61696c" },
+      { max_batch_size: 5, queue: "queue--73796e63" },
+    ]))
+  })
+
+  it.each([
+    ["a variable", "const size = 5\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: size })"],
+    ["an options variable", "const options = { handler: async () => undefined, maxBatchSize: 5 }\nexport default defineQueue(options)"],
+    ["a spread object", "const options = { maxBatchSize: 5 }\nexport default defineQueue({ handler: async () => undefined, ...options })"],
+    ["a spread after the option", "const options = { maxBatchSize: 20 }\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: 5, ...options })"],
+    ["a call that is not the default export", "const queue = defineQueue({ handler: async () => undefined, maxBatchSize: 5 })\nexport default queue"],
+    ["a spread in a call that is not the default export", 'const options = { "maxBatchSize": 5 }\nconst queue = defineQueue({ handler: async () => undefined, ...options })\nexport default queue'],
+    ["a computed key in a call that is not the default export", 'const key = "maxBatchSize"\nconst queue = defineQueue({ handler: async () => undefined, [key]: 5 })\nexport default queue'],
+    ["a value above 100", "export default defineQueue({ handler: async () => undefined, maxBatchSize: 200 })"],
+  ])("fails the Cloudflare build when it cannot read maxBatchSize from %s", async (_, source) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), `import { defineQueue } from 'vite-hub/queue'\n${source}\n`)
+
+    const config = hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await expect(config({ nitro: { preset: "cloudflare_module" }, root })).rejects.toMatchObject({ code: "QUEUE_MAX_BATCH_SIZE_INVALID" })
+  })
+
+  it.each([
+    [{ max_batch_size: 5, max_retries: 5 }, undefined],
+    [{ max_retries: 5 }, "has max_batch_size unset, but queue sets 5"],
+    [{ max_batch_size: 10 }, "has max_batch_size 10, but queue sets 5"],
+  ])("checks the app's own Wrangler consumer %j against maxBatchSize", async (consumer, message) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-max-batch-size-"))
+    roots.push(root)
+    await mkdir(join(root, "server", "queues"), { recursive: true })
+    await writeFile(join(root, "server", "queues", "sync.ts"), "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue({ handler: async () => undefined, maxBatchSize: 5 })\n")
+    const userConfig = { nitro: { cloudflare: { wrangler: { queues: { consumers: [{ queue: "queue--73796e63", ...consumer }] } } }, preset: "cloudflare_module" }, root }
+
+    const config = hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    if (message) {
+      await expect(config(userConfig)).rejects.toThrow(message)
+      return
+    }
+    await config(userConfig)
+    expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues.consumers", [{ queue: "queue--73796e63", ...consumer }])
+  })
+
   it("maps the long Drop deployment to its existing legacy Queue", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-legacy-"))
     roots.push(root)
@@ -385,7 +440,7 @@ describe("hubQueue", () => {
     const namePrefix = "vitehub-drop-pm-20260719-"
     const plugin = hubQueue({ namePrefix, driver: "cloudflare" })
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(userConfig)
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues", {
       consumers: [{ queue: "vitehub-drop-pm-20260719-image-optimization" }],
       producers: [{ binding: "QUEUE_696D6167652D6F7074696D697A6174696F6E", queue: "vitehub-drop-pm-20260719-image-optimization" }],
@@ -430,8 +485,8 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
     const config = { nitro: { preset: "cloudflare_module" }, root }
-    const pluginConfig = hubQueue({ namePrefix: "x".repeat(80), driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-    expect(() => pluginConfig(config)).not.toThrow()
+    const pluginConfig = hubQueue({ namePrefix: "x".repeat(80), driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<unknown>
+    await pluginConfig(config)
     const queue = ((config.nitro as Record<string, unknown>).cloudflare as { wrangler: { queues: { producers: Array<{ queue: string }> } } }).wrangler.queues.producers[0]!.queue
     expect(queue).toHaveLength(63)
   })
@@ -442,8 +497,8 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
 
     for (const namePrefix of ["-preview-", "preview_", "preview/"]) {
-      const config = hubQueue({ namePrefix, driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => void
-      expect(() => config({ nitro: { preset: "cloudflare_module" }, root })).toThrow(expect.objectContaining({ code: "QUEUE_INVALID_NAME" }))
+      const config = hubQueue({ namePrefix, driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<unknown>
+      await expect(config({ nitro: { preset: "cloudflare_module" }, root })).rejects.toThrow(expect.objectContaining({ code: "QUEUE_INVALID_NAME" }))
     }
   })
 
@@ -486,7 +541,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const config = { nitro: { preset: "node-server" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     expect(config).not.toHaveProperty("nitro.cloudflare")
     expect(config).not.toHaveProperty("nitro.vercel")
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
@@ -520,7 +575,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const config = { nitro: { preset: "node-server" }, plugins: [[databasePlugin("postgresql")]], root, [VITEHUB_FEATURES]: { queue: { cache: false } } }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"driver": "postgres"')
@@ -543,7 +598,7 @@ describe("hubQueue", () => {
       await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
       const plugin = hubQueue(options)
       const config = { nitro: { preset: "node-server" }, plugins, root }
-      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+      await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
       const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
       expect(nitroPlugin).toContain('"driver": "local"')
@@ -558,7 +613,7 @@ describe("hubQueue", () => {
     const database = databasePlugin()
     const plugin = hubQueue()
     const config = { nitro: { preset: "node-server" }, plugins: [database], root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
     const pluginFile = join(root, ".vitehub", "nitro", "queue", "plugin.ts")
     expect(plugin.vitehub?.durability?.()).toMatchObject([{ input: { driver: "local" } }])
@@ -601,7 +656,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "postgres" })
     const config = { nitro: { preset: "node-server" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain("startPostgresQueue(queueConfig)")
@@ -614,7 +669,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "postgres" })
     const config = { nitro: { preset: "node-server" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"driver": "local"')
@@ -628,7 +683,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const config = { nitro: { preset }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>, env: { command: string, isPreview: boolean }) => void)(config, { command: "serve", isPreview: true })
+    await (plugin.config as unknown as (config: Record<string, unknown>, env: { command: string, isPreview: boolean }) => Promise<void>)(config, { command: "serve", isPreview: true })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).not.toContain('"development"')
@@ -641,11 +696,24 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const config = { nitro: { preset: "node-server" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"driver": "local"')
     expect(nitroPlugin).toContain('"development": true')
+  })
+
+  it("reads the host of `vitehub()` in `vite dev`, which has no Nitro preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-dev-host-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const config = { [VITEHUB_DEPLOYMENT_HOST]: "node", root }
+    await (plugin.config as unknown as (config: Record<string, unknown>, env: { command: string }) => Promise<void>)(config, { command: "serve" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"driver": "local"')
+    expect(nitroPlugin).not.toContain('"rules"')
   })
 
   it("keeps an explicit hosted provider on a Node preset", async () => {
@@ -677,7 +745,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "cloudflare" })
     const config = { nitro: { preset: "vercel" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     expect(config).not.toHaveProperty("nitro.cloudflare")
     expect(config).not.toHaveProperty("nitro.rollupConfig.external")
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, queue: { driver: "cloudflare" } } as never)
@@ -701,7 +769,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const userConfig = { nitro: { preset: "cloudflare_module" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(userConfig)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(userConfig)
     expect(userConfig).toHaveProperty("nitro.cloudflare.wrangler.queues.producers")
     expect(userConfig).toHaveProperty("nitro.rollupConfig.external", ["cloudflare:workers"])
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, nitro: { preset: "vercel" } } as never)
@@ -743,7 +811,7 @@ describe("hubQueue", () => {
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue()
     const initial = { nitro: {}, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(initial)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(initial)
     expect(initial.nitro).not.toHaveProperty("cloudflare")
     const resolved = { build: { outDir: "dist" }, command: "build", nitro: { ...initial.nitro, preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], [VITEHUB_FEATURES]: { queue: undefined }, root }
     await (plugin.configResolved as (config: unknown) => Promise<void>)(resolved as never)
@@ -752,7 +820,7 @@ describe("hubQueue", () => {
     await runBuildEnd(plugin)
 
     const disabled = { nitro: { preset: "cloudflare_module", handlers: [{ handler: ".vitehub/nitro/queue/middleware.ts", middleware: true, route: "/**" }, { handler: "server/middleware.ts", middleware: true }], plugins: [".vitehub/nitro/queue/plugin.ts", "server/plugin.ts"] }, [VITEHUB_FEATURES]: { queue: false }, root }
-    ;(hubQueue(false).config as unknown as (config: Record<string, unknown>) => void)(disabled)
+    await (hubQueue(false).config as unknown as (config: Record<string, unknown>) => Promise<void>)(disabled)
     expect(disabled.nitro.plugins).toEqual(["server/plugin.ts"])
     expect(disabled.nitro.handlers).toEqual([{ handler: "server/middleware.ts", middleware: true }])
     expect(disabled.nitro).not.toHaveProperty("cloudflare")
@@ -772,7 +840,7 @@ describe("hubQueue", () => {
       plugins: [{ name: "nitro:main" }],
       root,
     }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config as never)
 
@@ -807,7 +875,7 @@ describe("hubQueue", () => {
     vi.stubEnv("VERCEL", vercel)
     try {
       const config = { nitro: preset ? { preset } : {}, root }
-      ;(hubQueue({ driver: "vercel" }).config as unknown as (config: Record<string, unknown>) => void)(config)
+      await (hubQueue({ driver: "vercel" }).config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
       if (vercel) expect(config).toHaveProperty(["nitro", "vercel", "functionRules", "/api/vitehub/queues/vercel/welcome"])
       else expect(config.nitro).not.toHaveProperty("vercel")
     }
@@ -821,14 +889,14 @@ describe("hubQueue", () => {
     roots.push(root)
     await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "cloudflare", binding: "JOBS" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => void
+    const config = plugin.config as unknown as (config: Record<string, unknown>) => Promise<unknown>
     const moduleConfig = { nitro: { preset: "cloudflare_module" }, root }
-    config(moduleConfig)
+    await config(moduleConfig)
     expect(moduleConfig).toMatchObject({
       nitro: { cloudflare: { wrangler: { queues: { producers: [{ binding: "JOBS" }] } } } },
     })
     const underscorePages = { nitro: { preset: "cloudflare_pages" }, root }
-    config(underscorePages)
+    await config(underscorePages)
     expect(underscorePages).toMatchObject({
       nitro: {
         cloudflare: {
@@ -842,7 +910,7 @@ describe("hubQueue", () => {
     expect(underscorePages.nitro).not.toHaveProperty("cloudflare.wrangler.queues.consumers")
     expect(underscorePages.nitro).not.toHaveProperty("rollupConfig.external")
     const hyphenPages = { nitro: { preset: "cloudflare-pages" }, root }
-    config(hyphenPages)
+    await config(hyphenPages)
     expect(hyphenPages).toHaveProperty("nitro.cloudflare.wrangler.queues.producers", [{ binding: "JOBS", queue: "queue--77656c636f6d65" }])
     expect(hyphenPages.nitro).not.toHaveProperty("cloudflare.wrangler.queues.consumers")
 
@@ -900,7 +968,7 @@ describe("hubQueue", () => {
     await writeFile(definition, "export default { handler: async () => undefined }\n")
     const plugin = hubQueue({ driver: "cloudflare" })
     const config = { nitro: { preset: "cloudflare_module" }, root }
-    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
     expect(config).toHaveProperty("nitro.cloudflare.wrangler.queues")
     await rm(definition)
 
@@ -938,12 +1006,12 @@ describe("hubQueue", () => {
     roots.push(root)
     await writeFile(join(root, "first.queue.ts"), "export default { handler: async () => undefined }\n")
     await writeFile(join(root, "second.queue.ts"), "export default { handler: async () => undefined }\n")
-    const custom = hubQueue({ driver: "cloudflare", binding: "JOBS" }).config as unknown as (config: Record<string, unknown>) => unknown
-    expect(() => custom({ nitro: { preset: "cloudflare_module" }, root })).toThrow(expect.objectContaining({ code: "QUEUE_BINDING_CONFLICT" }))
+    const custom = hubQueue({ driver: "cloudflare", binding: "JOBS" }).config as unknown as (config: Record<string, unknown>) => Promise<unknown>
+    await expect(custom({ nitro: { preset: "cloudflare_module" }, root })).rejects.toThrow(expect.objectContaining({ code: "QUEUE_BINDING_CONFLICT" }))
 
     await rm(join(root, "second.queue.ts"))
     const generatedBinding = "QUEUE_6669727374"
-    const config = hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => unknown
-    expect(() => config({ nitro: { preset: "cloudflare_module", cloudflare: { wrangler: { queues: { producers: [{ binding: generatedBinding, queue: "other" }] } } } }, root })).toThrow(/already assigned/)
+    const config = hubQueue({ driver: "cloudflare" }).config as unknown as (config: Record<string, unknown>) => Promise<unknown>
+    await expect(config({ nitro: { preset: "cloudflare_module", cloudflare: { wrangler: { queues: { producers: [{ binding: generatedBinding, queue: "other" }] } } } }, root })).rejects.toThrow(/already assigned/)
   })
 })

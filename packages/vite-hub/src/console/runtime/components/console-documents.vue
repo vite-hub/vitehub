@@ -300,6 +300,7 @@ onBeforeUnmount(() => {
 
 <template>
     <UDashboardSidebar
+      v-if="!setup?.sourceHeadsOnly"
       id="console-navigation"
       v-model:open="sidebarOpen"
       v-model:collapsed="sidebarCollapsed"

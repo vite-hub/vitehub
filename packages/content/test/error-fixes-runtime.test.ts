@@ -8,9 +8,7 @@ const fixedCodes = [
   "CONTENT_R0002",
   "CONTENT_R0003",
   "CONTENT_R0004",
-  "CONTENT_R0006",
   "CONTENT_R0007",
-  "CONTENT_R0008",
   "CONTENT_R0009",
   "CONTENT_R0010",
   "CONTENT_R0011",
@@ -33,14 +31,14 @@ it("gives each Content runtime code a fix and its own docs page", () => {
 
 it("tells the developer to change the defineContent() option", () => {
   expect(() => defineContent({ source: guide, route: "open" as never })).toThrow(expect.objectContaining({
-    code: "CONTENT_R0006",
-    fix: expect.stringContaining("`defineContent()`"),
+    code: "CONTENT_ROUTE_INVALID",
+    fix: expect.stringContaining("`defineContent({ route })`"),
   }))
 })
 
 it("tells the developer to change the contentSource() option", () => {
   expect(() => contentSource(guide, { url: "docs/:id" })).toThrow(expect.objectContaining({
-    code: "CONTENT_R0006",
-    fix: expect.stringContaining("`contentSource()`"),
+    code: "CONTENT_SOURCE_OPTIONS_INVALID",
+    fix: expect.stringContaining("`contentSource(input, { url })`"),
   }))
 })

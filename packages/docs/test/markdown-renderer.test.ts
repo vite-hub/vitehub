@@ -167,7 +167,7 @@ describe("DocsMarkdown", () => {
     const page = readDocsSeoPage("/", html, "https://docs.example.com")
     expect(page.h1).toBe(1)
     expect(page.headingSkip).toBeNull()
-    expect(docsSeoProblems([page], [])).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
+    expect(docsSeoProblems([page], []).map(problem => problem.message)).not.toEqual(expect.arrayContaining([expect.stringMatching(/h1 headings|skips a heading/)]))
   })
 
   it("renders example headings without duplicating page anchors", async () => {

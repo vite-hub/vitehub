@@ -1,13 +1,14 @@
-import { aiGatewaySupports, resolveAiGatewayModelRoute } from "./definition.ts"
+import { aiGatewayLanguageModel, aiGatewayOpenAIChat, aiGatewayStructuredOutputs, aiGatewaySupports, isRecord, resolveAiGatewayModelRoute } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
-import type { LanguageModelV4 } from "@ai-sdk/provider"
-import type { AiGatewayModelRoute } from "./definition.ts"
+import type { LanguageModelV4, LanguageModelV4CallOptions } from "@ai-sdk/provider"
+import type { AiGatewayLanguageModelRoute, AiGatewayModelRoute } from "./definition.ts"
 import type { AiGateway, AiGatewayCapabilities, AiGatewayRoute } from "./types.ts"
 
 /**
  * The model APIs that `languageModel()` can call, for the routes of a gateway:
- * - `chat`: OpenAI Chat Completions at the `openai-compatible` URL, with `@ai-sdk/openai-compatible`.
+ * - `chat`: OpenAI Chat Completions at the `openai-compatible` URL, with `@ai-sdk/openai-compatible`. The `openai()`
+ *   preset uses `@ai-sdk/openai`.
  * - `responses`: OpenAI Responses at the `openai-compatible` URL, else at the `codex` URL, with `@ai-sdk/openai`.
  * - `messages`: Anthropic Messages at the `claude-code` URL, with `@ai-sdk/anthropic`.
  */
@@ -34,6 +35,13 @@ const packages = {
   "responses": "@ai-sdk/openai",
 } as const
 
+type ModelPackage = typeof packages[AiGatewayModelApi]
+
+/** The AI SDK provider package of one model API on one gateway. */
+function packageOf(gateway: AiGateway, api: AiGatewayModelApi): ModelPackage {
+  return api === "chat" && Reflect.get(gateway, aiGatewayOpenAIChat) === true ? "@ai-sdk/openai" : packages[api]
+}
+
 function defaultApi(gateway: AiGateway): AiGatewayModelApi {
   if (aiGatewaySupports(gateway, "openai-compatible")) return "chat"
   if (aiGatewaySupports(gateway, "claude-code")) return "messages"
@@ -46,13 +54,13 @@ function routeOf(gateway: AiGateway, api: AiGatewayModelApi): AiGatewayRoute {
   return "openai-compatible"
 }
 
-async function load<T>(api: AiGatewayModelApi, importer: () => Promise<T>): Promise<T> {
+async function load<T>(api: AiGatewayModelApi, name: ModelPackage, importer: () => Promise<T>): Promise<T> {
   try {
     return await importer()
   }
   catch (error) {
     throw gatewayDiagnostics.GATEWAYS_R0010({
-      message: `[vitehub] The "${api}" model API needs the ${packages[api]} package. Install it with: pnpm add ${packages[api]}`,
+      message: `[vitehub] The "${api}" model API needs the ${name} package. Install it with: pnpm add ${name}`,
       cause: error,
     })
   }
@@ -62,26 +70,42 @@ function headerRecord(route: AiGatewayModelRoute): Record<string, string> {
   return Object.fromEntries([...route.headers, ...(route.auth === "x-api-key" && route.apiKey ? [["x-api-key", route.apiKey]] : [])])
 }
 
-async function createModel(name: string, modelId: string, api: AiGatewayModelApi, route: AiGatewayModelRoute, fetch?: typeof globalThis.fetch): Promise<LanguageModelV4> {
+const sdkChatFields = new Set(["messages", "tools", "tool_choice", "stream", "stream_options"])
+
+/** Keeps raw Chat Completions parameters that the compatible SDK used to send. */
+function openAIChatFetch(providerOptions: LanguageModelV4CallOptions["providerOptions"], fetch = globalThis.fetch): typeof fetch {
+  const overrides = Object.entries(providerOptions?.openai ?? {}).filter(([key, value]) =>
+    /^[a-z][a-z0-9_]*$/.test(key) && !sdkChatFields.has(key) && !(key === "logprobs" && typeof value === "number"),
+  )
+  if (!overrides.length) return fetch
+  return async (input, init) => {
+    const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined
+    return await fetch(input, isRecord(body) ? { ...init, body: JSON.stringify({ ...body, ...Object.fromEntries(overrides) }) } : init)
+  }
+}
+
+async function createModel(name: string, modelId: string, api: AiGatewayModelApi, provider: ModelPackage, route: AiGatewayModelRoute, fetch?: typeof globalThis.fetch, structuredOutputs = false): Promise<LanguageModelV4> {
   const headers = headerRecord(route)
   const shared = { headers, name, ...(fetch ? { fetch } : {}) }
-  if (api === "chat") {
-    const { createOpenAICompatible } = await load(api, async () => await import("@ai-sdk/openai-compatible"))
+  if (api === "chat" && provider === "@ai-sdk/openai-compatible") {
+    const { createOpenAICompatible } = await load(api, provider, async () => await import("@ai-sdk/openai-compatible"))
     return createOpenAICompatible({
       ...shared,
       baseURL: route.baseURL,
       // Without it, streamed responses carry no token counts.
       includeUsage: true,
+      // Without it, the provider sends `json_object` without the output schema.
+      ...(structuredOutputs ? { supportsStructuredOutputs: true } : {}),
       ...(route.apiKey && route.auth === "bearer" ? { apiKey: route.apiKey } : {}),
     }).chatModel(modelId)
   }
   const apiKey = route.apiKey
   if (!apiKey) {
-    throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" needs an API key for the "${api}" model API. Pass apiKey, or use api: "chat".` })
+    throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" needs an API key for the "${api}" model API. Pass apiKey${api === "chat" ? "" : `, or use api: "chat"`}.` })
   }
-  if (api === "responses") {
-    const { createOpenAI } = await load(api, async () => await import("@ai-sdk/openai"))
-    return createOpenAI({
+  if (api === "chat" || api === "responses") {
+    const { createOpenAI } = await load(api, "@ai-sdk/openai", async () => await import("@ai-sdk/openai"))
+    const openai = createOpenAI({
       ...shared,
       apiKey,
       baseURL: route.baseURL,
@@ -92,9 +116,11 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
         headers.set("x-api-key", apiKey)
         return await (fetch ?? globalThis.fetch)(input, { ...init, headers })
       } : fetch,
-    }).responses(modelId)
+    })
+    // Chat Completions of `@ai-sdk/openai` ask for token counts in streamed responses by default.
+    return api === "chat" ? openai.chat(modelId) : openai.responses(modelId)
   }
-  const { createAnthropic } = await load(api, async () => await import("@ai-sdk/anthropic"))
+  const { createAnthropic } = await load(api, "@ai-sdk/anthropic", async () => await import("@ai-sdk/anthropic"))
   return createAnthropic({
     ...shared,
     baseURL: `${route.baseURL}/v1`,
@@ -132,19 +158,31 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${api}" model API. Set baseURL["${route}"] or choose another api.` })
   }
   const id = modelId.trim()
-  const model = async (abortSignal?: AbortSignal) => {
+  const provider = packageOf(gateway, api)
+  const structuredOutputs = Reflect.get(gateway, aiGatewayStructuredOutputs) === true
+  const nativeChat = api === "chat" && provider === "@ai-sdk/openai"
+  const model = async ({ abortSignal, providerOptions }: LanguageModelV4CallOptions) => {
     const resolved = await resolveAiGatewayModelRoute(gateway, route, abortSignal ? { abortSignal } : {})
-    return await createModel(gateway.name, id, api, resolved, options.fetch)
+    const fetch = nativeChat ? openAIChatFetch(providerOptions, options.fetch) : options.fetch
+    return await createModel(gateway.name, id, api, provider, resolved, fetch, structuredOutputs)
   }
-  return {
+  /** Keeps JSON mode on Chat; the caller still has its schema for local validation. */
+  function request(callOptions: LanguageModelV4CallOptions): LanguageModelV4CallOptions {
+    return nativeChat && callOptions.responseFormat?.type === "json"
+      ? { ...callOptions, responseFormat: { type: "json" } }
+      : callOptions
+  }
+  const languageModel: LanguageModelV4 = {
     specificationVersion: "v4",
     provider: `${gateway.name}.${api}`,
     modelId: id,
     // URL capabilities belong to the provider, so metadata reads need no gateway credentials or resolvers.
     get supportedUrls() {
-      return createModel(gateway.name, id, api, { apiKey: "unused", auth: "bearer", baseURL: "https://gateway.invalid", headers: [] }).then(resolved => resolved.supportedUrls)
+      return createModel(gateway.name, id, api, provider, { apiKey: "unused", auth: "bearer", baseURL: "https://gateway.invalid", headers: [] }, undefined, structuredOutputs).then(resolved => resolved.supportedUrls)
     },
-    doGenerate: async callOptions => await (await model(callOptions.abortSignal)).doGenerate(callOptions),
-    doStream: async callOptions => await (await model(callOptions.abortSignal)).doStream(callOptions),
+    doGenerate: async callOptions => await (await model(callOptions)).doGenerate(request(callOptions)),
+    doStream: async callOptions => await (await model(callOptions)).doStream(request(callOptions)),
   }
+  const modelRoute: AiGatewayLanguageModelRoute = Object.freeze({ api, gateway: gateway.name, modelId: id })
+  return Object.defineProperty(languageModel, aiGatewayLanguageModel, { value: modelRoute })
 }

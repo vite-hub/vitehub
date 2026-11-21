@@ -17,6 +17,7 @@ export type ForgeEnv = {
   github: Record<"appId" | "installationId" | "appOwner" | "appInstallations" | "privateKey" | "privateKeyPath" | "token" | "webhookSecret", ForgeEnvField>
   gitlab: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
   forgejo: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
+  gitea: Record<"baseUrl" | "token" | "webhookSecret", ForgeEnvField>
 }
 
 /**
@@ -46,6 +47,11 @@ export const forgeEnv: ForgeEnv = {
     token: { names: ["VITEHUB_FORGEJO_TOKEN", "FORGES_FORGEJO_TOKEN"], secret: true },
     webhookSecret: { names: ["VITEHUB_FORGEJO_WEBHOOK_SECRET", "FORGES_FORGEJO_WEBHOOK_SECRET"], secret: true },
   },
+  gitea: {
+    baseUrl: { names: ["VITEHUB_GITEA_BASE_URL", "FORGES_GITEA_BASE_URL"] },
+    token: { names: ["VITEHUB_GITEA_TOKEN", "FORGES_GITEA_TOKEN"], secret: true },
+    webhookSecret: { names: ["VITEHUB_GITEA_WEBHOOK_SECRET", "FORGES_GITEA_WEBHOOK_SECRET"], secret: true },
+  },
 }
 
 /**
@@ -68,18 +74,16 @@ export function forgeErrorStatus(error: unknown): number | undefined {
 }
 
 /**
- * Loads `@vite-hub/forge`, an optional peer of Channels, Workspaces, and Sources. Pass `() => import("@vite-hub/forge")`
- * from the calling package, so that its bundler resolves the package, or keeps it out when the app did not install it.
+ * The error for a failed `import("@vite-hub/forge")`, an optional peer of Channels, Workspaces, and Sources. When the
+ * app did not install Forge, it is a coded error that names the install command. Otherwise it is the load error itself.
  * `feature` names what needs Forge, such as `A GitHub Workspace`.
+ *
+ * Call it in the `catch` of a `try` that holds the import itself, in the calling package. esbuild, and so Wrangler and
+ * Netlify, then keep an import that does not resolve for run time instead of failing the build.
  */
-export async function importForge<T>(load: () => Promise<T>, feature: string): Promise<T> {
-  try {
-    return await load()
-  }
-  catch (error) {
-    if (!isMissingForge(error)) throw error
-    throw internalErrorDiagnostics.INTERNAL_FORGE_NOT_INSTALLED({ cause: error, feature })
-  }
+export function forgeImportError(error: unknown, feature: string): unknown {
+  if (!isMissingForge(error)) return error
+  return internalErrorDiagnostics.INTERNAL_FORGE_NOT_INSTALLED({ cause: error, feature })
 }
 
 // Node: Cannot find package '@vite-hub/forge'. workerd: No such module "@vite-hub/forge". A Vite build without the

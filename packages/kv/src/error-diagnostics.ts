@@ -12,11 +12,15 @@ const cursorProblems = {
 
 export type KVCursorProblem = keyof typeof cursorProblems
 
-// Keep published codes stable. Each code has a heading on the docs page.
+// Keep published codes stable. The docs build generates a page for each code.
 export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/kv/diagnostics",
   codes: {
     // Runtime errors. KV operations return them as `[error, undefined]`.
+    KV_INVALID_CLEAR_OPTIONS: {
+      why: "`kv.clear()` needs an options object with an optional string `prefix`, or no argument. It rejects a legacy string argument before deleting any keys.",
+      fix: "Use `kv.clear({ prefix: 'drafts:' })` to clear the keys below `drafts`, or `kv.clear()` to clear the whole store.",
+    },
     KV_INVALID_CURSOR: {
       why: ({ problem }: { problem: KVCursorProblem }) => cursorProblems[problem],
       fix: "Pass the `cursor` of the previous page once, to the same store. If it fails, start again without `cursor`.",
@@ -30,8 +34,8 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass `{ ttl: seconds }` to expire the value, or no options to keep it. KV has no Cloudflare `expirationTtl`, `expiration`, or `metadata` option.",
     },
     KV_INVALID_TTL: {
-      why: "`ttl` must be a positive number of seconds within the safe integer range.",
-      fix: "Pass the TTL in seconds, for example `kv.set('session', value, { ttl: 60 })`.",
+      why: "`ttl` must be a positive number of seconds within the safe integer range, or a duration such as `\"1h\"`.",
+      fix: "Pass the TTL in seconds or as a duration, for example `kv.set('session', value, { ttl: 60 })` or `kv.set('session', value, { ttl: \"1h\" })`.",
     },
     KV_INVALID_VALUE: {
       why: ({ operation, problem }: { operation: "deleteIfEquals" | "setIfAbsent", problem: "missing" | "unserializable" }) => problem === "missing"
@@ -111,8 +115,12 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `kv: { driver: 'fs-lite' }`.",
     },
     KV_INVALID_DRIVER: {
-      why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
-      fix: "Set `kv.driver` to \"cloudflare\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
+      why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
+        ? `\`kv.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
+        : `\`kv.driver\` ${driver} is not a KV driver.`,
+      fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
+        ? `Set \`kv: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
+        : "Set `kv.driver` to \"cloudflare\", \"database\", \"deno-kv\", \"fs-lite\", \"redis\", or \"upstash\".",
     },
     KV_INVALID_REMOTE: {
       why: ({ store }: { store: string }) => `\`remote\` of the KV store "${store}" must be \`true\` or \`false\`.`,
@@ -169,6 +177,14 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_PROVISION_FAILED: {
       why: ({ problem }: { problem: string }) => `Cloudflare KV provisioning failed. ${problem}`,
       fix: "Run `vitehub provision run --host cloudflare --dry-run` and check the Cloudflare token permissions.",
+    },
+
+    // Build hints. A build prints them and writes them to `.vitehub/hints.json`.
+    KV_REDIS_URL_UNUSED: {
+      why: ({ name, store }: { name: string, store: string }) => store === "upstash"
+        ? `KV on Vercel uses Upstash, and the build has no \`KV_REST_API_URL\` and \`KV_REST_API_TOKEN\`, so KV fails at runtime. The build has \`${name}\`, and KV does not select Redis on its own.`
+        : `The build has \`${name}\`, but KV does not select Redis on its own. The KV store "default" uses ${store}.`,
+      fix: ({ name }: { name: string, store: string }) => `To keep KV in that Redis, set \`kv: { driver: "redis"${name === "REDIS_URL" ? "" : `, url: "env:${name}"`} }\`. To keep this store, set its \`driver\`.`,
     },
   },
 })

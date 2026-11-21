@@ -204,7 +204,7 @@ Prefer customer-facing language and next actions.
 
 Conditions bind `data.context.*` paths and support `eq`, `neq`, `gt`, `gte`,
 `lt`, and `lte`. For a compound condition, compute a boolean in TypeScript. See
-[Markdown templates](/docs/reference/markdown-templates) for the full syntax.
+[Markdown templates](/docs/markdown-template) for the full syntax.
 
 ## Insert Workspace bindings
 
@@ -271,8 +271,8 @@ text to the prompt.
 | Custom `driver.run` | Your code reads the prepared context. ViteHub builds no model prompt. |
 
 Read [Agent Drivers](/docs/agents/agent-drivers) for each Driver. Run
-`vitehub agent info --agent <name>` to see the resolved instructions and
-coverage warnings. See the [CLI development loop](/docs/development/cli).
+`vitehub agent get --agent <name>` to see the resolved instructions and
+coverage warnings. See the [CLI development loop](/docs/cli).
 
 ## Next steps
 

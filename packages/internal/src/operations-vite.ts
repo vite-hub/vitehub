@@ -1,13 +1,13 @@
 import { resolve } from "node:path"
 import { writeFileIfChanged } from "./definition-catalog.ts"
 import { addViteHubDevPeerDevHandler } from "./dev-peer.ts"
-import { createNitroServerKit } from "./nitro-kit.ts"
+import { createNitroServerKit, ownAccessRouteMeta } from "./nitro-kit.ts"
 import { collectOperationContributions, operationRpcPath } from "./operations.ts"
 import { flattenPluginOptions } from "./contributions.ts"
 import { readViteHubDevServerFile, removeViteHubDevServerFile, writeViteHubDevServerFile } from "./cli.ts"
 
 // The first of these plugins hosts the shared RPC. Its operations module also exports the handler factory.
-const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite"])
+const owners = new Set(["@vite-hub/kv/vite", "@vite-hub/blob/vite", "@vite-hub/email/vite", "@vite-hub/rate-limit/vite", "@vite-hub/forms/vite", "@vite-hub/sync/vite"])
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
@@ -70,7 +70,8 @@ export async function installStandaloneOperationRpc(config: { root?: string, plu
   ].join("\n")
   await writeFileIfChanged(handler, source)
   const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-  kit.addHandler({ handler, route: operationRpcPath })
+  // The route answers only calls that the Vite process signed.
+  kit.addHandler({ handler, meta: { ...ownAccessRouteMeta }, route: operationRpcPath })
   // Nitro's dev worker never sees the client's address. The Vite process signs loopback requests for the route.
   const devHandlers: unknown = kit.config.devHandlers
   const signed: Array<{ handler?: unknown, route?: string }> = Array.isArray(devHandlers) ? [...devHandlers] : []

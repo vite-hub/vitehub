@@ -305,3 +305,19 @@ describe("colocated Agent instructions", () => {
     }
   })
 })
+
+describe("Agents without instructions", () => {
+  it("send no system message to the model", async () => {
+    const model = new MockLanguageModelV3({ doGenerate: {
+      content: [{ type: "text", text: "Sunny." }],
+      finishReason: { raw: "stop", unified: "stop" },
+      usage: { inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 }, outputTokens: { reasoning: 0, text: 1, total: 1 } },
+      warnings: [],
+    } })
+    const agent = defineAgent({ driver: { model }, runtime: false })
+
+    await runAgentWithContext(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Weather in Paris?" })
+
+    expect(model.doGenerateCalls[0]?.prompt.map(message => message.role)).toEqual(["user"])
+  })
+})

@@ -74,7 +74,9 @@ function rowToFile(row: Row): ContentFile & { source: string } {
 }
 
 /**
- * An in-memory SQLite database on SQLite WASM, for Cloudflare Workers. Node SQLite is a stub there.
+ * An in-memory SQLite database on SQLite WASM, for Cloudflare Workers. Node SQLite is a stub there
+ * (https://github.com/cloudflare/workerd/issues/6878). comark-content rewrites its tables in a shared database for each
+ * new instance, so each instance keeps its own.
  */
 export function sqlite(): RelationalDatabase {
   let database: Database | undefined

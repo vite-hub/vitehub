@@ -185,11 +185,11 @@ describe("Database Nuxt integration", () => {
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
-          handler: ".vitehub/nitro/database/request-stats.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/request-stats.ts`,
           middleware: true,
         },
         {
-          handler: ".vitehub/nitro/database/middleware.ts",
+          handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts`,
           middleware: true,
         },
       ],
@@ -363,6 +363,26 @@ describe("Database Nuxt integration", () => {
         "@vite-hub/database/runtime/registry": `${tmp}/vitehub-db-nuxt/.vitehub/database/vercel-runtime.mjs`,
       },
     })
+  })
+
+  it("registers Nitro middleware that resolves to the written files when projectRoot is not the Nuxt rootDir", async () => {
+    const rootDir = await mkdtemp(join(tmp, "project-root-handlers-"))
+    const projectRoot = join(rootDir, "service")
+    await mkdir(projectRoot)
+    await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+    const { hooks, nuxt } = createNuxt({ dev: false, nitro: { preset: "cloudflare_module" }, rootDir, vite: {} })
+    await hubDatabase({ driver: "cloudflare", databaseId: "id", databaseName: "db", projectRoot: "service" })(undefined, nuxt)
+
+    const nitroConfig: { handlers?: Array<{ handler: string }> } = {}
+    await callHook(hooks, "nitro:config", nitroConfig)
+
+    // Nitro resolves a relative handler against its own rootDir, which Nuxt sets to its rootDir.
+    const resolvedByNitro = nitroConfig.handlers!.map(({ handler }) => resolve(rootDir, handler))
+    expect(resolvedByNitro).toEqual([
+      join(projectRoot, ".vitehub/nitro/database/request-stats.ts"),
+      join(projectRoot, ".vitehub/nitro/database/middleware.ts"),
+    ])
+    for (const file of resolvedByNitro) await expect(readFile(file, "utf8")).resolves.toContain("export default")
   })
 
   it("uses local sqlite for Nuxt Content during dev without changing the D1 provider binding", async () => {
@@ -983,6 +1003,27 @@ describe("Database Nuxt integration", () => {
         await rm(rootDir, { recursive: true, force: true })
       }
     })
+  })
+
+  it.each([
+    ["the former \"d1\"", "d1", "renamed this driver to \"cloudflare\"", "npx @vite-hub/codemods driver-key"],
+    ["an unknown driver", "libsql", "is not a Database driver", "Set `database.driver` to \"cloudflare\""],
+  ])("rejects %s as the Database driver before the build", async (_case, driver, why, fix) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-driver-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const { nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      // SAFETY: An app config without types, such as a JavaScript config or `as never`, passes any driver.
+      const options = { databaseId: "id", databaseName: "anki", driver } as unknown as Parameters<typeof hubDatabase>[0]
+      await expect(hubDatabase(options)(undefined, nuxt)).rejects.toMatchObject({
+        code: "DATABASE_UNKNOWN_DRIVER",
+        fix: expect.stringContaining(fix),
+        why: expect.stringContaining(why),
+      })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
   })
 
   it.each([
@@ -2140,22 +2181,6 @@ describe("Database Nuxt integration", () => {
       rootDir: `${tmp}/vitehub-db-nuxt-disabled`,
       vite: {},
     })
-  })
-
-  it.each([false, { binding: "TOP_LEVEL_DB", driver: "cloudflare" }])("ignores a top-level Nuxt `database` key: %j", async (database) => {
-    const { nuxt } = createNuxt({
-      database,
-      dev: false,
-      rootDir: `${tmp}/vitehub-db-nuxt-top-level`,
-      vite: {},
-    })
-
-    await hubDatabase()(undefined, nuxt)
-
-    const options = getResolvedFeatureOptions<Record<string, unknown>>(nuxt.options.vite as object, "database")
-    expect(options).toMatchObject({ nuxtHostResource: true })
-    expect(options).not.toHaveProperty("binding")
-    expect(options).not.toHaveProperty("driver")
   })
 })
 

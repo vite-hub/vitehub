@@ -167,7 +167,7 @@ export interface ViteHubPageToolInfo {
   /** A key that opens the tool, such as `c`. */
   hotkey?: string
   /**
-   * The URL of the module script of the tool. A path, such as `/api/_vitehub/comments/assets/overlay.js`, is below the
+   * The URL of the module script of the tool. A path, such as `/_vitehub/comments/assets/overlay.js`, is below the
    * app base: the session route adds the base. A full URL stays as it is.
    */
   script: string

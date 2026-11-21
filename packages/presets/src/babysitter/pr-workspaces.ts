@@ -156,7 +156,15 @@ async function diskUsage(directory: string): Promise<number> {
  * (`checkout/`), the provider workspace (`work/`), `state.json` with what the last pass left, and a
  * `lock` file with the owning process ID.
  */
-export function createPullRequestWorkspaces(options: { root: string; now?: () => number } & BabysitterWarmWorkspaces): PullRequestWorkspaces {
+export function createPullRequestWorkspaces(options: {
+  root: string;
+  now?: () => number;
+  /**
+   * Deletes the stored provider session of a pass. A pass resumes only the session that a kept entry's resumable
+   * record names, so the workspaces delete every other session they see: on each record and on each removal.
+   */
+  deleteSession?: (repository: string, number: number, session: string) => Promise<void>;
+} & BabysitterWarmWorkspaces): PullRequestWorkspaces {
   const root = resolve(options.root);
   const now = options.now ?? Date.now;
   const budgetBytes = (options.budgetGb ?? 60) * GiB;
@@ -272,6 +280,10 @@ export function createPullRequestWorkspaces(options: { root: string; now?: () =>
           previous: previous && { head: previous.head, base: previous.base, ok: previous.ok, resumable: previous.resumable, release: previous.release, session: previous.session, outcome: previous.outcome },
           async record(result) {
             await writeRecord(directory, { ...result, version: 1, repository, number, at: now() });
+            const kept = result.resumable ? result.session : undefined;
+            for (const session of new Set([previous?.session, result.session])) {
+              if (session && session !== kept) await options.deleteSession?.(repository, number, session);
+            }
           },
           async release() {
             if (released) return;
@@ -288,6 +300,10 @@ export function createPullRequestWorkspaces(options: { root: string; now?: () =>
       sweeping ??= (async () => {
         const removed: { name: string; reason: string }[] = [];
         const kept: { name: string; bytes: number; usedAt: number }[] = [];
+        // A pass resumes only in a kept entry, so a removed entry's session can never continue.
+        const deleteSession = async (record: StoredRecord | undefined) => {
+          if (record?.session) await options.deleteSession?.(record.repository, record.number, record.session);
+        };
         const entries = await readdir(root, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
           if (error.code === "ENOENT") return [];
           throw error;
@@ -310,7 +326,10 @@ export function createPullRequestWorkspaces(options: { root: string; now?: () =>
             const reason = state === "terminal" ? "terminal" : state === "unknown" ? "unknown" : now() - usedAt > idleMs ? "idle" : undefined;
             if (reason || !record) {
               gone = await removeLocked(entry.name);
-              if (gone) removed.push({ name: entry.name, reason: reason ?? "unknown" });
+              if (gone) {
+                removed.push({ name: entry.name, reason: reason ?? "unknown" });
+                await deleteSession(record);
+              }
               continue;
             }
             let bytes = record.bytes;
@@ -331,12 +350,18 @@ export function createPullRequestWorkspaces(options: { root: string; now?: () =>
           const release = await tryLock(entry.name);
           if (!release) continue;
           let gone = false;
-          try { gone = await removeLocked(entry.name); }
+          // A pass may have recorded a newer session since the first loop read the entry.
+          let record: StoredRecord | undefined;
+          try {
+            record = await readRecord(join(root, entry.name));
+            gone = await removeLocked(entry.name);
+          }
           finally { await release(gone); }
           if (!gone) continue;
           total -= entry.bytes;
           evicted++;
           removed.push({ name: entry.name, reason: lowDisk ? "low-disk" : "budget" });
+          await deleteSession(record);
         }
         return { removed, keptBytes: total, kept: kept.length - evicted };
       })().finally(() => { sweeping = undefined; });

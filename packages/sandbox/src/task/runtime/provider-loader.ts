@@ -1,10 +1,11 @@
 import type { Sandbox } from '../../index.ts'
 import type { SandboxTaskDefinitionOptions, SandboxTaskDefinitionDriverOptions } from '../module-types'
 import type { SandboxTaskDriver } from '../module-types'
+import type { SandboxTaskExecutionProvider } from './task-sandbox'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface ResolvedTaskSandbox {
-  provider: SandboxTaskDriver
+  provider: SandboxTaskExecutionProvider
   resolveSandbox: (requirements: readonly string[]) => Promise<Sandbox>
   sandboxId?: string
 }

@@ -34,7 +34,7 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 }
 ```
 
-- `event` is any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
+- `event` is any request event with [Standard Context](/docs/runtime/context#standard-context) properties: an H3 2 event in a ViteHub app, or a Web `Request`, such as the one `withAuth()` passes.
 - Without `key`, the guard counts by `event['~standard'].runtime.clientAddress`. On Cloudflare, the `cf-connecting-ip` header comes first.
 - A `Request` has no client address, so pass `key`. On Cloudflare, the guard reads `cf-connecting-ip` and the current request's bindings instead.
 - The same ID with the same normalized policy shares one budget. Conflicting policies fail the build and show both source locations.
@@ -42,7 +42,7 @@ export async function publishBurst(event: H3Event, ownerId: string) {
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `limit` | positive integer | required | Allowed requests per fixed window. |
-| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1h`, or `1d`. Must be finite, more than zero, and at most `8.64e15` milliseconds. |
+| `window` | duration string | required | Fixed window such as `10s`, `1m`, `1 hour`, or `1d`. Must be more than zero and at most `8.64e15` milliseconds. |
 | `enforcement` | `"best-effort" \| "strict"` | `"best-effort"` | Lowest guarantee the driver must give. |
 | `failure` | `"deny" \| "allow"` | `"deny"` | Whether an unavailable driver denies or allows the request. |
 | `key` | `string` | request client address | Identity of a user, tenant, account, or API client. |
@@ -70,6 +70,8 @@ export default defineHandler(async (event) => {
 
 The client gets `{ status: 429, message: 'Too many tries. Wait a minute and try again.', data: { code: 'errorTooManyTries' } }` and the `Retry-After` header. `message` and `code` can be runtime values, such as a translated text. They change only the `429`. The `503` of an unavailable limiter keeps its message. For a different status or body, use `checkRateLimit()`.
 
+An app error handler that builds its own response must copy `error.headers`, or the client gets no `Retry-After`. The evlog Nitro module (`evlog/nitro/v3`, up to 2.35.1) builds a new response for `/api` routes and drops the header.
+
 ## Check without throwing
 
 `checkRateLimit(event, id, options)` takes the same arguments, without `message` and `code`, and consumes the same counters as `requireRateLimit()`, but it returns an `[error, decision]` Result instead of throwing. Use it when a limited request still gets an answer, such as a cached or cheaper result.
@@ -89,12 +91,46 @@ export default defineEventHandler(async (event) => {
 
 `reason` is `limited` when the budget is used up, or `unavailable` when the driver failed and `failure` is `deny`. With `failure: 'allow'`, an unavailable driver returns `allowed: true` with `reason: 'unavailable'`. `error` is set when the check cannot run: `RATE_LIMIT_R0013` for a request without a key, and `RATE_LIMIT_R0009` for a missing Cloudflare binding. Invalid options throw. ViteHub discovers `checkRateLimit()` calls like `requireRateLimit()` calls, so the ID and policy must be static, and both share one budget per ID.
 
+## Give back a request
+
+`refundRateLimit(event, id, options)` gives back one request, for example when the work that the request paid for failed. Pass the same ID, policy, and `key` as the `requireRateLimit()` call:
+
+```ts [server/api/tutor.post.ts]
+import { defineHandler, HTTPError } from 'h3'
+import { refundRateLimit, requireRateLimit } from 'vite-hub/rate-limit'
+
+export default defineHandler(async (event) => {
+  const body = await event.req.json()
+  if (!body || typeof body !== 'object' || !('learnerId' in body) || typeof body.learnerId !== 'string'
+    || !('question' in body) || typeof body.question !== 'string') {
+    throw new HTTPError({ message: 'Expected a learner ID and a question.', status: 400 })
+  }
+  const { learnerId, question } = body
+  await requireRateLimit(event, 'tutor', { key: learnerId, limit: 5, window: '1d' })
+  const answer = await fetch('https://tutor.example.com/answer', { body: JSON.stringify({ question }), method: 'POST' })
+  if (!answer.ok) {
+    // The model failed, so this question does not count
+    await refundRateLimit(event, 'tutor', { key: learnerId, limit: 5, window: '1d' })
+    throw new HTTPError({ message: 'The tutor is unavailable. Try again.', status: 502 })
+  }
+  return await answer.json()
+})
+```
+
+It returns `[error, result]`. `result.status` is `refunded`, `unsupported` on the Cloudflare Rate Limiting binding, or `unavailable` when the driver failed. `error` is `RATE_LIMIT_R0013` for a request without a key.
+
+- Refund only a request that was allowed. The refund gives back one request in the current window. It does nothing when the window has no request.
+- The memory and `kv` drivers support it. The Cloudflare binding for `10s` and `1m` windows does not. On Cloudflare, other windows count in KV, so they support it. See [Deploy to Cloudflare](/docs/rate-limit/hosts#deploy-to-cloudflare).
+- ViteHub discovers `refundRateLimit()` calls like the other guards, so the ID and policy must be static and match the guard of the same ID.
+- A direct limiter has `limiter.refund({ key })`, which returns the same result without the tuple.
+
 ## Public imports
 
 | Import | Use |
 | --- | --- |
 | `requireRateLimit` from `vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
 | `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
+| `refundRateLimit` from `vite-hub/rate-limit` | Give back one request of a managed Rate Limit. |
 | `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
 | `kvRateLimitDriver` from `@vite-hub/rate-limit/drivers/kv` | Fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |

@@ -23,9 +23,10 @@ const defaultCloudflareSandboxMaxInstances = 12
 const cloudflareSandboxNodeImage = '24-bookworm-slim'
 // The command-line tools the 0.x cloudflare/sandbox image installed.
 const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps tini unzip wget zip'
-const durableObjectModule = '@vite-hub/sandbox/_internal/cloudflare'
+const durableObjectModule = '@vite-hub/sandbox/internal/cloudflare'
 
 // @cloudflare/sandbox 1.0 exports only the `import` condition, so `require.resolve` cannot find it.
+// Reported upstream: https://github.com/cloudflare/sandbox-sdk/issues/1053.
 function resolveModule(id: string) {
   return resolvePathSync(id, { conditions: ['workerd', 'worker', 'import', 'default'], url: import.meta.url })
 }
@@ -155,7 +156,7 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       })
     },
     resolveId: {
-      filter: { id: /^(?:virtual:vitehub-sandbox-task-cloudflare-exports|@cloudflare\/sandbox|@vite-hub\/sandbox\/_internal\/cloudflare)$/ },
+      filter: { id: /^(?:virtual:vitehub-sandbox-task-cloudflare-exports|@cloudflare\/sandbox|@vite-hub\/sandbox\/internal\/cloudflare)$/ },
       handler(id) {
         if (id === moduleId)
           return resolvedModuleId

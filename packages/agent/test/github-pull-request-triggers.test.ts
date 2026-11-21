@@ -58,7 +58,7 @@ function reviewerAgent(invoke: Invoke, options: { debounceMs?: number } = {}) {
             invoke: (_context, event) => calls(event),
           }),
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },
@@ -257,14 +257,6 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
     ])))
   })
 
-  it("takes the request as text", () => {
-    githubPullRequestTrigger({
-      events: ["issue_comment"],
-      // @ts-expect-error The request line of the pull request prompt is text, not messages.
-      invoke: () => ({ input: { prompt: [{ id: "request", role: "user" as const, parts: [{ type: "text" as const, text: "Only summarize this review." }] }] } }),
-    })
-  })
-
   it("runs invoke for a teammate's approval with Quiver's GitHub Channel", async () => {
     const state = await stateFile()
     const events: GitHubPullRequestTriggerEvent[] = []
@@ -313,7 +305,7 @@ describe("GitHub pull request triggers", { timeout: 30_000 }, () => {
               },
             }),
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },

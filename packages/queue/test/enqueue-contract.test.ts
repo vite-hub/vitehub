@@ -3,6 +3,8 @@ import { afterEach, expect, it, vi } from "vitest"
 import { defineQueue } from "../src/definition.ts"
 import { normalizeQueueEnqueueInput } from "../src/enqueue.ts"
 import { createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
+import { createLocalQueueClient, localQueueDeliveryRules, type LocalQueueEngine } from "../src/providers/local.ts"
+import { createPostgresQueueClient, type PostgresQueueEngine } from "../src/providers/postgres.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
@@ -11,6 +13,26 @@ import type { QueueEnqueueOptions } from "../src/types.ts"
 afterEach(() => {
   setQueueRuntimeConfig(undefined)
   setQueueRuntimeRegistry(undefined)
+})
+
+it.each(["cloudflare", "local", "postgres", "vercel"] as const)("rejects removed timing keys before dispatching a %s batch", async (provider) => {
+  const dispatch = vi.fn()
+  const client = provider === "cloudflare"
+    ? createCloudflareQueueClient({ driver: provider, binding: { send: vi.fn(), sendBatch: dispatch } })
+    : provider === "vercel"
+      ? await createVercelQueueClient({ driver: provider, topic: "audit", client: { send: vi.fn(), sendBatch: dispatch, handleCallback: vi.fn() } })
+      : provider === "postgres"
+        ? createPostgresQueueClient({ enqueue: dispatch } as unknown as PostgresQueueEngine, "audit")
+        : createLocalQueueClient({ enqueue: dispatch, rules: localQueueDeliveryRules.local } as unknown as LocalQueueEngine, "audit")
+
+  for (const key of ["delaySeconds", "retentionSeconds"]) {
+    const item = { body: {}, [key]: 60 }
+    const options = { delay: "1m" as const, [key]: 60 }
+    for (const result of [await client.sendBatch([{ body: {} }, item]), await client.sendBatch([{ body: {} }], options)]) {
+      expect(result).toMatchObject([{ code: "QUEUE_UNSUPPORTED_OPTION", fix: expect.stringContaining("Rename `delaySeconds` to `delay`"), why: expect.stringContaining(key) }, undefined])
+    }
+  }
+  expect(dispatch).not.toHaveBeenCalled()
 })
 
 it.each(["cloudflare", "vercel"] as const)("preserves business option names through %s enqueue", async (provider) => {
@@ -35,7 +57,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
         },
       })
   setQueueRuntimeConfig({ driver: provider }, async () => client)
-  setQueueRuntimeRegistry({ audit: async () => defineQueue(() => {}) })
+  setQueueRuntimeRegistry({ audit: async () => defineQueue({ handler: () => {} }) })
 
   const payloads = [
     { payload: "event" },
@@ -43,10 +65,11 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
     { payload: "event", region: "business-region", id: "business-id", kind: "audit" },
   ]
   for (const payload of payloads) {
-    expect((await dynamicQueue.send("audit", payload, { delaySeconds: 5 }))[0]).toBeUndefined()
+    expect((await dynamicQueue.send("audit", payload, { delay: "5s" }))[0]).toBeUndefined()
   }
   expect(sent.map(call => call.payload)).toEqual(payloads)
   for (const call of sent) {
+    // The provider gets the delay in seconds.
     expect(call.options).toMatchObject({ delaySeconds: 5 })
     expect(call.options).not.toMatchObject({ region: "business-region" })
   }

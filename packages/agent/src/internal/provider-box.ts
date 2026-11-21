@@ -508,7 +508,7 @@ export function providerSandboxEnvironment(options: {
     if (!environmentNamePattern.test(name) || sandboxRuntimeEnvironmentKeys.has(name)) continue
     // Values added by the provider runtime, such as the MCP bearer token, are forwarded.
     // Host values, such as PATH, stay on the host unless driver.env names them.
-    if (name === "T3_MCP_BEARER_TOKEN" || explicit.has(name) || (options.prepared[name] === undefined && options.host[name] === undefined)) selected[name] = value
+    if (name === "VITEHUB_MCP_BEARER_TOKEN" || explicit.has(name) || (options.prepared[name] === undefined && options.host[name] === undefined)) selected[name] = value
   }
   return selected
 }

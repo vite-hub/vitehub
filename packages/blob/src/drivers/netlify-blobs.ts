@@ -50,7 +50,6 @@ type NetlifyEnvironmentContext = {
   uncachedEdgeURL?: string
 }
 
-const METADATA_CONCURRENCY = 16
 const MAX_FETCH_RETRIES = 5
 const MIN_RETRY_DELAY = 1_000
 const RATE_LIMIT_HEADER = "X-RateLimit-Reset"
@@ -224,6 +223,8 @@ function resolveNetlifyConnection(options: NetlifyBlobsStoreConfig): ResolvedNet
   return { context, siteID, token }
 }
 
+// `store.list()` drops `size` and `last_modified`, and the list has no custom metadata, so this reads the list endpoint
+// and fetches metadata per key (https://github.com/netlify/primitives/issues/859).
 function createListPageFetcher(options: NetlifyBlobsStoreConfig, connection: ResolvedNetlifyConnection) {
   const { context, siteID, token } = connection
   const storeName = options.deployScoped
@@ -315,25 +316,6 @@ async function listPage(fetchPage: (parameters: Record<string, string>) => Promi
   }
 }
 
-async function mapWithConcurrency<T, U>(values: readonly T[], visit: (value: T) => Promise<U>): Promise<U[]> {
-  const results: U[] = []
-  let failure: { error: unknown } | undefined
-  let nextIndex = 0
-  await Promise.all(Array.from({ length: Math.min(METADATA_CONCURRENCY, values.length) }, async () => {
-    while (!failure && nextIndex < values.length) {
-      const index = nextIndex++
-      try {
-        results[index] = await visit(values[index]!)
-      }
-      catch (error) {
-        failure ??= { error }
-      }
-    }
-  }))
-  if (failure) throw failure.error
-  return results
-}
-
 function encodeCursor(cursor: FoldedCursor) {
   return encodeBase64Url(JSON.stringify(cursor))
 }
@@ -364,7 +346,6 @@ function toBlobObject(
   pathname: string,
   etag: string | undefined,
   metadata: StoredMetadata = {},
-  listed?: Pick<NetlifyListBlob, "last_modified" | "lastModified" | "size" | "uploaded_at" | "uploadedAt">,
 ): BlobObject {
   const envelope = metadataEnvelope(metadata)
   const contentType = envelope === "files-sdk"
@@ -376,12 +357,10 @@ function toBlobObject(
   const metadataSize = envelope === "files-sdk"
     ? metadata.__size
     : envelope === "legacy" ? metadata.size : undefined
-  const size = metadataSize ?? listed?.size ?? 0
-  const listedUploadTime = listed?.uploaded_at ?? listed?.uploadedAt ?? listed?.last_modified ?? listed?.lastModified
+  const size = metadataSize ?? 0
   const uploadedAt = envelope === "files-sdk"
     ? new Date(metadata.__lastModified!)
-    : listedUploadTime ? new Date(listedUploadTime)
-      : envelope === "legacy" ? new Date(metadata.uploadedAt!) : new Date(0)
+    : envelope === "legacy" ? new Date(metadata.uploadedAt!) : new Date(0)
   return {
     contentType,
     customMetadata,
@@ -390,6 +369,20 @@ function toBlobObject(
     pathname,
     size,
     uploadedAt,
+  }
+}
+
+/** A listed blob, from the list answer only: the pathname, the ETag, and the size and upload time when Netlify sends them. */
+function listedBlobObject(listed: NetlifyListBlob): BlobObject {
+  const uploadedAt = listed.uploaded_at ?? listed.uploadedAt ?? listed.last_modified ?? listed.lastModified
+  return {
+    contentType: undefined,
+    customMetadata: {},
+    httpEtag: listed.etag,
+    httpMetadata: {},
+    pathname: listed.key,
+    ...(listed.size === undefined ? {} : { size: listed.size }),
+    uploadedAt: uploadedAt ? new Date(uploadedAt) : new Date(0),
   }
 }
 
@@ -403,6 +396,31 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
   const connection = resolveNetlifyConnection(options)
   const store = createStore(options, connection)
   const fetchListPage = createListPageFetcher(options, connection)
+  type Condition = { onlyIfMatch: string } | { onlyIfNew: true }
+  // A conditional write that Netlify refuses returns `modified: false`.
+  function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions): Promise<BlobObject>
+  function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition: Condition): Promise<BlobObject | null>
+  async function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition?: Condition): Promise<BlobObject | null> {
+    const normalizedBody = await normalizeBody(body)
+    const contentType = putOptions.contentType
+      || (isBlob(normalizedBody) ? normalizedBody.type : undefined)
+      || "application/octet-stream"
+    const size = typeof normalizedBody === "string"
+      ? new TextEncoder().encode(normalizedBody).byteLength
+      : isBlob(normalizedBody)
+        ? normalizedBody.size
+        : normalizedBody.byteLength
+    const uploadedAt = new Date()
+    const metadata: StoredMetadata = {
+      __contentType: contentType,
+      __lastModified: uploadedAt.getTime(),
+      __size: size,
+      __user: putOptions.customMetadata,
+    }
+    const result = await store.set(pathname, normalizedBody, { metadata, ...condition })
+    return condition && !result.modified ? null : toBlobObject(pathname, result.etag, metadata)
+  }
+
   return {
     name: options.driver,
     options,
@@ -472,41 +490,16 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         startIndex = 0
         directoriesConsumed = false
       }
-      const blobs = await mapWithConcurrency(selected, async (listed) => {
-        const { etag, key } = listed
-        const metadata = await store.getMetadata(key, { consistency: options.consistency })
-        return toBlobObject(key, etag, metadata?.metadata as StoredMetadata | undefined, listed)
-      })
       return {
-        blobs,
+        // Only what the list answer holds: one request per page. `head()` reads the content type and custom metadata.
+        blobs: selected.map(listedBlobObject),
         cursor: hasMore && nextCursor ? encodeCursor(nextCursor) : undefined,
         folders: listOptions.folded ? [...folders] : undefined,
         hasMore,
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const normalizedBody = await normalizeBody(body)
-      const contentType = putOptions.contentType
-        || (isBlob(normalizedBody) ? normalizedBody.type : undefined)
-        || "application/octet-stream"
-      const size = typeof normalizedBody === "string"
-        ? new TextEncoder().encode(normalizedBody).byteLength
-        : isBlob(normalizedBody)
-          ? normalizedBody.size
-          : normalizedBody.byteLength
-      const uploadedAt = new Date()
-      const metadata: StoredMetadata = {
-        __contentType: contentType,
-        __lastModified: uploadedAt.getTime(),
-        __size: size,
-        __user: putOptions.customMetadata,
-      }
-      const result = await store.set(pathname, normalizedBody, {
-        metadata,
-      })
-      return {
-        ...toBlobObject(pathname, result.etag, metadata),
-      }
-    },
+    put: (pathname, body, putOptions = {}) => write(pathname, body, putOptions),
+    // Netlify sends the ETag as it got it, in the `If-Match` header of the write.
+    putIf: (pathname, body, putOptions, condition) => write(pathname, body, putOptions, condition.type === "create" ? { onlyIfNew: true } : { onlyIfMatch: condition.etag }),
   }
 }

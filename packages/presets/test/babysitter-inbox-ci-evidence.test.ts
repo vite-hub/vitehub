@@ -82,7 +82,9 @@ it('unavailable logs are distinct from CI failures and retried only after two mi
 })
 it('external reviewer check and unrelated job head never download an action log', async () => {
  const { inbox, claim } = await fixture([check({ id: 8, app: { slug: 'pullfrog' } }), check()])
- await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job({ head_sha: 'default-branch' })], readLog: async () => assert.fail('unrelated log') })
+ let logs = 0
+ await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => [job({ head_sha: 'default-branch' })], readLog: async () => { logs++; return 'unrelated log' } })
+ assert.equal(logs, 0)
  assert.equal(claim.snapshot.ciEvidence![0]!.status, 'unsupported')
  assert.equal(claim.snapshot.ciEvidence![1]!.status, 'unavailable')
 })

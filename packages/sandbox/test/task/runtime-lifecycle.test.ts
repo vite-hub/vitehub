@@ -107,8 +107,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("inherited")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_TASK_R0053" } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ code: "SANDBOX_TASK_R0053" })
     expect(runtimeMocks.executeSandboxTaskDefinition).not.toHaveBeenCalled()
   })
   it("creates unique valid default Cloudflare identities and preserves overrides", () => {
@@ -127,8 +127,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.resolveProviderSandbox).toHaveBeenCalledWith(["node"])
     expect(runtimeMocks.open).toHaveBeenCalledWith({
       id: expect.stringMatching(/^vitehub-example-[a-z0-9]+-[0-9a-f-]{36}$/),
@@ -144,8 +144,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { message: "destroy failed" } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ message: "destroy failed" })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -160,8 +160,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { message: expect.any(String) } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ message: expect.any(String) })
     expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
   })
 
@@ -176,10 +176,10 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: {
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({
       message: "[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than 2147483647.",
-    } })
+    })
     expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
   })
 
@@ -203,7 +203,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example", undefined, { signal })
 
-    expect(result.ok).toBe(true)
+    expect(result[0]).toBeUndefined()
     expect(runtimeMocks.open).toHaveBeenCalledWith({ id: expect.any(String), signal })
     expect(runtimeMocks.resolveTaskSandbox).toHaveBeenCalledWith(expect.objectContaining({ local: { timeout: 300_000 } }))
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledWith(
@@ -269,7 +269,7 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(second).rejects.toBe(reason)
 
     const third = runner.run()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
 
     releases.shift()?.()
@@ -304,7 +304,7 @@ describe("Sandbox runtime lifecycle", () => {
     await expect(first).rejects.toBe(reason)
 
     const next = runner.run()
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve, 10))
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).not.toHaveBeenCalled()
     finishExecution()
@@ -320,8 +320,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { message: expect.any(String) } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ message: expect.any(String) })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -335,9 +335,9 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(result.status).toBe(504)
-    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_TASK_TIMEOUT" } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.status).toBe(504)
+    expect(result[0]?.cause).toMatchObject({ code: "SANDBOX_TASK_TIMEOUT" })
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
@@ -356,8 +356,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { code: "SANDBOX_TASK_HANDLER_ERROR" } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ code: "SANDBOX_TASK_HANDLER_ERROR" })
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
@@ -377,8 +377,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -401,8 +401,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -417,8 +417,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { message: expect.stringContaining("exec timed out after 180000ms") } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ message: expect.stringContaining("exec timed out after 180000ms") })
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
   })
@@ -433,8 +433,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
-    expect(await result.json()).toMatchObject({ error: { message: expect.stringContaining("Network connection lost.") } })
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({ message: expect.stringContaining("Network connection lost.") })
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
@@ -451,7 +451,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
   })
@@ -470,7 +470,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
     expect(install).toHaveBeenCalledOnce()
     expect(runtimeMocks.open).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
@@ -488,7 +488,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(false)
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).not.toHaveBeenCalled()
   })
@@ -502,7 +502,7 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
+    expect(result[0]).toBeUndefined()
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledTimes(2)
   })
 
@@ -516,8 +516,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.open).toHaveBeenCalledTimes(2)
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledOnce()
     expect(runtimeMocks.sleep).toHaveBeenCalledWith(1000)
@@ -531,8 +531,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.close).toHaveBeenCalledOnce()
   })
 
@@ -583,8 +583,8 @@ describe("Sandbox runtime lifecycle", () => {
 
     const result = await runSandboxTaskRuntime("example")
 
-    expect(result.ok).toBe(true)
-    expect(await result.json()).toEqual({ ok: true })
+    expect(result[0]).toBeUndefined()
+    expect(result[1]).toEqual({ ok: true })
     expect(runtimeMocks.executeSandboxTaskDefinition).toHaveBeenCalledWith(
       expect.anything(),
       "example",

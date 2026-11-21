@@ -1,6 +1,6 @@
 # ChatGPT plan playground
 
-This playground discovers one Connection and one Codex Agent through ViteHub. It needs Node.js 22.18 or newer, pnpm, Codex on PATH, and your own eligible ChatGPT account. The local proof used Codex 0.164.0. No API key or `codex login` is needed.
+This playground discovers one Connection and one Codex Agent through ViteHub. It needs Node.js 24.15 or newer, pnpm, Codex on PATH, and your own eligible ChatGPT account. The local proof used Codex 0.164.0. No API key or `codex login` is needed.
 
 OpenAI plan usage is available to open-source projects, personal local apps and selected private apps. Paid or remotely hosted apps must join [OpenAI's waitlist](https://developers.openai.com/siwc) first.
 
@@ -31,7 +31,7 @@ The Agent defaults to `gpt-6.1-sol`, as in OpenAI's current SIWC example. If tha
 Run `connections connect` again and inspect. The client and host IDs should remain the same. To check a full sign-out and returning sign-in:
 
 ```sh
-corepack pnpm vitehub connections revoke chatgpt --confirm chatgpt --url http://127.0.0.1:1456
+corepack pnpm vitehub connections revoke chatgpt --yes --url http://127.0.0.1:1456
 corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:1456
 corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:1456
 ```
@@ -53,4 +53,4 @@ HEAVY_WAIT=0 heavy corepack pnpm exec vp run --cache -t @vite-hub/agent#build
 HEAVY_WAIT=0 VITEHUB_TEST_REAL_CODEX=1 heavy --light corepack pnpm --dir packages/agent exec vp test test/chatgpt-codex.test.ts
 ```
 
-Install `@openai/codex@0.164.0` in the app first. The gateway resolves the installed package and rejects a caller-supplied executable. This runs real Codex against a loopback OAuth, JWKS and Responses fake. It exercises a ViteHub Capability, a shell environment dump, HTTP errors, bounded retries and token expiry. It uses an isolated Codex Home, closes its listeners and never calls real OpenAI authentication. Without `VITEHUB_TEST_REAL_CODEX`, these integration tests are skipped.
+Install `@openai/codex@0.169.0` in the app first. The gateway resolves the installed package and rejects a caller-supplied executable. This runs real Codex against a loopback OAuth, JWKS and Responses fake. It exercises a ViteHub Capability, a shell environment dump, HTTP errors, bounded retries and token expiry. It uses an isolated Codex Home, closes its listeners and never calls real OpenAI authentication. Without `VITEHUB_TEST_REAL_CODEX`, these integration tests are skipped.

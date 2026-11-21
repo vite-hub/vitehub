@@ -100,17 +100,19 @@ function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string,
   }
   const values = properties(object)
   const editor = values.get("editor")
-  const auth = literal(values.get("auth")) === true
+  const signedIn = literal(values.get("authorize")) === true
+  const callback = values.has("authorize") && !signedIn
   const publicAccess = literal(values.get("access")) === "public"
-  const authorization = (rule: string) => values.has("authorize")
+  const authorization = (rule: string) => callback
     ? rule
-    : publicAccess ? "public: anyone may read and write" : auth ? "every identified user" : "missing: the server rejects this definition"
+    : publicAccess ? "public: anyone may read and write" : signedIn ? "every identified user" : "missing: the server rejects this definition"
   const perDocument = editor?.type === "ArrowFunctionExpression" || editor?.type === "FunctionExpression"
   const identity = {
     label: "Identity",
     value: values.has("identify")
-      ? `identify()${auth ? ", required" : ""}`
-      : auth ? "ViteHub Auth session, required" : "anonymous; presence names are client-asserted",
+      ? `identify()${signedIn ? ", required" : ""}`
+      : signedIn ? "ViteHub Auth session, required"
+        : callback ? "ViteHub Auth session when signed in" : "anonymous; presence names are client-asserted",
   }
   if (literal(values.get("document")) === false) {
     return [

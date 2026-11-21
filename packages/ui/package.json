@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/ui",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
@@ -28,6 +28,7 @@
   "type": "module",
   "sideEffects": [
     "./dist/comment-marks.css",
+    "./dist/icon-swap.css",
     "./dist/styles.css",
     "./dist/theme.css"
   ],
@@ -47,6 +48,11 @@
       "types": "./dist/markdown-editor.d.ts",
       "import": "./dist/markdown-editor.js",
       "default": "./dist/markdown-editor.js"
+    },
+    "./motion": {
+      "types": "./dist/motion.d.ts",
+      "import": "./dist/motion.js",
+      "default": "./dist/motion.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
@@ -75,6 +81,7 @@
     },
     "./package.json": "./package.json",
     "./comment-marks.css": "./dist/comment-marks.css",
+    "./icon-swap.css": "./dist/icon-swap.css",
     "./styles.css": "./dist/styles.css",
     "./theme.css": "./dist/theme.css"
   },
@@ -88,9 +95,13 @@
     "test:bridge": "node --test test/browser/tailwind-bridge.browser.mjs",
     "test:kit-parts": "node --test test/browser/kit-parts.browser.mjs",
     "test:parity": "node --test test/browser/parity.browser.mjs",
-    "test:ui-sdk": "node --test test/browser/ui-sdk.browser.mjs"
+    "test:anchored": "node --test test/browser/anchored.browser.mjs",
+    "test:ui-sdk": "node --test test/browser/ui-sdk.browser.mjs",
+    "test:editor": "node --test test/browser/editor.browser.mjs",
+    "test:motion": "node --test --test-concurrency=1 test/browser/motion*.browser.mjs"
   },
   "dependencies": {
+    "reka-ui": "catalog:ui",
     "@comark/vue": "0.9.0",
     "comark-chat": "catalog:",
     "@nuxt/kit": "4.6.2",
@@ -123,6 +134,7 @@
   },
   "devDependencies": {
     "@ai-sdk/vue": "catalog:ai",
+    "@floating-ui/dom": "1.8.0",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@iconify-json/lucide": "catalog:ui",
@@ -131,9 +143,10 @@
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
     "@pierre/theme": "2.0.0",
-    "@pierre/trees": "1.0.0-beta.6",
+    "@pierre/trees": "1.0.0",
     "@vitejs/plugin-vue": "^6.0.10",
     "@vite-hub/icons": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vue/server-renderer": "3.5.44",
     "@vue/test-utils": "2.5.1",
@@ -141,7 +154,6 @@
     "happy-dom": "21.0.3",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
-    "reka-ui": "catalog:ui",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vega-canvas": "^2.0.0",
@@ -154,6 +166,8 @@
     "@vite-hub/content": "workspace:*",
     "playwright-core": "catalog:browser",
     "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-drag-handle": "3.23.6",
+    "@tiptap/extension-drag-handle-vue-3": "3.23.6",
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-list": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
@@ -163,9 +177,12 @@
     "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
+    "@floating-ui/dom": "^1.0.0",
     "@iconify-json/lucide": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
     "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-drag-handle": "^3.23.6",
+    "@tiptap/extension-drag-handle-vue-3": "^3.23.6",
     "@tiptap/extension-image": "catalog:realtime",
     "@tiptap/extension-list": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
@@ -177,6 +194,9 @@
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "@floating-ui/dom": {
+      "optional": true
+    },
     "@iconify-json/lucide": {
       "optional": true
     },
@@ -184,6 +204,12 @@
       "optional": true
     },
     "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-drag-handle": {
+      "optional": true
+    },
+    "@tiptap/extension-drag-handle-vue-3": {
       "optional": true
     },
     "@tiptap/extension-image": {
@@ -209,6 +235,6 @@
     }
   },
   "engines": {
-    "node": ">=22.22.0"
+    "node": ">=24.15.0"
   }
 }
