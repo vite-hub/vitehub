@@ -158,6 +158,15 @@ it('prunes expired CI logs and metadata while retaining recent logs and unrelate
  assert.deepEqual(await inbox.meta('review-assessment:keep'), { head: 'head' })
 })
 
+it('adds fetch-time rows to fresh CI evidence written before they existed', async () => {
+ const { inbox } = await fixture(); const fetchedAt = Date.now()
+ await inbox.setMeta('ci-evidence:v1:job-log:upgraded', { fetchedAt, value: { log: 'kept' } })
+ await inbox.deleteMeta('ci-evidence-at:v1:job-log:upgraded')
+ await inbox.pruneDeliveries()
+ assert.deepEqual(await inbox.meta('ci-evidence:v1:job-log:upgraded'), { fetchedAt, value: { log: 'kept' } })
+ assert.equal(await inbox.meta('ci-evidence-at:v1:job-log:upgraded'), fetchedAt)
+})
+
 it('keeps the diagnostic anchor before oversized trailing context', () => {
  const result = diagnosticExcerpt('Error: actual failure\n' + 'x'.repeat(20000), 100)
  assert.match(result.excerpt, /Error: actual failure/)

@@ -1677,11 +1677,13 @@ export class PullRequestInbox {
       await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND key IN (SELECT '${ciEvidencePrefix}' || substr(key, ${ciEvidenceAtPrefix.length + 1})
         FROM ${meta} WHERE scope=? AND ${expiredAt})`, [this.scope, this.scope, now - payloadMs])
       await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND ${expiredAt}`, [this.scope, now - payloadMs])
-      // Entries written before fetch-time rows existed are read here once and expire within the window.
-      await tx.execute(`DELETE FROM ${meta} AS evidence WHERE scope=? AND ${evidenceKeys}
-        AND CASE WHEN EXISTS (SELECT 1 FROM ${meta} WHERE scope=evidence.scope AND key='${ciEvidenceAtPrefix}' || substr(evidence.key, ${ciEvidencePrefix.length + 1})) THEN 0
-          WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
-          WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
+      // Entries written before fetch-time rows existed are read once here to add their row; the rest have no fetch time.
+      const unindexed = `scope=? AND ${evidenceKeys} AND NOT EXISTS (SELECT 1 FROM ${meta} WHERE scope=evidence.scope
+        AND key='${ciEvidenceAtPrefix}' || substr(evidence.key, ${ciEvidencePrefix.length + 1}))`
+      await tx.execute(`INSERT INTO ${meta} (scope, key, value) SELECT scope, '${ciEvidenceAtPrefix}' || substr(key, ${ciEvidencePrefix.length + 1}),
+        json_extract(value, '$.fetchedAt') FROM ${meta} AS evidence WHERE ${unindexed} AND json_valid(value) AND json_type(value)='object'
+        AND json_type(value, '$.fetchedAt') IN ('integer', 'real')`, [this.scope])
+      await tx.execute(`DELETE FROM ${meta} AS evidence WHERE ${unindexed}`, [this.scope])
       signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       signal?.throwIfAborted()
