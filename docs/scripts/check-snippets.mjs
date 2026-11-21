@@ -114,6 +114,18 @@ const appDeclarations = [
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
   },
   {
+    // `@cloudflare/workers-types` declares this module in a Cloudflare app. This is the part that the pages use.
+    code: [
+      `declare module "cloudflare:workers" {`,
+      `  export abstract class DurableObject<Env = unknown> {`,
+      `    protected ctx: { storage: { get<T>(key: string): Promise<T | undefined>, put(key: string, value: unknown): Promise<void> } }`,
+      `    protected env: Env`,
+      `  }`,
+      `}`,
+    ].join("\n"),
+    file: join(docsRoot, ".snippets/cloudflare-workers.d.ts"),
+  },
+  {
     // `hubAuth()` writes this declaration for the stable Auth alias that manual hosts mount.
     code: [
       `declare module "#vitehub/auth/server" {`,
