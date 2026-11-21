@@ -252,8 +252,8 @@ describe("blob config", () => {
   })
 
   it.each(["NETLIFY", "NETLIFY_DEV"])("keeps the inferred Netlify store name under %s", (flag) => {
-    expect(resolveBlobViteConfig({ name: "existing-assets" }, { env: { [flag]: "true" } }).blob?.store)
-      .toEqual({ driver: "netlify-blobs", name: "existing-assets" })
+    expect(resolveBlobViteConfig({ name: "existing-assets" }, { env: { [flag]: "true" } }).blob)
+      .toMatchObject({ store: { driver: "netlify-blobs", name: "existing-assets" } })
   })
 
   it.each([
