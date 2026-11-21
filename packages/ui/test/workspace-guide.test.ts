@@ -125,6 +125,14 @@ describe("WorkspaceGuide", () => {
     expect(footer.get(".vh-ws-guide-footer .own").text()).toBe("Own footer");
   });
 
+  it("hides the finish action while the steps are still empty", () => {
+    const finish = () => h("a", { class: "finish", href: "/learn" }, "Done");
+    const loading = mount(WorkspaceGuide, { global, props: { steps: [] }, slots: { finish } });
+    expect(loading.find(".vh-ws-guide-footer").exists()).toBe(false);
+    const footer = mount(WorkspaceGuide, { global, props: { steps: [] }, slots: { footer: () => h("p", { class: "own" }, "Own footer") } });
+    expect(footer.get(".vh-ws-guide-footer .own").text()).toBe("Own footer");
+  });
+
   it("fills the guide pane of the shell in guide-top and guide-side", () => {
     for (const layout of ["guide-top", "guide-side"] as const) {
       const wrapper = mount(WorkspaceShell, { global, props: { layout, storageKey: false }, slots: { guide: () => h(WorkspaceGuide, { steps }) } });

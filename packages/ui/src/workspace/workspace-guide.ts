@@ -45,7 +45,7 @@ export const WorkspaceGuide = defineComponent({
       const title = props.title ?? props.steps[index]?.title;
       const slotProps = { next: () => move(index + 1), previous: () => move(index - 1), step: index, total };
 
-      // One step has no Back or Next, but a page's footer or finish action still shows.
+      // One step has no Back or Next, but a page's footer or finish action still shows. No steps yet has no finish action.
       const content = slots.footer?.(slotProps) ?? (total > 1
         ? [
             previous
@@ -72,7 +72,7 @@ export const WorkspaceGuide = defineComponent({
                 })
               : slots.finish?.(slotProps),
           ]
-        : slots.finish ? [h("span"), slots.finish(slotProps)] : undefined);
+        : total === 1 && slots.finish ? [h("span"), slots.finish(slotProps)] : undefined);
       const footer = content
         ? h("nav", { "aria-label": "Step navigation", class: "vh-ws-guide-footer", ref: nav }, content)
         : undefined;
