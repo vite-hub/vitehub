@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
-`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
+`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab, Forgejo or Gitea token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link). User docs: [Forge](https://vitehub.dev/docs/forge).
 
 The GitHub Channel, the `forge()` Capability, and the Workspace GitHub store mint App installation tokens through `useForge()`. GitHub Sources use only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). Channels, Workspaces and Sources list `@vite-hub/forge` as an optional peer and load it only on a Forge path, so an app without a Forge does not install it. Such an app that uses a Forge Channel, the `forge()` Capability, a GitHub Store or a GitHub Source fails with `INTERNAL_FORGE_NOT_INSTALLED` until it runs `pnpm add @vite-hub/forge`.
 
@@ -52,6 +52,9 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `github.webhookSecret` | `VITEHUB_GITHUB_WEBHOOK_SECRET`, `FORGES_GITHUB_WEBHOOK_SECRET` |
 | `gitlab.baseUrl`, `gitlab.token`, `gitlab.webhookSecret` | `VITEHUB_GITLAB_*`, `FORGES_GITLAB_*` |
 | `forgejo.baseUrl`, `forgejo.token`, `forgejo.webhookSecret` | `VITEHUB_FORGEJO_*`, `FORGES_FORGEJO_*` |
+| `gitea.baseUrl`, `gitea.token`, `gitea.webhookSecret` | `VITEHUB_GITEA_*`, `FORGES_GITEA_*` |
+
+For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WEBHOOK_SECRET`) as the default secret for `provider.webhooks.verify({ headers, body })`. Pass the raw request body so the signature matches.
 
 `GH_TOKEN` and `GITHUB_TOKEN` are not read. In GitHub Actions, set `VITEHUB_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
 

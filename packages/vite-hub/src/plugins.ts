@@ -2043,6 +2043,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     database: Boolean(options.database),
     queue: Boolean(options.queue) && plan.services.queue.supported,
     imports: {
+      ...options.auth ? { auth: "#vitehub/auth/server" } : {},
       runtime: "vite-hub/webhooks/runtime",
       operations: "vite-hub/webhooks/operations",
       database: "vite-hub/webhooks/database",

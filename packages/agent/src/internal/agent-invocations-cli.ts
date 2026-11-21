@@ -48,9 +48,9 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "compact" | "delete" | "export" | "list" | "prune" | "show" | "tail" | "undo" | "wait-idle"
+type Action = "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "wait-idle"
 
-const actions = new Set<string>(["compact", "delete", "export", "list", "prune", "show", "tail", "undo", "wait-idle"] satisfies Action[])
+const actions = new Set<string>(["compact", "delete", "export", "get", "list", "prune", "tail", "undo", "wait-idle"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
 const journalActions = new Set<string | undefined>(["compact", "export", "list", "prune", "wait-idle"])
 function isAction(value: string): value is Action {
@@ -58,7 +58,7 @@ function isAction(value: string): value is Action {
 }
 
 /** Actions that can read the journal file selected by --database. */
-const fileActions = new Set<string | undefined>(["export", "list", "show", "tail", "wait-idle"])
+const fileActions = new Set<string | undefined>(["export", "get", "list", "tail", "wait-idle"])
 
 function readsJournalFile(parsed: ParsedArgs): boolean {
   return fileActions.has(parsed.action) && parsed.database !== undefined
@@ -140,20 +140,20 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|show|tail|export|wait-idle|cancel|undo|delete|prune|compact> [id] [options]",
+    "Usage: vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|delete|prune|compact> [id] [options]",
     "",
-    "list, show, tail, and cancel inspect or control an application's Agent Invocation journal.",
+    "list, get, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
-    "show prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
+    "get prints the changes an Agent made on a person's page. undo <id> --change <change> asks that open page",
     "to put one change back, through the app's Console (--url).",
     "",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
-    "With --url, list, show, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
+    "With --url, list, get, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
     "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
-    "With --database, list, show, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
+    "With --database, list, get, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
     "Options:",
@@ -172,7 +172,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
     "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
     "                            agent-invocations.sqlite next to a file: Agent State URL in the config, else",
-    "                            .vitehub/data/agent-invocations.sqlite in the project. list, show, tail, export, and",
+    "                            .vitehub/data/agent-invocations.sqlite in the project. list, get, tail, export, and",
     "                            wait-idle read a local SQLite file read-only, such as the journal inside a running",
     "                            container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
@@ -191,7 +191,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --observations            export every observation too.",
     "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
     "                            token usage, approvals, and errors, in order. Long text is cut.",
-    "  --change <id>             The page change that undo puts back, as show lists it.",
+    "  --change <id>             The page change that undo puts back, as get lists it.",
     "  --json                    Print JSON or JSON Lines.",
     "  -h, --help                Show this help.",
     "",
@@ -356,7 +356,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
 
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, show, tail, export, wait-idle, cancel, undo, delete, prune, or compact." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, wait-idle, cancel, undo, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
@@ -377,7 +377,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     parsed.console = app.base
     parsed.consoleFallback = app.loopback && parsed.action === "cancel"
   }
-  if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations show <id>` lists." })
+  if (!parsed.help && parsed.action === "undo" && !parsed.change) throw agentDiagnostics.AGENT_R0502({ message: "undo needs --change <id>, a page change that `vitehub agent invocations get <id>` lists." })
   if (!parsed.help && parsed.action !== "undo" && parsed.change !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--change is only supported for undo." })
   if (!parsed.help && parsed.action === "undo" && !parsed.console) {
     throw agentDiagnostics.AGENT_R0505({ message: "undo reaches the person's page through the app's Console. Pass --url, such as --url https://app.example.com or --url http://localhost:3000." })
@@ -1201,7 +1201,7 @@ function detailRecord(result: AgentInvocationDetailResult): AgentInvocationRecor
 }
 
 /**
- * Without --url or --database, list, show, tail, export, wait-idle, and cancel use the dev server that wrote
+ * Without --url or --database, list, get, tail, export, wait-idle, and cancel use the dev server that wrote
  * `.vitehub/dev-server.json` in this project, as every `vitehub` command does. Reads go through its Console. It never
  * guesses a port, since another project may use it. Returns false when no dev server runs.
  */
@@ -1287,7 +1287,7 @@ export async function runAgentInvocationsCli(
       else for (const record of result.invocations) context.stdout.write(`${summary(record)}\n`)
       return 0
     }
-    if (parsed.action === "show") {
+    if (parsed.action === "get") {
       writeRecord(context, detailRecord(await target.detail(parsed.id!)), parsed.json)
       return 0
     }
