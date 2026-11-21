@@ -110,6 +110,32 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     expect(await (await writer.history.open(revision.id)).readFile("rsvp.ts")).toBe("export default {}")
   })
 
+  it.each(["main", "run-42"] as const)("reclaims uncommitted bytes when a commit on %s loses a head race", async (ref) => {
+    const { blob, database } = await historyDatabase()
+    const store = () => createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
+    const writer = store()
+    const files = (content: string) => ({ "file.txt": { path: "file.txt", content } })
+    const main = await writer.history.commit({ ifHead: null, files: files("main") })
+    const run = await writer.history.commit({ ref: "run-42", ifHead: null, files: files("run") })
+    const onMain = ref === "main"
+    const ifHead = onMain ? main.id : run.id
+    const head = blob.head.bind(blob)
+    const advance = vi.spyOn(blob, "head").mockImplementationOnce(async (key) => {
+      await store().history.commit({ ref, ifHead, files: files("winner") })
+      return await head(key)
+    })
+
+    await expect(writer.history.commit({ ref, ifHead, files: files(onMain ? "run" : "loser") })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    advance.mockRestore()
+    expect(await objectCount(blob)).toBe(onMain ? 3 : 4)
+
+    expect(await writer.history.deleteRef!({ ref: "run-42" })).toBe(true)
+    expect(await objectCount(blob)).toBe(onMain ? 2 : 1)
+    expect(await (await writer.history.open(main.id)).readFile("file.txt")).toBe("main")
+    const survivingHead = await writer.history.head()
+    expect(await (await writer.history.open(survivingHead!.id)).readFile("file.txt")).toBe(onMain ? "winner" : "main")
+  })
+
   it("does not publish against another writer's registration before its upload", async () => {
     const { blob, database } = await historyDatabase()
     const store = (storage = blob) => createBlobDatabaseWorkspaceStore({ blob: storage, database, workspace: "meetups" })

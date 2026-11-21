@@ -183,6 +183,7 @@ await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
 It removes the ref or returns `false` when the ref does not exist and no `ifHead` was supplied. A head that does not match `ifHead` throws `WORKSPACE_CONFLICT`. Deleting `main` or the Store's working ref throws `WORKSPACE_DEFAULT_REF_DELETE`, including through a GitHub ref alias.
 
 - The Blob + Database Store checks `ifHead` and removes the ref and its revisions in one transaction. It then deletes the bytes that no other revision uses. If cleanup fails and `history.head()` confirms the ref is still absent, call `deleteRef({ ref })` without `ifHead` to finish cleanup. This call returns `false` because there was no ref left to delete.
+  This cleanup includes bytes uploaded by commits that lost a head race on the deleted ref. Only committed revisions on other refs keep those bytes alive.
 - The GitHub Store only deletes the branch. Its commits and their bytes may still be readable by SHA. GitHub checks `ifHead` before sending the delete request, so it can still delete a branch whose head moves between the check and the delete. GitHub also refuses to delete the repository's default branch.
 
 ### Conflicts
