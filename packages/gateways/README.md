@@ -66,6 +66,19 @@ receipt.merchant // string
 
 ## Ask your first question
 
+Pick the builder by the answer that you want. The answer types come from the questions.
+
+| You want | Write | You get |
+| --- | --- | --- |
+| Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
+| The probability of yes | `ask.chance(instructions, { true?, false? })` | `{ chance }`, from `0` to `1`. |
+| One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
+| One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
+| A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. Pass the map to `gateway.ask()`, or spread it into your questions. |
+
+For `ask.switch()` and `ask.choice()`, `criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
+
 ```ts
 import { ask, typesafe } from '@vite-hub/gateways'
 
@@ -85,17 +98,6 @@ answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1
 answers.recurring // boolean
 ```
-
-The answer types come from the questions:
-
-| Builder | Answer |
-| --- | --- |
-| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
-| `ask.switch(instructions, criteria)` | The selected label only. |
-| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
-| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
-| `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
 
 `gateway.ask(state, questions, { signal, onUsage })` sends the questions in sequential bounded requests. The shared state plus each question must fit below 30,000 bytes. It retries up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. `onUsage` receives the `model`, `provider`, and token `usage` of each request. It returns `[error, answers]`: a rejected key returns `GATEWAYS_R0008` and a provider that still fails returns `GATEWAYS_R0009`. A missing key or a question that the `ask` builders did not make throws.
 

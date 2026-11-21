@@ -506,8 +506,8 @@ catalogs:
       specifier: ^3.6.0
       version: 3.6.0
     sh-syntax:
-      specifier: 0.8.3
-      version: 0.8.3
+      specifier: 0.8.4
+      version: 0.8.4
   storage:
     '@aws-sdk/client-s3':
       specifier: ^3.1146.0
@@ -1196,6 +1196,9 @@ importers:
       advocaat:
         specifier: catalog:ai
         version: 0.0.6
+      drizzle-kit:
+        specifier: catalog:database
+        version: 1.0.0-rc.5(drizzle-orm@1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -1220,6 +1223,9 @@ importers:
       nitro:
         specifier: catalog:unjs
         version: 3.0.261103-rc
+      postgres:
+        specifier: catalog:database
+        version: 3.4.9
       posthog-node:
         specifier: ^5.56.2
         version: 5.56.2(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
@@ -1300,6 +1306,12 @@ importers:
       rou3:
         specifier: ^1.0.0
         version: 1.0.0
+      scule:
+        specifier: ^1.3.0
+        version: 1.3.0
+      unrouting:
+        specifier: ^0.3.2
+        version: 0.3.2
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
@@ -3700,7 +3712,7 @@ importers:
         version: 1.4.0
       sh-syntax:
         specifier: catalog:shell
-        version: 0.8.3
+        version: 0.8.4
     devDependencies:
       '@types/node':
         specifier: catalog:tooling
@@ -18188,8 +18200,8 @@ packages:
   setprototypeof@1.2.0:
     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
 
-  sh-syntax@0.8.3:
-    resolution: {integrity: sha512-hB9A5RRaY3+YDgMnzdMXiouAadurCwI9/j/wDHz/7gvHBPyK8SilHKpjousnj9zHshloYJADhtdIPxA3nknp3Q==}
+  sh-syntax@0.8.4:
+    resolution: {integrity: sha512-BI2cAN1oIyfxMw/W10wFx4QfvOG5GGFZfgPO7KSomspXxM2IOL/S9QLE6yDG7mTo2LHyndOC53epFD0uv3nSFw==}
     engines: {node: '>=18.0.0'}
 
   sha.js@2.4.12:
@@ -40139,7 +40151,7 @@ snapshots:
 
   setprototypeof@1.2.0: {}
 
-  sh-syntax@0.8.3: {}
+  sh-syntax@0.8.4: {}
 
   sha.js@2.4.12:
     dependencies:

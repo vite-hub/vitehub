@@ -36,8 +36,7 @@ async function untilLoaded(watched: number): Promise<void> {
 vi.mock("#vitehub/auth/abilities", () => import("./fixtures/abilities.ts"))
 
 // Each test gets new modules, because the app shares one session per client.
-let Can: typeof import("../src/vue.ts").Can
-let Cannot: typeof import("../src/vue.ts").Cannot
+let AuthPermission: typeof import("../src/vue.ts").AuthPermission
 let createAuthClient: typeof import("../src/vue.ts").createAuthClient
 let setNuxtAppResolver: typeof import("../src/vue.ts").setNuxtAppResolver
 let setNuxtErrorFactory: typeof import("../src/vue.ts").setNuxtErrorFactory
@@ -48,7 +47,7 @@ let AbilityError: typeof import("../src/ability-error.ts").AbilityError
 
 beforeEach(async () => {
   vi.resetModules()
-  ;({ Can, Cannot, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
+  ;({ AuthPermission, createAuthClient, setNuxtAppResolver, setNuxtErrorFactory, setSessionSeedResolver, useAbility } = await import("../src/vue.ts"))
   ;({ AbilityError } = await import("../src/ability-error.ts"))
 })
 
@@ -66,7 +65,7 @@ async function render(vnode: ReturnType<typeof h>): Promise<string> {
 }
 
 function canEdit(post: unknown) {
-  return h(Can as never, { do: "posts.edit", with: post }, {
+  return h(AuthPermission as never, { check: "posts.edit", args: [post] }, {
     default: () => h("button", "Edit"),
     denied: ({ code }: { code: string }) => h("span", `denied: ${code}`),
   })
@@ -81,7 +80,7 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-describe("<Can> during server rendering", () => {
+describe("<AuthPermission> during server rendering", () => {
   it("renders nothing while the session is unknown", async () => {
     betterAuth.session = pendingSession()
     expect(await render(h(defineComponent(() => () => h("div", [canEdit(ownPost)]))))).toBe("<div><!----></div>")
@@ -101,14 +100,14 @@ describe("<Can> during server rendering", () => {
   })
 })
 
-describe("<Can> in the browser", () => {
+describe("<AuthPermission> in the browser", () => {
   it("shows nothing until the session is known, then follows it", async () => {
     const session = pendingSession()
     betterAuth.session = session
     const post = ref<typeof ownPost | undefined>(undefined)
     const root = document.createElement("div")
     const watched = betterAuth.watched
-    createApp(defineComponent(() => () => h(Can as never, { do: "posts.edit", with: post.value, pending: !post.value }, {
+    createApp(defineComponent(() => () => h(AuthPermission as never, { check: "posts.edit", args: [post.value], pending: !post.value }, {
       default: () => h("button", "Edit"),
       denied: ({ code }: { code: string }) => h("span", `denied: ${code}`),
     }))).mount(root as never)
@@ -134,27 +133,27 @@ describe("<Can> in the browser", () => {
   })
 })
 
-describe("<Can> arguments", () => {
-  const can = (props: Record<string, unknown>) => render(h(Can as never, props, { default: () => "yes", denied: () => "no" }))
+describe("<AuthPermission> arguments", () => {
+  const can = (props: Record<string, unknown>) => render(h(AuthPermission as never, props, { default: () => "yes", denied: () => "no" }))
 
   it("passes `args` as the list, also for default and rest parameters", async () => {
     setSessionSeedResolver(() => author)
     betterAuth.session = pendingSession()
-    expect(await can({ do: "posts.move", args: ["a", "b"] })).toBe("yes")
-    expect(await can({ do: "posts.move", args: ["a", "a"] })).toBe("no")
-    expect(await can({ do: "posts.review", args: [otherPost] })).toBe("no")
-    expect(await can({ do: "posts.review", args: [otherPost, "read"] })).toBe("yes")
-    expect(await can({ do: "posts.tag", args: [] })).toBe("no")
-    expect(await can({ do: "posts.tag", args: ["a", "b"] })).toBe("yes")
-    expect(await can({ do: "posts.tag", args: ["a", "b", "c"] })).toBe("no")
+    expect(await can({ check: "posts.move", args: ["a", "b"] })).toBe("yes")
+    expect(await can({ check: "posts.move", args: ["a", "a"] })).toBe("no")
+    expect(await can({ check: "posts.review", args: [otherPost] })).toBe("no")
+    expect(await can({ check: "posts.review", args: [otherPost, "read"] })).toBe("yes")
+    expect(await can({ check: "posts.tag", args: [] })).toBe("no")
+    expect(await can({ check: "posts.tag", args: ["a", "b"] })).toBe("yes")
+    expect(await can({ check: "posts.tag", args: ["a", "b", "c"] })).toBe("no")
   })
 
-  it("answers a rule with an optional argument with or without `with`", async () => {
+  it("answers a rule with an optional argument with or without `args`", async () => {
     setSessionSeedResolver(() => author)
     betterAuth.session = pendingSession()
-    expect(await can({ do: "posts.draft" })).toBe("yes")
-    expect(await can({ do: "posts.draft", with: ownPost })).toBe("yes")
-    expect(await can({ do: "posts.draft", with: otherPost })).toBe("no")
+    expect(await can({ check: "posts.draft" })).toBe("yes")
+    expect(await can({ check: "posts.draft", args: [ownPost] })).toBe("yes")
+    expect(await can({ check: "posts.draft", args: [otherPost] })).toBe("no")
   })
 })
 
@@ -311,36 +310,48 @@ describe("useAbility().authorize()", () => {
   })
 })
 
-describe("<Cannot>", () => {
-  const cannot = (props: Record<string, unknown>) => render(h(Cannot as never, props, {
-    default: ({ code }: { code?: string }) => h("span", `cannot: ${code}`),
+describe("<AuthPermission> denied-only", () => {
+  const cannot = (props: Record<string, unknown>) => render(h(AuthPermission as never, props, {
+    denied: ({ code }: { code?: string }) => h("span", `cannot: ${code}`),
   }))
 
   it("renders its slot with the refusal only when the rule refuses", async () => {
     betterAuth.session = pendingSession()
-    expect(await cannot({ do: "posts.edit", with: otherPost })).toBe("<!---->")
+    expect(await cannot({ check: "posts.edit", args: [otherPost] })).toBe("<!---->")
 
     setSessionSeedResolver(() => author)
-    expect(await cannot({ do: "posts.edit", with: ownPost })).toBe("<!---->")
-    expect(await cannot({ do: "posts.edit", with: otherPost })).toBe("<span>cannot: not-author</span>")
-    expect(await cannot({ do: "posts.edit", with: otherPost, pending: true })).toBe("<!---->")
-    expect(await cannot({ do: "posts.move", args: ["a", "a"] })).toBe("<span>cannot: undefined</span>")
-    expect(await cannot({ do: "posts.move", args: ["a", "b"] })).toBe("<!---->")
-    expect(await cannot({ do: "posts.draft" })).toBe("<!---->")
+    expect(await cannot({ check: "posts.edit", args: [ownPost] })).toBe("<!---->")
+    expect(await cannot({ check: "posts.edit", args: [otherPost] })).toBe("<span>cannot: not-author</span>")
+    expect(await cannot({ check: "posts.edit", args: [otherPost], pending: true })).toBe("<!---->")
+    expect(await cannot({ check: "posts.move", args: ["a", "a"] })).toBe("<span>cannot: undefined</span>")
+    expect(await cannot({ check: "posts.move", args: ["a", "b"] })).toBe("<!---->")
+    expect(await cannot({ check: "posts.draft" })).toBe("<!---->")
   })
 
   it("renders its slot with the signed-out refusal when the server read no session", async () => {
     setSessionSeedResolver(() => null)
     betterAuth.session = pendingSession()
-    expect(await cannot({ do: "posts.edit", with: ownPost })).toBe("<span>cannot: signed-out</span>")
+    expect(await cannot({ check: "posts.edit", args: [ownPost] })).toBe("<span>cannot: signed-out</span>")
   })
 
   it("passes the details of deny() to its slot", async () => {
     setSessionSeedResolver(() => author)
     betterAuth.session = pendingSession()
-    const html = await render(h(Cannot as never, { do: "billing.upgrade" }, {
-      default: ({ code, details }: { code: string, details: { limit: number } }) => h("span", `${code} ${details.limit}`),
+    const html = await render(h(AuthPermission as never, { check: "billing.upgrade" }, {
+      denied: ({ code, details }: { code: string, details: { limit: number } }) => h("span", `${code} ${details.limit}`),
     }))
     expect(html).toBe("<span>plan-limit 3</span>")
+  })
+})
+
+
+describe("<AuthPermission> allowed slot", () => {
+  it("prefers #allowed over default content", async () => {
+    setSessionSeedResolver(() => author)
+    expect(await render(h(AuthPermission as never, { check: "posts.edit", args: [ownPost] }, {
+      allowed: () => h("button", "Allowed"),
+      default: () => h("span", "Default"),
+      denied: () => h("span", "Denied"),
+    }))).toBe("<button>Allowed</button>")
   })
 })

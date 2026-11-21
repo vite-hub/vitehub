@@ -69,7 +69,7 @@ describe("hubAuth", () => {
     await mkdir(join(root, "shared"))
     await writeFile(join(root, "shared/abilities.ts"), 'export default { "app.rule": Object.assign(() => true, { guest: true }) }\n')
     await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
-    await writeFile(join(root, "main.js"), 'import { Can, useAbility } from "@vite-hub/auth/vue"; console.log(Can, useAbility)')
+    await writeFile(join(root, "main.js"), 'import { AuthPermission, useAbility } from "@vite-hub/auth/vue"; console.log(AuthPermission, useAbility)')
     const installed = join(root, "node_modules/@vite-hub/auth")
     await mkdir(installed, { recursive: true })
     await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
@@ -150,7 +150,7 @@ describe("hubAuth", () => {
 
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
     expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
-    expect(loadAuthServer(plugin)).toContain(`export { createAuthAccessHandler } from "@vite-hub/auth/internal/server"`)
+    expect(loadAuthServer(plugin)).toContain(`export { createAuthAccessHandler, findVerifiedAuthUserId } from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).not.toContain(`export * from "@vite-hub/auth/internal/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { default } from "@vite-hub/auth/server"`)
     await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
@@ -481,6 +481,17 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
   })
 
+  it("checks access.pages in the virtual Auth Definition that the ViteHub Nuxt integration loads", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user' } },"])
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+
+    expect(loadAuthDefinition(plugin)).toContain("import { checkBuiltAuthPages } from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("checkBuiltAuthPages(definition, {\"/dashboard/**\":\"user\"})")
+  })
+
   it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {
     const root = await createTempProject()
     await writeAuth(root)
@@ -507,6 +518,42 @@ describe("hubAuth", () => {
       target: ts.ScriptTarget.ESNext,
     })
     const diagnostics = ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+    expect(diagnostics).toEqual([])
+  })
+
+  it("declares the private Auth export by path for the vite-hub distribution", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    await mkdir(join(root, "node_modules/vite-hub/auth"), { recursive: true })
+    await writeFile(join(root, "node_modules/vite-hub/package.json"), JSON.stringify({ name: "vite-hub", exports: { "./auth/server": { types: "./auth/server.d.ts" } } }))
+    await writeFile(join(root, "node_modules/vite-hub/auth/server.d.ts"), "declare const authRoute: { fetch(request: Request): Promise<Response> }\nexport default authRoute\nexport declare function withAnonymousAuthorization(): \"anonymous\"\n")
+    await mkdir(join(root, ".vitehub/env"), { recursive: true })
+    await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
+
+    // `vite-hub/auth` has no package export for the private entry, so the declaration names it by file path.
+    await resolvePluginConfig(hubAuth(undefined, { importBase: "vite-hub/auth" }), root, [{ name: "@vite-hub/env/vite" }])
+    const declaration = join(root, ".vitehub/types/auth-server.d.ts")
+    const probe = join(root, "probe.ts")
+    await writeFile(probe, [
+      'import { createAuthAccessHandler, findVerifiedAuthUserId, withAnonymousAuthorization } from "#vitehub/auth/server"',
+      'export const anonymous: "anonymous" = withAnonymousAuthorization()',
+      "export const access: ReturnType<typeof createAuthAccessHandler> = createAuthAccessHandler([])",
+      'export const owner: Promise<string | undefined> = findVerifiedAuthUserId("ana@example.com", new Request("https://example.com"))',
+      "// @ts-expect-error the real handler type, not `any`",
+      "export const wrong: number = createAuthAccessHandler",
+      "",
+    ].join("\n"))
+
+    const program = ts.createProgram([declaration, probe], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+      types: [],
+    })
+    const diagnostics = [declaration, probe].flatMap(file => ts.getPreEmitDiagnostics(program, program.getSourceFile(file)))
+      .map(diagnostic => `${diagnostic.file?.fileName}: TS${diagnostic.code} ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`)
     expect(diagnostics).toEqual([])
   })
 

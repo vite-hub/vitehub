@@ -63,8 +63,9 @@ the same behavior.
 | `vite-hub/presets/labeller` | [Gmail labelling preset](/docs/presets/labeller) with ordered rules, Jev fallback, and allowlisted message actions. |
 | `vite-hub/presets/workspace` | Opt-in [workspace source-provenance citation preset](/docs/presets/workspace). |
 | `vite-hub/agent/invocations` | Durable Agent Invocation stores: Cloudflare D1 with its schema statements, and libSQL-compatible SQLite. |
-| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub SQLite database. |
+| `vite-hub/agent/invocations/database` | Agent Invocation Journal backed by a ViteHub Database: SQLite, libSQL, D1, or Postgres. |
 | `vite-hub/agent/invocations/drizzle` | `getAgentInvocationsDatabase()`: Drizzle over the default Agent Invocation journal. Needs `drizzle-orm`. |
+| `vite-hub/agent/invocations/postgres` | `postgresAgentInvocationTables()`: the Drizzle tables of the Agent Invocation Journal on a Postgres Database. Needs `drizzle-orm`. |
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |
@@ -91,7 +92,7 @@ the same behavior.
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
 | `vite-hub/auth/presets` | Auth presets, such as `stateless()` for sessions without a database. |
 | `vite-hub/auth/agent` | Better Auth session mapping into Agent Invokers. |
-| `vite-hub/auth/vue` | Better Auth Vue client, normalized session composables, `useAbility()`, and the `Can` and `Cannot` components. |
+| `vite-hub/auth/vue` | Better Auth Vue client, normalized session composables, `useAbility()`, and the `AuthPermission` component. |
 | `vite-hub/blob` | Blob Runtime Helpers, Blob Store access, `ensureBlob()`, `detectContentType()`, and the `image()` and `file()` Blob reference schemas. |
 | `vite-hub/blob/client` | Framework-neutral browser upload helpers: `uploadFiles()`, `createMultipartUploader()`, and `detectContentType()`. |
 | `vite-hub/blob/media` | Browser-safe media helpers: `responsiveImage()`, `imageVariantUrl()`, `parseImageVariant()`, and `probeImage()`. |

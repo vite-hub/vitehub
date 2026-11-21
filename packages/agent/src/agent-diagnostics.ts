@@ -4544,6 +4544,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
       fix: "Cancel the Invocation through the Agent that owns it, with `invocations.cancel(id)` of that Agent.",
     },
+    AGENT_INVOCATION_POSTGRES_TABLES_MISSING: {
+      why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
+    },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,
       fix: "Check that the Invocations store in `defineAgentInvocations({ store })` is reachable and answers in time. A retry helps when the store was only slow.",
