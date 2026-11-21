@@ -356,6 +356,19 @@ describe("vitehub/prefer-built-in-commands", () => {
     })).toEqual([])
   })
 
+  it("does not suggest replacements for commands run from another directory", async () => {
+    expect(await codes(preferBuiltInCommands, {
+      "drizzle.config.ts": 'export default { schema: "./server/databases/default/index.ts" }',
+      "package.json": manifest({
+        scripts: {
+          generate: "cd analytics && drizzle-kit generate",
+          deploy: "echo Deploying email Worker; cd workers/email && wrangler deploy --config .output/server/wrangler.json --secrets-file .env",
+          migrate: "(cd workers/email && wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json)",
+        },
+      }),
+    })).toEqual([])
+  })
+
   it("accepts the ViteHub commands, local D1 migrations, and Vite apps that prepare types", async () => {
     expect(await codes(preferBuiltInCommands, {
       "package.json": manifest({

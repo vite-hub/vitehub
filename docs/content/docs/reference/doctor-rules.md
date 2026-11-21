@@ -1209,7 +1209,7 @@ A `package.json` script runs a tool that a ViteHub command wraps. The rule reads
 }
 ```
 
-It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, `--name`, or `--cwd`. It also skips Drizzle Kit configs for another database or when the ViteHub Database is explicitly disabled.
+It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, `--name`, or `--cwd`. It also skips Drizzle Kit configs for another database or when the ViteHub Database is explicitly disabled. Doctor skips commands after a directory change in a script because their relative paths may point outside the app.
 
 ## VHUB0039
 

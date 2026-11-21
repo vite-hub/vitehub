@@ -310,6 +310,8 @@ export const preferBuiltIns: DoctorRule = createRule({
 /** The package whose scripts a command runs in. `databaseDirs` are its `databases/` folders of server directories. */
 type ScriptPackage = { manifest: Record<string, unknown>, read: (path: string) => string | undefined, databaseDirs: string[] }
 
+const changesScriptDirectory = /(?:^|[;&|(\n])\s*(?:cd|pushd|popd)(?=\s|[;&|)]|$)/
+
 /** The words of one command in a script, from the match to the next `&&`, `||`, `|`, or `;`. */
 function commandArgs(command: string, index: number): string[] {
   return (command.slice(index).split(/&&|\|\||[|;]/)[0] ?? "").trim().split(/\s+/)
@@ -421,7 +423,8 @@ export const preferBuiltInCommands: DoctorRule = createRule({
             if (typeof command !== "string") continue
             for (const { pattern, builtIn } of scriptCommands) {
               const match = pattern.exec(command)
-              const message = match && builtIn(match, commandArgs(command, match.index), pkg)
+              if (!match || changesScriptDirectory.test(command.slice(0, match.index))) continue
+              const message = builtIn(match, commandArgs(command, match.index), pkg)
               if (!message) continue
               const offsets = scriptOffsets(text, name) ?? [0, 0]
               ctx.report(diagnostics.VHUB0038({ why: `The \`${name}\` script: ${message.why}`, fix: message.fix }), {
