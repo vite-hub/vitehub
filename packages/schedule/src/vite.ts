@@ -8,7 +8,7 @@ import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, hasViteConfigPlugin, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, getDeploymentHost, hasNitroConfigContext, hasViteConfigPlugin, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -28,7 +28,7 @@ import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-
 import type { ScheduleCronOverrides, ScheduleTimeZoneCrons, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubHintsConfig } from "@vite-hub/internal/hints"
-import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { ViteHubInspectionPluginMetadata, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
@@ -719,6 +719,36 @@ function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinitio
   return definitions.filter(isServerScheduleDefinition)
 }
 
+/** The Schedules that Nitro runs on the host's cron, such as a Cloudflare cron trigger. The Process Runtime runs its own. */
+function selectHostCronDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition[] {
+  return resolveProcessRuntimeOptions(options.runtime) && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
+}
+
+/**
+ * Lists the Cloudflare cron trigger of each Schedule that the build writes: Nitro's Wrangler config gets the Schedules
+ * that Nitro runs, and the standalone Schedule Worker gets the others. Reads local files only.
+ */
+async function inspectScheduleResources(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, output: { nitro: boolean, standalone: DiscoveredScheduleDefinition[] }): Promise<ViteHubResourceSummary[]> {
+  const overrides = resolveCronOverrides(options.cron, definitions, options)
+  const nitro = await readDefinitionCrons(output.nitro ? selectHostCronDefinitions(definitions, options) : [], overrides)
+  const standalone = await readDefinitionCrons(output.standalone.filter(definition => !nitro.has(definition.name)), overrides)
+  const resource = (definition: string, cron: string, inStandalone: boolean): ViteHubResourceSummary => ({
+    definition,
+    host: "cloudflare",
+    kind: "cloudflare-cron",
+    name: cron,
+    note: inStandalone
+      ? "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config of the standalone Schedule Worker."
+      : "Cloudflare runs the Schedule from `triggers.crons` in the Wrangler config.",
+    owner: "schedule",
+    ...(inStandalone ? { standalone: true } : {}),
+  })
+  return [
+    ...[...nitro].map(([definition, cron]) => resource(definition, cron, false)),
+    ...[...standalone].map(([definition, cron]) => resource(definition, cron, true)),
+  ]
+}
+
 function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): DiscoveredScheduleDefinition["source"] | undefined {
   if (options.providerOutput === "auto" || options.providerOutput === undefined) {
     return hasServerScheduleDefinitions(definitions) ? "vite-suffix" : undefined
@@ -781,7 +811,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   if (processRuntime && options.command === "build" && !internal.preliminary && !internal.leaseDatabaseImport) {
     reportViteHubHint(hints, scheduleErrorDiagnostics.SCHEDULE_PROCESS_CLAIMS_IN_MEMORY())
   }
-  const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
+  const nitroDefinitions = selectHostCronDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
   const timeZoneCrons = options.command === "build" ? readTimeZoneCrons(nitroDefinitions, cronOverrides) : {}
   const crons = [...new Set(nitroCrons.values())]
@@ -1127,6 +1157,18 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
           return inspectScheduleDefinitions({ cron: options.cron, plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
         },
       }],
+      resources: async () => {
+        const host = nitroPreset
+          ? resolveHost({ nitro: { preset: nitroPreset } })
+          : (resolved && getDeploymentHost(resolved)) ?? resolveHost({ nitro: Reflect.get(resolved ?? {}, "nitro") })
+        const definitions = discoverRegistrySchedules()
+        // The standalone output resolves its host like the build does, and it writes Cloudflare output when no host is known.
+        const standaloneHost = resolveHost({ nitro: nitroPreset ? { preset: nitroPreset } : Reflect.get(resolved ?? {}, "nitro") })
+        const standalone = emitStandaloneProviderOutput && (standaloneHost === undefined || standaloneHost === "cloudflare")
+          ? definitions.filter(definition => !standaloneProviderSource || definition.source === standaloneProviderSource)
+          : []
+        return await inspectScheduleResources(definitions, options, { nitro: host === "cloudflare", standalone })
+      },
     }),
   } satisfies ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
   return inspectable

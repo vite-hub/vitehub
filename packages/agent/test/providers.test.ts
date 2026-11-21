@@ -14,7 +14,7 @@ import { transform } from "esbuild"
 import { env } from "@vite-hub/env"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { collectViteHubProviderOutputEntries, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
 import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
@@ -2448,8 +2448,11 @@ describe("agent Vite plugin", () => {
       root: hostedAgentRoot,
     }
 
-    const result = await resolveAgentViteConfig(hubAgent(), config)
+    const plugin = hubAgent()
+    const result = await resolveAgentViteConfig(plugin, config)
 
+    // `vitehub inspect resources` and the Cloudflare build check list the binding that the config gets.
+    expect(await collectViteHubResourceSummaries([plugin])).toEqual([expect.objectContaining({ binding: "CHAT_STATE", kind: "cloudflare-durable-object", name: "ViteHubAgentStateDO", owner: "agent" })])
     expect(result.nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(result.nitro.cloudflare.wrangler.routes).toEqual([{ custom_domain: true, pattern: "app.example.com" }])
     expect(result.nitro.cloudflare.wrangler.durable_objects.bindings).toEqual([{ class_name: "ViteHubAgentStateDO", name: "CHAT_STATE" }])
