@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { answers, scriptedAsk } from "@vite-hub/gateways/testing"
 import { defineChoices } from "../src/index.ts"
-import { selectionGateway, unsupported } from "../src/testing.ts"
+import { selectionGateway, unsupported, wordGateway } from "../src/testing.ts"
 
 const groups = {
   chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }, { label: "Bar", value: "bar" }] },
@@ -89,7 +89,7 @@ describe("selectionGateway()", () => {
   })
 
   it("returns DECISIONS_R0005 for an unknown group or value, with DECISIONS_TESTING_SELECTION_INVALID as the cause", async () => {
-    for (const selection of [{ shipper: "x" }, { chart: "pie" }, { chart: { include: ["line"] } }, { supplier: "S1" }]) {
+    for (const selection of [{ shipper: "x" }, { chart: "pie" }, { chart: { include: ["line"] } }, { supplier: "S1" }, { supplier: { exclude: ["S1"], include: ["S1"] } }]) {
       const [error] = await defineChoices({ gateway: selectionGateway(selection), groups }).resolve("x")
       expect(error?.code).toBe("DECISIONS_R0005")
       expect(error?.cause).toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
@@ -98,6 +98,28 @@ describe("selectionGateway()", () => {
 
   it("throws outside defineChoices()", async () => {
     await expect(selectionGateway({}).ask("x", {})).rejects.toMatchObject({ code: "DECISIONS_TESTING_SELECTION_INVALID" })
+  })
+})
+
+describe("wordGateway()", () => {
+  const forecast = defineChoices({
+    gateway: wordGateway(),
+    groups: {
+      ...groups,
+      supplier: { label: "Supplier", options: [{ aliases: ["vak"], label: "Vak Supply", value: "S1" }, { aliases: ["nord"], label: "Nord Parts", value: "S2" }, { label: "Vakuum Co", value: "S3" }] },
+    },
+  })
+
+  it("matches option aliases", async () => {
+    const [error, selection] = await forecast.resolve("nord except vak")
+    expect(error).toBeUndefined()
+    expect(selection?.supplier).toEqual({ exclude: ["S1"], include: ["S2"] })
+  })
+
+  it("matches names as whole words", async () => {
+    const [, selection] = await forecast.resolve("vakuum co, barcode scan by deadline")
+    expect(selection?.supplier).toEqual({ exclude: [], include: ["S3"] })
+    expect(selection?.chart).toMatchObject({ value: null })
   })
 })
 
