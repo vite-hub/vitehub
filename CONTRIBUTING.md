@@ -269,6 +269,8 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 - A request to fix or build something includes a pushed branch and an open pull request, unless the request says to explore, review, plan, or hold.
 - Confirm the destination repository and check for an existing pull request before you open one.
 - Rebase onto the latest `main` before opening a pull request.
+- Before each push, run `corepack pnpm exec vp check --no-fmt <changed files>` and the `typecheck` and `test` scripts of each changed package. CI must not be the first check of your change.
+- Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 - Open a real pull request, not a draft.
 - Keep one concern per pull request unless the task asks to combine work.
 - Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.
