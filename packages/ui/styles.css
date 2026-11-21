@@ -4117,6 +4117,7 @@
   @media (hover: hover) { .vh-ws-file-link:hover { background: color-mix(in oklab, var(--vh-ws-file-link) 12%, transparent); } }
 
   .vh-ws-step-nav { align-items: center; display: flex; gap: 2px; min-width: 0; }
+  .vh-ws-step-nav-menu { min-width: 0; }
   .vh-ws-step-nav-name { color: var(--vh-highlighted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vh-ws-step-nav-count { color: var(--vh-muted); font-size: 0.78125rem; margin: 0 4px; white-space: nowrap; }
 

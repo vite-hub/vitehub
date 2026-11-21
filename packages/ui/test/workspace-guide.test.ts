@@ -118,6 +118,13 @@ describe("WorkspaceGuide", () => {
     expect(titled.get("h2").text()).toBe("Read me");
   });
 
+  it("shows the finish action and a page footer with one step", () => {
+    const finish = mount(WorkspaceGuide, { global, props: { steps: [steps[0]!] }, slots: { finish: () => h("a", { class: "finish", href: "/learn" }, "Done") } });
+    expect(finish.get(".vh-ws-guide-footer .finish").text()).toBe("Done");
+    const footer = mount(WorkspaceGuide, { global, props: { steps: [steps[0]!] }, slots: { footer: () => h("p", { class: "own" }, "Own footer") } });
+    expect(footer.get(".vh-ws-guide-footer .own").text()).toBe("Own footer");
+  });
+
   it("fills the guide pane of the shell in guide-top and guide-side", () => {
     for (const layout of ["guide-top", "guide-side"] as const) {
       const wrapper = mount(WorkspaceShell, { global, props: { layout, storageKey: false }, slots: { guide: () => h(WorkspaceGuide, { steps }) } });

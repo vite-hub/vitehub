@@ -96,6 +96,42 @@ export default function ({ test, open, rects, near }) {
     assert.equal(await page.locator("[data-file]").textContent(), "locales/es.json", "editor head after the link")
   })
 
+  test("guide: focus stays on a control when Enter reaches the first or the last step", async () => {
+    const page = await open("guide", { layout: "guide-side" })
+    const focused = () => page.evaluate(() => {
+      const active = document.activeElement
+      return active === document.body ? "body" : active?.getAttribute("aria-label") ?? active?.className ?? ""
+    })
+    await page.locator(selectors.next).focus()
+    await page.keyboard.press("Enter")
+    await page.locator(selectors.next).focus()
+    await page.keyboard.press("Enter")
+    assert.equal(await page.locator(selectors.title).textContent(), "Fallbacks", "on the last step")
+    assert.match(await focused(), /^Back to step 3/, "focus on Back after the last Next")
+    await page.locator("[aria-label='Previous step']").click()
+    await page.locator("[aria-label='Previous step']").click()
+    await page.locator(selectors.back).focus()
+    await page.keyboard.press("Enter")
+    assert.equal(await page.locator(selectors.title).textContent(), "Write a component", "on the first step")
+    assert.match(await focused(), /vh-ws-guide-next/, "focus on Next after the first Back")
+
+    await page.locator("[aria-label='Next step']").focus()
+    for (let step = 0; step < 3; step++) await page.keyboard.press("Enter")
+    assert.equal(await page.locator(".vh-ws-step-nav-count").textContent(), "Step 4 of 4", "bar on the last step")
+    assert.equal(await focused(), "Previous step", "focus on the other arrow at the last step")
+    for (let step = 0; step < 3; step++) await page.keyboard.press("Enter")
+    assert.equal(await page.locator(".vh-ws-step-nav-count").textContent(), "Step 1 of 4", "bar on the first step")
+    assert.equal(await focused(), "Next step", "focus on the other arrow at the first step")
+  })
+
+  test("guide: a long step title shortens and the arrows stay in the bar", async () => {
+    const page = await open("guide", { layout: "guide-top" })
+    await page.setViewportSize({ width: 600, height: 800 })
+    await page.locator(".vh-ws-step-nav-name").evaluate((element) => { element.textContent = "2. Configure the development server and connect your GitHub account" })
+    const got = await rects(page, { bar: selectors.bar, next: ".vh-ws-step-nav-next" })
+    assert.ok(got.next.x + got.next.w <= got.bar.x + got.bar.w, `Next ends at ${got.next.x + got.next.w}, past the bar at ${got.bar.x + got.bar.w}`)
+  })
+
   for (const layout of ["guide-top", "guide-side"]) {
     test(`guide ${layout} dark: the parts render on the dark tokens`, async () => {
       const page = await open("guide", { layout, theme: "dark" })

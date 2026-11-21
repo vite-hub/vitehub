@@ -275,8 +275,8 @@ describe("PlaygroundContainer", () => {
     await flushPromises();
     expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages", "Status", "Path"]);
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
-    expect(wrapper.get(".vh-ws-editor-head .vh-pc-path").text()).not.toBe("Custom path");
-    expect(wrapper.find(".vh-ws-status").exists()).toBe(false);
+    expect(wrapper.get(".vh-ws-editor-head .vh-ws-breadcrumb").attributes("title")).toBe("server/api/health.get.ts");
+    expect(wrapper.get(".vh-ws-status").text()).not.toContain("Custom status");
     expect(wrapper.get("[data-tab='status']").attributes()).toHaveProperty("inert");
     expect(wrapper.get("[data-tab='status']").text()).toBe("Custom status");
     expect(wrapper.get("[data-tab='editor-head']").text()).toBe("Custom path");
