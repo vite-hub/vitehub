@@ -1,13 +1,17 @@
-import { createHmac } from "node:crypto"
+import { createHmac, generateKeyPairSync } from "node:crypto"
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createClient } from "@libsql/client"
 import { defineAgent, resolveAgentTriggerInvocation } from "@vite-hub/agent"
 import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process"
 import { withDeclaredAgentWorkspace } from "@vite-hub/agent/server/internal"
 import { babysitter } from "../src/babysitter.ts"
 import { usesProcessHostPreset } from "../../agent/src/discovery.ts"
+import { createAgentProcessHosts } from "../../agent/src/runtime/process.ts"
+import { createLibsqlAgentState } from "../../agent/src/state/sqlite.ts"
+import { githubForge } from "./fixtures/github-forge.ts"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -43,6 +47,52 @@ describe("Babysitter process host", () => {
   it("owns no Workspace, so a folder Agent that extends it needs no workspace key", () => {
     const agent = defineAgent({ extends: babysitter, options: { filter: { repository: { allow: ["acme/app"] } }, merge: "direct" } })
     expect(withDeclaredAgentWorkspace(agent, "babysitter")).toBe(agent)
+  })
+
+  it("serves scheduler health while admission hangs and after reconcile stops", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-babysitter-health-"))
+    const client = createClient({ url: `file:${join(root, "state.sqlite")}` })
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    vi.stubEnv("VITEHUB_GITHUB_APP_ID", "123")
+    vi.stubEnv("VITEHUB_GITHUB_PRIVATE_KEY", privateKey.export({ format: "pem", type: "pkcs1" }).toString())
+    vi.stubEnv("VITEHUB_GITHUB_WEBHOOK_SECRET", "webhook-secret")
+    const { fetch } = await githubForge(({ path }) => path === "/app" ? { id: 123, slug: "repair" } : undefined)
+    vi.stubGlobal("fetch", fetch)
+    const check = vi.fn(() => new Promise<never>(() => {}))
+    const agent = defineAgent({ name: "babysitter", extends: babysitter, options: {
+      filter: { repository: { allow: ["acme/app"] } }, install: false, merge: false, admission: { check },
+    } })
+    const state = createLibsqlAgentState({ client })
+    const hosts = createAgentProcessHosts({ names: ["babysitter"], registry: { babysitter: async () => ({ default: agent }) }, enabled: true, dataDir: root, state: () => state })
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
+    try {
+      hosts.start()
+      await vi.waitFor(() => expect(check).toHaveBeenCalledTimes(1), { timeout: 3000 })
+      const poll = hosts.health()
+      await vi.advanceTimersByTimeAsync(2000)
+      const pending = Symbol("pending")
+      const running = await Promise.race([poll, Promise.resolve(pending)])
+      expect(running).toMatchObject({ status: "degraded", agents: { babysitter: {
+        scheduler: { status: "ok", running: { step: "admission" } }, queue: expect.any(Object),
+        diagnostics: expect.arrayContaining([expect.objectContaining({ label: "Health data", detail: "admission" })]),
+      } } })
+      expect(running).not.toHaveProperty("agents.babysitter.admission")
+      await vi.advanceTimersByTimeAsync(15 * 60_000)
+      const afterStall = hosts.health()
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(await Promise.race([afterStall, Promise.resolve(pending)])).toMatchObject({ status: "degraded", agents: { babysitter: {
+        status: "degraded", scheduler: { status: "stalled", lastStall: { step: "admission", count: 1 } },
+        diagnostics: expect.arrayContaining([expect.objectContaining({ label: "Scheduler" })]),
+      } } })
+    }
+    finally {
+      await vi.advanceTimersByTimeAsync(15 * 60_000)
+      await hosts.close()
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+      client.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })
 

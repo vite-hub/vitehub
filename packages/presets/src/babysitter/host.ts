@@ -189,7 +189,6 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     limits: resolveBabysitterAdmissionLimits(agent.options.admission),
     check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
-  let admissionPrerequisiteSample: string | undefined;
   // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
   const warmWorkspaces = agent.options.warmWorkspaces;
   // Each pass runs in its own provider thread, and only `resumeThreads` continues one. Without it, no pass reads a stored session.
@@ -232,6 +231,19 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   });
   const inbox = runtime.inbox;
   const schedulerHealth = runtime.scheduler;
+  const processHealth = boundedHealthRead(() => host.health());
+  const queueHealth = boundedHealthRead(() => inbox.summary());
+  const prerequisiteHealth = boundedHealthRead(preflight);
+  const skipHealth = boundedHealthRead(async () => ({ lastSkip: await inbox.meta("admission-skipped") }));
+  let admissionPrerequisiteSample: string | undefined;
+  const admissionHealth = boundedHealthRead(async () => {
+    const prerequisites = await preflight();
+    if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
+      admissionPrerequisiteSample = prerequisites.checkedAt;
+      admission.invalidate();
+    }
+    return await admission.health();
+  });
   // No pass runs yet, so workspaces from an earlier process are garbage.
   const swept = await sweepBabysitterWorkspaces();
   const workspaceStatus = async (repository: string, number: number): Promise<PullRequestWorkspaceStatus> => {
@@ -296,16 +308,9 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     wake: reason => host.wake(reason),
     status: () => host.status(),
     async health() {
-      const health = await host.health();
-      const queue = await inbox.summary();
-      // Refresh prerequisites before admission so both health surfaces describe one sample.
-      const prerequisites = await preflight();
-      if (admissionPrerequisiteSample !== prerequisites.checkedAt) {
-        admissionPrerequisiteSample = prerequisites.checkedAt;
-        admission.invalidate();
-      }
-      const guard = await admission.health();
-      const lastSkip = await inbox.meta("admission-skipped");
+      const [health, queue, prerequisites, guard, skip] = await Promise.all([
+        processHealth(), queueHealth(), prerequisiteHealth(), admissionHealth(), skipHealth(),
+      ]);
       // A drained host runs no reconcile, so only a running or starting host can be silent.
       const hostStatus = host.status();
       const scheduler = schedulerHealth(hostStatus === "accepting" || hostStatus === "starting");
@@ -318,24 +323,54 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
           ? `${stall.count} reconcile(s) in a row waited too long and were stopped${stall.subject ? `, the last on ${stall.subject}` : ""}.`
           : `The last reconcile finished at ${scheduler.lastFinishedAt ?? "never"}.`,
       }];
-      return { ...health, status: prerequisites.pause || schedulerDiagnostics.length ? "degraded" as const : health.status, diagnostics: [...health.diagnostics, ...prerequisites.diagnostics, ...schedulerDiagnostics], scheduler, release: agent.version, framework: { buildRevision }, concurrency: agent.options.concurrency, repositories: repositories.known(), repositorySource: repositories.source, queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) }, admission: {
-        accepting: guard.accepting,
-        hostOnly: guard.hostOnly,
-        reason: guard.reason,
-        retryAt: guard.retryAt,
-        detail: guard.detail,
-        // Retained for existing clients. lastSkip is historical; accepting is current.
-        lastSkip,
-        history: { lastSkip },
-      }, budget: {
-        accounting: guard.accounting,
-        observedAt: new Date(guard.observedAt).toISOString(),
-        hourly: { inputTokens: guard.state.hourlyInputTokens, limit: guard.limits.hourlyInputTokens, resetsAt: guard.state.windows.hourEnd },
-        daily: { inputTokens: guard.state.dailyInputTokens, limit: guard.limits.dailyInputTokens, resetsAt: guard.state.windows.dayEnd },
-        tmp: { dir: guard.state.tmpDir, freeBytes: guard.state.freeTmpBytes, minFreeBytes: guard.limits.minFreeTmpBytes },
-        pause: guard.state.pause,
-        errors: guard.state.errors,
-      } };
+      const unavailable = [!health && "invocation state", !queue && "queue", !prerequisites && "prerequisites", !guard && "admission", !skip && "admission history"].filter(Boolean);
+      const readDiagnostics = unavailable.length ? [{ label: "Health data", status: "warning" as const, value: "Unavailable", detail: unavailable.join(", ") }] : [];
+      const lastSkip = skip?.lastSkip;
+      return {
+        ...health,
+        status: health?.status === "healthy" && !prerequisites?.pause && !schedulerDiagnostics.length && !unavailable.length ? "healthy" : "degraded",
+        diagnostics: [...health?.diagnostics ?? [], ...prerequisites?.diagnostics ?? [], ...schedulerDiagnostics, ...readDiagnostics],
+        scheduler,
+        release: agent.version,
+        framework: { buildRevision },
+        concurrency: agent.options.concurrency,
+        repositories: repositories.known(),
+        repositorySource: repositories.source,
+        ...(queue ? { queue: { ...babysitterQueueHealth(queue), parked: budgetParks(queue) } } : {}),
+        ...(guard ? {
+          admission: {
+            accepting: guard.accepting,
+            hostOnly: guard.hostOnly,
+            reason: guard.reason,
+            retryAt: guard.retryAt,
+            detail: guard.detail,
+            // Retained for existing clients. lastSkip is historical; accepting is current.
+            lastSkip,
+            history: { lastSkip },
+          },
+          budget: {
+            accounting: guard.accounting,
+            observedAt: new Date(guard.observedAt).toISOString(),
+            hourly: { inputTokens: guard.state.hourlyInputTokens, limit: guard.limits.hourlyInputTokens, resetsAt: guard.state.windows.hourEnd },
+            daily: { inputTokens: guard.state.dailyInputTokens, limit: guard.limits.dailyInputTokens, resetsAt: guard.state.windows.dayEnd },
+            tmp: { dir: guard.state.tmpDir, freeBytes: guard.state.freeTmpBytes, minFreeBytes: guard.limits.minFreeTmpBytes },
+            pause: guard.state.pause,
+            errors: guard.state.errors,
+          },
+        } : {}),
+      };
     },
   };
+}
+
+/** Bound the wait without starting more reads while a dependency is still busy. */
+function boundedHealthRead<T>(read: () => Promise<T>): () => Promise<T | undefined> {
+  let pending: Promise<T | undefined> | undefined;
+  return () => pending ??= new Promise(resolve => {
+    const timer = setTimeout(() => resolve(undefined), 1000);
+    void Promise.resolve().then(read).then(resolve, () => resolve(undefined)).finally(() => {
+      clearTimeout(timer);
+      pending = undefined;
+    });
+  });
 }
