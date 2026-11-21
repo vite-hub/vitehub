@@ -95,6 +95,11 @@
       "import": "./dist/internal/agent-invocations-cli.js",
       "default": "./dist/internal/agent-invocations-cli.js"
     },
+    "./internal/agent-state-cli": {
+      "types": "./dist/internal/agent-state-cli.d.ts",
+      "import": "./dist/internal/agent-state-cli.js",
+      "default": "./dist/internal/agent-state-cli.js"
+    },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
       "import": "./dist/internal/default-invocations.js",

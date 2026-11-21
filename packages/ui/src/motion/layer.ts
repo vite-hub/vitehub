@@ -3,7 +3,6 @@ import { isMotionOff, optOut } from "./opt-out.ts";
 import { onReducedMotionChange, prefersReducedMotion } from "./reduced-motion.ts";
 import { claimMotionLayer, defineOwnEffect, handOffMotionEffects, listMotionEffects, motionEffectRegistrations, motionStateAttributes, onMotionEffectsChange, otherMotionLayer } from "./registry.ts";
 import type { MotionContentChange, MotionEffect, MotionPress, MotionRoot, MotionStateAttribute } from "./registry.ts";
-import { settleSprings } from "./spring.ts";
 
 export type { MotionRoot } from "./registry.ts";
 

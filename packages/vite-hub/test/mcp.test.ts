@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { vitehub, type ViteHubOptions } from "../src/index.ts"
 
-import type { Plugin } from "vite"
+import type { ConfigEnv, Plugin, UserConfig } from "vite"
 
 const roots: string[] = []
 
@@ -27,7 +27,7 @@ function generatedEntry(plugin: Plugin): string {
   mkdirSync(join(root, "server/mcp/tools"), { recursive: true })
   writeFileSync(join(root, "server/mcp/tools/add.ts"), "export default {}\n")
   // SAFETY: The MCP plugin's config hook is a plain function.
-  ;(plugin.config as (config: object) => void)({ root })
+  ;(plugin.config as (config: UserConfig, env: ConfigEnv) => void)({ root }, { command: "serve", mode: "development" })
   return readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
 }
 

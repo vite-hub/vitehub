@@ -300,6 +300,7 @@ describe("framework package contract", () => {
       "./console/ui",
       "./doctor",
       "./logs",
+      "./logs/client",
       "./logs/host",
       "./logs/memory",
       "./logs/source",
