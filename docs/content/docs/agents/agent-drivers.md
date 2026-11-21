@@ -180,6 +180,25 @@ VITEHUB_MODELS=emulate vite dev
 - In these failures, ViteHub fails before it reads a credential, and it does not start the provider.
 - The emulator rejects hosted provider tools, so the model gets none of them, whether they come from a Capability, `runAgent(..., { tools })`, or `prepareCall`. `webSearch({ mode: 'model' })` adds no `web_search` tool, and the Invocation records an `agent.diagnostic.warning` observation with the code `AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED`. `webSearch({ mode: 'tool' })` keeps its tools. The same applies to a model from `languageModel(emulate(), id)`.
 - A tool choice that only a dropped tool can satisfy, such as `{ type: 'tool', toolName: 'web_search' }`, or `'required'` with no other tool, becomes `'auto'`, and the Invocation records `AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED`. The run continues as it does without the tool, so an Agent that you test on the emulator does not fail on a tool that the emulator cannot serve.
+- `vitehub agent get` shows the emulator URL. Provider status reads no credentials. It shows `emulated: { url }` only for a Driver that runs on the emulator, and the code of the failure for a Driver that does not.
+
+`vitehub agent emulator` shows the emulator rules, the budget that is left, and the recent calls with the rule that answered each one. `--json` prints the upstream `/_ai/rules` and `/_ai/calls` responses with the URL:
+
+```txt [Output]
+AI emulator: http://127.0.0.1:45155
+Strict: no, a request that no rule matches gets a default reply
+
+Rules: 2
+  ID       Left       Answer
+  greet    2 of 3     reply
+  weather  unlimited  reply
+
+Calls: 3
+  #  Time      Model           Format            Status  Rule
+  1  11:45:04  openai/gpt-5.1  openai-responses  200     greet
+  2  11:45:05  openai/gpt-5.1  openai-responses  200     weather
+  3  11:45:06  openai/gpt-5.1  openai-responses  200     default (echo)
+```
 
 ## Use a provider-backed Driver
 
