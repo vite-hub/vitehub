@@ -2,6 +2,7 @@
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
 import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRouter, useRuntimeConfig, useState } from "#app"
 
+import { invariantError } from "@vite-hub/internal/invariant"
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
@@ -59,7 +60,7 @@ const unforwardedHeaders = /^(?:accept|accept-encoding|connection|content-.+|exp
  * Better Auth reads the same cookie names, such as `__Secure-better-auth.session_token` on https.
  */
 async function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
-  if ((import.meta as ImportMeta & { client?: boolean }).client) throw new Error("Auth page fetch requires the Nuxt server")
+  if ((import.meta as ImportMeta & { client?: boolean }).client) throw invariantError("Auth page fetch runs only on the Nuxt server")
   const { serverFetch } = await import("nitro")
   // Concatenate: a path such as `//host/x` must stay a path of the page's origin.
   const request = new Request(`${event.url.origin}${path}`, init)
