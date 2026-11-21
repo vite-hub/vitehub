@@ -1233,8 +1233,21 @@ describe("Vite schedule integration", () => {
 
       expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } } })
       const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
-      expect(pluginSource).toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+      expect(pluginSource).toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry, triggerCrons: {\"cleanup\":\"0 0 * * *\"} })")
       expect(pluginSource).toContain('setHostScheduleInventory({ timings: {"cleanup":{"cron":"0 0 * * *","timeZone":"UTC"}} })')
+    })
+
+    it("writes weekday names in Nitro's Cloudflare triggers with tab-separated cron fields", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-nitro-cloudflare-weekdays-")
+      const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
+      await (hubSchedule({ cron: { cleanup: "0\t4 * * 1-5" } }).config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        userConfig,
+        { command: "build", mode: "production" },
+      )
+
+      expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 4 * * MON,TUE,WED,THU,FRI"] } } } } })
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * MON,TUE,WED,THU,FRI\"")
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain('triggerCrons: {"cleanup":"0 4 * * MON,TUE,WED,THU,FRI"}')
     })
 
     it("fails the build when the cron names no Schedule", async () => {

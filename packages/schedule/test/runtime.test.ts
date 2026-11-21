@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
+import { deserializeResponse, serializeResponse } from "@vite-hub/runtime/internal/response"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
 import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"

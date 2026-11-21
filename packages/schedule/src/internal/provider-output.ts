@@ -5,7 +5,6 @@ import { builtinModules } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { isDeepStrictEqual } from "node:util"
-import { parseCronExpression } from "cron-schedule"
 import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot, recoverNetlifyDeploymentOutput, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
@@ -18,6 +17,7 @@ import { findDefaultExportCall, findProperty, scanModule, staticString } from "@
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 import { utcCronForTimeZone } from "./time-zone-cron.ts"
+import { cronWithWeekdayNames } from "../runtime/due.ts"
 
 import type { Rolldown } from "vite"
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
@@ -245,7 +245,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}isTimeZoneWakeDue, missingScheduleDefinitionError, normalizeCron, ${provider === "vercel" ? "scheduledWakeTime, " : ""}unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
+    `import { ${provider === "cloudflare" ? "cronWithWeekdayNames, " : ""}executeStaticSchedule, ${provider === "vercel" ? "isScheduleCronAuthorized, " : ""}isTimeZoneWakeDue, missingScheduleDefinitionError, normalizeCron, ${provider === "vercel" ? "scheduledWakeTime, " : ""}unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,
     ...(workflowRuntime
       ? [
           `import workflowRegistry from ${JSON.stringify(createImportPath(file, workflowRuntime.registryFile))}`,
@@ -299,12 +299,16 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "  },",
           "  async scheduled(event, env, ctx) {",
           "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
+          "    const trigger = normalizeCron(event.cron)",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)) return",
+          "      if (!definition) return",
+          "      const cron = normalizeCron(scheduleCron(name, definition))",
+          "      // wrangler.json has the cron with weekday names, so Cloudflare reads each weekday as declared.",
+          "      if (cronWithWeekdayNames(cron) !== trigger) return",
           "      const scheduledAt = new Date(event.scheduledTime)",
           "      if (!isWakeDue(name, definition, scheduledAt)) return",
-          "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt, waitUntil: (promise) => ctx.waitUntil(promise) })",
+          "      await executeStaticSchedule({ cron, definition, name, scheduledAt, waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
           "  },",
@@ -405,12 +409,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
       const cronId = index.toString(36)
       const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
       const cronNamePrefix = `vitehub-${cronId}-`
-      const fields = cron.trim().split(/\s+/)
-      if (fields[4] !== "*") {
-        const weekdays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
-        fields[4] = parseCronExpression(cron).weekdays.map(day => weekdays[day]).join(",")
-      }
-      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: fields.join(" "), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
+      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: cronWithWeekdayNames(cron), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
     })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
@@ -1018,7 +1017,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
         bundleAlias: options.bundleAlias,
         bundleDefines: options.bundleDefines,
         bundleEntry: artifacts.cloudflareWorkerFile,
-        crons: [...new Set(crons.values())],
+        crons: [...new Set([...crons.values()].map(cronWithWeekdayNames))],
         rootDir: options.rootDir,
         previousStateFile: previousCloudflareStateFile,
         sourceRootDir: options.sourceRootDir,

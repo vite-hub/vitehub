@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { defineWorkspace, useWorkspace } from "@vite-hub/workspace";
 import { registerWorkspace } from "@vite-hub/workspace/test";
-import { readRealtimeWorkspaceDocument, workspaceDocument } from "../src/server.ts";
+import { workspaceDocument } from "../src/server.ts";
+import { readRealtimeWorkspaceDocument } from "../src/internal/server.ts";
 import { realtimeMarkdownEditor as packagedEditor } from "../dist/index.js";
-import { createRealtimeYDoc as packagedCreateYDoc, readRealtimeYDoc as packagedReadYDoc, workspaceDocument as packagedWorkspaceDocument } from "../dist/server.js";
+import { workspaceDocument as packagedWorkspaceDocument } from "../dist/server.js";
+import { createRealtimeYDoc as packagedCreateYDoc, readRealtimeYDoc as packagedReadYDoc } from "../dist/internal/server.js";
 
 it("opens a new collaborative document through real memory Workspace facades", async () => {
   const name = "realtime-new-memory-document";

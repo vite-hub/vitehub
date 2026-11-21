@@ -44,7 +44,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## SharedArrayBuffer detection for trace privacy trusts only native intrinsics captured and validated at import (Function.prototype.toString, buffer getters, DataView), with probes against forged formatters and receiver-aware getters
 
-`webAssemblyModule`, `captureFunctionToString`, `checkNativeFunctionToString`, `captureSharedBufferByteLength`, `isSharedArrayBuffer` in `packages/runtime/src/index.ts`.
+`webAssemblyModule`, `captureFunctionToString`, `checkNativeFunctionToString`, `captureSharedBufferByteLength`, `isSharedArrayBuffer` in `packages/runtime/src/core.ts`.
 
 **Context:** Trace payloads that hold shared memory must stay private; app code could replace intrinsics to brand arbitrary objects or hide shared buffers.
 
@@ -54,7 +54,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Timestamps use Date.prototype.toISOString via Reflect.apply so Dates from other realms are accepted
 
-`timestamp` in `packages/runtime/src/index.ts`.
+`timestamp` in `packages/runtime/src/core.ts`.
 
 **Context:** `instanceof Date` fails for Dates created in another realm (VM, iframe); the intrinsic method checks the internal slot instead.
 
@@ -64,7 +64,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## waitUntil attaches a no-op catch at once but keeps the original task queued
 
-`createRuntimeWaitUntilController.waitUntil` in `packages/runtime/src/index.ts`.
+`createRuntimeWaitUntilController.waitUntil` in `packages/runtime/src/core.ts`.
 
 **Context:** The early catch prevents an unhandled rejection; flushWaitUntil awaits the original task and reports its error.
 
@@ -74,7 +74,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Structural capability handles are accepted only as own data fields on an ordinary-prototype object, and proxies are rejected where Node can detect them
 
-`isCapabilityHandle` in `packages/runtime/src/index.ts`.
+`isCapabilityHandle` in `packages/runtime/src/core.ts`.
 
 **Context:** Handles from other runtime copies must still work, but a proxy can fabricate own descriptors and prototypes that structural checks cannot tell from real data.
 

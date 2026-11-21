@@ -4,7 +4,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Realtime access fails closed
 
-`assertRealtimeAccess`, `hubRealtime`, `Origin check`, `authorize`, `RealtimeDefinition.origins` in `packages/realtime/src/definition.ts`, `packages/realtime/src/server.ts`, `packages/realtime/src/types.ts`, `packages/realtime/src/vite.ts`.
+`assertRealtimeAccess`, `hubRealtime`, `Origin check`, `authorize`, `RealtimeDefinition.origins` in `packages/realtime/src/definition.ts`, `packages/realtime/src/internal/server.ts`, `packages/realtime/src/types.ts`, `packages/realtime/src/vite.ts`.
 
 **Context:** Old keys (`auth`, `authority`) changed meaning. Browsers send cookies and Origin on cross-site WebSocket handshakes; a page cannot set X-Forwarded-* on a handshake.
 
@@ -14,7 +14,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## On Cloudflare the Durable Object owns rooms and sockets
 
-`refreshDurableRoom`, `requestRoom`, `createRealtimeHandler upgrade` in `packages/realtime/src/server.ts`.
+`refreshDurableRoom`, `requestRoom`, `createRealtimeHandler upgrade` in `packages/realtime/src/internal/server.ts`.
 
 **Context:** Workerd may run the Durable Object in the Worker's isolate, so rooms are visible there, but sockets belong to the Durable Object's requests. After hibernation crossws restores each peer with a bare GET of its first URL.
 
@@ -24,7 +24,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Rejected WebSocket upgrades carry refusing crossws hooks
 
-`rejectedUpgrade` in `packages/realtime/src/server.ts`.
+`rejectedUpgrade` in `packages/realtime/src/internal/server.ts`.
 
 **Context:** crossws and Nitro's adapters upgrade a request whose handler has no hooks into a socket that never answers.
 
@@ -34,7 +34,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Shared Realtime rooms keep one record and save under the room lock
 
-`openSharedDocument`, `saveRoom`, `recoverPendingSave`, `followRoom`, `refreshRoom` in `packages/realtime/src/server.ts`.
+`openSharedDocument`, `saveRoom`, `recoverPendingSave`, `followRoom`, `refreshRoom` in `packages/realtime/src/internal/server.ts`.
 
 **Context:** Several instances can hold one room. Yjs updates from another history duplicate content, and a process can stop between `adapter.save()` and the record write.
 
@@ -44,7 +44,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Realtime editor version mismatch makes the connection read-only
 
-`openDocumentRoom`, `connection readOnly`, `createRealtimeEditorExtensions` in `packages/realtime/src/editor.ts`, `packages/realtime/src/server.ts`.
+`openDocumentRoom`, `connection readOnly`, `createRealtimeEditorExtensions` in `packages/realtime/src/editor.ts`, `packages/realtime/src/internal/server.ts`.
 
 **Context:** TipTap deletes nodes its schema does not know as soon as it renders, and each collaborator's trailing node appends an empty paragraph to the shared document.
 
@@ -74,7 +74,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## The Realtime bus is lossy and rooms reconcile
 
-`createPostgresBus`, `createRedisBus`, `requestSync` in `packages/realtime/src/bus.ts`, `packages/realtime/src/server.ts`.
+`createPostgresBus`, `createRedisBus`, `requestSync` in `packages/realtime/src/bus.ts`, `packages/realtime/src/internal/server.ts`.
 
 **Context:** Redis pub/sub loses messages while disconnected and can lose single messages. A room save may use the app's Database pool, including max=1.
 
@@ -84,7 +84,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Idle rooms leave memory only when their edits are safe
 
-`releaseRoom` in `packages/realtime/src/server.ts`.
+`releaseRoom` in `packages/realtime/src/internal/server.ts`.
 
 **Context:** A memory-only room has no durable copy of unsaved edits.
 

@@ -2,6 +2,16 @@
 
 Each entry records a decision that the code cannot show. See [README.md](README.md) for the format.
 
+## The Console serves the public page tools route without Comments
+
+`viteHubPageSessionHandler` in `packages/vite-hub/src/console/runtime/server/page-tools-route.ts`.
+
+**Context:** An app can use the Console without Comments. The page tools listing must still be available, including to anonymous visitors.
+
+**Decision:** The Console registers the shared handler under a page tools name, not an auth session name. The listing shows tools available to the visitor; each tool checks access again on its own routes.
+
+**Consequences:** Vite Doctor treats paths with words such as `session` as candidates for auth routes. Keep the public page tools route name distinct from those paths.
+
 ## Passkey accounts carry a reserved placeholder email that GitHub linking replaces
 
 `defineAuth account.accountLinking`, `databaseHooks.account.create/update`, `passkeySignUp.afterVerification`, `adoptGitHubEmail`, `mayComment` in `packages/console/server/auth.ts`, `packages/console/src/accounts.ts`, `packages/console/src/commenters.ts`.

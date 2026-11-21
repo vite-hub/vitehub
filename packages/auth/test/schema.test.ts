@@ -98,17 +98,17 @@ describe("Auth tables", () => {
   })
 
   it("stores monthly API-key durations as JavaScript numbers in both dialects", () => {
-    const postgres = createAuthPostgresSchema({ plugins: ["apiKey"] }).apikey!
-    const sqlite = createAuthSqliteSchema({ plugins: ["apiKey"] }).apikey!
+    const postgres = createAuthPostgresSchema({ plugins: ["apiKey"] }).apikey
+    const sqlite = createAuthSqliteSchema({ plugins: ["apiKey"] }).apikey
     const dialect = new PgDialect({ codecs: postgresJsCodecs })
     const duration = 30 * 24 * 60 * 60 * 1000
-    for (const key of ["refillInterval", "rateLimitTimeWindow"]) {
-      const column = postgres[key]!
+    for (const key of ["refillInterval", "rateLimitTimeWindow"] as const) {
+      const column = postgres[key]
       expect(column.getSQLType()).toBe("bigint")
       expect(column.dataType).toBe("number int53")
       expect(column.mapToDriverValue(duration)).toBe(duration)
       expect(dialect.codecs.apply(column, "normalize", String(duration))).toBe(duration)
-      expect(sqlite[key]!.mapFromDriverValue(duration)).toBe(duration)
+      expect(sqlite[key].mapFromDriverValue(duration)).toBe(duration)
     }
   })
 
@@ -157,7 +157,8 @@ describe("Auth tables", () => {
     }
     const sqlite = createAuthSqliteSchema(options)
     const postgres = createAuthPostgresSchema(options)
-    for (const describe of [(model: string) => getSqliteTableConfig(sqlite[model]!), (model: string) => getPostgresTableConfig(postgres[model]!)]) {
+    type Model = keyof typeof sqlite & keyof typeof postgres
+    for (const describe of [(model: Model) => getSqliteTableConfig(sqlite[model]), (model: Model) => getPostgresTableConfig(postgres[model])]) {
       expect(describe("apikey").name).toBe("apikey")
       expect(describe("twoFactor").name).toBe("two_factor")
       expect(describe("twoFactor").foreignKeys).toHaveLength(1)

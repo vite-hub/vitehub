@@ -18,6 +18,7 @@ export default defineConfig({
         "src/durability.ts",
         "src/index.ts",
         "src/internal/runtime/unavailable.ts",
+        "src/internal/server.ts",
         "src/server.ts",
         "src/vite.ts",
         "src/vue.ts",

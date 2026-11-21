@@ -124,3 +124,17 @@ export function latestCronMinute(cron: string, at: Date): Date {
   }
   return new Date(latest)
 }
+
+const weekdayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
+
+/**
+ * Returns `cron` with its weekday field written as names, such as `0 4 * * MON,FRI`. Cloudflare and Deno number
+ * weekdays 1-7 from Sunday, so standard 0-6 numbers fire one day early or fail to deploy. Names have one meaning on
+ * every host.
+ */
+export function cronWithWeekdayNames(cron: string): string {
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length !== 5 || fields[4] === "*") return fields.join(" ")
+  fields[4] = parseCronExpression(fields.join(" ")).weekdays.map(day => weekdayNames[day]).join(",")
+  return fields.join(" ")
+}

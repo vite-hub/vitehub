@@ -62,7 +62,7 @@ describe("forwardProjectRequest", () => {
     "/_vitehub/mcp",
     "/_vitehub/api/env/manage",
     "/_vitehub/env/manage",
-    "/_vitehub/page/session",
+    "/_vitehub/page/tools",
     "/_vitehub/auth/manage",
     "/_vitehub/rpc/__call",
     "/api/users",

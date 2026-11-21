@@ -45,7 +45,7 @@
   "packages/codemods/src/result-tuples/index.ts": 14,
   "packages/codemods/src/root-accessors/index.ts": 32,
   "packages/codemods/src/runner.ts": 1,
-  "packages/codemods/src/runtime-contracts/index.ts": 17,
+  "packages/codemods/src/runtime-contracts/index.ts": 18,
   "packages/codemods/src/shared/cli-calls.ts": 2,
   "packages/codemods/src/shared/config-editor.ts": 4,
   "packages/codemods/src/shared/package-json.ts": 1,

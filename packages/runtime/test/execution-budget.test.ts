@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createExecutionBudget } from "../src/index.ts"
+import { createExecutionBudget } from "../src/internal/execution-budget.ts"
 
 describe("ExecutionBudget", () => {
   describe.each(["root", "child"] as const)("%s deadline before timer delivery", (kind) => {

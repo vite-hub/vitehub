@@ -1,4 +1,4 @@
-import { normalizeConsoleProjectUrl } from "@vite-hub/runtime"
+import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 
 /**
  * The Console server fetches the URLs of linked projects. A person who links a project must not make it fetch an

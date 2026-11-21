@@ -21,6 +21,7 @@
   "packages/workspace/src/error-diagnostics.ts": 8,
   "packages/workspace/src/hooks-cli.ts": 17,
   "packages/workspace/src/hosts/vite/plugin.ts": 28,
+  "packages/workspace/src/internal/workspace.ts": 1,
   "packages/workspace/src/lifecycle.ts": 12,
   "packages/workspace/src/operations.ts": 4,
   "packages/workspace/src/providers/cloudflare/artifacts-store.ts": 14,

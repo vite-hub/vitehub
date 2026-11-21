@@ -5,7 +5,7 @@ import * as Y from "yjs"
 
 import type { RealtimeDocumentDefinition, RealtimeDocumentAdapter, RealtimeDocumentContext, RealtimeDocumentSnapshot, RealtimeSaveOptions } from "../src/types.ts"
 import { messageAwareness } from "../src/protocol.ts"
-import { realtimeRoomKey } from "../src/server.ts"
+import { realtimeRoomKey } from "../src/internal/server.ts"
 import { appendParagraph, createClientAwareness, createMemoryAdapter, createMemoryBusNetwork, createStubEditor, createTestServer, paragraphs, presence, settle } from "./harness.ts"
 
 import type { MemoryBus } from "./harness.ts"

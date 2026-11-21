@@ -52,15 +52,15 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Consequences:** Random run ids or rerunning without the claim would duplicate runs on repeated delivery or across servers.
 
-## Deno cron numbers weekdays 1-7 from Sunday
+## Deno and Cloudflare cron triggers use weekday names
 
-`renderDenoCron (weekday names)` in `packages/schedule/src/internal/provider-output.ts`.
+`cronWithWeekdayNames` in `packages/schedule/src/runtime/due.ts`, `isHostCronTrigger` in `packages/schedule/src/runtime/static.ts`, and `renderDenoCronEntry` in `packages/schedule/src/internal/provider-output.ts`.
 
-**Context:** Deno.cron does not use standard 0-6 weekday numbers, so the generator rewrites the weekday field to SUN..SAT names.
+**Context:** Deno and Cloudflare number weekdays 1–7 from Sunday rather than the standard 0–6.
 
-**Decision:** Emit weekday names, not numbers, in Deno cron output.
+**Decision:** Emit weekday names in Deno output and Cloudflare's Wrangler config. Match the Cloudflare event against the named trigger, then execute the Schedule with its standard cron.
 
-**Consequences:** Passing numeric weekdays through shifts every weekday Schedule by one day on Deno.
+**Consequences:** Passing numeric weekdays through can shift a Schedule by one day. Vercel and Netlify still use standard weekday numbers.
 
 ## Netlify publication is atomic: functions and retained sources move as one pair
 

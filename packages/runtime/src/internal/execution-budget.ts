@@ -18,3 +18,5 @@ export function isExecutionBudgetHandled(tool: object, budget: ExecutionBudget):
 export function executionBudgetHandledBy(tool: object): ExecutionBudget | undefined {
   return budgetHandledTools.get(tool)
 }
+
+export { createExecutionBudget, isExecutionBudgetExceededError } from "../execution-budget.ts"

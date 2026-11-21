@@ -80,7 +80,7 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 // https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
 ```
 
-`hostedConsoleUrl()` builds a link to one Console page of a project, as `consoleInvocationUrl()` and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both. It throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` for a project URL and `RUNTIME_CONSOLE_PATH_INVALID` for a path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
+`hostedConsoleUrl()` builds a link to one Console page of a project, as Agent invocation links and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both. It throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` for a project URL and `RUNTIME_CONSOLE_PATH_INVALID` for a path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
 The link opens that page of your team's app with that URL, or Home when your team has not linked it.
 

@@ -61,7 +61,7 @@ it("starts a KV app with the Console from the Node output", async () => {
       expect(unsigned.status).toBe(401)
       // The default security headers wrap fetch and pass Nitro a copy of each Node request. The page tools still
       // find their app, so the pill can load.
-      const session = await fetch(`http://127.0.0.1:${port}/_vitehub/page/session`)
+      const session = await fetch(`http://127.0.0.1:${port}/_vitehub/page/tools`)
       expect(session.status).toBe(200)
       expect(await session.json()).toMatchObject({ tools: expect.any(Array) })
       expect(stderr).not.toContain("Unhandled error")
