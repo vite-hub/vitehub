@@ -445,7 +445,7 @@ const docsFolders: Record<string, string> = { agent: "agents" }
 const sqlWrite = String.raw`\b(?:insert\s+(?:or\s+\w+\s+)?into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)\s+`
 const sqlSchema = "(?:(?:\\w+|\"[^\"]+\"|`[^`]+`|\\[[^\\]]+\\])\\s*\\.\\s*)?"
 /** A write whose target is a `vitehub_` table, with an optional schema: `DELETE FROM "public"."vitehub_comment_threads"`. */
-const ownedTableSql = new RegExp(`${sqlWrite}${sqlSchema}(?:"(vitehub_\\w+)"|\`(vitehub_\\w+)\`|\\[(vitehub_\\w+)\\]|(vitehub_\\w+)(?![\\w$.]))`, "i")
+const ownedTableSql = new RegExp(`${sqlWrite}${sqlSchema}(?:"(vitehub_\\w+)"|\`(vitehub_\\w+)\`|\\[(vitehub_\\w+)\\]|(vitehub_\\w+)(?![\\w$]))(?!\\s*\\.)`, "i")
 /** A write that ends where a Drizzle `sql` template interpolates its target table. */
 const sqlWriteBeforeTable = new RegExp(`${sqlWrite}${sqlSchema}$`, "i")
 const drizzleWrites = new Set(["insert", "update", "delete"])

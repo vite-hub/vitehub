@@ -453,6 +453,20 @@ describe("vitehub/no-owned-table-writes", () => {
     })).toEqual([])
   })
 
+  it("accepts writes to app tables in a vitehub_ schema", async () => {
+    expect(await codes(noOwnedTableWrites, {
+      "package.json": app,
+      "server/utils/jobs.ts": lines(
+        'import { sql } from "drizzle-orm"',
+        'export const cleanup = (db: { run(sql: unknown): unknown }, table: unknown) => [',
+        '  db.run(\'DELETE FROM "vitehub_archive"."jobs"\'),',
+        '  db.run("DELETE FROM vitehub_archive /* qualifier */ . jobs"),',
+        '  db.run(sql`DELETE FROM "vitehub_archive".${table}`),',
+        "]",
+      ),
+    })).toEqual([])
+  })
+
   it("reads the configured Nuxt server directory", async () => {
     const files = (dir: string) => ({
       "nuxt.config.ts": `export default defineNuxtConfig({ serverDir: "${dir}" })\n`,
