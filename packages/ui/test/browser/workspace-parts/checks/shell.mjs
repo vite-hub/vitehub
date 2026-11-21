@@ -66,6 +66,19 @@ export default function ({ test, open, rects, near }) {
     near((await rects(page, selectors)).guide.h, column.h * 0.3, "guide height after the drag")
   })
 
+  test("shell side: a menu that opens in a portal covers the separators", async () => {
+    const page = await open("shell", { layout: "side" })
+    const line = await page.locator("[data-split=code]").boundingBox()
+    const point = { x: line.x + line.width / 2, y: line.y + line.height / 2 }
+    const top = await page.evaluate(({ x, y }) => {
+      const menu = Object.assign(document.createElement("div"), { id: "portal-menu" })
+      Object.assign(menu.style, { height: "40px", left: `${x - 20}px`, position: "fixed", top: `${y - 20}px`, width: "40px" })
+      document.body.append(menu)
+      return document.elementFromPoint(x, y)?.id
+    }, point)
+    if (top !== "portal-menu") throw new Error(`the separator paints over a menu in a portal: ${top}`)
+  })
+
   test("shell guide-top: the code column fills the shell without output", async () => {
     const page = await open("shell", { layout: "guide-top", "no-output": "" })
     const got = await rects(page, { ...selectors, body: ".vh-ws-body" })

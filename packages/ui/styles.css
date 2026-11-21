@@ -3748,9 +3748,10 @@
   .vh-ws-link { color: var(--vh-highlighted); font-size: 0.8125rem; text-decoration: underline; text-underline-offset: 2px; }
 
   /* Shell */
+  /* The shell is its own stacking context, so its separators stay under menus that open in a portal. */
   .vh-ws-shell {
     background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text);
-    display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; position: relative;
+    display: flex; flex-direction: column; height: 100%; isolation: isolate; min-height: 0; overflow: hidden; position: relative;
   }
   /*
    * One head height: the head row over the editor and the tab bar of the output are 32px, so their bottom lines meet.
