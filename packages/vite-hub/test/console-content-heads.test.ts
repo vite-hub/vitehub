@@ -13,7 +13,10 @@ vi.mock("../src/console/runtime/client/request", async importOriginal => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/request")>(),
   requestConsoleOperation: operation,
 }))
-vi.mock("@vite-hub/ui", () => ({ Status: defineComponent({ props: { label: String, tone: String }, setup: props => () => h("span", { "data-tone": props.tone }, props.label) }) }))
+vi.mock("@vite-hub/ui", () => ({
+  RollNumber: defineComponent({ props: { value: Number }, setup: props => () => h("span", String(props.value)) }),
+  Status: defineComponent({ props: { label: String, tone: String }, setup: props => () => h("span", { "data-tone": props.tone }, props.label) }),
+}))
 vi.mock("../src/console/runtime/components/console-relative-time.vue", () => ({ default: defineComponent({ props: { value: String }, setup: props => () => h("time", props.value) }) }))
 vi.mock("../src/console/runtime/components/console-state.vue", () => ({ default: defineComponent({ props: { title: String }, setup: props => () => h("p", { role: "alert" }, props.title) }) }))
 

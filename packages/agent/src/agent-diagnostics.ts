@@ -4430,6 +4430,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
       fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
     },
+    AGENT_EMULATOR_NOT_RUNNING: {
+      why: ({ where }: { where: string }) => `[vitehub] No AI emulator answers: ${where}.`,
+      fix: "Start the dev server with `vitehub({ agent: { models: { emulate: true } } })`, or set `VITEHUB_EMULATE_URL` to the URL of a running emulator. Pass --url when the dev server runs in another project.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
       why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
       fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
@@ -4771,6 +4775,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_STATE_LOCK_EXPIRED: {
       why: ({ key }: { key: string }) => `[vitehub] Channel State lock "${key}" expired before its writes were committed.`,
       fix: "The webhook delivery retries by itself. If it repeats, make the trigger work that holds the Channel State lock shorter than its `ttlMs`.",
+    },
+    AGENT_STATE_MIGRATE_ARGUMENT_INVALID: {
+      why: ({ reason }: { reason: string }) => `vitehub agent state migrate: ${reason}`,
+      fix: "Run `vitehub agent state migrate --agent <name> --channel <adapter> --url <libsql-url>`, check the moves it prints, then add `--apply`.",
+    },
+    AGENT_STATE_MIGRATE_DATABASE_MISSING: {
+      why: ({ path }: { path: string }) => `No Agent State database exists at ${path}. vitehub agent state migrate does not create one.`,
+      fix: "Pass `--url` with the `file:` URL or path of the Agent State database that the app used, such as the `url` of the old `messages.state`.",
     },
     AGENT_STATE_URL_NOT_VISIBLE_AT_BUILD: {
       why: ({ host }: { host: "vercel" | "netlify" }) => `VITEHUB_AGENT_STATE_URL is not visible to this ${host === "vercel" ? "Vercel" : "Netlify"} build, and agent.providers.state sets no URL. If the deployed function also lacks it, Agent State fails with AGENT_R0893.`,

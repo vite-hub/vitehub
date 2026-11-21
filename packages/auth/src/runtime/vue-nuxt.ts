@@ -1,7 +1,8 @@
 // Nuxt provides this virtual module to applications that install the module.
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
-import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRequestURL, useRouter, useRuntimeConfig, useState } from "#app"
+import { addRouteMiddleware, createError, defineNuxtPlugin, navigateTo, showError, tryUseNuxtApp, useRequestEvent, useRouter, useRuntimeConfig, useState } from "#app"
 
+import { invariantError } from "@vite-hub/internal/invariant"
 import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { resolveAuthMountPath } from "../application-path.ts"
@@ -17,8 +18,12 @@ type NuxtApp = {
   payload: { prerenderedAt?: unknown, isCached?: unknown }
 }
 type RouteLike = { fullPath: string, meta: { auth?: AuthPageMeta } }
-type ResponseLike = { headers: Headers }
-type EventLike = { req?: { headers?: Headers }, res?: { headers?: Headers } }
+/** The H3 event of a page request on the server. */
+type PageEvent = {
+  url: URL
+  req: Request & { ip?: string, runtime?: unknown, waitUntil?: unknown }
+  res: { headers: Headers }
+}
 
 const stateKey = "vitehub:auth:session"
 
@@ -43,8 +48,28 @@ function reviveDates(value: unknown): unknown {
 }
 
 /** Forward Better Auth's `Set-Cookie` headers, such as a refreshed session, to the page response. */
-function appendSetCookies(event: EventLike, response: ResponseLike): void {
-  for (const cookie of response.headers.getSetCookie?.() ?? []) event.res?.headers?.append("set-cookie", cookie)
+function appendSetCookies(event: PageEvent, response: Response): void {
+  for (const cookie of response.headers.getSetCookie()) event.res.headers.append("set-cookie", cookie)
+}
+
+// Headers of the page request that do not apply to the in-process request, as in Nuxt's `useRequestFetch()`.
+const unforwardedHeaders = /^(?:accept|accept-encoding|connection|content-.+|expect|if-.+|keep-alive|proxy-.+|te|trailer|transfer-encoding|upgrade)$/
+
+/**
+ * Calls the app in-process at the origin of the page request, with its headers, so Auth resolves the same origin and
+ * Better Auth reads the same cookie names, such as `__Secure-better-auth.session_token` on https.
+ */
+async function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
+  if ((import.meta as ImportMeta & { client?: boolean }).client) throw invariantError("Auth page fetch runs only on the Nuxt server")
+  const { serverFetch } = await import("nitro")
+  // Concatenate: a path such as `//host/x` must stay a path of the page's origin.
+  const request = new Request(`${event.url.origin}${path}`, init)
+  for (const [name, value] of event.req.headers) {
+    if (!unforwardedHeaders.test(name) && !request.headers.has(name)) request.headers.set(name, value)
+  }
+  // As H3's `fetchWithEvent()`: keep the client address for the rate limit and the Cloudflare bindings.
+  Object.assign(request, { ip: event.req.ip, runtime: event.req.runtime, waitUntil: event.req.waitUntil })
+  return serverFetch(request)
 }
 
 /**
@@ -56,23 +81,17 @@ function pathOf(input: string | URL | Request): string {
   return url.pathname + url.search
 }
 
-/**
- * The fetch of the current page request for Better Auth's client, or `undefined` outside a request. Nuxt's request fetch
- * calls the app in-process with the headers of the page request, such as the cookie, and its `native` form answers with
- * the `Response` that Better Auth reads.
- */
+/** The fetch of the current page request for Better Auth's client, or `undefined` outside a request. */
 function currentRequestFetch(): RequestFetch | undefined {
   const nuxtApp = tryUseNuxtApp() as object | undefined
-  const event = nuxtApp ? useRequestEvent() as EventLike | undefined : undefined
+  const event = nuxtApp ? useRequestEvent() as PageEvent | undefined : undefined
   if (!nuxtApp || !event) return undefined
-  // Nuxt types the request fetch without `native`.
-  const { native } = useRequestFetch() as { native: typeof fetch }
   const requestFetch = async (input: string | URL | Request, init?: RequestInit) => {
-    const response = await native(pathOf(input), init)
+    const response = await pageFetch(event, pathOf(input), init)
     appendSetCookies(event, response)
     return response
   }
-  return { request: nuxtApp, origin: (useRequestURL() as URL).origin, fetch: requestFetch }
+  return { request: nuxtApp, origin: event.url.origin, fetch: requestFetch }
 }
 
 /**
@@ -80,23 +99,23 @@ function currentRequestFetch(): RequestFetch | undefined {
  * once when the request has no session cookie, else a promise. Call it in a Nuxt context.
  */
 function readServerSession(basePath: string): unknown {
-  const event = useRequestEvent() as EventLike | undefined
+  const event = useRequestEvent() as PageEvent | undefined
   if (!event) return undefined
-  const cookie = event.req?.headers?.get("cookie") ?? undefined
+  const cookie = event.req.headers.get("cookie") ?? undefined
   // Without a session cookie the request has no session. Skip the lookup, so signed-out pages do not load Better Auth.
   if (!hasSessionCookie(cookie)) return null
-  return fetchServerSession(event, useRequestFetch(), basePath)
+  return fetchServerSession(event, basePath)
 }
 
-/** Asks Better Auth for the session with Nuxt's request fetch, which the caller got in a Nuxt context. */
-async function fetchServerSession(event: EventLike, fetch: (path: string, options: { baseURL: string, onResponse: (context: { response: ResponseLike }) => void }) => Promise<unknown>, basePath: string): Promise<unknown> {
+/** Asks Better Auth for the session of the page request. */
+async function fetchServerSession(event: PageEvent, basePath: string): Promise<unknown> {
   try {
-    const data: unknown = await fetch(`${basePath}/get-session`, {
-      // Nitro serves Auth below the base path of the build. Nuxt's `$fetch` adds a runtime `app.baseURL`, such as one
-      // from `NUXT_APP_BASE_URL`, and then the request renders a page that reads the session again, without end.
-      baseURL: "/",
-      onResponse: ({ response }) => appendSetCookies(event, response),
-    })
+    // Nitro serves Auth below the base path of the build, which `basePath` has. A runtime `app.baseURL`, such as one
+    // from `NUXT_APP_BASE_URL`, must not be added: the request would render a page that reads the session again.
+    const response = await pageFetch(event, `${basePath}/get-session`)
+    appendSetCookies(event, response)
+    if (!response.ok) return undefined
+    const data: unknown = await response.json()
     if (typeof data !== "object" || data === null) return null
     const session: unknown = Reflect.get(data, "session")
     const user: unknown = Reflect.get(data, "user")

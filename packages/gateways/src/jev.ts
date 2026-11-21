@@ -99,7 +99,7 @@ function validateQuestionCriteria(name: string, question: AskQuestion): void {
   }
 }
 
-function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
+export function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
   if (!isObject(answer) || answer.type !== "choice" || typeof answer.choice !== "string" || !isObject(answer.probabilities)) return false
   if (typeof answer.confidence !== "number" || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) return false
   if (!isObject(question.criteria) || !Object.hasOwn(question.criteria, answer.choice)) return false

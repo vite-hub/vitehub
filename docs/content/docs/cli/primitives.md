@@ -233,7 +233,7 @@ pnpm vitehub database up
 
 `database up` converts complete Drizzle Kit 0.x folders and folders of hand-written SQLite or D1 `.sql` files to one folder per migration. For hand-written files, it replays the SQL on a temporary database to record the schema. `database generate` and `database migrate` refuse the old layouts with `DATABASE_MIGRATIONS_OLD_LAYOUT`, except that D1 HTTP can migrate flat SQL directly.
 
-`database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
+`database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. On SQLite, write the statements of a custom migration one after the other. `database migrate` runs each statement without changing the file. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 
@@ -392,7 +392,7 @@ The first command's output, with the offline gateway of the [Choices tutorial](/
 ```json [Output]
 {
   "supplier": { "exclude": ["vak"], "include": ["nord"] },
-  "chart": { "confidence": 0.8, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
+  "chart": { "confidence": 0, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
 }
 ```
 

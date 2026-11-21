@@ -4,6 +4,8 @@ export const motionStateAttributes = [
   "aria-selected",
   "aria-pressed",
   "aria-expanded",
+  "aria-valuenow",
+  "aria-valuetext",
   "data-state",
   "data-checked",
   "data-open",
@@ -17,9 +19,19 @@ export interface MotionStateChange {
   value: string | null;
 }
 
+/** The children or the text of an element changed, such as Vue writing the new label of a button. */
+export interface MotionContentChange {
+  /** The nodes that the change added, in order. */
+  added: Node[];
+  /** The nodes that the change removed, in order. */
+  removed: Node[];
+  /** The text before the change, when the change replaced all of it. */
+  oldText: string | undefined;
+}
+
 /** What a press does next. The motion layer calls it until the pointer or the key goes up. */
 export interface MotionPress {
-  /** The pointer moved while it was down, such as on a slider thumb. Not called for a key press. */
+  /** The pointer moved while it was down, such as on a resize handle. Not called for a key press. */
   move?(event: PointerEvent): void;
   /** The pointer or the key went up. Also called on cancellation if there is no `cancel` hook. */
   release(): void;
@@ -49,6 +61,11 @@ export interface MotionEffect {
   state?(element: HTMLElement, change: MotionStateChange): void;
   /** The element was added to the page, such as a tooltip. Also called under reduced motion: keep the meaning. */
   enter?(element: HTMLElement): void;
+  /**
+   * The children or the text of the element changed, such as the label or the icon of a button. Also called under
+   * reduced motion, and for the changes that effects make themselves: tell them apart by `added`.
+   */
+  content?(element: HTMLElement | SVGElement, change: MotionContentChange): void;
 }
 
 const effects = new Map<string, MotionEffect>();
@@ -83,8 +100,11 @@ export function onMotionEffectsChange(listener: () => void): () => void {
   return () => changeListeners.delete(listener);
 }
 
-/** The CSS properties that the motion layer may write. */
-export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity";
+/**
+ * The CSS properties that the motion layer may write. `clip-path` hides the part of a tooltip that is still behind its
+ * trigger.
+ */
+export type MotionStyleProperty = "scale" | "translate" | "rotate" | "filter" | "opacity" | "clip-path";
 
 /** Writes motion properties inline. An empty string or `null` removes the property, so the stylesheet applies again. */
 export function writeMotionStyle(element: HTMLElement | SVGElement, values: Partial<Record<MotionStyleProperty, string | null>>): void {

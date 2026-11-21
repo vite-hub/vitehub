@@ -115,6 +115,23 @@ if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
 
+### Test without a key
+
+`scriptedAsk(script)` from `@vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. `answers.choice()`, `answers.score()`, `answers.chance()`, and `answers.first()` build answers that pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from '@vite-hub/gateways'
+import { answers, scriptedAsk } from '@vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+```
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option. `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` returns a rejected key or a failing provider instead.
+
 ## Presets
 
 | Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
@@ -187,7 +204,7 @@ const { text } = await generateText({ model, prompt: 'Hello' })
 - In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
 - The emulator rejects hosted tools, such as web search.
-- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. A later ViteHub release runs Codex Agents on the emulator through the Codex Driver. Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. To run a Codex Agent without tools on the emulator, set `VITEHUB_MODELS=emulate`, and ViteHub sets up Codex for it. Read [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator). Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 

@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { nitro } from "nitro/vite"
 import ts from "typescript"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverMcpTools, hubMcp } from "../src/vite.ts"
@@ -47,13 +49,29 @@ describe("MCP tool discovery", () => {
 })
 
 describe("hubMcp", () => {
-  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}) {
+  function configure(root: string, options: Parameters<typeof hubMcp>[0] = {}, host: object = {}, command: "build" | "serve" = "serve") {
     const plugin = hubMcp(options)
     const config: { root: string, nitro?: { handlers?: unknown[] } } = { root, ...host }
     // SAFETY: The config hook is a plain function in this plugin.
-    ;(plugin.config as (config: object) => void)(config)
+    ;(plugin.config as (config: object, env: { command: string, mode: string }) => void)(config, { command, mode: command === "build" ? "production" : "development" })
     return { config, plugin }
   }
+
+  it.each([
+    { command: "build", fromFile: true, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: false, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: true, preset: "node-server", supported: true },
+    { command: "serve", fromFile: true, preset: "node-cluster", supported: true },
+  ] as const)("uses Nitro's resolved $preset preset for $command (from config file: $fromFile)", async ({ command, fromFile, preset, supported }) => {
+    const root = app({
+      "server/mcp/tools/add.ts": tool,
+      ...(fromFile ? { "nitro.config.ts": `export default { preset: ${JSON.stringify(preset)} }\n` } : {}),
+    })
+    await resolveConfig({ configFile: false, root, plugins: [hubMcp({ auth: false }), nitro(fromFile ? {} : { preset })] }, command)
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    if (supported) expect(entry).not.toContain("elicitationUnsupportedHost")
+    else expect(entry).toContain(`elicitationUnsupportedHost: ${JSON.stringify(preset)}`)
+  })
 
   it("checks the access token by default", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })

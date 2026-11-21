@@ -22,6 +22,8 @@ export interface StartedScheduleRuntime {
   checkedThrough?: number
   /** Occurrences that another process held at a tick, by run id. The next tick tries them again. */
   held?: Map<string, { scheduledAt: Date, scheduleId: string }>
+  /** The cause that each failing started Schedule last logged, by id. A held occurrence fails again each tick. */
+  failing?: Map<string, string>
   /** Schedule Definitions without `cron`, by name. */
   registry: ScheduleDefinitionRegistry
   store: StartedScheduleStore

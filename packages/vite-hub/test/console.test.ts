@@ -1460,15 +1460,17 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
+      const tasks: Promise<unknown>[] = []
       const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
         body: ({ prompt: "Review" }),
         url: `http://localhost/_vitehub/api/agents/${segment}/invocations`,
+        waitUntil: task => { tasks.push(task) },
       }))
       expect(invocation.agent).toBe(name)
-      await vi.waitFor(async () => {
-        await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
-      })
+      expect(tasks.length).toBeGreaterThan(0)
+      await Promise.all(tasks)
+      await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
     }
     finally {
       await rm(root, { force: true, recursive: true })

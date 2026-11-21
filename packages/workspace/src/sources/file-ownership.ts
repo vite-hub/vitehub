@@ -1,7 +1,7 @@
 import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { workspaceStoreIdentity } from "../storage/identity.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
-import type { WorkspaceStore } from "../core/types.ts"
+import type { WorkspaceFile, WorkspaceStore } from "../core/types.ts"
 
 // Retain ownership and retirement evidence when metadata persistence is unavailable.
 type OwnerRecord = WorkspaceFileOwner & { removing?: boolean, revision?: string, checkpoint?: string }
@@ -137,6 +137,33 @@ export async function removeWorkspaceOwnedFile(store: WorkspaceStore, path: stri
   await markWorkspaceFileRemoval(store, path)
   await store.rm(path, { force: true })
   await removeWorkspaceFileOwner(store, path)
+}
+
+// Call inside the Store mutation queue, only for paths that hold no file. The files and their owners take one Store
+// call. On failure, only files created by the batch and their owners are removed again.
+export async function writeWorkspaceOwnedFiles(store: WorkspaceStore, files: readonly { file: WorkspaceFile, owner: WorkspaceFileOwner }[]): Promise<void> {
+  const keys = files.map(({ file }) => fileOwnerMetaKey(file.path))
+  const written = new Set<string>()
+  try {
+    await store.writeFiles!(files.map(({ file }) => file), Object.fromEntries(files.map(({ owner }, index) => [keys[index], owner])), path => { written.add(path) })
+    const owners = volatileOwners.get(workspaceStoreIdentity(store))
+    for (const key of keys) owners?.delete(key)
+  }
+  catch (error) {
+    const failures: unknown[] = []
+    for (const { file } of files) {
+      if (!written.has(file.path)) continue
+      try {
+        await store.rm(file.path, { force: true })
+        await removeWorkspaceFileOwner(store, file.path)
+      }
+      catch (rollbackError) {
+        failures.push(rollbackError)
+      }
+    }
+    if (failures.length) throw new AggregateError([error, ...failures], "Workspace batch write and rollback failed.")
+    throw error
+  }
 }
 
 // Call inside the Store mutation queue so rollback cannot undo another Source write.

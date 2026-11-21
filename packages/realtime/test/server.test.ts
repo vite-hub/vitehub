@@ -764,8 +764,11 @@ describe("realtime server handler", () => {
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
 
-    expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
-    expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
+    // The server drops the frames of a peer that it closed, so the next case needs its own peer.
+    const awarenessPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(awarenessPeer)
+    expect(() => response.crossws.message(awarenessPeer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
+    expect(awarenessPeer.close).toHaveBeenLastCalledWith(4400, "Invalid awareness update.")
   })
 
   it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {

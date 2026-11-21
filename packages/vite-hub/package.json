@@ -267,6 +267,11 @@
       "import": "./dist/choices/vue.js",
       "default": "./dist/choices/vue.js"
     },
+    "./choices/testing": {
+      "types": "./dist/choices/testing.d.ts",
+      "import": "./dist/choices/testing.js",
+      "default": "./dist/choices/testing.js"
+    },
     "./cms": {
       "types": "./dist/cms.d.ts",
       "import": "./dist/cms.js",
@@ -541,6 +546,11 @@
       "types": "./dist/gateways/ai-sdk.d.ts",
       "import": "./dist/gateways/ai-sdk.js",
       "default": "./dist/gateways/ai-sdk.js"
+    },
+    "./gateways/testing": {
+      "types": "./dist/gateways/testing.d.ts",
+      "import": "./dist/gateways/testing.js",
+      "default": "./dist/gateways/testing.js"
     },
     "./i18n": {
       "types": "./dist/i18n.d.ts",
@@ -983,6 +993,11 @@
       "types": "./dist/logs/host.d.ts",
       "import": "./dist/logs/host.js",
       "default": "./dist/logs/host.js"
+    },
+    "./logs/client": {
+      "types": "./dist/logs/client.d.ts",
+      "import": "./dist/logs/client.js",
+      "default": "./dist/logs/client.js"
     }
   },
   "scripts": {

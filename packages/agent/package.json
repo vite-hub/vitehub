@@ -90,10 +90,20 @@
       "import": "./dist/eval.js",
       "default": "./dist/eval.js"
     },
+    "./internal/agent-emulator-cli": {
+      "types": "./dist/internal/agent-emulator-cli.d.ts",
+      "import": "./dist/internal/agent-emulator-cli.js",
+      "default": "./dist/internal/agent-emulator-cli.js"
+    },
     "./internal/agent-invocations-cli": {
       "types": "./dist/internal/agent-invocations-cli.d.ts",
       "import": "./dist/internal/agent-invocations-cli.js",
       "default": "./dist/internal/agent-invocations-cli.js"
+    },
+    "./internal/agent-state-cli": {
+      "types": "./dist/internal/agent-state-cli.d.ts",
+      "import": "./dist/internal/agent-state-cli.js",
+      "default": "./dist/internal/agent-state-cli.js"
     },
     "./internal/default-invocations": {
       "types": "./dist/internal/default-invocations.d.ts",
