@@ -65,10 +65,14 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
     },
 
-    // Sign-in config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    // Sign-in and component config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
     AUTH_AFTER_SIGN_IN_INVALID: {
       why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
       fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
+    },
+    AUTH_COMPONENTS_INVALID: {
+      why: "`defineAuth()` components must be an inline object with only `prefix`, an inline non-empty string.",
+      fix: "Write `components: { prefix: 'Custom' }` in `defineAuth()` to register `<CustomAuthPermission>`, or remove `components`. The Nuxt module reads the prefix at build time, so it cannot use a variable or an expression.",
     },
     AUTH_REDIRECTS_MOVED: {
       why: "`vitehub({ auth })` takes only `true` or `false`. The `redirects` option moved to the Auth Definition.",
