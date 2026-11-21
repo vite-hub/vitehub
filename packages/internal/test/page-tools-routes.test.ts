@@ -16,7 +16,7 @@ describe("addViteHubPageToolRoutes", () => {
     const kit = createNitroServerKit({ publicAssets: [{ baseURL: "/assets", dir: "/app/public" }] })
     addViteHubPageToolRoutes(kit, { handler: "/a/page-tools-route.mjs", loader: "/a/dist/page", mount })
     addViteHubPageToolRoutes(kit, { handler: "/b/page-tools-route.mjs", loader: "/b/dist/page", mount })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", route: `${mount}/_vitehub/page/tools` }])
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", meta: { vitehubOwnAccess: true }, route: `${mount}/_vitehub/page/tools` }])
     expect(kit.config.publicAssets).toEqual([
       { baseURL: "/assets", dir: "/app/public" },
       { baseURL: `${mount}/_vitehub/page/assets`, dir: "/a/dist/page", maxAge: 300 },
@@ -47,7 +47,7 @@ describe("viteHubPageToolsBase", () => {
     const kit = createNitroServerKit({})
     addViteHubPageToolRoutes(kit, { handler: "/a/page-tools-route.mjs", loader: "/a/dist/page", mount: "/portal" })
     addViteHubPageToolRoutes(kit, { handler: "/b/page-tools-route.mjs", loader: "/b/dist/page", mount: "/portal" })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", route: "/portal/_vitehub/page/tools" }])
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", meta: { vitehubOwnAccess: true }, route: "/portal/_vitehub/page/tools" }])
     expect(kit.config.publicAssets).toEqual([{ baseURL: "/portal/_vitehub/page/assets", dir: "/a/dist/page", maxAge: 300 }])
   })
 })

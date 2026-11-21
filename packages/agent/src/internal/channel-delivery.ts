@@ -1,4 +1,4 @@
-import type { StateAdapter } from "chat"
+import type { Lock, StateAdapter } from "chat"
 
 
 import type {
@@ -14,7 +14,10 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
 const maximumDeliveries = 10_000
+// Finding the deliveries a trim removes reads the whole index, so the index trims at most once per this interval.
+const indexTrimIntervalMs = 60_000
 const indexKey = "deliveries:index"
+const indexTrimLeaseKey = "deliveries:index:trim"
 const activeDeliveries = new Map<string, AgentChannelDeliveryTracker>()
 let workflowResolver: AgentChannelDeliveryWorkflowResolver | undefined
 let workflowOwnershipResolver: AgentChannelDeliveryWorkflowOwnershipResolver | undefined
@@ -194,6 +197,10 @@ function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): 
 }
 
 async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Promise<string[]> {
+  if (!(await state.setIfNotExists(indexTrimLeaseKey, true, indexTrimIntervalMs))) {
+    await state.appendToList(indexKey, deliveryId, { ttlMs: retentionMs })
+    return []
+  }
   const before = await state.getList<string>(indexKey)
   await state.appendToList(indexKey, deliveryId, {
     maxLength: maximumDeliveries,
@@ -207,22 +214,28 @@ async function touchDeliveryIndex(state: StateAdapter, deliveryId: string): Prom
   return [...new Set(before)].filter(id => !kept.has(id))
 }
 
-async function deleteDeliveryRecords(state: StateAdapter, deliveryId: string): Promise<void> {
-  const lock = await acquireDeliveryLock(state, deliveryId)
+async function deleteDeliveryRecords(state: StateAdapter, deliveryIds: string[]): Promise<void> {
+  const locks = new Map<string, Lock>()
   try {
-    // Admissions append under this same journal lock. Recheck after acquiring it:
-    // the snapshot that selected this candidate may predate a completed retry.
-    if ((await state.getList<string>(indexKey)).includes(deliveryId)) return
-    const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
-    if (delivery) {
-      // A later delivery can own the same source after this record expired, so delete the source only while it points here.
-      const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
-      if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+    // Sorted order keeps two concurrent trims from each holding a lock the other waits for.
+    for (const deliveryId of [...deliveryIds].sort()) locks.set(deliveryId, await acquireDeliveryLock(state, deliveryId))
+    // Admissions append under these same journal locks. Recheck after acquiring them:
+    // the snapshot that selected these candidates may predate a completed retry.
+    const indexed = new Set(await state.getList<string>(indexKey))
+    for (const [deliveryId, lock] of locks) {
+      // A lock that expired while the trim took later ones no longer covers the recheck, so a retry may have re-admitted this delivery.
+      if (indexed.has(deliveryId) || !(await state.extendLock(lock, 30_000))) continue
+      const delivery = await state.get<StoredAgentChannelDelivery>(deliveryRecordKey(deliveryId))
+      if (delivery) {
+        // A later delivery can own the same source after this record expired, so delete the source only while it points here.
+        const source = await state.get<StoredAgentChannelDelivery>(sourceKey(delivery))
+        if (source?.id === deliveryId) await state.delete(sourceKey(delivery))
+      }
+      await state.delete(deliveryEventsKey(deliveryId))
+      await state.delete(deliveryRecordKey(deliveryId))
     }
-    await state.delete(deliveryEventsKey(deliveryId))
-    await state.delete(deliveryRecordKey(deliveryId))
   } finally {
-    await state.releaseLock(lock)
+    for (const lock of locks.values()) await state.releaseLock(lock)
   }
 }
 
@@ -367,7 +380,7 @@ async function appendEvent(
       }
     }
     // Never acquire another delivery's journal lock while holding our own.
-    for (const id of trimmed) await deleteDeliveryRecords(state, id)
+    if (trimmed.length) await deleteDeliveryRecords(state, trimmed)
   } catch (error) {
     console.error(
       JSON.stringify({

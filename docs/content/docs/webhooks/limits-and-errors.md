@@ -16,6 +16,7 @@ icon: i-lucide-circle-alert
 | Webhook name | Lowercase letters, digits, and dashes |
 | Body | JSON data. The Queue of the host limits the size of a wake, not of the body, because the body stays in the Database. |
 | `listWebhookDeliveries()` and `listPendingWebhookDeliveries()` page | 100 by default, 500 at most |
+| Member endpoints | One for each member. `owner` at most 256 characters, `name` 120, `agent` 64, the URL 2,048, and the secret 1,024. |
 
 ## Delivery
 

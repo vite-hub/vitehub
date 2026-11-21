@@ -184,7 +184,7 @@ With the Blob + Database store, the Workspace keeps the only copy of each docume
 
 3. Delete the files from the repository, and any code that reads them.
 
-A new environment then starts with an empty Workspace. To copy documents into it, read each one from the deployed app with `vitehub content show`, then save it with `vitehub content edit --file`. If the repository must stay the source of the documents, use the [GitHub store](#github-store).
+A new environment then starts with an empty Workspace. To copy documents into it, read each one from the deployed app with `vitehub content get`, then save it with `vitehub content edit --file`. If the repository must stay the source of the documents, use the [GitHub store](#github-store).
 
 ## Migrate from manual wiring
 

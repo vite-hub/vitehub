@@ -1,7 +1,9 @@
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { refreshWorkspaceDevToken, validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
-import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
+import { agentDevLoopTokenScopeHeader, agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
 
 import type { IncomingMessage } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -44,11 +46,20 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
           // The handler installs its own cancellation listener synchronously at handoff.
           if (!closed && !res.destroyed) handleAgentInvocationStreamEndpoint(server, req, res, grant, tokenOptions, runtimeOptions, authorized)
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (closed || res.destroyed) return
           res.statusCode = 500
           res.setHeader("Content-Type", "text/plain; charset=utf-8")
-          res.end("Agent Invocation Stream endpoint failed.")
+          res.setHeader("Cache-Control", "no-store")
+          if (!authorized) {
+            res.setHeader(agentDevLoopTokenScopeHeader, encodeURIComponent(JSON.stringify({
+              root: server.config.root,
+              workspaceDevTokenServerId: tokenOptions.serverId,
+            })))
+          }
+          res.end(authorized
+            ? redactInspectionText(formatRuntimeDiagnosticError(error))
+            : "Agent Invocation Stream endpoint failed.")
         })
         .finally(() => {
           req.off("aborted", onClose)
