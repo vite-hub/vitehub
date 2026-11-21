@@ -24,6 +24,7 @@ export interface MarkdownTemplateDataType {
 const usePriority: Record<DataUse, number> = { condition: 0, scalar: 1, markdown: 2 }
 const typeByUse: Record<DataUse, string> = { condition: "unknown", markdown: "string", scalar: "string | number | boolean" }
 const conditionTags = new Set(["if", "else-if", "else"])
+const bindingTags = new Set(["a", "binding", "insert", ...conditionTags])
 
 function emptyField(): DataField {
   return { children: new Map(), required: false }
@@ -48,9 +49,10 @@ function addPath(root: DataField, parts: string[], use: DataUse, required: boole
 
 function addAttributes(root: DataField, [tag, attributes]: ElementNode, required: boolean): void {
   const condition = conditionTags.has(tag)
+  const resolvesBindings = bindingTags.has(tag) || attributes.$?.html === 1
   for (const [key, value] of Object.entries(attributes)) {
     if (!key.startsWith(":")) continue
-    if (typeof value === "string") assertBindingRoot(value)
+    if (resolvesBindings && typeof value === "string") assertBindingRoot(value)
     const parts = dataPath(value)
     if (!parts) continue
     // A missing condition value is falsy, so it never fails a render.
@@ -81,12 +83,14 @@ async function visit(root: DataField, nodes: Node[], required: boolean): Promise
       continue
     }
     addAttributes(root, node, required)
-    // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
-    const children = hasMarkdownHtmlChildren(node)
-      ? (await parseMarkdown(node.slice(2).join(""), parserOptions)).nodes
-      : node.slice(2) as Node[]
-    await visit(root, children, required)
+    await visit(root, await templateChildren(node), required)
   }
+}
+
+async function templateChildren(node: ElementNode): Promise<Node[]> {
+  // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
+  const children = node.slice(2) as Node[]
+  return hasMarkdownHtmlChildren(node) ? (await parseMarkdown(children.join(""), parserOptions)).nodes : children
 }
 
 // The renderer reads `null` as a missing path, so an optional value also takes `null`, as a database row gives it.
@@ -113,31 +117,40 @@ export async function inferMarkdownTemplateDataType(template: string, indent = "
   return { required: [...root.children.values()].some(field => field.required), type: renderField(root, indent) }
 }
 
-// `{{ data.path }}` as text, the way the parser keeps a binding inside inline code or a code block.
-const literalBinding = /\{\{\s*(data(?:\.[^\s{}]+)+)\s*\}\}/
+function bindingInText(text: string): string | undefined {
+  let offset = 0
+  while (offset < text.length) {
+    const start = text.indexOf("{{", offset)
+    if (start === -1) return
+    const end = text.indexOf("}}", start + 2)
+    if (end === -1) return
+    const path = text.slice(start + 2, end).split("||", 1)[0]?.trim()
+    if (path) return path
+    offset = end + 2
+  }
+}
 
-function findBindingInCode(nodes: Node[], literal: boolean): string | undefined {
+async function findBindingInCode(nodes: Node[], restore: (text: string) => string, literal = false): Promise<string | undefined> {
   for (const node of nodes) {
     if (typeof node === "string") {
-      const match = literal ? literalBinding.exec(node) : null
-      if (match) return match[1]
+      const path = literal ? bindingInText(restore(node)) : undefined
+      if (path) return path
       continue
     }
     // Comment nodes hold no rendered text.
     if (node[0] === null) continue
-    // SAFETY: Comark element tuple entries after the tag and attributes are child nodes.
-    const found = findBindingInCode(node.slice(2) as Node[], literal || literalHtmlTags.has(node[0]))
+    const found = await findBindingInCode(await templateChildren(node), restore, literal || literalHtmlTags.has(node[0]))
     if (found) return found
   }
   return undefined
 }
 
 /**
- * Rejects a `{{ data.path }}` binding inside inline code or a code block. The renderer keeps it as text, which suits a
+ * Rejects a `{{ ... }}` binding inside inline code or a code block. The renderer keeps it as text, which suits a
  * page that documents the syntax, but a template file such as an Email template expects the value there.
  */
 export async function assertNoBindingsInCode(template: string): Promise<void> {
   const prepared = await prepareTemplate(template)
-  const path = findBindingInCode((await parseMarkdown(prepared.template, parserOptions)).nodes, false)
+  const path = await findBindingInCode((await parseMarkdown(prepared.template, parserOptions)).nodes, prepared.restore)
   if (path) throw diagnostics.MARKDOWN_TEMPLATE_BINDING_IN_CODE({ path })
 }

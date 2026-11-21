@@ -17,6 +17,7 @@ import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
@@ -410,10 +411,10 @@ interface EmailTemplateTypes {
 async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
   if (!templates.length) return { modules: "" }
   const typed = await Promise.all(templates.map(async (template) => {
-    // A template that fails here fails every render, so the build stops and names the file.
     try {
+      const data = await inferMarkdownTemplateDataType(template.source, "    ")
       await assertNoBindingsInCode(template.source)
-      return { ...template, data: await inferMarkdownTemplateDataType(template.source, "    ") }
+      return { ...template, data }
     }
     catch (cause) {
       throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
@@ -684,7 +685,8 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           }
           catch (error) {
             refreshed = false
-            server.config.logger.error(String(error))
+            const cause = emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID.is(error) ? error.cause : undefined
+            server.config.logger.error(cause === undefined ? String(error) : `${String(error)}\n${formatRuntimeDiagnosticError(cause)}`)
           }
           finally {
             if (!closed) server.watcher.add([...watchFiles])

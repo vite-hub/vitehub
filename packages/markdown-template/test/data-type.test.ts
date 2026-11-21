@@ -125,7 +125,7 @@ const strataTemplate = [
 ].join("\n")
 
 it("names the migration for a binding that does not start with data.", async () => {
-  for (const template of [strataTemplate, "[Open the analysis](){:href=\"resultUrl\"}", "::if{:condition=\"ready\"}\nReady.\n::"]) {
+  for (const template of [strataTemplate, "[Open the analysis](){:href=\"resultUrl\"}", "<img :src=\"url\">", "::if{:condition=\"ready\"}\nReady.\n::"]) {
     await expect(inferMarkdownTemplateDataType(template), template).rejects.toMatchObject({
       code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA",
       fix: expect.stringContaining("{{ data.name }}"),
@@ -139,10 +139,19 @@ it("names the migration for a binding that does not start with data.", async () 
   await expect(inferMarkdownTemplateDataType("::if{:condition=\"true\"}\n{{ frontmatter.title }}\n::")).resolves.toEqual({ required: false, type: "Record<string, never>" })
 })
 
-it("rejects a data binding inside inline code or a code block, which would stay unfilled", async () => {
+it("does not validate roots on attributes that the renderer preserves", async () => {
+  const template = "![Logo](/logo.png){:class=\"logo\"}\n\n# Status {:class=\"notice\"}\n\n::notice{:title=\"hello\"}\n::"
+  await expect(inferMarkdownTemplateDataType(template)).resolves.toEqual({ required: false, type: "Record<string, never>" })
+})
+
+it("rejects a binding inside inline code or a code block, which would stay unfilled", async () => {
   for (const [template, path] of [
+    ["`{{ command }}`", "command"],
     ["Strata finished mapping `{{ data.repoPath }}`.", "data.repoPath"],
+    ["`{{ data.full name || unknown }}`", "data.full name"],
+    ["<div>\nRun `{{ data.command }}`.\n</div>", "data.command"],
     ["```text\n{{ data.errorMessage }}\n```", "data.errorMessage"],
+    ["```text\n: {{ data.command }}\n```", "data.command"],
     ["<pre>\n{{ data.log }}\n</pre>", "data.log"],
   ]) {
     await expect(assertNoBindingsInCode(template!), template).rejects.toMatchObject({

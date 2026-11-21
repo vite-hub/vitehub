@@ -12,6 +12,7 @@ import { createServer } from "vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 
 import { createEmail } from "../src/client.ts"
+import { renderEmailMarkdown } from "../src/markdown.ts"
 import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEmailTemplateModulePath } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -385,9 +386,13 @@ describe("hubEmail", () => {
     expect((error as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA" })
 
     // The same template with `data.` bindings still keeps a binding in code unfilled, so the build stops there too.
-    await writeFile(file, "Strata could not complete the run for `{{ data.repoPath }}`.\n")
-    const inCode = await plugin.api.prepareTypes({ projectRoot: root }).catch((caught: unknown) => caught)
-    expect((inCode as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_IN_CODE" })
+    for (const source of ["`{{ repoPath }}`", "`{{ data.repoPath }}`"]) {
+      await writeFile(file, source)
+      await expect(plugin.api.prepareTypes({ projectRoot: root })).rejects.toMatchObject({
+        code: "EMAIL_TEMPLATE_SYNTAX_INVALID",
+        cause: { code: "MARKDOWN_TEMPLATE_BINDING_IN_CODE" },
+      })
+    }
 
     await writeFile(file, "Strata could not complete the run for **{{ data.repoPath }}**.\n")
     await plugin.api.prepareTypes({ projectRoot: root })
@@ -666,6 +671,18 @@ describe("hubEmail", () => {
     await expect(stat(join(root, ".vitehub", "email", "templates"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("builds templates with preserved Markdown attributes and renders those attributes to HTML", async () => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "status.md")
+    const source = "![Logo](/logo.png){:class=\"logo\"}\n\n# Status {:class=\"notice\"}"
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, source)
+    await hubEmail({ driver: "log" }).api.prepareTypes({ projectRoot: root })
+    const { html } = await renderEmailMarkdown(source)
+    expect(html).toMatch(/<img\b[^>]* class="logo"/)
+    expect(html).toMatch(/<h1\b[^>]* class="notice"/)
+  })
+
   it("serializes template refreshes and leaves relative references literal", async () => {
     const root = await createTempProject()
     const templatesRoot = join(root, "server", "emails")
@@ -728,6 +745,15 @@ describe("hubEmail", () => {
     ]))
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("@../shared/missing.md")
+
+    await writeFile(template, "Hello {{ userName }}")
+    handlers.get("change")?.(template)
+    await vi.waitFor(() => {
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("server/emails/monthly-recap.md"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("userName"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("{{ data.name }}"))
+    }, { timeout: 5_000 })
   }, 15_000)
 
   it("uses the development Nitro preset instead of the deployment target", async () => {
