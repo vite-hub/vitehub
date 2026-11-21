@@ -47,6 +47,18 @@ export function accessPageBeats(a: string, b: string): boolean {
   return false
 }
 
+/** The `access.pages` key that guards a page path: the most specific key that matches it. */
+export function accessPageOf(pages: AuthPages, path: string, sensitive = false): keyof AuthPages | undefined {
+  const segments = normalizePagePath(path.replace(/[?#].*$/, "").replace(/(.)\/$/, "$1"), sensitive).split("/").slice(1)
+  const matches = (key: string) => {
+    const parts = normalizePagePath(key, sensitive).split("/").slice(1)
+    const rest = parts.at(-1) === "**"
+    if (rest ? parts.length - 1 > segments.length : parts.length !== segments.length) return false
+    return parts.slice(0, rest ? -1 : undefined).every((part, index) => part.startsWith(":") ? segments[index] !== "" : part === segments[index])
+  }
+  return (Object.keys(pages) as Array<keyof AuthPages>).filter(matches).reduce<keyof AuthPages | undefined>((best, key) => best === undefined || accessPageBeats(key, best) ? key : best, undefined)
+}
+
 /** A static segment or `:name`. */
 const pageSegment = /^(?:[^:*?+(){}/]+|:[A-Za-z_]\w*)$/
 

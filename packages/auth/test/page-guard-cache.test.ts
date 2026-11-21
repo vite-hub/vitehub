@@ -259,3 +259,32 @@ describe("Nuxt page guard of access.pages with cache route rules", () => {
     }
   })
 })
+
+describe("Nuxt sign-in page under access.pages", () => {
+  /** Builds a Nuxt app whose server/auth.ts has this `access`. */
+  async function build(access: string, pages: Page[]): Promise<NuxtOptions> {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-sign-in-page-"))
+    try {
+      await mkdir(join(rootDir, "server"))
+      await writeFile(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: ${access} })\n`)
+      return await buildNuxt(pages, {}, undefined, { rootDir })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  }
+
+  it("fails the build when a 'user' key is the most specific key of the sign-in page", async () => {
+    // The guard would send signed-out visitors to `/login`, which then answers 401.
+    await expect(build("{ pages: { '/**': 'user' } }", [{ path: "/login" }])).rejects.toMatchObject({
+      code: "AUTH_PAGE_ROUTES_INVALID",
+      message: expect.stringContaining('"/**": "user", which guards the sign-in page "/login" of `access.signIn`'),
+    })
+    await expect(build("{ signIn: '/sign-in', pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/sign-in" }])).rejects.toMatchObject({ message: expect.stringContaining('the sign-in page "/sign-in"') })
+    await expect(build("{ pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/login" }, { path: "/admin", meta: { auth: { only: "user", redirectTo: "/sign-in" } } }])).rejects.toMatchObject({ message: expect.stringContaining('the sign-in page "/sign-in" of the `redirectTo` of the page "/admin"') })
+    await expect(build("{ pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/login" }])).resolves.toBeDefined()
+    await expect(build("{ pages: { '/**': 'user', '/login': false } }", [{ path: "/login" }])).resolves.toBeDefined()
+    await expect(build("{ pages: { '/**': 'user' } }", [{ path: "/login", meta: { auth: "guest" } }])).resolves.toBeDefined()
+    await expect(build("{ signIn: { provider: 'github' }, pages: { '/**': 'user' } }", [{ path: "/" }])).resolves.toBeDefined()
+  })
+})

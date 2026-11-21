@@ -117,7 +117,7 @@ The Nuxt module reads `access.pages` at build time, like `access.signIn`. Write 
 To guard a page from its own file, use `definePageMeta({ auth })`. It takes `'user'`, `'guest'`, `false`, or `{ only, redirectTo }`. Page meta wins over `access.pages`, so `definePageMeta({ auth: false })` makes one page public inside a `'user'` pattern.
 
 > [!NOTE]
-> A wide pattern such as `'/**': 'user'` also covers the sign-in page. The guard never sends a visitor to the page they are on, so a signed-out visitor gets a `401` error page there instead. Set the sign-in page to `'guest'`, so that signed-out visitors can open it and a signed-in user leaves it.
+> A wide pattern such as `'/**': 'user'` also covers the sign-in page, and a signed-out visitor could never open it. So when the most specific key of the `access.signIn` page, or of a page's `redirectTo`, is `'user'`, the build stops with `AUTH_PAGE_ROUTES_INVALID`. Set the sign-in page to `'guest'`, so that signed-out visitors can open it and a signed-in user leaves it. `definePageMeta({ auth: 'guest' })` on the page works too.
 
 The page guard decides which page the browser shows. It does not protect data, because a request straight to an API route skips it. Guard API routes with `access.routes` in `server/auth.ts`, for example `'/api/dashboard/**'`. Do not put page paths in `access.routes`. A direct load of the page then gets `401`, or starts the `access.signIn` provider sign-in, while a navigation in the browser goes to the login page.
 

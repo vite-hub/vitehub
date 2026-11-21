@@ -1,4 +1,4 @@
-import { accessPageBeats } from "./access-pages.ts"
+import { accessPageBeats, accessPageOf } from "./access-pages.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { cachingRuleNames, createCachingRouteRuleFinder, methodOrder, type RouteRuleEntry, type RouteRules } from "./route-rule-cache.ts"
 
@@ -197,6 +197,33 @@ export async function assertNoCachedPageGuards(pages: readonly NuxtPageLike[], r
     if (!cached) continue
     throw authErrorDiagnostics.AUTH_GUARDED_PAGE_CACHED({
       message: `[vitehub] Route rule ${JSON.stringify(cached.key)} sets \`${cached.name}\` on ${cached.method} requests to the ${guard.payload ? "payload of the " : ""}page ${JSON.stringify(guard.path)}, which ${guard.accessPage ? `\`access.pages\` ${JSON.stringify(guard.accessPage)}` : "`definePageMeta({ auth })`"} guards. A cached or prerendered page is rendered for one visitor and served to all visitors.`,
+    })
+  }
+}
+
+/**
+ * Stops the build when an `access.pages` `'user'` pattern guards the sign-in page, or the `redirectTo` page of a page
+ * guard. The guard sends signed-out visitors there, then answers 401 because the page needs a session, so they can never
+ * sign in. `definePageMeta({ auth })` of the page wins over `access.pages`, when Nuxt reads it at build time.
+ */
+export async function assertSignInPagesOpen(pages: readonly NuxtPageLike[], signInPage: string | null, options: PageGuardCacheOptions = {}): Promise<void> {
+  const accessPages = options.accessPages
+  if (!accessPages || !Object.values(accessPages).includes("user")) return
+  const [{ vueRouterToRou3 }, { compareRoutes }] = await Promise.all([import("unrouting"), import("rou3")])
+  const fold = options.sensitive ? (pattern: string) => pattern : foldPattern
+  const targets = pageTargets(pages, path => vueRouterToRou3(path, { collapse: true }).patterns.map(fold)).filter(target => !target.payload)
+  const redirects = targets.flatMap((target) => {
+    const redirectTo = typeof target.auth === "object" && target.auth !== null ? Reflect.get(target.auth, "redirectTo") : undefined
+    return typeof redirectTo === "string" ? [{ path: redirectTo, source: `the \`redirectTo\` of the page ${JSON.stringify(target.path)}` }] : []
+  })
+  for (const { path, source } of [...signInPage ? [{ path: signInPage, source: "`access.signIn`" }] : [], ...redirects]) {
+    const page = path.replace(/[?#].*$/, "").replace(/(.)\/$/, "$1")
+    if (!page.startsWith("/")) continue
+    const key = accessPageOf(accessPages, page, options.sensitive)
+    if (key === undefined || accessPages[key] !== "user") continue
+    if (targets.some(target => target.auth !== undefined && ["equal", "superset"].includes(compareRoutes(target.pattern, fold(page))))) continue
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({
+      message: `\`defineAuth()\` access.pages has ${JSON.stringify(key)}: "user", which guards the sign-in page ${JSON.stringify(page)} of ${source}. The page guard sends signed-out visitors there, and they cannot open it. Add ${JSON.stringify(page)}: "guest" or false to access.pages, or set \`definePageMeta({ auth: 'guest' })\` on the page.`,
     })
   }
 }
