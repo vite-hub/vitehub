@@ -1101,6 +1101,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/drizzle-build-check",
       "vite-hub/forge-build-check",
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
