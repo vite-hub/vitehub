@@ -17,7 +17,9 @@ export function miniflareDevEnvPlugin(): Plugin {
         if (!shell.length) return
         const cloudflare = nitro.options.cloudflare ??= {}
         const wrangler = cloudflare.wrangler ??= {}
-        wrangler.vars = { ...wrangler.vars, ...Object.fromEntries(shell) }
+        const environment = cloudflare.wranglerEnv ?? process.env.CLOUDFLARE_ENV
+        const target = (environment ? wrangler.env?.[environment] : undefined) ?? wrangler
+        target.vars = { ...target.vars, ...Object.fromEntries(shell) }
       },
     },
   }

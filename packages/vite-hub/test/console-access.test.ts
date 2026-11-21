@@ -410,6 +410,7 @@ describe("generated Console access", () => {
       expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
+      expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/session"), meta: { vitehubOwnAccess: true } }),
     ])
   })
 

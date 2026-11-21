@@ -70,7 +70,7 @@ pnpm vitehub agent --help
 pnpm vitehub agent invocations --help
 ```
 
-The Agent integration contributes `info`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
+The Agent integration contributes `get`, `dev`, and `invocations`, plus `channels history` and `channels sync`. It adds `eval` only when the project contains an Agent Eval file. Database contributes `generate` and `migrate`, and Workspace contributes `dev`. The Agent and Database integrations can disable their commands through their integration options.
 
 See the [complete command index](https://vitehub.dev/docs/cli#commands) for command availability and the task each command performs.
 
