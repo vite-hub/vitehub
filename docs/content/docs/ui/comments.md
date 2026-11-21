@@ -271,7 +271,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `accept` limits the file types, such as `image/*`.
 - A new comment needs text unless you set `allowEmpty`. A reply can send files without text.
 - `v-model:files` lets the parent clear the files after a send.
-- In the box, a picture shows as a small square with a round Remove button on its corner. Other files show their name.
+- In the box, the pictures sit in one stack beside the text, with their count. Hover, focus, or a tap fans them out above the box, where each one opens full size and has a round Remove button. A new picture comes out of the text for a paste, the box for a drop, and the attach button for a pick. Other files show their name.
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only with `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`.
 
@@ -291,7 +291,7 @@ async function upload(files: File[]): Promise<string[]> {
 </template>
 ```
 
-`attachmentUrl` turns a key into a URL. With it, an image shows as a thumbnail that opens full size, and other files show as link chips. A thumbnail keeps the shape of its image, up to 10rem tall. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
+`attachmentUrl` turns a key into a URL. With it, the images of a message show as a mosaic, and other files show as link chips. One image keeps its shape, up to 10rem tall. Two split the width, three put the first beside the other two, and four or more show four tiles, the last with how many more. A tile opens its picture full size, from where it is, and the arrow keys step through every picture of the message. Without it, the message shows file names. An attachment counts as an image when its name has an image extension, such as `.png`, or no extension. When the key does not tell, return the media type with the URL:
 
 ```ts
 // The files that `upload` stored, by key
