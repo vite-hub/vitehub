@@ -89,8 +89,22 @@ export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_INVALID_CURSOR" | "BLOB_NOT_
  * `"15m"`.
  */
 export type BlobSignOptions =
-  | { expiresIn: number | Duration, method: "GET" }
   | {
+    /**
+     * Send `Content-Disposition: attachment`, so a browser saves the file and does not open it. `true` uses the last
+     * segment of the pathname as the file name. A string sets the file name. A driver that cannot bind it to the link
+     * fails with `BLOB_R0025`.
+     */
+    download?: boolean | string
+    expiresIn: number | Duration
+    method: "GET"
+  }
+  | {
+    /**
+     * The exact size of the body in bytes. The provider rejects a body of another size. Only the `fs` and `cloudflare`
+     * drivers bind it.
+     */
+    contentLength?: number
     contentType?: string
     createOnly?: boolean
     expiresIn: number | Duration

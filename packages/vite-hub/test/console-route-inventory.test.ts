@@ -22,7 +22,7 @@ describe("generated Agent routes with the Console fallback", () => {
   it.each(["serve", "build"] as const)("registers standalone Channels and readiness during %s", async (command) => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "agent-console-routes", private: true, type: "module" }),
-      "server/channels/intake.ts": "import { defineChannel, webhook } from 'vite-hub/channels'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n",
+      "server/channels/intake.ts": "import { defineChannel } from 'vite-hub/channels'\nimport { webhook } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n",
       "server/agents/support.ts": "import { defineAgent } from 'vite-hub/agent'\nexport default defineAgent({ driver: { run: () => 'ok' } })\n",
     })
     const resolved = await resolveConfig({
@@ -117,7 +117,7 @@ const appRoutes = [
   // The Comments API of the overlay, with the app's own identity.
   "route ALL /_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
   // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
-  "route ALL /_vitehub/page/session app/.vitehub/nitro/comments/page-session.mjs",
+  "route ALL /_vitehub/page/tools app/.vitehub/nitro/comments/page-tools-route.mjs",
   // App Auth: the sign-in of the app's own users.
   "route ALL /api/auth/** app/.vitehub/auth/route.ts",
   // The Connections management API of the app. The test config mounts it with the app's own actor module.

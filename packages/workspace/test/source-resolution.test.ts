@@ -149,6 +149,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
     getMeta: async key => await workspace.getMeta?.(key),
     history: {
       ...workspace.history!,
+      deleteRef: async options => await workspace.history!.deleteRef!(options),
       checkpoint: async options => await workspace.snapshot({ name: options?.message }),
       rebase: async options => await workspace.rebase(options),
     },
@@ -1387,7 +1388,9 @@ describe("Workspace Source Resolution", () => {
       async refs() { return await this.#history.refs() }
       async open(id: string) { return await this.#history.open(id) }
       async usage() { return await this.#history.usage() }
+      async diff(options: Parameters<WritableWorkspaceFacade["history"]["diff"]>[0]) { return await this.#history.diff(options) }
       async commit(options: Parameters<WritableWorkspaceFacade["history"]["commit"]>[0]) { return await this.#history.commit(options) }
+      async deleteRef(options: Parameters<WritableWorkspaceFacade["history"]["deleteRef"]>[0]) { return await this.#history.deleteRef(options) }
       async checkpoint() { return await this.#base.snapshot() }
       async rebase() {}
     }
@@ -1397,6 +1400,7 @@ describe("Workspace Source Resolution", () => {
     const history = (resolved.workspace as WritableWorkspaceFacade).history
     await expect(history.checkpoint()).resolves.toMatchObject({})
     await expect(history.head()).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    await expect(history.diff({ to: "revision" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
     await expect(history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
   })
 

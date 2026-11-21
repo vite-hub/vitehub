@@ -129,7 +129,7 @@ A policy can be a function of `{ name, input }`. Approval uses the normal tool r
 ## Inspection and limits
 
 ```sh
-vitehub agent info --agent reviewer --json
+vitehub agent get reviewer --json
 ```
 
 `capabilities[].metadata` shows `forge`, `baseUrl`, `mode`, `operations`, `unavailable`, `approval`, and `repositories`:

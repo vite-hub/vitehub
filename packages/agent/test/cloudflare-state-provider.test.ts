@@ -285,6 +285,62 @@ describe("Cloudflare Agent State Provider", () => {
     expect(state.listGet("history")).toEqual(["one", "two"])
   })
 
+  it("takes a lock with mutations and reads, and commits, releases and reads in one request each", async () => {
+    const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
+    const { DatabaseSync } = await import("node:sqlite")
+    // The real Durable Object SQL, on SQLite, so the lock and cache queries run as written.
+    const database = new DatabaseSync(":memory:")
+    const sql = {
+      exec(query: string, ...bindings: Array<string | number | null>) {
+        if (!bindings.length && !/^\s*SELECT/i.test(query)) {
+          database.exec(query)
+          return sqlCursor()
+        }
+        const statement = database.prepare(query)
+        const rows = /^\s*SELECT/i.test(query) ? statement.all(...bindings) as Array<Record<string, unknown>> : (statement.run(...bindings), [])
+        return sqlCursor(rows)
+      },
+    }
+    const ctx = {
+      blockConcurrencyWhile: (callback: () => Promise<void>) => void callback(),
+      storage: {
+        setAlarm: async () => {},
+        sql,
+        transactionSync: <T>(callback: () => T): T => {
+          database.exec("BEGIN")
+          try {
+            const result = callback()
+            database.exec("COMMIT")
+            return result
+          }
+          catch (error) {
+            database.exec("ROLLBACK")
+            throw error
+          }
+        },
+      },
+    }
+    // SAFETY: This fixture provides the storage fields that the Durable Object reads.
+    const state = new ViteHubAgentStateDO(ctx as never, {})
+    state.cacheSet("pending", "true")
+    state.cacheSet("record", JSON.stringify({ cursor: 1 }))
+
+    const first = state.acquireLockWith("sync", 60_000, [{ key: "pending", type: "delete" }], ["record", "pending"])
+    expect(first.lock).toMatchObject({ threadId: "sync" })
+    expect(first.values).toEqual([JSON.stringify({ cursor: 1 }), null])
+    // A held lock applies nothing and reads nothing.
+    state.cacheSet("pending", "true")
+    expect(state.acquireLockWith("sync", 60_000, [{ key: "pending", type: "delete" }], ["record"])).toEqual({ lock: null, values: [] })
+    expect(state.cacheGet("pending")).toBe("true")
+
+    // A stale token commits nothing.
+    expect(state.releaseLockWith("sync", "stale", [{ key: "record", type: "set", value: { cursor: 3 } }], [])).toEqual({ committed: false, values: [] })
+    expect(state.releaseLockWith("sync", first.lock!.token, [{ key: "record", type: "set", value: { cursor: 2 } }], ["pending", "record"]))
+      .toEqual({ committed: true, values: ["true", JSON.stringify({ cursor: 2 })] })
+    // The lock is free again.
+    expect(state.acquireLock("sync", 60_000)).toMatchObject({ threadId: "sync" })
+  })
+
   it("atomically replaces a durable queue head", async () => {
     const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
     const { ctx } = createFakeDurableObjectState()

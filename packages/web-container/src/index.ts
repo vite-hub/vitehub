@@ -6,6 +6,7 @@ import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
 
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
+export { matchesWebContainerRoute } from "./routes.ts"
 
 /** One step of a boot checklist, in the order a UI shows it. */
 export type WebContainerStage =
@@ -132,7 +133,7 @@ const webContainerBrowserDiagnostics = /*#__PURE__*/ defineDiagnostics({
     // Named errors. Keep these codes in alphabetical order.
     WEB_CONTAINER_UNSUPPORTED: {
       why: ({ reason }: { reason: string }) => reason,
-      fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in the `routes` option of `hubWebContainer` in `vitehub()`, or send the isolation headers on its route in production.",
+      fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in `webContainer.routes` of `vitehub()`, which sends the isolation headers on it in dev, preview, and production.",
     },
   },
 })

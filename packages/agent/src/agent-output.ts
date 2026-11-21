@@ -1,7 +1,8 @@
 import { hostReadableStream, isResponse } from "./internal/response.ts"
 
 import { isRuntimeObject } from "./internal/runtime-type.ts"
-import { getViteHubErrorShape, isExecutionBudgetExceededError } from "@vite-hub/runtime"
+import { getViteHubErrorShape } from "@vite-hub/runtime"
+import { isExecutionBudgetExceededError } from "@vite-hub/runtime/internal/execution-budget"
 import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
