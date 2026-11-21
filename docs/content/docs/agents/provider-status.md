@@ -21,6 +21,8 @@ When `VITEHUB_MODELS=emulate` is set, the check does not call `status()` and rea
 - `unavailable` with `code`: a Driver that an Invocation rejects, such as Jev questions (`AGENT_MODELS_EMULATE_ASK_UNSUPPORTED`), Claude Code, Codex with Capability tools or a Sandbox, a model object from an AI SDK provider, or any Agent when `NODE_ENV` is `production`.
 - `unknown`: a Driver that the definition alone cannot judge, such as a `run` Driver, a model resolver, or Codex with tools that resolve in an Invocation.
 
+See [Run Agents with no AI key](/docs/agents/no-ai-key#what-runs-on-the-emulator) for what runs on the emulator.
+
 Each check is:
 
 - `ready`: the executable, authentication, and available quota passed.

@@ -248,6 +248,65 @@ describe("defineChoices() with infer", () => {
   })
 })
 
+describe("defineChoices().resolve() onUsage", () => {
+  /** A TypeSafe API that answers every question it gets: "none" for a choice that has it, else the first label. */
+  function jevFetch() {
+    return vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const { questions } = JSON.parse(String(init?.body)) as { questions: Record<string, { criteria?: Record<string, unknown>, type: string }> }
+      const answers = Object.fromEntries(Object.entries(questions).map(([name, question]) => {
+        if (question.type === "noul") return [name, { noul: 0.9, type: "noul" }]
+        const labels = Object.keys(question.criteria ?? {})
+        const choice = labels.includes("none") ? "none" : labels[0]!
+        return [name, { choice, confidence: 1, probabilities: Object.fromEntries(labels.map(label => [label, label === choice ? 1 : 0])), type: "choice" }]
+      }))
+      return Response.json({ answers, model: "jev-1.14", usage: { input_tokens: 100, output_tokens: 0 } })
+    })
+  }
+
+  it("reports the usage of each Jev batch", async () => {
+    const fetch = jevFetch()
+    const options = Array.from({ length: 100 }, (_, index) => ({ label: `Supplier ${index}`, value: index }))
+    const choices = defineChoices({ gateway: typesafe({ apiKey: "ts-key", fetch }), groups: { supplier: { label: "Supplier", options } } })
+    const onUsage = vi.fn()
+    const [error] = await choices.resolve("supplier 7", { onUsage })
+    expect(error).toBeUndefined()
+    // 100 options of a multiple group are 101 questions, more than one 60 KB request.
+    const sent = fetch.mock.calls.map(([, init]) => Object.keys(JSON.parse(String(init?.body)).questions).length)
+    expect(sent.reduce((sum, count) => sum + count, 0)).toBe(101)
+    expect(sent.length).toBeGreaterThan(1)
+    expect(onUsage).toHaveBeenCalledTimes(sent.length)
+    expect(onUsage).toHaveBeenCalledWith({ model: "jev-1.14", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 0, totalTokens: 100 } })
+  })
+
+  it("leaves onUsage out of the gateway options when resolve() gets none", async () => {
+    const { ask: answer } = wordGateway()
+    const recordOptions = vi.fn<(options: Parameters<typeof answer>[2]) => void>()
+    const ask: typeof answer = (state, questions, options) => {
+      recordOptions(options)
+      return answer(state, questions, options)
+    }
+    const choices = defineChoices({ gateway: { ask }, groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } } })
+    const [error] = await choices.resolve("line")
+    expect(error).toBeUndefined()
+    expect(recordOptions).toHaveBeenCalledTimes(1)
+    expect(recordOptions.mock.calls[0]![0]).not.toHaveProperty("onUsage")
+  })
+
+  it("does not report usage when no question is asked", async () => {
+    const fetch = jevFetch()
+    const choices = defineChoices({
+      gateway: typesafe({ apiKey: "ts-key", fetch }),
+      groups: { project: { infer: true, label: "Project", multiple: false, options: [{ label: "ViteHub", value: "vitehub" }] } },
+    })
+    const onUsage = vi.fn()
+    const [error, selection] = await choices.resolve("the console crashes", { onUsage })
+    expect(error).toBeUndefined()
+    expect(selection?.project.value).toBe("vitehub")
+    expect(fetch).not.toHaveBeenCalled()
+    expect(onUsage).not.toHaveBeenCalled()
+  })
+})
+
 describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0003 for empty and too long text, and asks nothing", async () => {
     const { ask, gateway } = spiedGateway()

@@ -1,4 +1,4 @@
-import type { AiGatewayAsk, AskModel } from "@vite-hub/gateways"
+import type { AiGatewayAsk, AiGatewayAskOptions, AskModel } from "@vite-hub/gateways"
 import type { Diagnostic } from "nostics"
 
 /** The value that you map back to your data. It must be unique within its group. */
@@ -119,6 +119,11 @@ export type ChoicesResult<TData> = readonly [error: ChoicesError, data?: undefin
 export interface ChoicesRequest<TContext> {
   /** Passed to `options` functions. Put what they need here, such as the tenant. */
   context: TContext
+  /**
+   * Receives the model, provider, and token counts when the gateway reports usage.
+   * Jev can report usage for multiple batches in one `resolve()`. With `model`, this runs at most once.
+   */
+  onUsage?: AiGatewayAskOptions["onUsage"]
   /** Cancels the request to the gateway. */
   signal?: AbortSignal
 }
@@ -139,7 +144,7 @@ type OptionsContext<TGroup> = TGroup extends { options: (context: infer TContext
 export type GroupsContext<TGroups> = UnionToIntersection<{ [K in keyof TGroups]: OptionsContext<TGroups[K]> }[keyof TGroups]>
 
 export type ChoicesArgs<TContext> = unknown extends TContext
-  ? [request?: { signal?: AbortSignal }]
+  ? [request?: Omit<ChoicesRequest<unknown>, "context">]
   : [request: ChoicesRequest<TContext> & { context: TContext }]
 
 export interface Choices<TGroups extends ChoiceGroups> {

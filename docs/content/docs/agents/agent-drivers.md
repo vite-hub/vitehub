@@ -75,7 +75,7 @@ Model-backed Agents can run with no AI key in dev and tests. ViteHub sends each 
 
 Set `agent.models.emulate` to start the emulator with `vite dev`. Install the two optional packages first:
 
-```sh
+```bash pm
 pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0
 ```
 
@@ -140,7 +140,7 @@ export default defineConfig({
 :::
 ::
 
-`vite dev` prints the emulator URL once, and the Agent answers from the rule:
+`vite dev` prints the emulator URL once, and an Agent with a model Driver, such as `driver: { model: 'openai/gpt-5.1' }` in `server/agents/greeter.ts`, answers from the rule:
 
 ```sh
 [vitehub] AI emulator: http://127.0.0.1:35207. Agent models answer from its rules with no AI key (VITEHUB_MODELS=emulate). Open the URL to see the calls.
@@ -166,7 +166,7 @@ VITEHUB_MODELS=emulate vite dev
 ```
 
 - `VITEHUB_EMULATE_URL` sets the emulator URL. The default is `http://localhost:4014`.
-- A model ID keeps its ID. Its prefix selects the model API: `openai/*` uses OpenAI Responses, `anthropic/*` uses Anthropic Messages, and other IDs use Chat Completions. `anthropic/*` IDs need `@ai-sdk/anthropic`, and other IDs need `@ai-sdk/openai-compatible`.
+- A model ID keeps its ID. Its prefix selects the model API: `openai/*` uses OpenAI Responses, `anthropic/*` uses Anthropic Messages, and other IDs use Chat Completions. `openai/*` IDs need `@ai-sdk/openai`, `anthropic/*` IDs need `@ai-sdk/anthropic`, and other IDs need `@ai-sdk/openai-compatible`.
 - A `languageModel(gateway, id, { api })` model keeps its model API. A `chatgpt()` model uses OpenAI Responses.
 - Capability models, such as the `title()` model, go to the emulator too.
 - ViteHub reads no key and no ChatGPT grant while the switch is on.

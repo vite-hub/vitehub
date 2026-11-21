@@ -79,7 +79,7 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check.
+The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option and one per non-empty single-select group, except that an `infer` group with one option sends none. The `supported` check adds one question if at least one non-empty group does not infer.
 
 `error.code` is `DECISIONS_R0002` to `DECISIONS_R0006` ([Limits and errors](/docs/choices/limits-and-errors)).
 
@@ -112,13 +112,27 @@ Pass a `signal` to stop the gateway request:
 await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 ```
 
+## Track token usage
+
+Pass `onUsage` to read the model, provider, and token counts that the gateway reports:
+
+```ts fragment
+await forecast.resolve(text, {
+  onUsage: ({ model, provider, usage }) => console.log(provider, model, usage.inputTokens, usage.outputTokens),
+})
+```
+
+Jev sends at most 60 KB of questions per request, so it can report usage for multiple batches in one `resolve()`. With `model`, `onUsage` runs at most once. It runs only when the gateway reports usage. If no question is sent, a TypeSafe response has no token counts, or a `model` response fails validation, the callback does not run. No callback does not mean that no request was sent or no tokens were used.
+
+With one group and 100 options, multi-select sends 101 questions: one per option plus `supported`. Single-select without inference sends 2: one for the group plus `supported`. With `infer: true` it sends 1, since there is no `supported` check.
+
 ## Inspect
 
 `forecast.inspect(text)` returns `[error, plan]`, with the state and questions that `resolve()` would send. Nothing leaves your server. Use it in tests or when an answer looks wrong.
 
 ```ts fragment
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
-plan.questions // one question for each option of a multiple group, one for each single group, and `supported` unless every group infers
+plan.questions // the questions for this input, including `supported` when needed
 ```
 
 The CLI runs both functions on a file, with no route or dev server:
