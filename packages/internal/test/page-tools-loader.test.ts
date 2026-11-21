@@ -764,10 +764,11 @@ describe("loadViteHubPageTools", () => {
 
   it("does not call a restored tool linked", async () => {
     page("/")
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:comments", "true")
+    const sessionPath = "/restored/_vitehub/page/session"
+    sessionStorage.setItem(`vitehub-open:${sessionPath}:comments`, "true")
     session({ tools: [comments] })
     const { load, started } = modules()
-    await loadViteHubPageTools({ load })
+    await loadViteHubPageTools({ load, session: sessionPath })
     expect(started.map(context => [context.open, context.linked])).toEqual([[true, false]])
   })
 

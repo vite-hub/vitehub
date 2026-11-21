@@ -116,13 +116,16 @@ describe("vitehub sandbox", () => {
       SSH_HOST_KEY: "/ssh/host",
       SSH_PORT: "2222",
     });
-    const listening = Promise.withResolvers<string>();
+    let announce!: (event: string) => void;
+    const listening = new Promise<string>((resolve) => {
+      announce = resolve;
+    });
     vi.spyOn(serve.context.stdout, "write").mockImplementation((chunk) => {
-      listening.resolve(String(chunk));
+      announce(String(chunk));
       return true;
     });
     const running = Promise.resolve(feature("serve").run([], serve.context));
-    const event = await Promise.race([listening.promise, running]);
+    const event = await Promise.race([listening, running]);
     process.emit("SIGTERM");
     expect(await running).toBe(0);
     expect(listener).toHaveBeenCalledExactlyOnceWith({
