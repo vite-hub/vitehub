@@ -343,7 +343,7 @@ export async function readMigrationPlan(
   }
   const fail: CheckFailure = (problem, cause) => databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause, database: database.name, problem })
   try {
-    const entries = readMigrations(database.migrationsDir, database.name)
+    const entries = readMigrations(database.migrationsDir, database.name, { flat: target.kind === "d1-http" })
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, fail, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
@@ -442,7 +442,7 @@ export async function migrateD1Http(
   if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
   try {
     const query = createD1Query(target, problem => databaseErrorDiagnostics.DATABASE_D1_MIGRATION_FAILED({ database: database.name, problem }), options.fetch)
-    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name))
+    const ledger = await readD1Ledger(query, database, readMigrations(database.migrationsDir, database.name, { flat: true }))
     await applyD1Migrations(query, ledger, database.migrationsDir, onApplied, migration => onAdopted({ from: migration.from, name: migration.tag }))
   }
   catch (error) {

@@ -6,7 +6,7 @@
   <img alt="AI SDK" src="https://img.shields.io/static/v1?label=AI+SDK&amp;message=v7&amp;color=blue">
 </p>
 
-`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
+`@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, application-owned `driver.run` logic, or `driver: "external"` for an Agent that a process outside the app runs.
 
 Keep the three pieces separate:
 
@@ -104,6 +104,21 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
 See [AI gateways](../../docs/content/docs/gateways/index.md).
+
+## External Agents
+
+`driver: "external"` defines an Agent that a process outside the app runs, such as Codex or Claude Code on a laptop or a CI runner. The Agent keeps its description, Workspace, and Invocation journal. Write its runs with `importAgentSession()` from `@vite-hub/agent/sessions`. It has no runtime: `runAgent()`, `streamAgent()`, and `startAgentInvocation()` fail with `AGENT_EXTERNAL_DRIVER_RUN` before they write a record, and a `runtime` option fails with `AGENT_EXTERNAL_DRIVER_RUNTIME`. Workflow discovery skips it, and Dev Loop Workspace commands (`vitehub agent dev "!cmd"`) still run.
+
+```ts
+// server/agents/coding-agent.ts
+import { defineAgent } from "@vite-hub/agent";
+
+export default defineAgent({
+  description: "Codex or Claude Code, building Nuxt projects from a product spec.",
+  workspace: "meetups",
+  driver: "external",
+});
+```
 
 ## Direct invocations
 
@@ -295,7 +310,7 @@ export default defineAgent({
 })
 ```
 
-Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent info` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
+Queued invocations start in FIFO order. An invocation is rejected immediately when the queue is full, rejected when its queue timeout expires, and removed from the queue when its abort signal fires. Capacity remains occupied until streamed Driver output finishes or is cancelled, so returning a stream does not allow the next invocation to start early. Agent inspection metadata and `vitehub agent get` expose the configured limits plus the process's current active and pending counts. A literal capacity config is local to one Agent Definition in one process; use provider-level or application-level coordination when capacity must span processes.
 
 For a self-hosted Node process, `createProcessAgentCapacity()` adjusts new admissions from host CPU and memory pressure while keeping `concurrency` as a hard maximum. It does not cap I/O-heavy work to the host CPU count. When capacity reaches zero, work stays in the same FIFO queue and resumes automatically after pressure recovers. Active invocations are never preempted.
 
@@ -331,7 +346,7 @@ For model-backed drivers, put free-form guidance for configured Sources, Capabil
 
 ## CLI inspection
 
-With `hubAgent()` active, start the Vite Development Server and run `vitehub agent info --agent <name>`.
+With `hubAgent()` active, start the Vite Development Server and run `vitehub agent get --agent <name>`.
 The command reads the resolved Agent Definition metadata without invoking the Agent Driver, so use it to verify the selected Driver, tools, Workspace files and Sources, instructions, Agent Invoker Profiles, warnings, and metadata status before debugging model output.
 Pass `--json` for the structured inspection contract.
 

@@ -5,7 +5,7 @@ import { NodeRequest } from "srvx/node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
-import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageAccount, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
+import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageAccount, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler, viteHubPageToolAllows } from "../src/runtime/page-tools.ts"
 import { readViteHubPageSession, viteHubPageToolsInlineScript, viteHubPageToolsLoader } from "../src/runtime/page-tools-shared.ts"
 
 import type { IncomingMessage } from "node:http"
@@ -643,6 +643,27 @@ describe("per-app page tools", () => {
     expect(sessions.map(session => session.tools.map((tool: { script: string }) => tool.script))).toEqual([["/comments.js"], ["/b.js", "/console.js"], []])
     const unbound = await otherOwner.viteHubPageSessionHandler.fetch(new Request("http://site.test/_vitehub/page/session"))
     expect(unbound.status).toBe(503)
+  })
+})
+
+describe("page tools behind another fetch wrapper", () => {
+  it("binds the request that the routes get when an inner wrapper copies it", async () => {
+    // A Nitro 3 app: H3 runs the `request` hooks with the event of each request.
+    const requestHooks: ((event: unknown) => void)[] = []
+    const hooks = { hook: (name: string, handler: (event: unknown) => void) => name === "request" && requestHooks.push(handler) }
+    const h3 = new H3({ onRequest: (event) => { for (const handler of requestHooks) handler(event) } })
+    h3.get("/_vitehub/page/session", viteHubPageSessionHandler)
+    h3.get("/allows", async event => Response.json(await viteHubPageToolAllows(event.req, "comments")))
+    const inner = (request: Request) => h3.fetch(request)
+    // As the `security` policy of vite-hub on Node.js, which installs first and passes a copy of the request inward.
+    const app = { hooks, fetch: (request: Request) => inner(new Request(request.url, { headers: request.headers })) }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const headers = { cookie: "person=ada" }
+    const session = await app.fetch(new Request("http://site.test/_vitehub/page/session", { headers }))
+    expect(session.status).toBe(200)
+    expect((await session.json()).tools.map((tool: { id: string }) => tool.id)).toEqual(["comments"])
+    expect(await (await app.fetch(new Request("http://site.test/allows", { headers }))).json()).toBe(true)
   })
 })
 

@@ -11,7 +11,7 @@ icon: i-lucide-terminal-square
 ```bash [Terminal]
 pnpm vitehub content collections
 pnpm vitehub content list posts
-pnpm vitehub content show posts hello
+pnpm vitehub content get posts hello
 pnpm vitehub content edit posts hello
 pnpm vitehub content status
 pnpm vitehub content diff posts hello
@@ -27,7 +27,7 @@ The commands appear when the app has a Content file. Without `--url`, they call 
 | --- | --- |
 | `vitehub content collections` | List collections and singletons with path, fields, and document count per state. |
 | `vitehub content list <collection>` | List one collection's documents with state, title, and field issue count. |
-| `vitehub content show <collection> [id]` | Print one document's stored file and field issues. |
+| `vitehub content get <collection> [id]` | Print one document's stored file and field issues. |
 | `vitehub content status [collection] [id]` | Print the state of all documents, one collection, or one document, with field issues and schedules. |
 | `vitehub content diff <collection> [id]` | Print a unified diff of one document from `published` to `draft`, with frontmatter. |
 | `vitehub content revisions <collection> [id]` | List the revisions that saved, removed, restored, or published one document, newest first. |
@@ -60,7 +60,7 @@ published  launch   Launch day
 
 `list` reads the `draft` ref (the branch that holds drafts). Pass `--ref published` for published documents. Each line shows the [state](/docs/content/server-api#status), the id, the [title field](/docs/content/configure#define-collections) value, and the draft's field issue count. A singleton shows its label. `--search <text>` matches the search fields. `--limit` defaults to 50, maximum 100. Stderr prints the `--cursor` value for the next page.
 
-`show` prints the stored file as written, with frontmatter, so it works even when fields no longer validate. It reads `draft` unless you pass `--ref published`. Field issues go to stderr:
+`get` prints the stored file as written, with frontmatter, so it works even when fields no longer validate. It reads `draft` unless you pass `--ref published`. Field issues go to stderr:
 
 ```txt [Output]
 posts/broken has 1 field issue on draft:
