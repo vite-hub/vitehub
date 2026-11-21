@@ -13,16 +13,16 @@ icon: i-lucide-wrench
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { ToolList } from "@vite-hub/ui";
+import { ToolList } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```ts
-import { ToolList, type AgentToolInspection } from "@vite-hub/ui";
+import { ToolList, type AgentToolInspection } from "vite-hub/ui";
 ```
 
 ```vue
@@ -98,5 +98,5 @@ Icons use Nuxt UI's `UIcon`. To replace it, see [Nuxt UI components](/docs/ui/in
 
 ## Related
 
-- [Console](/docs/development/console) groups the tools of a run by Capability.
+- [Console](/docs/console) groups the tools of a run by Capability.
 - [Code block](/docs/ui/code-block) shows the input and output of a tool call.

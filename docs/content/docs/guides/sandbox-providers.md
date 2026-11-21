@@ -170,13 +170,13 @@ The host writes the Container, the Durable Object binding, the migration, and th
 - It builds on `node:24-bookworm-slim` with git, curl, jq, and zip.
 - It copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches your `@cloudflare/sandbox` version.
 
-A custom image must include bash and GNU coreutils (`timeout` on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image, and keep running, such as with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type (1/16 vCPU, 256 MiB) and allows 12 instances. Your own container entry with the same class name keeps its instance type.
+A custom image must include bash and GNU coreutils (`timeout` on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image, and keep running, such as with `CMD ["sleep", "infinity"]`. The generated container uses the `standard-1` instance type (1/2 vCPU, 4096 MiB) and allows 12 instances. Set `cpu`, `memory`, and `maxInstances` to change them, as [Size](/docs/sandbox/hosts#size) shows. Your own container entry with the same class name keeps its instance type.
 
 Each Sandbox Task run gets a new Sandbox, closed at the end, unless you set `sandboxId` to share one. Cloudflare stops an idle container after 10 minutes by default, which stops billing. The next request gets a fresh container with no earlier state. Change this with `sleepAfter` or `keepAlive` in the [Cloudflare options](/docs/sandbox/hosts#cloudflare-options).
 
 Limits:
 
-- The Vite dev server cannot host the Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
+- The Vite dev server cannot host the Container. With Nitro's `node-worker` dev runner, `vite dev` runs tasks as local processes without isolation or a restrictive network policy ([Development](/docs/sandbox/hosts#development)). To test the Container, build, then run `npx wrangler dev --config .output/server/wrangler.json`, which needs Docker.
 - There is no network policy option, and ViteHub reports `network: 'unknown'`.
 - The generated Durable Object has no preview URLs, so `session.ports` is unavailable. Spawned process output lives in the Durable Object's memory and ends with the Container.
 

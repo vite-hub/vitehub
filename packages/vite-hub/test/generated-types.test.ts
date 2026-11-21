@@ -100,6 +100,7 @@ async function createNestedProject() {
 function collectionModule(name: string): string {
   return [
     `export const ${name} = {`,
+    `  access: "public" as const,`,
     `  async page() { return { items: [], nextCursor: null } },`,
     `  async parseQuery(input: object) { return input },`,
     `}`,
@@ -805,7 +806,7 @@ export default defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ sitemap: true, robots: { disallow: ["/admin"] }, rss: { title: "Example" }, mcp: true }`)
@@ -856,7 +857,7 @@ export default defineContent(${options})
     ])
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ markdown: true }`)
@@ -870,7 +871,7 @@ export default defineContent(${options})
       expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" }),
     )
     // It loads when the server starts, so it imports only the light Markdown entry and loads server/content.ts on demand.
-    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).resolves.toMatch(/^import \{ defineContentMarkdownHandler \} from "vite-hub\/content\/markdown"\n\nexport default defineContentMarkdownHandler\(\(\) => import\(/)
+    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).resolves.toMatch(/^import \{ defineContentMarkdownHandler \} from "vite-hub\/content\/markdown"\nimport \{ serverFetch \} from "nitro"\n\nexport default defineContentMarkdownHandler\(\(\) => import\(/)
     const module: unknown = await import(`${pathToFileURL(join(root, ".vitehub/content/markdown.mjs")).href}?t=${Date.now()}`)
     const middleware = Reflect.get(Object(module), "default")
     if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
@@ -887,12 +888,13 @@ export default defineContent(${options})
     await mkdir(join(root, "server"), { recursive: true })
     const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
       `import { defineContent } from "vite-hub/content"`,
-      `export default defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      `export default defineContent({ access: "public", route: false, source: { async items() { return [] } }, seo: ${seo} })`,
       ``,
     ].join("\n"))
     await write(`{ llms: { title: "Docs" } }`)
     const llms = join(root, ".vitehub/content/llms.mjs")
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: llms, method: "get", route: "/:locale/llms-full.txt" },
       { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, lazy: false, route: "/**" },
       { handler: llms, method: "get", route: "/llms-full.txt" },
       { handler: llms, method: "get", route: "/llms.txt" },

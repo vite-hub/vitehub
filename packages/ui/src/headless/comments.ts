@@ -1,6 +1,7 @@
 import {
   computed,
   getCurrentInstance,
+  isRef,
   onBeforeUnmount,
   onMounted,
   provide,
@@ -22,8 +23,10 @@ import {
   type AnchorPosition,
   type AnchorTarget,
   type CommentAnchor,
+  type CommentDelivery,
   type CommentMessage,
   type CommentsClient,
+  type CommentsOutboxEntry,
   type CommentsClientStatus,
   type CommentSubject,
   type CommentThread,
@@ -31,7 +34,9 @@ import {
   type CreateAnchorOptions,
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
+import { useSelectedComment } from "../internal/comment-selection.ts";
 import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
@@ -108,6 +113,34 @@ export interface UseCommentsOptions {
   autoStart?: boolean;
   /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
   can?: CommentCan;
+  /**
+   * Which comments show on the page. Default `"all"`. Pass a ref to keep the reader's choice, such as one saved in
+   * `localStorage`: the state reads and writes it.
+   */
+  visibility?: CommentVisibility | Ref<CommentVisibility>;
+  /** How long a comment or reply that was just sent shows while comments are hidden. Default `2500`. */
+  flashMs?: number;
+}
+
+/**
+ * The comments and replies that the client's outbox saved and did not send yet. Without the `outbox` option of
+ * `createCommentsClient()`, it is empty and its actions do nothing.
+ */
+export interface CommentsOutboxState {
+  /** `true` when the client has an outbox. */
+  readonly enabled: boolean;
+  /** The entries that wait or go out now, in order. */
+  readonly queued: ComputedRef<readonly CommentsOutboxEntry[]>;
+  /** The entries that the server refused. */
+  readonly failures: ComputedRef<readonly CommentsOutboxEntry[]>;
+  /** Whether the thread, or one of its messages, is waiting or refused. `undefined` when the server has it. */
+  delivery: (threadId: string, messageId?: string) => CommentDelivery | undefined;
+  /** Sends the waiting comment or reply `id` now. Without `id`, the whole queue tries again, such as after a sign-in. */
+  retry: (id?: string) => Promise<void>;
+  /** Removes the waiting comment or reply. `false` while it is on its way. */
+  dismiss: (id: string) => Promise<boolean>;
+  /** Changes the text of the waiting comment or reply. A refused one goes back in the queue. `false` while it is on its way. */
+  edit: (id: string, body: string, mentions?: string[]) => Promise<boolean>;
 }
 
 export interface CommentsState {
@@ -123,8 +156,9 @@ export interface CommentsState {
   readonly scope: Ref<CommentScope>;
   readonly filters: CommentFilterState;
   readonly status: Ref<CommentsClientStatus>;
-  /** Every thread that the client holds. */
+  /** Every thread that the client holds, with the ones that wait in the outbox. */
   readonly threads: ShallowRef<readonly CommentThread[]>;
+  readonly outbox: CommentsOutboxState;
   /** The threads of this page that pass the filters. They get pins. */
   readonly pageThreads: ComputedRef<CommentThread[]>;
   /** The threads that pass the filters, for the page or the whole site as `scope` says. The list shows them. */
@@ -139,6 +173,20 @@ export interface CommentsState {
   readonly listOpen: Ref<boolean>;
   /** Goes up when a composer with text stopped a click or a key. The composer shakes by itself. */
   readonly blocked: Ref<number>;
+  /** Which comments show. Writing or opening a comment never changes it. */
+  readonly visibility: Ref<CommentVisibility>;
+  /**
+   * The ids of the threads of this page that get a pin or a mark: all of them, or while comments are hidden, the open
+   * thread and each one that was just sent or replied to. The draft always shows.
+   */
+  readonly shown: ComputedRef<ReadonlySet<string>>;
+  /** The ids of threads that stopped showing while comments are hidden, for 180 ms. Their marks play the pop-out. */
+  readonly leaving: ComputedRef<ReadonlySet<string>>;
+  /** Keeps page marks visible without opening a popover. Call the returned release function when the panel closes. */
+  retainMark: (id: string) => () => void;
+  isShown: (id: string) => boolean;
+  /** Shows the thread for `flashMs` while comments are hidden. `send()`, `create()`, and `reply()` call it. */
+  flash: (id: string) => void;
   enter: () => void;
   exit: () => void;
   toggle: () => void;
@@ -148,14 +196,18 @@ export interface CommentsState {
    */
   startDraft: (target: AnchorTarget, options?: CreateAnchorOptions & { files?: File[] }) => void;
   cancelDraft: () => void;
-  /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
-  send: () => Promise<CommentThread | undefined>;
+  /**
+   * Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. With
+   * an outbox it resolves, and the draft closes, once the comment is saved, before the server answers. `files` go with
+   * the comment, for a client with an outbox.
+   */
+  send: (options?: { files?: Blob[] }) => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
   /** Closes the thread, returning false when unsent text prevents closing or navigation. */
   close: () => boolean;
   /** Starts a thread on the subject. The anchor defaults to the whole page. */
-  create: (input: { body: string; mentions?: string[]; attachments?: string[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
-  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[]) => Promise<CommentThread>;
+  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
+  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[]) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
@@ -225,9 +277,21 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const filters = reactive<CommentFilterState>({ open: true, resolved: false, mine: false });
   const status = ref<CommentsClientStatus>(client.status);
   const threads = shallowRef<readonly CommentThread[]>(client.threads);
+  const outboxEntries = shallowRef<readonly CommentsOutboxEntry[]>(client.outbox?.entries ?? []);
   const positions = shallowRef<ReadonlyMap<string, AnchorPosition>>(new Map());
   const draft = ref<CommentDraft | null>(null);
   const openId = ref<string | null>(null);
+  const retained = shallowRef<ReadonlyMap<symbol, string>>(new Map());
+  const retainedIds = computed(() => new Set(retained.value.values()));
+  const retainMark = (id: string): (() => void) => {
+    const key = Symbol();
+    retained.value = new Map(retained.value).set(key, id);
+    return () => {
+      const next = new Map(retained.value);
+      next.delete(key);
+      retained.value = next;
+    };
+  };
   const hoverId = ref<string | null>(null);
   const listOpen = ref(false);
   const blocked = ref(0);
@@ -250,17 +314,45 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resolved: scoped.filter(thread => thread.status === "resolved").length,
     };
   });
-  const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
+  const opened = useSelectedComment(threads, openId);
+  watch(opened, thread => {
+    if (thread && thread.id !== openId.value) openId.value = thread.id;
+  }, { flush: "sync" });
+
+  const visibility = isRef(options.visibility) ? options.visibility : ref<CommentVisibility>(options.visibility ?? "all");
+  const seen = createCommentVisibility({ visibility: visibility.value, flashMs: options.flashMs });
+  const seenChanges = ref(0);
+  seen.subscribe(() => seenChanges.value++);
+  watch(visibility, value => seen.set(value), { flush: "sync" });
+  watch(openId, id => seen.open(id), { flush: "sync" });
+  watch(hoverId, id => seen.hover(id), { flush: "sync" });
+  // Open panels and active flashes keep their marks even when a filter would hide them.
+  const marked = computed(() => {
+    void seenChanges.value;
+    const ids = new Set(pageThreads.value.map(thread => thread.id));
+    if (opened.value && onPage(opened.value)) ids.add(opened.value.id);
+    for (const thread of threads.value) {
+      const temporary = visibility.value === "hidden" && (seen.isShown(thread.id) || seen.leaving.includes(thread.id));
+      if (onPage(thread) && (retainedIds.value.has(thread.id) || temporary)) ids.add(thread.id);
+    }
+    return ids;
+  });
+  const shown = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set([...marked.value].filter(id => seen.isShown(id) || retainedIds.value.has(id)));
+  });
+  const leaving = computed<ReadonlySet<string>>(() => {
+    void seenChanges.value;
+    return new Set(seen.leaving.filter(id => marked.value.has(id) && !retainedIds.value.has(id)));
+  });
+  const flash = (id: string): void => seen.flash(id);
 
   const root = (): ParentNode => toValue(options.root) ?? document;
   const uiRoot = (): ParentNode => toValue(options.uiRoot) ?? document;
 
   function measure(): void {
     const next = new Map<string, AnchorPosition>();
-    for (const thread of pageThreads.value) next.set(thread.id, resolveAnchor(thread.anchor, root()));
-    // An open thread keeps its pin even when a filter would hide it.
-    const current = opened.value;
-    if (current && onPage(current) && !next.has(current.id)) next.set(current.id, resolveAnchor(current.anchor, root()));
+    for (const thread of threads.value.filter(thread => marked.value.has(thread.id))) next.set(thread.id, resolveAnchor(thread.anchor, root()));
     if (draft.value) next.set(draftPositionKey, resolveAnchor(draft.value.anchor, root()));
     const previous = positions.value;
     const same = next.size === previous.size && [...next].every(([key, position]) => samePosition(position, previous.get(key)));
@@ -332,10 +424,11 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     measure();
   }
 
-  async function send(): Promise<CommentThread | undefined> {
+  async function send(sendOptions: { files?: Blob[] } = {}): Promise<CommentThread | undefined> {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
-    if (!current || current.busy || (!body && current.attachments.length === 0)) return undefined;
+    const files = sendOptions.files ?? [];
+    if (!current || current.busy || (!body && current.attachments.length === 0 && files.length === 0)) return undefined;
     const submittedBody = current.body;
     const mentions = [...current.mentions];
     const attachments = [...current.attachments];
@@ -348,8 +441,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         body,
         mentions,
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(files.length > 0 ? { files } : {}),
       });
       current.busy = false;
+      flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
@@ -447,6 +542,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(client.onChange(() => {
       status.value = client.status;
       threads.value = client.threads;
+      outboxEntries.value = client.outbox?.entries ?? [];
     }));
     status.value = client.status;
     threads.value = client.threads;
@@ -521,11 +617,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resizes?.disconnect();
       clearTimeout(revealTimer);
       if (frame) cancelAnimationFrame(frame);
+      seen.stop();
     });
 
     stops.push(watch(positions, follow, { flush: "post" }));
     stops.push(watch(
-      [pageThreads, () => draft.value?.anchor, openId],
+      [marked, () => draft.value?.anchor, openId],
       () => measure(),
       { flush: "post" },
     ));
@@ -572,6 +669,19 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   const can: CommentCan = (action, target) => user.value !== undefined && (options.can ?? defaultCommentCan(user.value))(action, target);
 
+  const outbox: CommentsOutboxState = {
+    enabled: client.outbox !== undefined,
+    queued: computed(() => outboxEntries.value.filter(entry => entry.status !== "failed")),
+    failures: computed(() => outboxEntries.value.filter(entry => entry.status === "failed")),
+    delivery(threadId, messageId) {
+      const thread = threads.value.find(item => item.id === threadId);
+      return messageId === undefined ? thread?.delivery : thread?.messages.find(item => item.id === messageId)?.delivery;
+    },
+    retry: async id => client.outbox?.retry(id),
+    dismiss: async id => (await client.outbox?.dismiss(id)) ?? false,
+    edit: async (id, body, mentions) => (await client.outbox?.edit(id, body, mentions)) ?? false,
+  };
+
   const state: CommentsState = {
     client,
     subject,
@@ -583,6 +693,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     filters,
     status,
     threads,
+    outbox,
     pageThreads,
     listed,
     counts,
@@ -593,6 +704,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     opened,
     listOpen,
     blocked,
+    visibility,
+    shown,
+    leaving,
+    retainMark,
+    isShown: id => shown.value.has(id),
+    flash,
     enter,
     exit,
     toggle,
@@ -601,10 +718,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     send,
     open,
     close,
-    create: ({ anchor = { kind: "page" }, attachments, body, mentions }) =>
-      client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
-    reply: (threadId, body, mentions, attachments) =>
-      client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
+    create: async ({ anchor = { kind: "page" }, attachments, body, files, mentions }) => {
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      flash(thread.id);
+      return thread;
+    },
+    reply: async (threadId, body, mentions, attachments, files) => {
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      flash(threadId);
+      return thread;
+    },
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
     remove: async (threadId, messageId) => {
       const next = await client.delete({ threadId, messageId });

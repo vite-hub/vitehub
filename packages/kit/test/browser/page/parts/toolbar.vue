@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BoldIcon, ItalicIcon, LinkIcon, UnderlineIcon } from "../icons"
-import { Toggle, ToggleIcon } from "@vite-hub/kit/toggle"
-import { Toolbar, ToolbarButton, ToolbarSeparator } from "@vite-hub/kit/toolbar"
+import { Toggle, ToggleIcon } from "@ui-sdk/vue/toggle"
+import { Toolbar, ToolbarButton, ToolbarSeparator } from "@ui-sdk/vue/toolbar"
 import { useLog } from "../log"
 
 const styles = [

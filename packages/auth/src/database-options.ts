@@ -1,7 +1,5 @@
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { BetterAuthOptions } from "better-auth"
-
 /** Reads the adapter's target without loading Better Auth or the Database runtime. */
 export function authDatabaseName(database: unknown): string | undefined {
   if (typeof database !== "function") return
@@ -16,22 +14,21 @@ export function assertAuthDatabaseIdStrategy(generateId: unknown): void {
   }
 }
 
-/** The contributed core tables cannot persist application-defined columns. */
-export function assertAuthDatabaseAdditionalFields(options: Pick<BetterAuthOptions, "user" | "session" | "account" | "verification">): void {
-  for (const model of ["user", "session", "account", "verification"] as const) {
-    const fields = options[model]?.additionalFields
-    if (fields && Object.keys(fields).length) throw authDatabaseAdditionalFieldsError(model)
-  }
+/** The Auth Vite plugin reads `additionalFields` from the Definition to add their columns, so they must be static. */
+export function authDatabaseAdditionalFieldsError(detail: string): Error {
+  return authErrorDiagnostics.AUTH_C0055({ message: `\`authDatabase()\` adds a column for each additional field, but ${detail}.` })
 }
 
-export function authDatabaseAdditionalFieldsError(model: string): Error {
-  return authErrorDiagnostics.AUTH_C0055({ message: `\`authDatabase()\` owns fixed tables and does not support \`${model}.additionalFields\`. Use another Better Auth adapter with a schema that includes your fields; extending the owned tables through a Database contribution is not supported.` })
-}
-
+/** The Better Auth options need a table, a column, or a name that the Database of `authDatabase()` does not have. */
 export function authDatabaseSchemaError(detail: string): Error {
-  return authErrorDiagnostics.AUTH_C0056({ message: `\`authDatabase()\` owns fixed table and field names: ${detail}. Use another Better Auth adapter with a schema matching your options and plugins.` })
+  return authErrorDiagnostics.AUTH_C0056({ message: `\`authDatabase()\` cannot store the Better Auth options: ${detail}.` })
 }
 
 export function authDatabasePlacementError(): Error {
-  return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches or override the Database through `runtime` or runtime options." })
+  return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches." })
+}
+
+/** Outside a development server, Auth keeps users in memory only when the Definition asks for it. */
+export function authMemoryDatabaseError(): Error {
+  return authErrorDiagnostics.AUTH_C0063({ message: "`defineAuth()` has no `database` or `preset`. Auth keeps users and sessions in memory only on a development server, because a restart or a second instance loses them." })
 }

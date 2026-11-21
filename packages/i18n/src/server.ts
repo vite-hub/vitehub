@@ -13,7 +13,7 @@ import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { I18n, Messages } from "@lingui/core"
-import type { Result } from "@vite-hub/runtime"
+import type { Result, ResultError } from "@vite-hub/runtime"
 import type { LiveTranslations, TranslationsWorkspace, WritableTranslationsWorkspace } from "./live.ts"
 import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -205,7 +205,7 @@ export interface Translations {
   /** The records of one locale. `draft` shows the published records with the saved changes on top. */
   list(locale: string, options?: { ref?: "draft" | "published" }): Promise<Result<TranslationRecords, "I18N_UNKNOWN_LOCALE">>
   /** Save one translation to the `draft` ref. Readers see it after `publish()`. */
-  save(input: SaveTranslationInput): Promise<Result<{ id: string, revision: string }, "I18N_UNKNOWN_LOCALE" | "I18N_INVALID_TRANSLATION">>
+  save(input: SaveTranslationInput): Promise<Result<{ id: string, revision: string }, "I18N_INVALID_TRANSLATION" | "I18N_SAVE_CONFLICT" | "I18N_UNKNOWN_LOCALE">>
   /** Copy the changed draft records to the `published` ref in one revision. The server uses them on the next request. */
   publish(options?: { message?: string }): Promise<{ revision: string | null, published: number }>
 }
@@ -222,12 +222,36 @@ async function recordsAt(workspace: TranslationsWorkspace, ref: string, locales:
   return head ? await readRevisionRecords(await workspace.history.open(head.id), locales) : {}
 }
 
-function applyReview(current: TranslationRecord | undefined, transition: ReviewTransition): TranslationRecord {
+function applyReview(current: TranslationRecord | undefined, transition: ReviewTransition): TranslationRecord | ResultError<"I18N_INVALID_TRANSLATION"> {
   // `save()` permits an omitted editor; Diglot's review functions take a string.
   if (transition.ok) return { ...transition.record, by: transition.record.by || undefined }
   // Repeated saves keep the current text's provenance, editor, and review stamps.
   if (transition.code === "unchanged" && current) return current
-  throw new Error(`Cannot save translation: ${transition.message}`)
+  return i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem: transition.message })
+}
+
+/** The record that `save()` writes, or the error of a review step that Diglot refuses. */
+function nextRecord(
+  current: TranslationRecord | undefined,
+  input: SaveTranslationInput,
+  { segment, by, at }: { segment: ReturnType<typeof diglotSegment>, by: string, at: string },
+): TranslationRecord | ResultError<"I18N_INVALID_TRANSLATION"> {
+  // Diglot rejects empty text. Clearing a translation uses its rejected state to restore the fallback.
+  if (input.translation === "") {
+    const record = current ?? createRecord({ segment, text: input.source, origin: "human", by: by || undefined, updatedAt: at })
+    return applyReview(record, rejectRecord(record, { by, at }))
+  }
+  if (input.review === "machine") {
+    // Only new machine text changes provenance or resets review.
+    if (current?.text === input.translation) return current
+    return createRecord({ ...current, segment, text: input.translation, origin: "mt", review: "none", by: by || undefined, updatedAt: at, verifiedBy: undefined, rejectedBy: undefined })
+  }
+  const edit = () => applyReview(current, editRecord(current, { segment, text: input.translation, by, at, maxLength: false }))
+  if (input.review !== "verified") return edit()
+  // A changed verified save edits the text first, then verifies it.
+  const record = current?.text === input.translation ? current : edit()
+  if (record instanceof Error) return record
+  return applyReview(record, verifyRecord(record, { segment, by, at }))
 }
 
 /**
@@ -313,30 +337,23 @@ export function useTranslations(): Translations {
       const at = new Date().toISOString()
       const by = input.by ?? current?.by ?? ""
       const segment = diglotSegment(messageSegment(input.source, input.context))
-      let record = current
-      // Diglot rejects empty text. Clearing a translation uses its rejected state to restore the fallback.
-      if (input.translation === "") {
-        record ??= createRecord({ segment, text: input.source, origin: "human", by: by || undefined, updatedAt: at })
-        record = applyReview(record, rejectRecord(record, { by, at }))
+      const record = nextRecord(current, input, { segment, by, at })
+      if (record instanceof Error) return [record, undefined]
+      let revision: { id: string }
+      let headConflict: unknown
+      try {
+        revision = await workspace.history.commit({
+          ref: draftRef,
+          ifHead: head?.id ?? null,
+          onHeadConflict: error => { headConflict = error },
+          changes: { put: { [recordPath(entry, record.hash)]: serialiseRecord(record) } },
+          message: `Translate ${id} to ${entry}`,
+        })
       }
-      else if (input.review === "machine") {
-        // Only new machine text changes provenance or resets review.
-        if (record?.text !== input.translation) {
-          record = createRecord({ ...current, segment, text: input.translation, origin: "mt", review: "none", by: by || undefined, updatedAt: at, verifiedBy: undefined, rejectedBy: undefined })
-        }
+      catch (error) {
+        if (headConflict === undefined || error !== headConflict) throw error
+        return [i18nErrorDiagnostics.I18N_SAVE_CONFLICT({ cause: error, id, locale: entry }), undefined]
       }
-      else {
-        if (input.review !== "verified" || record?.text !== input.translation) {
-          record = applyReview(record, editRecord(record, { segment, text: input.translation, by, at, maxLength: false }))
-        }
-        if (input.review === "verified") record = applyReview(record, verifyRecord(record, { segment, by, at }))
-      }
-      const revision = await workspace.history.commit({
-        ref: draftRef,
-        ifHead: head?.id ?? null,
-        changes: { put: { [recordPath(entry, record.hash)]: serialiseRecord(record) } },
-        message: `Translate ${id} to ${entry}`,
-      })
       return [undefined, { id, revision: revision.id }]
     },
     async publish(options) {

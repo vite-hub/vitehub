@@ -7,9 +7,10 @@ import { github } from "@vite-hub/source"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createFakeGitHub } from "../../workspace/test/fake-github.ts"
-import { defineContent, defineContentGitHubWebhookHandler, registerContentKV } from "../src/index.ts"
+import { defineContent, defineContentGitHubWebhookHandler, prewarmContentPage, registerContentKV } from "../src/index.ts"
 
 import type { MockInstance } from "vitest"
+import type { ContentGitHubWebhookOptions, ContentPrewarmJob } from "../src/index.ts"
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 
 const url = "https://docs.test/_vitehub/content/github"
@@ -48,10 +49,10 @@ afterEach(async () => {
 })
 
 /** One Content runtime and its webhook route, as one server instance would create them. */
-async function server() {
-  const content = defineContent({ sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+async function server(options?: ContentGitHubWebhookOptions) {
+  const content = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
   cleanup.push(() => content.dispose())
-  const route = defineContentGitHubWebhookHandler(content)
+  const route = defineContentGitHubWebhookHandler(content, options)
   // The first read stores the head, as the first page request would.
   await content.sources.head("docs")
   return { content, route }
@@ -360,5 +361,142 @@ describe("hourly check without a webhook", () => {
 
     expect(checked).toBeGreaterThan(before)
     expect(fake.requests.length).toBe(checked)
+  })
+})
+
+describe("prewarm after a push", () => {
+  /** A server whose webhook sends prewarm jobs to a Queue, as ViteHub generates it when the app has Queue. */
+  async function queued() {
+    const jobs: ContentPrewarmJob[] = []
+    const created = await server({ prewarm: async (job) => { jobs.push(job) } })
+    return { ...created, jobs }
+  }
+
+  it("sends one prewarm job for each page that the commits of the push changed", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide"), "about.md": page("About"), "intro.md": page("Intro") })
+    const { content, route, jobs } = await queued()
+    const second = fake.commit("main", { "guide.md": page("Guide v2"), "about.md": page("About v2"), "logo.svg": "<svg/>" })
+
+    const response = await route.fetch(fake.webhook(url, secret, { before: first, commits: [{ modified: ["guide.md"] }, { modified: ["about.md"], added: ["logo.svg"] }] }))
+
+    expect(await response.json()).toMatchObject({ deliveries: [{ sha: second, result: "moved", before: first }] })
+    expect(jobs).toEqual([{ source: "docs", sha: second, key: "about.md", headVersion: 2 }, { source: "docs", sha: second, key: "guide.md", headVersion: 2 }])
+    expect(await title(content, "/about")).toBe("About v2")
+    // Another server instance, as the Queue consumer: the job loads the new head there, so its first read is warm.
+    const reads = async (prewarm: boolean) => {
+      const other = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+      cleanup.push(() => other.dispose())
+      if (prewarm) for (const job of jobs) await prewarmContentPage(other, job)
+      const before = (await other.sources.head("docs")).cache
+      expect(await title(other, "/about")).toBe("About v2")
+      const after = (await other.sources.head("docs")).cache
+      return { kv: after.hits.kv - before.hits.kv, misses: after.misses - before.misses }
+    }
+    expect(await reads(true)).toEqual({ kv: 0, misses: 0 })
+    expect(await reads(false)).toEqual({ kv: 1, misses: 0 })
+  })
+
+  it("compares the files of both commits when the push is forced, lists no files, or starts at another commit", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide"), "about.md": page("About") })
+    const { route, jobs } = await queued()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    // A forced push lists the commits that it added, not the files that it changed from the old head.
+    await route.fetch(fake.webhook(url, secret, { before: first, forced: true, commits: [{ modified: ["about.md"] }] }))
+    expect(jobs.splice(0)).toEqual([{ source: "docs", sha: second, key: "guide.md", headVersion: 2 }])
+
+    const third = fake.commit("main", { "about.md": page("About v2") })
+    await route.fetch(fake.webhook(url, secret, { before: first, commits: [{ modified: ["guide.md"] }] }))
+    expect(jobs.splice(0)).toEqual([{ source: "docs", sha: third, key: "about.md", headVersion: 3 }])
+
+    const fourth = fake.commit("main", { "guide.md": page("Guide v3") })
+    await route.fetch(fake.webhook(url, secret))
+    expect(jobs).toEqual([{ source: "docs", sha: fourth, key: "guide.md", headVersion: 4 }])
+  })
+
+  it("uses the actual head move when GitHub delivers an earlier push", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide"), "about.md": page("About") })
+    const { route, jobs, content } = await queued()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    const delayed = fake.webhook(url, secret, { before: first, commits: [{ modified: ["guide.md"] }] })
+    const third = fake.commit("main", { "about.md": page("About v2") })
+
+    const response = await route.fetch(delayed)
+    expect(await response.json()).toMatchObject({ deliveries: [{ sha: second, result: "moved", before: first }] })
+    expect(await content.sources.head("docs")).toMatchObject({ sha: third, webhook: { sha: second } })
+    expect(jobs).toMatchObject([{ sha: third, key: "about.md" }, { sha: third, key: "guide.md" }])
+  })
+
+  it("retries stale or failed KV reads, then warms a consumer holding the previous head", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide") })
+    const { route, jobs } = await queued()
+    const { content: consumer } = await server()
+    expect(await title(consumer, "/guide")).toBe("Guide")
+    const stale = await kv.get("content:head:docs")
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    await route.fetch(fake.webhook(url, secret, { before: first, commits: [{ modified: ["guide.md"] }] }))
+    const [job] = jobs
+    expect(job).toMatchObject({ sha: second, key: "guide.md" })
+
+    registerContentKV({
+      get: <T>(key: string) => key === "content:head:docs" ? Promise.resolve([null, stale[1] as T] as const) : kv.get<T>(key),
+      set: (key, value) => kv.set(key, value),
+    })
+    await expect(prewarmContentPage(consumer, job!)).rejects.toMatchObject({ code: "CONTENT_PREWARM_HEAD_NOT_VISIBLE" })
+    registerContentKV({
+      get: key => key === "content:head:docs" ? Promise.resolve([new Error("KV GET failed"), undefined] as const) : kv.get(key),
+      set: (key, value) => kv.set(key, value),
+    })
+    await expect(prewarmContentPage(consumer, job!)).rejects.toMatchObject({ code: "CONTENT_R0022" })
+    registerContentKV(kv)
+
+    await prewarmContentPage(consumer, job!)
+    const before = await consumer.sources.head("docs")
+    expect(before.sha).toBe(second)
+    expect(await title(consumer, "/guide")).toBe("Guide v2")
+    expect((await consumer.sources.head("docs")).cache.hits.kv).toBe(before.cache.hits.kv)
+  })
+
+  it("logs a failed dispatch without failing the head move", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const failure = new Error("Queue send failed")
+    const { route, content } = await server({ prewarm: async () => [failure, undefined] as const })
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const response = await route.fetch(fake.webhook(url, secret))
+      expect(response.status).toBe(200)
+      expect(await content.sources.head("docs")).toMatchObject({ sha: second, webhook: { result: "moved" } })
+      expect(log).toHaveBeenCalledWith(failure)
+    }
+    finally {
+      log.mockRestore()
+    }
+  })
+
+  it("prewarms in the webhook request when the app has no Queue, and skips a job for an older head", async () => {
+    const first = fake.commit("main", { "guide.md": page("Guide"), "about.md": page("About") })
+    const { content, route } = await server()
+    const second = fake.commit("main", { "guide.md": page("Guide v2") })
+    // Reads of the served commit from memory: only a prewarmed page reads it after the head moves.
+    const memory = async (runtime: typeof content) => (await runtime.sources.head("docs")).cache.hits.memory
+
+    const before = await memory(content)
+    await route.fetch(fake.webhook(url, secret, { before: first, commits: [{ modified: ["guide.md"] }] }))
+    expect(await memory(content)).toBeGreaterThan(before)
+
+    fake.commit("main", { "guide.md": page("Guide v3") })
+    const other = defineContent({ access: "public", sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+    cleanup.push(() => other.dispose())
+    await other.sources.advance("docs")
+    const held = await memory(other)
+    await prewarmContentPage(other, { source: "docs", sha: second, key: "guide.md", headVersion: 2 })
+    expect(await memory(other)).toBe(held)
+  })
+
+  it("does nothing when the head did not move", async () => {
+    fake.commit("main", { "guide.md": page("Guide") })
+    const { route, jobs } = await queued()
+    await route.fetch(fake.webhook(url, secret))
+    expect(jobs).toEqual([])
   })
 })

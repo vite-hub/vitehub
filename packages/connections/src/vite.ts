@@ -3,20 +3,22 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path";
 
 import * as v from "valibot";
+import { normalizePath } from "vite";
 
 import {
+  createNativePackageLoading,
   createNoExternalAddition,
   hasNitroConfigContext,
   isProductionBuild,
   isServerEnvironment,
-  loadsViteHubPackagesNatively,
   renderNativePackageInstallPlugin,
+  publishViteHubDevServer,
   resolveViteHubProjectRoot,
   VITEHUB_APP_BASE_URL,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer";
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
@@ -26,6 +28,7 @@ import { resolveActivityRetention } from "./internal/activity-retention.ts";
 
 import type { NitroServerHandler } from "@vite-hub/internal/nitro-kit";
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli";
+import type { OperationContributions } from "@vite-hub/internal/operations";
 import type { Plugin, ResolvedConfig, ViteDevServer } from "vite";
 import type { ConnectionActivityRetention, DiscoveredConnectionDefinition } from "./types.ts";
 
@@ -44,8 +47,8 @@ const legacyTypesManifests = [".vitehub/connections-types.json", ".vitehub/conne
  * Writes `contents` when the bytes change, through a unique temporary file and a rename. Two servers that prepare the
  * same root at once each publish a complete file, so a reader never sees a mix of two results.
  */
-async function writeFileIfChanged(file: string, contents: string): Promise<void> {
-  if (await readFile(file, "utf8").catch(() => undefined) === contents) return;
+async function writeFileIfChanged(file: string, contents: string): Promise<boolean> {
+  if (await readFile(file, "utf8").catch(() => undefined) === contents) return false;
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.${globalThis.crypto.randomUUID()}.tmp`;
   try {
@@ -55,6 +58,7 @@ async function writeFileIfChanged(file: string, contents: string): Promise<void>
   finally {
     await rm(temporary, { force: true });
   }
+  return true;
 }
 
 async function removeLegacyTypesManifests(root: string): Promise<void> {
@@ -125,6 +129,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
     cli: () => Promise<ViteHubCliContributor>;
     /** The Database use that `@vite-hub/database` collects: the Database that keeps Connection data. */
     databases: () => ConnectionsDatabaseUse[];
+    /** The `connections.*` operations that the Console and MCP run. */
+    operations: OperationContributions;
   };
   nitro: {
     name: string;
@@ -135,7 +141,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
 
 /** The parts of a Nitro instance that the management route reads and changes. */
 type ConnectionsNitro = {
-  options: { dev?: boolean; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
+  options: { dev?: boolean; devServer?: { runner?: string }; devHandlers?: Array<{ handler?: unknown; route?: string }>; handlers: NitroServerHandler[] };
   routing: { sync: () => void };
 };
 
@@ -205,10 +211,14 @@ function connectionMountBase(base: unknown): string {
  * The management action route takes only `POST`, so a `GET` of the same path reaches the app.
  * The connect and callback routes are the only `GET` routes under it.
  */
-function addManagementHandlers(kit: NitroServerKit, handler: string, route: string): void {
-  kit.addHandler({ handler, method: "post", route });
-  kit.addHandler({ handler, method: "get", route: `${route}/connect/**` });
-  kit.addHandler({ handler, method: "get", route: `${route}/callback` });
+function addManagementHandlers(kit: NitroServerKit, handler: string, route: string, callbackOnly: boolean): void {
+  // The routes check the app's actor module, and the callback checks the state of the flow.
+  const meta = { ...ownAccessRouteMeta };
+  if (!callbackOnly) {
+    kit.addHandler({ handler, meta, method: "post", route });
+    kit.addHandler({ handler, meta, method: "get", route: `${route}/connect/**` });
+  }
+  kit.addHandler({ handler, meta, method: "get", route: `${route}/callback` });
 }
 
 /** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */
@@ -230,6 +240,7 @@ function isConnectionDefinitionFile(
 }
 
 export function hubConnections(options: ConnectionsVitePluginOptions = {}): ConnectionsVitePlugin {
+  const packageLoading = createNativePackageLoading();
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
   const databaseName = options.databaseName ?? "default";
@@ -251,23 +262,34 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
     return definitions;
   }
 
-  async function refreshGeneratedFiles(): Promise<void> {
+  async function refreshGeneratedFiles(): Promise<boolean> {
     // The declaration is a pure function of the discovered definitions, so two servers that write it at once converge.
-    await Promise.all([
+    const [registryChanged] = await Promise.all([
+      nitroRegistryFile ? writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName)) : false,
       writeFileIfChanged(resolve(projectRoot, generatedTypesPath), renderRegistryTypes(definitions)),
-      ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
       removeLegacyTypesManifests(defaultProjectRoot),
       // A custom `projectRoot` retires the declaration that the default root had before.
       ...(projectRoot === defaultProjectRoot ? [] : [removeGeneratedTypes(defaultProjectRoot), removeLegacyTypesManifests(projectRoot)]),
     ]);
+    return registryChanged;
   }
 
   async function refreshRegistry(server: ViteDevServer): Promise<void> {
     resolved = server.config;
     refresh();
-    await refreshGeneratedFiles();
+    const registryChanged = await refreshGeneratedFiles();
     const module = server.moduleGraph.getModuleById(resolvedConnectionsRegistryId);
     if (module) server.moduleGraph.invalidateModule(module);
+    if (!registryChanged || !nitroRegistryFile) return;
+
+    const registryPath = normalizePath(nitroRegistryFile);
+    for (const [name, environment] of Object.entries(server.environments)) {
+      if (!isServerEnvironment(name, environment.config)) continue;
+      const modules = environment.moduleGraph.getModulesByFile(registryPath);
+      if (!modules?.size) continue;
+      for (const registry of modules) environment.moduleGraph.invalidateModule(registry);
+      environment.hot.send({ type: "full-reload", triggeredBy: registryPath });
+    }
   }
 
   return {
@@ -288,6 +310,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       name: "@vite-hub/connections/management",
       setup(nitro) {
         nitroInstance = nitro;
+        packageLoading.nitro.setup(nitro);
         // The development policy trusts only this machine. Nitro's dev worker never sees the client address, so the
         // front process signs loopback requests for it.
         if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers ??= []);
@@ -298,6 +321,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
+      operations: [{
+        export: "connectionsOperations",
+        load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).connectionsOperations,
+        module: `${importBase}/operations`,
+      }],
       // Without a Database Definition, `@vite-hub/database` adds the `default` Database for this use, and
       // `vitehub inspect` shows the reason.
       databases: () => database
@@ -344,10 +372,13 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         Object.assign(nitro, kit.config);
       }
 
-      if (environment.command === "serve" || options.management) {
-        const actorModule =
-          (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
-        if (isProductionBuild(config, environment) && !actorModule?.trim()) {
+      {
+        // Without the management API, production serves only the callback of flows that the Console starts.
+        const callbackOnly = environment.command !== "serve" && !options.management;
+        const actorModule = callbackOnly
+          ? undefined
+          : (options.management && options.management !== true ? options.management.actor : undefined) ?? options.actor;
+        if (!callbackOnly && isProductionBuild(config, environment) && !actorModule?.trim()) {
           throw connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "management-actor" });
         }
         const actorImport = actorModule?.startsWith(".") ? resolve(root, actorModule) : actorModule;
@@ -360,9 +391,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
             // Without an actor module, only a development server allows management.
             // The handler is a Fetchable: Nitro calls `fetch(event.req)`.
-            actorModule
-              ? `export default createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
-              : `export default createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
+            `export default createConnectionsHandler({ ${actorModule ? "actor" : callbackOnly ? "actor: () => undefined" : 'actor: "development"'}, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
           ].join("\n"),
         );
@@ -377,7 +406,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 !v.is(v.looseObject({ handler: v.literal(handlerFile) }), handler),
               ));
             }
-            addManagementHandlers(kit, handlerFile, route);
+            addManagementHandlers(kit, handlerFile, route, callbackOnly);
             return kit.config;
           };
           Reflect.set(config, "nitro", updateHandlers(Reflect.get(config, "nitro")));
@@ -389,7 +418,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           await writeManagementHandler(route);
         };
         const kit = createNitroServerKit(nitro);
-        addManagementHandlers(kit, handlerFile, managementRoute);
+        addManagementHandlers(kit, handlerFile, managementRoute, callbackOnly);
         Object.assign(nitro, kit.config);
       }
       Reflect.set(config, "nitro", nitro);
@@ -402,12 +431,13 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       await refreshGeneratedFiles();
     },
     configEnvironment(name, config, env) {
-      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return;
+      if (!isServerEnvironment(name, config) || packageLoading.configureEnvironment(name, env)) return;
       return {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
     },
     configureServer(server) {
+      publishViteHubDevServer(server);
       // Vite only calls handleHotUpdate for edits. Docs membership also changes on add and unlink.
       server.watcher.add([...new Set(definitions.map(definition => dirname(definition.handler)))]);
       const refreshDocs = (file: string) => {
@@ -454,3 +484,5 @@ export function hubConnectionsTypesCleanup(): Plugin<{ prepareTypes: (options: {
     configResolved: config => prepareTypes({ projectRoot: resolveViteHubProjectRoot(config.root) }),
   }
 }
+
+export { connectionsConsoleSection } from "./console.ts"

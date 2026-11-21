@@ -1,0 +1,7 @@
+{
+  "rawErrors": {},
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/schedule/src/os/systemd.ts": 1
+  }
+}

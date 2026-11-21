@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Menu, MenuContent, MenuItem, MenuTrigger } from "@vite-hub/kit/menu"
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@ui-sdk/vue/menu"
 </script>
 
 <template>

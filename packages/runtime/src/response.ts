@@ -1,3 +1,7 @@
+import { isNativeError, isRuntimeDiagnostic } from "./diagnostics.ts"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { getViteHubErrorShape } from "./errors.ts"
+
 /** A JSON-safe representation of a web Response for durable boundaries. */
 export interface SerializedResponse {
   readonly body: {
@@ -100,9 +104,18 @@ function isArrayBufferValue(value: unknown): value is ArrayBuffer {
   }
 }
 
-/** Normalize a primitive value into the native Web Response contract. */
+const jsonHeaders = { "content-type": "application/json; charset=utf-8" }
+
+/**
+ * Normalize a primitive value into the native Web Response contract.
+ * An error answers with `{ code, why, fix }` and never with its `stack`, `cause`, or `data`:
+ * - A ResultError or other Nostics diagnostic answers its `status`, or 500, so a route can `return toResponse(error)`.
+ * - A `ViteHubError` answers 500 with its `code` and its message as `why`.
+ * - Any other `Error` answers 500 with `RUNTIME_HIDDEN_ERROR`, because its message can hold server details.
+ */
 export function toResponse(value: unknown): Response {
   if (isResponse(value)) return value
+  if (isNativeError(value)) return errorResponse(value)
   if (value === undefined) return new Response(null, { status: 204 })
   if (typeof value === "string" || value instanceof Blob || isArrayBufferValue(value) || ArrayBuffer.isView(value)) {
     // SAFETY: The guards admit only strings, Blob, ArrayBuffer, and views accepted by Response.
@@ -112,13 +125,38 @@ export function toResponse(value: unknown): Response {
   if (blobMethods) {
     return new Response(blobMethods.body(), blobMethods.type ? { headers: { "content-type": blobMethods.type } } : undefined)
   }
-  return new Response(JSON.stringify(value), {
-    headers: { "content-type": "application/json; charset=utf-8" },
+  return new Response(JSON.stringify(value), { headers: jsonHeaders })
+}
+
+function errorResponse(error: Error): Response {
+  let body: { code: string, why: string, fix: string | undefined } | undefined
+  let status: unknown
+  if (isRuntimeDiagnostic(error)) {
+    try {
+      body = { code: error.code, why: error.why, fix: error.fix }
+      status = Reflect.get(error, "status")
+    }
+    catch {
+      body = undefined
+    }
+  }
+  else {
+    const shape = getViteHubErrorShape(error)
+    if (shape) body = { code: shape.code, why: shape.message, fix: undefined }
+  }
+  if (!body || typeof body.code !== "string" || typeof body.why !== "string" || (body.fix !== undefined && typeof body.fix !== "string")) {
+    const hidden = runtimeErrorDiagnostics.RUNTIME_HIDDEN_ERROR()
+    body = { code: hidden.code, why: hidden.why, fix: hidden.fix }
+    status = 500
+  }
+  return new Response(JSON.stringify(body), {
+    headers: jsonHeaders,
+    status: typeof status === "number" && Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500,
   })
 }
 
 /** Recognize Responses created by another realm from their standard tag and surface. */
-function isResponse(value: unknown): value is Response {
+export function isResponse(value: unknown): value is Response {
   if (value instanceof Response) return true
   if (!isRuntimeObject(value)) return false
   try {
@@ -156,7 +194,7 @@ export async function serializeResponse(response: Response): Promise<SerializedR
 
 /** Reconstruct a native Response from a durable response record. */
 export function deserializeResponse(value: SerializedResponse): Response {
-  if (!isSerializedResponse(value)) throw new TypeError("Invalid serialized Response")
+  if (!isSerializedResponse(value)) throw runtimeErrorDiagnostics.RUNTIME_SERIALIZED_RESPONSE_INVALID()
   if (value.type !== undefined) return createStatusZeroResponse(value.type, value.url)
   const bytes = base64ToBytes(value.body.data)
   const body = value.body.isNull === true || ([204, 205, 304].includes(value.status) && bytes.length === 0) ? null : bytes

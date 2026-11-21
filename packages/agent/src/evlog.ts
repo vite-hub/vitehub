@@ -1,3 +1,4 @@
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { createLogger, type DrainContext, type WideEvent } from "evlog"
 import { createDrainPipeline } from "evlog/pipeline"
@@ -8,7 +9,8 @@ import { papercuts } from "./capabilities/papercuts.ts"
 import { diagnostics } from "./capabilities/diagnostics.ts"
 import { sanitizeAgentLog } from "./evlog/privacy.ts"
 import { agentInvocationId } from "./invocations.ts"
-import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime"
+import { resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console"
 import type { AgentCapabilityDefinition, AgentFinishEvent, ResolvedAgentRuntimeContext } from "./types.ts"
 import type { RuntimeDiagnosticReporter } from "@vite-hub/runtime"
 import type { AgentEvlogStatus } from "./internal/observability-types.ts"
@@ -79,9 +81,9 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   const runtimeProcess = (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process
   const environment = options.environment?.trim() || runtimeProcess?.env?.NODE_ENV || "development"
   const maxPending = options.maxPending ?? 1000
-  if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw new TypeError("[vitehub] evlog maxPending must be a positive integer.")
+  if (!Number.isSafeInteger(maxPending) || maxPending < 1) throw agentDiagnostics.AGENT_OBSERVABILITY_MAX_PENDING_INVALID()
   const timeoutMs = options.deliveryTimeoutMs ?? 10_000
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw new TypeError("[vitehub] evlog deliveryTimeoutMs must be a positive timer duration.")
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) throw agentDiagnostics.AGENT_TIMER_DURATION_INVALID({ option: "evlog deliveryTimeoutMs" })
   const sessionUrl = ({ agentName, id }: { agentName: string, id: string }, discoveredName = agentName) => {
     if (options.sessionUrl) return options.sessionUrl({ agentName, id })
     const origin = resolvePublicUrl({ agentName: discoveredName })
@@ -135,8 +137,8 @@ export function createAgentEvlog(options: AgentEvlogOptions): AgentEvlog {
   }
 
   async function capture(event: string, properties: Record<string, unknown>, delivery?: { uuid?: string, timestamp?: Date }) {
-    if (closing || !exporter) throw new Error("[vitehub] Agent telemetry delivery is unavailable.")
-    if (pending.size >= maxPending) { counts.dropped++; throw new Error("[vitehub] Agent telemetry queue is full.") }
+    if (closing || !exporter) throw agentDiagnostics.AGENT_TELEMETRY_UNAVAILABLE()
+    if (pending.size >= maxPending) { counts.dropped++; throw agentDiagnostics.AGENT_TELEMETRY_QUEUE_FULL() }
     const filtered = filterAgentObservability(level, { ...properties, ...metadata, event })
     const task = withExportDeadline(timeoutMs, signal => exporter.capture(event, sanitizeAgentLog(filtered, { allowContent: level === "full" }), { ...delivery, signal }))
     // Explicit reports await delivery and propagate failure to their durable reporter.

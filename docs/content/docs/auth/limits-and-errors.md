@@ -30,7 +30,8 @@ console.log(error.toJSON())
 | Code | When |
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
-| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
+| `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. A `4xx` refusal of the session read is a refusal instead, see [Read a refusal](#read-a-refusal). `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider details stay in `cause`. |
+| `AUTH_C0039` | The Definition, or the object that its callback returns, sets the removed `runtime` option. Pass one callback that returns all the options, such as `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. |
 | `AUTH_C0041` | `session.onRefresh` is not a function. |
 | `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |
 | `AUTH_C0043` to `AUTH_C0049` | `preset` is not a preset, a `stateless()` combination fails, or `stateless({ maxAge })` is not a positive duration. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database). |
@@ -38,18 +39,26 @@ console.log(error.toJSON())
 | `AUTH_C0052` | `authDatabase()` gets a name that is not one inline string literal. |
 | `AUTH_C0053` | `authDatabase()` needs text IDs from Better Auth or a custom function. `serial`, `uuid`, and `false` need another adapter and schema. |
 | `AUTH_C0054` | `authDatabase()` needs one fixed Database target. Use one unconditional inline call, and keep the Database out of runtime overrides. |
-| `AUTH_C0055` | `authDatabase()` has fixed core columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, use another Better Auth adapter and a schema with the fields. |
-| `AUTH_C0056` | A plugin adds unsupported columns to an Auth table, or a model or field mapping changes its fixed names. Use another Better Auth adapter and a matching schema. |
+| `AUTH_C0055` | The Auth Vite plugin cannot read an `additionalFields` entry. Write it inline in `server/auth.ts`, with a literal `type`. |
+| `AUTH_C0056` | The options need a table or a column that the Database of `authDatabase()` does not have, a field conflicts with a column, or a model or field mapping renames a table or a column. Call the plugin in `server/auth.ts` or a file it imports with a relative path, or add its tables to the Database Definition, then run `vitehub database generate`. |
 | `AUTH_C0057` | `VITEHUB_ADMIN_EMAILS` is set. It is removed: list the admin's social account in `VITEHUB_ADMINS`. |
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
 | `AUTH_C0060` | Both `shared/abilities.ts` and another `shared/abilities.*` file exist. Keep one. |
-| `AUTH_C0061` | A callback or `runtime` returns `database: true` or `{ name }`. Return `authDatabase()` or another Better Auth adapter. See [Storage adapters](/docs/auth/configure#storage-adapters). |
-| `AUTH_C0062` | A callback or `runtime` returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
+| `AUTH_C0061` | A callback returns `database: true` or `{ name }`. Return `authDatabase()` or another Better Auth adapter. See [Storage adapters](/docs/auth/configure#storage-adapters). |
+| `AUTH_C0062` | A callback returns `secondaryStorage: true` or `{ store }`. Return a Better Auth `secondaryStorage` adapter. |
+| `AUTH_C0063` | A production build or server has an Auth Definition without `database` or `preset`. Set `database: authDatabase()`, use `preset: stateless()`, or set `database: "memory"` to keep users in one process. |
+| `AUTH_C0064` | `access.public` is not an inline array of route strings that start with `/`. |
+| `AUTH_C0065` | `access.policy` has no `allow` function. A `recheck` that is not a duration such as `'5m'` fails with `RUNTIME_DURATION_INVALID`. |
+| `AUTH_C0066` | `access.policy` is set, but Better Auth has no `database` or `secondaryStorage` adapter, so it cannot end a session. |
+| `AUTH_C0067` | `forwardAuth()` has no `header` or no `verify` function. |
+| `AUTH_C0068` | An `access.routes` entry uses route pattern syntax, such as `/api/users/:id`, `/api/admin/*`, or the encoded `/api/users/%3Aid`, or a `.` or `..` segment, such as `/api/x/../billing`. Access routes match literal paths. Use a final `/**`, such as `/api/users/**`, and check the parameter in the handler. |
 | [`AUTH_B0002`](#auth_b0002) | A route rule caches or prerenders a route that `access.routes` guards. |
 | `AUTH_R0019` | `authDatabase()` finds no Better Auth tables. Write the call inline in `defineAuth()`, turn on the Database integration, and run `vitehub database generate`. |
 | `AUTH_R0020` | A check names an ability that `shared/abilities.ts` does not define. |
 | `AUTH_R0021` | An ability rule returned a Promise. Rules also run in the browser, so load the data first and pass it to the rule. |
+| `AUTH_R0022` | `vitehub({ publicUrl })` gives several origins and the request host is none of them. Auth does not take its base URL from the request Host. |
+| `AUTH_R0023` | The `verify` function of `forwardAuth()` returned a value that is neither `null` nor an identity with `providerId`, `accountId`, `email`, `name`, and `emailVerified`. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, and invalid Auth Definitions, `authenticated()` config, or custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
@@ -82,6 +91,7 @@ export async function deletePost(id: string): Promise<'deleted' | 'sign-in' | 'f
 
 - An HTML `GET` that `withAuth()` or an access route refuses still gets the `access.signIn` redirect. When `withAuthorization()` or an access route refuses it with `403`, it gets the text `Forbidden.`. `requireAuth()` and `requireAuthorization()` still put the code in `data` of their error.
 - A `Response` that `authorize` returns goes to the client as it is, without a code.
+- When a Better Auth plugin refuses the credentials of the request while Auth reads the session, the guards answer with the plugin's status, code, and headers instead of `SIGNED_OUT`: `withAuth()` and the other wrappers return that refusal, and `requireAuth()`, `requireAuthorization()`, and `requireAbility()` throw it as an H3 `HTTPError`. For example, the API Key plugin refuses an unknown key with `401` and a key that is too short with `403`, both with `data.code` `INVALID_API_KEY`. A Better Auth error with a `5xx` status stays `AUTH_PROVIDER_OPERATION_FAILED`.
 
 ## SIGNED_OUT
 
@@ -131,7 +141,7 @@ Better Auth or a computed column reader failed. Read the error cause in server c
 
 ## AUTH_MCP_OAUTH_MISSING
 
-`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `oauthProvider()` with `resources`. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
+`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth whose plugins have no `jwt()` and `oauthProvider()` with `resources`. An `oauthProvider()` with `disableJwtPlugin` issues opaque access tokens, which these helpers do not check. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
 
 ## AUTH_MCP_TOKEN_MISSING
 

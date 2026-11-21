@@ -57,8 +57,6 @@ export type EnvSource =
     names?: string[]
     /** The canonical name, `VITEHUB_<PATH>`, which the ordered names read first. */
     canonical?: string | false
-    /** Treat empty host values as missing when reading the ordered names. */
-    skipEmpty?: boolean
     serializable: true
   }
   | {
@@ -125,7 +123,7 @@ export type EnvRequirednessOptions<TValue> =
 
 export type EnvVariableOptions = EnvVariableBaseOptions & EnvRequirednessOptions<unknown>
 
-/** Options for `env.boolean()`, `env.number()`, and `env.enum()`. The helper owns the parser and type. */
+/** Options for `env.boolean()`, `env.number()`, `env.enum()`, `env.list()`, and `env.json()`. The helper owns the parser and type. */
 export type EnvTypedVariableOptions<TValue> = Omit<EnvVariableBaseOptions, "schema" | "type"> & EnvRequirednessOptions<TValue>
 
 /** Serializable parser for one Server Env value. Host and provider values are strings before parsing. */
@@ -137,6 +135,10 @@ export type EnvValueSchema =
   | { kind: "url" }
   | { kind: "array", items?: EnvValueSchema }
   | { kind: "object", properties?: Record<string, EnvValueSchema> }
+  /** Items from `env.list()`, separated by commas or line breaks. Each item is trimmed, and empty items are dropped. */
+  | { kind: "list", items?: EnvValueSchema }
+  /** Any JSON value from `env.json()`. */
+  | { kind: "json" }
 
 /**
  * A Standard Schema that the server build imports from a module. Server Env runs it on the raw value when it resolves,
@@ -148,6 +150,8 @@ export interface EnvSchemaModuleReference {
   module: string
   /** Name of the export that holds the schema. */
   export: string
+  /** `json` parses a string value as JSON before the schema runs. `env.json()` sets it. */
+  input?: "json"
 }
 
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
@@ -259,6 +263,10 @@ export type ServerEnvInspectionStatus = "available" | "defaulted" | "error" | "i
 export interface ServerEnvInspectionEntry {
   /** The declaration is secret. Inspection never returns values. */
   masked: boolean
+  /** The host variable names of an env declaration, in read order. See `ServerEnvDescriptionEntry.names`. */
+  names?: readonly string[]
+  /** The host variable name that supplied the value, one of `names`. Omitted when no name is set. */
+  name?: string
   path?: string
   /** Provider alias for provider-backed declarations. */
   provider?: string
@@ -273,8 +281,12 @@ export interface ServerEnvInspectionEntry {
 
 export interface ServerEnvDescriptionEntry {
   path?: string
-  /** The canonical variable name of an env declaration, such as `VITEHUB_CLIPROXY_API_KEY`. It is read first. */
-  canonicalName?: string
+  /**
+   * The host variable names of an env declaration, in read order: the canonical name such as `VITEHUB_CLIPROXY_API_KEY`
+   * first, unless `canonical: false` or `prefix: false` disables it, then the `env.source()` names or the unprefixed path
+   * name. The first name that is set supplies the value. Omitted for literal and provider declarations.
+   */
+  names?: readonly string[]
   source: "env" | "literal" | "provider"
   provider?: string
   secret: boolean

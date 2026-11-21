@@ -1,14 +1,13 @@
-import { isRuntimeDiagnostic } from "@vite-hub/runtime"
-
 import type { Result, ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
-import type { QueueEnqueueOptions, QueueProvider } from "./types.ts"
+import type { QueueDriver, QueueEnqueueOptions } from "./types.ts"
 import { queueErrorDiagnostics, type QueueProviderOperation } from "./error-diagnostics.ts"
 
 export type { QueueProviderOperation }
 
-export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retentionSeconds"] as const
-export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
+export const cloudflareUnsupportedEnqueueOptions = ["idempotencyKey", "region", "retention"] as const
+export const localUnsupportedEnqueueOptions = ["contentType", "region", "retention"] as const
 export const postgresUnsupportedEnqueueOptions = localUnsupportedEnqueueOptions
 
 const unsupportedEnqueueOptions = {
@@ -18,23 +17,31 @@ const unsupportedEnqueueOptions = {
   vercel: ["contentType"],
 } as const
 
+const removedEnqueueOptions = ["delaySeconds", "id", "retentionSeconds"] as const
+
+export function queueRemovedOptionsError(provider: QueueDriver, options?: object, items: readonly object[] = []): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
+  const removed = removedEnqueueOptions.filter(name => (options && Object.hasOwn(options, name)) || items.some(item => Object.hasOwn(item, name)))
+  if (removed.length) return queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(removed), provider })
+}
+
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
-export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueProvider, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
-  const unsupported = names.filter(option => options[option] !== undefined)
+export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueDriver, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
+  // JavaScript callers can still pass removed options: `id`, and `delaySeconds` and `retentionSeconds`, which are now
+  // `delay` and `retention`. Reject them, so a job does not run at once or keep the default retention.
+  const unsupported = [...removedEnqueueOptions.filter(option => Object.hasOwn(options, option)), ...names.filter(option => options[option] !== undefined)]
   return unsupported.length
     ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })
     : undefined
 }
 
-type QueueCatalogCode = keyof typeof queueErrorDiagnostics
+type QueueCatalogCode = InferDiagnosticCodes<typeof queueErrorDiagnostics>
 
 /** Returns `true` for an error from the Queue catalog. Pass `codes` to accept only some codes. */
 export function isQueueError<TCode extends QueueCatalogCode = QueueCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
-  if (!isRuntimeDiagnostic(error) || !Object.hasOwn(queueErrorDiagnostics, error.code)) return false
-  return !codes || codes.some(code => code === error.code)
+  return queueErrorDiagnostics.is(error) && (!codes || codes.some(code => code === error.code))
 }
 
-/** Formats option names for an error `why`, for example `"region" and "retentionSeconds"`. */
+/** Formats option names for an error `why`, for example `"region" and "retention"`. */
 export function formatQueueOptionNames(names: readonly string[]): string {
   const quoted = names.map(name => `\`${name}\``)
   return quoted.length > 1 ? `${quoted.slice(0, -1).join(", ")} and ${quoted.at(-1)}` : quoted.join("")
@@ -53,7 +60,7 @@ export function normalizePublicQueueIdentifier(value: unknown): string | undefin
  * Any failure becomes `QUEUE_PROVIDER_FAILED` with the failure in `cause`.
  */
 export async function queueProviderResult<TData>(
-  provider: QueueProvider,
+  provider: QueueDriver,
   operation: QueueProviderOperation,
   run: () => Promise<TData> | TData,
 ): Promise<Result<TData, "QUEUE_PROVIDER_FAILED">> {

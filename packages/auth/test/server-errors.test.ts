@@ -7,8 +7,9 @@ import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, resetAuth, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/internal/server.ts"
 
-import type { AuthAuthorization } from "../src/index.ts"
+import type { AuthAccessAuthorize, AuthAuthorization } from "../src/index.ts"
 import { requestEvent } from "./request-event.ts"
+import { returnHeaders } from "./session-result.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("better-auth", () => ({
 const definition = defineAuth({ appName: "ViteHub" })
 // Each test sends its own request: guards of one request share one session lookup.
 let request: Request
-const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization) => "protected")
+const protectedAction = vi.fn((_input: unknown, _authorization: AuthAuthorization<unknown>) => "protected")
 
 describe("server authentication provider boundaries", () => {
   beforeEach(() => {
@@ -34,13 +35,13 @@ describe("server authentication provider boundaries", () => {
     providerMocks.handler.mockReset()
     protectedAction.mockClear()
     providerMocks.betterAuth.mockReturnValue({
-      api: { getSession: providerMocks.getSession },
+      api: { getSession: returnHeaders(providerMocks.getSession) },
       handler: providerMocks.handler,
     })
   })
 
   it.each(["withAuth", "withAuthorization"] as const)("runs a foreign handler through %s after checking the session", async (wrapper) => {
-    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization) => string
+    const handler = runInNewContext("(_input, authorization) => authorization.user.id") as (input: Request, authorization: AuthAuthorization<unknown>) => string
     const guarded = wrapper === "withAuth"
       ? withAuth(handler, definition)
       : withAuthorization(true, handler, definition)
@@ -52,7 +53,7 @@ describe("server authentication provider boundaries", () => {
   })
 
   it("runs a foreign authorization callback and enforces its verdict", async () => {
-    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as (authorization: AuthAuthorization) => boolean
+    const authorize = runInNewContext("({ user }) => user.id === 'user-1'") as AuthAccessAuthorize
     const guarded = withAuthorization(authorize, protectedAction, definition)
     providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
     await expect(guarded(request)).resolves.toBe("protected")
@@ -163,11 +164,11 @@ describe("server authentication provider boundaries", () => {
     })],
     ["session.user", (cause: Error) => ({
       api: {
-        getSession: () => Object.defineProperty({ session: {} }, "user", {
+        getSession: returnHeaders(() => Object.defineProperty({ session: {} }, "user", {
           get() {
             throw cause
           },
-        }),
+        })),
       },
     })],
   ] as const)("normalizes a throwing %s provider getter with its exact cause", async (_property, createAuth) => {
@@ -396,12 +397,12 @@ describe("server authentication provider boundaries", () => {
     expect(origin).toBe("https://example.com")
   })
 
-  it.each(["definition", "runtime"] as const)("resolves the %s callback once for an Auth request", async (kind) => {
+  it("resolves the Definition callback once for an Auth request", async () => {
     const resolve = vi.fn(() => ({
       baseURL: "https://example.com",
       secret: "abcdefghijklmnopqrstuvwxyz0123456789",
     }))
-    const requestDefinition = kind === "definition" ? defineAuth(resolve) : defineAuth({ runtime: resolve })
+    const requestDefinition = defineAuth(resolve)
     const response = new Response("ok")
     providerMocks.handler.mockResolvedValue(response)
 
@@ -537,6 +538,7 @@ describe("server authentication provider boundaries", () => {
 
       await expect(guarded(imageRequest)).resolves.toBe("protected")
       expect(authorize).toHaveBeenCalledWith({
+        event: imageRequest,
         request: imageRequest,
         session: { id: "session-1" },
         user: { id: "user-1" },
@@ -571,7 +573,7 @@ describe("server authentication provider boundaries", () => {
     })
 
     it("ignores a forged authorization from the caller", async () => {
-      const forged: AuthAuthorization = { request, session: { id: "forged" }, user: { id: "admin" } }
+      const forged = { request, session: { id: "forged" }, user: { id: "admin" } }
       const guarded = withAuthorization(true, protectedAction, definition)
       providerMocks.getSession.mockResolvedValue(null)
 
@@ -612,8 +614,9 @@ describe("server authentication provider boundaries", () => {
       const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue(null)
 
-      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)(requestEvent(sharedRequest))).resolves.toBe("served")
-      expect(authorize).toHaveBeenCalledWith({ request: sharedRequest, session: null, user: null })
+      const event = requestEvent(sharedRequest)
+      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)(event)).resolves.toBe("served")
+      expect(authorize).toHaveBeenCalledWith({ event, request: sharedRequest, session: null, user: null })
       const authorization = anonymousAction.mock.calls[0]?.[1]
       expect(authorization).toEqual({ request: sharedRequest, session: null, user: null })
       expect(Object.isFrozen(authorization)).toBe(true)
@@ -638,7 +641,7 @@ describe("server authentication provider boundaries", () => {
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
 
       await expect(withAnonymousAuthorization(authorize, anonymousAction, definition)(request)).resolves.toBe("served")
-      expect(authorize).toHaveBeenCalledWith({ request, session: { id: "session-1" }, user: { id: "user-1" } })
+      expect(authorize).toHaveBeenCalledWith({ event: request, request, session: { id: "session-1" }, user: { id: "user-1" } })
     })
 
     it("returns a custom callback response as-is for a signed-out caller", async () => {

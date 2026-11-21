@@ -14,8 +14,17 @@ icon: i-lucide-circle-alert
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 
+realtime.onReset(({ reason }) => {
+  if (reason === 'source-changed')
+    toast.add({ title: 'The editor reset because the stored page changed' })
+})
+
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error?.code === 'REALTIME_SOURCE_CHANGED') {
+    toast.add({ title: 'Not published', description: 'The stored page changed outside this room.' })
+    return
+  }
   if (error) {
     toast.add({ title: 'Not published', description: error.why })
     return
@@ -24,18 +33,19 @@ async function publish() {
 }
 ```
 
-`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. Check the code first to read the typed `error.data`. When the server names why it refused the request, such as a stored document that changed outside the room, a read-only room, or edits that still did not reach the room after 20 retries, `error.code` is that name. [Realtime diagnostics](/docs/realtime/diagnostics) explains each code. Other server and network errors are `REALTIME_REQUEST_FAILED`.
 
 Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
 | Code | Where |
 | --- | --- |
-| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED` | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
+| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED`, and the codes that the server names | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
 | `REALTIME_AWARENESS_OWNERSHIP_CONFLICT` | WebSocket close code `4500` |
 | `REALTIME_AWARENESS_TOO_LARGE`, `REALTIME_DOCUMENT_TOO_LARGE`, `REALTIME_INVALID_AWARENESS`, `REALTIME_TOO_MANY_AWARENESS_CLIENTS` | WebSocket close code `4400` |
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
+| `REALTIME_MISSING_ACCESS`, `REALTIME_INVALID_ACCESS`, `REALTIME_CHECKPOINT_UNSUPPORTED` | Thrown by `defineRealtime()` and when the server loads the definition |
 | `REALTIME_INVALID_PERSISTENCE`, `REALTIME_INVALID_USER`, `REALTIME_MISSING_DIGEST` | Thrown on the server when a room opens or saves |
-| `REALTIME_AUTHORITY_CONFLICT`, `REALTIME_MISSING_AUTHORITY` | Thrown when Vite reads the config |
+| `REALTIME_DRIVER_CONFLICT`, `REALTIME_MISSING_DRIVER` | Thrown when Vite reads the config |
 
 ## Limits
 
@@ -64,7 +74,39 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error that names no Realtime code, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`.
+
+## Room request errors
+
+`requestRealtimeRoom()` returns them as `[error, undefined]`. It never throws.
+
+### REALTIME_ROOM_ABORTED
+
+The `signal` of the request aborted, such as when the Agent run that asked was cancelled.
+
+### REALTIME_ROOM_CROWDED
+
+More than one browser is in the room. A request goes to one browser, so give each browser its own room, such as a random id for each tab.
+
+### REALTIME_ROOM_ELSEWHERE
+
+With Redis or Postgres, no browser of this instance is in the room. Requests reach only the browsers connected to the same instance.
+
+### REALTIME_ROOM_EMPTY
+
+No browser is in the room after `wait` milliseconds, 5 seconds by default, or the browser left before it answered.
+
+### REALTIME_ROOM_REFUSED
+
+The browser answered with an error: its handler threw, it has no `onRequest()` handler, or its answer is over 1 MiB. `error.why` has its reason.
+
+### REALTIME_ROOM_REQUESTS_OFF
+
+The Realtime Definition does not take requests. Define it with `defineRealtime({ access: "public", document: false, requests: true })`.
+
+### REALTIME_ROOM_TIMEOUT
+
+The browser did not answer in `timeout` milliseconds, 30 seconds by default.
 
 ## Room errors
 
@@ -94,6 +136,36 @@ One peer sent more than 1,024 awareness clients.
 
 ## Configuration errors
 
+### REALTIME_MISSING_ACCESS
+
+The definition sets no access rule. Without one, each person could read and write each room. Set `authorize: true` to require a signed-in user, set `authorize()` to decide each request, or set `access: 'public'` for open rooms.
+
+```diff [server/realtime/docs.ts]
+ export default defineRealtime({
++  authorize: true,
+   document: { workspace: 'docs' },
+ })
+```
+
+### REALTIME_INVALID_ACCESS
+
+The access rule is not clear. `access` accepts only `'public'`, and you cannot use it with `authorize`. `authorize` accepts only `true` or a function. `origins()` with `authorize: true` and no `identify()` is also an error. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.
+
+A definition that still sets `auth` fails too. Replace `auth: true` with `authorize: true`. Next to an `authorize()` callback, remove `auth`: the callback now also runs for signed-out callers, so return `false` when `user` is `null`. `vitehub migrate` makes the first change and lists the second.
+
+```diff [server/realtime/pages.ts]
+ export default defineRealtime({
+-  auth: true,
+-  authorize: ({ user, mode }) => mode === 'read' || isEditor(user),
++  authorize: ({ user, mode }) => user !== null && (mode === 'read' || isEditor(user)),
+   document: pagesDocument,
+ })
+```
+
+### REALTIME_CHECKPOINT_UNSUPPORTED
+
+The definition sets `history.checkpoint`, but its document adapter has no `checkpoint()` method. Add `checkpoint()` to the adapter, use `document: { workspace }`, or remove `history`.
+
 ### REALTIME_INVALID_PERSISTENCE
 
 `persistence.debounce` or `persistence.maxWait` is not a number of milliseconds of 0 or more, or `maxWait` is less than `debounce`.
@@ -108,7 +180,7 @@ The identity's user has no `id`, or the `id` is not a string of at most 256 char
 
 ### REALTIME_MISSING_BUS_CONNECTION
 
-`authority: "redis"` needs `REDIS_URL`. `authority: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `authority: "auto"`, which keeps rooms in one process without one.
+`driver: "redis"` needs `REDIS_URL`. `driver: "postgres"` needs a Default Database with `dialect: "postgresql"`, or `REALTIME_POSTGRES_URL`. Realtime does not read `DATABASE_URL` itself. Add the connection, or use `driver: "auto"`, which keeps rooms in one process without one.
 
 ### REALTIME_ROOM_LOCK_TIMEOUT
 
@@ -120,10 +192,10 @@ A save needs file digests from the Workspace Store, or a checkpoint found no sto
 
 ## Build errors
 
-### REALTIME_AUTHORITY_CONFLICT
+### REALTIME_DRIVER_CONFLICT
 
-`authority: "cloudflare"` needs a Cloudflare host. `authority: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
+`driver: "cloudflare"` needs a Cloudflare host. `driver: "memory"`, `"postgres"`, and `"redis"` need the `node` host.
 
-### REALTIME_MISSING_AUTHORITY
+### REALTIME_MISSING_DRIVER
 
-A production build with `authority: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.
+A production build with `driver: "auto"` found neither a Cloudflare nor a Node host. Use the Cloudflare host for Durable Objects, or the Node host to share rooms through Postgres or Redis.

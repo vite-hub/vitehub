@@ -3,7 +3,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import type { WebContainerStatus } from "../src/index.ts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h } from "vue";
+import { createSSRApp, defineComponent, h, nextTick } from "vue";
+import { renderToString } from "vue/server-renderer";
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
 // A fake container: the tests control when each process exits.
@@ -239,6 +240,55 @@ describe("useWebContainer", () => {
     wrapper.unmount();
   });
 
+  it("previews only the dev server port without a port option", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    fake.ready?.("https://preview.example");
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    wrapper.unmount();
+  });
+
+  it("previews the env.PORT of the dev server", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false, port: 3000, env: { PORT: "5173" } });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.ready?.("https://other.example");
+    expect(workspace.previewUrl.value).toBeUndefined();
+    fake.serverListener?.({ port: 5173, url: "https://vite.example" });
+    expect(workspace.previewUrl.value).toBe("https://vite.example");
+    wrapper.unmount();
+  });
+
+  it("rejects setFiles() and reset() when a write fails, and writes again on the next call", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a" }, install: false, start: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.directories.add("b.txt");
+    await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
+    await expect(workspace.reset()).resolves.toBeUndefined();
+    await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
+    // Logs flush on a 32 ms timer.
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(workspace.logs.value.join("")).toContain("Could not write the files: EISDIR");
+    fake.directories.delete("b.txt");
+    await workspace.setFiles({ "b.txt": "b" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", "b.txt": "b" });
+    wrapper.unmount();
+  });
+
   it("serializes overlapping install and restart recovery", async () => {
     const { workspace, wrapper } = mountWorkspace({ files: {} });
     await flushPromises();
@@ -413,5 +463,29 @@ describe("useWebContainer", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(workspace.logs.value.join("")).toBe("$ dev\n");
     wrapper.unmount();
+  });
+
+  it("hydrates the online state that the server rendered, then shows that the browser is offline", async () => {
+    const App = defineComponent({
+      setup() {
+        const workspace = useWebContainer({ files: {}, immediate: false });
+        return () => h("p", workspace.online.value ? "Online" : "Offline");
+      },
+    });
+    const html = await renderToString(createSSRApp(App));
+    expect(html).toBe("<p>Online</p>");
+    // SAFETY: happy-dom provides these globals; this package compiles without the DOM library.
+    const dom = globalThis as unknown as { document: { body: { innerHTML: string, textContent: string | null } }, navigator: { onLine: boolean } };
+    vi.spyOn(dom.navigator, "onLine", "get").mockReturnValue(false);
+    dom.document.body.innerHTML = `<div id="app">${html}</div>`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const app = createSSRApp(App);
+    app.mount("#app");
+    expect(warn.mock.calls.flat().map(String).filter(line => /hydration/i.test(line))).toEqual([]);
+    await nextTick();
+    expect(dom.document.body.textContent).toBe("Offline");
+    app.unmount();
+    dom.document.body.innerHTML = "";
+    vi.restoreAllMocks();
   });
 });

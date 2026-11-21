@@ -11,6 +11,81 @@ const withFix = (fix: string) => ({ ...dynamicError, fix })
 export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/auth/diagnostics",
   codes: {
+    // Account deletion errors. `defineAuth()` throws them for its options, and a user deletion for the rows of a
+    // Server Primitive.
+    AUTH_DELETE_ACCOUNT_FAILED: {
+      why: ({ owner }: { owner: string }) => `Auth could not delete the ${owner} data of the user, so it kept the account.`,
+      fix: "Read `error.cause` for the error of the Server Primitive, such as a missing table or a Database that does not answer. Fix it, then let the user delete the account again. Rows that Auth already deleted stay deleted.",
+    },
+    AUTH_DELETE_ACCOUNT_INVALID: {
+      why: "`defineAuth()` deleteAccount must be `true` or an object of Better Auth `user.deleteUser` options without `enabled`.",
+      fix: "Pass `deleteAccount: true` or an options object. If specifying `userApiKeyConfigIds`, pass an array of nonempty configuration IDs.",
+    },
+    AUTH_DELETE_ACCOUNT_REFERENCE_UNSUPPORTED: {
+      why: ({ model, field, userField }: { model: string, field: string, userField: string }) => `Auth cannot match ${model}.${field} to user.${userField}: the stored user field is not a string, number, boolean, or date.`,
+      fix: "Point the Better Auth plugin field at `user.id` or another user field stored as a string, number, boolean, or date.",
+    },
+    AUTH_DELETE_ACCOUNT_SESSION: {
+      why: "`defineAuth()` deleteAccount cannot revoke sessions that Auth accepts from cookies alone.",
+      fix: "Use stored Auth without `stateless()` or `session.cookieCache.enabled` to enable account deletion.",
+    },
+    AUTH_DELETE_USER_UNSUPPORTED: {
+      why: "`defineAuth()` does not take Better Auth `user.deleteUser`, because it would delete the user without the user's rows in ViteHub Server Primitives.",
+      fix: "Move the options to `deleteAccount`, without `enabled`: `user: { deleteUser: { enabled: true, beforeDelete } }` becomes `deleteAccount: { beforeDelete }`.",
+    },
+
+    // Event, password, and sign-out errors. The event store, the events route, the password verifier, and `signOut()`
+    // throw them. `listAuthEvents()` and `aggregateAuthEvents()` return the event read errors as `[error, undefined]`.
+    AUTH_EVENT_CALLBACK_FAILED: {
+      why: ({ type }: { type: string }) => `\`events.onEvent\` failed for the ${JSON.stringify(type)} auth event. Auth kept the change and the stored event.`,
+      fix: "Read `error.cause` for the error of your callback. Catch errors inside `events.onEvent`, and retry the outside call there if it can fail.",
+    },
+    AUTH_EVENT_QUERY_INVALID: {
+      why: ({ problem }: { problem: "input" | "order" | "window" }) => problem === "order"
+        ? "Auth event from must be before to."
+        : problem === "window"
+          ? "Auth event windows must be positive and at most 366 days."
+          : "Auth event filters are not valid. `error.cause` tells which value failed.",
+      fix: "Pass `from` before `to`, as ISO timestamps, and keep an aggregate window at most 366 days long. Pass a known event `type`, a `limit` from 1 to 200, and the `nextCursor` of the previous page without changes.",
+    },
+    AUTH_EVENT_READ_FAILED: {
+      why: "The Auth event store failed to read the events.",
+      fix: "Read `error.cause` for the store error. Check that the database of `events.store` is reachable, then read again.",
+    },
+    AUTH_EVENT_RETENTION_INVALID: {
+      why: "Auth event retention limits must be positive integers.",
+      fix: "Pass `retention: { maxAgeMs, maxRecords }` to `createDatabaseAuthEventStore()` with positive whole numbers, or `retention: false` to keep every event.",
+    },
+    AUTH_PASSWORD_HASH_INVALID: {
+      why: "Invalid password hash",
+      fix: "The stored password hash is not `<salt>:<key>`. Hash new passwords with `hashPasswordWithNoble()` or the Better Auth hasher, and reset the password of the user whose hash is broken.",
+    },
+    AUTH_SIGN_OUT_REDIRECT_INVALID: {
+      why: ({ redirectTo }: { redirectTo: string }) => `\`signOut()\` redirects only to a path of the app, not to ${JSON.stringify(redirectTo)}.`,
+      fix: "Pass a path that starts with one `/`, for example `signOut(event, { redirectTo: '/login' })`. A value from the query string can point to another site, so check it against your own pages first.",
+    },
+
+    // Sign-in config errors. `defineAuth()`, `hubAuth()`, and the Nuxt module throw them.
+    AUTH_AFTER_SIGN_IN_INVALID: {
+      why: "`defineAuth()` access.afterSignIn must be an inline path of the app that starts with one `/`.",
+      fix: "Set `access.afterSignIn` to a string literal path, for example `afterSignIn: '/dashboard'`. The Nuxt page guard reads it at build time.",
+    },
+    AUTH_REDIRECTS_MOVED: {
+      why: "`vitehub({ auth })` takes only `true` or `false`. The `redirects` option moved to the Auth Definition.",
+      fix: "Remove the object from `auth` in `vitehub()`. In `server/auth.ts`, set `access: { signIn: '/login', afterSignIn: '/' }`: `redirects.login` is now `signIn`, and `redirects.guest` is now `afterSignIn`. `vitehub migrate` moves them.",
+    },
+    AUTH_SIGN_IN_CALLBACK_URL_MOVED: {
+      why: "`defineAuth()` access.signIn.callbackURL moved to `access.afterSignIn`.",
+      fix: "Move the value to `access.afterSignIn`, for example `access: { signIn: { provider: 'github' }, afterSignIn: '/dashboard' }`. The page guard also sends signed-in users there from `auth: 'guest'` pages. `vitehub migrate` moves it.",
+    },
+
+    // Test errors. `signIn()` of `@vite-hub/auth/test` throws them.
+    AUTH_TEST_SIGN_IN_STATELESS: {
+      why: "`signIn()` writes the user and the session to the Auth database, and a Definition with the `stateless()` preset has none.",
+      fix: "Test the routes of a `stateless()` Definition through its social sign-in flow, or give the test app `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`.",
+    },
+
+    // Published numbered errors.
     AUTH_R0001: withFix("Return an Agent Invoker from the `map` callback of `authenticated()` for each request. Remove `map` to use the default Invoker."),
     AUTH_R0002: withFix("Make `meta` of `authenticated()` return a plain object, `null`, or `undefined`, for example `meta: ({ user }) => ({ plan: user.plan })`."),
     AUTH_C0001: withFix("Write the value as a string literal in `defineAuth()`, for example `basePath: '/auth'`. The Vite plugin reads it at build time, so it cannot use a variable or an expression."),
@@ -24,14 +99,14 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0010: withFix("Write each entry of `access.routes` inline as a route string or an object, for example `'/admin/**'` or `{ route: '/api/admin/**', method: 'POST' }`."),
     AUTH_C0011: withFix("Add `route` to the route object, for example `{ route: '/admin/**', authorize: isAdmin }`."),
     AUTH_C0012: withFix("Write `access.routes` as an array literal in `defineAuth()`, for example `access: { routes: ['/admin/**'] }`. The Vite plugin reads it at build time."),
-    AUTH_C0014: withFix("Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback or `runtime`. Remove `database` to keep sessions in memory."),
-    AUTH_C0017: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback or `runtime`."),
+    AUTH_C0014: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
+    AUTH_C0017: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0019: withFix("Pass an object literal to `defineAuth()` in `server/auth.ts`, or a callback that returns one, for example `export default defineAuth({ basePath: '/auth' })`. Do not pass a variable."),
-    AUTH_C0021: withFix("Set `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback or `runtime`. Remove `database` to keep sessions in memory."),
-    AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback or `runtime`."),
+    AUTH_C0021: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Return another Better Auth adapter from the Definition callback. Set `database: \"memory\"` to keep sessions in the memory of one server process."),
+    AUTH_C0024: withFix("Remove `secondaryStorage` from the static options. Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, from the Definition callback."),
     AUTH_C0026: withFix("Set the option to a non-empty string, for example `provider: 'github'` or `method: 'GET'`."),
     AUTH_C0027: withFix("Start the path with `/`, for example `/admin/**` or `/auth`."),
-    AUTH_C0028: withFix("Set `access.signIn` to an object, for example `signIn: { provider: 'github' }`."),
+    AUTH_C0028: withFix("Set `access.signIn` to the inline path of a sign-in page, for example `signIn: '/login'`, or to a provider, for example `signIn: { provider: 'github' }`."),
     AUTH_C0029: withFix("Set `access.signIn.requestSignUp` to `true` or `false`, or remove it."),
     AUTH_C0030: withFix("Set `access.signIn.scopes` to an array of strings, for example `scopes: ['read:org']`."),
     AUTH_C0031: withFix("Write each entry of `access.routes` as a route string or an object, for example `'/admin/**'` or `{ route: '/api/admin/**', authorize }`."),
@@ -40,26 +115,26 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0034: withFix("Set `access` to an object, for example `access: { routes: ['/admin/**'] }`."),
     AUTH_C0035: withFix("Set `access.routes` to an array, for example `routes: ['/admin/**']`."),
     AUTH_C0036: withFix("Pass an options object or a callback that returns one to `defineAuth()`, for example `defineAuth({ emailAndPassword: { enabled: true } })`."),
-    AUTH_C0037: withFix("Return the option from the Definition callback or put it under `runtime`, for example `defineAuth(({ env }) => ({ secret: env.auth.secret.unseal() }))`."),
+    AUTH_C0037: withFix("Return the option from the Definition callback, for example `defineAuth(({ env }) => ({ secret: env.auth.secret.unseal() }))`."),
     AUTH_C0038: withFix("Set `route: false` to stop the automatic `/api/auth/**` route, or remove `route`. Use `basePath` to move the route."),
-    AUTH_C0039: withFix("Set `runtime` to an object of Better Auth options or a function that returns one, or remove it."),
+    AUTH_C0039: withFix("Remove `runtime` and pass one callback that returns all options, for example `defineAuth(({ env }) => ({ advanced: { cookiePrefix: 'acme', trustedProxyHeaders: true }, secret: env.auth.secret.unseal() }))`. Keep `authDatabase()` inline in the returned object."),
     AUTH_C0040: withFix("Set `basePath` to a string that starts with `/`, for example `basePath: '/auth'`."),
     AUTH_C0041: withFix("Set `session.onRefresh` to a function, for example `onRefresh: async ({ session }) => {}`, or remove it."),
     AUTH_C0042: withFix("Set `database: authDatabase()` or return a Better Auth `database` or `secondaryStorage` adapter. Or remove `session.onRefresh`."),
-    AUTH_C0043: withFix("Import the preset and call it, for example `preset: stateless()` with `import { stateless } from '@vite-hub/auth/presets'`."),
+    AUTH_C0043: withFix("Import the preset and call it, for example `preset: stateless()` with `import { stateless } from 'vite-hub/auth/presets'`."),
     AUTH_C0044: withFix("Remove the option from the Auth Definition, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0045: withFix("Remove the option from the Auth Definition, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0046: withFix("Remove `emailAndPassword` and use `socialProviders`, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0047: withFix("Remove the plugin that the message names, or remove `preset: stateless()` and configure a Better Auth database."),
     AUTH_C0048: withFix("Remove the option that the message names. Pass `maxAge` to `stateless()` to change the session lifetime, for example `stateless({ maxAge: '12h' })`."),
     AUTH_C0049: withFix("Pass a positive whole number of seconds or a duration, for example `stateless({ maxAge: '7d' })` or `stateless({ maxAge: 3600 })`."),
-    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` must be a function."),
+    AUTH_C0050: withFix("Set `events: { store: createDatabaseAuthEventStore({ db }) }`, or `events: false` to disable the log. `events.authorize` and `events.onEvent` must be functions."),
     AUTH_C0051: withFix("Add `admin()` from `better-auth/plugins` to the `plugins` of `defineAuth()`, or unset the variable that the message names."),
     AUTH_C0052: withFix("Pass the Database name as one string literal, for example `authDatabase('content')`, or no argument for the `default` Database."),
     AUTH_C0053: withFix("Remove `advanced.database.generateId`, or set it to a function that returns strings. Use another Better Auth adapter for numeric or UUID IDs."),
-    AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not set `database` in `runtime` or in the runtime options that you pass to `createAuth()`."),
-    AUTH_C0055: withFix("Remove `additionalFields` from the model that the message names, or use another Better Auth adapter with a schema that has your fields."),
-    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change, or the plugin that adds the column. Or use another Better Auth adapter with a schema that matches your options."),
+    AUTH_C0054: withFix("Call `authDatabase()` inline as `database` in the object of `defineAuth()`, or in the one object that its callback returns. Do not select it in a branch."),
+    AUTH_C0055: withFix("Write `additionalFields` inline in `server/auth.ts`, with a literal `type` for each field, for example `user: { additionalFields: { login: { type: 'string', required: false } } }`."),
+    AUTH_C0056: withFix("Remove the `modelName` or `fieldName` change. For a plugin that adds a table or a column, call it in `server/auth.ts` or in a file that `server/auth.ts` imports with a relative path, so that the Auth Vite plugin adds its tables, or add its tables to the Database Definition. Then run `vitehub database generate`."),
     AUTH_C0057: withFix("Unset `VITEHUB_ADMIN_EMAILS`. List each admin's social account in `VITEHUB_ADMINS`, for example `VITEHUB_ADMINS=github:22072217`."),
     AUTH_C0058: withFix("Write each `VITEHUB_ADMINS` entry as `<provider>:<account id>`, for example `github:22072217`. Run `gh api users/<login> --jq .id` to get a GitHub account id. For an app with only email sign-in, remove `VITEHUB_ADMINS`, then run `vitehub auth claim`."),
     AUTH_C0059: withFix("Run `vitehub auth claim` and set `VITEHUB_ADMIN_CLAIM` to the `sha256:` value that it prints. Do not set the code itself."),
@@ -67,8 +142,14 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0003: withFix("Keep one of `server/auth.ts` and `server.auth.ts` and delete the others that the message lists. For Nuxt layers, add `server/auth.ts` to the app to select the Definition."),
     AUTH_R0004: withFix("Pass a non-empty `message` of at most 16,384 characters to `authenticated()`, or remove `message`."),
     AUTH_C0060: withFix("Keep one abilities file at `shared/abilities.ts`. Remove the other files listed in the message, or add the app file to replace layer rules."),
-    AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from '@vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter. Remove `database` to keep sessions in memory."),
+    AUTH_C0061: withFix("Return `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'`, or `authDatabase('auth')` for the Named Database `auth`. Or return another Better Auth adapter."),
     AUTH_C0062: withFix("Return a Better Auth `secondaryStorage` adapter, an object with `get`, `set`, and `delete`, or remove `secondaryStorage`."),
+    AUTH_C0063: withFix("Set `database: authDatabase()` with `import { authDatabase } from 'vite-hub/auth/database'` to keep users in the app Database. Use `preset: stateless()` for social sign-in without a database. Set `database: \"memory\"` only when one server process may keep users until it restarts."),
+    AUTH_C0064: withFix("Write `access.public` as an inline array of route strings, for example `public: ['/', '/login', '/api/health']`. The Vite plugin reads it at build time."),
+    AUTH_C0065: withFix("Set `access.policy` to an object with an `allow` function, for example `policy: { allow: ({ user }) => user.emailVerified === true, recheck: \"5m\" }`. `recheck` is a duration string, such as `\"30s\"` or `\"5m\"`."),
+    AUTH_C0066: withFix("Return `database: authDatabase()` or another Better Auth adapter, or a `secondaryStorage` adapter. `access.policy` ends sessions, so Auth must store them."),
+    AUTH_C0067: withFix("Pass both options, for example `forwardAuth({ header: 'x-auth-request-access-token', verify: async ({ value }) => lookUpIdentity(value) })`. `verify` must prove the header, for example with the provider or a secret that only the proxy sends."),
+    AUTH_C0068: withFix("Write each access route as a literal path, without percent-encoded pattern syntax or `.` and `..` segments. To guard a path and every path below it, end the route with `/**`, for example `/api/users/**` in place of `/api/users/:id` or `/api/admin/*`. Check the parameter in the handler."),
     AUTH_B0001: withFix("Set `env.projectRoot` of `@vite-hub/auth/nuxt` to the `projectRoot` of the `hubEnv()` plugin, or remove `env.projectRoot`."),
     AUTH_B0002: withFix("Remove `swr`, `cache`, `isr`, `prerender`, or `static` from the route rule that the message names. Or add a rule for the guarded path that turns the cache off, for example `routeRules: { '/dashboard/**': { cache: false, prerender: false } }`. If the page is public, remove the route from `access.routes`."),
     AUTH_R0005: withFix("Add `server/auth.ts` with `export default defineAuth({})`. For a Nuxt layer, add it to the app."),
@@ -86,5 +167,25 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_R0019: withFix("Pass `authDatabase()` inline as `database` of `defineAuth()`, enable the Database integration, and run `vitehub database generate`. Run `vitehub inspect definitions --kind database` to list the tables."),
     AUTH_R0020: withFix("Add the named rule to `shared/abilities.ts` with `defineAbilities()`, or use an existing ability name."),
     AUTH_R0021: withFix("Return the result at once. Load data before the ability check and pass it as a rule argument; remove `async` from the rule."),
+    AUTH_R0022: withFix("Send the request to an origin that `vitehub({ publicUrl })` returns for one of your Agents, or set `baseURL` in the Auth Definition. The request Host cannot choose the Auth origin."),
+    AUTH_R0023: withFix("Return `null` from `verify` to ignore the header, or an object with `providerId`, `accountId`, `email`, `name`, and `emailVerified`, for example `{ providerId: 'github', accountId: String(user.id), email, name: user.login, emailVerified: true }`."),
+
+    // CLI errors. `vitehub auth events` prints them with the fix.
+    AUTH_EVENTS_OPTION_INVALID: {
+      why: ({ option, problem }: { option: string, problem: "unknown" | "value" }) => problem === "unknown" ? `[vitehub] Unknown auth events option: ${option}` : `[vitehub] Missing value for ${option}.`,
+      fix: "Pass only the options that `vitehub auth events --help` lists, each followed by its value.",
+    },
+    AUTH_EVENTS_REQUEST_FAILED: {
+      why: ({ status }: { status: number }) => `[vitehub] Auth events returned HTTP ${status}.`,
+      fix: "Return true from `events.authorize` in `defineAuth()` for your user, and set VITEHUB_AUTH_COOKIE to the cookie of a session of that user.",
+    },
+    AUTH_EVENTS_URL_INSECURE: {
+      why: "[vitehub] Auth events requires HTTPS or a loopback HTTP URL.",
+      fix: "Pass an `https://` Auth base URL to `--url`, or `http://localhost` for a dev server.",
+    },
+    AUTH_EVENTS_URL_MISSING: {
+      why: "[vitehub] `vitehub auth events` has no Auth base URL.",
+      fix: "Pass `--url` with the Auth base URL, such as `--url http://localhost:5173/api/auth`, or set VITEHUB_AUTH_URL.",
+    },
   },
 })

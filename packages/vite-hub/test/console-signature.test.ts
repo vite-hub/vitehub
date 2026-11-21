@@ -79,6 +79,7 @@ function stubKeys(env: Record<string, string>): void {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
   vi.useRealTimers()
@@ -116,11 +117,15 @@ describe("signed Console requests", () => {
         })
       }
       const signed = await signedRpcRequest({ key: ci.key, url: "http://preview.example.com/_vitehub/rpc" })
+      const logged = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
       for (const host of ["preview.example.com", "production.example.com"]) {
         const response = await sendToNode(signed.clone(), host)
         expect(response.status, await response.clone().text()).toBe(publicUrl ? 401 : 500)
         await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_ORIGIN" })
       }
+      // A 500 is a setup error of the app, so the host log names it. A 401 is an error of the caller.
+      expect(logged.mock.calls.map(([line]) => String(line))).toEqual(publicUrl ? [] : [expect.stringContaining("vitehub({ publicUrl })"), expect.stringContaining("vitehub({ publicUrl })")])
+      logged.mockRestore()
       if (publicUrl) {
         const response = await sendToNode(await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` }), "production.example.com")
         expect(response.status, await response.clone().text()).toBe(200)
@@ -192,7 +197,7 @@ describe("signed Console requests", () => {
     install(authorize)
     const response = await send(await request())
     expect(response.status).toBe(401)
-    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("#sign-console-requests"), fix: expect.any(String), ok: false, status: 401 })
+    await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, docs: expect.stringContaining("/docs/console/signed-requests"), fix: expect.any(String), ok: false, status: 401 })
     // The body check runs in the RPC route, after `authorize`, on the bytes that it reads. Every other refusal comes
     // from the access check, before `authorize`, with the signature challenge.
     if (code === "CONSOLE_SIGNATURE_BODY") return
@@ -210,9 +215,14 @@ describe("signed Console requests", () => {
   ] satisfies Array<[string, Record<string, string>, string, string]>)("refuses every request with a 500 diagnostic when %s", async (_name, env, code, message) => {
     stubKeys(env)
     install()
+    const logged = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
     const response = await send(await signedRpcRequest({ key: ci.key }))
     expect(response.status).toBe(500)
     await expect(operationRpcResponseResult(response)).resolves.toMatchObject({ code, fix: expect.stringContaining("vitehub secret console-key"), message: expect.stringContaining(message) })
+    // The operator reads the host log, not the response that the Console got.
+    expect(logged).toHaveBeenCalledTimes(1)
+    expect(String(logged.mock.calls[0]?.[0])).toContain(code)
+    expect(String(logged.mock.calls[0]?.[0])).toContain(message)
   })
 
   it("gives authorize and operations the person that the Console signed, with via: \"console\"", async () => {
@@ -366,6 +376,10 @@ describe("calls of the ViteHub MCP in the Console", () => {
     const project = await callAsMcp("project.get", {})
     expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
     expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
+    // The sections of the Console page are for the page, not for MCP clients.
+    expect(project.ok && Object.hasOwn(Object(project.value), "navigation")).toBe(false)
+    const page = await callAsMcp("project.get", {}, person)
+    expect(page.ok && Object.hasOwn(Object(page.value), "navigation")).toBe(true)
     // The Console page still runs it.
     await expect(callAsMcp("test.hidden", {}, person)).resolves.toMatchObject({ ok: true, value: "ran" })
   })
@@ -375,6 +389,15 @@ describe("calls of the ViteHub MCP in the Console", () => {
     install()
     await expect(callAsMcp("test.drop", { key: "a" })).resolves.toMatchObject({ error: { code: "INTERNAL_R0026", status: 409 }, ok: false })
     await expect(callAsMcp("test.drop", { key: "a" }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { dropped: "a" } })
+  })
+
+  it("runs only reads for a read-only caller, even with a confirmation", async () => {
+    stubKeys(link.env)
+    install()
+    const reader: ConsoleCaller = { confirmed: true, readOnly: true, surface: "mcp", user: { id: "user-1" }, via: "console" }
+    await expect(callAsMcp("test.whoami", {}, reader)).resolves.toMatchObject({ ok: true, value: { surface: "mcp" } })
+    await expect(callAsMcp("test.store", { text: "x" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.store is a write operation, and this caller may only read.", status: 403 }, ok: false })
+    await expect(callAsMcp("test.drop", { key: "a" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.drop is a destructive operation, and this caller may only read.", status: 403 }, ok: false })
   })
 
   it("does not take the confirmation from an unsigned header or a changed caller", async () => {

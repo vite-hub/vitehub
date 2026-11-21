@@ -10,17 +10,17 @@ import cms from "../src/index.ts"
 
 import type { CmsRoleName } from "../src/access.ts"
 
-const contentActions = ["read", "write", "publish"] as const
+const contentActions = ["read", "read-draft", "write", "publish"] as const
 const commentActions = ["read", "write", "resolve"] as const
 
 // What each role may do: the Content actions of `content.can()` and the Comments actions.
 const allowed: Record<CmsRoleName, { content: readonly string[], comments: readonly string[] }> = {
   user: { content: [], comments: [] },
-  viewer: { content: ["read"], comments: [] },
-  commenter: { content: ["read"], comments: ["read", "write", "resolve"] },
-  editor: { content: ["read", "write"], comments: ["read", "write", "resolve"] },
-  publisher: { content: ["read", "write", "publish"], comments: ["read", "write", "resolve"] },
-  admin: { content: ["read", "write", "publish"], comments: ["read", "write", "resolve"] },
+  viewer: { content: ["read", "read-draft"], comments: [] },
+  commenter: { content: ["read", "read-draft"], comments: ["read", "write", "resolve"] },
+  editor: { content: ["read", "read-draft", "write"], comments: ["read", "write", "resolve"] },
+  publisher: { content: ["read", "read-draft", "write", "publish"], comments: ["read", "write", "resolve"] },
+  admin: { content: ["read", "read-draft", "write", "publish"], comments: ["read", "write", "resolve"] },
 }
 
 const contentCases = Object.entries(allowed).flatMap(([role, { content }]) =>
@@ -30,7 +30,8 @@ const commentCases = Object.entries(allowed).flatMap(([role, { comments }]) =>
 
 describe("CMS roles", () => {
   it.each(contentCases)("$role may $action content: $expected", ({ role, action, expected }) => {
-    expect(cmsContentAuthorize({ user: { id: "u1", role }, collection: "posts", action })).toBe(expected)
+    const user = { id: "u1", role }
+    expect(cmsContentAuthorize(action === "read" ? { user, action } : { user, collection: "posts", action })).toBe(expected)
     expect(cmsCan({ role }, { content: [action] })).toBe(expected)
   })
 
@@ -74,7 +75,7 @@ describe("CMS roles", () => {
     expect(cmsCan({ role: "admin" }, { user: ["set-role", "ban"], session: ["revoke"] })).toBe(true)
     expect(cmsCan({ role: "publisher" }, { user: ["set-role"] })).toBe(false)
     expect(cmsCan({ role: "user" }, { user: ["list"] })).toBe(false)
-    expect(cmsAccess).toMatchObject({ ac: { statements: { content: ["read", "write", "publish"], comment: ["read", "create", "resolve", "delete"] } }, defaultRole: "user", adminRoles: ["admin"] })
+    expect(cmsAccess).toMatchObject({ ac: { statements: { content: ["read", "read-draft", "write", "publish"], comment: ["read", "create", "resolve", "delete"] } }, defaultRole: "user", adminRoles: ["admin"] })
     expect(cmsAccess.roles).toBe(cmsRoles)
   })
 
@@ -91,8 +92,14 @@ describe("CMS roles", () => {
 describe("the default policy of defineContent({ extends: cms })", () => {
   const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
 
-  it("rejects unsupported access modes", () => {
-    expect(() => defineContent({ extends: [cms, { access: "implicit" as never }], collections, logger: false })).toThrow('option "access" must be "roles"')
+  it("rejects a roles value other than true, and the renamed access option", () => {
+    // SAFETY: the test passes values that the option types reject, as plain JavaScript can.
+    expect(() => defineContent({ extends: [cms, { roles: false as never }], collections, logger: false })).toThrow('option "roles" must be true')
+    // SAFETY: an old config still sets the renamed option.
+    expect(() => defineContent({ extends: [cms, { access: "roles" as never }], collections, logger: false })).toThrow(expect.objectContaining({
+      code: "CONTENT_CMS_OPTION_INVALID",
+      message: expect.stringContaining("Replace `access: \"roles\"` with `roles: true`."),
+    }))
   })
 
   it("does not grant access from an unrelated application role", async () => {
@@ -100,7 +107,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
     try {
       expect(content.hasPolicy).toBe(false)
       for (const role of ["editor", "publisher", "admin"]) {
-        expect(await content.can({ user: { id: "u1", role }, collection: "posts", action: "read" })).toBe(false)
+        expect(await content.can({ user: { id: "u1", role }, collection: "posts", action: "read-draft" })).toBe(false)
       }
     }
     finally {
@@ -109,16 +116,29 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("applies the CMS roles only when the preset opts in", async () => {
-    const content = defineContent({ extends: [cms, { access: "roles" }], collections, logger: false })
+    const content = defineContent({ extends: [cms, { roles: true }], collections, logger: false })
     try {
       expect(content.hasPolicy).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "publish" })).toBe(false)
       expect(await content.can({ user: { id: "u1", role: "publisher,viewer" }, collection: "posts", action: "publish" })).toBe(true)
       // Without the Better Auth admin plugin, users have no role, so everything is denied.
-      expect(await content.can({ user: { id: "u1" }, collection: "posts", action: "read" })).toBe(false)
-      expect(await content.can({ user: { id: "u1", role: "user" }, collection: "posts", action: "read" })).toBe(false)
-      expect(await content.can({ collection: "posts", action: "read" })).toBe(false)
+      expect(await content.can({ user: { id: "u1" }, collection: "posts", action: "read-draft" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "user" }, collection: "posts", action: "read-draft" })).toBe(false)
+      expect(await content.can({ collection: "posts", action: "read-draft" })).toBe(false)
+    }
+    finally {
+      content.dispose()
+    }
+  })
+
+  it("keeps the roles for writes when visitors read publicly", async () => {
+    const content = defineContent({ extends: [cms, { roles: true }], access: "public", collections, logger: false })
+    try {
+      expect(content.access).toBe("public")
+      expect(await content.can({ collection: "posts", action: "write" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "viewer" }, collection: "posts", action: "publish" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
     }
     finally {
       content.dispose()
@@ -126,10 +146,10 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("uses the app's authorize instead", async () => {
-    const content = defineContent({ extends: [cms, { workspace: "site", access: "roles" }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
+    const content = defineContent({ extends: [cms, { workspace: "site", roles: true }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
     try {
       expect(await content.can({ user: { id: "owner" }, collection: "posts", action: "publish" })).toBe(true)
-      expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read-draft" })).toBe(false)
     }
     finally {
       content.dispose()
@@ -140,7 +160,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
     const content = defineContent({ workspace: "site", collections, logger: false })
     try {
       expect(content.hasPolicy).toBe(false)
-      expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read" })).toBe(false)
+      expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read-draft" })).toBe(false)
     }
     finally {
       content.dispose()
@@ -164,13 +184,13 @@ describe("vitehub cms roles", () => {
     const { output, streams: io } = streams()
     expect(await runCmsRoles([], io)).toBe(0)
     expect(output.stdout.split("\n").slice(0, 7)).toEqual([
-      "Role       Content               Comments",
-      "user       -                     -",
-      "viewer     read                  -",
-      "commenter  read                  read, create, resolve",
-      "editor     read, write           read, create, resolve",
-      "publisher  read, write, publish  read, create, resolve, delete",
-      "admin      read, write, publish  read, create, resolve, delete",
+      "Role       Content                           Comments",
+      "user       -                                 -",
+      "viewer     read, read-draft                  -",
+      "commenter  read, read-draft                  read, create, resolve",
+      "editor     read, read-draft, write           read, create, resolve",
+      "publisher  read, read-draft, write, publish  read, create, resolve, delete",
+      "admin      read, read-draft, write, publish  read, create, resolve, delete",
     ])
     expect(output.stdout).toContain("admin(cmsAccess)")
   })
@@ -178,7 +198,7 @@ describe("vitehub cms roles", () => {
   it("prints JSON and rejects unknown arguments", async () => {
     const json = streams()
     expect(await runCmsRoles(["--json"], json.streams)).toBe(0)
-    expect(JSON.parse(json.output.stdout).roles[2]).toEqual({ name: "commenter", content: ["read"], comment: ["read", "create", "resolve"] })
+    expect(JSON.parse(json.output.stdout).roles[2]).toEqual({ name: "commenter", content: ["read", "read-draft"], comment: ["read", "create", "resolve"] })
     const unknown = streams()
     expect(await runCmsRoles(["--all"], unknown.streams)).toBe(1)
     expect(unknown.output.stderr).toContain("Usage: vitehub cms roles [--json]")

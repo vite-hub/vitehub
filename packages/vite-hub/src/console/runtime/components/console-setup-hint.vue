@@ -11,5 +11,5 @@ defineProps<{ hint: ConsoleDocumentHint }>();
 
 <template>
   <!-- One line of markup, so no space falls between code and the punctuation after it. -->
-  <span><ConsoleCodeText :text="hint.message" /><template v-if="hint.docs">{{ " " }}<a :href="hint.docs" target="_blank" rel="noreferrer" class="whitespace-nowrap text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--ui-text-muted)">Read the docs</a></template></span>
+  <span><ConsoleCodeText :text="hint.message" /><template v-if="hint.docs">{{ " " }}<a :href="hint.docs" target="_blank" rel="noreferrer" class="whitespace-nowrap text-highlighted underline decoration-(--ui-border-accented) underline-offset-2 hover:decoration-(--muted-foreground)">Read the docs</a></template></span>
 </template>

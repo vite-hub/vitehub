@@ -16,10 +16,12 @@ icon: i-lucide-code-2
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read a room document's `body`, `fields`, and `status` root types. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
 | `connectRealtimeRoom` from `vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
+| `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
-| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room authority ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
+| `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
+| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room driver ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
-| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file ([Blob documents](#blob-documents)). |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server setup. ViteHub generates this route for normal apps. |
 
 ViteHub generates `.vitehub/nitro/realtime/registry.mjs` and
@@ -70,6 +72,7 @@ import { useDatabase } from 'vite-hub/database'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
+  authorize: true,
   document: {
     kind: 'pages',
     async load({ documentId }) {
@@ -99,7 +102,7 @@ export default defineRealtime({
 | `save(context, { body, fields }, options)` | Stores the snapshot only if the stored digest equals `options.ifDigest`. Else throws `RealtimeDocumentConflict` (a Workspace conflict also counts). Returns `{ digest, issues?, stored? }`. |
 | `stored` | The stored form when the adapter normalized the snapshot. Realtime merges the difference into the room as a structural diff, with no reset, and keeps concurrent edits. Omit `fields` to leave live fields as they are. An interrupted shared save can reset the room; see below. |
 | `issues` | Validation problems that did not block the save. They show in the room `status` map. |
-| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. |
+| `checkpoint(context, { digest, message, user })` | Optional. Records a history entry that must contain `digest`. Enables `history.checkpoint()`. Without it, `history.checkpoint` fails with `REALTIME_CHECKPOINT_UNSUPPORTED` when the server loads the definition. |
 | `hold(context, { users })` | Optional. Called while a writable room has clients: when one joins or leaves, and every 60 seconds. `users` are the identified people connected now. Use it to hold a lease. A thrown error shows in the room `status` until a later call works. |
 | `release(context)` | Optional. Called once after the last writer left a room that `hold()` kept, after the room saved. |
 | `kind` | Optional label for `vitehub inspect`. |
@@ -115,7 +118,7 @@ last save of any instance. `options` is `{ ifDigest, reason, user, editors }`:
 - `editors` lists every identified user who changed the room since the last
   save.
 
-Adapters run inside the room authority. On Cloudflare that is the Durable
+Adapters run where the driver holds the room. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
 
 ### Interrupted normalizing saves
@@ -140,8 +143,10 @@ loaded document recovers without a reset.
 ### Blob documents
 
 `blobDocument(store, { prefix, contentType })` stores each document's body as
-one private Blob file at `prefix + documentId`. The digest is the SHA-256 of
-the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
+one Blob file at `prefix + documentId`. To keep the drafts private, use a store
+that `blob.serve` does not serve, or serve it with `authorize: true`. On Vercel
+Blob, such a store also writes private objects. The digest
+is the SHA-256 of the body. `contentType` defaults to `text/markdown; charset=utf-8`. A `%` in
 the document id stays a literal `%` in the Blob pathname, so `a%2Fb.md` and
 `a/b.md` are two files.
 
@@ -151,16 +156,17 @@ import { defineRealtime } from 'vite-hub/realtime'
 import { blobDocument } from 'vite-hub/realtime/server'
 
 export default defineRealtime({
+  authorize: true,
   document: blobDocument(blob, { prefix: 'drafts/' }),
 })
 ```
 
 `save()` reads the stored file first. It throws `RealtimeDocumentConflict`
 when the file changed, was created, or was deleted after the room loaded it.
-
-> [!WARNING]
-> Blob has no conditional write. An outside write between that read and the
-> save's write is lost.
+It then writes with the Blob `ifMatch` condition, so an outside write between
+that read and the save's write also throws `RealtimeDocumentConflict`, and the
+outside write stays. The store must support conditional writes: see
+[Write only if unchanged](/docs/blob/server-api#write-only-if-unchanged).
 
 After you change the file outside the room, call `refreshRealtimeDocument()`
 so the room loads it.
@@ -299,24 +305,26 @@ to a field. Nested objects in a field are replaced, not merged.
 
 ```ts [server/realtime/pages.ts] fragment
 export default defineRealtime({
-  auth: true,
   identify: async ({ event }) => {
     const session = await getConsoleSession(event)
     return session && { id: session.user.id, name: session.user.name, image: session.user.image }
   },
-  authorize: ({ user, documentId, mode }) => mode === 'read' || canEdit(user, documentId),
+  authorize: ({ user, documentId, mode }) => user !== null && (mode === 'read' || canEdit(user, documentId)),
   document: pagesDocument,
 })
 ```
 
+Each definition must say who can use its rooms. Set `authorize: true` or `authorize()`. Set `access: 'public'` only for rooms that each person can read and write. A definition without one of them fails with [`REALTIME_MISSING_ACCESS`](/docs/realtime/limits-and-errors#realtime_missing_access) when the first request loads it.
+
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests with an `Origin` other than the app origin get 403, unless `origins` accepts it. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
-| `origins({ origin, request, event, definition })` | Lets a page on another origin connect to a definition with `identify`, such as a script that sites load from your app. Return `true` to accept `origin`. A cross-site handshake carries cookies too, so `identify` must then trust only what the page sends, such as a ticket in `params`. See [From another site](#from-another-site). |
-| `auth: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
-| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
+| `access: 'public'` | Lets each person who can reach the app read and write each room, without a user. You cannot use it with `authorize`. |
+| `identify({ request, event, definition })` | Finds the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. |
+| `origins({ origin, request, event, definition })` | Lets a page on another origin connect, such as a script that sites load from your app. Return `true` to accept `origin`. Other origins get 403 unless the definition uses the Auth trusted-origin policy described below. Behind a TLS-terminating proxy, the app origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. A cross-site handshake carries cookies too, so `identify` and `authorize` must then trust only what the page sends, such as a ticket in `params`. With `authorize: true` and no `identify`, `origins` is an error: use the Auth trusted-origin policy instead. See [From another site](#from-another-site). |
+| `authorize: true` | Requires an identified user (else 401). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
+| `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request, and `mode: 'write'` on connections, saves, and checkpoints. Return `true` to allow. Any other result denies, `undefined` too. It runs for signed-out callers too, with `user: null`: return `false` for them when the rooms need sign-in. A denied read answers 401 without a user, else 403. Without `identify`, Realtime reads the ViteHub Auth session for a request from the app origin, or from an Auth-trusted origin when there is no `origins` hook. A request from another origin accepted by `origins`, or a request without an `Origin` header, gets `user: null`. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 
-`event` is the request event of the WebSocket upgrade or HTTP request, a `RealtimeRequestEvent`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/reference/runtime-context#standard-context).
+`event` is the H3 event of the WebSocket upgrade or HTTP request (`RealtimeRequestEvent`, an `H3Event`), so you can pass it to your own helpers that take an `H3Event`. Read the request and its cookies from `event['~standard'].req`, the platform bindings from `event['~standard'].runtime`, and the H3 event context from `event.context`. See [Standard Context](/docs/runtime/context#standard-context).
 
 An identified user replaces the client's `user` presence field, so nobody can
 fake names and avatars. Without an identity, the client sets its own presence.
@@ -363,6 +371,19 @@ carets out.
 
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document and needs no Vue. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
+When the rooms of a definition only share presence, set `document: false`. Nothing loads or saves, and `authorize()` is asked only for `read`:
+
+```ts [server/realtime/presence.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({
+  authorize: true,
+  document: false,
+})
+```
+
+A client that sends a document update to such a room is disconnected. `save()`, `refresh()`, and `history.checkpoint()` requests get HTTP 404, and `refreshRealtimeDocument()` returns `false`. `editor`, `history`, and `persistence` are type errors with `document: false`.
+
 ```ts fragment
 import { connectRealtimeRoom } from 'vite-hub/realtime/client'
 import { commentRoom, normalizeCommentPage } from 'vite-hub/comments'
@@ -380,16 +401,82 @@ room.onChange(change => reload(change))
 | `states()` | The fields that each other client set with `setLocal()`, by client id. |
 | `setLocal(field, value)` | Sets one field of this browser's awareness state. `null` removes it. |
 | `status()` | `connecting`, `connected`, or `disconnected`. |
+| `saveStatus()` | The save status of the room document: `digest`, `savedAt`, `savedBy`, `error`, and `issues`. `undefined` until the room syncs. |
 | `notify(change)`, `onChange(listener)` | Send and receive change hints through the workspace events room. Both need `changes: true`. |
-| `onUpdate(listener)` | Runs when people, their fields, or the status change. Returns a function that removes it. |
+| `onUpdate(listener)` | Runs when people, their fields, the status, or the save status change. Returns a function that removes it. |
 | `destroy()` | Leaves the room. |
 
-`identity` sets who this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
+`saveStatus()` lets a page follow a room document without the editor. For example, a page can show a "new version" notice when the `digest` changes after `refreshRealtimeDocument()`:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const room = connectRealtimeRoom('latest', docId)
+room.onUpdate(() => showVersion(room.saveStatus()?.digest))
+```
+
+`identity` sets who this browser shows as. A definition with `identify` or `authorize: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 
 `params` sends query parameters on presence and workspace connections, so a definition can check context such as the current page.
 
 > [!WARNING]
 > The definition must check that context against the requested document before it grants access.
+
+### Requests to a browser
+
+Server code can ask the one browser in a room of a presence definition, and wait for its answer. The [page bridge](/docs/agents/capabilities/page) uses it so that an Agent works the person's page. Set `requests: true` on the definition:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ access: 'public', document: false, requests: true })
+```
+
+The browser answers with `onRequest()`. The value it returns goes back as JSON:
+
+```ts fragment
+import { connectRealtimeRoom } from 'vite-hub/realtime/client'
+
+const tab = crypto.randomUUID()
+const room = connectRealtimeRoom('tabs', tab)
+room.onRequest(body => ({ title: document.title, asked: body }))
+```
+
+Server code asks it with `requestRealtimeRoom(definition, room, body, options?)`:
+
+```ts fragment
+import { requestRealtimeRoom } from 'vite-hub/realtime/server'
+
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' })
+if (error) console.warn(error.code, error.why)
+```
+
+- One browser answers. A room with two browsers returns `REALTIME_ROOM_CROWDED`, so give each tab its own random room id.
+- A room without a browser waits `wait` milliseconds, 5 seconds by default, for one to join, such as after a reload. Then it returns `REALTIME_ROOM_EMPTY`.
+- The browser has `timeout` milliseconds to answer, 30 seconds by default. `signal` stops the request.
+- An answer only counts from the browser that was asked. A browser that leaves fails its requests at once.
+- On Cloudflare the request goes to the Durable Object that holds the rooms. On Node it reaches the rooms of this process. With Redis or Postgres, a browser on another instance gives `REALTIME_ROOM_ELSEWHERE`.
+- The room id is the only key. Anyone who knows it can join the room of a public definition, so use a random id and keep it out of URLs and logs, or keep a room per person with `scope: "user"`.
+
+#### A room per person
+
+`scope: "user"` keys each room by the person who joins it, so the same room id for two people is two rooms:
+
+```ts [server/realtime/tabs.ts]
+import { defineRealtime } from 'vite-hub/realtime'
+
+export default defineRealtime({ access: 'public', document: false, requests: true, scope: 'user' })
+```
+
+The person is the signed-in [Auth](/docs/auth) user of the tab. The definition reads the session when the app has Auth and does not require one: everyone without a session shares one anonymous scope. With `identify` or `authorize: true`, those decide who the person is. Server code then names the person, and asks only their room:
+
+```ts fragment
+const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' }, { user: session.user.id })
+```
+
+`user: null` asks the anonymous room. A request without `user` returns `REALTIME_ROOM_REFUSED`. A tab joins with the identity it has when it connects, so a tab that signs in reaches its new scope after it reconnects. The [page bridge](/docs/agents/capabilities/page) keeps its rooms this way.
+
+[Room request errors](/docs/realtime/limits-and-errors#room-request-errors) lists every code.
 
 ### From another site
 
@@ -405,13 +492,21 @@ const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.exam
 export default defineRealtime({
   origins: ({ origin }) => allowedSites.has(origin),
   identify: ({ request }) => readTicket(new URL(request.url).searchParams.get('ticket')),
-  authorize: ({ user, mode }) => Boolean(user) && mode === 'read',
-  document: { kind: 'presence', load: async () => ({ body: '', digest: null }), save: async () => ({ digest: 'presence' }) },
-  persistence: false,
+  authorize: ({ user }) => Boolean(user),
+  document: false,
 })
 ```
 
-The app's own pages connect as before. `origins` is only asked about other origins, and only for definitions with `identify`.
+The app's own pages connect as before. `origins` is only asked about other origins.
+
+A script without a bundler loads the prebuilt client, `@vite-hub/realtime/client/browser.js`. It is one ES module with Yjs inside and no imports. Serve its text from your app with `Content-Type: text/javascript` and `Access-Control-Allow-Origin: *`, because a module from another origin needs CORS. Then import it when the script needs presence:
+
+```js
+const { connectRealtimeRoom } = await import('https://app.example.com/realtime-client.js')
+const room = connectRealtimeRoom('presence', roomId, { origin: 'https://app.example.com', params: { ticket } })
+```
+
+The other site's Content Security Policy must allow the script in `script-src` and `wss://` to your app in `connect-src`. The client does not use `eval`.
 
 ## Saves, refresh, and resets
 
@@ -432,8 +527,10 @@ else console.log(saved.digest)
 
 Save and checkpoint requests send the client's Yjs state. The server answers
 `409` with `REALTIME_SYNC_PENDING` until it has that state, and the composable
-retries. If a save or checkpoint finds the stored document changed, it
-re-seeds the room and answers `409` with `REALTIME_SOURCE_CHANGED`.
+retries 20 times before it returns that code. If a save or checkpoint finds the
+stored document changed, the server answers `409` and the call returns
+`REALTIME_SOURCE_CHANGED`, even if the room resets before the reply. Use
+`onReset()` to tell when the editor's document is replaced.
 
 When server code changes a stored document, for example in a route that an
 Agent calls, call `refreshRealtimeDocument(definition, documentId)` after the
@@ -474,8 +571,16 @@ hooks can normalize the file. Realtime merges the stored form back into the
 room. Saves need a Workspace Store with conditional writes. A Cloudflare room
 also needs a durable Workspace Store.
 
-`history.checkpoint()` commits the working tree to Workspace history. The
-commit includes every staged path, also other documents saved by their rooms.
+`history.checkpoint()` commits the working tree to Workspace history with the
+Store's author by default. Set `document.checkpointAuthor(user)` to look up a
+name and email approved for Git history, such as a GitHub `noreply` identity.
+The callback receives the identified requester, not the last editor. Anonymous
+requests and callbacks that return `undefined` keep the Store's author.
+Realtime does not use the sign-in email as a Git author automatically. On
+GitHub, custom authors produce unsigned commits. Leave this option unset for
+branches that require signed commits.
+
+The commit includes every staged path, also other documents saved by their rooms.
 If Workspace history moved, Realtime rebases onto the remote head and retries.
 A path changed both locally and remotely takes the remote version and re-seeds
 the room.

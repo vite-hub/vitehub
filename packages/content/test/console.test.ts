@@ -52,7 +52,7 @@ async function historyWorkspace(options: { sessions?: boolean } = {}): Promise<s
 const roles: ContentAuthorize = ({ user, action }) => {
   if (user?.role === "editor") return true
   if (user?.role === "writer") return action !== "publish"
-  return user?.role === "reader" && action === "read"
+  return user?.role === "reader" && action === "read-draft"
 }
 
 async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
@@ -100,7 +100,7 @@ async function failure(promise: unknown) {
 
 describe("Content Console actions", { timeout: 30_000 }, () => {
   it("keeps setup available for a read-only runtime without collections", async () => {
-    const content = defineContent({ source: { items: async () => [] }, logger: false })
+    const content = defineContent({ access: "public", source: { items: async () => [] }, logger: false })
     cleanup.push(() => content.dispose())
     const actions = createContentConsoleActions({ default: content })
 
@@ -309,7 +309,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
         posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
         notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
       },
-      authorize: ({ collection, action }) => collection === "posts" && action === "read",
+      authorize: ({ collection, action }) => collection === "posts" && action === "read-draft",
       logger: false,
     })
     cleanup.push(() => postsOnly.dispose())
@@ -417,7 +417,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       collections: {
         posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1), date: z.coerce.date(), tags: z.array(z.string()).default([]) } }),
       },
-      authorize: ({ action, id }) => action === "read" && !(id !== undefined && hidden.has(id)),
+      authorize: ({ action, id }) => action === "read-draft" && !(id !== undefined && hidden.has(id)),
       logger: false,
     })
     cleanup.push(() => scoped.dispose())
@@ -473,7 +473,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })
     await expect(failure(actions.save({ ...hello, body: 1 } as never, editor))).resolves.toMatchObject({ status: 400 })
-    await expect(failure(actions.save({ ...hello, id: "../escape" }, editor))).resolves.toMatchObject({ status: 400, code: "CONTENT_R0008" })
+    await expect(failure(actions.save({ ...hello, id: "../escape" }, editor))).resolves.toMatchObject({ status: 400, code: "CONTENT_DOCUMENT_ID_INVALID" })
     await expect(failure(actions.get(null as never, editor))).resolves.toMatchObject({ status: 400 })
   })
 
@@ -529,7 +529,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     const content = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/*.md", fields }) },
-      authorize: ({ user, action, id }) => user?.role === "editor" || (user?.role === "reader" && action === "read" && !(id !== undefined && hidden.has(id))),
+      authorize: ({ user, action, id }) => user?.role === "editor" || (user?.role === "reader" && action === "read-draft" && !(id !== undefined && hidden.has(id))),
       logger: false,
     })
     cleanup.push(() => content.dispose())
@@ -559,7 +559,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
 
   it("requires the defineContent() runtime as the default export", () => {
     expect(() => createContentConsoleActions({})).toThrow("must default-export the defineContent() runtime")
-    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(TypeError)
+    expect(() => createContentConsoleActions({ default: { collection: () => undefined } })).toThrow(expect.objectContaining({ code: "CONTENT_RUNTIME_EXPORT_INVALID" }))
   })
 })
 
@@ -638,7 +638,7 @@ describe("Content Console sessions", { timeout: 30_000 }, () => {
     const scoped = defineContent({
       workspace,
       collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string().min(1) } }) },
-      authorize: ({ action, id }) => action === "read" && id !== "secret",
+      authorize: ({ action, id }) => action === "read-draft" && id !== "secret",
       logger: false,
     })
     cleanup.push(() => scoped.dispose())

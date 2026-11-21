@@ -2,6 +2,8 @@
 
 All values are in `packages/ui/theme.css`. Use the semantic utility or variable. Never use the value behind it, and never use a Tailwind palette color.
 
+The colors and the radius that shadcn/ui has a name for, such as `--background`, `--foreground`, `--muted`, `--border`, `--ring`, and `--radius`, are set under that name, and the `--ui-*` and `--vh-*` tokens read them. An app overrides those names. Components still use the Nuxt UI utilities and the `--ui-*` and `--vh-*` variables, not the shadcn/ui names.
+
 ## Text
 
 ```
@@ -33,7 +35,7 @@ Dark mode is its own palette: the page is `oklch(0.145 0 0)` and surfaces are wh
 
 ## Radius
 
-`--ui-radius` is 0.25rem. Nuxt UI multiplies it, so these are the only radii:
+`--ui-radius` reads `--radius`, which is 0.25rem. Nuxt UI multiplies it, so these are the only radii:
 
 | Class | Size | Use |
 | --- | --- | --- |
@@ -72,4 +74,4 @@ Geist for text, Geist Mono for code, paths, package names, environment variables
 
 ## Motion
 
-Menus, popovers, and tooltips appear at once. Buttons scale to 97% on press. Anything else animates only `transform` and `opacity`, at 150ms to 200ms `ease-out`, and stops under `prefers-reduced-motion`.
+[Motion](motion.md) has the rules and the effect for each component. In short: springs move things, the pressed thing gives, labels change letter by letter, and menus, popovers, and dialogs still open at once.

@@ -39,7 +39,7 @@ interface OutboxCommand {
   description: string
   formats?: boolean
   id?: boolean
-  name: "clear" | "list" | "show"
+  name: "clear" | "get" | "list"
   operation: "outbox-clear" | "outbox-list" | "outbox-show"
 }
 
@@ -49,15 +49,16 @@ const emailDevTargetErrors = {
   invalidInlineTimeout: usageError,
   invalidTimeout: usageError,
   missingValue: usageError,
+  unknownOption: usageError,
 }
 
 const outboxCommands: readonly OutboxCommand[] = [
   { description: "List captured messages, newest first.", name: "list", operation: "outbox-list" },
-  { description: "Show one captured message.", formats: true, id: true, name: "show", operation: "outbox-show" },
+  { description: "Show one captured message.", formats: true, id: true, name: "get", operation: "outbox-show" },
   { description: "Remove every captured message.", name: "clear", operation: "outbox-clear" },
 ]
 
-const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
+const outboxUsage = "vitehub email outbox <list|get|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
 const previewUsage = "vitehub email preview <template> [--data <json|@file>] [--html|--text|--json]"
 
 function outboxCommandUsage(command: OutboxCommand): string {
@@ -184,9 +185,7 @@ function formatMessage(message: EmailOutboxMessage): string {
     ...(message.bcc?.length ? [`Bcc: ${message.bcc.join(", ")}`] : []),
     ...(message.replyTo?.length ? [`Reply-To: ${message.replyTo.join(", ")}`] : []),
     `Subject: ${message.subject}`,
-    ...(message.preheader ? [`Preheader: ${message.preheader}`] : []),
     ...(message.scheduledAt ? [`Scheduled at: ${message.scheduledAt}`] : []),
-    ...(message.template ? [`Provider template: ${message.template}`] : []),
     ...(headers.length ? ["Headers:", ...headers.map(([name, value]) => `  ${name}: ${value}`)] : []),
     ...(message.attachments.length
       ? ["Attachments:", ...message.attachments.map(attachment => `  ${attachment.filename} (${[attachment.contentType, `${attachment.size} bytes`, attachment.disposition].filter(Boolean).join(", ")})`)]
@@ -209,8 +208,8 @@ const attachmentSchema = v.object({ cid: v.optional(v.string()), contentType: v.
 const outboxMessageSchema = v.object({
   ...messageFields, attachments: v.array(attachmentSchema), bcc: v.optional(v.array(v.string())), cc: v.optional(v.array(v.string())),
   headers: v.record(v.string(), v.string()), html: v.optional(v.string()), metadata: v.optional(v.record(v.string(), v.string())),
-  preheader: v.optional(v.string()), replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()), stream: v.optional(v.string()),
-  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), template: v.optional(v.string()), text: v.optional(v.string()),
+  replyTo: v.optional(v.array(v.string())), scheduledAt: v.optional(v.string()),
+  tags: v.optional(v.array(v.object({ name: v.string(), value: v.string() }))), text: v.optional(v.string()),
 })
 const nonnegativeInteger = v.pipe(v.number(), v.safeInteger(), v.minValue(0))
 const resultSchemas = {
@@ -289,7 +288,7 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
 /**
  * Runs one `vitehub email outbox` command through the `email.outbox-*` operations, on the dev server of this project or
  * on a deployed app with `--url`.
- * `args[0]` is the command name: `list`, `show`, or `clear`.
+ * `args[0]` is the command name: `list`, `get`, or `clear`.
  */
 export async function runEmailOutboxCli(args: string[], context: EmailCliContext, options: EmailCliOptions = {}): Promise<number> {
   const [name, ...rest] = args
@@ -421,7 +420,7 @@ export function createEmailCliContributor(options: EmailCliOptions = {}): ViteHu
       description: "Inspect the development outbox and preview Email templates.",
       features: [
         {
-          description: "List, show, or clear messages that the development outbox captured.",
+          description: "List, get, or clear messages that the development outbox captured.",
           name: "outbox",
           run: async (args: string[], context: ViteHubCliContext) => await runEmailOutboxCli(args, context, options),
           usage: outboxUsage,

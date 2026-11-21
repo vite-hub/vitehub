@@ -436,14 +436,14 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     })
     expect((await run("list", "posts", "--search", "hel")).stdout).toBe("published  hello  Hello\n")
 
-    const shown = await run("show", "posts", "broken")
+    const shown = await run("get", "posts", "broken")
     expect(shown.code).toBe(0)
     expect(shown.stdout).toBe("---\ntitle: \"\"\ntags: []\n---\n")
     expect(shown.stderr).toBe("posts/broken has 1 field issue on draft:\n  title: Too small: expected string to have >=1 characters\n")
-    expect(JSON.parse((await run("show", "posts", "hello", "--ref", "published", "--json")).stdout)).toMatchObject({
+    expect(JSON.parse((await run("get", "posts", "hello", "--ref", "published", "--json")).stdout)).toMatchObject({
       collection: "posts", id: "hello", path: "posts/hello.md", ref: "published", digest: expect.any(String), text: expect.stringContaining("title: Hello\n"), status: { state: "published" },
     })
-    expect(JSON.parse((await run("show", "posts", "nope", "--json")).stdout)).toMatchObject({ error: { code: "CONTENT_NOT_FOUND" } })
+    expect(JSON.parse((await run("get", "posts", "nope", "--json")).stdout)).toMatchObject({ error: { code: "CONTENT_NOT_FOUND" } })
     expect(JSON.parse((await run("status", "posts", "broken", "--json")).stdout)).toMatchObject({ documents: [{ id: "broken", issues: 1 }] })
     expect((await run("status", "posts")).stdout).toContain("draft      posts/broken  (1 issue)\n")
   })
@@ -638,7 +638,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect((await run("collections")).stdout).toContain("settings  settings.json  singleton\n  Fields: title, social\n  Documents: 1 (1 draft)\n")
     expect(JSON.parse((await run("collections", "--json")).stdout).collections[1]).toMatchObject({ name: "settings", kind: "singleton", label: "Site settings", format: "json", id: "settings" })
     expect(await run("list", "settings")).toMatchObject({ code: 0, stdout: "draft  settings  Site settings\n" })
-    expect((await run("show", "settings")).stdout).toBe("{\n  \"title\": \"ViteHub\"\n}\n")
+    expect((await run("get", "settings")).stdout).toBe("{\n  \"title\": \"ViteHub\"\n}\n")
     expect((await run("status", "settings")).stdout).toBe("draft  settings/settings\n")
     expect((await run("diff", "settings")).stdout).toContain("--- /dev/null\n+++ draft/settings.json\n")
 
@@ -759,10 +759,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("With --url it calls a deployed app")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap, previews, head, advance, pin, unpin, check\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, get, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap, previews, head, advance, pin, unpin, check\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap", "previews", "head", "advance", "pin", "unpin", "check"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "get", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap", "previews", "head", "advance", "pin", "unpin", "check"])
   })
 })
 
@@ -852,7 +852,7 @@ describe("Content operations", () => {
   it("finds the document at a public path for the comments overlay, and nothing else", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
-      authorize: ({ action, id, user }) => action === "read" ? id !== "secret" : user?.id === "editor",
+      authorize: ({ action, id, user }) => action === "read-draft" ? id !== "secret" : user?.id === "editor",
       collections: {
         pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
         posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
@@ -940,7 +940,7 @@ describe("Content operations", () => {
 
   it("resolves a readable document even when collection enumeration is denied", async () => {
     const content = defineContent({
-      authorize: ({ action, id }) => action === "read" && id === "hello",
+      authorize: ({ action, id }) => action === "read-draft" && id === "hello",
       collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
       logger: false,
       workspace: await historyWorkspace(),
@@ -1061,7 +1061,7 @@ describe("Content operations", () => {
   it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
-      authorize: ({ action, user }) => action === "read" || user?.id === "editor",
+      authorize: ({ action, user }) => action === "read-draft" || user?.id === "editor",
       collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
       logger: false,
       workspace,

@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-lucide-search
 ---
 
-`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/decisions/vue` sends the request, and your `onSelect` applies the result to your state.
+`FilterSearch` is a text box for a filter bar. A reader types "suppliers except those starting with vak", and your filter chips change. The box shows when the request runs and when it fails. It does not draw chips, send the request, or hold the selection. `useChoices()` from `vite-hub/choices/vue` sends the request, and your `onSelect` applies the result to your state.
 
 ::example{name="FilterSearchExample" height=8}
 ::
@@ -15,10 +15,10 @@ Type `suppliers except vak` and press Enter. Type `error` to see the error state
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { FilterSearch } from "@vite-hub/ui";
+import { FilterSearch } from "vite-hub/ui";
 ```
 
 ## Usage
@@ -33,7 +33,7 @@ Wrap `clear()` to reset your filters too.
 ```vue
 <script setup lang="ts">
 import type { forecast } from "~~/server/choices/forecast";
-import { useChoices } from "vite-hub/decisions/vue";
+import { useChoices } from "vite-hub/choices/vue";
 
 const filters = useFilters();
 
@@ -81,11 +81,11 @@ FilterSearch
 
 ## Headless parts
 
-Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
+Use the parts without Nuxt UI for your own markup, such as a command palette. Import them from `vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
-import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "@vite-hub/ui/headless";
+import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, ChoicesInputStatus } from "vite-hub/ui/headless";
 </script>
 
 <template>
@@ -104,7 +104,7 @@ import { ChoicesInput, ChoicesInputClear, ChoicesInputError, ChoicesInputField, 
 
 - The input gets its accessible name from `label`. While `thinking`, it has `aria-busy="true"`. After a failed request, it has `aria-invalid="true"`, and `aria-describedby` points to the error.
 
-- `ChoicesInputStatus` is a polite live region (`role="status"`) from the first render. It says "Thinking", then "Ready" or the error. `FilterSearch` hides it visually with `vh-visually-hidden`, because the icon and error text already show the state.
+- `ChoicesInputStatus` is a polite live region (`role="status"`) from the first render. It says "Thinking", then "Ready" or the error. `FilterSearch` hides it visually inside a `<span data-slot="visually-hidden">`, because the icon and error text already show the state.
 
 - Editing cancels a running request, so a stale result cannot apply. With nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing during input method composition or with Shift, Ctrl, Alt, or Meta held.
 

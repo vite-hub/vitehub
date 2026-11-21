@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
 import type { channelDefinitionBrand } from "./brand.ts"
 
@@ -43,24 +43,30 @@ export interface ChannelWebhookRequest {
   url: string
 }
 
-/** A secret that verifies inbound webhooks. A function runs for each request. `false` turns verification off. */
+/**
+ * A secret that verifies inbound webhooks. A string is the name of the server variable that holds the secret, such as
+ * `"STRIPE_WEBHOOK_SECRET"`, as in Webhooks. A function returns the value and runs for each request. When it returns
+ * `false`, that request is not verified. When the variable or the function has no secret, the webhook answers with an
+ * error and does not run the target.
+ */
 export type ChannelWebhookSecret =
   | string
   | { unseal: () => string }
-  | false
   | (() => MaybePromise<string | { unseal: () => string } | false | undefined>)
 
-/** How an inbound webhook proves that the provider sent it. */
+/** How an inbound webhook proves that the provider sent it. The names follow `defineWebhook({ signature })`. */
 export type ChannelWebhookSignature =
   /** `Authorization: Bearer <secret>`, compared in constant time. */
   | "bearer"
+  /** `header` carries the secret itself, compared in constant time. Set `header`. */
+  | "token"
   /** `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the body>`. */
-  | "github-sha256"
-  /** `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`, at most 300 seconds old. */
-  | "stripe-sha256"
+  | "github"
+  /** `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`, at most 5 minutes old. */
+  | "stripe"
   | {
     /** `header` carries `prefix` followed by the HMAC-SHA256 of the raw body. */
-    preset: "hmac-sha256"
+    type: "hmac-sha256"
     /** Digest encoding in the header. Defaults to `"hex"`. */
     encoding?: "hex" | "base64"
     /** Text before the digest, such as `"sha256="`. */
@@ -69,31 +75,27 @@ export type ChannelWebhookSignature =
     secretEncoding?: "utf8" | "base64"
   }
   | {
-    preset: "stripe-sha256"
-    /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
-    toleranceSeconds?: number
+    type: "stripe"
+    /** Maximum age of the signed timestamp, such as `"10m"`. Defaults to `"5m"`. */
+    tolerance?: Duration
   }
   | {
     verify: (input: { header: string, rawBody: Uint8Array, request: Request, secret: string }) => MaybePromise<boolean>
   }
 
-/** Options of `webhook()`. */
-export interface WebhookAdapterOptions<TData = unknown> {
+/** The options of `webhook()` that are not about verification. */
+export interface WebhookAdapterBaseOptions<TData = unknown> {
   /**
    * The provider name that logs and the Console show. Defaults to `"webhook"`.
    */
   kind?: string
   /**
-   * Another route for the webhook, next to `/api/_vitehub/channels/<name>`. ViteHub reads it from the source, so it
+   * Another route for the webhook, next to `/_vitehub/channels/<name>`. ViteHub reads it from the source, so it
    * must be a string literal.
    */
   path?: string
   /** More routes, such as an old URL that the provider still calls. String literals. */
   aliases?: string[]
-  signature?: ChannelWebhookSignature
-  secret?: ChannelWebhookSecret
-  /** The header that carries the signature. Each `signature` has a default. */
-  header?: string
   /** The name of the event in a request, which selects the `on` target. Defaults to `"webhook"`. */
   event?: (payload: TData, request: ChannelWebhookRequest) => string | undefined
   /** The provider's delivery ID, which deduplicates retries. Defaults to the SHA-256 of the body. */
@@ -109,11 +111,38 @@ export interface WebhookAdapterOptions<TData = unknown> {
   ackTimeoutMs?: number | false
 }
 
+/**
+ * How `webhook()` checks that the provider sent a request. Set `signature` and `secret` together. To accept
+ * requests that anyone can send, set `secret: false` and no `signature`.
+ */
+export type WebhookAdapterVerification =
+  | {
+    signature: Exclude<ChannelWebhookSignature, "token">
+    secret: ChannelWebhookSecret
+    /** The header that carries the signature. Each `signature` has a default. */
+    header?: string
+  }
+  | {
+    signature: "token"
+    secret: ChannelWebhookSecret
+    /** The header that carries the secret. */
+    header: string
+  }
+  | {
+    signature?: undefined
+    /** Accepts requests without verification. Anyone who knows the URL can send events. */
+    secret: false
+    header?: undefined
+  }
+
+/** Options of `webhook()`. */
+export type WebhookAdapterOptions<TData = unknown> = WebhookAdapterBaseOptions<TData> & WebhookAdapterVerification
+
 declare const channelEventData: unique symbol
 
 /** An adapter that receives webhooks from an HTTP sender, from `webhook()` or `stripe()`. */
 export interface WebhookChannelAdapter<TData = unknown> extends ChannelAdapter {
-  readonly webhook: Readonly<Omit<WebhookAdapterOptions<TData>, "kind">>
+  readonly webhook: Readonly<Omit<WebhookAdapterBaseOptions<TData>, "kind"> & WebhookAdapterVerification>
   /** Carries the payload type to `on` handlers. Never set at runtime. */
   readonly [channelEventData]?: TData
 }

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -42,6 +42,17 @@ describe("ViteHub CLI config loading", () => {
     await expect(isAgentCliEnabled(root)).resolves.toBe(false)
   })
 
+  // A production install can leave out the optional `vite` peer, which the config scanner parses with.
+  it("keeps the Agent CLI enabled when the config scanner cannot load vite", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), "export default {}\n", "utf8")
+    const missing = (name: string) => Object.assign(new Error(`Cannot find package '${name}' imported from /app/node_modules/vite-hub/dist/scan-module.js`), { code: "ERR_MODULE_NOT_FOUND" })
+    await expect(loadConfigScanner(() => Promise.reject(missing("vite")))).resolves.toBeUndefined()
+    await expect(loadConfigScanner(() => Promise.reject(missing("oxc")))).rejects.toThrow("'oxc'")
+    await expect(isAgentCliEnabled(root, async () => undefined)).resolves.toBe(true)
+  })
+
   it("handles nested Agent options and ignores comments or unrelated objects", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)
@@ -70,6 +81,37 @@ describe("ViteHub CLI config loading", () => {
       export default { plugins: [plugin({ agent: false })] }
     `, "utf8")
     await expect(isAgentCliEnabled(root)).resolves.toBe(true)
+  })
+
+  // The babysitter app's config: the Agent CLI must open the journal that the server writes next to this State.
+  const state = "providers: { state: { driver: 'sqlite', url: 'file:.vitehub/agent-state.db' } }"
+  const vite = (options: string, before = "") => `import { vitehub } from 'vite-hub'\n${before}export default { plugins: [vitehub({ ${options} })] }\n`
+  it.each([
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), {}, "file:.vitehub/agent-state.db"],
+    ["vite.config.ts", `import { defineConfig } from 'vite'\nimport { vitehub as hub } from 'vite-hub'\nexport default defineConfig({ plugins: [hub({ host: 'node', agent: { ${state} } })] })`, {}, "file:.vitehub/agent-state.db"],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { invocations: {}, providers: { state: { url: 'file:/srv/app/state.db' } } } } })\n`, {}, "file:/srv/app/state.db"],
+    // Without `host`, the build environment picks the host, and only Node puts the journal next to State.
+    ["vite.config.ts", vite(`agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'vercel', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`), { VITEHUB_HOST: "deno" }, undefined],
+    ["vite.config.ts", vite(`host: 'node', dataDir: '/data', agent: { ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' }, ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { invocations: 'database', ${state} }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: process.env.STATE_URL } } }`), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { ...agent, ${state} }`, "const agent = {}\n"), {}, undefined],
+    ["vite.config.ts", vite(`host: 'node', agent: { providers: { state: { url: 'libsql://db.example.com' } } }`), {}, undefined],
+    // Only the options that take effect count: a second `vitehub()` call, Nuxt module options, or a spread config.
+    ["vite.config.ts", vite(`host: 'node', agent: { ${state} }`, "const other = vitehub(options)\n"), {}, undefined],
+    ["vite.config.ts", `import { vitehub } from 'vite-hub'\nconst unused = vitehub({ host: 'node', agent: { ${state} } })\nexport default { plugins: [] }`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node', agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { providers: { state: { url: 'file:dev/state.db' } } } } })\n`, {}, undefined],
+    ["nuxt.config.ts", `const moduleName = 'vite-hub/nuxt'\nexport default defineNuxtConfig({ modules: [[moduleName, { agent: { providers: { state: { url: 'file:prod/state.db' } } } }]], vitehub: { host: 'node', agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ nitro: { preset: 'deno-server' }, vitehub: { agent: { ${state} } } })`, {}, undefined],
+    ["nuxt.config.ts", `export default defineNuxtConfig({ vitehub: { host: 'node', agent: { ${state} } }, ...shared })\n`, {}, undefined],
+  ])("reads the file: Agent State URL of %s for the Invocation journal: %#", async (file, source, env, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, file), source, "utf8")
+    await expect(readAgentJournalStateUrl(root, env)).resolves.toBe(expected)
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {
@@ -142,10 +184,39 @@ describe("ViteHub CLI config loading", () => {
     expect(loadNuxt).toHaveBeenCalledWith({
       cwd: root,
       dev: true,
+      envName: "development",
       overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
       ready: true,
     })
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["serve", "node"],
+    ["build", "cloudflare"],
+  ] as const)("resolves Nuxt's $development overrides like the dev server for %s", async (command, host) => {
+    // `nuxt dev` sets NODE_ENV, and Nuxt reads `$development` from it. A CLI command runs without it. If it loaded the
+    // production host, its plugins would rewrite the files that the running dev server imports.
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), "export default { vitehub: { host: 'cloudflare' }, $development: { vitehub: { host: 'node' } } }\n", "utf8")
+    const previous = process.env.NODE_ENV
+    delete process.env.NODE_ENV
+    try {
+      const { loadNuxtConfig } = await import("nuxt/kit")
+      let vitehub: unknown
+      const loadNuxt = vi.fn(async (options: Parameters<typeof loadNuxtConfig>[0]) => {
+        const config = await loadNuxtConfig(options)
+        vitehub = Reflect.get(config, "vitehub")
+        return { options: { rootDir: root, vite: {} } }
+      })
+      const resolveViteConfig = vi.fn(async () => ({ plugins: [], root }))
+      await loadViteHubCliConfig(root, command, undefined, { loadNuxt, resolveViteConfig })
+      expect(vitehub).toEqual({ host })
+    }
+    finally {
+      if (previous === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = previous
+    }
   })
 
   it.each([
@@ -265,6 +336,47 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
     expect(loadNuxtViteConfig).not.toHaveBeenCalled()
   })
+  it.each(["option", "environment variable"])("requires the Telegram token in env check with simulation enabled by %s", async source => {
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-channel-env-"));
+    roots.push(root);
+    await mkdir(join(root, "server/agents"), { recursive: true });
+    await writeFile(join(root, "server/agents/chat.ts"), `
+import { defineAgent } from "vite-hub/agent"
+import { telegram } from "vite-hub/agent/channels"
+export default defineAgent({ driver: { model: "openai/gpt-5.1-mini" }, channels: { telegram: telegram({ mode: "webhook" }) } })
+`);
+    await writeFile(join(root, "vite.config.ts"), `
+import { vitehub } from "vite-hub"
+export default { plugins: [vitehub({ agent: { channels: { simulate: ${source === "option"} } } })] }
+`);
+
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEHUB_CHANNELS", source === "option" ? undefined : "simulate");
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", undefined);
+    vi.stubEnv("VITEHUB_TELEGRAM_BOT_TOKEN", undefined);
+    let stdout = "";
+    let stderr = "";
+    try {
+      const code = await runViteHubCli({
+        args: ["env", "check", "--stage", "production", "--json"],
+        cwd: root,
+        loadConfig: loadViteHubCliConfig,
+        stdout: { write: chunk => { stdout += chunk; return true } },
+        stderr: { write: chunk => { stderr += chunk; return true } },
+      });
+      expect(code, stderr).toBe(1);
+    }
+    finally {
+      vi.unstubAllEnvs();
+    }
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      stage: "production",
+      entries: expect.arrayContaining([expect.objectContaining({ path: "env.server.telegram.botToken", required: true, status: "missing" })]),
+    });
+  });
 })
 
 describe("shipped ViteHub CLI production discovery", () => {
@@ -396,7 +508,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       const ci = await consoleTestKey("CI");
       const { stdout } = await execFileAsync(
         process.execPath,
-        [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}/_vitehub`],
+        [bin, "agent", "invocations", "cancel", "ainv_1", "--url", `http://127.0.0.1:${address.port}`],
         // A bearer token is not a Console credential anymore. The CLI signs with its private key.
         { cwd: root, env: { ...process.env, VITEHUB_CONSOLE_AUTHORIZATION: "Bearer cli-test", [`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`]: ci.key.privateKey } },
       );

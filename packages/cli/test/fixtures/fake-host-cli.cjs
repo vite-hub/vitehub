@@ -1,7 +1,8 @@
 // A fake wrangler, vercel, netlify, and deno for `vitehub deploy` tests. It never reaches a host.
 // Each run appends `{ name, argv, stdin, cwd }` to FAKE_HOST_LOG and keeps its state in FAKE_HOST_STATE.
-// FAKE_HOST_FAIL names a step that exits 1, such as "wrangler secret list".
-const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs")
+// FAKE_HOST_FAIL names a step that exits 1, such as "wrangler secret list". FAKE_HOST_ECHO_STDIN prints stdin then.
+// FAKE_HOST_HANG names the start of a step that never ends, so a test can interrupt the CLI while it waits.
+const { appendFileSync, existsSync, fstatSync, mkdirSync, readFileSync, statSync, writeFileSync } = require("node:fs")
 const { dirname, join, resolve } = require("node:path")
 
 const name = process.env.FAKE_HOST_NAME
@@ -24,17 +25,36 @@ function readStdin() {
   }
 }
 
+/**
+ * `deno deploy env load <file>` opens the file by path. Real Deno 2.9 cannot reopen `/dev/stdin` when stdin is the
+ * socket that Node's `spawn` pipes: it fails with "No such device or address (os error 6)" (ENXIO).
+ */
+function readDenoEnvFile(file) {
+  if (resolve(file) === "/dev/stdin" && fstatSync(0).isSocket()) {
+    process.stderr.write(`error: No such device or address (os error 6): readfile '${file}'\n`)
+    process.exit(1)
+  }
+  return readFileSync(file, "utf8")
+}
+
 const usesStdin = /secret put|env add|env load/u.test(argv.join(" "))
-const stdin = usesStdin ? readStdin() : ""
+const stdin = name === "deno" && argv[2] === "load" ? readDenoEnvFile(argv[3]) : usesStdin ? readStdin() : ""
 const config = name === "wrangler" ? flag("--config") : name === "vercel" && argv[0] === "deploy" ? ".vercel/output/functions/__server.func/.vc-config.json" : undefined
 const generated = config ? JSON.parse(readFileSync(resolve(config), "utf8")) : undefined
-appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin, generated, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
+// `--secrets-file` of `wrangler deploy` and `wrangler versions upload`: its mode and values while the run lasts.
+const secretsPath = name === "wrangler" ? flag("--secrets-file") : undefined
+const secretsFile = secretsPath && existsSync(resolve(secretsPath))
+  ? { path: resolve(secretsPath), mode: statSync(resolve(secretsPath)).mode & 0o777, values: JSON.parse(readFileSync(resolve(secretsPath), "utf8")) }
+  : secretsPath ? { path: resolve(secretsPath), missing: true } : undefined
+appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, pid: process.pid, stdin, generated, secretsFile, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
 if (process.env.FAKE_HOST_ECHO_TOKEN) {
   const token = process.env.CLOUDFLARE_API_TOKEN ?? process.env.VERCEL_TOKEN ?? process.env.NETLIFY_AUTH_TOKEN ?? process.env.DENO_DEPLOY_TOKEN
   process.stdout.write(`stdout token: ${token}\n`)
   process.stderr.write(`stderr token: ${token}\n`)
 }
 if ((process.env.FAKE_HOST_FAIL ?? "").split(",").includes(step)) {
+  // A host CLI may echo what it read in an error, so tests check that the CLI redacts it.
+  if (process.env.FAKE_HOST_ECHO_STDIN) process.stderr.write(`could not read value: ${stdin}\n`)
   process.stderr.write(`${step} failed\n`)
   process.exit(1)
 }
@@ -42,12 +62,26 @@ if ((process.env.FAKE_HOST_FAIL ?? "").split(",").includes(step)) {
 function wrangler() {
   if (argv[0] === "secret" && argv[1] === "put") {
     state.secrets[argv[2]] = stdin
+    state.uploadedSecrets = { ...state.secrets }
     save()
     process.stdout.write(`Success! Uploaded secret ${argv[2]}\n`)
     return
   }
   if (argv[0] === "secret" && argv[1] === "list") {
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ name: key, type: "secret_text" }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ name: key, type: "secret_text" }))))
+    return
+  }
+  if (argv[0] === "d1" && argv[1] === "migrations" && argv[2] === "apply") {
+    process.stdout.write("✅ No migrations to apply!\n")
+    return
+  }
+  // FAKE_D1_APPLIED maps a binding to the names in its migrations table. A binding that it does not name has no table.
+  if (argv[0] === "d1" && argv[1] === "execute") {
+    if (process.env.WRANGLER_LOG === "error") return
+    const applied = JSON.parse(process.env.FAKE_D1_APPLIED ?? "{}")[argv[2]]
+    const sql = flag("--command")
+    const results = /sqlite_master/u.test(sql) ? (applied ? [{ name: /name = '(\w+)'/u.exec(sql)[1] }] : []) : (applied ?? []).map(name => ({ name }))
+    process.stdout.write(`${JSON.stringify([{ results, success: true, meta: {} }], null, 2)}\n`)
     return
   }
   const preview = argv[0] === "versions"
@@ -58,6 +92,11 @@ function wrangler() {
   if (argv.includes("--temporary")) {
     process.stderr.write("Temporary account ready:\n  Account: temp (created)\n  Claim within: 59 minutes\n  Claim URL: https://dash.cloudflare.com/claim/abc123\n")
   }
+  // Without --keep-vars, Wrangler deletes every plain var before it sets the vars of the config (`wrangler deploy --help`).
+  state.vars = { ...(argv.includes("--keep-vars") ? state.vars : {}), ...config.vars }
+  // Inheritance uses the latest uploaded version, even if that version was never deployed.
+  state.uploadedSecrets = { ...(state.uploadedSecrets ?? state.secrets), ...secretsFile?.values }
+  if (!preview) state.secrets = { ...state.uploadedSecrets }
   state.deploys++
   save()
   const url = `https://${config.name}.example.workers.dev`
@@ -69,14 +108,20 @@ function wrangler() {
 }
 
 function vercel() {
+  // Variables live in `state.vercel[environment]`, as Vercel keeps one value for each environment.
   if (argv[0] === "env" && argv[1] === "add") {
-    state.secrets[argv[2]] = stdin
+    const environment = flag("--environment")
+    state.vercel = state.vercel ?? {}
+    state.vercel[environment] = { ...state.vercel[environment], [argv[2]]: stdin }
     save()
-    process.stderr.write(`Added Environment Variable ${argv[2]}\n`)
+    process.stderr.write(`Added Environment Variable ${argv[2]} to Project ${flag("--project")} [${environment}]\n`)
     return
   }
   if (argv[0] === "env" && argv[1] === "ls") {
-    process.stdout.write(JSON.stringify({ envs: Object.keys(state.secrets).map(key => ({ key, type: "sensitive" })) }))
+    const environment = flag("--environment")
+    // `--json` prints readable values, as Vercel CLI 65 does for plain variables.
+    const envs = Object.entries(state.vercel?.[environment] ?? {}).map(([key, value]) => ({ key, target: [environment], type: "plain", value }))
+    process.stdout.write(JSON.stringify({ envs }))
     return
   }
   state.deploys++
@@ -91,6 +136,11 @@ function vercel() {
 }
 
 function netlify() {
+  // `env:list --json` prints `{ KEY: value }` for one context. Tests write `state.netlify[context]` through the API fake.
+  if (argv[0] === "env:list") {
+    process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(state.netlify?.[flag("--context")] ?? {}).filter(([key]) => flag("--scope") !== "functions" || (state.netlifyScopes?.[key] ?? ["functions"]).includes("functions")))))
+    return
+  }
   state.deploys++
   save()
   process.stdout.write(JSON.stringify({ site_id: "site-1", site_name: flag("--site-name") ?? "my-app", deploy_id: `deploy-${state.deploys}`, deploy_url: "https://deploy--my-app.netlify.app", ...(argv.includes("--prod") ? { url: "https://my-app.netlify.app" } : {}) }))
@@ -107,15 +157,21 @@ function deno() {
     return
   }
   if (argv[0] === "deploy" && argv[1] === "env" && argv[2] === "load") {
-    if (argv.includes("--replace")) {
-      process.stderr.write("unexpected argument '--replace' found\n")
+    if (!state.denoApp) process.exit(4)
+    // One `KEY='value'` line, as @std/dotenv reads a single-quoted value.
+    const match = /^(\w+)='([^']*)'\n$/u.exec(stdin)
+    if (!match) {
+      process.stderr.write("could not parse the dotenv file\n")
       process.exit(1)
     }
-    if (!state.denoApp) process.exit(4)
-    const [key, value] = stdin.trim().split("=")
-    state.secrets[key] = value
+    const existed = match[1] in state.secrets
+    if (existed && !argv.includes("--replace")) {
+      process.stderr.write("Existing env vars found and prompting is disabled.\n")
+      process.exit(1)
+    }
+    state.secrets[match[1]] = match[2]
     save()
-    process.stdout.write(JSON.stringify({ file: argv[3], added: [key], updated: [], skipped: [] }))
+    process.stdout.write(JSON.stringify({ file: argv[3], added: existed ? [] : [match[1]], updated: existed ? [match[1]] : [], skipped: [] }))
     return
   }
   if (argv[0] === "deploy" && argv[1] === "env" && argv[2] === "list") {
@@ -123,7 +179,7 @@ function deno() {
       process.stderr.write(JSON.stringify({ error: { code: "NOT_FOUND", message: "app not found" } }))
       process.exit(4)
     }
-    process.stdout.write(JSON.stringify(Object.keys(state.secrets).map(key => ({ key, isSecret: true, value: null }))))
+    process.stdout.write(JSON.stringify(Object.keys(state.uploadedSecrets ?? state.secrets).map(key => ({ key, isSecret: true, value: null }))))
     return
   }
   if (argv[0] === "deploy" && argv[1] === "create") {
@@ -135,4 +191,5 @@ function deno() {
   process.stdout.write(`Deployed\nhttps://${process.env.DENO_DEPLOY_APP}.${process.env.DENO_DEPLOY_ORG}.deno.net\n`)
 }
 
-({ deno, netlify, vercel, wrangler })[name]()
+if (process.env.FAKE_HOST_HANG && step.startsWith(process.env.FAKE_HOST_HANG)) setInterval(() => {}, 60_000)
+else ({ deno, netlify, vercel, wrangler })[name]()

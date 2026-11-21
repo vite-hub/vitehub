@@ -66,7 +66,7 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
     cleanup.push(() => worker.dispose())
     setActiveCloudflareEnv({ HISTORY_R2: await worker.getR2Bucket("HISTORY_R2") })
     cleanup.push(() => setActiveCloudflareEnv(undefined))
-    blob = createBlobStorage(createR2Driver({ driver: "cloudflare-r2", binding: "HISTORY_R2" }))
+    blob = createBlobStorage(createR2Driver({ driver: "cloudflare", binding: "HISTORY_R2" }))
     database = driver === "d1" ? drizzleD1(await worker.getD1Database("DB")) : createCloudflareD1HttpResolver({
       name: "history", cloudflare: { databaseId: "history", http: { authToken: "test", url: "https://d1.test/raw" } },
     }, defineRelations(workspaceHistorySchema), async (url, options) => {
@@ -89,6 +89,25 @@ async function setup(driver: "libsql" | "d1" | "d1-http", workspace = "drop-1") 
 function rawFiles(files: Record<string, string | Uint8Array>) {
   return Object.fromEntries(Object.entries(files).map(([path, content]) => [path, { path, content }]))
 }
+
+it.each(["published", "draft"])("observes its own head rejection but not a post-write conflict on %s", async (ref) => {
+  const { store } = await setup("libsql")
+  const base = createWorkspace({ name: "history", store })
+  await base.history.commit({ ref: "published", ifHead: null, files: { "a.txt": "published" } })
+  const workspace = createWorkspace({ name: "history", store, hooks: {
+    "write:after": async () => { await base.history.commit({ ref, ifHead: null, files: { "a.txt": "hook" } }) },
+  } })
+  const onHeadConflict = vi.fn()
+  const commit = { ref: "draft", ifHead: null, files: { "a.txt": "draft" }, onHeadConflict }
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref } })
+  expect(onHeadConflict).not.toHaveBeenCalled()
+  const head = await workspace.history.head({ ref: "draft" })
+  expect(await (await workspace.history.open(head!.id)).readFile("a.txt")).toBe("draft")
+
+  await expect(workspace.history.commit(commit)).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "draft" } })
+  expect(onHeadConflict).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "WORKSPACE_CONFLICT" }))
+})
 
 describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { timeout: 30_000 }, (driver) => {
   it("commits, lists, opens, and reads immutable text and binary files after a reopen", async () => {
@@ -382,6 +401,13 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await (await store.history.open(revision!.id)).readFile("keep.txt")).toBe("accepted")
   })
 
+  it("keeps the author of a snapshot in the revision metadata", async () => {
+    const { store } = await setup(driver)
+    await store.writeFile("posts/a.md", { path: "posts/a.md", content: "a" })
+    await store.snapshot({ name: "docs: add a", author: { name: "Ada Lovelace", email: "ada@example.com" } })
+    expect(await store.history.head()).toMatchObject({ message: "docs: add a", metadata: { author: { name: "Ada Lovelace", email: "ada@example.com" } } })
+  })
+
   it("accepts cross-realm binary content through both history entry points", async () => {
     const { store, facade, uploads } = await setup(driver)
     // SAFETY: This fixed VM expression creates exactly the declared byte array.
@@ -653,13 +679,13 @@ describe("history policy and capabilities", () => {
       "keep.txt": { write: "create" as const },
     }, hooks: { "write:after": after } } })
     const first = await workspace.history.commit({ ref: "draft", ifHead: null, changes: { put: { "a.txt": "a", "keep.txt": "keep", "b.txt": "b" } } })
-    // The more specific keep.txt rule has no validator.
-    expect(validate).toHaveBeenCalledTimes(2)
+    // The broader "**" validator also runs for keep.txt.
+    expect(validate).toHaveBeenCalledTimes(3)
     expect(after).toHaveBeenCalledTimes(3)
     expect(await (await workspace.history.open(first.id)).stat("a.txt")).toMatchObject({ metadata: { checked: true } })
     // Only changed paths reach validators; unchanged puts and untouched files are skipped.
     const second = await workspace.history.commit({ ref: "draft", ifHead: first.id, changes: { put: { "a.txt": "a", "b.txt": "b2" } } })
-    expect(validate).toHaveBeenCalledTimes(3)
+    expect(validate).toHaveBeenCalledTimes(4)
     expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({ path: "b.txt", operation: "writeFile", previous: expect.objectContaining({ path: "b.txt" }) }))
     expect(await (await workspace.history.open(second.id)).readFile("keep.txt")).toBe("keep")
     const count = uploads.mock.calls.length

@@ -2,7 +2,7 @@ import { findProperty, quoteString } from "@vite-hub/internal/ast"
 
 import { addViteHubOptions, bindingFree, ConfigEditor, createLineResolver, literal, propertyKey, useViteHubModule } from "../shared/config-editor.ts"
 import { objectProperty } from "../shared/nuxt-config.ts"
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { moduleName } from "./nuxt-config.ts"
 
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -41,7 +41,7 @@ export function declarationCode(field: EnvField, envName: string, style: CodeSty
   if (field.secret) options.push("secret: true")
   const names = [...new Set([field.variable, ...(field.extraVariables ?? [])])]
   const source = names.length === 1 ? quoteString(field.variable, style) : `[${names.map(name => quoteString(name, style)).join(", ")}]`
-  options.push(`source: ${envName}.source(${source}${field.skipEmpty ? ", { skipEmpty: true }" : ""})`)
+  options.push(`source: ${envName}.source(${source})`)
   const callee = field.kind === "string" ? envName : `${envName}.${field.kind}`
   const values = field.kind === "enum" ? `[${(field.values ?? []).map(value => quoteString(value, style)).join(", ")}], ` : ""
   return `${callee}(${values}{ ${options.join(", ")} })`
@@ -128,7 +128,7 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     imports.push(`import { ${specifier} } from ${quoteString("vite-hub/env", style)}${semicolon}`)
   }
   else {
-    if (!bindingFree(config, "envSchema")) throw new CodemodError(`${config.fileName} already declares envSchema. Rename it, then run the codemod again.`)
+    if (!bindingFree(config, "envSchema")) throw codemodError(`${config.fileName} already declares envSchema. Rename it, then run the codemod again.`)
     imports.push(`import { envSchema } from ${quoteString("@vite-hub/env/vite", style)}${semicolon}`)
   }
 

@@ -37,7 +37,7 @@ export const FilterSearch = defineComponent({
             ],
           },
         ),
-        h(ChoicesInputStatus, { class: "vh-visually-hidden" }),
+        h("span", { "data-slot": "visually-hidden" }, [h(ChoicesInputStatus)]),
         h(ChoicesInputError, { class: "vh-filter-search-error" }, {
           default: ({ error }: { error: Error | undefined }) => slots.error?.({ error }) ?? error?.message,
         }),

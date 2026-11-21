@@ -1,12 +1,7 @@
-import {
-  forgeEnv,
-  forgeGitAuthHeader,
-  forgeGitCredentials,
-  githubAppCredentials,
-  readGitHubAppPrivateKey,
-  withSignal,
-} from "@vite-hub/forge"
-import type { ForgeKind } from "@vite-hub/forge"
+import { abortable } from "@vite-hub/internal/abort"
+import { forgeEnv } from "@vite-hub/internal/forge"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
+import type { ForgeKind } from "./forge-kind.ts"
 import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import * as v from "valibot"
@@ -14,6 +9,7 @@ import * as v from "valibot"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentCallbackContext } from "../types.ts"
 import { readBuiltInEnv } from "./builtin-env.ts"
+import { loadForge } from "./forge-module.ts"
 import { pullRequestCheckoutPlan, pullRequestRepositories } from "./pull-request-checkout.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
@@ -103,32 +99,29 @@ export async function forgeConnection(
   }
   const specs = forgeEnv[kind]
   // Keep the capability context object: Server Env is cached by its identity for one Invocation.
-  const env = await withSignal(readBuiltInEnv(kind, specs, Object.keys(specs), context), signal)
+  const env = await abortable(signal, "Reading the Forge Server Env was aborted.", () => readBuiltInEnv(kind, specs, Object.keys(specs), context))
   const resolvedBaseUrl = baseUrl ?? envString(env.baseUrl)
-  if (kind === "github") {
-    const appId = envString(env.appId)
-    const privateKey = appId
-      ? await readGitHubAppPrivateKey(envString(env.privateKey), envString(env.privateKeyPath))
-      : undefined
-    if (appId && privateKey) {
-      const app = githubAppCredentials({ appId, privateKey, baseUrl: resolvedBaseUrl })
-      const installation = envString(env.installationId) ?? (await app.installation(repository, signal))
-      return {
-        forge: kind,
-        baseUrl: resolvedBaseUrl,
-        token: (await app.installationToken(installation, { signal })).token,
-      }
-    }
+  const { useForge } = await loadForge()
+  let forge
+  try {
+    // useForge() reads the App before the token, and routes the repository owner to its installation.
+    forge = useForge({
+      forge: kind,
+      env: Object.fromEntries(Object.entries(specs).map(([field, spec]) => [spec.names[0], envString(env[field])])),
+      ...(resolvedBaseUrl ? { baseUrl: resolvedBaseUrl } : {}),
+    })
   }
-  const token = envString(env.token)
-  if (!token) {
+  catch (error) {
+    if (!isRuntimeDiagnostic(error) || error.code !== "FORGE_MISSING_ENV") throw error
     const names =
       kind === "github"
-        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_INSTALLATION_ID; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
+        ? "VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY or VITEHUB_GITHUB_PRIVATE_KEY_PATH; optional VITEHUB_GITHUB_APP_INSTALLATIONS, or VITEHUB_GITHUB_INSTALLATION_ID with VITEHUB_GITHUB_APP_OWNER; or VITEHUB_GITHUB_TOKEN. FORGES_GITHUB_* names are also read"
         : specs.token.names.join(", ")
-    throw agentDiagnostics.AGENT_R0941({ message: `[vitehub] Forge requires Server Env credentials: ${names}.` })
+    throw agentDiagnostics.AGENT_R0941({ message: `[vitehub] Forge requires Server Env credentials: ${names}.`, cause: error })
   }
-  return { forge: kind, baseUrl: resolvedBaseUrl, token }
+  const [error, minted] = await forge.token({ repository, ...(signal ? { signal } : {}) })
+  if (error) throw error
+  return { forge: kind, ...(resolvedBaseUrl ? { baseUrl: resolvedBaseUrl } : {}), token: minted.token }
 }
 
 /** Repositories that one run's `git` and `gh` can reach. */
@@ -186,8 +179,8 @@ export function forgeGitScope(
 const forgeGitTokenLifetime = 55 * 60_000
 
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
-function gitAuthEntries(repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
-  const header = forgeGitAuthHeader(forgeGitCredentials({ forge: "github", repository, token, baseUrl }))
+function gitAuthEntries(forge: typeof import("@vite-hub/forge"), repository: string, token: string, baseUrl?: string): { key: string, value: string }[] {
+  const header = forge.forgeGitAuthHeader(forge.forgeGitCredentials({ forge: "github", repository, token, baseUrl }))
   if (!header) return []
   const withoutSuffix = header.key.replace(/\.git\.extraheader$/, ".extraheader")
   return [header, { key: withoutSuffix, value: header.value }]
@@ -210,17 +203,18 @@ export async function forgeGitEnvironment(
 ): Promise<Record<string, string>> {
   const access = readForgeAccess(runtimeContext)
   if (!access || !scope) return {}
+  const forge = await loadForge()
   const request = (repository: string) => access(context, { repository, minLifetime: forgeGitTokenLifetime, ...(signal ? { signal } : {}) })
   const entries: { key: string, value: string }[] = []
   let primary: ForgeAccessResult | undefined
   if (scope.repository) {
     primary = await request(scope.repository)
     if (!primary) return {}
-    entries.push(...gitAuthEntries(scope.repository, primary.token, primary.baseUrl))
+    entries.push(...gitAuthEntries(forge, scope.repository, primary.token, primary.baseUrl))
     const headRepository = scope.headRepository
     if (headRepository && headRepository.toLowerCase() !== scope.repository.toLowerCase()) {
       const headToken = await request(headRepository)
-      if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
+      if (headToken) entries.push(...gitAuthEntries(forge, headRepository, headToken.token, headToken.baseUrl))
     }
   }
   else {
@@ -232,7 +226,7 @@ export async function forgeGitEnvironment(
       })
       if (!result) continue
       primary ??= result
-      entries.push(...gitAuthEntries(repository, result.token, result.baseUrl))
+      entries.push(...gitAuthEntries(forge, repository, result.token, result.baseUrl))
     }
     if (!primary) return {}
   }

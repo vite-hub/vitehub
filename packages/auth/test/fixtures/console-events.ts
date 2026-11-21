@@ -5,6 +5,7 @@ import { defineAuth, createDatabaseAuthEventStore } from "../../src/index.ts";
 import { createBetterAuthOptions, getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
 import { eventDatabase } from "../event-helpers.ts";
+import { defineFixedAuth } from "../fixed-auth.ts"
 
 type AuthDefinitionPlugins = NonNullable<Parameters<typeof defineAuth>[0]>["plugins"];
 
@@ -14,20 +15,22 @@ export async function consoleEventsFixture(options: {
   secondaryStorage?: SecondaryStorage
   /** The role of the operator account. `admin` by default. */
   operatorRole?: string
+  /** The app origin, `http://localhost:5173` by default. An `https:` origin gives `__Secure-` cookies. */
+  origin?: string
+  session?: { cookieCache: { enabled: boolean } }
 } = {}) {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });
-  const origin = "http://localhost:5173";
-  const definition = defineAuth({
+  const origin = options.origin ?? "http://localhost:5173";
+  const definition = defineFixedAuth({
     emailAndPassword: { enabled: true },
     plugins: options.plugins ?? [admin()],
     events: { store },
-    runtime: {
-      database: database.sqlite,
-      ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
-      secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
-      baseURL: origin,
-    },
+    database: database.sqlite,
+    ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
+    ...(options.session ? { session: options.session } : {}),
+    secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
+    baseURL: origin,
   });
   try {
     await (await getMigrations(createBetterAuthOptions(definition))).runMigrations();

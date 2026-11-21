@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createEntrySource } from "../../src/task/runtime/entry-script.ts"
+import { createEntrySource } from "../../src/task/runtime/entry-script.injected.ts"
 import { decodeSandboxTaskValue, SANDBOX_VALUE_MARKER } from "../../src/task/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []
@@ -487,6 +487,15 @@ describe("package entry result transport", () => {
 
     expect(execution.code).toBe(0)
     expect(execution.output).toEqual({ ok: true, result: { length: 3 } })
+  })
+
+  it("serializes valid and invalid dates in task results", async () => {
+    const execution = await executePackageEntry(
+      `export default () => ({ valid: new Date(0), invalid: new Date(NaN) })`,
+    )
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toEqual({ ok: true, result: { valid: "1970-01-01T00:00:00.000Z", invalid: null } })
   })
 
   it("applies result toJSON only once with the JSON property key", async () => {

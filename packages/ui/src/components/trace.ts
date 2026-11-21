@@ -1,4 +1,4 @@
-import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@vite-hub/kit/collapsible";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@ui-sdk/vue/collapsible";
 import { defineComponent, h, type PropType } from "vue";
 import { kitSlot, slotPart } from "../internal/slot-part.ts";
 

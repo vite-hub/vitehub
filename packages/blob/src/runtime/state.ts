@@ -12,7 +12,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
 
-export { setBlobPhotonLoader } from "../media/photon-module.ts"
+export { loadWorkerPhoton, setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
 export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 
@@ -24,6 +24,11 @@ let runtimeConfigSnapshot: string | undefined
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
+
+export async function checkBlobStoreHealth(name: string): Promise<void> {
+  const runtime = await import("./storage.ts")
+  await runtime.checkBlobStoreHealth(name)
+}
 
 export {
   clearActiveCloudflareEnv,

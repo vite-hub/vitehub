@@ -6,33 +6,51 @@ import { appendParagraph, createStubEditor, createTestServer, settle } from "./h
 
 import type { RealtimeBlobStore } from "../src/server.ts"
 
-/** Keys files by pathname the way ViteHub Blob does: decoded once. */
+/**
+ * Keys files by pathname the way ViteHub Blob does: decoded once. Each write gets a new ETag, and `put()` checks
+ * `ifMatch` and `overwrite: false` like Blob, and writes without a condition when it gets neither. `onRead` runs in
+ * each `get()`, after the file is read.
+ */
 function memoryBlob() {
-  const files = new Map<string, { body: string, contentType: string }>()
+  const files = new Map<string, { body: string, contentType: string, etag: string }>()
+  let version = 0
+  let onRead: (() => void) | undefined
+  const write = (pathname: string, body: string, contentType: string) => files.set(pathname, { body, contentType, etag: `"v${++version}"` })
   const store: RealtimeBlobStore = {
     async get(pathname) {
       const file = files.get(decodeURIComponent(pathname))
+      onRead?.()
       return [undefined, file ? new Blob([file.body], { type: file.contentType }) : null]
     },
-    async put(pathname, body, { contentType }) {
-      files.set(decodeURIComponent(pathname), { body, contentType })
+    async head(pathname) {
+      const file = files.get(decodeURIComponent(pathname))
+      return [undefined, file ? { httpEtag: file.etag } : null]
+    },
+    async put(pathname, body, options) {
+      const key = decodeURIComponent(pathname)
+      const current = files.get(key)
+      const refused = "overwrite" in options ? current !== undefined : "ifMatch" in options && current?.etag !== options.ifMatch
+      if (refused) {
+        return [Object.assign(new Error("Blob changed"), { code: "BLOB_CONFLICT" }), undefined]
+      }
+      write(key, body, options.contentType)
       return [undefined, { pathname }]
     },
   }
-  return { files, store }
+  return { files, setOnRead: (callback: () => void) => { onRead = callback }, store, write }
 }
 
 const context = { authority: "memory", definition: "drafts", documentId: "a/v1.md" } as const
 const save = { editors: [], reason: "idle" as const }
 
 describe("blobDocument", () => {
-  it("creates, loads, and saves one private Markdown file per document", async () => {
+  it("creates, loads, and saves one Markdown file per document", async () => {
     const { files, store } = memoryBlob()
     const adapter = blobDocument(store, { prefix: "drafts/" })
     expect(await adapter.load(context)).toEqual({ body: "", digest: null })
 
     const created = await adapter.save(context, { body: "# One" }, { ...save, ifDigest: null })
-    expect(files.get("drafts/a/v1.md")).toEqual({ body: "# One", contentType: "text/markdown; charset=utf-8" })
+    expect(files.get("drafts/a/v1.md")).toMatchObject({ body: "# One", contentType: "text/markdown; charset=utf-8" })
     expect(await adapter.load(context)).toEqual({ body: "# One", digest: created.digest })
 
     const edited = await adapter.save(context, { body: "# Two" }, { ...save, ifDigest: created.digest })
@@ -41,11 +59,11 @@ describe("blobDocument", () => {
   })
 
   it("throws RealtimeDocumentConflict and keeps the other writer's file", async () => {
-    const { files, store } = memoryBlob()
+    const { files, store, write } = memoryBlob()
     const adapter = blobDocument(store)
-    await store.put(context.documentId, "# Draft", { access: "private", contentType: "text/markdown" })
+    write(context.documentId, "# Draft", "text/markdown")
     const loaded = await adapter.load(context)
-    await store.put(context.documentId, "# Someone else", { access: "private", contentType: "text/markdown" })
+    write(context.documentId, "# Someone else", "text/markdown")
 
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT", name: "RealtimeDocumentConflict" })
@@ -53,18 +71,53 @@ describe("blobDocument", () => {
   })
 
   it("throws RealtimeDocumentConflict when the file was deleted or created by someone else", async () => {
-    const { files, store } = memoryBlob()
+    const { files, store, write } = memoryBlob()
     const adapter = blobDocument(store)
-    await store.put(context.documentId, "# Draft", { access: "private", contentType: "text/markdown" })
+    write(context.documentId, "# Draft", "text/markdown")
     const loaded = await adapter.load(context)
     files.delete(context.documentId)
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
     expect(files.has(context.documentId)).toBe(false)
 
-    await store.put(context.documentId, "# New", { access: "private", contentType: "text/markdown" })
+    write(context.documentId, "# New", "text/markdown")
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: null }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
+  })
+
+  it("throws RealtimeDocumentConflict when another writer writes between the read and the save's write", async () => {
+    const { files, setOnRead, store, write } = memoryBlob()
+    const adapter = blobDocument(store)
+    write(context.documentId, "# Draft", "text/markdown")
+    const loaded = await adapter.load(context)
+    setOnRead(() => write(context.documentId, "# Someone else", "text/markdown"))
+
+    await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
+      .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT", name: "RealtimeDocumentConflict" })
+    expect(files.get(context.documentId)?.body).toBe("# Someone else")
+  })
+
+  it("throws RealtimeDocumentConflict when another writer creates the file during the first save", async () => {
+    const { files, store } = memoryBlob()
+    const adapter = blobDocument(store)
+    const put = store.put
+    store.put = async (pathname, body, options) => {
+      files.set(pathname, { body: "# Someone else", contentType: "text/markdown", etag: "\"other\"" })
+      return put(pathname, body, options)
+    }
+
+    await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: null }))
+      .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
+    expect(files.get(context.documentId)?.body).toBe("# Someone else")
+  })
+
+  it("throws REALTIME_BLOB_ETAG_MISSING for a store whose head() has no ETag", async () => {
+    const { store, write } = memoryBlob()
+    write(context.documentId, "# Draft", "text/markdown")
+    const loaded = await blobDocument(store).load(context)
+    const adapter = blobDocument({ ...store, head: async () => [undefined, { httpEtag: undefined }] })
+    await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: loaded.digest }))
+      .rejects.toMatchObject({ code: "REALTIME_BLOB_ETAG_MISSING" })
   })
 
   it("keeps a document id with an encoded slash apart from the id with a real slash", async () => {
@@ -81,6 +134,7 @@ describe("blobDocument", () => {
   it("treats BLOB_NOT_FOUND as a missing file and throws other Blob errors", async () => {
     const failing = (code: string): RealtimeBlobStore => ({
       async get() { return [Object.assign(new Error(code), { code }), undefined] },
+      async head() { return [Object.assign(new Error(code), { code }), undefined] },
       async put() { return [undefined, {}] },
     })
     expect(await blobDocument(failing("BLOB_NOT_FOUND")).load(context)).toEqual({ body: "", digest: null })
@@ -89,13 +143,13 @@ describe("blobDocument", () => {
 
   it("re-seeds a room whose Blob file another writer changed, and keeps that file", async () => {
     vi.useFakeTimers()
-    const { files, store } = memoryBlob()
-    await store.put("page", "Start", { access: "private", contentType: "text/markdown" })
-    const server = createTestServer({ document: blobDocument(store), editor: createStubEditor().editor })
+    const { files, store, write } = memoryBlob()
+    write("page", "Start", "text/markdown")
+    const server = createTestServer({ access: "public", document: blobDocument(store), editor: createStubEditor().editor })
     const client = await server.connect("page")
     await settle()
     await vi.advanceTimersByTimeAsync(60)
-    await store.put("page", "Someone else", { access: "private", contentType: "text/markdown" })
+    write("page", "Someone else", "text/markdown")
     appendParagraph(client.doc, "Mine")
 
     const response = await server.post("page", "save", { state: Y.encodeStateAsUpdate(client.doc) })

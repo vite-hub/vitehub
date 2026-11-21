@@ -1,3 +1,5 @@
+import { setImmediate } from "node:timers/promises"
+
 import { describe, expect, it, vi } from "vitest"
 import { InMemoryFs } from "just-bash"
 
@@ -5,7 +7,7 @@ import {
   analyzeShellCommand,
   createShellRuntime,
 } from "../src/index.ts"
-import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createJustBashDriver } from "../src/providers/just-bash.ts"
 import { createShellRuntime as createPackagedShellRuntime } from "../dist/index.js"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 import {
@@ -17,7 +19,7 @@ import {
 
 import type {
   ShellAnalyzeOptions,
-  ShellExecutionProvider,
+  ShellDriver,
   ShellObservation,
   ShellProcess,
 } from "../src/index.ts"
@@ -32,7 +34,7 @@ type _RootReadonlyShellWorkspace = RootReadonlyShellWorkspace
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   return createShellRuntime({
-    provider: createJustBashProvider({
+    driver: createJustBashDriver({
       commands: ["pwd", "ls", "find", "cat", "head", "tail", "wc", "rg"],
       cwd: workspaceMountPoint,
       fs: createReadonlyWorkspaceFs(workspace),
@@ -40,9 +42,9 @@ function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   })
 }
 
-function createBackgroundProvider(
-  startProcess: NonNullable<ShellExecutionProvider["startProcess"]>,
-): ShellExecutionProvider {
+function createBackgroundDriver(
+  startProcess: NonNullable<ShellDriver["startProcess"]>,
+): ShellDriver {
   return {
     boundary: {
       cwd: true,
@@ -77,9 +79,9 @@ describe.each([
   ])("enforces policy $policyLimit with requested limit $requested", async ({ policyLimit, requested, limit }) => {
     const stdout: string[] = []
     const stderr: string[] = []
-    let providerLimit: number | undefined
-    const provider = createBackgroundProvider(async (command, options) => {
-      providerLimit = options?.maxOutputLength
+    let driverLimit: number | undefined
+    const driver = createBackgroundDriver(async (command, options) => {
+      driverLimit = options?.maxOutputLength
       options?.onStdout?.("abc")
       options?.onStderr?.("123")
       return {
@@ -97,7 +99,7 @@ describe.each([
         },
       }
     })
-    const session = createRuntime({ provider, policy: { maxOutputLength: policyLimit } }).createSession()
+    const session = createRuntime({ driver, policy: { maxOutputLength: policyLimit } }).createSession()
     try {
       const process = await session.startProcess("worker", {
         maxOutputLength: requested,
@@ -107,7 +109,7 @@ describe.each([
       const result = await process.stop()
       expect(stdout.join("")).toBe("abcdefghi".slice(0, limit))
       expect(stderr.join("")).toBe("123456789".slice(0, limit))
-      expect(providerLimit).toBe(limit)
+      expect(driverLimit).toBe(limit)
       expect(result).toMatchObject({ command: "worker", event: "command_finished", exitCode: 0 })
       const suffix = limit === undefined ? "" : `\n[output truncated to ${limit} characters]\n`
       expect(result.stdout).toBe(`${"abcdefghi".slice(0, limit)}${suffix}`)
@@ -131,20 +133,20 @@ describe("@vite-hub/shell just-bash runtime", () => {
       runWorkspaceInspectionCommand: expect.any(Function),
     })
     await expect(import("@vite-hub/shell/providers/just-bash")).resolves.toMatchObject({
-      createJustBashProvider: expect.any(Function),
+      createJustBashDriver: expect.any(Function),
     })
   })
 
-  it("preserves the receiver of a custom provider analyzer", async () => {
-    class StatefulProvider implements ShellExecutionProvider {
+  it("preserves the receiver of a custom driver analyzer", async () => {
+    class StatefulDriver implements ShellDriver {
       #maxInputBytes = 4
-      boundary = createBackgroundProvider(async () => { throw new Error("unused") }).boundary
+      boundary = createBackgroundDriver(async () => { throw new Error("unused") }).boundary
       async exec(command: string) { return stoppedProcessObservation(command) }
       async analyze(command: string, options?: ShellAnalyzeOptions) {
         return analyzeShellCommand(command, { maxInputBytes: this.#maxInputBytes, ...options })
       }
     }
-    const session = createShellRuntime({ provider: new StatefulProvider() }).createSession()
+    const session = createShellRuntime({ driver: new StatefulDriver() }).createSession()
     await expect(session.analyze("echo hello")).resolves.toMatchObject({
       error: "Shell command exceeds 4 bytes.",
       ok: false,
@@ -155,9 +157,9 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
   })
 
-  it("uses the built-in analyzer when the provider has none", async () => {
-    const provider = createBackgroundProvider(async () => { throw new Error("unused") })
-    const session = createShellRuntime({ provider }).createSession()
+  it("uses the built-in analyzer when the driver has none", async () => {
+    const driver = createBackgroundDriver(async () => { throw new Error("unused") })
+    const session = createShellRuntime({ driver }).createSession()
     await expect(session.analyze("echo hello", { maxInputBytes: 4 })).resolves.toMatchObject({
       error: "Shell command exceeds 4 bytes.",
       ok: false,
@@ -215,7 +217,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     const stdout: string[] = []
     const stderr: string[] = []
     const runtime = createShellRuntime({
-      provider: {
+      driver: {
         boundary: {
           cwd: true, env: true, filesystem: { writable: false }, network: false,
           processes: { background: false, interactive: false }, streaming: true,
@@ -245,7 +247,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     { maxOutputLength: Number.NaN, stderr: "\n[output truncated to 0 characters]\n", stdout: "\n[output truncated to 0 characters]\n", limit: 0 },
     { maxOutputLength: 4, stderr: "erro\n[output truncated to 4 characters]\n", stdout: "outp\n[output truncated to 4 characters]\n", limit: 4 },
   ])("retains class-based observations with max output length $maxOutputLength", async ({ maxOutputLength, stderr, stdout, limit }) => {
-    class ProviderObservation implements ShellObservation {
+    class DriverObservation implements ShellObservation {
       get command() { return "report" }
       get cwd() { return "/workspace" }
       get durationMs() { return 12 }
@@ -260,7 +262,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     }
     const runtime = createShellRuntime({
       policy: { maxOutputLength },
-      provider: {
+      driver: {
         boundary: {
           cwd: true,
           env: true,
@@ -270,7 +272,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
           streaming: false,
           timeout: { enforcedBy: "runtime", supported: true },
         },
-        async exec() { return new ProviderObservation() },
+        async exec() { return new DriverObservation() },
       },
     })
 
@@ -299,7 +301,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     }
     const process = new BackgroundProcess()
     const stop = vi.spyOn(process, "stop")
-    const session = createShellRuntime({ provider: createBackgroundProvider(async () => process) }).createSession()
+    const session = createShellRuntime({ driver: createBackgroundDriver(async () => process) }).createSession()
 
     const tracked = await session.startProcess("worker")
 
@@ -317,7 +319,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       command: "worker",
       stop,
     }
-    const session = createShellRuntime({ provider: createBackgroundProvider(async () => process) }).createSession()
+    const session = createShellRuntime({ driver: createBackgroundDriver(async () => process) }).createSession()
 
     const tracked = await session.startProcess("worker")
 
@@ -336,8 +338,8 @@ describe("@vite-hub/shell just-bash runtime", () => {
       command: "worker",
       stop,
     }
-    const provider = createBackgroundProvider(() => new Promise(resolve => { release = resolve }))
-    const session = createShellRuntime({ provider }).createSession()
+    const driver = createBackgroundDriver(() => new Promise(resolve => { release = resolve }))
+    const session = createShellRuntime({ driver }).createSession()
     const starting = session.startProcess("worker")
     const disposing = session.dispose()
     const rejected = expect(starting).rejects.toThrow("Shell session is disposed")
@@ -349,18 +351,18 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
-  it("applies Just Bash execution limits copied at provider creation", async () => {
+  it("applies Just Bash execution limits copied at driver creation", async () => {
     const loop = "i=0; while [ $i -lt 100 ]; do i=$((i+1)); done; echo $i"
     const fs = createReadonlyWorkspaceFs(new MemoryWorkspace({}))
     const executionLimits = { maxLoopIterations: 10 }
-    const limited = createShellRuntime({ provider: createJustBashProvider({ executionLimits, fs }) })
+    const limited = createShellRuntime({ driver: createJustBashDriver({ executionLimits, fs }) })
     executionLimits.maxLoopIterations = 1_000
 
     await expect(limited.exec(loop)).resolves.toMatchObject({
       exitCode: 126,
       stderr: expect.stringContaining("too many iterations (10)"),
     })
-    await expect(createShellRuntime({ provider: createJustBashProvider({ fs }) }).exec(loop)).resolves.toMatchObject({
+    await expect(createShellRuntime({ driver: createJustBashDriver({ fs }) }).exec(loop)).resolves.toMatchObject({
       exitCode: 0,
       stdout: "100\n",
     })
@@ -368,7 +370,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it("passes exec stdin to Just Bash commands", async () => {
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
+      driver: createJustBashDriver({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
     })
 
     await expect(runtime.exec("jq -r .name", { stdin: "{\"name\":\"vitehub\"}" })).resolves.toMatchObject({
@@ -381,11 +383,11 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
   })
 
-  it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
+  it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash driver network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands,
         fs: createReadonlyWorkspaceFs(workspace),
         networkGrants: { executeSourceRequest },
@@ -446,14 +448,14 @@ describe("@vite-hub/shell just-bash runtime", () => {
         input.signal?.throwIfAborted()
         return { content: "éé" }
       })
-      const provider = createJustBashProvider({
+      const driver = createJustBashDriver({
         executionLimitProfile: "hardened",
         executionLimits,
         fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
         networkGrants: { executeSourceRequest },
       })
 
-      const pending = provider.exec("curl https://portal.example.com/action", execOptions)
+      const pending = driver.exec("curl https://portal.example.com/action", execOptions)
       await vi.advanceTimersByTimeAsync(10)
 
       await expect(pending).resolves.toMatchObject(expected)
@@ -469,14 +471,14 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it("bounds controlled Source output before it reaches the Shell observation", async () => {
     const executeSourceRequest = vi.fn(async () => ({ content: "0123456789" }))
-    const provider = createJustBashProvider({
+    const driver = createJustBashDriver({
       commands: ["curl"],
       fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
       networkGrants: { executeSourceRequest },
     })
     const runtime = createShellRuntime({
       policy: { maxOutputLength: 4 },
-      provider,
+      driver,
     })
 
     await expect(runtime.exec("curl https://portal.example.com/action")).resolves.toMatchObject({
@@ -484,7 +486,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       outputTruncated: true,
       stdout: "0123\n[output truncated to 4 characters]\n",
     })
-    await expect(provider.exec("curl https://portal.example.com/action", { maxOutputLength: 4 })).resolves.toMatchObject({
+    await expect(driver.exec("curl https://portal.example.com/action", { maxOutputLength: 4 })).resolves.toMatchObject({
       maxOutputLength: 4,
       outputTruncated: true,
     })
@@ -500,7 +502,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       return { content: "never" }
     })
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands: ["curl"],
         fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
         networkGrants: { executeSourceRequest },
@@ -516,7 +518,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it("preserves cancellation during Source request startup", async () => {
     const controller = new AbortController()
     const reason = new Error("cancelled during startup")
-    const provider = createJustBashProvider({
+    const driver = createJustBashDriver({
       commands: ["curl"],
       fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
       networkGrants: {
@@ -527,7 +529,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       },
     })
 
-    await expect(provider.exec("curl https://portal.example.com/action", {
+    await expect(driver.exec("curl https://portal.example.com/action", {
       signal: controller.signal,
       timeout: 100,
     })).rejects.toBe(reason)
@@ -536,7 +538,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it("runs controlled curl inside pipelines and command substitution", async () => {
     const executeSourceRequest = vi.fn(async () => ({ content: "{\"status\":\"green\"}\n" }))
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         cwd: workspaceMountPoint,
         fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
         networkGrants: { executeSourceRequest },
@@ -559,7 +561,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it("reports a denied controlled curl inside a pipeline as a policy denial", async () => {
     const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
         networkGrants: { executeSourceRequest },
       }),
@@ -575,7 +577,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {
     const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands,
         fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
         networkGrants: { executeSourceRequest },
@@ -600,7 +602,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
       networkGrants: { executeSourceRequest },
     }
-    const runtime = createShellRuntime({ provider: createJustBashProvider(options) })
+    const runtime = createShellRuntime({ driver: createJustBashDriver(options) })
 
     commands.splice(0, commands.length, ...(permitted ? ["cat"] : ["curl", "echo"]))
     options.commands = commands.slice()
@@ -618,12 +620,12 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it("unregisters stopped long-running processes from session state", async () => {
     const stops = new Map<string, ReturnType<typeof vi.fn>>()
-    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => {
+    const driver = createBackgroundDriver(async (command: string): Promise<ShellProcess> => {
       const stop = vi.fn(async () => stoppedProcessObservation(command))
       stops.set(command, stop)
       return { command, id: command, stop }
     })
-    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+    const session = createShellRuntime({ driver }).createSession({ policy: { maxProcesses: 1 } })
 
     const first = await session.startProcess("one")
     expect(await session.listProcesses()).toHaveLength(1)
@@ -644,11 +646,11 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it("reserves process budget while starts are pending", async () => {
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
-    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => {
+    const driver = createBackgroundDriver(async (command: string): Promise<ShellProcess> => {
       await gate
       return { command, id: command, async stop() { return stoppedProcessObservation(command) } }
     })
-    const session = createShellRuntime({ provider }).createSession({ policy: { maxProcesses: 1 } })
+    const session = createShellRuntime({ driver }).createSession({ policy: { maxProcesses: 1 } })
     const first = session.startProcess("one")
     await expect(session.startProcess("two")).rejects.toThrow("process budget exhausted after 1 processes")
     release()
@@ -659,7 +661,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
   it("returns background-process cleanup failures without FiberFailure", async () => {
     const firstError = new Error("first stop failed")
     const secondError = new Error("second stop failed")
-    const provider = createBackgroundProvider(async (command: string): Promise<ShellProcess> => ({
+    const driver = createBackgroundDriver(async (command: string): Promise<ShellProcess> => ({
       command,
       id: command,
       async stop() {
@@ -668,7 +670,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
         return stoppedProcessObservation(command)
       },
     }))
-    const session = createShellRuntime({ provider }).createSession()
+    const session = createShellRuntime({ driver }).createSession()
 
     await session.startProcess("one")
     await session.startProcess("two")
@@ -688,12 +690,12 @@ describe("@vite-hub/shell just-bash runtime", () => {
       .mockRejectedValueOnce(firstError)
       .mockRejectedValueOnce(secondError)
       .mockResolvedValue(stoppedProcessObservation("retryable"))
-    const provider = createBackgroundProvider(async (): Promise<ShellProcess> => ({
+    const driver = createBackgroundDriver(async (): Promise<ShellProcess> => ({
       command: "retryable",
       id: "retryable",
       stop,
     }))
-    const session = createShellRuntime({ provider }).createSession()
+    const session = createShellRuntime({ driver }).createSession()
     const process = await session.startProcess("retryable")
 
     const firstStop = process.stop()
@@ -726,10 +728,10 @@ describe("@vite-hub/shell just-bash runtime", () => {
       })
       return stoppedProcessObservation("late")
     })
-    const provider = createBackgroundProvider(() => new Promise(resolve => {
+    const driver = createBackgroundDriver(() => new Promise(resolve => {
       resolveProcess = resolve
     }))
-    const session = createShellRuntime({ provider }).createSession()
+    const session = createShellRuntime({ driver }).createSession()
     const starting = session.startProcess("late")
     const disposing = session.dispose()
 
@@ -829,7 +831,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       "README.md": "# Docs\n",
     })
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands: ["cat", "echo", "grep", "head", "mkdir", "printf", "test", "tr"],
         cwd: workspaceMountPoint,
         fs: createWritableWorkspaceFs(workspace),
@@ -842,7 +844,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(runtime.exec("if test -f tmp/out\nthen\ncat tmp/out\nfi")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
   })
 
-  it("keeps yq XML conversion unavailable in the portable provider", async () => {
+  it("keeps yq XML conversion unavailable in the portable driver", async () => {
     const workspace = new MemoryWorkspace({
       "input.xml": `<?xml version="1.0"?>
 <!DOCTYPE root [<!ENTITY a "x">]>
@@ -851,7 +853,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 `,
     })
     const runtime = createShellRuntime({
-      provider: createJustBashProvider({
+      driver: createJustBashDriver({
         commands: ["yq"],
         cwd: workspaceMountPoint,
         fs: createReadonlyWorkspaceFs(workspace),
@@ -978,7 +980,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
     const readFile = workspace.readFile.bind(workspace)
     const failure = new Error("EIO: temporary read failure")
     vi.spyOn(workspace, "readFile").mockRejectedValue(failure)
-    const shell = createShellRuntime({ provider: createJustBashProvider({
+    const shell = createShellRuntime({ driver: createJustBashDriver({
       commands: ["printf"],
       cwd: "/workspace",
       fs: createWritableWorkspaceFs(workspace),
@@ -1059,7 +1061,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
   it.each(["> data.bin", ">> data.bin", "| tee data.bin"])("preserves binary command bytes through %s", async (destination) => {
     const workspace = new MemoryWorkspace({})
-    const shell = createShellRuntime({ provider: createJustBashProvider({
+    const shell = createShellRuntime({ driver: createJustBashDriver({
       commands: ["printf", "base64", "tee"],
       cwd: "/workspace",
       fs: createWritableWorkspaceFs(workspace),
@@ -1071,13 +1073,15 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(Array.from(await workspace.readFile("data.bin", { encoding: "binary" }) as Uint8Array)).toEqual([0, 128, 255])
   })
 
-  it("does not refresh workspace paths when creating a shell filesystem", () => {
+  it("does not refresh workspace paths when creating a shell filesystem", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",
     })
     const list = vi.spyOn(workspace, "list")
 
     createReadonlyWorkspaceFs(workspace)
+    // A refresh starts in a later microtask, so wait for the next macrotask before checking.
+    await setImmediate()
 
     expect(list).not.toHaveBeenCalled()
   })
@@ -1187,5 +1191,160 @@ describe("@vite-hub/shell analyzer", () => {
       ok: false,
       parser: "sh-syntax",
     })
+  })
+})
+
+describe("shell timeout policy", () => {
+  function timeoutDriver(enforcedBy: "provider" | "runtime", exec: ShellDriver["exec"], startProcess?: ShellDriver["startProcess"]): ShellDriver {
+    return {
+      boundary: {
+        cwd: true, env: true, filesystem: { writable: false }, network: false,
+        processes: { background: Boolean(startProcess), interactive: false }, streaming: false,
+        timeout: { enforcedBy, supported: true },
+      },
+      exec,
+      ...(startProcess ? { startProcess } : {}),
+    }
+  }
+
+  it.each([
+    { policy: 1_000, requested: undefined, timeout: 1_000 },
+    { policy: 1_000, requested: 60_000, timeout: 1_000 },
+    { policy: 1_000, requested: 200, timeout: 200 },
+    { policy: undefined, requested: 200, timeout: 200 },
+    { policy: undefined, requested: undefined, timeout: undefined },
+  ])("passes the lower of policy $policy and exec $requested to the driver", async ({ policy, requested, timeout }) => {
+    let execTimeout: number | undefined
+    let processTimeout: number | undefined
+    const driver = timeoutDriver("provider", async (command, options) => {
+      execTimeout = options?.timeout
+      return { command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }
+    }, async (command, options) => {
+      processTimeout = options?.timeout
+      return { id: "worker", command, async stop() { return stoppedProcessObservation(command) } }
+    })
+    const session = createShellRuntime({ driver, policy: { timeout: policy } }).createSession()
+    try {
+      await session.exec("run", { timeout: requested })
+      await session.startProcess("worker", { timeout: requested })
+      expect(execTimeout).toBe(timeout)
+      expect(processTimeout).toBe(timeout)
+    }
+    finally { await session.dispose() }
+  })
+
+  it("enforces the timeout when the driver declares runtime enforcement", async () => {
+    let aborted = false
+    const driver = timeoutDriver("runtime", (command, options) => new Promise((resolve) => {
+      options?.signal?.addEventListener("abort", () => {
+        aborted = true
+        resolve({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "late" })
+      })
+    }))
+    const runtime = createShellRuntime({ driver, policy: { timeout: 20 } })
+    await expect(runtime.exec("hang", { cwd: "/workspace", timeout: 60_000 })).resolves.toMatchObject({
+      command: "hang",
+      cwd: "/workspace",
+      event: "command_timed_out",
+      exitCode: null,
+      stderr: "[vitehub] Shell command timed out after 20ms.\n",
+      stdout: "",
+      timedOut: true,
+    })
+    expect(aborted).toBe(true)
+  })
+
+  it("stops a background process when the runtime enforces the timeout", async () => {
+    let stopped = 0
+    const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), async command => ({
+      id: "worker",
+      command,
+      async stop() {
+        stopped += 1
+        return stoppedProcessObservation(command)
+      },
+    }))
+    const session = createShellRuntime({ driver, policy: { timeout: 20 } }).createSession()
+    await session.startProcess("worker", { timeout: 60_000 })
+    await vi.waitFor(() => expect(stopped).toBe(1))
+    await expect(session.listProcesses()).resolves.toEqual([])
+    await session.dispose()
+    expect(stopped).toBe(1)
+  })
+
+  it.each(["timeout", "dispose"] as const)("keeps %s cancellation authoritative when the driver settles on abort", async (cancellation) => {
+    for (const settlement of ["resolve", "reject"] as const) {
+      let stopped = 0
+      const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), (command, options) => new Promise((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          if (settlement === "reject") reject(new DOMException("Driver aborted", "AbortError"))
+          else resolve({
+            id: "worker",
+            command,
+            async stop() {
+              stopped += 1
+              return stoppedProcessObservation(command)
+            },
+          })
+        }, { once: true })
+      }))
+      const session = createShellRuntime({ driver, policy: { timeout: cancellation === "timeout" ? 10 : 60_000 } }).createSession()
+      const rejected = expect(session.startProcess("worker")).rejects.toThrow(cancellation === "timeout" ? "Shell process start timed out after 10ms" : "Shell session is disposed")
+      if (cancellation === "dispose") await session.dispose()
+      await rejected
+      if (settlement === "resolve") await vi.waitFor(() => expect(stopped).toBe(1))
+      else expect(stopped).toBe(0)
+      await expect(session.listProcesses()).resolves.toEqual([])
+      await session.dispose()
+    }
+  })
+
+  it("counts process startup time against the runtime timeout", async () => {
+    let stopped = 0
+    let startSignal: AbortSignal | undefined
+    const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), async (command, options) => {
+      startSignal = options?.signal
+      await new Promise(resolve => setTimeout(resolve, 70))
+      return {
+        id: "worker",
+        command,
+        async stop() {
+          stopped += 1
+          return stoppedProcessObservation(command)
+        },
+      }
+    })
+    const session = createShellRuntime({ driver, policy: { timeout: 20 } }).createSession()
+    const started = Date.now()
+    await expect(session.startProcess("worker", { timeout: 60_000 })).rejects.toThrow("[vitehub] Shell process start timed out after 20ms.")
+    expect(Date.now() - started).toBeLessThan(60)
+    expect(startSignal?.aborted).toBe(true)
+    await vi.waitFor(() => expect(stopped).toBe(1))
+    await expect(session.listProcesses()).resolves.toEqual([])
+    await session.dispose()
+    expect(stopped).toBe(1)
+  })
+
+  it("bounds a process startup that never resolves", async () => {
+    const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), () => new Promise(() => {}))
+    const session = createShellRuntime({ driver, policy: { timeout: 20 } }).createSession()
+    await expect(session.startProcess("worker")).rejects.toThrow("[vitehub] Shell process start timed out after 20ms.")
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("does not block disposal on a pending runtime-timed startup", async () => {
+    let startSignal: AbortSignal | undefined
+    const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), (_command, options) => {
+      startSignal = options?.signal
+      return new Promise(() => {})
+    })
+    const session = createShellRuntime({ driver, policy: { timeout: 60_000 } }).createSession()
+    const starting = session.startProcess("worker")
+    const rejected = expect(starting).rejects.toThrow("Shell session is disposed")
+    const started = Date.now()
+    await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+    expect(Date.now() - started).toBeLessThan(1_000)
+    await rejected
+    expect(startSignal?.aborted).toBe(true)
   })
 })

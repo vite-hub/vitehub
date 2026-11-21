@@ -19,7 +19,7 @@ export default defineNuxtConfig({
     blob: {
       stores: {
         default: { driver: 'fs' },
-        reports: { driver: 'vercel-blob', access: 'private' },
+        reports: { driver: 'vercel', access: 'private' },
       },
     },
   },
@@ -39,7 +39,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -60,7 +60,7 @@ export default defineConfig({
       blob: {
         stores: {
           default: { driver: 'fs' },
-          reports: { driver: 'vercel-blob', access: 'private' },
+          reports: { driver: 'vercel', access: 'private' },
         },
       },
     }),
@@ -73,18 +73,19 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `blob: false` | Turns Blob off. |
-| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
+| `blob: BlobStoreConfig` | One default store with a `driver` and its provider options. Without a driver, ViteHub picks S3 when the build has `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`. Otherwise it picks Cloudflare R2, Netlify Blobs, Vercel Blob, or the local filesystem from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Named stores. `stores.default` is required. |
 | `blob: { serve: false }` | No serve route. This is the default. |
-| `blob: { serve: true }` | Adds a Nitro route at `/api/_vitehub/blob/**` that serves the default store. |
-| `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Adds a Nitro route. `route` defaults to `/api/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+| `blob: { serve: { access: 'public' } }` | Adds a Nitro route at `/_vitehub/blob/**` that sends every file of the default store to anyone. |
+| `blob: { serve: { authorize: true } }` | Adds the same route, but each request needs a signed-in Auth session. |
+| `blob: { serve: { public?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `access: 'public'` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
 > [!WARNING]
 > The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
 
 ### Use the real store in development
 
-`vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare host, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+`vite dev` keeps Blob local by default. When ViteHub infers S3 from the `S3_*` variables, or Vercel Blob from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel host, for a store without a `driver`, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. A `cloudflare` store, and a store without a `driver` on the Cloudflare host, uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, the Node runner in `vite dev` and `nuxt dev` uses the local `fs` driver: `.vitehub/data/blob` for the default store and `.vitehub/data/blob-<name>` for a named store. If you use Miniflare, add a local `r2_buckets` entry to your Wrangler config with the same `binding` as the Blob store. Without it, Miniflare reports a missing binding instead of falling back to `fs`.
 
 Set `remote: true` to use the real store in `vite dev`:
 
@@ -126,11 +127,11 @@ export default defineConfig({
 Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
 ::
 
-`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` other than `cloudflare` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
-The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. Enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
+The serve route is not public unless you set `serve.access: 'public'`. `serve.authorize: false` does not make it public: it fails with `BLOB_C0021`. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. Enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -175,7 +176,7 @@ export default defineConfig({
 :::
 ::
 
-To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ request, session, user }` and returns `true`, `false`, or a `Response`.
+To decide each request yourself, export `authorize` from `server/blob.ts`. It gets `{ event, request, session, user }` and returns `true`, `false`, or a `Response`. `event` is the H3 event of the serve route, so the callback can pass it to your own server functions, such as a lookup that caches on `event.context`.
 
 ```ts [server/blob.ts]
 import type { BlobServeAuthorize } from 'vite-hub/blob'
@@ -255,14 +256,14 @@ export const authorize: BlobServeAnonymousAuthorize = ({ request, user }) => {
 
 ## Serve blob-backed assets
 
-Set `serve` to add a Nitro route that sends stored files to the browser through `blob.serve()`. It is off by default.
+Set `serve` to add a Nitro route that sends stored files to the browser through `blob.serve()`. It is off by default. Each route says who may read the files: `access: 'public'` sends every file of the store to anyone who has its URL, and `authorize: true` requires a signed-in session (see [Protect served objects](#protect-served-objects)). Keep private files in a store that the route does not serve, or use `authorize: true`. `put()` has no `access` option: one file cannot be private in a public store, and `put()` with `access` throws `BLOB_R0045`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { blob: { driver: 'fs', serve: true } },
+  vitehub: { blob: { driver: 'fs', serve: { access: 'public' } } },
 })
 ```
 :::
@@ -274,7 +275,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ blob: { driver: 'fs', serve: true } }), nitro()],
+  plugins: [vitehub({ blob: { driver: 'fs', serve: { access: 'public' } } }), nitro()],
 })
 ```
 :::
@@ -285,13 +286,13 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ blob: { driver: 'fs', serve: true } })],
+  plugins: [vitehub({ blob: { driver: 'fs', serve: { access: 'public' } } })],
 })
 ```
 :::
 ::
 
-`serve: true` uses `/api/_vitehub/blob`. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
+The route uses `/_vitehub/blob` by default. This path does not collide with your routes, static assets, or framework asset folders. For URLs that your users see, set `serve.route`.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -303,6 +304,7 @@ export default defineNuxtConfig({
       driver: 's3',
       bucket: 'app-assets',
       serve: {
+        access: 'public',
         route: '/assets',
         headers: {
           'Cache-Control': 'public, max-age=300',
@@ -328,6 +330,7 @@ export default defineConfig({
         driver: 's3',
         bucket: 'app-assets',
         serve: {
+          access: 'public',
           route: '/assets',
           headers: {
             'Cache-Control': 'public, max-age=300',
@@ -354,6 +357,7 @@ export default defineConfig({
         driver: 's3',
         bucket: 'app-assets',
         serve: {
+          access: 'public',
           route: '/assets',
           headers: {
             'Cache-Control': 'public, max-age=300',
@@ -368,7 +372,7 @@ export default defineConfig({
 :::
 ::
 
-Use `serve.headers` for cache and security headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata.
+Use `serve.headers` for cache, security, and CORS headers. Content headers such as `Content-Type`, `Content-Length`, and `ETag` always come from Blob metadata. A `400`, `404`, or `405` gets only the `Access-Control-` headers.
 
 When your own middleware checks access before the serve route, use `private, no-cache`, not `no-store`:
 
@@ -383,6 +387,27 @@ The route also serves [image variants](/docs/blob/media#image-variants), such as
 
 Files from the served store include a URL. With `serve.publicBaseUrl`, it is absolute. Without it, it is relative to the route, so callers can add their own origin.
 
+## Seed files
+
+Seed files are the starting files of the app, such as the poster and captions of a demo video. Put them in `server/seed/blob/`, in the folders of their pathnames:
+
+```txt [Files]
+server/seed/blob/
+  video/receiving-a-delivery.mp4
+  video/receiving-a-delivery.en.vtt
+  video/receiving-a-delivery-poster.jpg
+```
+
+Start `vite dev`, then upload the files to the default store:
+
+```bash [Terminal]
+pnpm vitehub seed blob
+```
+
+The pathname is the path in the folder, so `server/seed/blob/video/receiving-a-delivery.mp4` is the blob `video/receiving-a-delivery.mp4`. The store sets the content type from the extension, such as `video/mp4` or `text/vtt`. Files that start with `.` are skipped. Each file can have up to 8 MiB, like `vitehub blob put`. The command uploads each file again on every run.
+
+Without `--remote`, `vitehub seed` writes the stores of the running dev server. With `--remote`, it writes the deployed app at `--url`, or at `vitehub({ publicUrl })`. Only the default store has seed files. `pnpm vitehub seed` also runs the [Database](/docs/database/configure#seed-data) and [KV](/docs/kv/configure#seed-values) seeds.
+
 ## Image variants
 
 `images` sets how the serve route makes image variants. Without it, the `auto` transformer uses the Cloudflare Images binding when the Worker has one, sharp when it is installed, and the original otherwise.
@@ -395,7 +420,7 @@ export default defineNuxtConfig({
   vitehub: {
     blob: {
       driver: 'fs',
-      serve: true,
+      serve: { access: 'public' },
       images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
     },
   },
@@ -414,7 +439,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'fs',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -434,7 +459,7 @@ export default defineConfig({
     vitehub({
       blob: {
         driver: 'fs',
-        serve: true,
+        serve: { access: 'public' },
         images: { transformer: 'sharp', sizes: [320, 640, 1280, 1920], quality: 70 },
       },
     }),
@@ -450,6 +475,7 @@ export default defineConfig({
 | `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
 | `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
 | `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |
+| `maxPixels` | `number` | Largest source that `photon` decodes, in pixels. Defaults to 4,000,000. Only with `transformer: 'photon'`. See [Photon on Workers and Node](/docs/blob/media#photon-on-workers-and-node). |
 
 Set `images: false` to always serve originals. `images` applies to every store.
 
@@ -566,16 +592,20 @@ The value must be in exactly one env variable at build time. When two variables 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `driver` | `'fs'` | Required | Local filesystem storage. |
-| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. |
-| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob/signed/`. |
+| `base` | `string` | `BLOB_FS_BASE` or `.vitehub/data/blob` | Storage folder. A named store without `base` uses a sibling folder with `-<name>` added to the folder name, such as `.vitehub/data/blob-avatars`. |
+| `urlBaseUrl` | `string` | None | Origin of the links that `blob.sign()` returns, such as `https://app.example`. Add the base URL of the app when it has one, such as `https://app.example/app`. Without it, the links start with `/_vitehub/blob-signed/`. |
 
-Use filesystem storage on one machine with one process. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
+ViteHub uses the same folder rule for the Node development fallback of a `cloudflare` store. Store names used to generate folders can contain letters (`A-Z`, `a-z`), digits, underscores, and hyphens, with dots between groups of these characters. `BLOB_FS_BASE` must name a folder, not a filesystem root, when ViteHub needs to generate a sibling folder.
+
+When you upgrade an existing named `fs` store without `base`, set `base` to the previous `BLOB_FS_BASE` value (or `.vitehub/data/blob` if it was not set) to keep reading existing files. To use the new folder instead, move that store's files there before you switch paths.
+
+Use filesystem storage on one machine with one process. Each object is the file at its pathname in the folder. Like S3 and R2, the store can hold both `docs` and `docs/a.txt`. On a serverless host, it is not durable or shared. [Signed links](/docs/blob/server-api#signed-links-of-fs-stores) need `VITEHUB_SECRET`. They work on several instances only when the instances read the same folder and have the same secret.
 
 ### Cloudflare R2
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'cloudflare-r2'` | Required | Cloudflare R2. |
+| `driver` | `'cloudflare'` | Required | Cloudflare R2. |
 | `binding` | `string` | `BLOB` | Runtime R2 binding name. |
 | `bucketName` | `string` | R2 or Blob bucket env | Bucket for the generated R2 binding and HTTP fallback. |
 | `jurisdiction` | `'eu' \| 'fedramp' \| 'us'` | `R2_JURISDICTION` or `CLOUDFLARE_R2_JURISDICTION` env | Bucket [R2 jurisdiction](/docs/blob/hosts#jurisdictional-buckets) for the binding, provisioning, and the S3 API host. |
@@ -591,8 +621,8 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `'vercel-blob'` | Required | Vercel Blob. |
-| `access` | `'private' \| 'public'` | `'public'` | Store access policy. A `blob.put()` call can override it. |
+| `driver` | `'vercel'` | Required | Vercel Blob. |
+| `access` | `'private' \| 'public'` | `'public'` when `serve: { access: 'public' }` serves the store, else `'private'` | Provider access of every object in the store. A public object has a public Vercel Blob URL. `'public'` on a store that `serve: { authorize: true }` serves fails with `BLOB_C0022`. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Download timeout in milliseconds. |
 | `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, else `BLOB_READ_WRITE_TOKEN`. |
@@ -633,6 +663,10 @@ The `s3` and `minio` drivers share options. Their required fields differ.
 | `secretAccessKey` | `minio` | `string` | Secret key. |
 
 MinIO reads credentials from `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID`, and the matching secret-key variables. The `s3` driver also reads the SDK credential sources. Set `credentials`, `accessKeyId`, and `secretAccessKey` only from env variables. See [Credentials](#credentials).
+
+The `s3` driver takes its keys in `credentials`. A top-level `accessKeyId`, `secretAccessKey`, or `sessionToken`, as NuxtHub's `s3` driver used, fails with `BLOB_C0023`.
+
+A store without a `driver` uses `s3` when the build has NuxtHub's variables: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and `S3_BUCKET`, with `S3_REGION` and `S3_ENDPOINT` when they are set. These variables come before the host, as in NuxtHub. The build output has only the variable names, and the server reads the keys when the store starts. An `S3_ENDPOINT` without `S3_BUCKET` does not select `s3`: set `bucket`.
 
 ### Google Cloud Storage
 

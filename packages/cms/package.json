@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cms",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Editable Content collections on a generated ViteHub Workspace, in Blob and Database or in a GitHub repository.",
   "keywords": [
     "cms",
@@ -57,6 +57,7 @@
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/comments": "workspace:*",
@@ -64,6 +65,8 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "better-auth": "catalog:auth",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -73,11 +76,14 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "better-auth": "catalog:auth",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -95,6 +101,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

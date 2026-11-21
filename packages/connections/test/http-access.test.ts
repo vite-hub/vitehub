@@ -79,7 +79,7 @@ describe("Connections route guard contract", () => {
     expect(Object.isFrozen(check.access)).toBe(true);
     // A copy has the same shape and brand, but the check did not create it.
     const forged: ConnectionsAccess = { ...check.access };
-    await expect(route.handle(forged, base)).rejects.toThrow("requires the access of a checked request");
+    await expect(route.handle(forged, base)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" });
     expect(runtime).not.toHaveBeenCalled();
   });
 

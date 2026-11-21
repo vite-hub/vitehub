@@ -9,7 +9,7 @@ const fixture = vi.hoisted((): { config: false | ResolvedKVModuleOptions } => ({
 vi.mock("#vitehub/kv/config", () => ({ get kv() { return fixture.config } }))
 
 const mode = enableViteHubTestMode()
-const store = { binding: "KV", driver: "cloudflare-kv-binding" } as const
+const store = { binding: "KV", driver: "cloudflare" } as const
 
 beforeEach(async () => {
   await mode.reset()

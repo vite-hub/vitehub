@@ -57,9 +57,9 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
       [
         `import { defineWorkflow } from "vite-hub/workflow"`,
         ``,
-        `export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {`,
+        `export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => {`,
         `  return await steps.createUser(payload)`,
-        `})`,
+        `} })`,
         ``,
       ].join("\n"),
     );
@@ -74,12 +74,14 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
         `import { getWorkflowRun, startWorkflow } from "vite-hub/workflow"`,
         ``,
         `export default defineEventHandler(async (event) => {`,
-        `  const run = await startWorkflow("onboard-user", await readBody(event))`,
-        `  let state = await getWorkflowRun("onboard-user", run.id)`,
-        `  for (let attempt = 0; state.status !== "completed" && attempt < 50; attempt++) {`,
+        `  const [startError, run] = await startWorkflow("onboard-user", await readBody(event))`,
+        `  if (startError) throw startError`,
+        `  let [error, state] = await getWorkflowRun("onboard-user", run.id)`,
+        `  for (let attempt = 0; !error && state.status !== "completed" && attempt < 50; attempt++) {`,
         `    await new Promise(done => setTimeout(done, 20))`,
-        `    state = await getWorkflowRun("onboard-user", run.id)`,
+        `    ;[error, state] = await getWorkflowRun("onboard-user", run.id)`,
         `  }`,
+        `  if (error) throw error`,
         `  const result = state.result instanceof Response ? await state.result.json() : state.result`,
         `  return { provider: run.provider, status: state.status, result }`,
         `})`,
@@ -91,13 +93,16 @@ it("runs a discovered Workflow from only the deployed Node output", async () => 
       logLevel: "silent",
       plugins: [
         nitro() as never,
-        vitehub({ host: "node", workflow: { provider: "vercel" } }),
+        vitehub({ host: "node", workflow: { driver: "vercel" } }),
       ],
       root,
     });
     await builder.buildApp();
     await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
       `declare module "vite-hub/workflow" {`,
+      `  interface WorkflowRegistry {`,
+      `    "onboard-user": typeof import("../server/workflows/onboard-user/index.ts") extends { default: infer TDefault } ? TDefault : unknown`,
+      `  }`,
       `  interface WorkflowStepRegistry {`,
       `    "onboard-user": {`,
       `      "createUser": typeof import("../server/workflows/onboard-user/01.create-user.ts").default`,

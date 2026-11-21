@@ -1,4 +1,5 @@
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { blobHttpError } from "../errors.ts"
 
 // eslint-disable-next-line no-control-regex -- the check must match control characters.
 const controlCharacters = /[\u0000-\u001F\u007F]/
@@ -38,11 +39,54 @@ export function pathnameIssue(pathname: string, { prefix = false } = {}): string
 export function assertValidPathname(pathname: string, { prefix = false } = {}): string {
   const issue = pathnameIssue(pathname, { prefix })
   if (issue) {
-    // H3 reads `statusCode`, so a route that lets this error through answers 400.
-    throw Object.assign(
-      blobErrorDiagnostics.BLOB_R0034({ message: `Invalid blob ${prefix ? "prefix" : "pathname"} ${JSON.stringify(pathname)}: it ${issue}.` }),
-      { statusCode: 400 },
-    )
+    // An H3 `HTTPError`, so a route that lets this error through answers 400.
+    throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: `Invalid blob ${prefix ? "prefix" : "pathname"} ${JSON.stringify(pathname)}: it ${issue}.` }))
   }
   return pathname
+}
+
+function joinPath(...parts: Array<string | undefined>): string {
+  return parts
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join("/")
+    .replace(/\/+/g, "/")
+    .replace(/^\/+/, "")
+}
+
+// Expects pathname already normalized via normalizePathname.
+function splitPath(pathname: string) {
+  const segments = pathname.split("/").filter(Boolean)
+  const filename = segments.pop() || ""
+  const dotIndex = filename.lastIndexOf(".")
+
+  return {
+    dir: segments.join("/"),
+    ext: dotIndex > 0 ? filename.slice(dotIndex) : "",
+    name: dotIndex > 0 ? filename.slice(0, dotIndex) : filename,
+  }
+}
+
+/** Applies `prefix` and `addRandomSuffix` as `put()` does, then checks the final pathname. */
+export function normalizeBlobPath(pathname: string, options: { addRandomSuffix?: boolean, prefix?: string }) {
+  const { dir, ext, name } = splitPath(pathname)
+  const filename = options.addRandomSuffix
+    ? `${name}-${globalThis.crypto.randomUUID().split("-")[0]}${ext}`
+    : `${name}${ext}`
+  const normalized = joinPath(dir, filename)
+  // The prefix and the suffix can change the pathname, so check the final value.
+  return assertValidPathname(options.prefix
+    ? joinPath(options.prefix, normalized)
+    : normalized)
+}
+
+// Decode the pathname once. A pathname that is not valid percent-encoding stays as it is.
+export function decodePathname(pathname: string): string {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  }
+  catch {
+    decoded = pathname
+  }
+  return decoded.replace(/^\/+/, "")
 }

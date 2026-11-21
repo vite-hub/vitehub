@@ -28,7 +28,7 @@ export default defineContent({
     }),
     settings: singleton({ path: 'settings.json', fields: { title: z.string() } }),
   },
-  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read' && Boolean(user)),
+  authorize: ({ user, action }) => user?.role === 'editor' || (action === 'read-draft' && Boolean(user)),
 })
 ```
 
@@ -50,12 +50,12 @@ Generated Agent routes and Schedules pass the default export of `server/content.
 
 | Tool | Operation | Access check | Default policy | Effect |
 | --- | --- | --- | --- | --- |
-| `content_list_collections` | `read` | none | `allow` | Lists collections and singletons with `kind`, `label`, `titleField`, `format`, `fields`, `path`, the singleton `id`, and which of `read`, `write`, and `publish` the user may do. |
-| `content_list_documents` | `read` | `read`, then `read` for each document | `allow` | Lists documents without bodies. Takes `ref`, `filter`, `search`, `sort`, `limit` (default 20, max 100), and `cursor`. |
-| `content_get_document` | `read` | `read` for the document | `allow` | Returns one document with `data`, `body`, `digest`, `updatedAt`, and the field `issues` of a draft. |
-| `content_status` | `read` | `read`, then `read` for each document | `allow` | Compares draft and published: `draft`, `published`, `changed`, or `deleted`, with each draft digest, `issues` count, and `schedule`. |
-| `content_list_schedules` | `read` | `read` for each document of a schedule | `allow` | Lists pending, overdue, and failed schedules. Filter by `collection`, `id`, and `status`. |
-| `content_list_translations` | `read` | `read`, then `read` for each document | `allow` | Lists the documents whose translation in a locale is `missing` or `stale`. Only when a collection in scope has [locales](/docs/content/configure#locales). |
+| `content_list_collections` | `read` | none | `allow` | Lists collections and singletons with `kind`, `label`, `titleField`, `format`, `fields`, `path`, the singleton `id`, and which of `read` (`read-draft` in `authorize`), `write`, and `publish` the user may do. |
+| `content_list_documents` | `read` | `read-draft`, then `read-draft` for each document | `allow` | Lists documents without bodies. Takes `ref`, `filter`, `search`, `sort`, `limit` (default 20, max 100), and `cursor`. |
+| `content_get_document` | `read` | `read-draft` for the document | `allow` | Returns one document with `data`, `body`, `digest`, `updatedAt`, and the field `issues` of a draft. |
+| `content_status` | `read` | `read-draft`, then `read-draft` for each document | `allow` | Compares draft and published: `draft`, `published`, `changed`, or `deleted`, with each draft digest, `issues` count, and `schedule`. |
+| `content_list_schedules` | `read` | `read-draft` for each document of a schedule | `allow` | Lists pending, overdue, and failed schedules. Filter by `collection`, `id`, and `status`. |
+| `content_list_translations` | `read` | `read-draft`, then `read-draft` for each document | `allow` | Lists the documents whose translation in a locale is `missing` or `stale`. Only when a collection in scope has [locales](/docs/content/configure#locales). |
 | `content_save_draft` | `write` | `write` for the document | `allow` | Saves one document to the `draft` ref. |
 | `content_publish` | `publish` | `publish` for each document | `require-approval` | Copies the listed drafts to the `published` ref, pinned to their digests. |
 | `content_schedule` | `publish` | `publish` for each document | `require-approval` | Publishes the listed drafts at `at`, pinned to their digests. |
@@ -142,7 +142,7 @@ content({ lease: 'override' })
 
 Each check calls `content.can({ user, actor, collection, action, id })`. `actor` is the Invocation's Invoker. `user` is the Auth user that Invoker stands for: [`authenticated()`](/docs/agents/trusted-invokers) from `vite-hub/auth/agent` records the user id as `invoker.meta.authUserId`, and the Capability reads that user from the Auth database through the `auth` primitive. It reads the user again when an approved call runs, so a role removed in the meantime takes effect. An anonymous Invoker, an Invoker without `authUserId`, an app without Auth, or a deleted user gives `user: null`. One `authorize` policy then covers the Console and the Agent, and it can check `actor` to give the Agent less than the user it acts for.
 
-Reads check `read` per document on both refs, also for published documents. Lists, search results, totals, statuses, and schedules never show a document that `authorize` hides, and `content_get_document` denies it. A schedule shows only if the user may read all its documents. To let an Agent read what the site serves, return `true` for `read`.
+Reads check `read-draft` per document on both refs, also for published documents. Lists, search results, totals, statuses, and schedules never show a document that `authorize` hides, and `content_get_document` denies it. A schedule shows only if the user may read all its documents. To let an Agent read what the site serves, return `true` for `read-draft`.
 
 Without `authorize`, `content.can()` returns `false` and the Agent can do nothing. A denied call fails with `CAPABILITY_DENIED` and runs nothing.
 
@@ -209,7 +209,7 @@ Saves, publishes, schedules, and cancellations record `metadata.agent = { name, 
 
 ## Verify the tools
 
-1. Run `vitehub agent info --agent editor --json`. Check that `tools` has a `content` entry with the expected commands, and `capabilities` has `{ id: "content" }`.
+1. Run `vitehub agent get --agent editor --json`. Check that `tools` has a `content` entry with the expected commands, and `capabilities` has `{ id: "content" }`.
 2. Ask the Agent to draft a post. Check that `content_save_draft` returns `ok: true` and `content.collection('posts').status('<id>')` reports `draft`.
 3. Ask it to publish. Approve the request, then read the post from `/api/content/get/posts/<id>`.
 4. Ask it to schedule a change for tomorrow. Approve the request, then check that `content.schedules()` lists it.
@@ -238,14 +238,14 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 
 ## Other operations
 
-`content()` tools are written for a model. For any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. Each operation becomes a tool named after it (`content_publish`). It checks `content.can()` with the same user and actor, and asks approval for destructive operations, except a dry run. It also runs `console.authorize` and drops operations of denied sections. Without `console.authorize`, `include` is the only gate. `content.save`, `content.remove`, and `content.restore` take `lease: 'override'` from an Agent or MCP client only with `operations({ overrideLeases: true })`. `content()` keeps its own `lease: 'override'` option.
+`content()` tools are written for a model. For any other [operation](/docs/console/operations), use `operations({ include: ['content.*'] })`. Each operation becomes a tool named after it (`content_publish`). It checks `content.can()` with the same user and actor, and asks approval for destructive operations, except a dry run. It also runs `console.authorize` and drops operations of denied sections. Without `console.authorize`, `include` is the only gate. `content.save`, `content.remove`, and `content.restore` take `lease: 'override'` from an Agent or MCP client only with `operations({ overrideLeases: true })`. `content()` keeps its own `lease: 'override'` option.
 
 ## Related pages
 
 - [Content configuration](/docs/content/configure)
 - [Content server API](/docs/content/server-api)
 - [Scheduling](/docs/content/scheduling)
-- [Operations](/docs/development/operations)
+- [Operations](/docs/console/operations)
 - [Editing together](/docs/content/editing-together)
 - [Trusted Invokers](/docs/agents/trusted-invokers)
 - [Official capabilities](/docs/agents/capabilities/official)

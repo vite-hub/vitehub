@@ -138,8 +138,10 @@ const appDeclarations = [
   },
 ]
 
-/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`. */
+/** Nuxt declares `defineNuxtConfig()` globally in `nuxt.config.ts`, and `defineAppConfig()` in `app.config.ts`. */
 function withAppGlobals(snippet) {
+  const appConfig = /(^|\/)app\.config\.ts$/.test(snippet.label ?? "") && !/^import\b[^\n]*\bdefineAppConfig\b/m.test(snippet.code)
+  if (appConfig) return `${snippet.code}\ndeclare var defineAppConfig: typeof import("nuxt/app").defineAppConfig\n`
   const nuxtConfig = /(^|\/)nuxt\.config\.ts$/.test(snippet.label ?? "") || /^export default defineNuxtConfig\(/m.test(snippet.code)
   if (!nuxtConfig || /^import\b[^\n]*\bdefineNuxtConfig\b/m.test(snippet.code)) return snippet.code
   return `${snippet.code}\ndeclare var defineNuxtConfig: typeof import("nuxt/config").defineNuxtConfig\n`
@@ -155,13 +157,17 @@ export function collectSnippets(sources = snippetSources()) {
     const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
       .filter(block => block.label && !block.fragment)
       .map(({ code, label }) => ({ code, label }))
+    // `hubEmail()` types `email.send({ template })` from the templates under `server/emails`.
+    const emailTemplates = extractBlocks(markdown, new Set(["md"]))
+      .filter(block => !block.fragment && /^server\/emails\/.+\.md$/.test(block.label ?? ""))
+      .map(({ code, label }) => ({ code, name: label.slice("server/emails/".length, -".md".length) }))
     extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
       let name = block.label && /\.(?:[cm]?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
+      snippets.push({ ...block, emailTemplates, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
@@ -202,7 +208,13 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
+  // The `index.ts` that the page shows types the payload of the Workflow in `WorkflowRegistry`.
+  for (const snippet of pageSnippets) {
+    const index = /(?:^|\/)workflows\/(.+)\/index\.m?ts$/.exec(snippet.label ?? "")
+    const definition = index && isAppFile(snippet) ? workflows.get(index[1]) : undefined
+    if (definition) definition.handler = snippet.file
+  }
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets), ...await emailTemplateDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -277,10 +289,22 @@ const registries = [
     type: "auth",
   },
   {
+    // @vite-hub/source: `writeSourceArtifacts()` names each file under server/sources by its relative path.
+    definitions: label => [/^server\/sources\/(.+)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => ["declare global {", "  interface ViteHubSourceMap {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}", "export {}"],
+    type: "source",
+  },
+  {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
     definitions: collectionNames,
     render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
     type: "collections",
+  },
+  {
+    // @vite-hub/webhooks: `renderWebhooksTypes()` in src/vite.ts. One file of `server/webhooks/` is one webhook.
+    definitions: label => [/^server\/webhooks\/([a-z0-9][a-z0-9-]*)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => [`import "@vite-hub/webhooks"`, `declare module "@vite-hub/webhooks" {`, "  interface WebhookRegistry {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}"],
+    type: "webhooks",
   },
   {
     // @vite-hub/database: src/internal/generated.ts. `src/database.ts` defines the `default` Database.
@@ -322,6 +346,39 @@ async function registryDeclarations(pageSnippets) {
     declarations.push({ code: `${registry.render(entries).join("\n")}\n`, file })
   }
   return declarations
+}
+
+/**
+ * The template types that `hubEmail()` writes to `.vitehub/types/email-templates.d.ts` and `.vitehub/types/email.d.ts`
+ * (`renderEmailTemplateTypes()` in packages/email/src/vite.ts), for the `server/emails/*.md` blocks of the page.
+ */
+async function emailTemplateDeclarations(pageSnippets) {
+  const templates = pageSnippets[0].emailTemplates ?? []
+  if (!templates.length) return []
+  const { inferMarkdownTemplateDataType } = await import(pathToFileURL(join(packagesRoot, "markdown-template/dist/internal/vite.js")).href)
+  const typed = await Promise.all(templates.map(async template => ({ ...template, data: await inferMarkdownTemplateDataType(template.code, "    ") })))
+  return [
+    {
+      code: ["@vite-hub/email", "vite-hub/email"].flatMap(module => [
+        `import ${JSON.stringify(module)}`,
+        `declare module ${JSON.stringify(module)} {`,
+        "  interface EmailTemplateRegistry {",
+        ...typed.map(({ data, name }) => `    ${JSON.stringify(name)}: ${data.type}`),
+        "  }",
+        "}",
+      ]).join("\n") + "\n",
+      file: join(pageSnippets[0].pageRoot, ".vitehub/types/email-templates.d.ts"),
+    },
+    {
+      code: typed.map(({ data, name }) => [
+        `declare module ${JSON.stringify(`#vitehub/emails/${name}`)} {`,
+        `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
+        "  export default render",
+        "}",
+      ].join("\n")).join("\n\n") + "\n",
+      file: join(pageSnippets[0].pageRoot, ".vitehub/types/email.d.ts"),
+    },
+  ]
 }
 
 const configFile = /(?:^|\/)(?:vite|nuxt)\.config\.m?ts$/

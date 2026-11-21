@@ -3,15 +3,15 @@ import { defineCapability } from "@vite-hub/agent";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import type { GitHubPullRequestOperations } from "../github/index.ts";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
-import { GitHubWorkspaceInstallError, isGitHubLockfileDefect, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
+import { isGitHubLockfileDefect, isGitHubWorkspaceInstallError, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "../github/index.ts";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
 function stringField(input: unknown, key: string, allowEmpty = false): string {
-  if (!input || typeof input !== "object" || !(key in input)) throw new Error(`Missing ${key}.`);
+  if (!input || typeof input !== "object" || !(key in input)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_MISSING({ key });
   const value = (input as Record<string, unknown>)[key];
   if (typeof value !== "string" || (!allowEmpty && !value.trim()))
-    throw new Error(`${key} must be ${allowEmpty ? "a string" : "a non-empty string"}.`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_INVALID({ key, expected: allowEmpty ? "a string" : "a non-empty string" });
   return value;
 }
 
@@ -37,7 +37,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       await workspace?.afterRefresh(context);
       return { refreshed: true as const };
     } catch (error) {
-      if (error instanceof GitHubWorkspaceInstallError && error.retryable && !isGitHubLockfileDefect(error)) refund?.();
+      if (isGitHubWorkspaceInstallError(error) && error.retryable && !isGitHubLockfileDefect(error)) refund?.();
       throw error;
     }
   };
@@ -81,7 +81,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
             !("runId" in input) ||
             typeof input.runId !== "number"
           )
-            throw new Error("Expected a run ID.");
+            throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_RUN_ID_MISSING();
           const { runId, ...selection } = input;
           return operations.readCheckLogs(runId, selection);
         },
@@ -102,7 +102,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: (input: unknown) => {
-          if (!input || typeof input !== "object" || !("runId" in input) || typeof input.runId !== "number") throw new Error("Expected a run ID.");
+          if (!input || typeof input !== "object" || !("runId" in input) || typeof input.runId !== "number") throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_RUN_ID_MISSING();
           return operations.readBaseCheckLogs(input.runId);
         },
       },
@@ -124,17 +124,27 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       },
       commitRepair: {
         name: "commitRepair",
-        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. Call pushRepair after validation and this commit.",
+        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. A base merge is rejected when it undoes base changes, unless baseOverrides names each such file with a reason. Call pushRepair after validation and this commit.",
         inputSchema: {
           type: "object",
-          properties: { message: { type: "string", minLength: 1 }, paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } } },
+          properties: {
+            message: { type: "string", minLength: 1 },
+            paths: { type: "array", minItems: 1, items: { type: "string", minLength: 1 } },
+            baseOverrides: {
+              type: "array",
+              description: "Files where this PR deliberately replaces a change the base made, each with a one-sentence reason.",
+              items: { type: "object", properties: { path: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } }, required: ["path", "reason"], additionalProperties: false },
+            },
+          },
           required: ["message", "paths"],
           additionalProperties: false,
         },
         execute: (input: unknown) => withinRepair(async () => {
-          if (!isRuntimeRecord(input) || !Array.isArray(input.paths) || !input.paths.every(path => hasRuntimeType(path, "string"))) throw new Error("Expected explicit repair paths.");
+          if (!isRuntimeRecord(input) || !Array.isArray(input.paths) || !input.paths.every(path => hasRuntimeType(path, "string"))) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_PATHS_MISSING();
           await workspace?.beforeRepair(context.context, input.paths);
-          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths });
+          if (input.baseOverrides !== undefined && !Array.isArray(input.baseOverrides)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_INVALID({ key: "baseOverrides", expected: "an array" });
+          const baseOverrides = input.baseOverrides?.map((entry: unknown) => ({ path: stringField(entry, "path"), reason: stringField(entry, "reason") }));
+          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths, ...baseOverrides && { baseOverrides } });
           return { head };
         }),
       },
@@ -181,7 +191,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       } : {}),
       resolveReviewThread: {
         name: "resolveReviewThread",
-        description: "Answer and resolve a review thread belonging to this PR. The outcome and reason are posted as a reply on the thread before it is resolved: fixed (the current code fixes it; reason optional, name the commit), disproved (the finding is wrong for the current code), declined (valid, but out of this PR's scope or below the severity bar; name the class, for example P2), pre-existing (the PR did not introduce it) or duplicate (already answered in another thread). Every outcome other than fixed needs a one-sentence reason.",
+        description: "Answer and resolve a review thread belonging to this PR. The outcome and reason are posted as a reply on the thread before it is resolved: fixed (the current code fixes it; reason optional, name the commit), disproved (the finding is wrong for the current code), declined (valid, but out of this PR's scope or below the severity bar; start the reason with its class, for example 'P2: ...'; a P0 or P1 is never declined, and declining a finding its reviewer labeled P0 or P1 leaves the thread open for a person), pre-existing (the PR did not introduce it) or duplicate (already answered in another thread). Every outcome other than fixed needs a one-sentence reason.",
         inputSchema: {
           type: "object",
           properties: {
@@ -196,8 +206,10 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           const outcome = stringField(input, "outcome");
           if (!isReviewThreadOutcome(outcome)) throw presetsErrorDiagnostics.PRESETS_REVIEW_OUTCOME_INVALID();
           const reason = isRuntimeRecord(input) && "reason" in input ? stringField(input, "reason", true) : undefined;
-          await operations.resolveThread(stringField(input, "id"), { outcome, reason });
-          return { resolved: true };
+          const { held } = await operations.resolveThread(stringField(input, "id"), { outcome, reason });
+          return held
+            ? { resolved: false, held: true, note: "The reviewer labeled this finding P0 or P1, so the reply is posted and the thread stays open. The PR does not merge until a person resolves or answers it, or a later pass fixes it. Say so in the result." }
+            : { resolved: true };
         },
       },
       updatePullRequest: {
@@ -209,11 +221,11 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
-          if (!input || typeof input !== "object") throw new Error("Expected a title or body.");
+          if (!input || typeof input !== "object") throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_UPDATE_EMPTY();
           const title = "title" in input ? stringField(input, "title") : undefined;
           const body = "body" in input ? stringField(input, "body", true) : undefined;
           if (title === undefined && body === undefined)
-            throw new Error("Expected a title or body.");
+            throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_UPDATE_EMPTY();
           await operations.updateMetadata({ title, body });
           return { updated: true };
         },

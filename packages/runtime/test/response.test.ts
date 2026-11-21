@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Buffer as NodeBuffer } from "node:buffer"
 import { runInNewContext } from "node:vm"
+import { Diagnostic } from "nostics"
+import { ViteHubError } from "../src/errors.ts"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
+import { defineErrors, toResultError } from "../src/result.ts"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -140,7 +143,7 @@ describe("durable Response representation", () => {
     const record = { ...serialized, body: { ...serialized.body, data } }
 
     expect(isSerializedResponse(record)).toBe(false)
-    expect(() => deserializeResponse(record)).toThrow(TypeError)
+    expect(() => deserializeResponse(record)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([null, new Uint8Array()])("preserves body presence for %s", async (body) => {
@@ -181,7 +184,7 @@ describe("durable Response representation", () => {
 
   it("rejects malformed records", () => {
     expect(isSerializedResponse({})).toBe(false)
-    expect(() => deserializeResponse({} as never)).toThrow(TypeError)
+    expect(() => deserializeResponse({} as never)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it("rejects URLs on ordinary response records", async () => {
@@ -198,7 +201,7 @@ describe("durable Response representation", () => {
     }
 
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized as never)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized as never)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it("rejects response fields that the native Response constructor cannot read", async () => {
@@ -223,7 +226,7 @@ describe("durable Response representation", () => {
       statusText: "",
     }
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([204, 205, 304])("rejects an explicitly present empty body for status %s", (status) => {
@@ -234,7 +237,7 @@ describe("durable Response representation", () => {
       statusText: "",
     }
     expect(isSerializedResponse(serialized)).toBe(false)
-    expect(() => deserializeResponse(serialized)).toThrow(TypeError)
+    expect(() => deserializeResponse(serialized)).toThrowError(expect.objectContaining({ code: "RUNTIME_SERIALIZED_RESPONSE_INVALID" }))
   })
 
   it.each([204, 205, 304])("preserves zero-byte legacy Base64 representations for status %s", (status) => {
@@ -249,5 +252,79 @@ describe("durable Response representation", () => {
       expect(deserializeResponse(serialized).body).toBeNull()
       expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, isNull: false } })).toBe(false)
     }
+  })
+})
+
+describe("toResponse with a ResultError", () => {
+  it("never sends the stack, cause, or data of a plain Nostics diagnostic", async () => {
+    const diagnostic = new Diagnostic({
+      code: "EXAMPLE_DIAGNOSTIC",
+      why: "An ordinary diagnostic.",
+      fix: "Try again.",
+      data: { token: "secret data" },
+      cause: new Error("secret cause"),
+    })
+    const response = toResponse(diagnostic)
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", fix: "Try again." })
+    expect(text).not.toMatch(/secret|stack|at /)
+
+    const result = toResponse(toResultError(diagnostic))
+    expect(result.status).toBe(500)
+    expect(await result.json()).toEqual({ code: "EXAMPLE_DIAGNOSTIC", why: "An ordinary diagnostic.", fix: "Try again." })
+  })
+
+  it("answers the status of a plain Nostics diagnostic", () => {
+    const diagnostic = Object.assign(new Diagnostic({ code: "EXAMPLE_DIAGNOSTIC", why: "Not found." }), { status: 404 })
+    expect(toResponse(diagnostic).status).toBe(404)
+  })
+
+  it("hides the message of an Error that is not a diagnostic", async () => {
+    const error = Object.assign(new Error("postgres://user:secret@db/app refused"), { code: "ECONNREFUSED", status: 404 })
+    const response = toResponse(error)
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toMatchObject({ code: "RUNTIME_HIDDEN_ERROR" })
+    expect(text).not.toMatch(/secret|ECONNREFUSED/)
+    expect(await toResponse(runInNewContext("new TypeError('secret')")).json()).toMatchObject({ code: "RUNTIME_HIDDEN_ERROR" })
+  })
+
+  it("keeps the public code and message of a ViteHubError", async () => {
+    const response = toResponse(new ViteHubError("EXAMPLE_PUBLIC", "The example failed.", { cause: new Error("secret cause"), details: { token: "secret" } }))
+    const text = await response.text()
+
+    expect(response.status).toBe(500)
+    expect(JSON.parse(text)).toEqual({ code: "EXAMPLE_PUBLIC", why: "The example failed." })
+    expect(text).not.toMatch(/secret/)
+  })
+
+  const errors = defineErrors({
+    docs: "https://vitehub.dev/docs/example",
+    codes: {
+      EXAMPLE_CONFLICT: { why: "Someone else saved first.", fix: "Read the record again, then save.", status: 409 },
+      EXAMPLE_FAILED: { why: "The provider failed.", fix: "Try again." },
+    },
+  })
+
+  it("answers the status of the code with code, why, and fix", async () => {
+    const response = toResponse(errors.EXAMPLE_CONFLICT({ cause: new Error("secret provider detail") }))
+
+    expect(response.status).toBe(409)
+    expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8")
+    expect(await response.json()).toEqual({ code: "EXAMPLE_CONFLICT", why: "Someone else saved first.", fix: "Read the record again, then save." })
+  })
+
+  it("answers 500 when the code has no status", async () => {
+    const response = toResponse(errors.EXAMPLE_FAILED())
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ code: "EXAMPLE_FAILED", why: "The provider failed.", fix: "Try again." })
+  })
+
+  it("keeps a status outside 400 to 599 from the response", () => {
+    expect(toResponse(Object.assign(errors.EXAMPLE_FAILED(), { status: 200 })).status).toBe(500)
   })
 })

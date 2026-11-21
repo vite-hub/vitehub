@@ -18,7 +18,7 @@ vi.mock("#vitehub/kv/config", () => ({
     stores: {
       default: { driver: "fs-lite", base: `${fixture.base}/default` },
       archive: { driver: "fs-lite", base: `${fixture.base}/archive` },
-      remote: { driver: "upstash", url: "https://example.com", token: "test" },
+      remote: { driver: "upstash", base: "vitehub:kv:remote", url: "https://example.com", token: "test" },
     },
   },
 }))
@@ -35,7 +35,19 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }
 })
 vi.mock("unstorage/drivers/upstash", () => ({
-  default: () => ({ ...memoryDriver(), dispose: fixture.dispose }),
+  default: () => {
+    const driver = memoryDriver()
+    return {
+      ...driver,
+      getInstance: async () => ({
+        set: async (key: string, value: string) => {
+          await driver.setItem!(key, value, {})
+          return "OK"
+        },
+      }),
+      dispose: fixture.dispose,
+    }
+  },
 }))
 
 afterEach(async () => {
@@ -78,7 +90,7 @@ it("releases public KV listings for every cached store and allows fresh use", as
 it("reports provider disposal failures after releasing other cached stores", async () => {
   await populate()
   await kv.list({ limit: 1 })
-  await kv.store("remote").set("one", "one")
+  expect((await kv.store("remote").set("one", "one"))[0]).toBeUndefined()
   const cause = new Error("provider cleanup failed")
   fixture.dispose.mockRejectedValueOnce(cause)
 

@@ -76,7 +76,7 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
     // Running status is persisted before the asynchronous trace journal writes.
     await vi.waitFor(async () => expect((await fixture.invocations.get(value.id))?.observations)
       .toEqual(expect.arrayContaining([expect.objectContaining({ name: "agent.invocation.start" })])))
-    const show = await cli(["show", value.id], fixture.host)
+    const show = await cli(["get", value.id], fixture.host)
     expect(show.stdout).toContain(`${value.id} running`)
     expect(show.stdout).toContain("agent.invocation.start")
 
@@ -85,7 +85,8 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
     expect(JSON.parse(cancel.stdout)).toMatchObject({ id: value.id, outcome: "requested" })
 
     const missing = await cli(["cancel", "missing"], fixture.host)
-    expect(missing).toMatchObject({ exitCode: 1, stderr: "Console request failed with HTTP 404: Invocation not found.\n" })
+    expect(missing.exitCode).toBe(1)
+    expect(missing.stderr).toMatch(/^\[AGENT_R0511\] Console request failed with HTTP 404: Invocation not found\.\n.*fix: /s)
     fixture.release()
   })
 })

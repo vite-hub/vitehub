@@ -29,9 +29,11 @@ A missing or empty `actor` fails with `CONNECTIONS_INVALID_ACTOR`. The managemen
 
 The routes are `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback`, after the Vite `base` if set.
 
-These routes are an API of your app, not of the Console. The development server mounts them with the `'development'` actor. A production build mounts them only with `connections: { management: { actor: './server/connections-actor.ts' } }`, a module whose default export is the actor policy below. Each route checks it before it reads or changes a Connection, and names the manager in activity.
+These routes are an API of your app. The development server mounts them with the `'development'` actor. A production build mounts them only with `connections: { management: { actor: './server/connections-actor.ts' } }`, a module whose default export is the actor policy below. Each route checks it before it reads or changes a Connection, and names the manager in activity.
 
-A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. `createConnectionsHandler()` returns a Fetchable route, `{ fetch(request) }`. Nitro mounts it as a route, and you can call `fetch()` with a Web `Request`. With `createConnectionsHandler()`, pass `actor`: a function that gets the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the [Standard Context](/docs/reference/runtime-context#standard-context) of the event, so `getStandardContext(request)` and the Auth helpers accept it. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
+Without `management`, a production build mounts only `GET /_vitehub/connections/callback`, for the sign-ins that the [Console starts](/docs/console/sections#content-and-people). It completes no other flow.
+
+A rejected request returns `403` with `CONNECTIONS_FORBIDDEN`. `createConnectionsHandler()` returns a Fetchable route, `{ fetch(request) }`. Nitro mounts it as a route, and you can call `fetch()` with a Web `Request`. With `createConnectionsHandler()`, pass `actor`: a function that gets the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request with `CONNECTIONS_FORBIDDEN`, or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the [Standard Context](/docs/runtime/context#standard-context) of the event, so `getStandardContext(request)` and the Auth helpers accept it. You can also pass `'development'`. `'development'` allows `user:local` only when `NODE_ENV` is `development`, and returns `500` with `CONNECTIONS_AUTH_REQUIRED` elsewhere.
 
 With `createConnectionsHandler()`, pass `actor` as one of these:
 
@@ -49,7 +51,7 @@ The action route takes only `POST`.
 
 ### Origin checks
 
-The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
+The `POST` route accepts only `application/json` from the app origin. It compares the browser `Origin` header with the `vitehub({ publicUrl })` origin and the request URL origin, when the request host is the public host. A request host that `publicUrl` does not configure cannot replace the configured origin. Another origin returns `403` with `CONNECTIONS_ORIGIN_REJECTED`. A request that is not JSON returns `403` with `CONNECTIONS_CONTENT_TYPE_REJECTED`.
 
 Behind a proxy that ends TLS, the server can see `http://` while the browser sends `https://`. Set `vitehub({ publicUrl })` to the public origin. The connect route then builds the OAuth `redirectUri` from it and marks cookies `Secure` for `https://`. Without `publicUrl`, both routes use the request URL, so the server must trust `X-Forwarded-Proto` and `X-Forwarded-Host`.
 
@@ -82,7 +84,7 @@ Agent tools record every call, reads too. MCP messages record successful, denied
 
 ## CLI
 
-The CLI calls the management route of a running dev server. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so the dev server does not rebuild.
+The CLI calls the management route of a running dev server. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the project's dev server, then `VITEHUB_DEV_SERVER_URL`. With none, the command fails with `INTERNAL_DEV_SERVER_NOT_FOUND`: it never guesses a port. The commands do not load the project, so the dev server does not rebuild.
 
 For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, pass a session cookie that your `actor` accepts with `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. The dev server that the CLI finds by itself gets no credentials.
 
@@ -97,4 +99,4 @@ For an app that you name with `--url` or `VITEHUB_CONNECTIONS_URL`, pass a sessi
 | `vitehub connections models <name>` | List the models of a ChatGPT plan Connection. |
 | `vitehub connections export <name> --file <path>` | Move a ChatGPT grant to a protected file for another host. |
 | `vitehub connections import <name> --file <path>` | Import a ChatGPT credential file. |
-| `vitehub connections revoke <name> --confirm <name>` | Revoke the provider grant and delete the stored token. |
+| `vitehub connections revoke <name>` | Revoke the provider grant and delete the stored token. It asks first, and needs `--yes` without a terminal. |

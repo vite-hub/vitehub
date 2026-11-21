@@ -11,6 +11,10 @@ resolved Definitions, Runtime Registries, stable imports, and Provider Output
 (the files built for your host). Your app code uses documented ViteHub imports,
 not these files.
 
+The `vitehub()` plugin adds `**/.vitehub/**` to Vite's `server.watch.ignored`,
+so a generated write does not reload the dev server. You do not need to add it
+to your Vite config.
+
 ## Common generated paths
 
 | Path | Owner | Purpose |
@@ -22,6 +26,7 @@ not these files.
 | `.vitehub/types/blob.d.ts` | Blob Package | Blob store names from `blob.stores`. |
 | `.vitehub/types/browser.d.ts` | Browser Package | Browser Definition names and input/result module types. |
 | `.vitehub/types/email.d.ts` | Email Package | Exact module declarations for discovered `#vitehub/emails/<name>` imports. |
+| `.vitehub/types/email-templates.d.ts` | Email Package | Template names and `data` types for `email.send({ template })`. Only an app with templates gets it. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Workspace name types. |
 | `.vitehub/types/source/collections.d.ts` | Source Package | Collection names and definitions. |
 | `.vitehub/email/templates/*.mjs` | Email Package | Bundled Markdown email templates used by provider builds. |
@@ -38,6 +43,7 @@ not these files.
 | `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |
 | `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
 | `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
+| `.vitehub/hints.json` | ViteHub Framework | Hints of the last build or dev server: warnings about things that work now and fail later, each with its code, `why`, `fix`, and `docs` link. Each run starts it empty. |
 | `.output/server/index.mjs` | Provider Output | Server entry for the `node`, `cloudflare`, and `deno` hosts. |
 | `.output/server/wrangler.json` | Provider Output | Cloudflare Worker config written by a `cloudflare` host build. |
 | `.vercel/output/**` | Provider Output | Vercel Build Output written by a `vercel` host build. |

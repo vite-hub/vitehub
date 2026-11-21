@@ -30,9 +30,4 @@ describe("Schedule errors", () => {
     expect(error).toMatchObject({ code, name: "ViteHubError" })
     expect(JSON.stringify(error)).not.toMatch(/private-name-value|private-date-value/)
   })
-
-  it("does not publish a Schedule-specific error constructor", async () => {
-    const schedule = await import("../dist/index.js")
-    expect(schedule).not.toHaveProperty("ScheduleError")
-  })
 })

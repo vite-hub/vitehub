@@ -124,19 +124,19 @@ describe("loadViteHubPageTools", () => {
     const fetch = session({ tools: [comments] })
     const { load, started } = modules()
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([comments])
-    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/tools?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
     expect(load.mock.calls).toEqual([["/comments.js"]])
     expect(started.map(context => [context.tool.id, context.open, context.signal.aborted])).toEqual([["comments", false, false]])
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=9")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=9")).toBe("/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=9")).toBe("/portal/_vitehub/page/tools")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=9")).toBe("/_vitehub/page/tools")
+    expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/tools")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
-    await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/session" })
-    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
+    await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/tools" })
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/tools?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("does nothing more when no tool is allowed, or when the session fails", async () => {
@@ -696,7 +696,7 @@ describe("loadViteHubPageTools", () => {
     session({ tools: [{ ...consoleTool, lazy: true }] })
     if (restored) {
       localStorage.setItem("vitehub-tools-collapsed", "1")
-      sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+      sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     }
     const onHide = vi.fn()
     const load = async () => ({ default(context: ViteHubPageToolContext) {
@@ -721,7 +721,7 @@ describe("loadViteHubPageTools", () => {
     expect(element.shadowRoot!.activeElement).toBe(mark)
     expect(element.hasAttribute("collapsed")).toBe(true)
     expect(onHide).toHaveBeenCalledOnce()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("false")
     mark.click()
     expect(element.hasAttribute("collapsed")).toBe(false)
     pill().exit.click()
@@ -762,7 +762,7 @@ describe("loadViteHubPageTools", () => {
 
   it("leaves a small mark where the pill was, and the mark brings the tools back with their windows", async () => {
     page("/?vitehub=console")
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 20 }))
     const fetch = session({ tools: [comments, consoleTool] })
     const { load, started } = modules()
@@ -895,7 +895,7 @@ describe("loadViteHubPageTools", () => {
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
     expect(document.querySelector("vitehub-pill")).toBeNull()
     expect(document.querySelector("vitehub-window")).toBeNull()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:comments")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:comments")).toBe("false")
   })
 
   it("cleans up exactly once when a tool exits during startup", async () => {
@@ -1042,7 +1042,7 @@ describe("lazy tools", () => {
     const second = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
     first.show()
     first.destroy()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("false")
     expect(document.querySelectorAll("vitehub-window")).toHaveLength(1)
     second.show()
     expect(onHide).not.toHaveBeenCalled()
@@ -1061,7 +1061,7 @@ describe("lazy tools", () => {
     const replacement = context.createWindow({ id: "console", title: "Console", trigger: context.bar, onHide })
     replacement.show()
     first.destroy()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("true")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("true")
     const other = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
     other.show()
     expect(onHide).toHaveBeenCalledOnce()
@@ -1072,7 +1072,7 @@ describe("lazy tools", () => {
   it("restores a remembered eager window", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool] })
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     const load = vi.fn(async () => ({ default(context: ViteHubPageToolContext) {
       const trigger = document.createElement("button")
       context.bar.append(trigger)
@@ -1089,7 +1089,7 @@ describe("lazy tools", () => {
   it.each([false, true])("keeps the query-selected window visible when a restored import finishes later (lazy: %s)", async (lazy) => {
     page("/?vitehub=console")
     session({ tools: [{ ...consoleTool, lazy: true }, { ...comments, lazy }] })
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:comments", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:comments", "true")
     const started: string[] = []
     const tool: ViteHubPageToolModule = { default(context) {
       const trigger = document.createElement("button")
@@ -1119,7 +1119,7 @@ describe("lazy tools", () => {
     page(activation === "query" ? "/?vitehub=console" : "/?vitehub")
     const lazyTool = { ...consoleTool, lazy: true }
     session({ tools: [lazyTool] })
-    if (activation === "restored") sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    if (activation === "restored") sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     const { load: modulesLoad, started } = modules()
     const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(modulesLoad)
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([lazyTool])
@@ -1173,4 +1173,177 @@ it("retries a lazy import and honors the editor exit guard", async () => {
   pill().exit.click()
   await exited()
   expect(document.querySelector("vitehub-pill")).toBeNull()
+})
+
+describe("the account item", () => {
+  const ada = { name: "Ada Lovelace", email: "ada@example.com", via: "console", signOut: "/api/auth/sign-out" }
+  // happy-dom has no popover API. This stands in for the part that the menu uses: a `popovertarget` button toggles its
+  // popover, `beforetoggle` comes first, and `toggle` comes in a later task, as in a browser.
+  const shown = new Set<Element>()
+  function toggle(element: HTMLElement, open = !shown.has(element)) {
+    if (open === shown.has(element)) return
+    const states = { newState: open ? "open" : "closed", oldState: open ? "closed" : "open" }
+    element.dispatchEvent(Object.assign(new Event("beforetoggle"), states))
+    if (open) shown.add(element)
+    else shown.delete(element)
+    setTimeout(() => element.dispatchEvent(Object.assign(new Event("toggle"), states)))
+  }
+  function invoke(event: Event) {
+    const invoker = event.composedPath().find((target): target is HTMLButtonElement => target instanceof HTMLButtonElement && target.hasAttribute("popovertarget"))
+    const root = invoker?.getRootNode()
+    const target = root instanceof ShadowRoot ? root.getElementById(invoker!.getAttribute("popovertarget")!) : null
+    if (target) toggle(target)
+  }
+  beforeEach(() => {
+    shown.clear()
+    for (const [name, open] of [["showPopover", true], ["hidePopover", false]] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value(this: HTMLElement) { toggle(this, open) } })
+    }
+    document.addEventListener("click", invoke)
+  })
+  afterEach(() => {
+    // The tools close the menu as they stop, so they stop while the stand-in is there.
+    stopViteHubPageTools()
+    document.removeEventListener("click", invoke)
+    for (const name of ["showPopover", "hidePopover"]) Reflect.deleteProperty(HTMLElement.prototype, name)
+  })
+  const settled = () => new Promise(resolve => setTimeout(resolve))
+
+  function account() {
+    const host = document.querySelector("vitehub-pill vitehub-account")!
+    const shadow = host.shadowRoot!
+    return {
+      host,
+      shadow,
+      button: shadow.querySelector<HTMLButtonElement>("button.who")!,
+      menu: shadow.querySelector<HTMLElement>("[role=menu]")!,
+      items: () => [...shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter(item => !item.hidden).map(item => item.textContent),
+    }
+  }
+
+  it.each([
+    ["bottom", 0, 375], ["bottom", 100, 375],
+    ["top", 0, 375], ["top", 100, 375],
+    ["bottom", 0, 1280], ["bottom", 100, 1280],
+    ["top", 0, 1280], ["top", 100, 1280],
+  ] as const)("keeps the guest menu inside the %s dock at %i with viewport %i", async (edge, at, width) => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge, at }))
+    session({ tools: [comments], account: { name: "Ana", signOut: "/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu } = account()
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(width)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(800)
+    vi.spyOn(document.querySelector("vitehub-pill")!, "getBoundingClientRect").mockReturnValue({ top: edge === "bottom" ? 740 : 20, bottom: edge === "bottom" ? 780 : 60 } as DOMRect)
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue({ right: at === 0 ? 155 : width - 12 } as DOMRect)
+    vi.spyOn(menu, "getBoundingClientRect").mockImplementation(() => {
+      expect(shown.has(menu)).toBe(true)
+      return { width: 220 } as DOMRect
+    })
+    button.click()
+    await new Promise(requestAnimationFrame)
+    expect(menu.style.left).toBe(`${at === 0 ? 8 : width - 232}px`)
+    expect(menu.style.right).toBe("auto")
+    expect(edge === "bottom" ? menu.style.bottom : menu.style.top).toBe("68px")
+  })
+
+  it("draws no account item without a signed-in person", async () => {
+    page("/?vitehub")
+    session({ tools: [comments] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().slots).toEqual(["tab", "comments"])
+    expect(document.querySelector("vitehub-account")).toBeNull()
+  })
+
+  it("shows the initials after the tools, as a menu button with the person's name, email, and how they signed in", async () => {
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().slots).toEqual(["tab", "comments", "console", "vitehub-account"])
+    const { button, menu, items } = account()
+    expect(button.textContent).toBe("AL")
+    expect(button.getAttribute("aria-label")).toBe("Account: Ada Lovelace")
+    expect([button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")]).toEqual(["menu", "false", menu.id])
+    // An auto popover that the button opens: the browser closes it on Escape and on a press outside.
+    expect([menu.getAttribute("popover"), button.getAttribute("popovertarget")]).toEqual(["auto", menu.id])
+    expect(menu.querySelector(".me")?.textContent).toBe("ALAda Lovelaceada@example.com")
+    expect(menu.querySelector(".via")?.textContent).toBe("Signed in with ViteHub Console")
+    expect(items()).toEqual(["Open in the Console", `Sign out of ${location.host}`])
+  })
+
+  it("opens with the focus on the first item, moves with the arrow keys, keeps Escape from the page, and gives the focus back", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu, shadow } = account()
+    button.click()
+    await settled()
+    expect(shown.has(menu)).toBe(true)
+    expect(button.getAttribute("aria-expanded")).toBe("true")
+    expect(shadow.activeElement?.textContent).toBe("Open in the Console")
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    expect(shadow.activeElement?.textContent).toBe(`Sign out of ${location.host}`)
+    const pageKeys = vi.fn()
+    document.addEventListener("keydown", pageKeys)
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }))
+    document.removeEventListener("keydown", pageKeys)
+    expect(pageKeys).not.toHaveBeenCalled()
+    menu.hidePopover()
+    await settled()
+    expect(shown.has(menu)).toBe(false)
+    expect(button.getAttribute("aria-expanded")).toBe("false")
+    expect(shadow.activeElement).toBe(button)
+  })
+
+  it("closes when the pill moves to another edge", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    const { button, menu } = account()
+    button.click()
+    await settled()
+    expect(shown.has(menu)).toBe(true)
+    pill().element.setAttribute("edge", "top")
+    // The pill's observer runs in a microtask, and the close sends its toggle event in a task after that.
+    await settled()
+    await settled()
+    expect(shown.has(menu)).toBe(false)
+    expect(button.getAttribute("aria-expanded")).toBe("false")
+  })
+
+  it("leaves out the Console item and the line for a guest", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: { name: "Ana", signOut: "/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const { menu, items } = account()
+    account().button.click()
+    await settled()
+    expect(menu.querySelector(".via")).toBeNull()
+    expect(items()).toEqual([`Sign out of ${location.host}`])
+  })
+
+  it("signs out of the app with Auth's sign-out route, then reloads the page without the tools query", async () => {
+    page("/guide?vitehub&tab=2")
+    const fetch = session({ tools: [comments], account: { ...ada, signOut: "/portal/api/auth/sign-out" } })
+    await loadViteHubPageTools({ load: modules().load })
+    const replace = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    fetch.mockImplementation(async () => new Response("{}", { status: 200 }))
+    const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
+    item.click()
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenLastCalledWith("/portal/api/auth/sign-out", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
+    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+  })
+
+  it("keeps the session and says so when the sign-out fails", async () => {
+    page("/?vitehub")
+    const fetch = session({ tools: [comments], account: ada })
+    await loadViteHubPageTools({ load: modules().load })
+    fetch.mockImplementation(async () => new Response("{}", { status: 403 }))
+    const item = [...account().shadow.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].at(-1)!
+    item.click()
+    await vi.waitFor(() => expect(item.textContent).toBe("Could not sign out. Try again"))
+    expect(item.hasAttribute("aria-disabled")).toBe(false)
+  })
 })

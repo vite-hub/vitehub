@@ -11,7 +11,7 @@ describe("cross realm date repro", () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify({ id: "id" }), { status: 200 }))
     const driver = resend({ apiKey: "re_secret", fetch })
     const result = await driver.send({ ...message, scheduledAt: date }, { attempt: 1, driver: "resend", meta: {} })
-    expect(result).toMatchObject({ data: { id: "id" }, error: null })
+    expect(result).toMatchObject([undefined, { id: "id" }])
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({ scheduled_at: "2026-08-26T12:00:00.000Z" })
   })
 })

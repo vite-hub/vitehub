@@ -22,7 +22,7 @@ icon: i-lucide-code-2
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
 | `contentSource` from `vite-hub/content` | Adapt one Source with Comark options such as `prefix` and `schema`, and a sitemap [`url`](/docs/content/seo#source-urls). |
 | `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
-| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. |
+| `defineContentHandler` from `vite-hub/content` | Serve a Content runtime as a Fetchable route, `{ fetch(request) }`, in another server. Nitro and H3 accept it as a route handler. It asks `authorize` for `read`; pass `{ user: request => ... }` so the policy gets the signed-in user. |
 | `generateContentTypes`, `defineContentTypesPlugin` from `vite-hub/content` | Generate the [Content types](#types), or write them from a Nitro plugin in development. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
@@ -159,12 +159,14 @@ export default defineEventHandler(async (event) => {
 | `content.schedule({ at, expect })`, `content.schedules()`, `content.unschedule(id)`, `content.publishDue()` | Publish reviewed drafts later, list and cancel schedules, and run due ones. See [Scheduling](/docs/content/scheduling). |
 | `content.revisions(collection, id?, options?)` | Revisions that saved, removed, restored, or published one document, newest first. Omit `id` for a singleton. |
 | `content.revisions(options?)` | Revisions that changed any collection's documents on one ref, newest first. |
-| `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. Returns `false` when no policy is defined. |
+| `content.can({ user?, actor?, collection, action, id? })` | Evaluates `authorize`. `action: 'read'` takes no `collection`. Returns `false` when no policy is defined. |
 | `content.hasPolicy` | Whether `defineContent({ authorize })` has a policy. |
 | `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |
 | `content.sitemap(options?)` | [Sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents and Source documents that have a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
+| `content.markdown(path, options?)` | The [Markdown copy](/docs/content/seo#markdown-for-agents) that a path such as `/blog/hello.md` names, or `null`. |
+| `content.hasMarkdown(path)` | Whether `content.markdown(path)` has a copy, without rendering it. |
 
 To work on documents from a terminal during development, use [`vitehub content`](/docs/content/cli).
 
@@ -187,7 +189,7 @@ A [`singleton()`](/docs/content/configure#singletons-and-data-files) has `kind: 
 | `settings.list(options?)` | A page with the document, if it exists on the ref. |
 | `settings.id`, `settings.path` | The document id (the file name without extension) and its Workspace path. |
 
-Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton can omit `id`:
+Each method also takes the id first, like a collection, so generic code need not branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_SINGLETON_ID_MISMATCH`. `publish({ expect })` entries for a singleton can omit `id`:
 
 ```ts [server/utils/settings.ts]
 import content from '../content'
@@ -242,7 +244,7 @@ export async function compareRefs() {
 }
 ```
 
-A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. Pass it to `defineCollectionHandler()`, or export it from `server/collections/`, to serve published lists with field filters.
+A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. It has no access rule, so add one before you serve it: `defineCollectionHandler({ ...posts, access: 'public' })` serves published lists with field filters to anyone. Export the same object from `server/collections/` to get the generated route. Without `access` or `authorize`, the handler throws `SOURCE_COLLECTION_ACCESS_REQUIRED`.
 
 ### Save and remove
 
@@ -357,14 +359,14 @@ export async function recentPublishes() {
 ### Access
 
 ```ts [server/api/posts/publish.post.ts]
-import { createError, defineEventHandler } from 'h3'
+import { defineEventHandler, HTTPError } from 'h3'
 import { withAuth } from 'vite-hub/auth/server'
 import content from '../../content'
 
 export default defineEventHandler(
   withAuth(async (event, { user }) => {
     if (!await content.can({ user, collection: 'posts', action: 'publish' }))
-      throw createError({ statusCode: 403 })
+      throw new HTTPError({ status: 403 })
     return await content.publish({ collection: 'posts' })
   }),
 )
@@ -376,7 +378,7 @@ export default defineEventHandler(
 await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
 ```
 
-An unknown collection, a `user` that is not an object or `null`, or an `actor` without `id` throws `CONTENT_R0008`.
+An unknown collection throws `CONTENT_COLLECTION_UNKNOWN`. A `user` that is not an object or `null`, or an `actor` without `id`, throws `CONTENT_CAN_INPUT_INVALID`.
 
 ### Comark refs
 
@@ -404,4 +406,4 @@ With a valid preview cookie, every Content read above uses `draft`. A preview fr
 <span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
 ```
 
-The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws a `TypeError` for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.
+The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws [`CONTENT_FIELD_ADDRESS_INVALID`](/docs/content/diagnostics/content_field_address_invalid) for a name or path the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.

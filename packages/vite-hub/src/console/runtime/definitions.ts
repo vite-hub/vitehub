@@ -43,11 +43,13 @@ export interface ConsoleRecord {
 export type ConsoleOperationTone = "error" | "info" | "neutral" | "success" | "warning"
 
 export interface ConsoleOperationColumn {
-  format?: "datetime" | "excerpt" | "status"
+  format?: "datetime" | "excerpt" | "status" | "switch"
   key: string
   label: string
   /** The tone of each value of a `status` column. */
   tones?: Readonly<Record<string, ConsoleOperationTone>>
+  /** The operation that a `switch` column calls, and its input keys as dot paths of the item. */
+  switch?: { operation: string, input: Readonly<Record<string, string>> }
 }
 
 export interface ConsoleOperationFilter {
@@ -56,8 +58,19 @@ export interface ConsoleOperationFilter {
   label: string
 }
 
+/** Mirrors `ViteHubConsoleOperationAction`. */
+export interface ConsoleOperationAction {
+  confirm?: string
+  input: Readonly<Record<string, string>>
+  label: string
+  operation: string
+  tab?: true
+  when?: Readonly<Record<string, readonly string[]>>
+}
+
 /** Mirrors `ViteHubConsoleOperationView`. */
 export interface ConsoleOperationView {
+  actions?: readonly ConsoleOperationAction[]
   columns: readonly ConsoleOperationColumn[]
   detail?: { kind: "comment-thread" }
   filters?: readonly ConsoleOperationFilter[]
@@ -71,6 +84,7 @@ export interface ConsoleOperationView {
 export type ConsoleSectionView =
   | ConsoleOperationView
   | { kind: "auth-management"; notice: string }
+  | { kind: "webhooks", notice: string }
   | { kind: "definition-catalog", notice: string }
   | { kind: "workspace-browser", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
@@ -175,6 +189,7 @@ export interface ConsoleContributedSection {
 export type ConsoleSectionContent =
   | { kind: "operation-view" }
   | { kind: "auth-management" }
+  | { kind: "webhooks" }
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
   | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
@@ -188,6 +203,8 @@ export interface ConsoleDocumentHint {
 
 /** What the project lacks for some editor features. It mirrors `ViteHubConsoleDocumentSetup`. */
 export interface ConsoleDocumentSetup {
+  /** The project has GitHub Sources but no document collections. */
+  sourceHeadsOnly?: true
   /** No user can read anything because the owner has no access policy. */
   access?: ConsoleDocumentHint
   /** Nothing runs scheduled publishes. */
@@ -234,19 +251,39 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
   const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
     const column = record(entry)
     if (!text(column?.key) || !text(column.label)) return []
-    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" ? column.format : undefined
+    const toggle = record(column.switch)
+    const toggleInput = Object.entries(record(toggle?.input) ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
+    // A switch without its operation would do nothing, so it shows the value as text.
+    const format = column.format === "datetime" || column.format === "excerpt" || column.format === "status" || (column.format === "switch" && text(toggle?.operation)) ? column.format : undefined
     const tones = format === "status" ? record(column.tones) : undefined
     return [{
       key: column.key,
       label: column.label,
       ...(format ? { format } : {}),
       ...(tones ? { tones: Object.fromEntries(Object.entries(tones).filter((entry): entry is [string, ConsoleOperationTone] => operationTones.has(String(entry[1])))) } : {}),
+      ...(format === "switch" && text(toggle?.operation) ? { switch: { input: Object.fromEntries(toggleInput), operation: toggle.operation } } : {}),
     }]
   })
   const filters = Array.isArray(view.filters)
     ? view.filters.flatMap((entry): ConsoleOperationFilter[] => {
         const filter = record(entry)
         return text(filter?.id) && text(filter.label) && record(filter.input) ? [{ id: filter.id, input: { ...record(filter.input) }, label: filter.label }] : []
+      })
+    : []
+  const actions = Array.isArray(view.actions)
+    ? view.actions.flatMap((entry): ConsoleOperationAction[] => {
+        const action = record(entry)
+        if (!text(action?.label) || !text(action.operation)) return []
+        const input = Object.entries(record(action.input) ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
+        const when = Object.entries(record(action.when) ?? {}).flatMap(([path, values]): Array<[string, string[]]> => Array.isArray(values) ? [[path, values.filter(text)]] : [])
+        return [{
+          input: Object.fromEntries(input),
+          label: action.label,
+          operation: action.operation,
+          ...(text(action.confirm) ? { confirm: action.confirm } : {}),
+          ...(action.tab === true ? { tab: true as const } : {}),
+          ...(when.length ? { when: Object.fromEntries(when) } : {}),
+        }]
       })
     : []
   const link = record(view.link)
@@ -263,6 +300,7 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
       ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
       : {}),
     ...(filters.length ? { filters } : {}),
+    ...(actions.length ? { actions } : {}),
     ...(record(view.detail)?.kind === "comment-thread" ? { detail: { kind: "comment-thread" as const } } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }
@@ -273,6 +311,7 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (!text(view?.notice)) return undefined
   if (
     view.kind === "auth-management" ||
+    view.kind === "webhooks" ||
     view.kind === "definition-catalog" ||
     view.kind === "document-editor" ||
     view.kind === "workspace-browser"
@@ -385,6 +424,7 @@ function parseConsoleDocumentHint(value: unknown): ConsoleDocumentHint | undefin
 export function parseConsoleDocumentSetup(value: unknown): ConsoleDocumentSetup | undefined {
   const source = record(value)
   const setup: ConsoleDocumentSetup = {}
+  if (source?.sourceHeadsOnly === true) setup.sourceHeadsOnly = true
   for (const key of ["access", "schedule"] as const) {
     const hint = parseConsoleDocumentHint(source?.[key])
     if (hint) setup[key] = hint
@@ -432,6 +472,7 @@ export function parseConsoleSectionContent(value: unknown, section: string): Con
   const source = record(value)
   if (source?.section !== section) return undefined
   if (source.kind === "auth-management") return { kind: "auth-management" };
+  if (source.kind === "webhooks") return { kind: "webhooks" }
   if (source.kind === "document-editor") {
     if (!Array.isArray(source.collections)) return undefined
     const setup = parseConsoleDocumentSetup(source.setup)

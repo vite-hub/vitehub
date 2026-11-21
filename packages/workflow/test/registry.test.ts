@@ -45,6 +45,37 @@ describe("Workflow registry", () => {
     expect(Object.hasOwn(generated.default, "__proto__")).toBe(true)
   }, 15_000)
 
+  // A Workflow-only app does not install `@vite-hub/workspace`, so an import with no loaders breaks its build.
+  it("imports the Workspace runtime only for the Shell loader", () => {
+    const definitions = [{ handler: "/app/server/workflows/hello.ts", name: "hello", source: "server-workflows" as const }]
+    const workspaceRuntime = "vite-hub/workspace/runtime"
+
+    const withoutLoaders = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: {},
+      workspaceRuntime,
+    })
+    const withShell = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: { shellWorkspace: "vite-hub/shell/workspace" },
+      workspaceRuntime,
+    })
+    // `vitehub()` hands the Workflow the same loader object as the Agent, which can name Sandbox Task modules.
+    const frameworkLoaders: { sandboxTask: string, sandboxTaskRuntimeState: string, shellWorkspace?: string } = {
+      sandboxTask: "vite-hub/sandbox/task",
+      sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",
+    }
+    const withSandboxTask = createWorkflowRegistryContents("/app/.vitehub/workflow/registry.mjs", definitions, {
+      workspaceDependencies: frameworkLoaders,
+      workspaceRuntime,
+    })
+
+    expect(withoutLoaders).not.toContain(workspaceRuntime)
+    expect(withoutLoaders).not.toContain("setWorkspaceDependencyRuntimeLoaders")
+    expect(withSandboxTask).not.toContain(workspaceRuntime)
+    expect(withSandboxTask).not.toContain("sandbox")
+    expect(withShell).toContain(`import { setWorkspaceDependencyRuntimeLoaders } from ${JSON.stringify(workspaceRuntime)}`)
+    expect(withShell).toContain("  shellWorkspace: () => import(\"vite-hub/shell/workspace\"),")
+  })
+
   it("renders, caches, and executes step-aware definitions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-registry-"))
     directories.push(root)
@@ -56,7 +87,7 @@ describe("Workflow registry", () => {
     await mkdir(dirname(registryFile), { recursive: true })
     await mkdir(workflowDirectory, { recursive: true })
     await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
-    await writeFile(handler, "export default { handler: async (payload, { steps }) => await steps.add(payload), options: { owner: 'workflow' } }\n", "utf8")
+    await writeFile(handler, "export default { handler: async ({ payload, steps }) => await steps.add(payload), owner: 'workflow' }\n", "utf8")
     await writeFile(step, "export default async function add(value) { return value + 1 }\n", "utf8")
 
     const contents = createWorkflowRegistryContents(registryFile, [{
@@ -77,14 +108,14 @@ describe("Workflow registry", () => {
       '    const cached = registryEntryCache.get("release")',
       "    if (cached) return cached",
       `    const index = await import(${JSON.stringify(pathToFileURL(handler).href)})`,
-      `    const steps = [{ name: "01.add.mjs", run: (await import(${JSON.stringify(pathToFileURL(step).href)})).default }]`,
+      `    const steps = [{ name: "01.add.mjs", ...await import(${JSON.stringify(pathToFileURL(step).href)}).then(step => ({ options: { retries: step.retries, timeout: step.timeout }, run: step.default })) }]`,
       '    const definition = index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule("release", index) || { handler: index.default }',
       "    const entry = {",
       "      ...definition,",
-      "      options: { ...definition.options, rootStep: false },",
-      "      handler: async (payload, context) => {",
+      "      rootStep: false,",
+      "      handler: async (context) => {",
       "        const workflowSteps = createWorkflowSteps(context, steps)",
-      "        return await definition.handler(payload, { ...context, steps: workflowSteps })",
+      "        return await definition.handler({ ...context, steps: workflowSteps })",
       "      },",
       "    }",
       '    registryEntryCache.set("release", entry)',
@@ -100,12 +131,13 @@ describe("Workflow registry", () => {
     const generated = await import(`${pathToFileURL(registryFile).href}?test=workflow-owner`)
     // SAFETY: The generated fixture above exports this exact Workflow registry contract.
     const registry = generated.default as Record<string, () => Promise<{
-      handler: (payload: number, context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
-      options: { owner: string, rootStep: false }
+      handler: (context: { name: string, payload: number, provider: "openworkflow" }) => Promise<number>
+      owner: string
+      rootStep: false
     }>>
     const definition = await registry.release!()
-    await expect(definition.handler(1, { name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
-    expect(definition.options).toEqual({ owner: "workflow", rootStep: false })
+    await expect(definition.handler({ name: "release", payload: 1, provider: "openworkflow" })).resolves.toBe(2)
+    expect(definition).toMatchObject({ owner: "workflow", rootStep: false })
     await expect(registry.release!()).resolves.toBe(definition)
   })
 })

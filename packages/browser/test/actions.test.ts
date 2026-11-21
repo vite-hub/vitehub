@@ -8,7 +8,7 @@ import {
 
 import type { BrowserAvailability } from "../src/types.ts"
 
-const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", driver: "cloudflare" as string | undefined, engine: "chromium" }))
 const availability = vi.hoisted(() => ({ current: { available: true } as BrowserAvailability }))
 vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
 vi.mock("#vitehub/browser/availability", () => ({
@@ -21,13 +21,13 @@ const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unk
 
 afterEach(() => {
   delete runtime.__env__
-  runtimeConfig.provider = "cloudflare"
+  runtimeConfig.driver = "cloudflare"
   availability.current = { available: true }
 })
 
 describe("Browser Run actions", () => {
   it("rejects actions when Browser is not configured", async () => {
-    runtimeConfig.provider = undefined
+    runtimeConfig.driver = undefined
     const response = await runBrowserAction("content", "https://example.com")
     expect(response.status).toBe(500)
   })
@@ -62,7 +62,7 @@ describe("Browser Run actions", () => {
     runtime.__env__ = { BROWSER: binding }
 
     const content = await runBrowserContent("https://example.com")
-    expect(content).toBe("<html><title>ok</title></html>")
+    expect(content).toEqual([undefined, "<html><title>ok</title></html>"])
     expect(quickAction).toHaveBeenCalledWith("content", { url: "https://example.com" })
   })
 
@@ -104,7 +104,8 @@ describe("Browser Run actions", () => {
     const binding = { quickAction: vi.fn(async () => new Response("nope", { status: 500 })) }
     runtime.__env__ = { BROWSER: binding }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow()
+    const [error] = await runBrowserContent("https://example.com")
+    expect(error).toMatchObject({ code: "BROWSER_CONTENT_FAILED", status: 502 })
   })
 
   it("cancels non-ok quick action response bodies", async () => {
@@ -112,7 +113,12 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: vi.fn(async () => response) } }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    const [error] = await runBrowserContent("https://example.com")
+    expect(error).toMatchObject({
+      code: "BROWSER_CONTENT_FAILED",
+      fix: expect.stringContaining("runBrowserAction(\"content\", input)"),
+      message: "Browser content request failed with status 500",
+    })
     expect(cancel).toHaveBeenCalledOnce()
   })
 
@@ -184,10 +190,10 @@ describe("Browser Run actions", () => {
       const response = new Response(new ReadableStream({ cancel, start() {} }))
       runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-      const content = expect(runBrowserContent("https://example.com")).rejects.toThrow()
+      const content = runBrowserContent("https://example.com")
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await content
+      expect((await content)[0]).toMatchObject({ code: "BROWSER_CONTENT_FAILED", cause: { code: "BROWSER_PROVIDER_ERROR" } })
       expect(cancel).toHaveBeenCalledOnce()
     }
     finally {
@@ -207,10 +213,10 @@ describe("Browser Run actions", () => {
       }))
       runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-      const content = expect(runBrowserContent("https://example.com")).rejects.toThrow()
+      const content = runBrowserContent("https://example.com")
       await vi.advanceTimersByTimeAsync(30_000)
 
-      await content
+      expect((await content)[0]).toMatchObject({ code: "BROWSER_CONTENT_FAILED" })
       expect(cancel).toHaveBeenCalledOnce()
       await vi.runAllTimersAsync()
     }
@@ -224,7 +230,7 @@ describe("Browser Run actions", () => {
     const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
     runtime.__env__ = { BROWSER: { quickAction: async () => response } }
 
-    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    expect((await runBrowserContent("https://example.com"))[0]?.message).toBe("Browser content request failed with status 500")
     expect(cancel).toHaveBeenCalledOnce()
   })
 
@@ -239,7 +245,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserContent({ actionTimeout: 60_000, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(31_000)
 
-      await expect(action).resolves.toBe("complete")
+      await expect(action).resolves.toEqual([undefined, "complete"])
     }
     finally {
       vi.useRealTimers()
@@ -257,7 +263,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserContent({ actionTimeout: 300_000, goToOptions: { timeout: 60_000 }, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(331_000)
 
-      await expect(action).resolves.toBe("complete")
+      await expect(action).resolves.toEqual([undefined, "complete"])
     }
     finally {
       vi.useRealTimers()
@@ -276,7 +282,7 @@ describe("Browser Run actions", () => {
       const action = runBrowserContent({ firstOptions: shared, secondOptions: shared, url: "https://example.com" })
       await vi.advanceTimersByTimeAsync(45_000)
 
-      await expect(action).resolves.toBe("complete")
+      await expect(action).resolves.toEqual([undefined, "complete"])
     }
     finally {
       vi.useRealTimers()

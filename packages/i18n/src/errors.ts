@@ -13,6 +13,12 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "i18n needs Nitro 3, which runs each request in an async context. Nuxt 4 builds the server with Nitro 2.",
       fix: "Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.",
     },
+    I18N_UNKNOWN_WORKSPACE: {
+      why: ({ workspace, workspaces }: { workspace: string, workspaces: readonly string[] | undefined }) => workspaces === undefined
+        ? `\`i18n.workspace\` is ${JSON.stringify(workspace)}, and Workspace is not enabled.`
+        : `\`i18n.workspace\` is ${JSON.stringify(workspace)}, and the app defines ${workspaces.length ? `only these Workspaces: ${workspaces.map(name => JSON.stringify(name)).join(", ")}` : "no Workspace"}.`,
+      fix: "Set `i18n.workspace` to the name of a Workspace, or define it, such as `server/workspaces/translations/config.ts` for `\"translations\"`.",
+    },
     // Thrown when code calls a message macro that the ViteHub build did not compile.
     I18N_MACRO_NOT_COMPILED: {
       why: ({ name }: { name: string }) => `\`${name}\` from \`vite-hub/i18n\` ran without the ViteHub build, so it has no message ID.`,
@@ -23,14 +29,26 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`useTranslations()` saves and publishes translations in a Workspace, and `i18n.workspace` is not set.",
       fix: "Define a Workspace with retained history, such as `server/workspaces/translations/config.ts`, and set `i18n: { workspace: \"translations\" }`. Without a Workspace, translations are records in `locales/<locale>/`.",
     },
+    // Browser diagnostics. The page logs them with `console.warn()` and keeps the catalog of the build.
+    I18N_LIVE_CATALOG_INVALID: {
+      why: ({ locale, route }: { locale: string, route: string }) => `The live catalog \`${route}/${locale}.json\` answered with a body that is not \`{ revision, messages }\` with compiled messages, so the page uses the catalog of the build.`,
+      fix: "ViteHub serves this route when `i18n.workspace` is set. Open the URL and check that no proxy, middleware, or route of the app answers the same path with another body.",
+    },
     // Runtime errors. `setLocale()` and `useTranslations()` return them as `[error, undefined]`.
     I18N_INVALID_TRANSLATION: {
       why: ({ problem }: { problem: string }) => `The translation was not saved. ${problem}`,
       fix: "Write the translation in ICU MessageFormat, and keep every `{placeholder}` and `<0>` tag of the source text.",
+      status: 400,
+    },
+    I18N_SAVE_CONFLICT: {
+      why: ({ id, locale }: { id: string, locale: string }) => `Another save changed the \`draft\` ref while \`save()\` wrote message ${id} in \`${locale}\`. This translation was not saved.`,
+      fix: "Call `save()` again. It reads the new draft first. `error.cause` has the Workspace conflict.",
+      status: 409,
     },
     I18N_UNKNOWN_LOCALE: {
       why: ({ locale, locales }: { locale: string, locales: readonly string[] }) => `\`${locale}\` is not one of the configured locales: ${locales.join(", ")}.`,
       fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales`.",
+      status: 400,
     },
     I18N_LOCALE_SUPERSEDED: {
       why: ({ locale }: { locale: string }) => `A newer \`setLocale()\` call superseded the selection of \`${locale}\` before its catalog loaded.`,

@@ -7,6 +7,10 @@ import { parseSync } from "vite"
 
 import type { ESTree } from "vite"
 
+import { moduleLanguage, walk } from "./ast-walk.ts"
+
+export { walk }
+
 export type Argument = ESTree.Argument
 export type CallExpression = ESTree.CallExpression
 export type NewExpression = ESTree.NewExpression
@@ -34,46 +38,20 @@ export type Dynamic = typeof dynamic
 
 export type StaticValue = string | number | boolean | bigint | null | undefined | StaticValue[] | { [key: string]: StaticValue }
 
-function languageOf(file: string): "js" | "jsx" | "ts" | "tsx" {
-  if (/\.(?:c|m)?tsx$/i.test(file)) return "tsx"
-  if (/\.(?:c|m)?jsx$/i.test(file)) return "jsx"
-  if (/\.(?:c|m)?js$/i.test(file)) return "js"
-  return "ts"
-}
-
 /** Parses a module once. `file` selects the grammar from its extension and defaults to TypeScript. */
 export function scanModule(source: string, file = "module.ts"): ScannedModule {
-  const result = parseSync(file, source, { lang: languageOf(file), preserveParens: false, sourceType: "module" })
+  const result = parseSync(file, source, { lang: moduleLanguage(file), preserveParens: false, sourceType: "module" })
   return { comments: result.comments, errors: result.errors, file, program: result.program, source }
 }
 
 /** Lists the names that a module exports. A default export reads as `default`. Type-only exports are left out. */
 export function exportNames(source: string, file = "module.ts"): string[] {
-  const { module } = parseSync(file, source, { lang: languageOf(file), sourceType: "module" })
+  const { module } = parseSync(file, source, { lang: moduleLanguage(file), sourceType: "module" })
   return module.staticExports.flatMap(statement => statement.entries).flatMap((entry) => {
     if (entry.isType) return []
     if (entry.exportName.kind === "Default") return ["default"]
     return entry.exportName.name === null ? [] : [entry.exportName.name]
   })
-}
-
-function isNode(value: unknown): value is Node {
-  return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
-}
-
-/** Visits `node` and its descendants. Return `false` from `visit` to skip the children of a node. */
-export function walk(node: Node, visit: (node: Node, parent: Node | undefined) => boolean | void, parent?: Node): void {
-  if (visit(node, parent) === false) return
-  // SAFETY: AST nodes are plain objects. Reading their fields by key only selects child nodes and arrays.
-  const fields = node as unknown as Record<string, unknown>
-  for (const key in fields) {
-    const child = fields[key]
-    if (typeof child !== "object" || child === null || key === "parent") continue
-    if (Array.isArray(child)) {
-      for (const item of child) if (isNode(item)) walk(item, visit, node)
-    }
-    else if (isNode(child)) walk(child, visit, node)
-  }
 }
 
 /** The source text of a node. */
@@ -136,7 +114,7 @@ export function findDefaultExportCall(module: ScannedModule, names: readonly str
   const name = call.callee.name
   const first = argumentExpression(call.arguments[0])
   if (first?.type === "ObjectExpression") return { call, name, options: first }
-  // The positional form has more than one argument, such as `defineQueue(handler, options)`.
+  // The positional form has more than one argument, such as `defineThing(cron, handler, options)`.
   if (options.positionalOptionsIndex === undefined || first === undefined || call.arguments.length < 2) return
   const positional = call.arguments[options.positionalOptionsIndex]
   if (positional === undefined) return { call, name }

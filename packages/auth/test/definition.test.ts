@@ -13,14 +13,13 @@ describe("defineAuth", () => {
           { authorize, method: "POST", route: "/app/actions" },
         ],
         signIn: {
-          callbackURL: "/app",
           errorCallbackURL: "/login?error=auth",
           provider: "github",
         },
+        afterSignIn: "/app",
       },
       basePath: "/auth",
       route: false,
-      runtime: () => ({ secret: "runtime-secret" }),
     })).toEqual({
       options: {
         appName: "ViteHub",
@@ -30,15 +29,14 @@ describe("defineAuth", () => {
             { authorize, method: "POST", route: "/app/actions" },
           ],
           signIn: {
-            callbackURL: "/app",
             errorCallbackURL: "/login?error=auth",
             provider: "github",
           },
+          afterSignIn: "/app",
         },
         basePath: "/auth",
-          route: false,
-        runtime: expect.any(Function),
-        },
+        route: false,
+      },
     })
   })
 
@@ -91,12 +89,27 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ database: false } as never)).toThrow(/database must be `authDatabase\(\)`/)
     expect(() => defineAuth({ database: { name: "auth", url: "file:auth.db" } } as never)).toThrow(/database must be `authDatabase\(\)`/)
     expect(() => defineAuth({ secondaryStorage: false } as never)).toThrow(/secondaryStorage takes only a Better Auth adapter/)
-    expect(() => defineAuth({ runtime: "secret" } as never)).toThrow(/runtime must be an object or a function/)
+  })
+
+  it("rejects the removed runtime option and shows the callback form", () => {
+    // `runtime.advanced` used to replace the whole static `advanced`, so `cookiePrefix` was lost without an error.
+    const removed = { advanced: { cookiePrefix: "acme" }, runtime: () => ({ advanced: { trustedProxyHeaders: true } }) }
+    for (const runtime of [removed.runtime, { secret: "secret" }, "secret"]) {
+      expect(() => defineAuth({ ...removed, runtime } as never)).toThrow(expect.objectContaining({
+        code: "AUTH_C0039",
+        fix: expect.stringContaining("defineAuth(({ env }) => ({"),
+      }))
+    }
   })
 
   it("rejects unsupported access config", () => {
     expect(() => defineAuth({ access: false } as never)).toThrow(/access must be an object/)
-    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be an object/)
+    expect(() => defineAuth({ access: { signIn: false } } as never)).toThrow(/access\.signIn must be a path or an object/)
+    expect(() => defineAuth({ access: { signIn: "login" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(() => defineAuth({ access: { signIn: "//evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
+    expect(defineAuth({ access: { signIn: "/login", afterSignIn: "/dashboard" } }).options.access).toEqual({ signIn: "/login", afterSignIn: "/dashboard" })
+    expect(() => defineAuth({ access: { afterSignIn: "https://evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_AFTER_SIGN_IN_INVALID" }))
+    expect(() => defineAuth({ access: { signIn: { provider: "github", callbackURL: "/app" } } } as never)).toThrow(expect.objectContaining({ code: "AUTH_SIGN_IN_CALLBACK_URL_MOVED" }))
     expect(() => defineAuth({ access: { signIn: { provider: "" } } } as never)).toThrow(/access\.signIn\.provider/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", requestSignUp: "yes" } } } as never)).toThrow(/requestSignUp/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", scopes: ["read:org", 1] } } } as never)).toThrow(/scopes/)

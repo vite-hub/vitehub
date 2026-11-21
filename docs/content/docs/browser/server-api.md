@@ -16,12 +16,12 @@ Start with Browser Definitions, one file per browser task. Use Browser actions f
 | `runBrowserAction`, `runBrowserContent` from `vite-hub/browser` | Run one stateless Browser Run action. |
 | `isBrowserAvailable` from `vite-hub/browser` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
-| `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run provider. |
-| `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium provider for trusted Node hosts. |
+| `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run driver. |
+| `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium driver for trusted Node hosts. |
 | `playwright`, `cdp` from `vite-hub/browser/controllers/playwright` and `vite-hub/browser/controllers/cdp` | Attach Playwright or CDP to a low-level session. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Add the Vite plugin without the `vite-hub` package. |
 
-Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` and its subpaths. The package needs Node.js 22.18 or newer.
+Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` and its subpaths. The package needs Node.js 24.15 or newer.
 
 ## Definition API
 
@@ -36,7 +36,7 @@ Libraries and custom Vite setups import the same APIs from `@vite-hub/browser` a
 | `session.page.press(key)` | Presses a keyboard key on the page. |
 | `session.inspect()` | Returns the session id, state, features, and expiry, the same on every provider. |
 | `session.close()` | Releases the controller and provider session. Parallel calls share one cleanup. |
-| `runBrowser(name, input)` | Runs a Definition with typed input and returns a native `Response`. |
+| `runBrowser(name, input)` | Runs a Definition with typed input and returns `[error, data]`. `data` is the value that the handler returned. |
 
 ## Browser actions
 
@@ -45,10 +45,11 @@ Call a Browser action directly when you do not need a page session:
 ```ts [server/render-og.ts]
 import { runBrowserContent } from 'vite-hub/browser'
 
-const html = await runBrowserContent('https://example.com')
+const [error, html] = await runBrowserContent('https://example.com')
+if (error) throw error
 ```
 
-`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns the `content` action as text and throws on failure. The input is a URL string or an object with `url` and provider options.
+`runBrowserAction(action, input)` returns the raw `Response`. Provider failures return a non-2xx JSON `Response`. `runBrowserContent(input)` returns `[error, html]`. A failed request returns [`BROWSER_CONTENT_FAILED`](/docs/browser/diagnostics/browser_content_failed). The input is a URL string or an object with `url` and provider options.
 
 Supported actions: `accessibilityTree`, `content`, `json`, `links`, `markdown`, `pdf`, `scrape`, `screenshot`, and `snapshot`.
 
@@ -73,7 +74,7 @@ Navigation and clicks run one at a time, because each can replace the page. A ti
 
 ## Low-level sessions
 
-`createBrowser()` is for libraries and standalone code that choose the provider, attach the controller, and clean up. Use it when you need Playwright, page state that changes, downloads, or CDP.
+`createBrowser()` is for libraries and standalone code that choose the driver, attach the controller, and clean up. Use it when you need Playwright, page state that changes, downloads, or CDP.
 
 ```bash [Terminal]
 pnpm add @vite-hub/browser
@@ -85,7 +86,7 @@ import { playwright } from 'vite-hub/browser/controllers/playwright'
 import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
-  provider: cloudflareBrowser({ binding: 'BROWSER' }),
+  driver: cloudflareBrowser({ binding: 'BROWSER' }),
 })
 
 const session = await browser.open()
@@ -107,7 +108,7 @@ If reading the controller client or attach tracing fails, ViteHub releases the c
 
 For the Playwright controller on Cloudflare, install `@cloudflare/playwright` and `playwright-core`. Cloudflare builds use the `workerd` export condition and leave out the Node Playwright loader. Standalone Worker bundlers must also use `workerd`. The built-in Playwright CDP adapter needs Node.js.
 
-`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process.
+`localBrowser({ executablePath })` from `vite-hub/browser/providers/local` starts local Chromium on a trusted host. It supports CDP and live handoff. `playwright-core` supplies the controller but no browser. ViteHub does not sandbox this process. It rejects `idleTimeoutMs`, from `open()` or `policy`, because nothing closes an idle local Chromium. Call `session.close()` when you are done.
 
 ## Live handoff
 
@@ -119,7 +120,7 @@ import { cdp } from 'vite-hub/browser/controllers/cdp'
 import { cloudflareBrowser } from 'vite-hub/browser/providers/cloudflare'
 
 const browser = createBrowser({
-  provider: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),
+  driver: cloudflareBrowser({ binding: 'BROWSER', engine: 'chromium' }),
 })
 
 const session = await browser.open()

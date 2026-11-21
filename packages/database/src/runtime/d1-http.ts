@@ -95,12 +95,15 @@ function resolveCloudflareD1HttpConnection(config: RuntimeDrizzleDatabaseConfig,
   return { token, url: validateD1HttpUrl(url, config.name) }
 }
 
-function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
+/** A Drizzle database that sends each query to a D1 `/raw` endpoint or a proxy with the same protocol. */
+export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   config: { token: string, url: string },
   relations: TRelations,
   request: typeof fetch,
 ) {
   async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
+    // An empty batch sends no request, as libSQL runs nothing.
+    if (!queries.length) return []
     for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     // One HTTP request per call, so a batch is one call.

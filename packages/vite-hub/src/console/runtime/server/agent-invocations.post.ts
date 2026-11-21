@@ -1,7 +1,8 @@
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
-import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
+import { createExecutionContext } from "@vite-hub/runtime"
+import { createRuntimeWaitUntilController } from "@vite-hub/runtime/internal/context"
 import * as v from "valibot"
 
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"

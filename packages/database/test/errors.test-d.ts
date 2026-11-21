@@ -1,18 +1,25 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { InferDiagnosticCodes } from "nostics"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { createAgentDatabase, type AgentDatabaseHandle } from "../src/runtime/agent.ts"
 
-type DatabaseCatalogCode = keyof typeof databaseErrorDiagnostics
+type DatabaseCatalogCode = InferDiagnosticCodes<typeof databaseErrorDiagnostics>
 
 describe("Database error types", () => {
   it("keeps one closed set of named codes", () => {
     expectTypeOf<DatabaseCatalogCode>().toEqualTypeOf<
       | "DATABASE_BINDING_CONFLICT"
+      | "DATABASE_CHUNK_INVALID_COUNT"
+      | "DATABASE_CHUNK_VALUE_TOO_LARGE"
+      | "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED"
       | "DATABASE_D1_INVALID_RESPONSE"
+      | "DATABASE_D1_MIGRATIONS_DIR_INVALID"
+      | "DATABASE_D1_MIGRATIONS_DIR_OVERLAP"
+      | "DATABASE_D1_MIGRATION_FAILED"
       | "DATABASE_D1_MIGRATION_INVALID"
       | "DATABASE_D1_REQUEST_FAILED"
       | "DATABASE_D1_STATEMENT_TOO_LONG"
@@ -20,9 +27,14 @@ describe("Database error types", () => {
       | "DATABASE_D1_VALUE_TOO_LARGE"
       | "DATABASE_DISABLED"
       | "DATABASE_DRIZZLE_OPTION_REMOVED"
+      | "DATABASE_DROP_FAILED"
+      | "DATABASE_DROP_NOT_CONFIRMED"
       | "DATABASE_DUPLICATE_DEFINITION"
       | "DATABASE_DUPLICATE_TABLE"
       | "DATABASE_EXPORT_FAILED"
+      | "DATABASE_GENERATE_AMBIGUOUS_CHANGE"
+      | "DATABASE_IDEMPOTENCY_INVALID_OPTIONS"
+      | "DATABASE_IDEMPOTENCY_IN_PROGRESS"
       | "DATABASE_INVALID_CONTRIBUTION"
       | "DATABASE_INVALID_CONTRIBUTION_TARGET"
       | "DATABASE_INVALID_D1_HTTP_URL"
@@ -36,8 +48,12 @@ describe("Database error types", () => {
       | "DATABASE_LAYER_OPTIONS_CONFLICT"
       | "DATABASE_LAYER_TABLE_CONFLICT"
       | "DATABASE_LEGACY_CONFIG_FILE"
+      | "DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED"
       | "DATABASE_MIGRATE_ON_START_UNSUPPORTED"
+      | "DATABASE_MIGRATION_BACKUP_FAILED"
+      | "DATABASE_MIGRATION_BACKUP_UNSUPPORTED"
       | "DATABASE_MIGRATION_CHECK_FAILED"
+      | "DATABASE_MIGRATION_CONVERSION_FAILED"
       | "DATABASE_MIGRATION_DATA_LOSS"
       | "DATABASE_MIGRATION_FAILED"
       | "DATABASE_MIGRATIONS_OLD_LAYOUT"
@@ -50,15 +66,23 @@ describe("Database error types", () => {
       | "DATABASE_NO_D1_BINDING"
       | "DATABASE_NOT_CONNECTED"
       | "DATABASE_NOT_FOUND"
+      | "DATABASE_NUXT_CONTENT_D1_MISSING"
       | "DATABASE_OPAQUE_CLOUDFLARE_CONFIG"
       | "DATABASE_PGLITE_IN_BUILD"
       | "DATABASE_PGLITE_NOT_INSTALLED"
+      | "DATABASE_POSTGRES_DRIVER_MISSING"
       | "DATABASE_PROVISION_FAILED"
       | "DATABASE_REMOTE_CONFLICT"
       | "DATABASE_RESERVED_SCHEMA_KEY"
       | "DATABASE_SCHEMA_LOAD_FAILED"
+      | "DATABASE_SEED_FAILED"
+      | "DATABASE_SEED_NOT_FOUND"
+      | "DATABASE_SEED_PENDING_MIGRATIONS"
+      | "DATABASE_SQL_FAILED"
+      | "DATABASE_UNKNOWN_DRIVER"
       | "DATABASE_UNKNOWN_OPTION"
       | "DATABASE_UNSUPPORTED_URL"
+      | "DATABASE_URL_VARIABLE_IGNORED"
       | "DATABASE_WRANGLER_BINDING_CONFLICT"
     >()
   })

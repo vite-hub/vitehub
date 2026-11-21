@@ -2,11 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Diagnostic } from "nostics";
-
 import { schemaContainsEnum } from "../core/values.ts";
 import { descriptorVariable, env } from "../core/declarations.ts";
 import { invalidEnvDeclaration } from "../core/errors.ts";
+import { envErrorDiagnostics } from "../error-diagnostics.ts";
 import { parseEnvSchema } from "./profile.ts";
 
 import type {
@@ -127,7 +126,7 @@ export function envSchema(
     throw invalidEnvDeclaration(
       filename,
       error instanceof Error ? error.message : `${filename}: Invalid environment schema file`,
-      error instanceof Diagnostic ? error : undefined,
+      envErrorDiagnostics.ENV_B0006.is(error) ? error : undefined,
     );
   }
   const knownKeys = new Set(fields.map((field) => field.key));
@@ -162,10 +161,7 @@ export function envSchema(
       ...(field.default !== undefined ? { default: field.default } : { optional: !field.required }),
       mode: publicField ? "build" : "runtime",
       secret: field.sensitive,
-      source: env.source(field.key, {
-        canonical: false,
-        skipEmpty: !field.required && field.type.kind !== "string",
-      }),
+      source: env.source(field.key, { canonical: false }),
     });
     if (publicField) {
       if (publicNames.has(mapped)) fail(field, "Output path collides with another declaration");

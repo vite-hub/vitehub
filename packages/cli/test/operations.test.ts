@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as v from "valibot"
@@ -131,18 +131,18 @@ describe("generated operation commands", () => {
       description: "Read a file for redirection.",
       input: v.strictObject({}),
       kind: "read",
-      name: "workspace.show",
+      name: "workspace.get",
       run: () => ({ content }),
       section: "workspaces",
     })
     const options = { fetch: server("http://localhost:5173", {}, [show]), operations: [show] }
 
-    const result = await run(["workspace", "show"], options)
+    const result = await run(["workspace", "get"], options)
     expect(result.code).toBe(0)
     expect(result.stdout).toBe(content)
     expect(result.stderr).toBe("")
 
-    const json = await run(["workspace", "show", "--json"], options)
+    const json = await run(["workspace", "get", "--json"], options)
     expect(json.code).toBe(0)
     expect(JSON.parse(json.stdout)).toEqual({ content })
     expect(json.stdout.endsWith("\n")).toBe(true)
@@ -248,7 +248,7 @@ describe("generated operation commands", () => {
     expect(operationRpcRequest(fetch.mock.calls[0]![1]!.body).input).toEqual({})
   })
 
-  it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
+  it.each(["inspect", "provision", "seed"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
     const operation = defineOperation({ ...list, name: "reports.custom", cli: { namespace } })
     await expect(run([namespace, "custom"], { operations: [operation] })).rejects.toMatchObject({ code: "INTERNAL_R0020", message: expect.stringContaining("reserved") })
   })
@@ -319,6 +319,17 @@ describe("generated operation commands", () => {
         expect(result.stderr + result.stdout).toContain("CLI_R0003")
         expect(result.stderr + result.stdout).not.toMatch(/private|access-secret|password/)
       }
+    })
+
+    it.each([
+      ["http://localhost:3000/_vitehub", "http://localhost:3000"],
+      ["https://app.example.com/base/_vitehub/agents/support", "https://app.example.com/base"],
+    ])("rejects the Console URL %s and names the app URL", async (url, app) => {
+      const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+      const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
+      expect(fetch).not.toHaveBeenCalled()
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(`CLI_R0003: --url is the app URL, not the Console URL. Pass --url ${app}.`)
     })
 
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("signs calls to safe RPC URL %s, and sends no bearer token or cookie", async (url) => {
@@ -416,6 +427,15 @@ describe("generated operation commands", () => {
     expect(result.stderr).toContain("CLI_R0005: No dev server is running for /app.")
     expect(result.stderr).toContain("Fix: Start `vite dev`")
     expect(result.fetch).not.toHaveBeenCalled()
+  })
+
+  it("names the Nuxt project root, not its app/ Vite root, when no dev server is known", async () => {
+    const root = await project()
+    await mkdir(join(root, "app"))
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+    const result = await run(["reports", "list", "acme"], { env: {}, root: join(root, "app") })
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(`CLI_R0005: No dev server is running for ${root}.`)
   })
 
   it("calls the dev server that wrote .vitehub/dev-server.json for this project", async () => {

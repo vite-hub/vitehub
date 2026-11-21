@@ -3,12 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
 
-import type { RealtimeDefinition } from "../src/types.ts"
+import type { RealtimeAuthorizeContext, RealtimeDefinitionAccess, RealtimeDocumentDefinition, RealtimeRequestContext, RealtimeUser } from "../src/types.ts"
 import { RealtimeDocumentConflict } from "../src/conflict.ts"
 import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
-import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument } from "../src/server.ts"
+import { defineRealtime } from "../src/definition.ts"
+import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
+import { realtimeRoomKey, resolveRealtimeDefinition } from "../src/internal/server.ts"
 import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
@@ -44,8 +46,10 @@ async function pace(): Promise<void> {
   await vi.advanceTimersByTimeAsync(60)
 }
 
-function liveDefinition(adapter: RealtimeDefinition["document"], extra: Partial<RealtimeDefinition> = {}): RealtimeDefinition {
-  return { document: adapter, editor: createStubEditor().editor, ...extra }
+type LiveFields = Partial<Pick<RealtimeDocumentDefinition, "editor" | "history" | "persistence">>
+
+function liveDefinition(adapter: RealtimeDocumentDefinition["document"], extra: LiveFields = {}, access: RealtimeDefinitionAccess = { access: "public" }): RealtimeDocumentDefinition {
+  return { document: adapter, editor: createStubEditor().editor, ...extra, ...access }
 }
 
 describe("custom document adapters", () => {
@@ -181,7 +185,7 @@ describe("custom document adapters", () => {
     expect(calls).toEqual({ fromMarkdown: 1, toMarkdown: 1 })
 
     const memory = createMemoryAdapter({ page: { body } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     await pace()
@@ -222,7 +226,7 @@ describe("editor codec guard", () => {
     const { editor, verify } = createLossyEditor()
     const body = "Intro\n\n::callout\nKeep me\n::\n\nOutro\n"
     const memory = createMemoryAdapter({ page: { body, fields: { title: "Notes" } } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
 
@@ -256,7 +260,7 @@ describe("editor codec guard", () => {
   it("opens writable again after the stored document is fixed", async () => {
     const { editor } = createLossyEditor()
     const memory = createMemoryAdapter({ page: { body: "Intro\n\n::callout" } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ access: "read", reason: "document" })
@@ -274,7 +278,7 @@ describe("editor codec guard", () => {
   it("writes nothing when the room only holds the codec's form of the stored document", async () => {
     const { editor } = createLossyEditor()
     const memory = createMemoryAdapter({ page: { body: "* item\n\nText\n", fields: { title: "List" } } })
-    const server = createTestServer({ document: memory.adapter, editor })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ access: "write" })
@@ -399,7 +403,7 @@ describe("saves that do not fit the schema", () => {
     "---\ntitle: Page\n---",
   ])("saves field edits to codec-produced Markdown: %s", async (body) => {
     const memory = createMemoryAdapter({ page: { body } })
-    const server = createTestServer({ document: memory.adapter, persistence: false })
+    const server = createTestServer({ access: "public", document: memory.adapter, persistence: false })
     const client = await server.connect("page")
     await settle()
     await pace()
@@ -459,7 +463,7 @@ describe("saves that do not fit the schema", () => {
   ])("refuses to save %s and keeps the room dirty", async (_, element) => {
     // The built-in kit reads JSON that does not fit its schema as an empty document.
     const memory = createMemoryAdapter({ page: { body: "Start\n" } })
-    const server = createTestServer({ document: memory.adapter })
+    const server = createTestServer({ access: "public", document: memory.adapter })
     const client = await server.connect("page")
     await settle()
     await pace()
@@ -620,17 +624,19 @@ describe("re-seeding", () => {
 })
 
 describe("identity and authorization", () => {
-  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: Partial<RealtimeDefinition> = {}) {
-    return liveDefinition(memory.adapter, {
-      authorize: ({ documentId, mode, user }) => {
+  function secured(memory: ReturnType<typeof createMemoryAdapter>, extra: {
+    authorize?: true | ((context: RealtimeAuthorizeContext) => boolean)
+    identify?: (context: RealtimeRequestContext) => RealtimeUser | null
+  } = {}) {
+    return liveDefinition(memory.adapter, {}, {
+      authorize: extra.authorize ?? (({ documentId, mode, user }) => {
         if (documentId === "secret") return user?.id === "ana"
-        if (mode === "write") return user?.id !== "viewer"
-      },
-      identify: ({ request }) => {
+        return mode === "read" || user?.id !== "viewer"
+      }),
+      identify: extra.identify ?? (({ request }) => {
         const id = request.headers.get("x-user")
         return id ? { id, image: `https://example.com/${id}.png`, name: id.toUpperCase() } : null
-      },
-      ...extra,
+      }),
     })
   }
 
@@ -638,7 +644,10 @@ describe("identity and authorization", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const events: unknown[] = []
     const server = createTestServer(secured(memory, {
-      authorize: ({ event }) => { events.push(event) },
+      authorize: ({ event }) => {
+        events.push(event)
+        return true
+      },
       identify: ({ event, request }) => {
         events.push(event)
         expect(event["~standard"].req).toBe(request)
@@ -686,6 +695,7 @@ describe("identity and authorization", () => {
     const server = createTestServer(secured(memory))
 
     expect((await server.connect("secret", { headers: { "x-user": "ben" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.connect("secret")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("secret", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
     expect((await server.connect("page", { headers: { origin: "https://evil.example", "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
 
@@ -706,9 +716,21 @@ describe("identity and authorization", () => {
     expect(paragraphs(editor.doc)).toEqual(["Start"])
   })
 
-  it("requires an identity when auth is true", async () => {
+  it("denies when authorize() returns undefined", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const authorize = vi.fn(({ mode }: RealtimeAuthorizeContext): boolean | undefined => (mode === "write" ? true : undefined))
+    // SAFETY: A JavaScript definition can return undefined, which the type does not allow.
+    const server = createTestServer(secured(memory, { authorize: authorize as (context: RealtimeAuthorizeContext) => boolean }))
+
+    expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toEqual({ code: 403, reason: "rejected" })
+    expect((await server.post("page", "refresh", { headers: { "x-user": "ana" } })).status).toBe(403)
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ mode: "read" }))
+    expect(memory.adapter.load).not.toHaveBeenCalled()
+  })
+
+  it("requires an identity when authorize is true", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     expect((await server.connect("page")).closed).toEqual({ code: 401, reason: "rejected" })
     expect((await server.connect("page", { headers: { "x-user": "ana" } })).closed).toBeUndefined()
@@ -716,7 +738,7 @@ describe("identity and authorization", () => {
 
   it("refuses a rejected upgrade instead of opening a socket without hooks", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    const server = createTestServer(secured(memory, { auth: true }))
+    const server = createTestServer(secured(memory, { authorize: true }))
 
     const { response } = await server.connect("page")
     const hooks = (response as Response & { crossws?: { open?: unknown, upgrade?: (request: Request) => unknown } }).crossws
@@ -730,6 +752,16 @@ describe("identity and authorization", () => {
 })
 
 describe("history checkpoints", () => {
+  it("rejects history.checkpoint on an adapter without checkpoint() when the definition loads", () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const definition = liveDefinition(memory.adapter, { history: { checkpoint: true } })
+    const unsupported = expect.objectContaining({ code: "REALTIME_CHECKPOINT_UNSUPPORTED", fix: expect.stringContaining("checkpoint(") })
+    expect(() => defineRealtime(definition)).toThrow(unsupported)
+    expect(() => resolveRealtimeDefinition(definition)).toThrow(unsupported)
+    expect(() => defineRealtime(liveDefinition(memory.adapter))).not.toThrow()
+    expect(() => defineRealtime(liveDefinition({ ...memory.adapter, checkpoint: vi.fn() }, { history: { checkpoint: true } }))).not.toThrow()
+  })
+
   it("saves and records history through the adapter in one room operation", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const snapshot = { createdAt: "2026-10-14T00:00:00.000Z", entries: { page: { digest: "v2", type: "file" as const } }, id: "snapshot-1" }
@@ -792,7 +824,7 @@ describe("history checkpoints", () => {
         rebase,
       },
     })
-    const server = createTestServer({ document: { workspace: "docs" }, editor: createStubEditor().editor, history: { checkpoint: true } })
+    const server = createTestServer({ access: "public", document: { workspace: "docs" }, editor: createStubEditor().editor, history: { checkpoint: true } })
     const client = await server.connect("page.md")
     await settle()
     await pace()
@@ -922,7 +954,7 @@ describe("room authorities", () => {
     const idFromName = vi.fn((name: string) => ({ name }))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
     for (const search of ["?document=save", "?history=checkpoint"]) {
-      const request = new Request(`https://example.com/api/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
+      const request = new Request(`https://example.com/_vitehub/realtime/docs/posts/hello${search}`, { method: "POST" })
       Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName } } } } })
 
       const response = await handler.fetch(request)
@@ -956,7 +988,7 @@ describe("adapter seams for live documents", () => {
     const notes = createStubEditor()
     const posts = createStubEditor()
     const pick = vi.fn(({ documentId }: { documentId: string }) => documentId.startsWith("notes/") ? notes.editor : posts.editor)
-    const server = createTestServer({ document: memory.adapter, editor: pick })
+    const server = createTestServer({ access: "public", document: memory.adapter, editor: pick })
     const first = await server.connect("notes/a")
     const second = await server.connect("posts/b")
     await settle()
@@ -975,7 +1007,7 @@ describe("adapter seams for live documents", () => {
     const hold = vi.fn(async () => {})
     const release = vi.fn(async () => {})
     const adapter = Object.assign(memory.adapter, { hold, release })
-    const server = createTestServer(liveDefinition(adapter, {
+    const server = createTestServer(liveDefinition(adapter, {}, {
       identify: ({ request }) => {
         const id = request.headers.get("x-user")
         return id ? { id, name: id.toUpperCase() } : null
@@ -1029,7 +1061,7 @@ describe("adapter seams for live documents", () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const hold = vi.fn(async () => {})
     const editor = { ...createStubEditor().editor, verify: () => ({ writable: false }) }
-    const server = createTestServer({ document: Object.assign(memory.adapter, { hold }), editor })
+    const server = createTestServer({ access: "public", document: Object.assign(memory.adapter, { hold }), editor })
     const client = await server.connect("page")
     await settle()
     expect(client.controls[0]).toMatchObject({ type: "session", access: "read", reason: "document" })
@@ -1073,12 +1105,12 @@ describe("adapter seams for live documents", () => {
     expect(idFromName).toHaveBeenCalledWith("server")
     const sent = fetch.mock.calls[0]![0]
     expect(sent.method).toBe("POST")
-    expect(new URL(sent.url).pathname).toBe("/api/_vitehub/realtime/content/posts/2026/hello")
+    expect(new URL(sent.url).pathname).toBe("/_vitehub/realtime/content/posts/2026/hello")
     expect(sent.headers.get("x-vitehub-realtime-refresh")).toBe("1")
 
     const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch: forward }), idFromName } } } } })
     await handler.fetch(request)
     expect(forward.mock.calls[0]![0].headers.has("x-vitehub-realtime-refresh")).toBe(false)
@@ -1091,7 +1123,7 @@ describe("adapter seams for live documents", () => {
     scope.__env__ = { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } }
     try {
       await expect(refreshRealtimeDocument("content", "posts/hello")).resolves.toBe(true)
-      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/api/_vitehub/realtime/content/posts/hello")
+      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/_vitehub/realtime/content/posts/hello")
     }
     finally {
       delete scope.__env__
@@ -1134,11 +1166,11 @@ describe("adapter seams for live documents", () => {
       get [Symbol.toStringTag]() { return "DurableObjectNamespace" }
     }
     const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
-    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const request = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: new ForwardingNamespace() } } } })
     expect(await (await handler.fetch(request)).text()).toBe("forwarded")
 
-    const inherited = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    const inherited = new Request("https://example.com/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
     Object.assign(inherited, { runtime: { cloudflare: { env: { $DurableObject: Object.create({ get: () => ({ fetch: forward }), idFromName: (name: string) => ({ name }) }) } } } })
     await handler.fetch(inherited)
     expect(forward).toHaveBeenCalledOnce()
@@ -1147,9 +1179,9 @@ describe("adapter seams for live documents", () => {
   it("refreshes inside the Durable Object without identity, only for a room it has open", async () => {
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const sql = new FakeSql()
-    const server = createTestServer(liveDefinition(memory.adapter, { auth: true, identify: () => null }), { durable: sql })
+    const server = createTestServer(liveDefinition(memory.adapter, {}, { authorize: true, identify: () => null }), { durable: sql })
     const internal = (path: string) => {
-      const request = new Request(`https://vitehub.internal/api/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
+      const request = new Request(`https://vitehub.internal/_vitehub/realtime/docs/${path}?document=refresh`, { method: "POST", headers: { "x-vitehub-realtime-refresh": "1" } })
       Object.assign(request, { runtime: { cloudflare: { env: {}, context: { storage: { sql: sql.carrier } } } } })
       return server.handler.fetch(request)
     }

@@ -90,21 +90,19 @@ async function submit() {
 
 ## Choose where visitors go
 
-Set the default pages under `vitehub.auth.redirects`:
+Set the default pages in `access` of the Auth Definition:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    auth: {
-      redirects: { login: '/sign-in', guest: '/dashboard' },
-    },
-  },
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+
+export default defineAuth({
+  access: { signIn: '/sign-in', afterSignIn: '/dashboard' },
 })
 ```
 
-- `login` is where visitors without a session go from `'user'` pages. The default is `/login`.
-- `guest` is where signed-in users go from `'guest'` pages. The default is `/`.
+- `signIn` is where visitors without a session go from `'user'` pages. The default is `/login`.
+- `afterSignIn` is where signed-in users go from `'guest'` pages. The default is `/`.
+- With a provider, such as `signIn: { provider: 'github' }`, the guard sends visitors to `/api/auth/sign-in`, which starts the GitHub sign-in and comes back to the page. You need no sign-in page. After `signOut()` on a `'user'` page, the guard opens `/`, so the visitor is not signed in again at once.
 
 To change the target for one page, use the object form:
 
@@ -116,12 +114,12 @@ definePageMeta({ auth: { only: 'user', redirectTo: '/pricing' } })
 
 | `auth` | Who may open the page | Others go to |
 | --- | --- | --- |
-| `'user'` or `true` | Visitors with a session | `redirects.login`, with `?redirect=<the page>` |
-| `'guest'` | Visitors without a session | `redirects.guest` |
+| `'user'` or `true` | Visitors with a session | `access.signIn`, with `?redirect=<the page>` |
+| `'guest'` | Visitors without a session | `access.afterSignIn` |
 | `{ only, redirectTo }` | `only` is `'user'` (default) or `'guest'` | `redirectTo`. A `'user'` page also adds `?redirect=<the page>`. |
 | `false` or not set | Everyone | |
 
-The guard and `redirects` are for Nuxt only. A Vite app without Nuxt ignores them.
+The page guard is for Nuxt only. In a Vite app without Nuxt, `access.signIn` with a provider still serves the [sign-in link](/docs/auth/server-api#sign-in-and-out-with-a-link).
 
 ## Protect the APIs that the pages call
 
@@ -129,9 +127,11 @@ The page guard controls which page the browser shows. The code of the page and t
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 
 export default defineAuth({
   appName: 'Acme',
+  database: authDatabase(),
   emailAndPassword: { enabled: true },
   access: {
     routes: ['/api/dashboard/**'],
@@ -140,7 +140,8 @@ export default defineAuth({
 ```
 
 - A route that ends in `/**` matches its base path and every path below it.
-- An API request without a session gets `401` with `{"error":"Unauthorized."}`. Your handler does not run.
+- All other routes are literal paths. `/api/users/:id` and `/api/admin/*` fail the build. Use `/api/users/**` and check the id in the handler.
+- An API request without a session gets `401` with `{ "status": 401, "statusText": "Unauthorized", "message": "Unauthorized.", "data": { "code": "SIGNED_OUT" } }`. Your handler does not run. See [Read a refusal](/docs/auth/limits-and-errors#read-a-refusal).
 - To check a role, use a route object with `authorize`. See [Authorize access routes](/docs/auth/server-api#authorize-access-routes).
 - To guard one handler, and to read the user in it, wrap the handler in [`withAuth()`](/docs/auth/server-api#use-it-at-runtime).
 
@@ -162,18 +163,16 @@ Nuxt imports these composables for you:
 | Composable | Gives |
 | --- | --- |
 | `useUserSession()` | `user`, `session`, `loggedIn`, `pending`, and `ready` refs, and the `signIn`, `signUp`, `signOut`, and `refresh` actions. `signIn` and `signUp` are Better Auth's, such as `signIn.email()` and `signUp.email()`. |
-| `useSession()` | Better Auth's session ref: `data`, `error`, `isPending`, `isRefetching`, and `refetch`. |
 | `useAuthClient()` | The Better Auth client that the composables use. |
 
-The guard runs only when the route changes. After a sign-out, send the user to another page yourself:
+On a protected page, `signOut()` sends the visitor to the configured sign-in page. If Auth starts a provider directly, Nuxt instead shows a signed-out page so it does not restart OAuth. To open a different page after sign-out, pass a public destination:
 
 ```vue [app/components/UserMenu.vue]
 <script setup lang="ts">
 const { loggedIn, user, signOut } = useUserSession()
 
 async function logout() {
-  await signOut()
-  await navigateTo('/login')
+  await signOut({ redirectTo: '/goodbye' })
 }
 </script>
 

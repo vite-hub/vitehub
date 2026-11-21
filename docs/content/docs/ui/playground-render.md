@@ -13,17 +13,17 @@ icon: i-lucide-square-play
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `PlaygroundRender`. In Vue with Vite, import it from `@vite-hub/ui`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports `PlaygroundRender`. In Vue with Vite, import it from `vite-hub/ui`:
 
 ```ts
-import { PlaygroundRender } from "@vite-hub/ui";
+import { PlaygroundRender } from "vite-hub/ui";
 ```
 
 ## Usage
 
 ```vue
 <script setup lang="ts">
-import type { PlaygroundFiles } from "@vite-hub/ui";
+import type { PlaygroundFiles } from "vite-hub/ui";
 import { marked } from "marked";
 
 const presets = [{ id: "hello", label: "Hello", files: { "content.md": "# Hello\n" } }];
@@ -61,12 +61,20 @@ The examples are a list of buttons, and the open one has `aria-current`. The fil
 | `languages` | `LanguageInput[]` | | Shiki languages for the panes. They load after the first render. Without them, the panes are plain text. |
 | `previewDocument` | `(html, files) => string` | | Wraps the HTML in the preview page, with your stylesheets and theme. Without it, the preview is a plain page. |
 
+#### Events
+
+| Event | Payload | Description |
+| --- | --- | --- |
+| `load` | `PlaygroundOpenEvent` | `{ preset, files }`. The files opened from the URL hash, or from the opening example when the URL has no link. It fires on mount and each time the hash changes. `preset` is the example's id, or `undefined` for a link without one. |
+| `preset-change` | `PlaygroundOpenEvent` | `{ preset, files }`. Another example opened: the reader picked it, or a link names it. Reset and edits do not fire it. |
+
 #### Slots
 
 | Slot | Props | Description |
 | --- | --- | --- |
 | `toolbar` | `{ files, preset, setFile }` | Controls in the editor bar. |
 | `preset` | `{ preset, active }` | Draws one example in the list. |
+| `group` | `{ group, presets }` | Draws the heading of a group of examples, such as an icon before its name. Examples without a `group` have no heading. |
 | The `slot` of a pane | `{ pane, value, files, setFile }` | Replaces the editor of that pane, such as a theme form that writes `theme.json`. |
 
 ## Related

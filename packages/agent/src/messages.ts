@@ -236,7 +236,7 @@ export function memoizeMessageAttachmentData(messages: Message[]): Message[] {
   return changed ? memoized : messages
 }
 
-export async function materializeMessageAttachmentData(messages: Message[]): Promise<Message[]> {
+export async function materializeMessageAttachmentData(messages: Message[], optionalImage?: (message: Message) => boolean): Promise<Message[]> {
   let changed = false
   const materialized = await Promise.all(messages.map(async (message) => {
     let messageChanged = false
@@ -250,13 +250,18 @@ export async function materializeMessageAttachmentData(messages: Message[]): Pro
       messageChanged = true
       const { fetchData: _fetchData, fetchMetadata: _fetchMetadata, url: _url, ...resolved } = part
       if (!hasFetchData && !hasData) return resolved
-      const data = await resolveAttachmentData(part)
-      if (hasFetchData && data === undefined) {
-        throw messageDiagnostics.AGENT_R0646({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
+      try {
+        const data = await resolveAttachmentData(part)
+        if (hasFetchData && data === undefined) {
+          throw messageDiagnostics.AGENT_R0646({ message: `[vitehub] ${part.type} attachment fetchData() did not return supported attachment data.` })
+        }
+        return { ...resolved, data }
+      } catch (error) {
+        if (part.type === "image" && optionalImage?.(message)) return undefined
+        throw error
       }
-      return { ...resolved, data }
     }))
-    return messageChanged ? { ...message, parts } : message
+    return messageChanged ? { ...message, parts: parts.filter(part => part !== undefined) } : message
   }))
   return changed ? materialized : messages
 }
@@ -366,6 +371,8 @@ export type AgentActivity =
 
 export type StreamEvent =
   | { id?: string, messageId?: string, phase?: AgentMessagePhase, role?: MessageRole, text: string, type: "text-delta" }
+  /** Reasoning summary text from a provider Driver, such as a Codex title "**Inspecting the config**". It is never answer text. */
+  | { id?: string, messageId?: string, text: string, type: "reasoning-delta" }
   | { data: unknown, id?: string, messageId?: string, transient?: boolean, type: "data" | `data-${string}` }
   | { activity?: AgentActivity, id: string, input?: unknown, messageId?: string, name: string, title?: string, type: "tool-call" | "tool-input-start" }
   | { activity?: AgentActivity, durationMs?: number, error?: string, id: string, messageId?: string, name: string, output?: unknown, title?: string, type: "tool-result" }
@@ -644,7 +651,7 @@ function findOrCreateMessage(messages: Message[], event: StreamEvent): Message {
 
 export function applyStreamEvent(messages: Message[], event: StreamEvent): Message[] {
   const next = messages.map(message => ({ ...message, parts: [...message.parts] }))
-  if (event.type === "finish" || event.type === "usage") {
+  if (event.type === "finish" || event.type === "usage" || event.type === "reasoning-delta") {
     return next
   }
   if ("data" in event && event.transient) {

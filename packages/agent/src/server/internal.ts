@@ -1,5 +1,5 @@
 // The Console status route and the generated Nitro dev handler of `vitehub agent invocations cancel` still use these.
-export { createError, defineEventHandler } from "h3"
+export { createError, defineEventHandler } from "nitro/h3"
 
 export {
   createAgentHealthHandler,
@@ -38,7 +38,7 @@ export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } fro
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
-export { ChannelUnknownError, installChannelsConsoleHost } from "../channels-console-host.ts"
+export { installChannelsConsoleHost } from "../channels-console-host.ts"
 export { channelConversationArchive } from "../internal/channel-conversation.ts"
 export type { AgentChannelConversation, AgentChannelInfo, AgentChannelRetention } from "./routes.ts"
 
@@ -70,6 +70,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 // The root entry installs the internal Agent runners that this entry exports.
 import "../index.ts"
 export { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
+export { opensLibsqlAgentState } from "../internal/agent-state-runtime.ts"
 export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"

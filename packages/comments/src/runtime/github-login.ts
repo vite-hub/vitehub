@@ -9,6 +9,7 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
 import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
+import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { commentsRoute } from "../page.ts"
 
 import type { createAuthForRequest } from "@vite-hub/auth/internal/server"
@@ -36,7 +37,7 @@ export interface CommentsGitHubLogin {
   configured(): boolean
   /** The person signed in with GitHub, with what they may do in the repository. Null without a session. */
   user(event: CommentsRequestEvent): Promise<CommentsUser | null>
-  /** The sign-in, callback, and sign-out routes under `/api/_vitehub/comments/auth/`. */
+  /** The sign-in, callback, and sign-out routes under `/_vitehub/comments/auth/`. */
   handle(request: Request & CommentsRequestEvent, path: string): Promise<Response>
 }
 
@@ -54,7 +55,7 @@ function sessionSecret(): string | undefined {
   const root = readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET") })
   if (!root) return
   if (root.length < viteHubSecretMinimumLength) {
-    throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`)
+    throw commentsErrorDiagnostics.COMMENTS_SECRET_TOO_SHORT({ minimum: viteHubSecretMinimumLength })
   }
   const bytes = new Uint8Array(hkdfSync("sha256", root, viteHubSecretSalt, "vitehub:comments:auth", 32))
   return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
@@ -102,7 +103,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         // The app's own Auth may use Better Auth's default cookie names.
         advanced: { cookiePrefix: "vitehub_comments" },
       }))
-      instance = (await import("@vite-hub/auth/internal/server")).createAuthForRequest(definition, request, undefined, event)
+      instance = (await import("@vite-hub/auth/internal/server")).createAuthForRequest(definition, request, event)
       if (instances.size > 20) instances.clear()
       instances.set(key, instance)
     }
@@ -114,7 +115,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
       headers: { "accept": "application/vnd.github+json", "authorization": `Bearer ${token}`, "user-agent": "vitehub-comments", "x-github-api-version": "2022-11-28" },
     })
     if (response.status === 404) return undefined
-    if (!response.ok) throw new Error(`GitHub GET ${path} failed with ${response.status}`)
+    if (!response.ok) throw commentsErrorDiagnostics.COMMENTS_GITHUB_REQUEST_FAILED({ path, status: response.status })
     return await response.json()
   }
 

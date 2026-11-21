@@ -1,3 +1,4 @@
+import { checkoutPoolReplacedMessage, cleanCheckoutPoolScript } from "./checkout-pool-cleanup.injected.ts";
 import { execFile } from "node:child_process";
 import { lstat, mkdtemp, readdir, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -9,9 +10,10 @@ import type { AgentInput, AgentCallbackContext } from "@vite-hub/agent";
 import type { GitHubPullRequestFilter } from "@vite-hub/agent/channels";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
 import { registerAgentProcessHostIntake, type AgentProcessHostContext, type AgentProcessHostInstance } from "@vite-hub/agent/process";
-import { createProcessAgentHost } from "@vite-hub/agent/process";
+import { createProcessAgentCapacity, createProcessAgentHost } from "@vite-hub/agent/process";
 import { createGitHubAppCredentials, createGitHubHost, type GitHubAppEnvironment, type GitHubHost } from "../github/index.ts";
-import { forgeErrorStatus } from "@vite-hub/forge";
+import { pullRequestThreadId } from "../github/pull-requests.ts";
+import { forgeErrorStatus, githubInstallationRouting } from "@vite-hub/forge";
 import { resolveBabysitterLifecycleFilter } from "../babysitter.ts";
 import { createBabysitterPreflight } from "./preflight.ts";
 import { babysitterQueueHealth } from "./queue-health.ts";
@@ -21,6 +23,7 @@ import { createBabysitterRuntime } from "./server.ts";
 import { budgetParks } from "./inbox/store.ts";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
 import { babysitterRepositories } from "./repositories.ts";
+import { createWebhookRedelivery } from "./webhook-redelivery.ts";
 import { createBabysitterAdmission, resolveBabysitterAdmissionLimits, type BabysitterAdmissionOptions } from "./admission.ts";
 import { createPullRequestWorkspaces, type BabysitterWarmWorkspaces, type PullRequestWorkspaceStatus } from "./pr-workspaces.ts";
 
@@ -53,29 +56,28 @@ export async function cleanupLegacyBabysitterCheckouts(dataDir: string): Promise
   });
   if (!info) return 0;
   if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error(`[vitehub] Refusing to clean unsafe Babysitter checkout pool: ${root}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_UNSAFE({ root });
   }
   const quarantine = await mkdtemp(join(dataDir, ".checkouts-cleanup-"));
   const claimed = join(quarantine, "checkouts");
   await rename(root, claimed);
   const claimedInfo = await lstat(claimed, { bigint: true });
   if (!claimedInfo.isDirectory() || claimedInfo.dev !== info.dev || claimedInfo.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   const entries = await readdir(claimed, { withFileTypes: true });
-  await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
-    import { lstat, readdir, rm } from "node:fs/promises";
-    const info = await lstat(".", { bigint: true });
-    if (String(info.dev) !== process.argv[1] || String(info.ino) !== process.argv[2]) {
-      throw new Error("Refusing to clean replaced Babysitter checkout pool");
+  try {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", cleanCheckoutPoolScript, String(info.dev), String(info.ino)], { cwd: claimed });
+  } catch (error) {
+    // A failed execFile() call carries the child's stderr.
+    if (isRuntimeRecord(error) && String(error.stderr ?? "").includes(checkoutPoolReplacedMessage)) {
+      throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed, cause: error });
     }
-    for (const entry of await readdir(".")) {
-      await rm(entry, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
-    }
-  `, String(info.dev), String(info.ino)], { cwd: claimed });
+    throw error;
+  }
   const remaining = await lstat(claimed, { bigint: true });
   if (remaining.dev !== info.dev || remaining.ino !== info.ino) {
-    throw new Error(`[vitehub] Refusing to clean replaced Babysitter checkout pool: ${claimed}`);
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_CHECKOUT_POOL_REPLACED({ path: claimed });
   }
   return entries.length;
 }
@@ -90,28 +92,14 @@ export async function readGitHubAppEnvironment(context: Pick<AgentCallbackContex
   const appId = Number(envString(env.appId));
   const keyPath = envString(env.privateKeyPath);
   const privateKey = normalizePrivateKey(envString(env.privateKey) ?? (keyPath ? (await readFile(keyPath, "utf8")).trim() : undefined));
-  const installation = envString(env.installationId);
   const missing = [
     ...Number.isSafeInteger(appId) && appId > 0 ? [] : ["VITEHUB_GITHUB_APP_ID"],
     ...privateKey ? [] : ["VITEHUB_GITHUB_PRIVATE_KEY (or VITEHUB_GITHUB_PRIVATE_KEY_PATH)"],
     ...required.webhookSecret && !envString(env.webhookSecret) ? ["VITEHUB_GITHUB_WEBHOOK_SECRET"] : [],
   ];
   if (missing.length || !privateKey) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ENV_MISSING({ variables: missing });
-  const app: GitHubAppEnvironment = { appId, privateKey };
-  if (installation) app.installationId = Number(installation);
-  app.owner = envString(env.appOwner)?.toLowerCase();
-  const configuredInstallations = envString(env.appInstallations);
-  if (configuredInstallations) {
-    const mappings: unknown = JSON.parse(configuredInstallations);
-    if (!isRuntimeRecord(mappings) || Array.isArray(mappings)) throw new Error("VITEHUB_GITHUB_APP_INSTALLATIONS must be an owner-to-installation object.");
-    app.installations = Object.fromEntries(Object.entries(mappings).map(([owner, id]) => {
-      const installationId = Number(id);
-      if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new Error(`Invalid GitHub installation for ${owner}.`);
-      return [owner.toLowerCase(), installationId];
-    }));
-  }
-  if (!app.owner) delete app.installationId;
-  return app;
+  const routing = githubInstallationRouting({ installationId: envString(env.installationId), appOwner: envString(env.appOwner), appInstallations: envString(env.appInstallations) });
+  return { appId, privateKey, ...routing } satisfies GitHubAppEnvironment;
 }
 
 /**
@@ -161,10 +149,18 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   // Report every missing secret at startup, not the webhook secret on the first delivery.
   const app = await readGitHubAppEnvironment({}, { webhookSecret: true });
   const credentials = createGitHubAppCredentials(app);
-  const repositories = babysitterRepositories(agent.options.filter, () => credentials.repositories());
+  const repositories = babysitterRepositories(agent.options.filter, signal => credentials.repositories(signal));
   const identity = await credentials.identity();
   const github = createGitHubHost({ credentials: credentials.credentials, identity });
   let runtime: ReturnType<typeof createBabysitterRuntime> | undefined;
+  const capacity = {
+    ...agent.options.capacity,
+    ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
+    concurrency: agent.options.concurrency,
+  };
+  // Conflict preparation installs like a worker before its model pass starts, so it samples memory and
+  // pressure the same way. Its own sampler keeps the worker sampler's pause hysteresis intact.
+  const hostSample = createProcessAgentCapacity(capacity).adaptive!;
   const host = await createProcessAgentHost({
     name: context.agentName,
     dataDir: context.dataDir,
@@ -174,9 +170,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     // durable wait. Keep transient provider pressure in this host queue rather
     // than failing the claim, while bounding how long a checkout can be held.
     capacity: {
-      ...agent.options.capacity,
-      ...(agent.options.placement?.remoteActive ? { remoteActive: () => agent.options.placement?.remoteActive?.() ?? 0 } : {}),
-      concurrency: agent.options.concurrency,
+      ...capacity,
       queue: {
         maxPending: agent.options.concurrency,
         timeout: 36e5,
@@ -196,15 +190,21 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     check: async () => (await preflight()).pause ?? await agent.options.admission?.check?.(),
   });
   let admissionPrerequisiteSample: string | undefined;
+  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
+  const warmWorkspaces = agent.options.warmWorkspaces;
+  // Each pass runs in its own provider thread, and only `resumeThreads` continues one. Without it, no pass reads a stored session.
+  const resumeThreads = typeof warmWorkspaces === "object" && warmWorkspaces.resumeThreads === true;
+  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({
+    root: join(context.dataDir, "pr-workspaces"),
+    ...(warmWorkspaces === true ? {} : warmWorkspaces),
+    ...(resumeThreads ? { deleteSession: (repository: string, number: number, session: string) => host.deleteProviderSession(`${pullRequestThreadId(repository, number)}:${session}`) } : {}),
+  }) : undefined;
   // Workers share the assigned journal and keep provider sessions in the host directory.
   const worker = defineAgent({
     extends: agent,
     invocations: host.invocations,
-    driver: { capacity: host.capacity, sessionStorePath: host.providerSessionStorePath },
+    driver: { capacity: host.capacity, ...(resumeThreads ? { sessionStorePath: host.providerSessionStorePath } : {}) },
   });
-  // One kept workspace per open PR. The TMPDIR sweep and the legacy checkout cleanup never reach this root.
-  const warmWorkspaces = agent.options.warmWorkspaces;
-  const workspaces = warmWorkspaces ? createPullRequestWorkspaces({ root: join(context.dataDir, "pr-workspaces"), ...(warmWorkspaces === true ? {} : warmWorkspaces) }) : undefined;
   runtime = createBabysitterRuntime({
     workspaces,
     agent: worker,
@@ -218,7 +218,17 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     event: host.event,
     error: host.error,
     wake: () => host.wake(),
-    admission,
+    admission: signal => admission(undefined, signal),
+    // A sample that times out while the disk is busy keeps the worker queue's fallback slots instead of none.
+    hostCapacity: async ({ active, signal }) => {
+      try {
+        return await hostSample.sample({ active, concurrency: capacity.concurrency, pending: 0,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(hostSample.sampleTimeoutMs ?? 1000)]) });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return { concurrency: hostSample.fallbackConcurrency ?? 1, reason: `sample-error: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
   });
   const inbox = runtime.inbox;
   // No pass runs yet, so workspaces from an earlier process are garbage.
@@ -233,6 +243,9 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     error => host.error("babysitter.workspaces.prune_failed", error, { reason }),
   );
   let workspaceSweep: ReturnType<typeof setInterval> | undefined;
+  // GitHub does not retry failed webhook deliveries. Lost check results leave green PRs waiting.
+  const redelivery = createWebhookRedelivery({ source: credentials, event: host.event, error: host.error });
+  let redeliverySweep: ReturnType<typeof setInterval> | undefined;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -257,6 +270,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
         .finally(() => {
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
+          redeliverySweep = setInterval(() => void redelivery.sweep().catch(error => host.error("babysitter.webhook.redelivery_failed", error)), 5 * 60_000);
+          redeliverySweep.unref();
           if (workspaces) {
             void sweepWorkspaces("startup");
             if (workspaces.sweepMs > 0) {
@@ -272,6 +287,7 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     },
     async close() {
       clearInterval(workspaceSweep);
+      clearInterval(redeliverySweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
       await inbox.close();

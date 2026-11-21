@@ -106,14 +106,11 @@ describe("Console server startup graph", () => {
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])
-      for (const removed of ["installConsoleClient(", "installConsoleBuild(", "installConsolePageTool("]) {
-        expect(generated).not.toContain(removed)
-      }
+      expect(generated).toContain("installConsoleBuild(")
+      expect(generated).not.toContain("installConsolePageTool(")
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      for (const removed of ["client-assets.ts", "page-tool.ts"]) {
-        expect(loaded).not.toContain(`src/console/runtime/server/${removed}`)
-      }
+      expect(loaded).not.toContain("src/console/runtime/server/page-tool.ts")
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }

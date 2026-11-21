@@ -18,15 +18,18 @@ import { copyD1MigrationFiles } from "./internal/d1-migrations.ts"
 import { libsqlStartupRule } from "./internal/bundle-startup.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
-import { pgliteDatabases, renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
+import { pgliteDatabases, renderPostgresDatabaseExpression, renderPostgresRuntimeImports, usesPostgres } from "./internal/runtime-config-expression.ts"
+import { renderNuxtContentDatabasePlugin, resolveNuxtContentDatabase, type NuxtContentDatabase } from "./internal/nuxt-content.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, renderContributionRelationsImport, renderMergedRelations, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
+import { assertContributedTablesGenerated } from "./internal/contributed-tables-check.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { assertDefinitionD1Resources, assertHostedDatabaseRuntimeResources, hasRemoteDefinitionRuntime, usesD1HttpOnly, usesRemoteLibsql, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, renderShippedMigrationsModule, resolveMigrateOnStart, selectMigrateOnStartDatabases, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
+import { installMigrateOnDeploy, type MigrateOnDeployNitro } from "./internal/migrate-on-deploy.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { assertDatabaseOptionsDriver, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDatabase as hubDatabaseVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
@@ -39,6 +42,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
 const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
+const generatedNitroContentDatabasePlugin = ".vitehub/nitro/database/content-database.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroShippedMigrations = "database/migrations.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
@@ -135,7 +139,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
     const serverDirs = resolvedOptions.projectRoot
       ? [resolve(root, "server")]
       : resolveNuxtServerDirs(nuxtOptions)
-    const databaseConfig = resolvedOptions.driver === "d1"
+    const databaseConfig = resolvedOptions.driver === "cloudflare"
       ? resolveDBViteConfig(resolvedOptions, root, { provisionRoot, serverDirs })
       : undefined
     const sourceMigrationsDir = databaseConfig && databaseConfig.definitionDefaults.cloudflareProjections.default?.resource === "inherited"
@@ -166,6 +170,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
       setResolvedFeatureOptions(viteConfig, "database", { ...configuredDatabase, ...viteOptions })
     }
     installVitePlugin(viteConfig, { ...runtimeOptions, projectRoot: root }, serverDirs)
+    const contentDatabase = d1 ? undefined : resolveNuxtContentDatabaseForBuild(nuxtOptions, runtimeOptions, root, provisionRoot, serverDirs)
+    if (contentDatabase) ensureRecord(nuxtOptions, "content").database = structuredClone(contentDatabase.database)
     const hook = (nuxt as NuxtLike).hook
     if (typeof hook === "function") {
       hook("prepare:types", (context) => {
@@ -270,7 +276,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
         const provider = resolveNitroHostingProvider(config, nuxtOptions)
         // `nuxt prepare` writes the same output as the build, so the types match, but it skips the checks that only
         // a deployable build needs. An app runs it in `postinstall`, before it has D1 resources.
-        const building = !nuxtOptions.dev && !nuxtOptions._prepare
+        // CLI discovery also runs readiness hooks before its Provision Steps can create those resources.
+        const building = !nuxtOptions.dev && !nuxtOptions._prepare && !nuxtOptions.vitehubCliDiscovery
         if (building && provider === "cloudflare" && d1?.unresolved && !findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved.databaseName)) {
           if (d1.unresolved.reason === "missing-database-name") {
             throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases: [d1.unresolved.database], missing: "`database.databaseName`" })
@@ -282,6 +289,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
           localNitroConfig = config
           await refreshLocalRuntime()
         }
+        if (contentDatabase) await installNitroContentDatabase(config, root, contentDatabase)
         if (d1) {
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
@@ -296,6 +304,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
           // Production output has no PGlite.
           const pglite = building && runtime ? pgliteDatabases(runtime) : []
           if (pglite.length) throw databaseErrorDiagnostics.DATABASE_PGLITE_IN_BUILD({ databases: pglite })
+          if (building && runtime) await assertContributedTablesGenerated(runtime, { alias: nuxtOptions.alias })
           if (building && provider === "cloudflare") {
             assertDistinctNuxtD1Bindings(runtime, d1, config)
             // Without a D1 resource, the Vite build removes the hosted runtime and Nitro cannot load the
@@ -337,6 +346,8 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
             if (migrateOnStart && startDatabases.length && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart, startDatabases)
           }
+          // The D1 bindings whose migrations the build copies into the server output.
+          const migratedBindings: string[] = []
           if (provider === "cloudflare" && runtime) {
             mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
             const { d1Databases, unresolved } = resolveCloudflareD1Bindings(runtime, { provisionState: readProvisionStateSync(provisionRoot) })
@@ -363,10 +374,13 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
                 const target = typeof inheritedBinding.migrations_dir === "string" ? inheritedBinding.migrations_dir : `${generatedNitroMigrationsDir}/${d1.bindingName}`
                 inheritedBinding.migrations_dir = target
                 migrationCopies.push({ source: resolve(root, inheritedSource), target })
+                migratedBindings.push(d1.bindingName)
               }
             }
             for (const binding of bindings) {
-              if (binding.migrations_dir) migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
+              if (!binding.migrations_dir) continue
+              migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
+              migratedBindings.push(binding.binding)
             }
             // Copy callbacks remove their entire target, so aliases and nested targets cannot be shared.
             const managedTargets = new Set(migrationCopies.map(copy => resolve(root, copy.target)))
@@ -379,13 +393,14 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
               for (const other of targets.slice(index + 1)) {
                 if (!managedTargets.has(target.path) && !managedTargets.has(other.path)) continue
                 if (target.path === other.path || target.path.startsWith(`${other.path}${sep}`) || other.path.startsWith(`${target.path}${sep}`)) {
-                  throw new Error(`D1 migration directories overlap for bindings ${target.binding} and ${other.binding}; configure an exclusive migrations_dir for each binding.`)
+                  throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_OVERLAP({ first: target.binding, second: other.binding })
                 }
               }
             }
             for (const copy of migrationCopies) installNitroCloudflareMigrations(config, copy.source, copy.target)
             installNitroCloudflareD1BindingCollapse(config)
           }
+          if (building && resolvedOptions.migrateOnDeploy) installNitroMigrateOnDeploy(config, { bindings: migratedBindings, config: runtime })
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
           if (runtime) installNitroBundleStartupRule(config, runtime)
         }
@@ -396,7 +411,7 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             const database = content && isRecord(content.database) ? content.database : undefined
             const bindingName = database?.type === "d1" && typeof database.bindingName === "string" ? database.bindingName : "DB"
             if ((!database || database.type === "sqlite" || database.type === "d1") && !findCompleteNitroConfigD1Binding(config, bindingName)) {
-              throw new Error("Nuxt Content on Cloudflare requires an explicit content.database configuration or a complete Wrangler D1 binding named DB.")
+              throw databaseErrorDiagnostics.DATABASE_NUXT_CONTENT_D1_MISSING()
             }
           }
         }
@@ -556,20 +571,21 @@ async function installNitroLocalDatabaseRuntime(
     "  },",
   ].join("\n"))
   // `ensureMigrations()` and the start plugin apply the migrations that this module ships.
-  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, { allowDataLoss: resolveMigrateOnStart(options)?.allowDataLoss ?? false }))
+  await writeFileIfChanged(migrationsFile, renderShippedMigrationsModule(runtime, resolveMigrateOnStart(options)))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
+    postgresConnectionImport: pathToFileURL(resolve(databaseRuntimeDir, "postgres-connection.js")).href,
     ensureMigrationsImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
     migrations: { import: pathToFileURL(migrationsFile).href },
     imports: [
       `import { createDefinitionRuntime } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "definition-local.js")).href)}`,
       `import { mergeDatabaseRelations } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "relations.js")).href)}`,
       ...(usesPostgres(runtime)
-        ? [dev
-            ? `import { createDevPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "pglite.js")).href)}`
-            : `import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`]
+        ? dev
+          ? [`import { createDevPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "pglite.js")).href)}`]
+          : renderPostgresRuntimeImports(runtime, module => pathToFileURL(resolve(databaseRuntimeDir, `${module.slice("runtime/".length)}.js`)).href)
         : []),
       ...imports,
       "",
@@ -591,9 +607,14 @@ function resolveNuxtContentModuleDependencies(options: DatabaseNuxtIntegrationOp
 
   const root = resolveViteHubProjectRoot(resolve(nuxtOptions.rootDir || process.cwd()), resolvedOptions)
   const serverDirs = resolvedOptions.projectRoot ? [resolve(root, "server")] : resolveNuxtServerDirs(nuxtOptions)
-  if (usesDefinitionResources(resolvedOptions, resolveDBViteConfig(resolvedOptions, root, { serverDirs }))) return {}
-  const d1 = resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
-  if (!d1) return {}
+  const d1 = usesDefinitionResources(resolvedOptions, resolveDBViteConfig(resolvedOptions, root, { serverDirs }))
+    ? undefined
+    : resolveDatabaseNuxtD1Options(resolvedOptions, nuxtOptions)
+  if (!d1) {
+    // Nuxt resolves every module dependency before it sets up a module, so Content gets this default in any module order.
+    const content = resolveNuxtContentDatabaseForBuild(nuxtOptions, resolvedOptions, root, resolve(nuxtOptions.rootDir || process.cwd(), nuxtOptions.vite?.root ?? "."), serverDirs)
+    return content ? { "@nuxt/content": { defaults: { database: structuredClone(content.database) } } } : {}
+  }
 
   return {
     "@nuxt/content": {
@@ -617,10 +638,12 @@ function resolveDatabaseNuxtOptions(
   if (options === false || inlineOptions === false) {
     return false
   }
-  return {
+  const resolved = {
     ...(isRecord(options) ? options : {}),
     ...(isRecord(inlineOptions) ? inlineOptions : {}),
   } as ResolvedDatabaseNuxtIntegrationOptions
+  assertDatabaseOptionsDriver(resolved)
+  return resolved
 }
 
 function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOptions, serverDirs?: string[]): DatabaseOptions | undefined {
@@ -637,8 +660,8 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
   if (options.connection) {
     viteOptions.connection = options.connection
   }
-  if (options.driver === "d1") {
-    viteOptions.driver = "d1"
+  if (options.driver === "cloudflare") {
+    viteOptions.driver = "cloudflare"
     viteOptions.binding = options.binding
     viteOptions.databaseId = options.databaseId
     viteOptions.databaseName = options.databaseName
@@ -657,7 +680,7 @@ function resolveDatabaseNuxtD1Options(
   migrationsDir?: string,
   provisionState?: NonNullable<Parameters<typeof resolveCloudflareD1Binding>[1]>["provisionState"],
 ): ResolvedDatabaseNuxtD1Options | undefined {
-  if (options.driver !== "d1") return
+  if (options.driver !== "cloudflare") return
 
   const projection = resolveCloudflareD1Binding({
     binding: options.binding,
@@ -698,6 +721,43 @@ function mergeNuxtContentConfig(config: Record<string, unknown>, d1: ResolvedDat
   content.database = d1.contentDatabase
 }
 
+/**
+ * Maps the default Database to Nuxt Content for a production build that sets no `content.database`. Development is
+ * left alone, because Content then queries its local SQLite file. Cloudflare keeps Content's D1 rule: Content holds one
+ * database client for the whole Worker, and a Worker cannot reuse a socket across requests.
+ */
+function resolveNuxtContentDatabaseForBuild(
+  nuxtOptions: NuxtLike["options"],
+  options: ResolvedDatabaseNuxtIntegrationOptions,
+  root: string,
+  provisionRoot: string,
+  serverDirs: string[] | undefined,
+) {
+  if (nuxtOptions.dev || !hasNuxtContentModule(nuxtOptions.modules)) return
+  if (resolveHost({ nitro: nuxtOptions.nitro }) === "cloudflare") return
+  // Nuxt merges tuple options separately from dependency defaults in nuxt.options.content.
+  if (nuxtOptions.modules?.some(module => Array.isArray(module)
+    && module[0] === "@nuxt/content"
+    && isRecord(module[1])
+    && module[1].database !== undefined)) return
+  const content = resolveNuxtContentDatabase(resolveDBViteConfig(options, root, { provisionRoot, serverDirs }))
+  const configured = isRecord(nuxtOptions.content) ? nuxtOptions.content.database : undefined
+  // The module dependency default may already have set this same value.
+  if (configured !== undefined && JSON.stringify(configured) !== JSON.stringify(content?.database)) return
+  return content
+}
+
+async function installNitroContentDatabase(config: Record<string, unknown>, root: string, content: NuxtContentDatabase) {
+  ensureRecord(ensureRecord(config, "runtimeConfig"), "content").database = structuredClone(content.database)
+  const plugin = renderNuxtContentDatabasePlugin(content.runtimeValues)
+  if (!plugin) return
+  const file = resolve(root, generatedNitroContentDatabasePlugin)
+  await writeFileIfChanged(file, plugin)
+  const kit = createNitroServerKit(config)
+  kit.addPlugin(file)
+  config.plugins = kit.config.plugins
+}
+
 function mergeNitroRuntimeContentConfig(config: Record<string, unknown>, d1: ResolvedDatabaseNuxtD1Options) {
   const runtimeConfig = ensureRecord(config, "runtimeConfig")
   const content = ensureRecord(runtimeConfig, "content")
@@ -732,16 +792,17 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 }
 
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
+  const file = resolve(root, generatedNitroDatabaseMiddleware)
   const kit = createNitroServerKit(config)
   // No route: Nitro runs route-less middleware for every request.
-  kit.addHandler({ handler: generatedNitroDatabaseMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
   config.rollupConfig = rollupConfig
-  await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
+  await writeFileIfChanged(file, [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/state"))}`,
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",
@@ -771,10 +832,11 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
     if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
     wrangler.compatibility_flags = flags
   }
+  const file = resolve(root, generatedNitroRequestStatsMiddleware)
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true }, "start")
   config.handlers = kit.config.handlers
-  await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
+  await writeFileIfChanged(file, [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/request-stats"))}`,
     "",
     "export default (event: unknown, next: () => unknown) => runWithDatabaseRequestStats(event, next)",
@@ -812,7 +874,7 @@ async function installNitroMigrateOnStart(config: Record<string, unknown>, root:
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {
   const normalizedTarget = relative(resolve("."), resolve(targetDir))
   if (isAbsolute(targetDir) || normalizedTarget === "" || normalizedTarget === ".." || normalizedTarget.startsWith(`..${sep}`)) {
-    throw new Error("D1 migrations_dir must be a relative directory inside Nitro's server output.")
+    throw databaseErrorDiagnostics.DATABASE_D1_MIGRATIONS_DIR_INVALID()
   }
   const modules = Array.isArray(config.modules) ? [...config.modules] : []
   modules.push((nitro: {
@@ -825,6 +887,13 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
       await copyD1MigrationFiles(sourceDir, outputDir)
     })
   })
+  config.modules = modules
+}
+
+/** Puts the D1 migrations before the Cloudflare deploy command. Nitro checks the host when it builds. */
+function installNitroMigrateOnDeploy(config: Record<string, unknown>, target: { bindings: string[], config: ResolvedDBViteConfig | undefined }) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: MigrateOnDeployNitro) => installMigrateOnDeploy(nitro, () => target))
   config.modules = modules
 }
 

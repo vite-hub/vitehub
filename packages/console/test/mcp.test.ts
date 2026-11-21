@@ -49,11 +49,13 @@ let tokens: Record<"ada" | "bob", string>
 const appCalls: Array<{ caller: ConsoleCaller, headers: Headers, input: unknown, operation: string }> = []
 /** The env line of the link, as the app keeps it: `VITEHUB_CONSOLE_KEY_<NAME>=<public key>`. */
 let linkVariable = ""
+/** The stand-in app runs a vite-hub from before the forward-compatible caller check. */
+let olderApp = false
 
 async function migrate() {
   const client = createClient({ url: ":memory:" })
   const folder = resolve(import.meta.dirname, "../server/databases/default/migrations")
-  const db = drizzle({ client, schema })
+  const db = drizzle({ client })
   await migrateDatabase(db, { migrationsFolder: folder })
   return db
 }
@@ -125,6 +127,11 @@ beforeAll(async () => {
     // vite-hub's Operations endpoint to a call that the Console MCP signed (see the vite-hub console-signature tests).
     expect(url).toBe(`${appUrl}/_vitehub/rpc`)
     const headers = new Headers(init?.headers)
+    // An older app knew only these caller fields, and refused any other as a malformed header.
+    const callerFields = Object.keys(JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString()) as object)
+    if (olderApp && callerFields.some(field => !["via", "user", "team"].includes(field))) {
+      return Response.json({ code: "CONSOLE_SIGNATURE_INVALID", message: "The `x-vitehub-signature` or `x-vitehub-caller` header is malformed.", ok: false, status: 401 }, { status: 401 })
+    }
     const [name, value] = linkVariable.split("=")
     const keys = readConsolePublicKeys({ [name!]: value })
     const verified = keys instanceof Map ? await verifyConsoleSignature({ headers, keys, method: "POST", origin: appUrl, url }) : keys
@@ -134,7 +141,9 @@ beforeAll(async () => {
     appCalls.push({ caller: verified.caller, headers, input, operation })
     const mcp = verified.caller.via === "console" && verified.caller.surface === "mcp"
     const confirmed = verified.caller.via === "console" && verified.caller.confirmed === true
+    const readOnly = verified.caller.via === "console" && verified.caller.readOnly === true
     if (operation === "project.get") return answer({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.del", "content.save"], protocol: 1, sections: ["kv", "content"], vitehub: "0.0.1" } })
+    if (readOnly && operation !== "kv.list") return answer({ code: "CONSOLE_ACCESS_DENIED", message: `${operation} is a write operation, and this caller may only read.`, ok: false, status: 403 })
     if (mcp && operation === "documents.action") return answer({ code: "CONSOLE_ACCESS_DENIED", message: "documents.action is not open to MCP clients. Use it from the Console.", ok: false, status: 403 })
     if (mcp && operation === "content.save" && Reflect.get(Object(input), "ifDigest") === undefined) return answer({ code: "CONTENT_R0009", message: "content.save requires ifDigest on MCP calls.", ok: false, status: 400 })
     if (mcp && operation === "kv.del" && !confirmed) return answer({ code: "INTERNAL_R0026", message: "Confirm the change.", ok: false, status: 409 })
@@ -150,11 +159,11 @@ beforeEach(() => {
   appCalls.length = 0
 })
 
-const accountServer = createMcpHandler({ name: "ViteHub", route: "/mcp/account", tools, verify: request => verifyMcpRequest(request, { auth }) })
-const publicServer = createMcpHandler({ name: "ViteHub", route: "/mcp", tools: Object.fromEntries(Object.entries(tools).filter(([, tool]) => tool.public === true)) })
+const accountServer = createMcpHandler({ name: "ViteHub", publicRoute: "/mcp", route: "/mcp/account", tools, verify: request => verifyMcpRequest(request, { auth }) })
+const publicServer = createMcpHandler({ name: "ViteHub", publicRoute: "/mcp", route: "/mcp", tools: Object.fromEntries(Object.entries(tools).filter(([, tool]) => tool.access === "public")) })
 
 interface Answer {
-  result: { content: Array<{ text: string }>, isError: boolean, structuredContent?: Record<string, unknown>, tools: Array<{ name: string, inputSchema: Record<string, unknown> }> }
+  result: { content: Array<{ text: string }>, isError: boolean, structuredContent?: Record<string, unknown>, tools: Array<{ annotations?: Record<string, boolean>, name: string, inputSchema: Record<string, unknown> }> }
 }
 
 async function rpc(server: typeof publicServer, path: string, method: string, params?: unknown, token?: string) {
@@ -205,7 +214,12 @@ describe("ViteHub MCP at /mcp/account", () => {
 
   it("lists the docs tools and the account tools to a signed-in member", async () => {
     const { body } = await rpc(accountServer, "/mcp/account", "tools/list", undefined, tokens.bob)
-    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "run_operation", "unlink_app"])
+    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_operation", "unlink_app"])
+    // A client such as Executor asks the person before a tool that is not read-only. Reads must say that they only read.
+    const annotations = Object.fromEntries(body!.result.tools.map(tool => [tool.name, tool.annotations]))
+    expect(annotations.read_operation).toMatchObject({ destructiveHint: false, readOnlyHint: true })
+    expect(annotations.run_operation).toMatchObject({ destructiveHint: true, readOnlyHint: false })
+    for (const name of ["check_app", "get-page", "list-pages", "list_apps", "list_operations"]) expect(annotations[name]).toMatchObject({ destructiveHint: false, readOnlyHint: true })
     const { body: apps } = await call("list_apps", {}, tokens.bob)
     expect(apps!.result.structuredContent).toEqual({ apps: [], team: { id: teamId, name: "Acme", role: "member" } })
   })
@@ -260,6 +274,40 @@ describe("ViteHub MCP at /mcp/account", () => {
       ["mcp", undefined],
     ])
     expect(appCalls.filter(entry => entry.operation === "project.get").map(entry => entry.caller.via === "console" && entry.caller.surface)).toEqual(["mcp", "mcp"])
+  })
+
+  it("runs reads with read_operation, signed read-only, and sends changes to run_operation", async () => {
+    const apps = (await call("list_apps", {}, tokens.bob)).body!.result.structuredContent as { apps: Array<{ id: string }> }
+    const id = apps.apps[0]!.id
+    const read = await call("read_operation", { id, input: { prefix: "a" }, operation: "kv.list" }, tokens.bob)
+    expect(read.body!.result).toMatchObject({ isError: false, structuredContent: { deleted: 1 } })
+    const write = await call("read_operation", { id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
+    expect(write.body!.result).toMatchObject({ content: [{ text: "kv.del changes data, and read_operation runs only operations that read. Call run_operation." }], isError: true })
+    expect(appCalls.map(entry => entry.caller.via === "console" && [entry.operation, entry.caller.surface, entry.caller.readOnly, entry.caller.confirmed])).toEqual([
+      ["kv.list", "mcp", true, undefined],
+      ["kv.del", "mcp", true, undefined],
+    ])
+  })
+
+  it("checks the link of an older app that refuses the fields of an MCP call, and names its vite-hub version for operations", async () => {
+    const apps = (await call("list_apps", {}, tokens.bob)).body!.result.structuredContent as { apps: Array<{ id: string }> }
+    const id = apps.apps[0]!.id
+    olderApp = true
+    try {
+      for (const [tool, args] of [["read_operation", { id, operation: "kv.list" }], ["run_operation", { id, operation: "kv.list" }], ["list_operations", { id }]] as const) {
+        const answer = await call(tool, args, tokens.bob)
+        expect(answer.body!.result.isError).toBe(true)
+        expect(answer.body!.result.content[0]!.text).toContain("CONSOLE_APP_VITEHUB_OUTDATED: The app runs vite-hub 0.0.1, which does not accept this call of the ViteHub MCP.")
+        expect(answer.body!.result.content[0]!.text).toContain("Fix: Upgrade vite-hub in the app")
+      }
+      // The older app has the key of the link, so check_app finds it linked: it reads project.get as the Console page does.
+      appCalls.length = 0
+      expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ answer: { name: "probe", vitehub: "0.0.1" }, linked: true, status: 200 })
+      expect(appCalls.map(entry => entry.caller)).toEqual([{ team: { id: teamId, role: "member" }, user: expect.objectContaining({ email: "bob@example.com" }), via: "console" }])
+    }
+    finally {
+      olderApp = false
+    }
   })
 
   it("acts on the team that the person opened last", async () => {

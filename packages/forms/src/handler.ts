@@ -1,39 +1,10 @@
 import { back, fail, guardRequest, json } from "./guard.ts"
 
-import { coerceFormFields } from "./schema.ts"
+import { isFormsDiagnostic } from "./errors.ts"
+import { checkForm, coerceFormFields } from "./fields.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { FormDefinition, FormEmailMessage, FormIssue, FormServices, FormSubmission, FormUser } from "./types.ts"
-
-/** Keep schema output in the same JSON representation for hooks, notifications, and both stores. */
-function jsonData<T>(value: T): { value: T } | undefined {
-  const ancestors = new Set<object>()
-  const valid = (value: unknown): boolean => {
-    if (value === null || typeof value === "string" || typeof value === "boolean") return true
-    if (typeof value === "number") return Number.isFinite(value)
-    if (typeof value !== "object" || ancestors.has(value)) return false
-    const prototype: unknown = Object.getPrototypeOf(value)
-    if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) return false
-    ancestors.add(value)
-    const values: unknown[] = Array.isArray(value) ? Array.from(value) : Object.values(value)
-    const accepted = values.every(valid)
-    ancestors.delete(value)
-    return accepted
-  }
-  try {
-    return valid(value) ? { value: JSON.parse(JSON.stringify(value)) as T } : undefined
-  }
-  catch {
-    return undefined
-  }
-}
-
-function issuePath(path: StandardSchemaV1.Issue["path"]): (string | number)[] {
-  return (path ?? []).map((segment) => {
-    const key = typeof segment === "object" ? segment.key : segment
-    return typeof key === "number" ? key : String(key)
-  })
-}
+import type { FormDefinition, FormEmailMessage, FormServices, FormSubmission, FormUser } from "./types.ts"
 
 function emailText(name: string, submission: FormSubmission): string {
   const lines = Object.entries(submission.data && typeof submission.data === "object" ? submission.data : { value: submission.data })
@@ -59,10 +30,14 @@ function emailMessage<TSchema extends StandardSchemaV1>(name: string, definition
   }
 }
 
+/** The `Idempotency-Key` that `submitForm()` sends: a UUID, which becomes the id of the submission. */
+const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
+
 /**
  * Answers one form submission: `POST` with a JSON, URL-encoded, or multipart body. It returns 201 with the id, 400
  * with `issues`, or the status of the check that stopped it. A browser form without JavaScript gets a 303 back to its
- * page.
+ * page. A UUID in the `Idempotency-Key` header is the id of the submission, so a retry of a stored message gets the
+ * same 201 and stores, runs, and sends nothing again.
  */
 export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: string, definition: FormDefinition<TSchema>, request: Request, services: FormServices = {}): Promise<Response> {
   const { options } = definition
@@ -86,27 +61,44 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   const { user } = caller
   // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string) => html ? back(request, page, "error", name) : fail(status, message)
+  const key = request.headers.get("idempotency-key")
+  if (key !== null && !uuid.test(key)) return stop(400, "The Idempotency-Key header must be a UUID.")
 
   if (request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") coerceFormFields(options.schema, fields)
-  const result = await options.schema["~standard"].validate(fields)
-  if (result.issues) {
+  const [invalid, output] = await checkForm(definition, fields)
+  if (invalid) {
     if (html) return back(request, page, "error", name)
-    return json(400, { message: "Check the form and try again.", issues: result.issues.map((issue): FormIssue => ({ message: issue.message, path: issuePath(issue.path) })) })
+    return json(400, { message: invalid.message, issues: invalid.issues })
   }
 
-  const data = jsonData(result.value)
-  if (!data) {
-    if (html) return back(request, page, "error", name)
-    return json(400, { message: "Check the form and try again.", issues: [{ message: "The form schema must return JSON data: plain objects, arrays, strings, finite numbers, booleans, or null.", path: [] }] })
-  }
   const store = options.store === false ? undefined : services.store
   if (options.store !== false && !store) return stop(503, "This form cannot store messages now.")
+  const storeFailed = (error: unknown): Response => {
+    if (!isFormsDiagnostic(error)) throw error
+    // A host answers a thrown error with a bare 500, so the code and the fix would stay in the server log.
+    services.log?.(`[vitehub] The ${name} form could not store a submission.`, error)
+    return html ? back(request, page, "error", name) : json(500, { code: error.code, message: error.why, fix: error.fix })
+  }
+  // A retry gets the answer of the stored message. A key of another message must not drop this one.
+  const repeated = (earlier: FormSubmission): Response => {
+    if (earlier.form !== name || JSON.stringify(earlier.data) !== JSON.stringify(output)) return stop(422, "This Idempotency-Key belongs to another message.")
+    return html ? back(request, page, "sent", name) : json(201, { id: earlier.id })
+  }
+  if (key && store) {
+    try {
+      const earlier = await store.get(key)
+      if (earlier) return repeated(earlier)
+    }
+    catch (error) {
+      return storeFailed(error)
+    }
+  }
 
   const now = services.now?.() ?? Date.now()
   const submission: FormSubmission<StandardSchemaV1.InferOutput<TSchema>> = {
-    id: services.id?.() ?? crypto.randomUUID(),
+    id: key ?? services.id?.() ?? crypto.randomUUID(),
     form: name,
-    data: data.value,
+    data: output,
     page,
     anchor,
     user,
@@ -115,13 +107,37 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     updatedAt: now,
   }
 
-  if (options.onSubmit) {
-    const answer = await options.onSubmit(submission, { request })
-    if (answer instanceof Response) return answer
+  const prepared: { answer?: Response, message?: FormEmailMessage } = {}
+  const prepare = async () => {
+    const result = await options.onSubmit?.(submission, { request })
+    if (result instanceof Response) {
+      prepared.answer = result
+      return false
+    }
+    const message = emailMessage(name, definition, submission)
+    if (message) prepared.message = message
+    return true
+  }
+  const beforeInsert = key && store && options.onSubmit ? prepare : undefined
+  if (!beforeInsert) {
+    await prepare()
+    if (prepared.answer) return prepared.answer
   }
 
-  const message = emailMessage(name, definition, submission)
-  if (store) await store.insert(submission)
+  if (store) {
+    try {
+      const inserted = await (beforeInsert ? store.insertWith(submission, beforeInsert) : store.insert(submission))
+      if (!inserted) {
+        if (prepared.answer) return prepared.answer
+        const earlier = await store.get(key ?? submission.id)
+        return earlier ? repeated(earlier) : stop(409, "This message is still being sent. Try again in a moment.")
+      }
+    }
+    catch (error) {
+      return storeFailed(error)
+    }
+  }
+  const { message } = prepared
   if (message && store) {
     // The submission is safe in the inbox, so a notification failure does not fail the request.
     if (services.email) {
@@ -143,5 +159,5 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     }
   }
 
-  return html ? back(request, page, "sent", name) : json(201, { id: submission.id })
+  return html ? back(request, page, "sent", name) : json(201, { id: key ?? submission.id })
 }

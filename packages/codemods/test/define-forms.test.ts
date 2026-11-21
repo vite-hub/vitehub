@@ -60,8 +60,94 @@ describe("define-forms edge cases", () => {
       .toEqual([["define-forms", "server/databases/blog/config.ts uses a former Database file layout"]])
   })
 
+  it("detects the former Queue form", async () => {
+    await migrate({ "server/queues/welcome.ts": "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue(async () => {})\n" })
+    expect((await detectCodemods(root)).map(entry => [entry.codemod.name, entry.detection.reason]))
+      .toEqual([["define-forms", "server/queues/welcome.ts calls defineQueue(handler)"]])
+  })
+
+  it("migrates Queue and Workflow definitions in the same file", async () => {
+    const path = "server/utils/definitions.ts"
+    const imports = "import { defineQueue } from 'vite-hub/queue'\nimport { defineWorkflow } from 'vite-hub/workflow'\n"
+    const queue = "export const queue = defineQueue(job => job.payload)"
+    const workflow = "export const workflow = defineWorkflow('mail', input => input, { 'id': 'old', rootStep: false })"
+    const { after } = await migrate({ [path]: `${imports}${queue}\n${workflow}\n` })
+    expect(after[path]).toBe(`${imports}export const queue = defineQueue({ handler: job => job.payload })\nexport const workflow = defineWorkflow({ handler: ({ payload: input }) => input, rootStep: false })\n`)
+  })
+
+  it.each([
+    ["preserves a handler that reads the job by field",
+      "export default defineQueue<{ email: string }>(async (job) => {\n  console.log(job.id, job.payload.email, job.attempts)\n}, { concurrency: 4 })\n",
+      "export default defineQueue<{ email: string }>({ handler: async (job) => {\n  console.log(job.id, job.payload.email, job.attempts)\n}, concurrency: 4 })\n"],
+    ["preserves a bare arrow parameter even with comments",
+      "export default defineQueue(async /* ( */ job => send(job.payload))\n",
+      "export default defineQueue({ handler: async /* ( */ job => send(job.payload) })\n"],
+    ["keeps a type annotation",
+      "export default defineQueue(function (job: QueueJob<string>) { return job.payload })\n",
+      "export default defineQueue({ handler: function (job: QueueJob<string>) { return job.payload } })\n"],
+    ["preserves grouped handlers and flattens grouped literal options",
+      "export default defineQueue((job => job.payload), (({ concurrency: 4, })),)\n",
+      "export default defineQueue({ handler: (job => job.payload), concurrency: 4, })\n"],
+    ["composes nested Queue rewrites",
+      "export default defineQueue(() => defineQueue(() => null))\n",
+      "export default defineQueue({ handler: () => defineQueue({ handler: () => null }) })\n"],
+    ["preserves arguments access and strict mode",
+      "export default defineQueue(function (job) { 'use strict'; arguments[0].attempts++; return job.attempts })\n",
+      "export default defineQueue({ handler: function (job) { 'use strict'; arguments[0].attempts++; return job.attempts } })\n"],
+    ["uses the shorthand for a handler named handler",
+      "export default defineQueue(handler, { cache: false })\n",
+      "export default defineQueue({ handler, cache: false })\n"],
+    ["preserves multiline option trivia",
+      "export default defineQueue(handler, { /* Keep this option. */\n  cache: false,\n})\n",
+      "export default defineQueue({ handler, /* Keep this option. */\n  cache: false,\n})\n"],
+    ["preserves comments around empty options",
+      "export default defineQueue(handler, (/* ( */ {}),)\n",
+      "export default defineQueue({ handler, /* ( */ })\n"],
+  ])("rewrites defineQueue: %s", async (_, before, expected) => {
+    const { after, run } = await migrate({ "server/queues/a.ts": before })
+    expect(after["server/queues/a.ts"]).toBe(expected)
+    expect(run.result.followUps).toEqual([])
+    expect(await detectCodemods(root)).toEqual([expect.objectContaining({ codemod: expect.objectContaining({ name: "define-forms" }) })])
+  })
+
+  it.each([
+    ["a shared options object", "const defaults = { concurrency: 2, handler: fallback }\nexport default defineQueue(sendReport, (defaults))\n"],
+    ["an options spread", "export default defineQueue(sendReport, { ...defaults })\n"],
+    ["an explicit handler in the options", "export default defineQueue(sendReport, { concurrency: 2, handler: fallback })\n"],
+  ])("reports %s without changing the Queue call", async (_, before) => {
+    const { after, run } = await migrate({ "server/queues/a.ts": before })
+    expect(after).toEqual({})
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/queues/a.ts", message: expect.stringContaining("keep the original handler") })])
+  })
+
+  it("rewrites only the legacy calls to the imported Queue helper", async () => {
+    const before = [
+      "import { defineQueue as queue } from 'vite-hub/queue'",
+      "const definition = { handler: () => 1 }",
+      "const handler = () => 2",
+      "queue(definition)",
+      "queue(buildDefinition())",
+      "queue({ handler } satisfies QueueDefinition)",
+      "function other(queue: Function) { queue(() => 3) }",
+      "queue(handler)",
+      "",
+    ].join("\n")
+    const { after, run } = await migrate({ "server/queues/a.ts": before })
+    expect(after["server/queues/a.ts"]).toBe(before.replace("queue(handler)", "queue({ handler })"))
+    expect(run.result.followUps).toEqual([])
+  })
+
+  it("leaves the object form and defineQueue of another module alone", async () => {
+    const { run } = await migrate({
+      "server/queues/a.ts": "export default defineQueue({ handler: async ({ payload }) => payload })\n",
+      "server/jobs.ts": "import { defineQueue } from './jobs-lib'\nexport default defineQueue(async (job) => job.payload)\n",
+    })
+    expect(run.result.edits).toEqual([])
+  })
+
   it("does not detect the current forms", async () => {
     await migrate({
+      "server/queues/a.ts": "export default defineQueue({ handler: async ({ payload }) => payload, concurrency: 2 })\n",
       "server/schedules/a.ts": "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })\n",
       "server/sandbox-tasks/a.ts": "export default defineSandboxTask({ handler: () => 1 })\n",
       "server/content.ts": "export default defineContent({})\n",
@@ -155,6 +241,96 @@ describe("define-forms edge cases", () => {
     })
     expect(run.result.edits.map(edit => edit.path)).toEqual(["server/databases/blog/config.ts", "server/databases/blog/index.ts"])
     expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/databases/shared.ts", message: expect.stringContaining("Database Definition `shared`") })])
+  })
+
+  describe("Workflows", () => {
+    const run = async (code: string, path = "server/workflows/onboard-user/index.ts") => {
+      const result = await migrate({ [path]: code })
+      return { after: result.after[path], followUps: result.run.result.followUps }
+    }
+    const header = "import { createWorkflow, defineWorkflow } from 'vite-hub/workflow'\n"
+
+    it("drops the name and moves the payload type to the type argument", async () => {
+      const { after, followUps } = await run(`${header}export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {\n  return await steps.createUser(payload)\n})\n`)
+      expect(after).toBe(`${header}export default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => {\n  return await steps.createUser(payload)\n} })\n`)
+      expect(followUps).toEqual([])
+    })
+
+    it("moves the options into the object and drops the unused `id` option", async () => {
+      const { after } = await run(`${header}export default defineWorkflow('onboard-user', async input => input, { 'id': 'x', native: durable, rootStep: false })\n`)
+      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload: input }) => input, native: durable, rootStep: false })\n`)
+    })
+
+    it.each(["context", "{ ...context }"])("passes the full context to a handler with %s", async (binding) => {
+      const { after } = await run(`${header}export default defineWorkflow('onboard-user', (input, ${binding}) => context.payload.email)\n`)
+      expect(after).toContain(`workflowContext => ((input, ${binding}) => context.payload.email)(workflowContext.payload, workflowContext)`)
+    })
+
+    it.each(["options", "{ ...options, rootStep: false }"])("reports dynamic options %s and leaves the call alone", async (options) => {
+      const { after, followUps } = await run(`${header}const options = { id: 'old' }\nexport default defineWorkflow('onboard-user', () => {}, ${options})\n`)
+      expect(after).toBeUndefined()
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("remove the former `id`") })])
+    })
+
+    it("keeps a payload default and the old payload type argument", async () => {
+      const { after } = await run(`${header}export default defineWorkflow<'onboard-user', { email?: string }>('onboard-user', async (payload = {}) => payload)\n`)
+      expect(after).toBe(`${header}export default defineWorkflow<{ email?: string }>({ handler: async ({ payload = {} }) => payload })\n`)
+    })
+
+    it("moves the oldest defineWorkflow(handler, options) form without changing its handler", async () => {
+      const { after } = await run(`${header}export default defineWorkflow(async ({ payload }) => payload, { rootStep: false })\n`)
+      expect(after).toBe(`${header}export default defineWorkflow({ handler: async ({ payload }) => payload, rootStep: false })\n`)
+    })
+
+    it.each(["", ", { rootStep: false }"])("moves the oldest form with a local handler and options %s", async (options) => {
+      const declarations = `${header}import type { WorkflowExecutionContext } from 'vite-hub/workflow'\nconst handler = ({ payload }: WorkflowExecutionContext<string>) => payload\n`
+      const { after, followUps } = await run(`${declarations}export default defineWorkflow<string>(handler${options})\n`)
+      expect(after).toBe(`${declarations}export default defineWorkflow<string>({ handler${options ? ", rootStep: false" : ""} })\n`)
+      expect(followUps).toEqual([])
+    })
+
+    it("moves the oldest form with an imported handler and literal options", async () => {
+      const declarations = `${header}import { onboard } from './onboard'\n`
+      const { after, followUps } = await run(`${declarations}export default defineWorkflow(onboard, { rootStep: false })\n`)
+      expect(after).toBe(`${declarations}export default defineWorkflow({ handler: onboard, rootStep: false })\n`)
+      expect(followUps).toEqual([])
+    })
+
+    it("wraps a handler that a name references and reports it", async () => {
+      const { after, followUps } = await run(`${header}async function onboard(payload: { email: string }) { return payload.email }\nexport default defineWorkflow('onboard-user', onboard)\n`)
+      expect(after).toContain("defineWorkflow<Parameters<typeof onboard>[0]>({ handler: workflowContext => onboard(workflowContext.payload) })")
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("wrapped `onboard`") })])
+    })
+
+    it("rewrites createWorkflow handlers and keeps the name", async () => {
+      const { after } = await run(`${header}export const welcome = createWorkflow('welcome', async (payload: { email: string }) => payload.email)\nexport const other = createWorkflow({ name: 'other', handler: async (payload, { sleep }) => sleep('1 day') })\n`, "server/utils/workflows.ts")
+      expect(after).toBe(`${header}export const welcome = createWorkflow<{ email: string }>('welcome', async ({ payload }) => payload.email)\nexport const other = createWorkflow({ name: 'other', handler: async ({ payload, sleep }) => sleep('1 day') })\n`)
+    })
+
+    it("does not change the current forms, so a second run does nothing", async () => {
+      const code = `${header}import type { WorkflowExecutionContext } from 'vite-hub/workflow'\nexport default defineWorkflow<{ email: string }>({ handler: async ({ payload, steps }) => steps.createUser(payload) })\nexport const welcome = createWorkflow('welcome', async ({ sleep }: WorkflowExecutionContext) => sleep('1 day'))\n`
+      expect((await run(code)).after).toBeUndefined()
+      expect((await detectCodemods(root)).filter(entry => entry.codemod.name === "define-forms")).toEqual([])
+    })
+
+    it.each([
+      "createWorkflow('welcome', ({ id }: { id: string }) => id.toUpperCase())",
+      "createWorkflow('welcome', context => context.name)",
+      "createWorkflow('welcome', handler)",
+      "createWorkflow({ name: 'welcome', handler })",
+      "createWorkflow({ name: 'welcome', handler({ id }) { return id } })",
+    ])("reports ambiguous createWorkflow forms without rewriting %s", async (call) => {
+      const { after, followUps } = await run(`${header}export const welcome = ${call}\n`)
+      expect(after).toBeUndefined()
+      expect(followUps).toEqual([expect.objectContaining({ message: expect.stringContaining("Check this `createWorkflow()` handler") })])
+      expect((await detectCodemods(root)).find(entry => entry.codemod.name === "define-forms")?.detection.reason).toContain("Workflow definitions to review")
+    })
+
+    it("detects the former form for the migration wizard", async () => {
+      await run(`${header}export default defineWorkflow('onboard-user', async () => undefined)\n`)
+      expect((await detectCodemods(root)).map(entry => [entry.codemod.name, entry.detection.reason]))
+        .toEqual([["define-forms", "server/workflows/onboard-user/index.ts calls defineWorkflow(name, handler) or passes a (payload, context) Workflow handler"]])
+    })
   })
 
   it("stops on the default Database when default/ already exists", async () => {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@vite-hub/kit/toast";
+import { createToaster, Toast, ToastAction, ToastClose, ToastRegion, ToastTitle } from "@ui-sdk/vue/toast";
 import { watch } from "vue";
 
 import { useConsoleToast } from "../client/toast";
+import Icon from "./console-icon.vue";
 
 /**
  * Renders Console toasts at the bottom right (Geist toast material: 12px radius, menu shadow, 420px wide). The kit
@@ -56,7 +57,7 @@ watch(toasts, (list) => {
       <Toast
         class="pointer-events-auto flex min-h-12 w-full items-center gap-2.5 rounded-xl bg-default py-2 ps-4 pe-2 text-sm text-highlighted shadow-(--vh-shadow-floating) data-swiping:translate-x-(--toast-swipe-x) motion-safe:animate-[vitehub-console-toast-in_200ms_cubic-bezier(.25,.75,.6,.98)] motion-safe:data-ending-style:animate-[vitehub-console-toast-out_150ms_ease-out] motion-safe:data-swipe-direction:animate-[vitehub-console-toast-out_100ms_ease-out]"
       >
-        <UIcon v-if="toast.type === 'error'" name="i-lucide-circle-alert" class="size-4 shrink-0 text-error" aria-hidden="true" />
+        <Icon v-if="toast.type === 'error'" name="i-lucide-circle-alert" class="size-4 shrink-0 text-error" aria-hidden="true" />
         <ToastTitle class="min-w-0 flex-1 py-1" />
         <ToastAction>
           <template #render="{ props }">

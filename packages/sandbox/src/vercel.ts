@@ -13,9 +13,8 @@ import {
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
 import { shellQuote } from "./internal/shell-quote.ts";
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
+import { killOnAbort } from "./internal/abortable.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
-
-const vercelSandboxPackage = "@vercel/sandbox";
 
 export type VercelSandboxSource =
   | { depth?: number; revision?: string; type: "git"; url: string }
@@ -50,7 +49,8 @@ export interface VercelSandboxCreateOptions {
   persistent?: boolean;
   projectId?: string;
   resources?: { vcpus?: number };
-  runtime: string;
+  /** Vercel takes the runtime from the snapshot for a snapshot source, so ViteHub omits it then. */
+  runtime?: string;
   signal?: AbortSignal;
   source?: VercelSandboxSource;
   teamId?: string;
@@ -58,9 +58,14 @@ export interface VercelSandboxCreateOptions {
   token?: string;
 }
 
+/** The signals that the Vercel Sandbox SDK sends by name. Other signals use their number. */
+const vercelSignalNames = ["SIGHUP", "SIGINT", "SIGQUIT", "SIGKILL", "SIGTERM", "SIGCONT", "SIGSTOP"] as const;
+
+export type VercelSandboxSignal = typeof vercelSignalNames[number] | number;
+
 export interface VercelSandboxCommand {
   closeStdin(): Promise<void>;
-  kill(): Promise<void>;
+  kill(signal?: VercelSandboxSignal): Promise<void>;
   logs(options?: { signal?: AbortSignal }): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
@@ -109,7 +114,8 @@ export interface VercelFileStat {
 }
 
 export function createVercelRuntime(options: VercelSandboxOptions = {}): SandboxRuntime {
-  const runtime = options.runtime ?? "node24";
+  // A snapshot already has its runtime. The Vercel SDK types forbid `runtime` with a snapshot source.
+  const runtime = options.source?.type === "snapshot" ? options.runtime : options.runtime ?? "node24";
   const executionAuthority = vercelExecutionAuthority(options.networkPolicy);
   return markBuiltInSandboxRuntime({
     name: "vercel",
@@ -121,7 +127,7 @@ export function createVercelRuntime(options: VercelSandboxOptions = {}): Sandbox
       const env = await resolveRemoteEnvironment(input, { workspace });
       const create = options.create ?? await loadVercelSandbox();
       const instance = await create({
-        runtime,
+        ...(runtime ? { runtime } : {}),
         persistent: false,
         signal: openOptions?.signal,
         timeout: options.timeout ?? 300_000,
@@ -215,11 +221,15 @@ function ownNetworkPolicyMember<T extends object, K extends keyof T>(
   return value !== null && value !== undefined && Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
-async function loadVercelSandbox() {
+// A literal specifier lets the server bundler include the SDK. Nitro output has no `node_modules`, so a variable
+// specifier cannot load the SDK there.
+export async function loadVercelSandbox(): Promise<NonNullable<VercelSandboxOptions["create"]>> {
   try {
-    const { Sandbox } = await import(/* @vite-ignore */ vercelSandboxPackage);
+    const { Sandbox } = await import("@vercel/sandbox");
     return async (options: VercelSandboxCreateOptions) =>
-      await Sandbox.create(options);
+      await Sandbox.create(
+        options as Parameters<typeof Sandbox.create>[0],
+      ) as unknown as VercelSandboxInstance;
   } catch (error) {
     throw sandboxErrorDiagnostics.SANDBOX_R0142({ message: `[vitehub] The vercel Sandbox runtime requires @vercel/sandbox: ${error instanceof Error ? error.message : error}` });
   }
@@ -243,7 +253,8 @@ function createVercelSession(
   const startCommand = (options: Parameters<RuntimeSession["run"]>[0]) => {
     options.abortSignal?.throwIfAborted();
     return instance.runCommand({
-      args: ["-lc", options.command],
+      // Not a login shell: a profile, such as Debian's /etc/profile in a custom image, would set PATH again and drop `env.PATH`.
+      args: ["-c", options.command],
       cmd: "sh",
       cwd: options.workingDirectory ?? workspace,
       detached: true,
@@ -257,7 +268,7 @@ function createVercelSession(
     let abort: (() => void) | undefined;
     const aborted = new Promise<never>((_, reject) => {
       abort = () => {
-        void process.kill().catch(() => undefined);
+        void process.kill("SIGKILL").catch(() => undefined);
         reject(options.abortSignal!.reason);
       };
       options.abortSignal?.addEventListener("abort", abort, { once: true });
@@ -385,7 +396,8 @@ function createVercelSession(
     run,
     async spawn(options) {
       const process = await startCommand(options);
-      return vercelProcess(process, options.stdin);
+      // The SDK signal only cancels the start request of a detached command.
+      return killOnAbort(vercelProcess(process, options.stdin), options.abortSignal);
     },
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
@@ -413,8 +425,8 @@ function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined
           }),
         }
       : {}),
-    async kill() {
-      await process.kill();
+    async kill(signal?: string) {
+      await process.kill(vercelSignal(signal));
     },
     async wait() {
       return await wait;
@@ -479,4 +491,14 @@ function streamLogs(command: VercelSandboxCommand) {
     }
   })();
   return output;
+}
+
+function vercelSignal(signal: string | undefined): VercelSandboxSignal | undefined {
+  if (signal === undefined) return undefined;
+  if (/^\d+$/.test(signal)) return Number(signal);
+  const name = `SIG${signal.toUpperCase().replace(/^SIG/, "")}`;
+  const known = vercelSignalNames.find(value => value === name);
+  if (!known)
+    throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Vercel", signal: String(signal) });
+  return known;
 }

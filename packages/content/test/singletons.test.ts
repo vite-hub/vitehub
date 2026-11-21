@@ -190,8 +190,8 @@ describe("singletons", { timeout: 30_000 }, () => {
     expect(await generic.status("settings")).toMatchObject({ state: "draft" })
     expect((await generic.list({ ref: "draft" })).items.map(item => item.id)).toEqual(["settings"])
     await expect(generic.restore("settings", saved.revision)).resolves.toMatchObject({ digest: saved.digest })
-    expect(await rejection(settings.get("other"))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("Omit the id") })
-    await expect(content.publish({ expect: [{ collection: "posts", digest: null }] })).rejects.toMatchObject({ code: "CONTENT_R0008" })
+    expect(await rejection(settings.get("other"))).toMatchObject({ code: "CONTENT_SINGLETON_ID_MISMATCH", message: expect.stringContaining("Omit the id") })
+    await expect(content.publish({ expect: [{ collection: "posts", digest: null }] })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_ID_INVALID" })
   })
 
   it("validates JSON and YAML from every Workspace writer and rejects a body", async () => {
@@ -289,7 +289,7 @@ describe("singletons in the Console", { timeout: 30_000 }, () => {
   })
 
   it("uses document-level policy for singleton write and publish access", async () => {
-    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read")
+    const { content } = await setup("settings.json", ({ action, id }) => id === undefined || action === "read-draft")
     const actions = createContentConsoleActions({ default: content })
     await expect(actions.collections(editor)).resolves.toContainEqual(expect.objectContaining({
       name: "settings",

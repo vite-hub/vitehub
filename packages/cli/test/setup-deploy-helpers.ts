@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises"
 import { delimiter, dirname, join } from "node:path"
@@ -12,7 +13,10 @@ export interface FakeCall {
   argv: string[]
   stdin: string
   cwd: string
+  pid: number
   generated?: Record<string, unknown>
+  /** The `--secrets-file` of a Wrangler run, read while the run lasted. */
+  secretsFile?: { path: string, mode?: number, values?: Record<string, string>, missing?: true }
   accountId?: string
 }
 
@@ -69,7 +73,7 @@ export function buildOutput(host: "cloudflare" | "vercel" | "netlify" | "deno", 
     case "vercel": return {
       ...manifest(".vercel/output"),
       ".vercel/output/config.json": JSON.stringify({ version: 3 }),
-      ".vercel/output/functions/__server.func/.vc-config.json": JSON.stringify({ handler: "index.mjs", runtime: "nodejs22.x" }),
+      ".vercel/output/functions/__server.func/.vc-config.json": JSON.stringify({ handler: "index.mjs", runtime: "nodejs24.x" }),
     }
     case "netlify": return { ...manifest(".netlify"), "dist/index.html": "<h1>app</h1>\n" }
     case "deno": return { ...manifest(".output"), ".output/deploy.mjs": denoRunner }
@@ -92,5 +96,30 @@ export function expectNoLeak(calls: readonly FakeCall[], output: string, values:
   for (const value of values) {
     for (const call of calls) expect(call.argv.join(" "), `${call.name} ${call.argv.join(" ")}`).not.toContain(value)
     expect(output).not.toContain(value)
+  }
+}
+
+export interface CliProcess {
+  pid: number
+  /** Resolves when the process ends, with its exit code or the signal that ended it. */
+  exited: Promise<{ code: number | null, signal: NodeJS.Signals | null, stdout: string, stderr: string }>
+}
+
+/**
+ * Runs the CLI from source in its own Node process, as the vite-hub bin does. Use it when the test needs process
+ * state that `runSetup` shares with Vitest: signals, or a `DEBUG` that Vite reads when it is first imported.
+ */
+export function cliProcess(args: readonly string[], cwd: string, env: NodeJS.ProcessEnv): CliProcess {
+  const entry = `import { runViteHubCliEntrypoint } from ${JSON.stringify(join(import.meta.dirname, "../src/index.ts"))}\nrunViteHubCliEntrypoint({ args: ${JSON.stringify(args)} })\n`
+  const child = spawn(process.execPath, ["--input-type=module", "--eval", entry],{ cwd, env, stdio: ["ignore", "pipe", "pipe"] })
+  const output = { stderr: "", stdout: "" }
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => { output.stdout += chunk })
+  child.stderr.setEncoding("utf8").on("data", (chunk: string) => { output.stderr += chunk })
+  return {
+    exited: new Promise((resolve, reject) => {
+      child.on("error", reject)
+      child.on("close", (code, signal) => resolve({ code, signal, ...output }))
+    }),
+    pid: child.pid!,
   }
 }

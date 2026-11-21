@@ -5,17 +5,22 @@ import { isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, 
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 
-type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient"
+type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient" | "gateway" | "translations"
 
 /** Methods that return `[error, value]` for each Runtime Helper handle. */
 const tupleMethods: Record<HandleKind, Set<string>> = {
-  kv: new Set(["clear", "delete", "get", "getAndDelete", "has", "increment", "keys", "list", "set", "setIfAbsent"]),
-  blob: new Set(["createMultipartUpload", "delete", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
+  kv: new Set(["clear", "delete", "get", "getAndDelete", "getMany", "has", "increment", "list", "set", "setIfAbsent", "setMany"]),
+  blob: new Set(["copy", "createMultipartUpload", "delete", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "sign"]),
   media: new Set(["createFolder", "get", "handleUpload", "list", "move", "moveFolder", "put", "remove", "removeFolder", "replaceCrop", "update", "variants"]),
   email: new Set(["send"]),
   channel: new Set(["send"]),
   queueClient: new Set(["send", "sendBatch"]),
+  gateway: new Set(["ask"]),
+  translations: new Set(["list", "missing", "save"]),
 }
+
+/** Exports of `vite-hub/gateways` that return an object with `ask()`. */
+const gatewayFactories = new Set(["askWithModel", "cloudflare", "typesafe", "vercel"])
 
 function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): HandleKind | undefined {
   const target = unwrap(node)
@@ -39,6 +44,8 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
     }
     const called = r.callee(target)
     if (called && ["channels", "channels/server"].includes(called.module) && called.path.length === 0 && ["useChannel", "createChannel"].includes(called.name)) return "channel"
+    if (called?.module === "gateways" && called.path.length === 0 && gatewayFactories.has(called.name)) return "gateway"
+    if (called?.module === "i18n/server" && called.path.length === 0 && called.name === "useTranslations") return "translations"
   }
   if (isNodeType(target, "AwaitExpression")) {
     const called = r.callee(target.argument)
@@ -52,19 +59,24 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
 }
 
 /** A display name such as `kv.get()` when `call` returns an `[error, value]` tuple. */
-function tupleCall(r: Resolver, call: AstNode): string | undefined {
+function tupleCall(r: Resolver, call: { callee: unknown }): string | undefined {
   const callee = unwrap(call.callee)
   if (isNodeType(callee, "MemberExpression") && callee.computed !== true && isIdentifier(callee.property)) {
     const kind = handleKind(r, callee.object)
-    if (kind && tupleMethods[kind].has(callee.property.name)) return `${callee.property.name}()`
+    if (kind && tupleMethods[kind].has(callee.property.name)) return kind === "gateway" ? "gateway.ask()" : `${callee.property.name}()`
   }
   const reference = r.callee(call)
   if (!reference) return
   if (reference.module === "queue" && reference.name === "sendQueue" && reference.path.length === 0) return "sendQueue()"
   if (reference.module === "queue" && reference.name === "dynamicQueue" && reference.path.join(".") === "send") return "dynamicQueue.send()"
+  if (reference.module === "schedule" && reference.name === "runSchedule" && reference.path.length === 0) return "runSchedule()"
+  if (reference.module === "workflow" && ["startWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflow"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent/mcp" && reference.name === "callMcpTool" && reference.path.length === 0) return "callMcpTool()"
   if (reference.module === "agent/server" && ["enqueueChannelTask", "cancelChannelTask"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
   if (reference.module === "agent" && ["runAgent", "streamAgent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "browser" && ["runBrowser", "runBrowserContent"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
+  if (reference.module === "sandbox/task" && reference.name === "runSandboxTask" && reference.path.length === 0) return "runSandboxTask()"
+  if (["auth/server", "auth/runtime/console"].includes(reference.module) && ["listAuthEvents", "aggregateAuthEvents"].includes(reference.name) && reference.path.length === 0) return `${reference.name}()`
 }
 
 
@@ -95,7 +107,7 @@ function readsAsTuple(r: Resolver, target: unknown): boolean {
 }
 
 /** How the awaited tuple is used, when the use treats it as the value. */
-function misuseOf(r: Resolver, awaited: AstNode): Misuse | undefined {
+function misuseOf(r: Resolver, awaited: unknown): Misuse | undefined {
   const { parent, child } = semanticParent(awaited)
   if (!parent) return
   switch (parent.type) {
@@ -148,8 +160,7 @@ export const destructureResultTuples: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     return {
-      ScriptNode(node) {
-        if (!isNodeType(node, "CallExpression")) return
+      CallExpression(node) {
         const name = tupleCall(r, node)
         if (!name) return
         const { parent } = semanticParent(node)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MinusIcon, MoveHorizontalIcon, PlusIcon } from "../icons"
-import { Field, FieldLabel } from "@vite-hub/kit/field"
+import { Field, FieldLabel } from "@ui-sdk/vue/field"
 import {
   NumberInput,
   NumberInputControl,
@@ -9,7 +9,7 @@ import {
   NumberInputIncrement,
   NumberInputScrubArea,
   NumberInputScrubAreaCursor,
-} from "@vite-hub/kit/number-input"
+} from "@ui-sdk/vue/number-input"
 import { useLog } from "../log"
 
 const log = useLog()

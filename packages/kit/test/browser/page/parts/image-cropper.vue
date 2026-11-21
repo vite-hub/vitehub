@@ -5,7 +5,7 @@ import {
   ImageCropperImage,
   ImageCropperSelection,
   ImageCropperViewport,
-} from "@vite-hub/kit/image-cropper"
+} from "@ui-sdk/vue/image-cropper"
 import { picture as src } from "../media"
 </script>
 

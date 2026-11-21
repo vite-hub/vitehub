@@ -1,0 +1,8 @@
+{
+  "rawErrors": {},
+  "codesWithoutFix": [],
+  "invariants": {
+    "packages/content/src/live.ts": 1,
+    "packages/content/src/ref-routes.ts": 1
+  }
+}

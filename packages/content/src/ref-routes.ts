@@ -1,8 +1,11 @@
+import { invariant } from "@vite-hub/internal/invariant"
 import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { contentRefTokenParameter } from "./preview-parameters.ts"
+import { contentRefTokenCookie } from "./preview.ts"
 import { parseContentRef } from "./source-refs.ts"
 
+import type { ContentHandlerOptions } from "./read-gate.ts"
 import type { ContentSourceAllowReason } from "./source-access.ts"
 import type { ContentSourcePull, ContentSourceRefKind } from "./source-refs.ts"
 
@@ -89,9 +92,11 @@ export interface ContentSourcePreviewRoutes {
   /**
    * Serve a request at a preview URL. Other URLs, refs that `allow()` denies, and a runtime without `previews` go to
    * `next` unchanged, so a denied ref gets the same 404 as any missing page. An allowed ref runs `next` with the app path,
-   * and every read of the Source in that request returns the commit of the ref.
+   * and every read of the Source in that request returns the commit of the ref. Unless a Console preview cookie or a
+   * signed token opened the ref, the request first asks `authorize` with `action: "read"`, as `/api/content/**` does,
+   * with the user that `options.user` returns.
    */
-  route(request: Request, next: (request: Request) => Response | Promise<Response>): Promise<Response>
+  route(request: Request, next: (request: Request) => Response | Promise<Response>, options?: ContentHandlerOptions): Promise<Response>
   /**
    * The `/pr/<number>/<path>` links of the pages that a pull request adds or changes, from its GitHub file list. A
    * private pull request, such as one that the CMS opens with `publish: "pr"`, gets links with a signed token from
@@ -214,10 +219,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * A copy of a value with the internal `href` of each Comark element under the preview prefix. A Comark element is
  * `[tag, attributes, ...children]`. The walk goes through objects and arrays, so it works on a document, a list of
- * documents, and the JSON of `/api/content`. Values without a change are the same objects.
+ * documents, and the JSON of `/api/content`. Prefixed anchors carry `external: true` so NuxtLink
+ * follows the browser URL without applying its router base again. Values without a change are the same objects.
  */
 export function rewriteContentLinks<T>(value: T, prefix: string, query?: string): T {
-  // SAFETY: rewrite() returns a value of the same shape, with only `href` strings changed.
+  // SAFETY: rewrite() returns a value of the same shape, with only link attributes changed.
   return rewrite(value, prefix, query, 0) as T
 }
 
@@ -230,7 +236,10 @@ function rewrite(value: unknown, prefix: string, query: string | undefined, dept
       let result = rewrite(item, prefix, query, depth + 1)
       if (index === 1 && typeof value[0] === "string" && isRecord(item) && typeof item.href === "string") {
         const href = previewLink(item.href, prefix, query)
-        if (href !== item.href) result = { ...(isRecord(result) ? result : item), href }
+        // These are browser URLs, already including the preview prefix. NuxtLink must
+        // follow them directly instead of adding its preview router base again.
+        const external = value[0] === "a" && (href === prefix || href.startsWith(`${prefix}/`) || href.startsWith(`${prefix}?`) || href.startsWith(`${prefix}#`))
+        if (href !== item.href || (external && item.external !== true)) result = { ...(isRecord(result) ? result : item), href, ...external ? { external: true } : {} }
       }
       if (result !== item) changed = true
       return result
@@ -319,7 +328,7 @@ function responseCacheControl(own: string | null, policy: string): string {
  * The response of a preview page: `X-Robots-Tag: noindex`, a canonical `Link` header to the production URL, the
  * `Cache-Control` of `previewCacheControl()`, and a same-site redirect kept under the prefix.
  */
-export function previewResponse(response: Response, preview: ContentSourcePreview, reason: ContentSourceAllowReason, requestUrl: string): Response {
+export function previewResponse(response: Response, preview: ContentSourcePreview, reason: ContentSourceAllowReason, requestUrl: string, gated = false): Response {
   let result = response
   try {
     result.headers.set("x-robots-tag", "noindex")
@@ -330,7 +339,16 @@ export function previewResponse(response: Response, preview: ContentSourcePrevie
     result.headers.set("x-robots-tag", "noindex")
   }
   result.headers.append("link", `<${preview.url}>; rel="canonical"`)
-  const policy = result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
+  if (reason === "token") {
+    // The page's own requests, such as Nuxt data requests and links under the prefix, carry no query. The cookie keeps
+    // the link working for them, below the prefix only.
+    const url = new URL(requestUrl)
+    const token = url.searchParams.get(contentRefTokenParameter)
+    const cookie = token ? contentRefTokenCookie(token, preview.prefix, url.protocol === "https:") : undefined
+    if (cookie) result.headers.append("set-cookie", cookie)
+  }
+  // An answer that `authorize` allowed depends on the user, like a cookie answer.
+  const policy = gated || result.headers.has("set-cookie") ? "private, no-store" : previewCacheControl(preview.route, reason)
   result.headers.set("cache-control", responseCacheControl(result.headers.get("cache-control"), policy))
   const location = result.headers.get("location")
   if (location !== null && result.status >= 300 && result.status < 400) {
@@ -352,17 +370,60 @@ export interface ContentPreviewRoutesHost {
 /** Loads the Content runtime, such as `() => import("./server/content.ts").then(module => module.default)`. */
 export type ContentPreviewRoutesHostLoader = () => Promise<ContentPreviewRoutesHost>
 
+/** The `app` object of the Nitro runtime config, where Nuxt reads its base URL. */
+export interface ContentPreviewAppConfig {
+  baseURL?: string
+  cdnURL?: string
+}
+
+/** Options of `defineContentPreviewRoutesPlugin()`. */
+export interface ContentPreviewRoutesPluginOptions extends ContentHandlerOptions {
+  /**
+   * `useRuntimeConfig().app`. In a preview request, `baseURL` starts with the preview prefix, so the Nuxt router, its
+   * links, and `$fetch` stay in the preview. `cdnURL` is then the app base, so build assets load from the app root,
+   * where a host CDN serves them for every ref. Outside a preview request, both keep their values.
+   */
+  app?: ContentPreviewAppConfig
+}
+
+/** Make `app.baseURL` and `app.cdnURL` follow the preview of the current request. */
+function scopeAppBase(app: ContentPreviewAppConfig, current: () => ContentSourcePreview | null): void {
+  let { baseURL, cdnURL } = app
+  // A relative base, such as `./`, resolves in the browser against the preview URL already.
+  const preview = () => baseURL?.startsWith("/") ? current() : null
+  Object.defineProperties(app, {
+    baseURL: {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        const scope = preview()
+        return scope ? `${scope.prefix}${baseURL}` : baseURL
+      },
+      set: (value: string | undefined) => { baseURL = value },
+    },
+    cdnURL: {
+      configurable: true,
+      enumerable: true,
+      get: () => cdnURL || (preview() ? baseURL : cdnURL),
+      set: (value: string | undefined) => { cdnURL = value },
+    },
+  })
+}
+
 /**
  * A Nitro 3 plugin that serves the preview URLs of `defineContent({ previews: true })`: `/tree/<branch>/-/<path>`,
  * `/blob/<sha>/<path>`, and `/pr/<number>/<path>`. It wraps Nitro's fetch entry, so the page runs with its production
  * path through route rules, middleware, and every handler, and each read of the `github()` Source returns the commit of
  * the ref. Nitro's cache is bypassed during a preview request, so a cached page never mixes refs. Other requests pass
- * straight through, and the loader runs on the first preview URL only. ViteHub generates it for `server/content.ts`.
+ * straight through, and the loader runs on the first preview URL only. `options.user` gives `authorize` the user of a
+ * preview request. ViteHub generates it for `server/content.ts`.
  */
-export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader): (nitroApp: unknown) => void {
+export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHost | ContentPreviewRoutesHostLoader, options: ContentPreviewRoutesPluginOptions = {}): (nitroApp: unknown) => void {
+  const { app, ...readerOptions } = options
   return (nitroApp) => {
     if (!isRecord(nitroApp) || !(nitroApp.fetch instanceof Function)) return
     let host: ContentPreviewRoutesHost | undefined = content instanceof Function ? undefined : content
+    if (app) scopeAppBase(app, () => host?.sources.current() ?? null)
     let loading: Promise<ContentPreviewRoutesHost> | undefined
     const load = (): ContentPreviewRoutesHost | Promise<ContentPreviewRoutesHost> => {
       if (host) return host
@@ -397,10 +458,9 @@ export function defineContentPreviewRoutesPlugin(content: ContentPreviewRoutesHo
         const loaded = await load()
         return await loaded.sources.route(request, async (next) => {
           const response: unknown = await call(next)
-          if (response instanceof Response) return response
-          // Internal invariant: the fetch entry of Nitro 3 always resolves to a Response.
-          throw new TypeError("[vitehub] Nitro's fetch entry did not return a Response.")
-        })
+          invariant(response instanceof Response, "the fetch entry of Nitro 3 resolves to a Response")
+          return response
+        }, readerOptions)
       })()
     }
   }

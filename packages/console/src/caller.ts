@@ -9,6 +9,8 @@ export interface ConsoleCallOptions {
   surface?: "mcp"
   /** The person agreed to this destructive call. Only for `surface: "mcp"`. */
   confirmed?: boolean
+  /** The app runs only operations that read, and refuses a write or destructive call. */
+  readOnly?: boolean
 }
 
 /**
@@ -22,14 +24,15 @@ export function consoleCallerOf(caller: { user: ConsoleCallerUser, teamId: strin
     user: caller.user,
     via: "console",
     ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
+    ...(options.readOnly ? { readOnly: true } : {}),
   }
 }
 
 /** The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. */
-export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown }): ConsoleCallerUser {
+export function consoleCallerUser(user: { id: string, name?: unknown, email?: unknown, emailVerified?: unknown }): ConsoleCallerUser {
   const name = presentationText(user.name)
   const email = presentationText(user.email)
-  return { id: user.id, ...(name ? { name } : {}), ...(email ? { email } : {}) }
+  return { id: user.id, ...(name ? { name } : {}), ...(email ? { email, ...(user.emailVerified === true ? { emailVerified: true } : {}) } : {}) }
 }
 
 /** Optional presentation fields must fit `decodeConsoleCaller()`; the required identity fields stay unchanged. */

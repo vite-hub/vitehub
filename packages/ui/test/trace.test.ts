@@ -19,10 +19,10 @@ function run(status: TraceRunView["status"], steps: TraceStepView[] = [], durati
 
 describe("TraceRun", () => {
   it.each([
-    ["cancelled", undefined, "Cancelled · 320 ms"],
-    ["completed", undefined, "Completed · 320 ms"],
-    ["failed", "error", "Failed · 320 ms"],
-    ["running", "running", "Working · 320 ms"],
+    ["cancelled", undefined, "Cancelled · 320ms"],
+    ["completed", undefined, "Completed · 320ms"],
+    ["failed", "error", "Failed · 320ms"],
+    ["running", "running", "Working · 320ms"],
   ] as const)("shows a %s run as a trace line with its status in text", (status, lineStatus, text) => {
     const wrapper = mount(TraceRun, { global, props: { run: run(status, [], 320) } });
     const line = wrapper.get("[data-slot=trace-collapsible-trigger] [data-slot=trace-line]");

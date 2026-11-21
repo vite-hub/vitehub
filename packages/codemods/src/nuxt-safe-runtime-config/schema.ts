@@ -3,7 +3,7 @@ import { join } from "node:path"
 
 import { toJsonSchema } from "@valibot/to-json-schema"
 
-import { CodemodError } from "../types.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fields.ts"
 
 import type { BaseIssue, BaseSchema } from "valibot"
@@ -127,7 +127,7 @@ function zodPackageJsonSchema(schema: unknown, cwd: string | undefined): JsonObj
 export async function schemaToJsonSchema(schema: unknown, cwd?: string): Promise<JsonObject> {
   const standard = isRecord(schema) ? schema["~standard"] : undefined
   if (!isRecord(schema) || !isRecord(standard)) {
-    throw new CodemodError("The $schema is not a Standard Schema. Use a Valibot, Zod, or ArkType schema.")
+    throw codemodError("The $schema is not a Standard Schema. Use a Valibot, Zod, or ArkType schema.")
   }
   const vendor = typeof standard.vendor === "string" ? standard.vendor : "unknown"
   let nativeError: unknown
@@ -157,7 +157,7 @@ export async function schemaToJsonSchema(schema: unknown, cwd?: string): Promise
       nativeError = error
     }
   }
-  throw new CodemodError(`Cannot convert the ${vendor} $schema to JSON Schema${nativeError ? `: ${errorText(nativeError)}` : ""}. Zod 3, Zod 4.2 or newer, Valibot 1, and ArkType 2 are supported.`)
+  throw codemodError(`Cannot convert the ${vendor} $schema to JSON Schema${nativeError ? `: ${errorText(nativeError)}` : ""}. Zod 3, Zod 4.2 or newer, Valibot 1, and ArkType 2 are supported.`)
 }
 
 // Valibot validations that @valibot/to-json-schema writes as JSON Schema keywords. Other actions are reported.
@@ -403,7 +403,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
   const root = resolveReference(input.jsonSchema, input.jsonSchema)
   const properties = root.properties
   if (root.type !== "object" || !isRecord(properties)) {
-    throw new CodemodError("The $schema must describe the runtimeConfig object, for example `v.object({ ... })`.")
+    throw codemodError("The $schema must describe the runtimeConfig object, for example `v.object({ ... })`.")
   }
   const plan: SchemaPlan = { fields: [], unmigrated: [], followUps: [] }
   const follow = (message: string, anchor?: PlannedFollowUp["anchor"]) => plan.followUps.push({ message, anchor })
@@ -479,9 +479,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       if (runtimeValue.processEnv.fallback !== undefined) {
         defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
       }
-      // `||` also falls back for an empty value. An Env source with skipEmpty does the same.
-      if (runtimeValue.processEnv.operator === "||") field.skipEmpty = true
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}${field.skipEmpty ? ", and skips empty values as || did" : ""}.`, { env: field })
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
     else if (runtimeValue?.expression) {
       follow(`runtimeConfig.${label} is computed (${runtimeValue.expression}). It was not kept as a default. Set ${field.variable} or add a default by hand.`, { env: field })

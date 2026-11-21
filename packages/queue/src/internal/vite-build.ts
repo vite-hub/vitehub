@@ -1,12 +1,15 @@
 import { writeQueueTypes } from "../registry-types.ts"
+import { readFileSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
+import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule } from "@vite-hub/internal/build/scan-module"
 
 import { defaultLocalQueueBase, normalizeQueueOptions } from "../config.ts"
+import { isQueueMaxBatchSize } from "../definition.ts"
 import { discoverQueueDefinitions } from "../discovery.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
@@ -43,7 +46,7 @@ const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packa
 export type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
 
 export interface CloudflareQueueBindings {
-  consumers: Array<{ queue: string }>
+  consumers: Array<{ max_batch_size?: number, queue: string }>
   producers: Array<{ binding: string, queue: string }>
 }
 
@@ -75,19 +78,19 @@ function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: stri
 
 /**
  * The Queue configuration that the generated server installs. `vite dev` runs in Node, where Cloudflare and Vercel
- * cannot deliver jobs, so it runs them with the local provider and the delivery rules of the provider of the build.
- * A build keeps the configured provider.
+ * cannot deliver jobs, so it runs them with the local driver and the delivery rules of the driver of the build.
+ * A build keeps the configured driver.
  */
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
-  if (queueConfig.provider === "local") return { ...queueConfig, development }
-  // A postgres build runs its jobs with the local provider too, so `vite dev` needs no Postgres database.
+  if (queueConfig.driver === "local") return { ...queueConfig, development }
+  // A postgres build runs its jobs with the local driver too, so `vite dev` needs no Postgres database.
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
     development,
-    provider: "local",
-    rules: queueConfig.provider,
+    driver: "local",
+    rules: queueConfig.driver,
   }
 }
 
@@ -104,6 +107,32 @@ function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefini
   return Object.fromEntries([...names].map(([physicalName, definition]) => [physicalName, definition.name]))
 }
 
+/**
+ * Reads `maxBatchSize` from `export default defineQueue({ ... })`. The Cloudflare consumer is configured at build time,
+ * so the build fails when it cannot prove the value: a spread or computed key in those options, a value that is not a
+ * number literal, or the option on a `defineQueue()` call that is not the default export.
+ */
+export function readQueueMaxBatchSize(file: string): number | undefined {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  const invalid = (): never => {
+    throw queueErrorDiagnostics.QUEUE_MAX_BATCH_SIZE_INVALID({ where: file })
+  }
+  const exported = defaultExportExpression(module)
+  let maxBatchSize: number | undefined
+  for (const call of findCalls(module, ["defineQueue"])) {
+    const options = argumentExpression(call.arguments[0])
+    if (options?.type !== "ObjectExpression") return invalid()
+    const properties = objectProperties(options)
+    if (properties.some(property => property.key === undefined || property.computed)) return invalid()
+    const property = properties.findLast(candidate => candidate.key === "maxBatchSize")
+    if (!property) continue
+    if (call !== exported || property.node.type !== "Property" || property.node.kind !== "init" || property.node.method
+      || property.value?.type !== "Literal" || !isQueueMaxBatchSize(property.value.value)) return invalid()
+    maxBatchSize = property.value.value
+  }
+  return maxBatchSize
+}
+
 export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): CloudflareQueueBindings | undefined {
   if (!definitions.length) {
     return undefined
@@ -111,7 +140,10 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 
   const names = createCloudflareQueueDefinitionNames(definitions, namePrefix)
   return {
-    consumers: Object.keys(names).map(queue => ({ queue })),
+    consumers: definitions.map((definition) => {
+      const maxBatchSize = readQueueMaxBatchSize(definition.handler)
+      return { ...(maxBatchSize === undefined ? {} : { max_batch_size: maxBatchSize }), queue: getCloudflareQueueName(definition.name, namePrefix) }
+    }),
     producers: definitions.map(definition => ({
       binding: getCloudflareQueueBindingName(definition.name),
       queue: getCloudflareQueueName(definition.name, namePrefix),
@@ -120,11 +152,11 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 }
 
 function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean, databaseImport: string) {
-  const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
-  const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
-  const localRuntime = queueConfig !== false && queueConfig.provider === "local"
-  const postgresRuntime = queueConfig !== false && queueConfig.provider === "postgres"
-  const postgresDatabase = queueConfig !== false && queueConfig.provider === "postgres" ? queueConfig.database : undefined
+  const cloudflareRuntime = queueConfig !== false && queueConfig.driver === "cloudflare"
+  const vercelRuntime = queueConfig !== false && queueConfig.driver === "vercel"
+  const localRuntime = queueConfig !== false && queueConfig.driver === "local"
+  const postgresRuntime = queueConfig !== false && queueConfig.driver === "postgres"
+  const postgresDatabase = queueConfig !== false && queueConfig.driver === "postgres" ? queueConfig.database : undefined
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const cloudflareGlobals = cloudflareRuntime && !development
   const runtimeClientFactory = cloudflareRuntime
@@ -173,9 +205,9 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
 }
 
 function renderNitroMiddleware(middlewareFile: string, queueConfig: NormalizedQueueOptions, hasDefinitions: boolean, development: boolean) {
-  const cloudflare = queueConfig !== false && queueConfig.provider === "cloudflare"
+  const cloudflare = queueConfig !== false && queueConfig.driver === "cloudflare"
   const cloudflareGlobals = cloudflare && !development
-  const vercel = hasDefinitions && queueConfig !== false && queueConfig.provider === "vercel"
+  const vercel = hasDefinitions && queueConfig !== false && queueConfig.driver === "vercel"
   return [
     "import { defineMiddleware } from 'nitro'",
     ...(vercel ? [`import { waitUntil as vitehubWaitUntil } from ${JSON.stringify(createImportPath(middlewareFile, resolveVercelDependency("@vercel/functions")))}`] : []),
@@ -202,7 +234,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting, database.postgres === true)
   // Check Cloudflare names in dev too, so a name collision fails before the first build.
-  const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.provider === "cloudflare"
+  const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.driver === "cloudflare"
     ? createCloudflareQueueDefinitionNames(definitions, queueConfig.namePrefix)
     : {}
   const runtimeConfig = resolveRuntimeQueueConfig(queueConfig, development, rootDir)
@@ -211,7 +243,7 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
     mkdir(generatedDir, { recursive: true }),
   ])
   const vercelConsumerDir = resolve(rootDir, generatedQueueNitroVercelConsumerDir)
-  const vercelConsumers = queueConfig !== false && queueConfig.provider === "vercel" ? createVercelQueueConsumerRoutes(definitions) : []
+  const vercelConsumers = queueConfig !== false && queueConfig.driver === "vercel" ? createVercelQueueConsumerRoutes(definitions) : []
   await rm(vercelConsumerDir, { force: true, recursive: true })
   if (vercelConsumers.length) await mkdir(vercelConsumerDir, { recursive: true })
   await Promise.all([

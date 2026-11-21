@@ -28,7 +28,7 @@ describe("Comments in a built Nitro 3 app", () => {
         "",
       ].join("\n"),
       // The overlay API reads the app Auth session. The Console calls are signed instead.
-      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
       "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
@@ -88,7 +88,7 @@ describe("Comments in a built Nitro 3 app", () => {
       const rendered = await (await server.fetch("/ssr")).text()
       expect(rendered).toBe(`<html><body><h1>Rendered</h1>${viteHubPageToolsInlineScript("")}</body></html>`)
       expect(await call("comments.session", { subject })).toEqual({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
-      const overlay = await server.fetch("/api/_vitehub/comments/assets/overlay.js")
+      const overlay = await server.fetch("/_vitehub/comments/assets/overlay.js")
       expect(overlay.status).toBe(200)
       expect(overlay.headers.get("content-type")).toContain("javascript")
 
@@ -104,7 +104,7 @@ describe("Comments in a built Nitro 3 app", () => {
       expect((await call<CommentThread[]>("comments.list", { status: "resolved" })).map(thread => thread.id)).toEqual([created.id])
 
       // One server/comments.ts: the Comments API of the overlay reads and writes the same threads as the operations.
-      const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/api/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
+      const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
       const overApi = await (await api("/threads?page=/pricing&status=resolved")).json() as { data: CommentThread[] }
       expect(overApi.data.map(thread => thread.id)).toEqual([created.id])
       // The overlay API trusts Auth or `identify`, not the Console, so the Console user of this fixture may not reopen there.

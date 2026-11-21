@@ -2,7 +2,7 @@
 title: Workspace
 layout: landing
 navigation.title: Overview
-description: One folder of files for your server and AI agents, with rules for each path and a record of every change.
+description: One folder of files for your server and AI Agents, with rules for each path and a record of every change.
 seo.title: AI agent workspace with path rules and diffs
 navigation.order: 1
 icon: i-lucide-folder-git-2
@@ -98,14 +98,14 @@ The Workspace shows it under docs/intro.md.
   :::
 
   :::product-feature-item{title="Same code in development and production" icon="i-lucide-server" to="/docs/workspace/hosts"}
-  Files stay on disk in development. Routes do not change when you deploy.
+  Files stay on disk in dev, and your routes stay the same when you deploy.
   :::
 ::
 
 ::agent-only{skill="workspace"}
 Use Workspace for persistent file-tree state, Sources, access rules, snapshots, diffs, and sessions. A Workspace is the boundary for file authority and write-back.
 
-Set the root, provider, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
+Set the root, store driver, mode, and write rules explicitly. Mount only the Sources an invocation needs. A mounted Source is context and does not imply write access.
 
 Prove read, scoped write, diff, and restart or provider recovery. Inspect snapshots and generated Workspace state before relying on persistence.
 ::

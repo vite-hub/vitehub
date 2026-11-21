@@ -4,7 +4,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { expect, it } from "vitest"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { prepareViteHubProviderSources } from "@vite-hub/internal/build/vite"
 
 import { hubAgent } from "../src/vite.ts"
@@ -43,7 +43,7 @@ it.each([
       "import reporter from '../agents/reporter/index'",
       "export default defineSchedule({ cron: '0 9 * * *', handler: async () => {",
       "  const calls = []",
-      "  setWorkflowRuntimeConfig({ provider: 'cloudflare' })",
+      "  setWorkflowRuntimeConfig({ driver: 'cloudflare' })",
       "  setWorkflowRuntimeRegistry({ reporter: async () => ({ handler: () => { throw new Error('The discovered Workflow must dispatch to the provider') } }) })",
       "  try {",
       "    const result = await startAgentInvocation(reporter, { runtime: 'cloudflare', memo: (_key, create) => create(), waitUntil: () => {}, cloudflare: { env: {",

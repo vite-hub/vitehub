@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
-import { Tabs, TabsList, TabsTab } from "@vite-hub/kit/tabs";
+import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";
 import { useElementSize } from "@vueuse/core";
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
 import ConsoleState from "./console-state.vue";
+import Icon from "./console-icon.vue";
 import { matchesWorkspaceFile } from "./console-workspace-file";
 import { useConsoleWordWrap } from "./console-wrap";
 import { consoleBytes } from "../client/format";
@@ -601,7 +602,7 @@ function message(error: unknown) {
                 :value="String(item.value)"
                 class="flex h-7 min-w-0 max-w-36 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs text-muted hover:text-highlighted data-selected:text-highlighted"
               >
-                <UIcon :name="item.icon" class="session-inspector__surface-icon" aria-hidden="true" />
+                <Icon :name="item.icon" class="session-inspector__surface-icon" aria-hidden="true" />
                 <span class="truncate">{{ item.label }}</span>
               </TabsTab>
               <UButton
@@ -670,7 +671,7 @@ function message(error: unknown) {
             class="flex-col items-start gap-1 p-3 text-start"
             @click="openView(view); focusActiveTab()"
           >
-            <span class="flex items-center gap-2 text-highlighted"><UIcon :name="viewMeta[view].icon" class="size-4 text-muted" />{{ viewMeta[view].label }}</span>
+            <span class="flex items-center gap-2 text-highlighted"><Icon :name="viewMeta[view].icon" class="size-4 text-muted" />{{ viewMeta[view].label }}</span>
             <span class="text-xs font-normal text-muted">{{ viewMeta[view].description }}</span>
           </UButton>
         </div>
@@ -742,7 +743,7 @@ function message(error: unknown) {
           workspace?.repository || "Workspace"
         }}</span>
         <template v-for="(segment, index) in breadcrumbs" :key="`${segment}-${index}`"
-          ><UIcon name="i-lucide-chevron-right" /><span
+          ><Icon name="i-lucide-chevron-right" /><span
             :data-current="index === breadcrumbs.length - 1"
             >{{ segment }}</span
           ></template
@@ -789,7 +790,7 @@ function message(error: unknown) {
         </div>
       </div>
       <div v-if="workspaceLoading && !selectedPath" class="session-inspector__state">
-        <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
+        <Icon name="i-lucide-loader-circle" class="animate-spin" />Loading Workspace…
       </div>
       <ConsoleState
         v-else-if="workspaceError && !selectedPath"
@@ -825,7 +826,7 @@ function message(error: unknown) {
               </ul>
             </section>
             <div v-else-if="!selectedPath && workspace" class="session-inspector__snapshot">
-              <UIcon name="i-lucide-folder-git-2" />
+              <Icon name="i-lucide-folder-git-2" />
               <span class="session-inspector__eyebrow">{{
                 ["current", "live"].includes(workspace.revision) ? "Live workspace" : workspace.base ? `Same files as ${workspace.base.ref}` : "Immutable snapshot"
               }}</span>
@@ -838,10 +839,10 @@ function message(error: unknown) {
               <small v-if="workspaceSources">Recorded sources · {{ workspaceSources }}</small>
             </div>
             <div v-if="fileLoading" class="session-inspector__state">
-              <UIcon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
+              <Icon name="i-lucide-loader-circle" class="animate-spin" />Loading file…
             </div>
             <div v-else-if="fileError" class="session-inspector__state text-error">
-              <UIcon name="i-lucide-file-warning" />{{ fileError }}
+              <Icon name="i-lucide-file-warning" />{{ fileError }}
             </div>
             <ConsoleFileDiff
               v-else-if="selectedPath && file && showDiff && baseFile"
@@ -857,7 +858,7 @@ function message(error: unknown) {
               :wrap="wrapLines"
             />
             <div v-else-if="selectedPath" class="session-inspector__state">
-              <UIcon name="i-lucide-mouse-pointer-2" />Select a file to preview it.
+              <Icon name="i-lucide-mouse-pointer-2" />Select a file to preview it.
             </div>
           </div>
           <aside v-if="treeOpen && workspace" ref="filesPanel" class="session-inspector__files">

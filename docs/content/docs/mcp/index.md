@@ -2,7 +2,7 @@
 title: MCP server
 layout: landing
 navigation.title: Overview
-description: Serve your app's own MCP server, so Agents such as Claude Code, Codex, or ChatGPT call your code. One file is one tool.
+description: Serve your app's own MCP server, so Agents such as Claude Code, Codex, or ChatGPT can call your code. Each file is one tool.
 navigation.order: 1
 icon: i-lucide-plug-zap
 ---
@@ -37,24 +37,32 @@ icon: i-lucide-plug-zap
   :::
 
   :::product-feature-item{title="Arguments are checked" icon="i-lucide-shield-check" to="/docs/mcp/server-api#define-a-tool"}
-  `input` is a Standard Schema, such as Zod or Valibot. The server checks the arguments before the handler runs.
+  `input` is a Standard Schema, such as Zod or Valibot. The server checks the arguments before your handler runs.
   :::
 
   :::product-feature-item{title="Sign in with MCP OAuth" icon="i-lucide-key-round" to="/docs/mcp/configure#sign-in-with-mcp-oauth"}
-  With Auth, the server needs an access token. The handler knows the user and the client.
+  With Auth, the server needs an access token. Your handler knows which user and client called it.
   :::
 
   :::product-feature-item{title="No MCP SDK" icon="i-lucide-feather" to="/docs/mcp/limits-and-errors#protocol"}
   ViteHub's own stateless Streamable HTTP server. It keeps no session between requests.
   :::
 
+  :::product-feature-item{title="Prompts and resources" icon="i-lucide-files" to="/docs/mcp/server-api#define-a-prompt"}
+  Add prompts in `server/mcp/prompts/` and resources in `server/mcp/resources/`, one file each.
+  :::
+
   :::product-feature-item{title="Inspect the tools" icon="i-lucide-search" to="/docs/mcp/get-started#inspect-the-tools"}
-  `vitehub inspect definitions --kind mcp-tool` lists the tools that the build found.
+  Run `vitehub inspect definitions --kind mcp-tool` to list every tool the build discovered.
   :::
 ::
 
 ::agent-only
-Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `mcp: true` in the ViteHub options, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`.
+Use the MCP server when the app must give its own tools to Agents. Install `@vite-hub/mcp`, set `auth` and `mcp: true` in the ViteHub options, add `mcpOAuth()` from `vite-hub/auth/mcp` to `server/auth.ts`, and add one `defineMcpTool()` default export for each file in `server/mcp/tools/`. Import it from `vite-hub/mcp`. Add prompts with `defineMcpPrompt()` in `server/mcp/prompts/` and resources with `defineMcpResource()` in `server/mcp/resources/`. Set `mcp.instructions` and `mcp.serverInfo` to name the server.
+
+`mcp: true` without `auth` fails the build with `VITE_HUB_MCP_AUTH_MISSING`. Set `mcp: { auth: false }` only when anyone may call every tool.
+
+Use `defineMcpHooks()` in `server/mcp.ts` to map the caller to the app's own user and to log tool calls.
 
 This is not the ViteHub MCP of the Console at `https://console.vitehub.dev/mcp`. Do not add an MCP SDK. Throw an error with a 4xx `status` to tell the Agent what to fix.
 

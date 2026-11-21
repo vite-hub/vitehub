@@ -8,9 +8,9 @@ vi.mock("#vitehub/auth/definition", () => ({
   get default() { return definition.current },
 }))
 
-import { defineAuth } from "../src/definition.ts"
 import authRoute, { resetAuth } from "../src/internal/server.ts"
 import { requestEvent } from "./request-event.ts"
+import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "https://app.example.com"
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -18,9 +18,10 @@ const credentials = { email: "owner@example.com", password: "correct-horse-batte
 
 function useDefinition(runtime: { secret?: string } = { secret }): void {
   const db: Record<string, unknown[]> = { account: [], session: [], user: [], verification: [] }
-  definition.current = defineAuth({
+  definition.current = defineFixedAuth({
     emailAndPassword: { enabled: true },
-    runtime: { database: memoryAdapter(db), ...runtime },
+    database: memoryAdapter(db),
+    ...runtime,
   })
 }
 

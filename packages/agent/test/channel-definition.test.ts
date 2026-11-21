@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { defineChannel, sendChannelTrigger, stripe, webhook } from "@vite-hub/channels"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
@@ -15,11 +15,18 @@ import type { ChannelEvent } from "@vite-hub/channels"
 
 const cleanups: Array<() => Promise<void> | void> = []
 
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+const secret = "whsec_test"
+
+// `stripe()` reads its secret from the server variable STRIPE_WEBHOOK_SECRET, and `webhook()` from the one it names.
+beforeEach(() => {
+  vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret)
+  vi.stubEnv("PREFECT_WEBHOOK_SECRET", "token")
 })
 
-const secret = "whsec_test"
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
 
 function stripeHeader(body: string, timestamp = Math.floor(Date.now() / 1000)): string {
   return `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
@@ -46,7 +53,7 @@ async function routeFor(agent: ReturnType<typeof hostAgent>, options: { queue?: 
     await state.disconnect()
     await rm(stateDir, { force: true, recursive: true })
   })
-  const send = (body: string, header = stripeHeader(body)) => handler(new Request("https://example.com/api/_vitehub/channels/payments", {
+  const send = (body: string, header = stripeHeader(body)) => handler(new Request("https://example.com/_vitehub/channels/payments", {
     body,
     headers: { "content-type": "application/json", "stripe-signature": header },
     method: "POST",
@@ -66,7 +73,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("verifies a Stripe webhook, runs the handler once per event ID, and ignores other events", async () => {
     const handler = vi.fn((_event: ChannelEvent, _context: { channel: string }) => undefined)
     const agent = hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { "checkout.session.completed": handler },
     }))
     const { send } = await routeFor(agent)
@@ -101,7 +108,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     const handler = vi.fn()
       .mockResolvedValueOnce([failure, undefined])
       .mockResolvedValue([undefined, { messageId: "m-1" }])
-    const agent = hostAgent(defineChannel({ adapter: stripe({ secret }), on: { "checkout.session.completed": handler } }))
+    const agent = hostAgent(defineChannel({ adapter: stripe(), on: { "checkout.session.completed": handler } }))
     const { send } = await routeFor(agent)
 
     expect((await send(stripeEvent("evt_retry"))).status).toBe(200)
@@ -132,7 +139,7 @@ describe("defineChannel() on the Agent webhook route", () => {
       }),
     })
     const { send } = await routeFor(hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { [paidEvent]: target(paid), [failedEvent]: target(failed) },
     })))
 
@@ -156,7 +163,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("filters the event of a single trigger target", async () => {
     const invoke = vi.fn(() => ignored("paid"))
     const { send } = await routeFor(hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { "invoice.paid": defineChannelTrigger({ invoke }) },
     })))
     await expect((await send(stripeEvent("evt_other", "charge.failed"))).json()).resolves.toMatchObject({ accepted: false })
@@ -168,7 +175,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("runs the handler before the answer without webhook State", async () => {
     const handler = vi.fn(() => { throw new Error("down") })
     const agent = hostAgent(defineChannel({
-      adapter: webhook({ signature: "bearer", secret: "token" }),
+      adapter: webhook({ signature: "bearer", secret: "PREFECT_WEBHOOK_SECRET" }),
       on: { webhook: handler },
     }))
     // SAFETY: The route handler takes the Agent as the generated registry passes it.
@@ -184,19 +191,19 @@ describe("defineChannel() on the Agent webhook route", () => {
 
   it("keeps triggers next to handlers when they do not take the webhook", async () => {
     const record = defineChannelTrigger({ webhooks: [], invoke: () => ignored("record") })
-    const channel = defineChannel({ adapter: webhook(), on: { webhook: () => undefined, record } })
+    const channel = defineChannel({ adapter: webhook({ secret: false }), on: { webhook: () => undefined, record } })
     const agent = hostAgent(channel)
     expect(Object.keys(agent.channels!.payments!.triggers!)).toEqual(["record", "on"])
     expect(agent.channels!.payments!.triggers!.record).toBe(record)
 
-    expect(() => hostAgent(defineChannel({ adapter: webhook(), on: { webhook: () => undefined, record: defineChannelTrigger({ invoke: () => ignored("record") }) } })))
+    expect(() => hostAgent(defineChannel({ adapter: webhook({ secret: false }), on: { webhook: () => undefined, record: defineChannelTrigger({ invoke: () => ignored("record") }) } })))
       .toThrow('so the trigger "record" cannot')
   })
 
   it("passes Agent options and keeps a chat adapter as the Agent Channel", () => {
     const adapter = teams({ adapter: { userName: "Bot" } })
     expect(hostAgent(defineChannel({ adapter })).channels!.payments).toBe(adapter)
-    const withInstructions = hostAgent(defineChannel({ adapter: webhook(), instructions: "Triage the failure." })).channels!.payments!
+    const withInstructions = hostAgent(defineChannel({ adapter: webhook({ secret: false }), instructions: "Triage the failure." })).channels!.payments!
     expect(withInstructions).toMatchObject({ instructions: "Triage the failure.", kind: "webhook", messages: false })
   })
 
@@ -209,7 +216,7 @@ describe("defineChannel() on the Agent webhook route", () => {
 
   it("resolves the Channels that an Agent lists by name", () => {
     const adapter = teams({ adapter: { userName: "Bot" } })
-    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe({ secret }) }) })
+    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe() }) })
     const agent = defineAgent({ name: "support", channels: ["support", "payments"], driver: { run: () => "ok" } })
     expect(agent.channels!.support).toBe(adapter)
     expect(agent.channels!.payments).toMatchObject({ kind: "stripe", messages: false })
@@ -222,7 +229,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     const handler = vi.fn()
     const run = vi.fn()
     const agent = hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: {
         "checkout.session.completed": handler,
         record: defineChannelTrigger({
@@ -251,7 +258,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it.each(["code", "webhook"] as const)("shares the body delivery ID when %s admits first", async (first) => {
     const run = vi.fn()
     const agent = hostAgent(defineChannel({
-      adapter: webhook(),
+      adapter: webhook({ secret: false }),
       on: {
         webhook: defineChannelTrigger({
           tasks: { sync: { run: (_context, { input }) => run(input.data) } },
@@ -289,7 +296,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   }, 20_000)
 
   it("keeps inherited named Channels through child and grandchild layers", () => {
-    registerAgentChannels(Object.fromEntries(["parent", "child", "grandchild"].map(name => [name, defineChannel({ adapter: webhook() })])))
+    registerAgentChannels(Object.fromEntries(["parent", "child", "grandchild"].map(name => [name, defineChannel({ adapter: webhook({ secret: false }) })])))
     const parent = defineAgent({ channels: ["parent"], driver: { run: () => "ok" } })
     const child = defineAgent({ extends: parent, channels: ["child"] })
     const grandchild = defineAgent({ extends: child, channels: ["grandchild"] })
@@ -299,7 +306,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   })
 
   it("keeps named ownership for merged records and clears it for inline replacements", () => {
-    registerAgentChannels({ inherited: defineChannel({ adapter: webhook() }), added: defineChannel({ adapter: webhook() }) })
+    registerAgentChannels({ inherited: defineChannel({ adapter: webhook({ secret: false }) }), added: defineChannel({ adapter: webhook({ secret: false }) }) })
     const parent = defineAgent({ channels: ["inherited"], driver: { run: () => "ok" } })
     const added = defineAgent({ channels: ["added"], driver: { run: () => "ok" } })
     const child = defineAgent({ extends: parent, channels: added.channels })
@@ -311,7 +318,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   })
 
   it("keeps named Channels in configured Workspace Agent layers", () => {
-    registerAgentChannels({ inherited: defineChannel({ adapter: webhook() }), added: defineChannel({ adapter: webhook() }) })
+    registerAgentChannels({ inherited: defineChannel({ adapter: webhook({ secret: false }) }), added: defineChannel({ adapter: webhook({ secret: false }) }) })
     const preset = defineAgent({
       options: { description: "initial" },
       configure: options => defineAgent({ description: options.description, channels: ["inherited"], workspace: {}, driver: { run: () => "ok" } }),
@@ -323,7 +330,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   })
 
   it.each(["__proto__", "toString", "constructor"])("resolves the prototype-like Channel name %s", name => {
-    registerAgentChannels({ [name]: defineChannel({ adapter: webhook() }) })
+    registerAgentChannels({ [name]: defineChannel({ adapter: webhook({ secret: false }) }) })
     const agent = defineAgent({ channels: [name], driver: { run: () => "ok" } })
     expect(Object.hasOwn(agent.channels!, name)).toBe(true)
     expect(agent.channels![name]).toMatchObject({ kind: "webhook" })

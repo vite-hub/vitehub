@@ -13,20 +13,20 @@ icon: i-lucide-route
 
 ## Installation
 
-Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `vite-hub/ui`:
 
 ```ts
-import { Trace, TraceLine } from "@vite-hub/ui";
+import { Trace, TraceLine } from "vite-hub/ui";
 ```
 
-`TraceRun` is in `@vite-hub/ui` too.
+`TraceRun` is in `vite-hub/ui` too.
 
 ## Usage
 
 Use a `TraceLine` for one step:
 
 ```ts
-import { Trace, TraceIcon, TraceLine, TraceTitle } from "@vite-hub/ui";
+import { Trace, TraceIcon, TraceLine, TraceTitle } from "vite-hub/ui";
 ```
 
 ```vue
@@ -260,7 +260,7 @@ Show AI SDK tool parts. Map the part state to the title and status: "Ran" when o
 
 ## Trace Runs
 
-`TraceRun` renders one run from `deriveTraceRuns()` in `@vite-hub/runtime` with these parts:
+`TraceRun` renders one run from [`deriveTraceRuns()`](/docs/runtime/server-api#traces) in `vite-hub/runtime` with these parts:
 
 - One line with the run title, status, and duration.
 - It expands into one line per timed step.
@@ -302,7 +302,7 @@ Trace
 
 ```vue
 <script setup lang="ts">
-import { deriveTraceRuns } from "@vite-hub/runtime";
+import { deriveTraceRuns } from "vite-hub/runtime";
 
 const runs = computed(() => deriveTraceRuns(events.value));
 </script>
@@ -361,7 +361,7 @@ Secondary text after the title, such as a count or duration. It does not truncat
 
 ### TraceCollapsible
 
-A line that expands. It is a `Collapsible` from `@vite-hub/kit/collapsible`.
+A line that expands. It is a `Collapsible` from `@ui-sdk/vue/collapsible`.
 
 #### Props
 
@@ -402,10 +402,10 @@ The detail of a line. It mutes its text. A `class` goes to its inner element, so
 
 #### Types
 
-`@vite-hub/ui` re-exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you need no second import.
+`vite-hub/ui` re-exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you need no second import.
 
 ```ts
-import type { TraceRunView, TraceStepView } from "@vite-hub/ui";
+import type { TraceRunView, TraceStepView } from "vite-hub/ui";
 
 function failedSteps(run: TraceRunView): TraceStepView[] {
   return run.steps.filter(step => step.status === "failed");
@@ -415,7 +415,7 @@ function failedSteps(run: TraceRunView): TraceStepView[] {
 Their shapes:
 
 ```ts
-import type { TraceEventLogEntry } from "@vite-hub/ui";
+import type { TraceEventLogEntry } from "vite-hub/ui";
 
 interface TraceRunView {
   id: string;
@@ -442,7 +442,7 @@ interface TraceStepView {
 
 ## Related
 
-- [Console](/docs/development/console) shows the activities of a whole Agent Invocation.
+- [Console](/docs/console) shows the activities of a whole Agent Invocation.
 - [Message parts](/docs/ui/message-parts) renders reasoning, tool, and source parts as Trace lines.
 - [Code block](/docs/ui/code-block) shows tool output under a line.
 - [Marker](/docs/ui/marker) shows status between turns.

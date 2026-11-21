@@ -1,143 +1,285 @@
-import { isPlainObject } from "@vite-hub/internal/object"
+import { defineCachedFunction as defineNitroCachedFunction, defineCachedHandler as defineNitroCachedHandler } from "nitro/cache"
+import { defineHandler, toResponse, type EventHandler, type H3Event } from "nitro/h3"
+import type { CachedFunctionOptions as NitroCachedFunctionOptions, CachedHandlerOptions as NitroCachedHandlerOptions } from "nitro/types"
+import type { CachedFunction, CacheEntry, StorageInterface } from "ocache"
 
-import type { ViteHubHost } from "./deployment.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
-/** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
-export type CacheOptions =
-  | { driver: "cloudflare-kv-binding", binding?: string, namespaceId?: string }
-  /** The app's default KV store, on every host where `kv` is enabled. `base` prefixes the cache keys (default `nitro-cache`). */
-  | { driver: "kv", base?: string }
-  | { driver: "deno-kv", base?: string }
-  | { driver: "fs-lite", base?: string }
-  | { driver: "vercel-runtime-cache" }
+/** Tags for one cache entry: a list, or a function of the cached function's arguments. */
+export type CacheTags<ArgsT extends unknown[]> = readonly string[] | ((...args: ArgsT) => readonly string[] | Promise<readonly string[]>)
 
-type CacheDriver = Exclude<CacheOptions["driver"], "kv">
-
-/** `{ driver: "kv" }` mounts the KV package's unstorage driver by file path. It runs over `kv` from `vite-hub/kv`. */
-type KVCacheMount = { driver: string, base: string }
-
-export interface ResolvedCacheStorage {
-  /** Nitro cache mount for production output. */
-  storage: Exclude<CacheOptions, { driver: "kv" }> | KVCacheMount
-  /** Development and prerendering use the local filesystem, or the app's dev KV store. */
-  devStorage: { driver: "fs-lite", base: string } | KVCacheMount
-  /** Wrangler KV namespace that backs the Cloudflare mount. */
-  cloudflareNamespace?: { binding: string, id?: string }
+/** Nitro's cached function options, plus `tags` and `staleIfError`. */
+export interface CachedFunctionOptions<T = unknown, ArgsT extends unknown[] = unknown[]> extends NitroCachedFunctionOptions<T, ArgsT> {
+  /** Tags for each entry. `invalidateTag()` with one of them makes the next call run the function again. */
+  tags?: CacheTags<ArgsT>
+  /**
+   * Seconds after `maxAge` during which a call that throws returns the stored value instead of the error.
+   * The next call runs the function again.
+   */
+  staleIfError?: number
 }
 
-const defaultCacheBase = ".vitehub/data/cache"
-const defaultCloudflareCacheBinding = "CACHE"
-
-// Each driver needs a runtime that only one host provides.
-const cacheDriverHosts: Record<CacheDriver, ViteHubHost> = {
-  "cloudflare-kv-binding": "cloudflare",
-  "deno-kv": "deno",
-  "fs-lite": "node",
-  "vercel-runtime-cache": "vercel",
+/** Nitro's cached handler options, plus `tags`. */
+export interface CachedHandlerOptions extends NitroCachedHandlerOptions {
+  /** Tags for each response. The function sees the same request as the handler. */
+  tags?: CacheTags<[H3Event]>
 }
 
-const hostCacheDrivers: Partial<Record<ViteHubHost, CacheDriver>> = {
-  cloudflare: "cloudflare-kv-binding",
-  deno: "deno-kv",
-  node: "fs-lite",
-  vercel: "vercel-runtime-cache",
-}
+// The cached handler stores this header with each response. Its value is the start time and the URI-encoded tags.
+const tagHeader = "x-vitehub-cache-tags"
 
-function trimmed(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-function isCacheDriver(value: unknown): value is CacheDriver {
-  return typeof value === "string" && Object.hasOwn(cacheDriverHosts, value)
-}
-
-function readCacheDriver(cache: true | CacheOptions, host: ViteHubHost): CacheDriver {
-  if (cache === true) {
-    const driver = hostCacheDrivers[host]
-    if (!driver) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache: true\` has no default store for the ${host} host. Remove \`cache\` or use a host that provides one.` })
-    }
-    return driver
+/** Like Nitro's `defineCachedFunction()`, with `tags` and `staleIfError`. */
+export function defineCachedFunction<T, ArgsT extends unknown[] = unknown[]>(
+  fn: (...args: ArgsT) => T | Promise<T>,
+  opts: CachedFunctionOptions<T, ArgsT> = {},
+): CachedFunction<T, ArgsT> {
+  const { staleIfError, ...options } = opts
+  if (staleIfError !== undefined && !(typeof staleIfError === "number" && staleIfError >= 0 && Number.isFinite(staleIfError))) {
+    throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_INVALID({ value: String(staleIfError) })
   }
-  if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", "kv", or "vercel-runtime-cache".` })
-  }
-  if (cacheDriverHosts[cache.driver] !== host) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverHosts[cache.driver]} host, but the host is ${host}.` })
-  }
-  return cache.driver
+  // ocache would run `serialize` again on the stored value, which is already serialized.
+  if (staleIfError && options.serialize) throw viteHubErrorDiagnostics.VITE_HUB_CACHE_STALE_IF_ERROR_WITH_SERIALIZE()
+  return staleIfError ? defineStaleIfErrorFunction(fn, options, staleIfError) : defineTaggedFunction(fn, options)
 }
 
-/** Resolve `cache` into Nitro storage mounts for one host. */
-export function resolveCacheStorage(cache: true | CacheOptions, host: ViteHubHost, kvCacheDriver?: string): ResolvedCacheStorage {
-  // KV runs on every host, so this driver needs `kv` instead of a host.
-  if (isPlainObject(cache) && cache.driver === "kv") {
-    if (!kvCacheDriver) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
-    const mount: KVCacheMount = { base: trimmed(cache.base) ?? "nitro-cache", driver: kvCacheDriver }
-    return { devStorage: mount, storage: mount }
-  }
-  const driver = readCacheDriver(cache, host)
-  const explicit = cache === true ? undefined : cache
-  const localBase = explicit?.driver === "fs-lite" ? trimmed(explicit.base) ?? defaultCacheBase : defaultCacheBase
-  const devStorage = { driver: "fs-lite" as const, base: localBase }
-
-  switch (driver) {
-    case "cloudflare-kv-binding": {
-      const binding = (explicit?.driver === driver ? trimmed(explicit.binding) : undefined) ?? defaultCloudflareCacheBinding
-      const id = explicit?.driver === driver ? trimmed(explicit.namespaceId) : undefined
-      return {
-        cloudflareNamespace: id ? { binding, id } : { binding },
-        devStorage,
-        storage: { binding, driver },
+// ocache deletes an entry when the function throws, and its storage TTL ends at `maxAge`. So the function is wrapped:
+// when it throws, the wrapper returns the stored value, and the storage skips writing that same value back, so the
+// entry keeps its time and the next call runs the function again. The storage adds `staleIfError` to each TTL. It wraps
+// the `storage` option when there is one, and else reads and writes Nitro's KV the same way as Nitro's `kv` cache driver.
+function defineStaleIfErrorFunction<T, ArgsT extends unknown[]>(
+  fn: (...args: ArgsT) => T | Promise<T>,
+  options: Omit<CachedFunctionOptions<T, ArgsT>, "staleIfError">,
+  staleIfError: number,
+): CachedFunction<T, ArgsT> {
+  // The wrapper hides `fn` from ocache, so name and hash `fn` here the way ocache does by default.
+  const name = options.name ?? (fn.name || `anon_${hashText(String(fn))}`)
+  const integrity = options.integrity ?? hashText(`${fn}${JSON.stringify(options, (_key, value: unknown) => typeof value === "function" ? String(value) : value)}`)
+  // Storage key to the stored value that a call returned after an error.
+  const served = new Map<string, unknown>()
+  // Private resolver results distinguish fallback data from a fresh function result.
+  const fallbacks = new Map<T, { entry: CacheEntry<T>, value: T }>()
+  let inner: StorageInterface | undefined
+  const store = (): StorageInterface => inner ??= typeof options.storage === "function" ? options.storage() : options.storage ?? nitroKVStorage()
+  const storage = (): StorageInterface => ({
+    binary: store().binary,
+    maxEntryBytes: store().maxEntryBytes,
+    get: key => store().get(key),
+    set: async (key, value, opts) => {
+      const stale = served.get(key)
+      served.delete(key)
+      if (stale !== undefined && typeof value === "object" && value !== null && "value" in value && value.value === stale) return
+      await store().set(key, value, opts?.ttl ? { ttl: opts.ttl + staleIfError } : opts)
+    },
+  })
+  let keysOf: (...args: ArgsT) => Promise<string[]> = async () => []
+  const run = async (...args: ArgsT): Promise<T> => {
+    try {
+      return await fn(...args)
+    } catch (error) {
+      const keys = await keysOf(...args)
+      for (const [index, key] of keys.entries()) {
+        const entry = await store().get<CacheEntry<T>>(key)
+        if (typeof entry !== "object" || entry === null) continue
+        const value = await staleValue(entry, args)
+        if (value === undefined) break
+        if (options.onError) options.onError(error)
+        else console.warn("[vitehub] The cached function threw, so it returns the stored value.", error)
+        // ocache writes the result to the base where it found the entry and to each base before it.
+        for (const written of keys.slice(0, index + 1)) served.set(written, entry.value)
+        // SAFETY: this private token is unwrapped by serialize before ocache returns it.
+        const token = {} as T
+        fallbacks.set(token, { entry, value })
+        return token
       }
+      throw error
     }
-    case "deno-kv":
-      return { devStorage, storage: { base: (explicit?.driver === driver ? trimmed(explicit.base) : undefined) ?? "cache", driver } }
-    case "fs-lite":
-      return { devStorage, storage: { base: localBase, driver } }
-    case "vercel-runtime-cache":
-      return { devStorage, storage: { driver } }
+  }
+  const staleValue = async (entry: CacheEntry<T>, args: ArgsT): Promise<T | undefined> => {
+    if (entry.integrity !== integrity || entry.value === undefined || typeof entry.mtime !== "number") return undefined
+    // ocache stores `maxAge` in the entry only with `getMaxAge`. Its default is one second.
+    if (Date.now() > entry.mtime + ((entry.maxAge ?? options.maxAge ?? 1) + staleIfError) * 1000) return undefined
+    const decoded: CacheEntry<T> = entry.encoding === "base64" && typeof entry.value === "string"
+      // SAFETY: ocache stores a cached Uint8Array as base64 text. The function returned that Uint8Array.
+      ? { ...entry, encoding: undefined, value: Uint8Array.from(atob(entry.value), char => char.charCodeAt(0)) as T }
+      : entry
+    if (options.validate && await options.validate(decoded, { args }) === false) return undefined
+    return decoded.value
+  }
+  const cached = defineTaggedFunction(run, {
+    ...options,
+    integrity,
+    name,
+    storage,
+    getMaxAge: options.getMaxAge && ((entry) => {
+      const fallback = entry.value === undefined ? undefined : fallbacks.get(entry.value)
+      return fallback
+        ? { maxAge: fallback.entry.maxAge, staleMaxAge: fallback.entry.staleMaxAge }
+        : options.getMaxAge!(entry)
+    }),
+    serialize: (entry) => {
+      if (entry.value === undefined) return undefined
+      const fallback = fallbacks.get(entry.value)
+      if (!fallback) return entry.value
+      fallbacks.delete(entry.value)
+      return fallback.value
+    },
+  })
+  keysOf = cached.resolveKeys
+  return cached
+}
+
+function defineTaggedFunction<T, ArgsT extends unknown[]>(
+  fn: (...args: ArgsT) => T | Promise<T>,
+  opts: Omit<CachedFunctionOptions<T, ArgsT>, "staleIfError">,
+): CachedFunction<T, ArgsT> {
+  const { tags, validate, ...options } = opts
+  if (!tags) return defineNitroCachedFunction(fn, opts)
+  // ocache gives the check before the function runs and the check before the write the same context object.
+  // The first check marks the start, so a tag invalidated while the function runs keeps its result out of the cache.
+  const startedAt = new WeakMap<object, number>()
+  const create = () => defineNitroCachedFunction(fn, {
+    ...options,
+    validate: async (entry, context) => {
+      let start = startedAt.get(context)
+      if (start === undefined) startedAt.set(context, start = Date.now())
+      const valid = validate ? await validate(entry, context) !== false : entry.value !== undefined
+      return valid && await isNewerThanTags(await resolveTags(tags, context.args), Math.min(entry.mtime ?? start, start))
+    },
+  })
+  const select = tagGeneration(create)
+  const initial = create()
+  return Object.assign(async (...args: ArgsT) => (await select(await resolveTags(tags, args)))(...args), {
+    resolveKeys: initial.resolveKeys,
+    invalidate: async (...args: ArgsT) => (await select(await resolveTags(tags, args))).invalidate(...args),
+    expire: async (...args: ArgsT) => (await select(await resolveTags(tags, args))).expire(...args),
+  })
+}
+
+/** Like Nitro's `defineCachedHandler()`, with `tags`. */
+export function defineCachedHandler(handler: EventHandler, opts: CachedHandlerOptions = {}): EventHandler {
+  const { tags, shouldBypassCache, shouldCache, ...options } = opts
+  if (!tags) return defineNitroCachedHandler(handler, opts)
+  // ocache asks whether to bypass the cache before it looks up the entry, so that is the start time.
+  const startedAt = new WeakMap<object, number>()
+  const tagged: NitroCachedHandlerOptions & { toResponse: (value: unknown, event: H3Event) => Promise<Response> } = {
+    ...options,
+    shouldBypassCache: (event) => {
+      startedAt.set(event, Date.now())
+      return shouldBypassCache?.(event) ?? false
+    },
+    shouldCache: async (entry) => {
+      if (shouldCache && await shouldCache(entry) === false) return false
+      const stamp = readTagHeader(entry.headers[tagHeader])
+      return !stamp || await isNewerThanTags(stamp.tags, stamp.start)
+    },
+    toResponse: async (value, event) => {
+      const start = startedAt.get(event) ?? Date.now()
+      const response = await toResponse(value, event)
+      const headers = new Headers(response.headers)
+      headers.set(tagHeader, `${start} ${(await resolveTags(tags, [event])).map(encodeURIComponent).join(",")}`)
+      return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
+    },
+  }
+  const select = tagGeneration(() => defineNitroCachedHandler(handler, tagged))
+  return defineHandler(async (event) => {
+    const cached = await select(await resolveTags(tags, [event]))
+    const response = await cached(event)
+    if (response instanceof Response) response.headers.delete(tagHeader)
+    return response
+  })
+}
+
+/** Makes the next call of every cached function or handler with one of these tags run again. */
+export async function invalidateTag(tags: string | readonly string[]): Promise<void> {
+  const list = checkTags(typeof tags === "string" ? [tags] : tags)
+  const time = Date.now()
+  const storage = await tagStorage()
+  await Promise.all(list.map(tag => storage.setItem(tagKey(tag), time)))
+}
+
+async function resolveTags<ArgsT extends unknown[]>(tags: CacheTags<ArgsT>, args: ArgsT): Promise<readonly string[]> {
+  return checkTags(typeof tags === "function" ? await tags(...args) : tags)
+}
+
+function checkTags(tags: unknown): readonly string[] {
+  if (!Array.isArray(tags) || !tags.every(tag => typeof tag === "string" && tag !== "")) {
+    throw viteHubErrorDiagnostics.VITE_HUB_CACHE_TAG_INVALID({ message: `[vitehub] Cache tags must be non-empty strings, but got ${JSON.stringify(tags)}.` })
+  }
+  return tags
+}
+
+// `nitro/kv` imports unstorage, which only an app with a KV store installs. The tag records load it on first use, so
+// `vite-hub/cache` imports without it. Later calls read the loaded module without a wait, so concurrent calls keep the
+// order in which they started.
+let kv: typeof import("nitro/kv") | undefined
+async function tagStorage() {
+  kv ??= await import("nitro/kv")
+  return kv.useKV("cache")
+}
+
+// One record per tag, with no TTL. The key encodes the tag, so `post` and `post:1` never share a path in fs-lite.
+function tagKey(tag: string): string {
+  return `tags:${encodeURIComponent(tag)}`
+}
+
+/** False when a tag was invalidated at or after `since`. Reads one record per tag, so it needs no key scan. */
+async function isNewerThanTags(tags: readonly string[], since: number): Promise<boolean> {
+  if (tags.length === 0) return true
+  const storage = await tagStorage()
+  const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
+  return times.every(time => typeof time !== "number" || time < since)
+}
+
+// Nitro's `kv` cache driver: the cache keys start with the `cache` mount.
+function nitroKVStorage(): StorageInterface {
+  const storage = async () => {
+    kv ??= await import("nitro/kv")
+    return kv.useKV()
+  }
+  return {
+    // SAFETY: Nitro's own KV cache adapter returns what unstorage parsed, too. ocache checks the entry shape.
+    get: async <V>(key: string) => (await storage()).getItem(key) as Promise<V | null>,
+    set: async (key, value, opts) => {
+      // ocache writes an entry object, or null to delete one.
+      if (typeof value === "object") await (await storage()).setItem(key, value, opts?.ttl ? { ttl: opts.ttl } : undefined)
+    },
   }
 }
 
-/** Add the cache mounts to a Nitro config without replacing a `cache` mount that the application set. */
-export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage): Record<string, unknown> {
-  const storage = isPlainObject(nitro.kv) ? { ...nitro.kv } : {}
-  // Nitro 3 still reads the deprecated `storage` option, so keep a `cache` mount that the application set there.
-  storage.cache ??= isPlainObject(nitro.storage) ? nitro.storage.cache : undefined
-  storage.cache ??= cache.storage
-  const next: Record<string, unknown> = { ...nitro, kv: storage }
-  for (const environment of ["$development", "$prerender"]) {
-    const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
-    const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
-    kv.cache ??= cache.devStorage
-    next[environment] = { ...config, kv }
+// A short, stable hash, like the one ocache uses to name an anonymous function.
+function hashText(text: string): string {
+  let h1 = 0xDEADBEEF
+  let h2 = 0x41C6CE57
+  for (let index = 0; index < text.length; index++) {
+    const char = text.charCodeAt(index)
+    h1 = Math.imul(h1 ^ char, 2654435761)
+    h2 = Math.imul(h2 ^ char, 1597334677)
   }
-  const namespace = cache.cloudflareNamespace
-  if (!namespace || storage.cache !== cache.storage) return next
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)
+}
 
-  const cloudflare = isPlainObject(nitro.cloudflare) ? { ...nitro.cloudflare } : {}
-  const wrangler = isPlainObject(cloudflare.wrangler) ? { ...cloudflare.wrangler } : {}
-  const namespaces = Array.isArray(wrangler.kv_namespaces) ? [...wrangler.kv_namespaces] : []
-  const existingIndex = namespaces.findIndex(entry => isPlainObject(entry) && entry.binding === namespace.binding)
-  const existing = existingIndex === -1 ? undefined : namespaces[existingIndex]
-  if (isPlainObject(existing)) {
-    if (namespace.id && existing.id && existing.id !== namespace.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" already uses namespace "${existing.id}", but cache.namespaceId requests "${namespace.id}".` })
+function readTagHeader(value: string | undefined): { start: number, tags: string[] } | undefined {
+  if (!value) return undefined
+  const [start, tags = ""] = value.split(" ")
+  return { start: Number(start), tags: tags ? tags.split(",").map(decodeURIComponent) : [] }
+}
+
+// Pending work belongs to an ocache instance. Rotate that instance when the persisted tag
+// generation changes, keeping storage keys stable while separating pre-invalidation work.
+// Keep only the latest instance; active calls retain their own instance until they finish.
+function tagGeneration<T>(create: () => T): (tags: readonly string[]) => Promise<T> {
+  let generation: string | undefined
+  let current: T
+  return async (tags) => {
+    const storage = await tagStorage()
+    const times = await Promise.all(tags.map(tag => storage.getItem(tagKey(tag))))
+    const next = JSON.stringify([tags, times])
+    if (next !== generation) {
+      current = create()
+      generation = next
     }
-    if (namespace.id && !existing.id) namespaces[existingIndex] = { ...existing, id: namespace.id }
-    if (!namespace.id && !existing.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" needs a namespace ID. Set cache.namespaceId or configure an existing namespace with an ID.` })
-    }
-  } else {
-    if (!namespace.id) {
-      throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] Cloudflare cache binding "${namespace.binding}" needs a namespace ID. Set cache.namespaceId or configure an existing namespace with an ID.` })
-    }
-    namespaces.push(namespace)
+    return current
   }
-  wrangler.kv_namespaces = namespaces
-  cloudflare.wrangler = wrangler
-  next.cloudflare = cloudflare
-  return next
 }

@@ -4,9 +4,11 @@ const authDefinition: PrimitiveProjectFile = {
   path: "server/auth.ts",
   language: "typescript",
   content: `import { defineAuth } from "vite-hub/auth"
+import { authDatabase } from "vite-hub/auth/database"
 
 export default defineAuth({
   appName: "Acme",
+  database: authDatabase(),
   emailAndPassword: { enabled: true },
 })`,
 };

@@ -1,7 +1,8 @@
 import { executionBudgetMiddleware } from "./internal/execution-budget-middleware.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
-import { ExecutionBudgetExceededError, formatRuntimeDiagnosticError, type ExecutionBudget } from "@vite-hub/runtime"
+import { formatRuntimeDiagnosticError, type ExecutionBudget, type ExecutionBudgetExceededError } from "@vite-hub/runtime"
+import { isExecutionBudgetExceededError } from "@vite-hub/runtime/internal/execution-budget"
 import { readAgentErrorProperty } from "./agent-error.ts"
 import { getMessageText, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue, resolveAttachmentData } from "./messages.ts"
 import {
@@ -20,11 +21,15 @@ import { agentOutputInstructions, agentOutputJsonSchema, nativeAgentOutputValida
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
-import { materializeAgentModel } from "./internal/agent-model.ts"
+import { emulatedGateway, isModelEmulationRequested, languageModelRoute, resolveModelEmulation } from "./internal/agent-emulation.ts"
+import { emulatedModelOverride, materializeAgentModel } from "./internal/agent-model.ts"
 import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
+import { ownedAgentInvocationControlId } from "./internal/agent-invocation-response-owner.ts"
+import { openModelSteering, type ModelSteering } from "./internal/model-steering.ts"
+import { chatContextModelText, isChatReplyPartType } from "./internal/chat-message-header.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
 import { withAgentToolJsonSchemas } from "./tool-schema.ts"
 import {
@@ -39,6 +44,7 @@ import {
 import {
   aiSdkTelemetryIntegration,
   hasAgentTraceLog,
+  traceAgentEvent,
 } from "./trace.ts"
 
 import type {
@@ -172,16 +178,8 @@ function toUserModelMessageContent(parts: MessagePart[]): UserContent | undefine
   return content.length ? content : undefined
 }
 
-function isChatModelTextPart(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): boolean {
-  return part.type === "data-chat-message-header" || part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context"
-}
-
-/** Chat context parts may carry the exact text for the model in `data.modelText`. */
 function dataPartModelText(part: Extract<MessagePart, { type: "data" | `data-${string}` }>): string {
-  const data = part.data
-  return isChatModelTextPart(part) && typeof data === "object" && data !== null && "modelText" in data && typeof data.modelText === "string"
-    ? data.modelText
-    : JSON.stringify(data)
+  return chatContextModelText(part) ?? JSON.stringify(part.data)
 }
 
 function toTextModelMessageContent(parts: MessagePart[]): string {
@@ -238,7 +236,7 @@ function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | 
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return { text: part.text, type: "text" as const }
   }
-  if (isDataMessagePart(part) && (part.type.startsWith("data-chat-reply-") || part.type === "data-chat-user-message-context")) {
+  if (isDataMessagePart(part) && isChatReplyPartType(part.type)) {
     const text = dataPartModelText(part)
     // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
     return text ? { text, type: "text" as const } : undefined
@@ -770,7 +768,7 @@ function withWorkspaceFallbackFullStream(
         const streamError = errorRecord?.error
         const budgetReason = context.executionBudget?.signal.reason
         const budgetTimedOut = budgetReason instanceof DOMException && budgetReason.name === "TimeoutError"
-        if (streamError instanceof ExecutionBudgetExceededError || budgetReason instanceof ExecutionBudgetExceededError || budgetTimedOut) return
+        if (isExecutionBudgetExceededError(streamError) || isExecutionBudgetExceededError(budgetReason) || budgetTimedOut) return
         if (typeof event !== "object" || (event as { recoverable?: unknown }).recoverable !== true) return
       }
     }
@@ -1328,10 +1326,121 @@ function outputMaxAttempts(output: AgentAdapterRunContext["output"]): number {
   return maxAttempts
 }
 
+function openAgentSteering(context: AgentAdapterRunContext): ModelSteering | undefined {
+  const invocationId = ownedAgentInvocationControlId(context.runtime)
+  if (!invocationId || isAuxiliaryAgentAdapterContext(context)) return
+  const steering = openModelSteering(invocationId)
+  context.input.abortSignal?.addEventListener("abort", steering.close, { once: true })
+  return steering
+}
+
+/**
+ * Call settings whose `prepareCall` and `prepareStep` send a model that they return to the AI emulator. The AI SDK
+ * calls the returned model instead of the Agent model, so `VITEHUB_MODELS=emulate` must apply to it too.
+ */
+function withEmulatedModelOverrides(settings: Record<string, unknown>, context: AgentModelResolverContext, emulatedModels: readonly unknown[]): Record<string, unknown> {
+  const wrap = (prepare: unknown) => typeof prepare === "function"
+    ? async (...args: unknown[]) => {
+        const prepared: unknown = await Reflect.apply(prepare, undefined, args)
+        if (typeof prepared !== "object" || prepared === null || !("model" in prepared)) return prepared
+        const model = prepared.model
+        if (model === undefined || emulatedModels.includes(model)) return prepared
+        return { ...prepared, model: await emulatedModelOverride(model, context) }
+      }
+    : prepare
+  return {
+    ...settings,
+    ...(settings.prepareCall === undefined ? {} : { prepareCall: wrap(settings.prepareCall) }),
+    ...(settings.prepareStep === undefined ? {} : { prepareStep: wrap(settings.prepareStep) }),
+  }
+}
+
+type EmulationSource = "gateway" | "switch"
+
+function isHostedTool(tool: unknown): boolean {
+  return typeof tool === "object" && tool !== null && Reflect.get(tool, "type") === "provider"
+}
+
+/**
+ * Keeps hosted provider tools away from the AI emulator, which rejects them. It filters the tools and tool choice
+ * of every call and step, because tools arrive from Capabilities, `runAgent(..., { tools })`, and `prepareCall`.
+ * A tool choice that only a dropped tool can satisfy becomes `"auto"`, so the run continues as it does without the
+ * tool. Each drop records a coded `agent.diagnostic.warning` observation on the Invocation.
+ */
+function createEmulatorToolFilter(context: AgentAdapterRunContext, source: EmulationSource) {
+  const traced = new Set<string>()
+  const dropped = new Set<string>()
+  const warn = async (key: string, diagnostic: { code: string, fix?: unknown, message: string }, attributes: Record<string, string> = {}) => {
+    if (traced.has(key)) return
+    traced.add(key)
+    await traceAgentEvent({
+      context: context.context,
+      driverContributions: context.driverContributions,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    }, {
+      attributes: {
+        "diagnostic.code": diagnostic.code,
+        ...(typeof diagnostic.fix === "string" ? { "diagnostic.fix": diagnostic.fix } : {}),
+        "diagnostic.message": diagnostic.message,
+        ...attributes,
+      },
+      name: "agent.diagnostic.warning",
+      type: "policy",
+    })
+  }
+  const tools = async <TTool>(set: Readonly<Record<string, TTool>>): Promise<Record<string, TTool>> => {
+    const kept: Record<string, TTool> = {}
+    for (const [name, tool] of Object.entries(set)) {
+      if (!isHostedTool(tool)) {
+        kept[name] = tool
+        continue
+      }
+      dropped.add(name)
+      const id = Reflect.get(tool as object, "id")
+      const label = typeof id === "string" ? id : name
+      await warn(`tool:${name}`, agentDiagnostics.AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED({ source, tool: label }), { "tool.id": label, "tool.name": name })
+    }
+    return kept
+  }
+  return {
+    tools,
+    prepareCall: (prepare: unknown) => async (input: Record<string, unknown>) => {
+      // SAFETY: AI SDK passes prepareCall the call arguments and accepts the returned arguments.
+      const prepared = typeof prepare === "function" ? await prepare(input) as Record<string, unknown> | undefined : undefined
+      const call = prepared ?? input
+      const callTools = call.tools && typeof call.tools === "object" ? await tools(call.tools as Record<string, unknown>) : undefined
+      const remaining = Object.keys(callTools ?? {})
+      const prepareStep = call.prepareStep
+      return {
+        ...call,
+        ...(callTools ? { tools: remaining.length ? callTools : undefined } : {}),
+        prepareStep: async (stepInput: unknown) => {
+          // SAFETY: AI SDK passes prepareStep the step state and accepts the returned step settings.
+          const step = typeof prepareStep === "function" ? await prepareStep(stepInput) as Record<string, unknown> | undefined : undefined
+          const choice = step?.toolChoice ?? call.toolChoice
+          const activeTools = step?.activeTools ?? call.activeTools
+          const named = typeof choice === "object" && choice !== null ? Reflect.get(choice, "toolName") : undefined
+          const unsatisfiable = typeof named === "string"
+            ? dropped.has(named) && !remaining.includes(named)
+            : choice === "required" && dropped.size > 0 && !remaining.some(name => !Array.isArray(activeTools) || activeTools.includes(name))
+          if (!unsatisfiable) return step
+          const label = typeof named === "string" ? `the tool "${named}"` : "\"required\""
+          await warn(`choice:${label}`, agentDiagnostics.AGENT_MODELS_EMULATE_TOOL_CHOICE_RELAXED({ choice: label, source }))
+          return { ...step, toolChoice: "auto" }
+        },
+      }
+    },
+  }
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+  steering?: ModelSteering,
 ) {
   const aiSdk = await loadAiSdk()
   const { ToolLoopAgent, isStepCount, jsonSchema } = aiSdk
@@ -1352,16 +1461,21 @@ async function createAgent(
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const model = options.gateway
+  const model = await materializeAgentModel(options.gateway
     ? chatgptLanguageModel(options.gateway, String(options.model), { ...modelContext, abortSignal: context.input.abortSignal })
-    : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
+    : await resolveValue(options.model as never, modelContext), modelContext)
+  const emulated = resolveModelEmulation(modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
-  const observedModel = instrumentations.length
+  const instrumentedDriverModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  // A Capability can replace the model. With VITEHUB_MODELS=emulate, the replacement goes to the emulator too.
+  const observedModel = emulated && instrumentedDriverModel !== model
+    ? await emulatedModelOverride(instrumentedDriverModel, modelContext)
+    : instrumentedDriverModel
   const wrapLanguageModel = context.executionBudgetActive ? aiSdk.wrapLanguageModel : undefined
   if (context.executionBudgetActive && typeof wrapLanguageModel !== "function") {
-    throw new Error("[vitehub] Execution budgets require AI SDK wrapLanguageModel support.")
+    throw agentDiagnostics.AGENT_EXECUTION_BUDGET_AI_SDK_UNSUPPORTED()
   }
   const instructions = await composeInstructions(
     joinInstructions(
@@ -1372,19 +1486,23 @@ async function createAgent(
     ),
     metadataContext,
     context.workspaceInstructionBindings,
-  )
+  ) || undefined
   const adapterTools = await resolveTools(options, metadataContext, context.toolStepReporter)
   const resolvedTools = withDefaultToolInputSchemas(withToolDiagnosticMessages(withWorkspaceFallbackToolEvidence((await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
   }, [])).tools, fallbackCapture)), jsonSchema)
+  const emulatorTools = languageModelRoute(model)?.gateway === emulatedGateway
+    ? createEmulatorToolFilter(context, isModelEmulationRequested(modelContext) ? "switch" : "gateway")
+    : undefined
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
     name: tool.name,
-    type: "provider-defined",
+    type: "provider",
   }]))
-  const toolSet = withAgentToolExecutionBudget({ ...resolvedTools, ...providerTools }, context.executionBudgetActive ? context.executionBudget : undefined)
+  const modelTools = { ...resolvedTools, ...providerTools }
+  const toolSet = withAgentToolExecutionBudget(emulatorTools ? await emulatorTools.tools(modelTools) : modelTools, context.executionBudgetActive ? context.executionBudget : undefined)
   const inspectedTools = inspectAgentTools(toolSet)
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
   const telemetryModel = model && typeof model === "object" ? model as { modelId?: unknown, provider?: unknown } : undefined
@@ -1392,6 +1510,7 @@ async function createAgent(
     await updateAgentTelemetryConfiguration(context.context, {
       driver: {
         model: {
+          ...(languageModelRoute(model)?.gateway === emulatedGateway ? { gateway: emulatedGateway } : {}),
           ...(typeof telemetryModel?.modelId === "string" ? { id: telemetryModel.modelId } : {}),
           ...(typeof telemetryModel?.provider === "string" ? { provider: telemetryModel.provider } : {}),
         },
@@ -1431,9 +1550,14 @@ async function createAgent(
   const convertedOutputSchema = context.output && context.nativeStructuredOutput !== false ? agentOutputJsonSchema(context.output.schema) : undefined
   const outputSchema = convertedOutputSchema?.type === "object" ? convertedOutputSchema : undefined
   const nativeOutput = outputSchema ? aiSdk.Output.object({ schema: jsonSchema(outputSchema) }) : undefined
-  const commonSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
-  const repairSettings = withoutToolCallSettings(commonSettings)
-  const prepareCall = commonSettings.prepareCall
+  const runtimeSettings = withRuntimeContext(withViteHubTelemetry(budgetedSettings, context, resolvedTools), context)
+  const modelSettings = emulated ? withEmulatedModelOverrides(runtimeSettings, modelContext, [model, observedModel, instrumentedModel]) : runtimeSettings
+  const commonSettings = emulatorTools
+    ? { ...modelSettings, prepareCall: emulatorTools.prepareCall(modelSettings.prepareCall) }
+    : modelSettings
+  // Repair calls send no tools, so they keep the settings without the emulator filter.
+  const repairSettings = withoutToolCallSettings(modelSettings)
+  const prepareCall = modelSettings.prepareCall
   const prepareRepairCall = typeof prepareCall === "function"
     ? async (input: Record<string, unknown>) => ({
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1485,7 +1609,7 @@ async function createAgent(
           return { ...toolCall, input: JSON.stringify(result.output) }
         }
         catch (error) {
-          if (error instanceof ExecutionBudgetExceededError) {
+          if (isExecutionBudgetExceededError(error)) {
             // The budget aborts its shared signal when the limit is exceeded. Re-throw
             // so AI SDK cannot turn the repair into a successful tool call.
             throw error
@@ -1574,6 +1698,7 @@ async function createAgent(
       model: instrumentedModel as never,
       ...(nativeOutput ? { output: nativeOutput } : {}),
       experimental_repairToolCall: undefined,
+      ...(steering ? { prepareStep: steering.prepareStep(commonSettings.prepareStep) } : {}),
       // SAFETY: Repair selection above normalizes every supported repair callback to the AI SDK contract.
       repairToolCall: repairToolCall as never,
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
@@ -1602,7 +1727,11 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled || Boolean(context.output)
         ? createWorkspaceFallbackEvidenceCapture(fallback.enabled ? fallback.maxToolResults : 8)
         : undefined
-      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture)
+      const steering = openAgentSteering(context)
+      const { agent, model, repairOutput, toolRepairUsageCaptures, tools } = await createAgent(options, context, fallbackCapture, steering).catch((error: unknown) => {
+        steering?.close()
+        throw error
+      })
       if (context.workspace && tools && "materialize_sources" in tools) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.toolStepReporter)
@@ -1702,6 +1831,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         generated = repairedOutput ?? await normalizeNativeAgentOutputError(context.output, error)
         repaired = Boolean(repairedOutput)
       }
+      finally {
+        steering?.close()
+      }
       if (!repaired && fallback.enabled && (generated.finishReason === "tool-calls" || !generated.text.trim() && hasToolResults(generated))) {
         // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, generated, fallback.maxToolResults, fallbackUsageCapture)
@@ -1775,20 +1907,31 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
-      const { agent, model } = await createAgent(options, context, fallbackCapture)
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
+      const steering = openAgentSteering(context)
+      const { agent, model } = await createAgent(options, context, fallbackCapture, steering).catch((error: unknown) => {
+        steering?.close()
+        throw error
+      })
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
       }
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const callInput = await getCallInput(context, execution?.attachments) as Record<string, unknown>
-      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-      const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
+      const streamed = await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
-      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
+      } as never).then(undefined, (error: unknown) => {
+        steering?.close()
+        throw error
+      }) as StreamTextResult<ToolSet, never, never>
+      // The model loop is over once the stream settles its finish reason, with or without an error.
+      if (steering) void Promise.resolve(streamed.finishReason).then(steering.close, steering.close)
+      // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
+      const result = withResolvedModelMetadata(withCapturedUsage(streamed, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

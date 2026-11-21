@@ -2,9 +2,11 @@ import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
+import { deliveryAttributes } from "../internal/comment-status.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
+import { useViteHubUIIcons } from "../config.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
 const commentsProp = { type: Object as PropType<CommentsState> };
@@ -110,6 +112,7 @@ export const CommentList = defineComponent({
                       "data-focus-inset": "",
                       "data-slot": "comment-list-item",
                       "data-status": thread.status,
+                      ...deliveryAttributes(thread.delivery),
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
@@ -133,6 +136,7 @@ export const CommentToolbar = defineComponent({
   },
   setup(props, { slots }) {
     const UButton = useUIComponent("UButton");
+    const icons = useViteHubUIIcons();
     const comments = useCommentsContext(props.comments);
     return () => {
       const open = comments.pageThreads.value.length;
@@ -143,7 +147,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.active.value),
           color: "neutral",
           "data-slot": "comment-toolbar-mode",
-          icon: "i-lucide-message-circle",
+          icon: icons.value.comment,
           onClick: comments.toggle,
           size: "sm",
           title: "Comment (C)",
@@ -154,7 +158,7 @@ export const CommentToolbar = defineComponent({
           "aria-pressed": String(comments.listOpen.value),
           color: "neutral",
           "data-slot": "comment-toolbar-list",
-          icon: "i-lucide-list",
+          icon: icons.value.commentList,
           label: String(open),
           onClick: () => (comments.listOpen.value = !comments.listOpen.value),
           size: "sm",
@@ -165,7 +169,7 @@ export const CommentToolbar = defineComponent({
           "aria-label": "Comment on page",
           color: "neutral",
           "data-slot": "comment-toolbar-page",
-          icon: "i-lucide-square-pen",
+          icon: icons.value.commentPage,
           onClick: () => {
             comments.startDraft("page");
           },

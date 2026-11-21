@@ -1,12 +1,12 @@
 ---
 title: Testing
-description: Test server routes with local storage, captured emails, Queue jobs and Workflow runs, plus Schedule and Agent Channel helpers, without a provider account.
+description: Test server routes with Vitest or node --test against local storage, captured emails, Queue jobs, and signed-in users, with no mocks.
 navigation.order: 34
 navigation.group: Proof and recovery
 icon: i-lucide-flask-conical
 ---
 
-`vite-hub/test` runs your server code in Vitest against local backends. A route test calls the real route. It writes real Database rows and KV keys, and you read the emails, Queue jobs, and Workflow runs that it sent. You need no `vi.mock()` and no provider account.
+`vite-hub/test` runs your server code in Vitest or in Node's test runner against local backends. A route test calls the real route. It writes real Database rows and KV keys, and you read the emails, Queue jobs, and Workflow runs that it sent. You need no `vi.mock()`, no `mock.module()`, and no provider account.
 
 ## Set up a test file
 
@@ -49,7 +49,7 @@ test('signup saves the user and sends the welcome email', async () => {
 })
 ```
 
-Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
+Run the tests with the `vitehub()` plugin and Vitest's `node` environment. Vitest reads `vite.config.ts` when the app has no `vitest.config.ts`, so `vitehub()` resolves the generated modules that your code imports, such as `vite-hub/env` and the Database schema. It also adds the installed ViteHub packages to Vitest's `test.server.deps.inline`, so Vite transforms them instead of Node loading them as they are. The Queue and Workflow plugins also install their configuration and discovered Definitions through Vitest setup files. They start no providers or handlers.
 
 ```ts [vite.config.ts]
 /// <reference types="vitest/config" />
@@ -57,20 +57,61 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', database: true, email: { driver: 'resend' }, kv: true, queue: true })],
+  plugins: [vitehub({ database: true, email: { driver: 'resend' }, kv: true, queue: true })],
   test: { environment: 'node' },
 })
 ```
 
-If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there.
+If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there. It needs only the options that the tests use. For example, it can leave out `agent` when `server/agents/` has Agents, because the tests import the Agent Definitions that they check.
+
+## Run with Node's test runner
+
+Import the test functions from `node:test` in place of `vitest`, and start Node with `vite-hub/test/register`:
+
+```json [package.json]
+{
+  "scripts": {
+    "test": "node --import vite-hub/test/register --test"
+  }
+}
+```
+
+`vite-hub/test/register` starts one Vite server of your app in `test` mode with its `vite.config.ts`, or with the Vite options of its `nuxt.config.ts`, as Vitest does. Node then loads the modules that `vitehub()` generates, such as the Database schema and Server Env, from that server. It also resolves app imports without extensions, such as `import { users } from '../databases/default/schema'`. The test processes that `node --test` starts share the server.
+
+Node 24.15 or newer runs TypeScript test files without a flag. Nuxt auto-imports are not available in a test: import `h3`, `vite-hub/*`, and your own server files by path.
 
 `reset()` is a plain function, so the same setup works with any runner that has a `beforeEach` hook.
+
+## Test a signed-in route
+
+`hub.signIn()` signs in a user of your Auth Definition and returns headers with the session cookie. Pass them to the request, and `requireAuth()` accepts it.
+
+```ts [test/me.test.ts] fragment
+import { H3 } from 'h3'
+import { expect, test } from 'vitest'
+import { setupViteHubTest } from 'vite-hub/test'
+
+import me from '../server/api/me.get'
+
+const hub = setupViteHubTest()
+const app = new H3().get('/api/me', me)
+
+test('a signed-in user reads their email', async () => {
+  const { headers } = await hub.signIn({ email: 'ada@example.com', role: 'admin' })
+
+  const response = await app.fetch(new Request('http://localhost/api/me', { headers }))
+
+  expect(await response.json()).toEqual({ email: 'ada@example.com' })
+})
+```
+
+Auth creates the user when no user has this email. Other fields, such as the `role` of Better Auth's `admin()` plugin, go to the new user. The user and the session go to the Auth database: `authDatabase()` writes them to the test Database, and a Definition without `database` keeps them in memory until `reset()`. A Definition with the `stateless()` preset has no database, so `signIn()` fails with `AUTH_TEST_SIGN_IN_STATELESS`.
 
 ## What each Primitive uses in a test
 
 | Primitive | Backend in a test | Inspect it with |
 | --- | --- | --- |
-| KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.keys()` |
+| KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.list()` |
 | Blob | An `fs` store in a folder under `.vitehub/test` | `blob.get()`, `blob.list()` |
 | Database | In-memory SQLite with the migrations of each Definition | `useDatabase(name).db` |
 | Queue | A list of the jobs that `sendQueue()`, `deferQueue()`, and `useQueue()` sent. No handler runs. | `hub.jobs` |
@@ -79,8 +120,11 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 | Email | A list of the messages that `email.send()` accepted. No provider runs. | `hub.emails` |
 | Rate Limit | Memory counters, also when the host is Cloudflare. A request without a client address counts as one client. | `checkRateLimit()` |
 | Server Env | The values of `hub.setEnv()`, read before `process.env` | `useServerEnv()` |
+| Auth | The Definition's database. Without `database`, memory tables that `reset()` empties. | `hub.signIn()`, `requireAuth()` |
 
 `reset()` deletes the test folders, closes the databases, empties the lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
+
+Code that ViteHub generates for a Cloudflare host imports `cloudflare:workers`. In a test, that import gives the stub of Node development: `env` reads `process.env`, and the Cloudflare runtime classes throw.
 
 Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/default/migrations/`. Run `vitehub database generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
@@ -145,12 +189,13 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 | --- | --- |
 | `reset()` | Empties every backend and clears the `setEnv()` values. Call it in `beforeEach`. |
 | `setEnv(values)` | Sets Server Env values until the next reset. `undefined` removes a value. |
+| `signIn(user?)` | Signs in the user with this email, or creates one, and returns `{ headers, cookie, user, session }`. |
 | `emails` | Messages that `email.send()` accepted during the current test. |
 | `jobs` | Queue jobs as `{ queue, payload, options, id }`, in send order. |
 | `workflows` | Workflow runs as `{ workflow, payload, id, deferred, status }`, in start order. |
 | `runSchedule(definition, options?)` | Runs a Schedule Definition once and returns its run record. `options.scheduledAt` (default now) and `options.name` (default `schedule`) shape the run. |
 | `deliverChannel(agent, channel, body, options?)` | Sends one webhook delivery and waits for its work. `options.headers` and `options.agentName` (default `agent`) shape the request. A string or bytes body goes as is; any other body goes as JSON. |
 
-`vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses.
+`vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses. Only a test that calls `signIn()` loads `@vite-hub/auth`.
 
-Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` rejects with `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.
+Queue and Workflow still check enabled configuration, discovered Definitions, and provider operation support before recording work. Deferred Queue dispatch and Workflow starts keep the host's `waitUntil()` behavior; wait for that work before reading `jobs` or `workflows`. Workflow signals are not supported by the test backend: `resumeWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED` and calls no provider.

@@ -22,6 +22,7 @@ const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).fla
 
 // `@vercel/blob` reads only `getVercelOidcToken()`. The `@vercel/oidc` root also loads `verifyVercelOidcToken()` and
 // with it all of jose, which a bundle cannot drop from CommonJS. Bundle the one module that `@vercel/blob` calls.
+// Remove when @vercel/oidc loads jose lazily (https://github.com/vercel/vercel/issues/17770).
 const vercelOidcTokenReader = fileURLToPath(new URL(
   "get-vercel-oidc-token-with-refresh.js",
   pathToFileURL(createRequire(import.meta.resolve("@vercel/blob")).resolve("@vercel/oidc")),
@@ -39,7 +40,7 @@ export default defineConfig({
     },
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "vue", "esbuild", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "sharp", "@cf-wasm/photon", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,
@@ -77,6 +78,7 @@ export default defineConfig({
       "src/index.ts",
       "src/internal/vercel-blob.ts",
       "src/media.ts",
+      "src/nuxt-image.ts",
       "src/operations.ts",
       "src/vite.ts",
       "src/runtime/signed.ts",

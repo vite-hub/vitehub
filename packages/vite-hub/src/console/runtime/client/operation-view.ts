@@ -1,4 +1,6 @@
-import type { ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
+import type { ConsoleOperationAction, ConsoleOperationColumn, ConsoleOperationTone, ConsoleOperationView } from "../definitions"
+import { invariant } from "@vite-hub/internal/invariant"
+
 import { resolveProjectUrl } from "./project"
 import { requestConsoleOperation } from "./request"
 
@@ -85,6 +87,52 @@ export function operationStatus(item: unknown, column: ConsoleOperationColumn): 
   return { label: `${text.charAt(0).toUpperCase()}${text.slice(1)}`, tone }
 }
 
+/**
+ * The call of a `switch` column for one item: its operation, and an input with each `input` key read from the item and
+ * the column key set to `checked`. Undefined when the column is not a switch or the item lacks a value.
+ */
+export function operationSwitchCall(item: unknown, column: ConsoleOperationColumn, checked: boolean): { operation: string, input: Record<string, unknown> } | undefined {
+  if (column.format !== "switch" || !column.switch) return undefined
+  const input: Record<string, unknown> = {}
+  for (const [key, path] of Object.entries(column.switch.input)) {
+    const value = operationValue(item, path)
+    if (value === undefined || value === null) return undefined
+    input[key] = value
+  }
+  input[column.key] = checked
+  return { input, operation: column.switch.operation }
+}
+
+/** The actions of a view that apply to one item: each path of `when` holds one of its values. */
+export function operationActions(item: unknown, view: ConsoleOperationView): ConsoleOperationAction[] {
+  return (view.actions ?? []).filter(action => Object.entries(action.when ?? {}).every(([path, values]) => values.includes(String(operationValue(item, path)))))
+}
+
+/** The call of an action for one item, or undefined when the item lacks a value of its input. */
+export function operationActionCall(item: unknown, action: ConsoleOperationAction): { operation: string, input: Record<string, unknown> } | undefined {
+  const input: Record<string, unknown> = {}
+  for (const [key, path] of Object.entries(action.input)) {
+    const value = operationValue(item, path)
+    if (value === undefined || value === null) return undefined
+    input[key] = value
+  }
+  return { input, operation: action.operation }
+}
+
+/** The question of an action with `{path}` values from the item. */
+export function operationActionQuestion(item: unknown, action: ConsoleOperationAction): string | undefined {
+  return action.confirm?.replaceAll(/\{([^}]+)\}/g, (_match, path: string) => String(operationValue(item, path) ?? ""))
+}
+
+/** The `url` of an action result that the Console opens: `https:`, or `http:` on a loopback host. */
+export function operationActionUrl(result: unknown): string | undefined {
+  const value = result !== null && typeof result === "object" ? Reflect.get(result, "url") : undefined
+  if (typeof value !== "string" || !URL.canParse(value)) return undefined
+  const url = new URL(value)
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  return url.protocol === "https:" || (url.protocol === "http:" && loopback) ? url.href : undefined
+}
+
 /** The items of an operation result. Anything else is a failure of the owner operation. */
 export function operationItems(result: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(result)) return []
@@ -103,7 +151,7 @@ export async function loadOperationItems(view: ConsoleOperationView, input: Reco
     if (!pagination || page.length < pagination.limit) return items
     const last = page.at(-1)!
     const before = Object.fromEntries(Object.entries(pagination.cursor).map(([key, path]) => [key, operationValue(last, path)]))
-    if (Object.values(before).some(value => value === undefined)) throw new Error("The operation returned an item without a pagination cursor.")
+    invariant(Object.values(before).every(value => value !== undefined), "each item of a paginated Console operation has the fields of its pagination cursor")
     next = { ...input, limit: pagination.limit, before }
   }
 }

@@ -54,7 +54,7 @@ afterEach(async () => {
 /** A Content runtime whose preset keeps the CMS draft branch private, as `cms` with a GitHub store does. */
 function server() {
   const drafts = defineContentPreset({ name: "drafts", options: {}, configure: () => ({ privateBranches: [draftBranch] }) })
-  const content = defineContent({ extends: drafts, sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
+  const content = defineContent({ access: "public", extends: drafts, sources: { docs: github({ repo: "acme/docs", ref: "main" }) }, logger: false })
   cleanup.push(() => content.dispose())
   return content
 }
@@ -178,7 +178,10 @@ describe("content.sources.allow()", () => {
     expect(decision(await content.sources.allow(draftBranch, withToken(token), "docs"))).toEqual({ allowed: true, reason: "token" })
     // The token signs one ref.
     expect(decision(await content.sources.allow("feat/lonely", withToken(token), "docs"))).toEqual({ allowed: false, reason: "unpublished" })
-    expect(decision(await content.sources.allow(draftBranch, withToken(`${token.slice(0, -2)}AA`), "docs"))).toEqual({ allowed: false, reason: "private" })
+    // Change the first character of the signature. Its six bits are all signature bits, so the bytes always change.
+    const signature = token.slice(-43)
+    const forged = `${token.slice(0, -43)}${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`
+    expect(decision(await content.sources.allow(draftBranch, withToken(forged), "docs"))).toEqual({ allowed: false, reason: "private" })
 
     vi.setSystemTime(Date.now() + 61_000)
     expect(decision(await content.sources.allow(draftBranch, withToken(token), "docs"))).toEqual({ allowed: false, reason: "private" })

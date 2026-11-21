@@ -31,13 +31,14 @@ For each `POST`, `handleFormRequest()`:
 5. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 6. Answers 202 and stores nothing when the honeypot field, `website` by default, is filled.
 7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`. Schema output must be JSON data: plain objects, arrays, strings, finite numbers, booleans, or `null`. Transforms that return `Date`, `Map`, `bigint`, `undefined`, or cycles get 400 before `onSubmit`, email, or storage. Convert these values in the schema, for example a date to an ISO string. Accepted output uses its JSON representation in every step.
-8. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
-9. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
-10. Answers 201 with `{ id }`.
+8. With a UUID in the `Idempotency-Key` header and a store, answers a stored submission of that id with the same 201, or with 422 when its values differ. A retry with a key the store has reserved but not yet saved gets 409. A key that is not a UUID gets 400.
+9. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
+10. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
+11. Answers 201 with `{ id }`.
 
 A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=<name>.sent` or `?form=<name>.error`, such as `?form=contact.sent`.
 
-For Valibot object schemas, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
+For the fields that `formFields()` reads, from a Valibot object or a schema with a Standard JSON Schema such as Zod, form data is decoded before validation: number inputs and numeric select choices become numbers, checked boolean fields become `true`, and omitted boolean fields become `false`. Empty number inputs and select placeholders become `undefined`. JSON keeps its input types.
 
 Two fields are not form data: `_page`, the app path of the form (default: the `Referer`), and `_anchor`, the part of the page that the sender pointed at: `{ selector, exact, prefix, suffix }`, the same text quote as a Comments text anchor, so `resolveAnchor({ kind: "text", ...anchor })` from `@vite-hub/comments/client` finds the sentence again.
 
@@ -47,16 +48,30 @@ Two fields are not form data: `_page`, the app path of the form (default: the `R
 
 | Service | Does | Without it |
 | --- | --- | --- |
-| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
+| `store` | Keeps submissions. `createDrizzleFormsStore(db)` from `@vite-hub/forms/database`, or `createMemoryFormsStore()`. In a ViteHub app, the Database is the store. Without it, a development server keeps submissions in memory, and a build fails with `FORMS_B0002` when a form stores submissions. | The request gets 503 before `onSubmit` or email, unless the form sets `store: false`. With `store: false`, set `onSubmit` or `notify` to handle submissions. |
 | `email` | Sends `notify.email`. | A stored submission is kept; without `store` the request gets 503. |
 | `rateLimit` | Decides each request. | No rate limit. |
 | `identify` | Returns the signed-in user. | Every sender is anonymous. |
 | `waitUntil` | Sends the email after the response. | The response waits for the email. |
 | `log` | Reports failures that do not change the response. | They are silent. |
 
+## Every surface
+
+One schema draws a web form, an MCP elicitation, and a Slack modal or Teams dialog, and the same values give the same errors on all of them. `formFields(form)` reads the fields of a flat form from a Valibot object, or from any Standard Schema with a Standard JSON Schema, such as the Zod input of an Agent tool. Each field is text, a number, a whole number, true or false, or a choice.
+
+| Surface | Draw it | Check the answer |
+| --- | --- | --- |
+| Web form | `AutoForm`, or `useFormAction()` | `handleFormRequest()` |
+| MCP elicitation | `toElicitation(form, { message })`: the params of `elicitation/create` in form mode | `readElicitation(form, result)` |
+| Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })`: a Chat SDK modal, one input for each field, with the field name as its id | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
+
+Each check is `checkForm(form, values)`, the check of `handleFormRequest()`. It returns `[error, data]`, and `fieldErrors(error)` gives the error of each field by name. Form data, chat text, and checkbox values decode to the field types first. A nested object, a list, a union, or a root that is not an object throws `FORMS_FIELD_NOT_DRAWABLE` when a surface draws it. An MCP elicitation also refuses a choice of numbers, because MCP choices are text. The `@vite-hub/mcp` server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
+
 ## The Database
 
 `@vite-hub/forms/database` has the `vitehub_form_submissions` table as `formsSchema`, the same table as SQL in `formsTables`, and `createDrizzleFormsStore(db)`. Each row keeps the form name, the validated data as JSON, the page, the anchor, the user, a status (`open`, `done`, or `spam`), and the times. A change to a form schema needs no migration.
+
+A custom `FormsStore` returns `false` from `insert` when an id already exists or is reserved. It also implements `insertWith`, which reserves the id before calling the hook callback, then publishes the submission only if the callback returns `true`. A reservation is not a submission: `get`, `list`, and `setStatus` must not expose it.
 
 `createFormsInbox(store)` lists submissions and changes their status. Each call returns `[error, data]`.
 
@@ -69,11 +84,13 @@ const [error, sent] = await submitForm("contact", { email, message })
 if (error) showFieldErrors(error.issues)
 ```
 
-`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence.
+`submitForm()` posts JSON to `/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
+
+Each message has an `Idempotency-Key` header, a UUID. After a failure, a retry with the same values sends the same key, and the route stores the message with the key as its id: a retry after a lost answer gets the same `201 { id }` and stores, runs, and emails nothing again. Pass `idempotencyKey` to choose the key.
 
 ## Vue
 
-`@vite-hub/forms/vue` needs `vue` and `@formisch/vue`. `AutoForm` draws a whole form from the Valibot object schema of the form: a label and a control for each field, the help text of `v.description()`, the honeypot, the error of each field, and the message after it is sent. It draws plain elements with `data-*` attributes, so the app styles them.
+`@vite-hub/forms/vue` needs only `vue`. `AutoForm` draws a whole form from the Valibot object schema of the form: a label and a control for each field, the help text of `v.description()`, the honeypot, the error of each field, and the message after it is sent. It draws plain elements with `data-*` attributes, so the app styles them.
 
 ```vue fragment
 <script setup lang="ts">
@@ -88,12 +105,41 @@ import { ContactSchema } from "#shared/schemas"
 
 A string becomes a text, email, or url input, or a textarea when it is long or named like `message`. A number becomes a number input, a boolean a checkbox, and a picklist a select. `v.title()` sets the label.
 
-For your own markup, use Formisch and `useFormSubmit()`. It sends the values and puts each server issue under its field:
+For your own markup, use a native `<form>` and `useFormAction()`. It sends the controls by their `name`, keeps the server error of each field in `errors`, moves focus to the first field with an error, and resets the form after a success. With ui-sdk, a `Field` shows the error of its control:
+
+```vue fragment
+<script setup lang="ts">
+import { Field, FieldError, FieldLabel } from "@ui-sdk/vue/field"
+import { Input } from "@ui-sdk/vue/input"
+import { FormHoneypot, formRoute, useFormAction } from "@vite-hub/forms/vue"
+
+const { submit, errors, sent, clear } = useFormAction("contact")
+</script>
+
+<template>
+  <form method="post" :action="formRoute('contact')" @submit="submit">
+    <FormHoneypot />
+    <Field name="email" :invalid="errors.email ? true : undefined">
+      <FieldLabel>Email</FieldLabel>
+      <Input type="email" required @value-change="clear('email')" />
+      <FieldError v-if="errors.email" match>{{ errors.email }}</FieldError>
+    </Field>
+    <button>Send</button>
+    <p role="status">{{ sent ? "Thanks." : "" }}</p>
+  </form>
+</template>
+```
+
+`<FormHoneypot />` draws the honeypot field of `defineForm()`, which people do not see and bots fill. Pass `name` for another `honeypot`. When you send an object with `submitForm()`, bind it with `v-model` and send its value under the same name.
+
+`AutoForm` uses the same internals: it checks the schema in the browser on the values that the server reads, then sends the controls as form data.
+
+With Formisch, use `useFormSubmit()` from `@vite-hub/forms/formisch`. Only this entry needs `@formisch/vue`. It sends the values and puts each server issue under its field:
 
 ```vue fragment
 <script setup lang="ts">
 import { Field, Form, useForm } from "@formisch/vue"
-import { useFormSubmit } from "@vite-hub/forms/vue"
+import { useFormSubmit } from "@vite-hub/forms/formisch"
 
 const form = useForm({ schema: ContactSchema })
 const { send, sent } = useFormSubmit("contact", form)

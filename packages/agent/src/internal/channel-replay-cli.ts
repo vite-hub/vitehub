@@ -1,8 +1,11 @@
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { isViteHubDevServerUrl, requireViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperation, operationCredentialHint } from "@vite-hub/internal/operations"
+import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } from "../invocation-stream.ts"
-import { readAgentDevLoopTokenHeaders } from "./agent-info-cli.ts"
+import { readAgentDevLoopTokenHeaders } from "./agent-dev-loop-cli.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 interface ChannelReplayCliContext {
@@ -27,7 +30,6 @@ interface ParsedChannelReplayArgs {
   label?: string
   limit?: number
   queryFlags: Array<[string, string]>
-  server?: string
   url?: string
 }
 
@@ -38,7 +40,7 @@ type ReplayTarget =
 
 /** Items per request. A small batch keeps each request within host time limits and reports progress often. */
 const replayBatchSize = 10
-const valueOptions = new Set(["--agent", "--channel", "--cursor", "--filter", "--label", "--query", "--limit", "--server", "--url"])
+const valueOptions = new Set(["--agent", "--channel", "--cursor", "--filter", "--label", "--query", "--limit", "--url"])
 
 function cliError(message: string): Error {
   return agentDiagnostics.AGENT_R0934({ message })
@@ -46,14 +48,15 @@ function cliError(message: string): Error {
 
 function writeUsage(context: ChannelReplayCliContext, queryHelp: string[] = []): void {
   context.stdout.write([
-    "Usage: vitehub channels replay --agent <name> --channel <name> [--url <console-url>] [--dry-run] [--force] [--limit <n>] [--cursor <cursor>] [--label <label>] [--query <key=value>]... [--filter <key=value>]... [--<query-key> <value>]...",
+    "Usage: vitehub channels replay --agent <name> --channel <name> [--url <app>] [--dry-run] [--force] [--limit <n>] [--cursor <cursor>] [--label <label>] [--query <key=value>]... [--filter <key=value>]... [--<query-key> <value>]...",
     "",
     "Send past Channel messages from the Channel's history Collection through its trigger.",
-    "Without --url, the command uses the running Vite Development Server.",
+    "Without --url, the command uses the dev server of this project.",
     "",
     "Options:",
-    "  --url <url>          Origin of the deployed app. The command calls its channels.replay operation. Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the call.",
-    "  --server <url>       Vite Development Server URL. Defaults to VITEHUB_DEV_SERVER_URL or http://localhost:5173.",
+    "  --url <url>          App URL, such as https://app.example.com. For a deployed app, the command calls its",
+    "                       channels.replay operation: set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to sign the call.",
+    "                       A URL that matches this project's dev server uses the dev endpoint.",
     "  --dry-run            Record Channel message writes in the trace instead of sending them.",
     "  --force              Replay items that already have an Invocation.",
     "  --limit <n>          Read at most n history items.",
@@ -83,6 +86,7 @@ export function parseChannelReplayArgs(args: string[]): ParsedChannelReplayArgs 
       continue
     }
     if (!arg.startsWith("--") || arg === "--") throw cliError(`Unexpected channels replay argument: ${arg}`)
+    if (arg === "--server" || arg.startsWith("--server=")) throw cliError("--server is now --url. Pass --url with the app URL, such as --url http://localhost:3000.")
     const separator = arg.indexOf("=")
     const name = separator === -1 ? arg : arg.slice(0, separator)
     let value = separator === -1 ? args[index + 1] : arg.slice(separator + 1)
@@ -99,7 +103,6 @@ export function parseChannelReplayArgs(args: string[]): ParsedChannelReplayArgs 
     if (name === "--agent") parsed.agent = value
     else if (name === "--channel") parsed.channel = value
     else if (name === "--cursor") parsed.cursor = value
-    else if (name === "--server") parsed.server = value
     else if (name === "--url") parsed.url = value
     else if (name === "--label") {
       if (!value.trim() || value.length > 512) throw cliError("--label must be a non-empty string of at most 512 characters.")
@@ -119,6 +122,10 @@ export function parseChannelReplayArgs(args: string[]): ParsedChannelReplayArgs 
   return parsed
 }
 
+function isLoopback(url: URL): boolean {
+  return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]"
+}
+
 function baseUrl(value: string, label: string): URL {
   let url: URL
   try {
@@ -127,15 +134,19 @@ function baseUrl(value: string, label: string): URL {
   catch {
     throw cliError(`${label} must be a URL.`)
   }
-  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]"
-  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) throw cliError(`${label} must use HTTPS, except for localhost.`)
+  if (url.protocol !== "https:" && !(isLoopback(url) && url.protocol === "http:")) throw cliError(`${label} must use HTTPS, except for localhost.`)
   if (url.username || url.password || url.search || url.hash) throw cliError(`${label} must not contain credentials, a query, or a fragment.`)
   return url
 }
 
-function replayTarget(parsed: ParsedChannelReplayArgs, env: NodeJS.ProcessEnv): ReplayTarget {
-  if (parsed.url) return { remote: true, url: baseUrl(parsed.url, "--url").href }
-  const server = baseUrl(parsed.server || env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173", "--server")
+/** `--url` is the app. A known dev server uses the guarded dev route. Without `--url`, the dev server of the project, never a guessed port. */
+function replayTarget(parsed: ParsedChannelReplayArgs, context: ChannelReplayCliContext): ReplayTarget {
+  const app = parsed.url ? baseUrl(parsed.url, "--url") : undefined
+  const consolePath = app && /(?:^|\/)_vitehub(?:\/|$)/.exec(app.pathname)
+  if (app && consolePath) throw cliError(`--url is the app URL, not the Console URL. Pass --url ${app.origin}${app.pathname.slice(0, consolePath.index)}.`)
+  const roots = [context.rootDir, resolveViteHubProjectRoot(context.rootDir)]
+  if (app && !isViteHubDevServerUrl(app, roots, context.env)) return { remote: true, url: app.href }
+  const server = app ?? baseUrl(requireViteHubDevServerUrl(roots, context.env, "channels replay"), "The dev server URL")
   const headers = new Headers({ accept: "application/json", "content-type": "application/json", [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue })
   return { headers, remote: false, url: new URL(agentInvocationStreamRoute, server).href }
 }
@@ -253,9 +264,10 @@ export async function runAgentChannelReplayCli(
     if (!agent) throw cliError("channels replay requires --agent <name>.")
     if (!channel) throw cliError("channels replay requires --channel <name>.")
     const fetchImpl = options.fetch || globalThis.fetch
-    const target = replayTarget(parsed, context.env)
+    const target = replayTarget(parsed, context)
     if (!target.remote) {
-      const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch(() => {
+      const tokenHeaders = await readAgentDevLoopTokenHeaders(target.url, context.rootDir, fetchImpl, AbortSignal.timeout(30_000)).catch((error: unknown) => {
+        if (isRuntimeDiagnostic(error) && error.code === "AGENT_DEV_LOOP_FAILED") throw error
         throw cliError(`No Compatible Vite Development Server found at ${new URL(target.url).origin}.`)
       })
       for (const [name, value] of Object.entries(tokenHeaders)) target.headers.set(name, value)
@@ -296,7 +308,7 @@ export async function runAgentChannelReplayCli(
     return totals.failed ? 1 : 0
   }
   catch (error) {
-    context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     return 1
   }
 }

@@ -1,9 +1,9 @@
 # `@vite-hub/email`
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Femail&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Femail&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/email)
-[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+[![npm version](https://img.shields.io/npm/v/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![npm downloads](https://img.shields.io/npm/dm/@vite-hub/email)](https://npmx.dev/package/@vite-hub/email)
+[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
@@ -11,7 +11,7 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 
 ## Requirements
 
-- Node.js 22.18 or later.
+- Node.js 24.15 or later.
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
@@ -59,6 +59,8 @@ const [error, sent] = await email.send({
 if (error) throw error
 ```
 
+A message needs `text`, `html`, or both, or a template of `server/emails` (see [Send a template](#send-a-template)). ViteHub does not render provider templates or React, MJML, Handlebars, or Liquid bodies. Render the body yourself and pass the result as `html` or `text`, for example `email.send({ from, to, subject, html: renderWelcome(user) })`. `tags`, `metadata`, `scheduledAt`, and `idempotencyKey` work only with the Resend driver.
+
 `send()` returns `[error, sent]`. On success, `sent` is `{ id, driver }`, and the provider supplies `id`. On failure, `error.code` is one of the `EmailErrorCode` values, `error.why` and `error.fix` explain it, and `error.cause` keeps the provider error. A missing provider or invalid driver options throw `EMAIL_NOT_CONFIGURED`. See [Email limits and errors](https://vitehub.dev/docs/email/limits-and-errors).
 
 ## Grant an Agent permission to send
@@ -74,7 +76,7 @@ import { email } from "@vite-hub/email"
 import { renderEmailMarkdown } from "@vite-hub/email/markdown"
 
 const body = await renderEmailMarkdown("# Welcome {{ data.user.name }}\n\nYour workspace is ready.", {
-  data: { user: { name: "Maxi" } },
+  data: { user: { name: "Ada" } },
 })
 
 const [error] = await email.send({
@@ -88,22 +90,39 @@ if (error) throw error
 
 `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
-### Discover application templates
+### Send a template
 
 Place reusable Markdown under `server/emails`:
 
-```md
+```md [server/emails/welcome.md]
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
 
-ViteHub turns `server/emails/welcome.md` into a typed async renderer:
+Send it by name. `email.send()` renders the HTML and text body:
+
+```ts
+import { email } from "@vite-hub/email"
+
+const [error] = await email.send({
+  template: "welcome",
+  data: { user: { name: "Ada" } },
+  from: "hello@example.com",
+  to: "you@example.com",
+  subject: "Your workspace is ready",
+})
+if (error) throw error
+```
+
+TypeScript completes `template` with the names under `server/emails`, and types `data` from the `data.*` values that the template reads. An unknown name or wrong `data` does not compile. The Vite integration writes these types to `.vitehub/types/email-templates.d.ts`, only when the app has templates. When `data` does not fit at runtime, `send()` returns `EMAIL_TEMPLATE_RENDER_FAILED`.
+
+To render a template without sending it, import its typed async renderer:
 
 ```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
 
-const markdown = await renderWelcome({ user: { name: "Maxi" } })
+const markdown = await renderWelcome({ user: { name: "Ada" } })
 ```
 
 Nested paths keep their relative name. For example,
@@ -163,9 +182,9 @@ Read the outbox from a running Development Server, or render a template without 
 
 ```bash
 pnpm vitehub email outbox list
-pnpm vitehub email outbox show outbox-1 --html
+pnpm vitehub email outbox get outbox-1 --html
 pnpm vitehub email outbox clear
-pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
+pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
 `email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`).
@@ -187,7 +206,7 @@ Pass this identity to each reader to inspect this application's configured Email
 
 ## Use another provider
 
-Set `driver` to `resend` or `cloudflare-email` and declare its options in `hubEmail({ driver, options })`. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`.
+Set `driver` to `resend` or `cloudflare` and declare its options in `hubEmail({ driver, options })`. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 

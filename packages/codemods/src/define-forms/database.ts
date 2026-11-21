@@ -142,13 +142,19 @@ function relativeSpecifier(fromFolder: string, target: string): string {
 }
 
 /** The new import path of `specifier` in `file`, which moves to `newFile`. Undefined when it stays the same. */
-function rewriteSpecifier(file: string, newFile: string, specifier: string, moves: ReadonlyMap<string, string>): string | undefined {
+function rewriteSpecifier(file: string, newFile: string, specifier: string, moves: ReadonlyMap<string, string>, folderImport: boolean): string | undefined {
   const resolved = resolveSpecifier(file, specifier)
   if (!resolved) return undefined
   // `./drops.js` can name `drops.ts`, so a path with an extension also matches the moved path without one.
   const extension = extensionPattern.exec(resolved.path)?.[0]
   const withoutExtension = extension ? moves.get(resolved.path.slice(0, -extension.length)) : undefined
-  const target = moves.get(resolved.path) ?? (withoutExtension === undefined ? resolved.path : `${withoutExtension}${extension}`)
+  const moved = moves.get(resolved.path) ?? (withoutExtension === undefined ? resolved.path : `${withoutExtension}${extension}`)
+  // An import of `../databases/config` becomes `../databases/default`, not `../databases/default/index`: Vite and
+  // TypeScript load the `index` file of a folder. Node's `require()` does not for TypeScript files, and a file in that
+  // folder keeps `./index`.
+  const target = folderImport && !extension && moved !== resolved.path && posix.basename(moved) === "index" && posix.dirname(moved) !== folderOf(newFile)
+    ? posix.dirname(moved)
+    : moved
   if (resolved.alias) {
     if (target === resolved.path) return undefined
     return `${resolved.alias}/${resolved.alias === "#server" ? posix.relative("server", target) : target}`
@@ -169,8 +175,8 @@ export function rewriteDatabaseReferences(file: SourceFile, plan: DatabasePlan, 
   const moves = moveIndex(plan)
   const output = new MagicString(file.code)
   const sources = new Set<unknown>()
-  const replace = (node: { value: string }) => {
-    const next = rewriteSpecifier(file.path, newPath, node.value, moves)
+  const replace = (node: { value: string }, folderImport: boolean) => {
+    const next = rewriteSpecifier(file.path, newPath, node.value, moves, folderImport)
     if (next === undefined) return
     const literal = node as unknown as Parameters<typeof start>[0]
     const quote = file.code[start(literal)] ?? "\""
@@ -178,6 +184,7 @@ export function rewriteDatabaseReferences(file: SourceFile, plan: DatabasePlan, 
   }
   walk(parsed.program, (node) => {
     let source: unknown
+    const required = (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "require") || node.type === "TSExternalModuleReference"
     if ((node.type === "ImportDeclaration" || node.type === "ExportAllDeclaration" || node.type === "ExportNamedDeclaration") && node.source) source = node.source
     else if (node.type === "ImportExpression") source = node.source
     else if (node.type === "CallExpression" && node.callee.type === "Import") source = node.arguments[0]
@@ -187,7 +194,7 @@ export function rewriteDatabaseReferences(file: SourceFile, plan: DatabasePlan, 
     else if (node.type === "TSImportType") source = node.argument
     if (source && typeof source === "object" && "type" in source && source.type === "StringLiteral" && "value" in source && typeof source.value === "string") {
       sources.add(source)
-      replace(source as { value: string })
+      replace(source as { value: string }, !required)
     }
   })
   // Paths in config, such as `out: "./server/databases/migrations"` in drizzle.config.ts.

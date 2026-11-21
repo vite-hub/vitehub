@@ -65,10 +65,10 @@ export interface KVDevGetResult {
   /** With `preview`: how `value` is written. */
   format?: "json" | "text"
   /**
-   * Whether the key can expire. `none`: the store never expires keys (fs-lite ignores TTL). `unknown`: the store can
-   * expire keys, but its driver cannot report the time left, so a write that sets no TTL removes the expiry.
+   * Whether the key can expire. `unknown`: the store can expire keys, but its driver cannot report the time left, so a
+   * write that sets no TTL removes the expiry.
    */
-  expiry?: "none" | "unknown"
+  expiry?: "unknown"
   /** With `preview`: the value was cut at 256 KiB. */
   truncated?: true
   key: string
@@ -118,11 +118,14 @@ export interface KVOperationInput {
   value?: unknown
 }
 
-/** A failure with the fields that every surface reports. */
-export class KVOperationError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly fix?: string) {
-    super(redactInspectionText(message))
-  }
+/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
+const kvOperationStatus: Readonly<Record<string, number>> = {
+  KV_DISABLED: 409,
+  KV_INVALID_CURSOR: 400,
+  KV_INVALID_INPUT: 400,
+  KV_RESERVED_KEY: 403,
+  KV_STORE_NOT_FOUND: 404,
+  KV_VALUE_UNSUPPORTED: 422,
 }
 
 const maximumKeyLength = 2_048
@@ -130,8 +133,8 @@ const maximumKeyLength = 2_048
 function unwrap<TResult>(result: Result<TResult>): TResult {
   const [error, value] = result
   if (!error) return value
-  const cause = error.code === "KV_OPERATION_FAILED" && error.cause instanceof Error ? ` ${error.cause.message}` : ""
-  throw new KVOperationError(`${error.message}${cause}`, error.code === "KV_INVALID_CURSOR" ? 400 : 502, error.code)
+  // A store answered with an error. Codes without their own status are provider failures.
+  throw Object.assign(error, { status: kvOperationStatus[error.code] ?? 502 })
 }
 
 function resolvedStores(config: false | ResolvedKVModuleOptions): KVDevStore[] {
@@ -150,9 +153,8 @@ export function listKVDevStores(): KVDevStore[] {
 }
 
 function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
-  if (driver === "fs-lite") return "The fs-lite driver ignores TTL. The value does not expire."
   if (driver === "upstash" && Math.ceil(ttl) !== ttl) return `Upstash rounds the TTL up to ${Math.ceil(ttl)} seconds.`
-  if (driver === "cloudflare-kv-binding") {
+  if (driver === "cloudflare") {
     const effectiveTTL = Math.max(60, Math.ceil(ttl))
     if (ttl < 60) return "Cloudflare KV raises a TTL below 60 seconds to 60 seconds."
     if (effectiveTTL !== ttl) return `Cloudflare KV rounds the TTL up to ${effectiveTTL} seconds.`
@@ -161,12 +163,11 @@ function ttlNotice(driver: KVDriver, ttl: number): string | undefined {
 
 function selectStore(stores: readonly KVDevStore[], name = "default"): { driver: KVDriver, name: string, storage: KVStorage } {
   if (stores.length === 0) {
-    const error = kvErrorDiagnostics.KV_DISABLED()
-    throw new KVOperationError(error.message, 409, error.code, error.fix)
+    throw kvErrorDiagnostics.KV_DISABLED()
   }
   const store = stores.find(entry => entry.name === name)
   if (!store) {
-    throw new KVOperationError(`KV store "${name}" was not found. Stores: ${stores.map(entry => entry.name).join(", ")}.`, 404, "KV_STORE_NOT_FOUND")
+    throw kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store: name, stores: stores.map(entry => entry.name).join(", ") })
   }
   return { driver: store.driver, name, storage: name === "default" ? kv : kv.store(name) }
 }
@@ -174,12 +175,12 @@ function selectStore(stores: readonly KVDevStore[], name = "default"): { driver:
 /** The keys under `vitehub:` belong to ViteHub, which keeps its own state there. */
 function requireWritableKey(operation: string, key: string): void {
   if (!normalizeKey(key).toLowerCase().startsWith("vitehub:")) return
-  throw new KVOperationError(`The ${operation} operation cannot change ${key}. ViteHub owns the keys that start with \`vitehub:\`.`, 403, "KV_RESERVED_KEY", "Use another key. Read access (get, has, list) stays open.")
+  throw kvErrorDiagnostics.KV_RESERVED_KEY({ key, operation })
 }
 
 function requireKey(operation: string, input: KVOperationInput): string {
-  if (input.key === undefined) throw new KVOperationError(`The ${operation} operation requires a key.`, 400, "KV_INVALID_INPUT")
-  if (input.key.length > maximumKeyLength) throw new KVOperationError("The key is too long.", 400, "KV_INVALID_INPUT")
+  if (input.key === undefined) throw kvErrorDiagnostics.KV_INVALID_INPUT({ operation, problem: "key" })
+  if (input.key.length > maximumKeyLength) throw kvErrorDiagnostics.KV_INVALID_INPUT({ problem: "key-length" })
   return input.key
 }
 
@@ -187,13 +188,31 @@ function requireKey(operation: string, input: KVOperationInput): string {
  * Runs one `kv.*` operation against the KV stores of this runtime. The Nitro runtime owns the stores and their
  * bindings, so this runs where the app does. There is no operation that clears a store.
  */
-export async function runKVOperation(operation: "list" | "get" | "has" | "set" | "delete", input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
+export async function runKVOperation(operation: KVDevOperation, input: KVOperationInput, stores: readonly KVDevStore[] = listKVDevStores()): Promise<unknown> {
+  try {
+    return await runOperation(operation, input, stores)
+  }
+  catch (error) {
+    const code: unknown = Reflect.get(Object(error), "code")
+    // A Result error can come from the copy of nostics in @vite-hub/runtime, so match the code, not the class.
+    const status = Reflect.get(Object(error), "status") ?? (typeof code === "string" ? kvOperationStatus[code] : undefined)
+    if (typeof status !== "number" || !(error instanceof Error)) throw error
+    // The CLI and the Console read `status` and `statusMessage`. The message names the provider error of a failed
+    // call, and loses the values under secret names.
+    const cause = code === "KV_OPERATION_FAILED" && error.cause instanceof Error ? ` ${error.cause.message}` : ""
+    throw Object.assign(error, { status, statusMessage: redactInspectionText(`${error.message}${cause}`) })
+  }
+}
+
+type KVDevOperation = "list" | "get" | "has" | "set" | "delete"
+
+async function runOperation(operation: KVDevOperation, input: KVOperationInput, stores: readonly KVDevStore[]): Promise<unknown> {
   const selected = selectStore(stores, input.store)
   switch (operation) {
     case "list": {
       const limit = input.limit ?? kvDevDefaultListLimit
-      if (limit > kvDevMaximumListLimit) throw new KVOperationError(`limit must be at most ${kvDevMaximumListLimit}.`, 400, "KV_INVALID_INPUT")
-      if ((input.prefix?.length ?? 0) > maximumKeyLength) throw new KVOperationError("The prefix is too long.", 400, "KV_INVALID_INPUT")
+      if (limit > kvDevMaximumListLimit) throw kvErrorDiagnostics.KV_INVALID_INPUT({ limit: kvDevMaximumListLimit, problem: "limit" })
+      if ((input.prefix?.length ?? 0) > maximumKeyLength) throw kvErrorDiagnostics.KV_INVALID_INPUT({ problem: "prefix-length" })
       const listOptions: { cursor?: string, limit: number, prefix: string } = { limit, prefix: input.prefix ?? "" }
       if (input.cursor) listOptions.cursor = input.cursor
       const page = unwrap(await selected.storage.list(listOptions))
@@ -213,11 +232,11 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       const value = unwrap(await selected.storage.get(key))
       const found = value !== null || unwrap(await selected.storage.has(key))
       const result: KVDevGetResult = { found, key, store: selected.name }
-      if (found) result.expiry = selected.driver === "fs-lite" ? "none" : "unknown"
+      if (found) result.expiry = "unknown"
       if (!found) return result
       if (input.preview) return { ...result, ...previewKVValue(value) } satisfies KVDevGetResult
       const inspected = inspectKVValue(value)
-      if (!inspected) throw new KVOperationError("The stored value cannot be represented by the KV inspection protocol.", 422, "KV_VALUE_UNSUPPORTED")
+      if (!inspected) throw kvErrorDiagnostics.KV_VALUE_UNSUPPORTED()
       return { ...result, ...inspected }
     }
     case "has": {
@@ -228,10 +247,10 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
     case "set": {
       const key = requireKey(operation, input)
       requireWritableKey(operation, key)
-      if (input.value === undefined) throw new KVOperationError("The set operation requires a value.", 400, "KV_INVALID_INPUT")
-      if (selected.driver === "upstash" && input.ttl !== undefined && input.ttl < 1) throw new KVOperationError("Upstash TTL must be at least 1 second.", 400, "KV_INVALID_INPUT")
+      if (input.value === undefined) throw kvErrorDiagnostics.KV_INVALID_INPUT({ problem: "value" })
+      if (selected.driver === "upstash" && input.ttl !== undefined && input.ttl < 1) throw kvErrorDiagnostics.KV_INVALID_INPUT({ problem: "ttl" })
       const existed = unwrap(await selected.storage.has(key))
-      const ttl = input.ttl === undefined ? undefined : selected.driver === "cloudflare-kv-binding" ? Math.max(60, Math.ceil(input.ttl)) : selected.driver === "upstash" ? Math.ceil(input.ttl) : input.ttl
+      const ttl = input.ttl === undefined ? undefined : selected.driver === "cloudflare" ? Math.max(60, Math.ceil(input.ttl)) : selected.driver === "upstash" ? Math.ceil(input.ttl) : input.ttl
       unwrap(await selected.storage.set(key, input.value, ttl === undefined ? undefined : { ttl }))
       const notice = input.ttl ? ttlNotice(selected.driver, input.ttl) : undefined
       const result: KVDevSetResult = {

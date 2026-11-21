@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs"
 import { createInterface } from "node:readline/promises"
 
-import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { appUrlError, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
+import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliOptions, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
@@ -106,7 +106,7 @@ function flagsOf(operation: AnyOperation): Flag[] {
 
 function usageOf(operation: AnyOperation, flags: readonly Flag[]): string {
   const { command, namespace } = operationCliPath(operation)
-  const positional = operation.cli?.positional ?? []
+  const positional = operationCliOptions(operation)?.positional ?? []
   const names = positional.map((key) => {
     const flag = flags.find(entry => entry.key === key)
     return flag?.required === false ? `[${kebab(key)}]` : `<${kebab(key)}>`
@@ -124,7 +124,7 @@ function describeFlag(flag: Flag): string {
 }
 
 function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
-  const positional = operation.cli?.positional ?? []
+  const positional = operationCliOptions(operation)?.positional ?? []
   const lines = [`Usage: ${usageOf(operation, flags)}`, "", operation.description, ""]
   const described = flags.map(flag => `  ${positional.includes(flag.key) ? `<${kebab(flag.key)}>` : `--${kebab(flag.key)}`}  ${describeFlag(flag)}${flag.description ? `. ${flag.description}` : ""}`)
   if (described.length) lines.push("Input:", ...described, "")
@@ -133,7 +133,7 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --input <json|@file>  Pass the whole input as JSON or from a file. Flags override it.",
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
-    "  --url <origin> Call a deployed app. Without it the command calls the running dev server.",
+    "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -229,7 +229,7 @@ function readWholeInput(raw: string, cwd: string): Record<string, unknown> {
 
 function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readonly string[], cwd: string): ParsedCall {
   const parsed: ParsedCall = { help: false, input: {}, json: false, yes: false }
-  const positional = [...(operation.cli?.positional ?? [])]
+  const positional = [...(operationCliOptions(operation)?.positional ?? [])]
   const { command, namespace } = operationCliPath(operation)
   let whole: Record<string, unknown> = {}
   for (let index = 0; index < args.length; index++) {
@@ -337,25 +337,15 @@ function acceptedRoots(rootDir: string): string[] {
  */
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
   if (parsed.url) {
-    let base: URL
-    try {
-      base = new URL(parsed.url)
-    }
-    catch {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })) }
-    }
-    const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
-    if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })) }
-    }
-    if (base.username || base.password || base.search || base.hash) {
-      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
-    }
+    const message = appUrlError(parsed.url)
+    if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
     return { target: parsed.url }
   }
-  const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
+  const roots = acceptedRoots(context.rootDir)
+  const found = findViteHubDevServerUrl(roots, context.env)
   if (found) return { target: found }
-  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
+  // Name the project root, not the Vite root: in a Nuxt app, the Vite root is the `app/` source folder.
+  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
   return { failure: failureOf(error, 503) }
 }
 
@@ -408,7 +398,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         url: target,
       }, operation.name, parsed.input)
       if (!result.ok) return writeFailure(result, parsed, context)
-      const format = operation.cli?.format as ((output: unknown) => string) | undefined
+      const format = operationCliOptions(operation)?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
       context.stdout.write(output)
       return 0
@@ -460,6 +450,8 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
+    // `cli: false` operations have no command. The Console and MCP call them.
+    if (operation.cli === false) continue
     const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
     const space = command.indexOf(" ")
@@ -471,7 +463,7 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
       group.commands.push({ ...featureOf(operation), name: command.slice(space + 1) })
       groups.set(key, group)
     }
-    if (operation.cli?.default) namespace.defaultFeature = command
+    if (operationCliOptions(operation)?.default) namespace.defaultFeature = command
     namespaces.set(name, namespace)
   }
   for (const group of groups.values()) {

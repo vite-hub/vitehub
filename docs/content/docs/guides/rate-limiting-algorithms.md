@@ -116,7 +116,7 @@ Enable Rate Limit in the Vite config:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', rateLimit: true },
+  vitehub: { rateLimit: true },
 })
 ```
 :::
@@ -128,7 +128,7 @@ import { nitro } from 'nitro/vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true }), nitro()],
+  plugins: [vitehub({ rateLimit: true }), nitro()],
 })
 ```
 :::
@@ -139,7 +139,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ host: 'node', rateLimit: true })],
+  plugins: [vitehub({ rateLimit: true })],
 })
 ```
 :::
@@ -166,7 +166,7 @@ export default defineEventHandler(
 
 Without `key`, the count is per client address. The build reads this call, so the ID, `limit`, and `window` must be literals. `key` can change at runtime.
 
-To answer a limited request with something cheaper than an error, use `checkRateLimit()`. It takes the same arguments, uses the same counter, and returns `[error, decision]`:
+To answer a limited request with something cheaper than an error, use `checkRateLimit()`. It takes the same ID, policy, and key, uses the same counter, and returns `[error, decision]`:
 
 ```ts [server/api/search.get.ts]
 import { defineEventHandler } from 'h3'
@@ -225,10 +225,10 @@ export default defineAgent({
 })
 ```
 
-The Capability picks the key. With the default `identity: 'auto'`, it uses the Agent Invoker (the caller). There is always an Invoker, with the fallback id `anonymous:<origin>` when the caller has no identity.
+The Capability picks the key. With the default `identity: 'auto'`, it uses the Agent Invoker (the caller) when the caller has an identity. An unauthenticated call gets its own counter from its thread or channel, then from the `trustedIpHeaders` that you name.
 
 ::warning
-Unauthenticated calls from the same origin share one counter. `auto` does not split them by thread, channel, or IP address, so here they share 20 runs per minute.
+Unauthenticated calls with no thread, no channel, and no trusted IP header share one counter, so here they share 20 runs per minute.
 ::
 
 For a per-user limit, pass the signed-in user's identity as the Invoker. Use `identity: 'run'` for thread or channel metadata, or `identity: 'ip'` with `trustedIpHeaders` for IP limits. See [Choose identity](/docs/rate-limit/agent-capability#choose-identity).
@@ -236,7 +236,7 @@ For a per-user limit, pass the signed-in user's identity as the Invoker. Use `id
 A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. `runAgent()` returns it as `error.cause` of `AGENT_RUN_FAILED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
 ```ts [server/api/support.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getViteHubErrorShape } from 'vite-hub/runtime'
 import support from '../agents/support'
@@ -245,7 +245,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ question?: string }>(event)
   const [error, result] = await runAgent(support, { prompt: body?.question ?? '' })
   if (getViteHubErrorShape(error?.cause)?.code === 'RATE_LIMIT_REJECTED') {
-    throw createError({ statusCode: 429, message: 'Too many questions. Try again in a minute.' })
+    throw new HTTPError({ status: 429, message: 'Too many questions. Try again in a minute.' })
   }
   if (error) throw error
   return { text: result.text }

@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Inspect generated guarantees
 
-ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect, and refreshes it at build start after KV selects its driver. Application code keeps using the guard. With the `kv` provider, the manifest reports the effective provider and guarantees: shared KV drivers report `kv`, while stores such as `fs-lite` report the process-local `memory` fallback.
+ViteHub writes `.vitehub/rate-limit/manifest.json` at config time for agents and tools to inspect, and refreshes it at build start after KV selects its driver. Application code keeps using the guard. With the `kv` driver, the manifest reports the effective driver in `provider`, and the guarantees: shared KV drivers report `kv`, while stores such as `fs-lite` report the process-local `memory` fallback.
 
 The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and supported `windows`. It does not repeat the optional response metadata.
 
@@ -32,7 +32,7 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 
 ## Share counts on Node
 
-On the `node` host, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` provider instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
+On the `node` host, Rate Limit counts in memory by default, so each server process allows the full limit. Turn on [KV](/docs/kv) and the build selects the `kv` driver instead: each request runs one atomic `increment` on a KV key for the Rate Limit ID, the window length, the client key, and the window start. Every instance that uses the same Redis server or Postgres Database shares the count.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -74,17 +74,17 @@ KV selects its driver at build time: `database` with a Postgres Default Database
 [vitehub] Rate Limit counts in the KV store "default" (redis). Every server process that uses this store shares the counts.
 ```
 
-`fs-lite` has no shared atomic increment, so Rate Limit then counts in memory and prints a warning:
+`fs-lite` has no shared atomic increment. When ViteHub selected `kv` because KV is on, Rate Limit then counts in memory and prints a warning:
 
 ```txt
 [vitehub] Rate Limit counts in the memory of this process, because the KV store "default" uses fs-lite, which has no shared atomic increment. Each server process allows the full limit. Configure a Redis KV store or use a Postgres Database to share the counts.
 ```
 
-A build that counts in memory also prints a warning. Set `rateLimit: { provider: 'memory' }` to keep memory counts with KV on. `provider: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `provider: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` provider counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
+A build that counts in memory also prints a warning, and fails with `RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED` when a Rate Limit sets `enforcement: 'strict'`. Set `rateLimit: { driver: 'memory' }` to keep memory counts with KV on. An explicit `rateLimit: { driver: 'kv' }` asks for shared counts, so the build fails with `RATE_LIMIT_KV_STORE_UNSUPPORTED` when the KV store cannot share them, for example on `fs-lite`. `vite dev` still counts in memory. `driver: 'kv'` works with the `node` host only, and other hosts fail with `VITE_HUB_R0144`. Without ViteHub, pass `driver: 'kv'` to `hubRateLimit()`, or use [`kvRateLimitDriver()`](/docs/rate-limit/server-api#use-a-direct-driver) with any KV store. The `kv` driver counts rejected requests too, see [KV limits](/docs/rate-limit/limits-and-errors#kv-limits).
 
 ## Deploy to Cloudflare
 
-With the `cloudflare` host, ViteHub uses the Cloudflare provider and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
+With the `cloudflare` host, ViteHub uses the Cloudflare driver and sets the namespace to the deployment name. It ignores `rateLimit.namespace`. Cloudflare shares counters between Workers with the same namespace in one account. So give staging, production, and each separate Worker a unique deployment name.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -125,6 +125,46 @@ export default defineConfig({
 
 The deployment name comes from `name`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
-Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, so policies it cannot meet fail the build.
+Cloudflare native enforcement is best-effort and has only 10-second and 60-second windows. It returns no portable quota metadata, and it cannot give back a request. A policy with `enforcement: 'strict'` and a `10s` or `1m` window fails the build with `RATE_LIMIT_R0015`.
+
+### Windows longer than one minute
+
+A Rate Limit with another window, such as `'1h'` or `'1d'`, counts in the default KV store instead of a Cloudflare binding. KV needs a shared atomic `increment`, which Cloudflare KV does not have, so use Upstash:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ host: 'cloudflare', kv: { driver: 'upstash' }, rateLimit: true })],
+})
+```
+:::
+::
+
+The guard call does not change. The manifest reports `provider: 'kv'` for these Rate Limits, and they support `peekRateLimit()`, `resetRateLimit()`, and `refundRateLimit()`. The deployment name separates counters even when deployments use the same KV store. Without such a KV store, the build fails with `RATE_LIMIT_R0016`. Read [KV limits](/docs/rate-limit/limits-and-errors#kv-limits) for how the `kv` driver counts.
 
 Inspect the generated `wrangler.json` entries and test the deployed Worker. A Node script cannot check a request-scoped Cloudflare binding.

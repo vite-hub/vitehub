@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { hostedConsoleUrl, normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/index.ts"
+import { hostedConsoleUrl } from "../src/index.ts"
+import { normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/internal/console.ts"
 
 describe("hosted Console links", () => {
   it("builds an /open URL with the project and the Console path", () => {
@@ -53,7 +54,7 @@ describe("hosted Console links", () => {
       "/_vitehub//example.com",
     ]) {
       expect(normalizeConsolePath(path), path).toBeUndefined()
-      expect(() => hostedConsoleUrl("https://app.example.com", path), path).toThrow(TypeError)
+      expect(() => hostedConsoleUrl("https://app.example.com", path), path).toThrowError(expect.objectContaining({ code: "RUNTIME_CONSOLE_PATH_INVALID" }))
     }
     // A dot segment stays inside the Console.
     expect(normalizeConsolePath("/../../kv")).toBe("/kv")
@@ -64,7 +65,7 @@ describe("hosted Console links", () => {
     expect(normalizeConsoleProjectUrl("http://[::1]:3000/app")).toBe("http://[::1]:3000/app")
     for (const project of ["http://app.example.com", "ftp://app.example.com", "javascript:alert(1)", "app.example.com", "https://user:secret@app.example.com"]) {
       expect(normalizeConsoleProjectUrl(project), project).toBeUndefined()
-      expect(() => hostedConsoleUrl(project, "/kv"), project).toThrow(TypeError)
+      expect(() => hostedConsoleUrl(project, "/kv"), project).toThrowError(expect.objectContaining({ code: "RUNTIME_CONSOLE_PROJECT_URL_INVALID" }))
     }
   })
 })

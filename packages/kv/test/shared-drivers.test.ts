@@ -8,9 +8,9 @@ import { Redis } from "ioredis"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
-import { kvTable } from "../src/runtime/database.ts"
 import { normalizeKVOptions } from "../src/config.ts"
 import { kvResult } from "../src/errors.ts"
+import { kvTable } from "../src/runtime/database.ts"
 import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
@@ -121,6 +121,17 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.hasItem("settings")).toBe(false)
     await storage!.clear("users")
     expect(await storage!.getKeys()).toEqual([])
+  })
+
+  it("reads and writes many keys in one call", async () => {
+    const [storage] = await target.stores(1)
+    const entries = Array.from({ length: 450 }, (_, index) => ({ key: `item:${index}`, value: { index } }))
+    await storage!.setMany([...entries, { key: "item:0", value: "last" }], { ttl: 60 })
+    const values = await storage!.getMany([...entries.map(entry => entry.key), "missing", "item:1"])
+    expect(values).toEqual(["last", ...entries.slice(1).map(entry => entry.value), null, { index: 1 }])
+    await expect(storage!.getMany(["item:2"], { type: "text" })).resolves.toEqual(["{\"index\":2}"])
+    await storage!.setMany([{ key: "item:0", value: undefined }])
+    await expect(storage!.getMany(["item:0"])).resolves.toEqual([null])
   })
 
   it("keeps the stores of two namespaces apart", async () => {
@@ -246,10 +257,12 @@ describe.runIf(postgresUrl)("database on Postgres table setup", () => {
   it("creates the table once when several servers start at the same time", async () => {
     const admin = postgres(postgresUrl!, { max: 1, onnotice: () => {} })
     cleanups.push(() => admin.end())
-    await admin.unsafe(`drop table if exists ${kvTable}`)
+    const schema = `kv_setup_${randomUUID().replaceAll("-", "")}`
+    await admin`create schema ${admin(schema)}`
+    cleanups.push(() => admin`drop schema ${admin(schema)} cascade`)
 
     const stores = await databaseStores(6, () => {
-      const sql = postgres(postgresUrl!, { max: 1, onnotice: () => {} })
+      const sql = postgres(postgresUrl!, { max: 1, onnotice: () => {}, connection: { search_path: schema } })
       cleanups.push(() => sql.end())
       return sql
     })

@@ -1,4 +1,6 @@
+import { ownModule } from '@vite-hub/internal/build/paths'
 import { agentHostWorkspaceRoute } from './server/host-workspace.ts'
+import { agentDiagnostics } from './agent-diagnostics.ts'
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -30,11 +32,11 @@ export function agentHostRoutes(options: {
         if (configured === undefined) continue
         const { exportName, route = kind === 'health' ? '/api/health' : agentHostWorkspaceRoute } = typeof configured === 'string' ? { exportName: configured } : configured
         if (!/^[$_\p{ID_Start}][$\u200C\u200D\p{ID_Continue}]*$/u.test(exportName))
-          throw new Error('Agent host route exportName must be a JavaScript identifier.')
+          throw agentDiagnostics.AGENT_HOST_ROUTE_EXPORT_NAME_INVALID()
         if (!route.startsWith('/') || /[?#*]/.test(route) || (kind === 'workspace' && !route.split('/').includes(':id')))
-          throw new Error('Agent host routes require an absolute path without query, hash, or wildcard; Workspace routes require an :id parameter.')
+          throw agentDiagnostics.AGENT_HOST_ROUTE_PATH_INVALID()
         if ([...existing, ...handlers].some(handler => handler.route === route))
-          throw new Error(`Agent host route already registered: ${route}`)
+          throw agentDiagnostics.AGENT_HOST_ROUTE_DUPLICATE({ route })
         const handler = resolve(directory, `${kind}-${createHash('sha256').update(JSON.stringify([entry, exportName, route])).digest('hex').slice(0, 16)}.ts`)
         const moduleImport = exportName === 'default'
           ? `import inspect from ${JSON.stringify(entry)}`
@@ -50,7 +52,7 @@ export function agentHostRoutes(options: {
         handlers.push({ route, handler, method: 'GET' }, { route, handler, method: 'HEAD' })
         if (kind === 'workspace') {
           const plugin = handler.replace(/\.ts$/, '-plugin.ts')
-          await writeFile(plugin, `import { registerAgentHostWorkspaceInspector } from '@vite-hub/agent/server'\n${moduleImport}\nexport default () => { registerAgentHostWorkspaceInspector(${JSON.stringify(route)}, inspect) }\n`)
+          await writeFile(plugin, `import { registerAgentHostWorkspaceInspector } from ${JSON.stringify(ownModule(import.meta.url, 'server'))}\n${moduleImport}\nexport default () => { registerAgentHostWorkspaceInspector(${JSON.stringify(route)}, inspect) }\n`)
           plugins.push(plugin)
         }
       }

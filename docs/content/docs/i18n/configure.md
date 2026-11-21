@@ -17,7 +17,7 @@ Set `i18n.locales` in the ViteHub options. The first locale is the source locale
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host: "node", i18n: { locales: ["en", "es", "pt-BR"] } },
+  vitehub: { i18n: { locales: ["en", "es", "pt-BR"] } },
 })
 ```
 :::
@@ -32,7 +32,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ i18n: { locales: ["en", "es", "pt-BR"] } }),
     nitro(),
   ],
 })
@@ -48,7 +48,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es", "pt-BR"] } }),
+    vitehub({ i18n: { locales: ["en", "es", "pt-BR"] } }),
   ],
 })
 ```
@@ -280,7 +280,7 @@ By default, translations are files in your repository, and a new translation nee
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } },
+  vitehub: { i18n: { locales: ["en", "es"], workspace: "translations" } },
 })
 ```
 :::
@@ -295,7 +295,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ i18n: { locales: ["en", "es"], workspace: "translations" } }),
     nitro(),
   ],
 })
@@ -311,12 +311,14 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vue(),
-    vitehub({ host: "node", i18n: { locales: ["en", "es"], workspace: "translations" } }),
+    vitehub({ i18n: { locales: ["en", "es"], workspace: "translations" } }),
   ],
 })
 ```
 :::
 ::
+
+`i18n.workspace` must name a Workspace that the app defines. Otherwise `vite dev` and `vite build` stop with [`I18N_UNKNOWN_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_unknown_workspace).
 
 The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
 

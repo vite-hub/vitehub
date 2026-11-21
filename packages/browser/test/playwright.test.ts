@@ -37,7 +37,7 @@ describe("playwright controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
       sessionId: "safe-id",
     })
     const complete = vi.fn()
@@ -62,7 +62,7 @@ describe("playwright controller", () => {
     const providerClose = vi.fn()
     const controller = playwright({ chromium: { connectOverCDP: vi.fn(async () => browser) } as never })
     const session = await createBrowser({
-      provider: {
+      driver: {
         features: { liveHandoff: true },
         isolation: "trusted-host",
         name: "local",
@@ -102,7 +102,7 @@ describe("playwright controller", () => {
       engine: "kitesurf",
       kind: "cloudflare-binding",
     }, {
-      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      driver: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
       sessionId: "safe-id",
     })
 
@@ -122,7 +122,7 @@ describe("playwright controller", () => {
     }
 
     const attached = await controller.attach(connection, {
-      provider: {
+      driver: {
         features: { liveHandoff: true },
         isolation: "trusted-host",
         name: "local",
@@ -160,7 +160,7 @@ describe("playwright controller", () => {
     }
 
     const attached = await controller.attach(connection, {
-      provider: {
+      driver: {
         features: { liveHandoff: true },
         isolation: "provider",
         name: "cloudflare",
@@ -185,7 +185,7 @@ describe("playwright controller", () => {
       endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
       kind: "cdp",
     }, {
-      provider: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
+      driver: { features: { liveHandoff: true }, isolation: "trusted-host", name: "local" },
       sessionId: "safe-id",
     })).rejects.toThrow("target lookup failed")
 

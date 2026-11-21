@@ -2,9 +2,10 @@
 // `libsql` loader. It never references `@libsql/client`, so a Worker build that passes no loader does not ship it.
 // It imports no Node builtin, so a Worker that selects D1 or memory starts without Node compatibility.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { isWorkersRuntime } from "../internal/workers-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { d1AgentInvocationRetention } from "./d1-retention.ts"
-import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
+import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
 
 import type { Client } from "@libsql/client"
 import type { openDefaultLibsqlJournal } from "./default-libsql.ts"
@@ -23,7 +24,11 @@ export const defaultAgentInvocationsMetadataContent: readonly string[] = [
   "input.data",
   "input.messages",
   "input.prompt",
+  // The message that started the run, kept whole when the history leaves older messages out.
+  "input.trigger.message",
   "message.content",
+  // The values before and after a change the `page()` Capability made, for the Console and `vitehub agent invocations get`.
+  "page.change.content",
   "result.output",
   "result.text",
   "tool.input",
@@ -60,6 +65,12 @@ export interface DefaultAgentInvocationsOptions {
   d1?: DefaultAgentInvocationsD1
   /** Runtime env vars. Defaults to `process.env`. */
   env?: Readonly<Record<string, string | undefined>>
+  /**
+   * A `file:` Agent State URL. Without `databaseUrl` or the env var, the journal is `agent-invocations.sqlite` next to
+   * the State database. `VITEHUB_AGENT_STATE_URL` replaces it, as it does for State. A relative path resolves from
+   * the working directory, as State does.
+   */
+  stateUrl?: string
   observations?: AgentInvocationObservationOptions
   /**
    * Limits for terminal records. The SQLite and libSQL journal keeps every terminal record by default.
@@ -92,12 +103,6 @@ export interface DefaultAgentInvocationsLocation {
 
 const databases = new WeakMap<AgentInvocations, DefaultAgentInvocationsDatabase>()
 
-/** Workers have no file system, and the libSQL Web client rejects `file:` URLs. */
-function isWorkersRuntime(): boolean {
-  const navigator: unknown = Reflect.get(globalThis, "navigator")
-  return typeof navigator === "object" && navigator !== null && Reflect.get(navigator, "userAgent") === "Cloudflare-Workers"
-}
-
 function runtimeEnv(options: Pick<DefaultAgentInvocationsOptions, "env">): Readonly<Record<string, string | undefined>> {
   return options.env ?? globalThis.process?.env ?? {}
 }
@@ -107,7 +112,7 @@ type DefaultAgentInvocationsTarget =
   | { kind: "d1", url: string }
   | { kind: "memory", url: "memory:" }
   | { authToken?: string, kind: "remote", url: string }
-  | { kind: "file", url?: string }
+  | { cwd?: true, kind: "file", url?: string }
 
 function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): DefaultAgentInvocationsTarget {
   const env = runtimeEnv(options)
@@ -123,13 +128,15 @@ function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observation
     if (url) throw agentDiagnostics.AGENT_R1029()
     return { kind: "memory", url: "memory:" }
   }
-  return { kind: "file", url }
+  const beside = url ? undefined : agentJournalBesideState(options.stateUrl, env)
+  return beside ? { kind: "file", ...beside } : { kind: "file", url }
 }
 
 async function resolveTarget(projectRoot: string, target: DefaultAgentInvocationsTarget): Promise<DefaultAgentInvocationsLocation & { file?: string }> {
   if (target.kind !== "file") return target.kind === "remote" && target.authToken ? { authToken: target.authToken, url: target.url } : { url: target.url! }
   const { resolveLocalJournalFile } = await import("./default-file.ts")
-  return resolveLocalJournalFile(projectRoot, target.url)
+  // State opens a relative path from the working directory, so a journal next to it does too.
+  return resolveLocalJournalFile(target.cwd ? globalThis.process.cwd() : projectRoot, target.url)
 }
 
 /**

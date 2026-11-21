@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { StarIcon } from "../icons"
-import { Rating, RatingItem } from "@vite-hub/kit/rating"
+import { Rating, RatingItem } from "@ui-sdk/vue/rating"
 </script>
 
 <template>
