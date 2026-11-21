@@ -13,10 +13,11 @@ import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-opt
 import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
-import { inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
+import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import type { EnvRuntimeConfigOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
@@ -407,13 +408,18 @@ interface EmailTemplateTypes {
 }
 
 /** Types each template's `data` from the `data.*` bindings that the template reads. */
-async function renderEmailTemplateTypes(templates: Array<{ name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
+async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
   if (!templates.length) return { modules: "" }
-  const typed = await Promise.all(templates.map(async template => ({
-    ...template,
-    // A template that does not parse fails when it renders, with the error of the renderer. Keep its `data` open here.
-    data: await inferMarkdownTemplateDataType(template.source, "    ").catch(() => ({ required: false, type: "Record<string, unknown>" })),
-  })))
+  const typed = await Promise.all(templates.map(async (template) => {
+    try {
+      const data = await inferMarkdownTemplateDataType(template.source, "    ")
+      await assertNoBindingsInCode(template.source)
+      return { ...template, data }
+    }
+    catch (cause) {
+      throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
+    }
+  }))
   const modules = typed.map(({ data, name }) => [
     `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
     `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
@@ -684,7 +690,8 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           }
           catch (error) {
             refreshed = false
-            server.config.logger.error(String(error))
+            const cause = emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID.is(error) ? error.cause : undefined
+            server.config.logger.error(cause === undefined ? String(error) : `${String(error)}\n${formatRuntimeDiagnosticError(cause)}`)
           }
           finally {
             if (!closed) server.watcher.add([...watchFiles])

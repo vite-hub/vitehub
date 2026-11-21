@@ -5,11 +5,13 @@ import { forgeEnv } from "@vite-hub/internal/forge"
 import { discoverServerChannelModules, listMatchingFiles, listSourceFiles } from "@vite-hub/internal/definition-catalog"
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
+import { simulatedChannelKinds } from "./internal/channel-simulation.ts"
+import { agentForges } from "./internal/forge-kind.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
 
 import type { ChannelEnvField } from "./channel-env.ts"
 
-const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/agent/channels"])
+const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/channels/adapters", "vite-hub/agent/channels"])
 const capabilityFactoryModules = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
 const gatewayFactoryModules = new Set(["@vite-hub/gateways", "vite-hub/gateways"])
 const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
@@ -147,7 +149,8 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 
 /**
  * Find built-in Channel factory calls, such as `telegram({ ... })` imported from
- * `vite-hub/agent/channels`, and bare factory references such as `channels: { telegram }`.
+ * `vite-hub/channels/adapters`, and bare factory references such as `channels: { telegram }`.
+ * Source inspection also recognizes the old import path before migration, without loading it.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
 export function discoverBuiltInChannelUses(
@@ -917,10 +920,13 @@ function agentHandlers(options: { rootDir: string, serverDirs?: string[] }): Set
 /**
  * Declare the Server Env of each built-in Channel used by a discovered Agent or outbound Channel.
  * A value is required when a Channel or connector uses static options that omit it.
+ * With `simulate`, a dev server runs the chat Channels on the simulated chat, which needs no provider
+ * credentials, so their values stay optional.
  */
-export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
+export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?: string[], simulate?: boolean }): AgentChannelEnv {
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
   const declared: AgentChannelEnv = {}
+  const simulated = options.simulate === true
   const serverDirs = options.serverDirs ?? [resolve(options.rootDir, "server")]
   const channelDirectories = serverDirs.map(directory => `${resolve(directory, "channels")}${sep}`)
   const handlers = new Set([
@@ -935,6 +941,7 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
       const group = declared[kind] ??= {}
       for (const [field, spec] of Object.entries(fields[kind] ?? {})) {
         const entry = group[field] ??= { names: [...spec.names], required: false, secret: spec.secret === true }
+        if (simulated && simulatedChannelKinds.has(kind)) continue
         if (optionKeys && spec.requiredUnless && !spec.requiredUnless.some(key => optionKeys.has(key))) entry.required = true
       }
     }
@@ -945,10 +952,10 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
     })
     for (const use of uses) {
       const selected = use.stringOptions?.get("forge") ?? (use.optionKeys && !use.optionKeys.has("forge") ? "github" : undefined)
-      for (const [forge, specs] of Object.entries(forgeEnv)) {
+      for (const forge of agentForges) {
         if (selected !== undefined && selected !== forge) continue
         const group = declared[forge] ??= {}
-        for (const [field, spec] of Object.entries(specs)) {
+        for (const [field, spec] of Object.entries(forgeEnv[forge])) {
           group[field] ??= { names: [...spec.names], required: false, secret: "secret" in spec && spec.secret === true }
         }
       }

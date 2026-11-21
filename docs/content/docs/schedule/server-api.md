@@ -68,7 +68,7 @@ Pass `at` or `cron`, not both. `payload` is a JSON value that the handler gets a
 | `listSchedules({ name })` | `Result<StartedSchedule[]>`, oldest first. `name` is optional. |
 | `cancelSchedule(id)` | `Result<StartedSchedule>`, the Schedule that it removed. A run that already started finishes. |
 
-Each function returns `[error, data]` and does not throw. A one-time Schedule leaves the store after its run, also when the handler fails. Its run stays in the run history: `vitehub schedule runs <id>` lists it.
+Each function returns `[error, data]` and does not throw. A one-time Schedule leaves the store after its run, also when the handler fails. Its run stays in the run history: `vitehub schedule runs list <id>` lists it.
 
 ### How started Schedules run
 
@@ -193,6 +193,6 @@ A Schedule with the cron `* * * * *` makes 1,440 `info` events a day. To keep fe
 
 - `listRuns({ scheduleId, idPrefix, limit })` lists runs, newest first. `idPrefix` filters run IDs before `limit`, so the Process Runtime reads only the newest `srun_static_` run for catch-up.
 - `listAttempts(runId)` lists the attempts of one run.
-- In development, `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store.
+- In development, `vitehub schedule runs list <name>` and `vitehub schedule runs get <runId>` read the same store.
 
 For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 more recent records for a cron run. If none is one, it checks the whole `catchUpMs` window instead of guessing a time. Existing static run IDs stop duplicates. Support `idPrefix` to read only one record.

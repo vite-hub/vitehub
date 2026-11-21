@@ -9,6 +9,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { isWorkspaceConflict, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import {
   historyConflict,
+  readHistoryDeleteRef,
   normalizeHistoryPath,
   normalizeHistoryRef,
   rejectHistoryHead,
@@ -47,6 +48,7 @@ import type {
   WorkspaceMergeConflict,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
+  WorkspaceHistoryDeleteRefOptions,
   WorkspacePullRequest,
   ListOptions,
   ReadFileOptions,
@@ -1134,9 +1136,22 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     }
   }
 
+  // GitHub deletes a branch without a condition, so `ifHead` compares the head just before the delete.
+  const deleteRef = async (deleteOptions: WorkspaceHistoryDeleteRefOptions): Promise<boolean> => {
+    const { ref, ifHead } = readHistoryDeleteRef(deleteOptions)
+    if (toBranch(ref) === options.branch) throw workspaceErrorDiagnostics.WORKSPACE_DEFAULT_REF_DELETE()
+    const { branch } = resolveRef(ref)
+    const head = await readCurrentHead(client(), branch)
+    if (ifHead !== undefined && head !== ifHead) throw historyConflict(ref, ifHead, head, { repository: options.repository })
+    if (!head) return false
+    await deleteBranch(branch)
+    return true
+  }
+
   return {
     pullRequests,
     openPullRequest,
+    deleteRef,
     merge: checkedMerge,
     head: async (headOptions) => {
       const { branch, ref } = resolveRef(headOptions?.ref)

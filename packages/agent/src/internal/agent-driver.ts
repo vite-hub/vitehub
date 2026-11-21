@@ -85,6 +85,11 @@ export type NormalizedAgentDriver<
     output?: undefined
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
+  | {
+    /** A process outside the app runs the Agent. ViteHub keeps its journal and never runs it. */
+    kind: "external"
+    output?: undefined
+  }
 )
 
 /** A `driver.ask` gateway must answer Jev questions: `typesafe()`, `vercel()`, or `cloudflare()`. */
@@ -418,9 +423,10 @@ function validateProviderToolchain(value: unknown) {
 }
 
 function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
+  if (driver === "external") return { kind: "external" }
   if (typeof driver === "string") {
     const hint = driver === "codex" || driver === "claude-code" ? ` Use driver: ${providerDriverFactories[driver]}() from vite-hub/agent.` : ""
-    throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] defineAgent({ driver: "${driver}" }) is not an Agent Driver. Expected codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.${hint}` })
+    throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] defineAgent({ driver: "${driver}" }) is not an Agent Driver. Expected codexDriver(), claudeCodeDriver(), "external", or a custom { model }, { run }, or { ask } driver.${hint}` })
   }
   if (!isPlainObject(driver)) {
     throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be codexDriver(), claudeCodeDriver(), or a custom driver object." })
@@ -515,5 +521,5 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
-  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver." })
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected codexDriver(), claudeCodeDriver(), \"external\", or a custom { model }, { run }, or { ask } driver." })
 }

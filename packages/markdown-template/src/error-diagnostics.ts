@@ -12,6 +12,14 @@ export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics(
     MARKDOWN_TEMPLATE_R0002: { ...dynamicError, fix: "Bind the condition to a `data.<path>` path that the template may read, or to a JSON literal, such as `:condition=\"data.ready\"`." },
     MARKDOWN_TEMPLATE_B0001: { ...dynamicError, fix: "Pass a path that starts with `./`, ends with `.template.md`, and uses `/` between folders, such as `./review/PULL_REQUEST.template.md`." },
     MARKDOWN_TEMPLATE_B0002: { ...dynamicError, fix: "Remove the empty, `.`, and `..` folders from the path, such as `./review/PULL_REQUEST.template.md` in place of `./review/../PULL_REQUEST.template.md`." },
+    MARKDOWN_TEMPLATE_BINDING_IN_CODE: {
+      why: ({ path }: { path: string }) => `The binding "{{ ${path} }}" is inside inline code or a code block, so the template shows it as text and does not fill it.`,
+      fix: "Move the binding out of the code, such as `**{{ data.repository }}**` in place of `` `{{ data.repository }}` ``. To show a value as code, put the Markdown in `data`, such as `` `vitejs/vite` ``, and insert it with `:insert{:markdown=\"data.<path>\"}`.",
+    },
+    MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA: {
+      why: ({ path }: { path: string }) => `The binding "${path}" does not start with \`data.\`. A template reads each value from \`data\`, so "${path}" is never defined.`,
+      fix: "Start each binding with `data.`: write `{{ data.name }}` in place of `{{ name }}`, and `:href=\"data.url\"` in place of `:href=\"url\"`. Pass the same values in `data`.",
+    },
     MARKDOWN_TEMPLATE_R0011: { ...dynamicError, fix: "Pass a link value in the template data that is a safe URL, such as an `https:` or relative URL without spaces at the ends, control characters, backslashes, or HTML character references." },
     MARKDOWN_TEMPLATE_R0012: { ...dynamicError, fix: "Pass a link value in the template data that is a safe URL, such as an `https:` or relative URL without spaces at the ends, control characters, backslashes, or HTML character references." },
     MARKDOWN_TEMPLATE_R0013: { ...dynamicError, fix: "Pass a link value in the template data that is a safe URL, such as an `https:` or relative URL without spaces at the ends, control characters, backslashes, or HTML character references." },

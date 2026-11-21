@@ -8,7 +8,7 @@ import type { TaskListResult, TaskRunResult } from "./runtime.ts"
 // the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime.ts")
 
-function defineTaskOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<NonNullable<OperationDefinition<Input, Output>["cli"]>, "namespace"> }): OperationDefinition<Input, Output> {
+function defineTaskOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "cli" | "section" | "user"> & { cli?: Omit<Exclude<OperationDefinition<Input, Output>["cli"], false | undefined>, "namespace"> }): OperationDefinition<Input, Output> {
   // Tasks have no Console page. `tasks` is the section id that `console.authorize` grants, and `vitehub task` the CLI name.
   return defineOperation({ ...definition, cli: { ...definition.cli, namespace: "task" }, section: "tasks", user: false })
 }

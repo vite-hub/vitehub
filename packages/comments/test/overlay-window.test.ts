@@ -22,7 +22,7 @@ async function site(lazy = false) {
   const tools = [lazy ? tool : { ...tool, lazy: false }]
   server.fetch.mockImplementation(async (input, init) => {
     const url = new URL(String(input), location.href)
-    if (url.pathname !== "/_vitehub/page/session") return await api(input, init)
+    if (url.pathname !== "/_vitehub/page/tools") return await api(input, init)
     expect(url.searchParams.get("page")).toBe(location.pathname)
     return Response.json({ tools })
   })

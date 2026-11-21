@@ -126,6 +126,91 @@ describe("vitehub deploy on Cloudflare", () => {
     expect((await hosts.calls()).map(call => call.argv)).toEqual([["versions", "upload", "--config", "./server/wrangler.json", "--keep-vars"]])
   })
 
+  // The output of a build without `migrateOnDeploy`: the D1 migrations are in the server output, and nothing applies them.
+  const d1Output = (migrations: Record<string, string[]>, deployCommand?: string) => ({
+    ...buildOutput("cloudflare", deployCommand),
+    ".output/server/wrangler.json": JSON.stringify({
+      d1_databases: Object.keys(migrations).map(binding => ({ binding, database_id: `id-${binding}`, migrations_dir: `.vitehub/database/migrations/${binding}` })),
+      main: "index.mjs",
+      name: "my-app",
+    }),
+    ...Object.fromEntries(Object.entries(migrations).flatMap(([binding, files]) => files.map(file => [`.output/server/.vitehub/database/migrations/${binding}/${file}`, "CREATE TABLE t (id INTEGER);\n"]))),
+  })
+  const ledgerQuery = (binding: string, sql: string) => ["d1", "execute", binding, "--remote", "--config", "./server/wrangler.json", "--json", "--command", sql]
+
+  it("stops before it deploys when the remote D1 database has not applied a migration of the build", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql", "0002_draft_images.sql"] }))
+    const hosts = await fakeHosts({ ...cloudflareEnv, FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql"] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.why).toContain("binding DB")
+    expect(result.json.error?.why).toContain(": 0002_draft_images.sql.")
+    expect(result.json.error?.fix).toContain("npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json")
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ledgerQuery("DB", "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'"),
+      ledgerQuery("DB", `SELECT name FROM "d1_migrations"`),
+    ])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("counts every migration as pending when the D1 database has no migrations table", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }))
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.why).toContain(": 0001_init.sql.")
+    expect(await hosts.calls()).toHaveLength(1)
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("checks only the D1 bindings in the selected Wrangler environment", async () => {
+    const config = "./server dir/wrangler.json"
+    const output = buildOutput("cloudflare", `npx wrangler deploy --config '${config}'`)
+    const root = await builtProject("cloudflare", {
+      ...output,
+      ".output/server dir/wrangler.json": JSON.stringify({
+        d1_databases: [{ binding: "DB_DEFAULT", migrations_dir: "migrations" }],
+        env: { production: { d1_databases: [{ binding: "DB", migrations_dir: "migrations", migrations_table: "prod_migrations" }] } },
+      }),
+      ".output/server dir/migrations/0001_init.sql": "CREATE TABLE t (id INTEGER);\n",
+    })
+    const hosts = await fakeHosts({ ...cloudflareEnv, CLOUDFLARE_ENV: "production", FAKE_D1_APPLIED: JSON.stringify({ DB: [] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_D1_MIGRATIONS_PENDING")
+    expect(result.json.error?.fix).toContain(`npx wrangler d1 migrations apply DB --remote --config '${config}' --env production`)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'prod_migrations'"],
+      ["d1", "execute", "DB", "--remote", "--config", config, "--json", "--command", 'SELECT name FROM "prod_migrations"'],
+    ])
+    expect((await hosts.state()).deploys).toBe(0)
+  })
+
+  it("deploys with quiet Wrangler logging when D1 has applied every migration of the build", async () => {
+    const root = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql", "0002_draft_images.sql"] }))
+    const hosts = await fakeHosts({ ...cloudflareEnv, WRANGLER_LOG: "error", FAKE_D1_APPLIED: JSON.stringify({ DB: ["0001_init.sql", "0002_draft_images.sql"] }) })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv[1])).toEqual(["execute", "execute", "--config"])
+    expect((await hosts.state()).deploys).toBe(1)
+  })
+
+  it("does not read the migrations table of a binding that the build command migrates, or for a preview version", async () => {
+    const migrated = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }, [migrateCommand("DB"), "npx wrangler deploy --config ./server/wrangler.json"].join(" && ")))
+    const hosts = await fakeHosts(cloudflareEnv)
+    expect((await deploy(["--no-build", "--yes"], migrated, hosts.env)).exitCode).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv.slice(0, 3))).toEqual([["d1", "migrations", "apply"], ["deploy", "--config", "./server/wrangler.json"]])
+
+    const preview = await builtProject("cloudflare", d1Output({ DB: ["0001_init.sql"] }))
+    const other = await fakeHosts(cloudflareEnv)
+    expect((await deploy(["--no-build", "--yes", "--preview"], preview, other.env)).exitCode).toBe(0)
+    expect((await other.calls()).map(call => call.argv[0])).toEqual(["versions"])
+  })
+
   it("deploys without credentials with --temporary", async () => {
     const root = await builtProject("cloudflare")
     const hosts = await fakeHosts()

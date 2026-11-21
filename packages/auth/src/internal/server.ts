@@ -64,6 +64,7 @@ import { isJwsToken, mcpOAuthResources } from "../mcp-config.ts"
 import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
+export { findVerifiedAuthUserId } from "../auth-instance.ts"
 export { resetAuth } from "../runtime-state.ts"
 export { AbilityError } from "../ability-error.ts"
 export type { AbilityErrorData } from "../ability-error.ts"
