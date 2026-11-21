@@ -22,7 +22,7 @@ Set up your app in [Installation](/docs/getting-started/installation), save and 
 | Request budgets spent before expensive server work starts | [Rate Limit](/docs/rate-limit) |
 | Outbound transactional messages with provider-neutral delivery | [Email](/docs/email) |
 | Named outbound destinations, such as Telegram or Teams, behind selected connectors | [Channels](/docs/channels) |
-| Outbound app events to outside URLs with HMAC signatures, retries, and debouncing on every host | [Webhooks](/docs/webhooks) |
+| Outbound app events to outside URLs with HMAC signatures, retries, and debouncing on [supported hosts](/docs/webhooks/hosts) | [Webhooks](/docs/webhooks) |
 | Contact, feedback, or problem-report forms with a spam guard, validation, an inbox, and email | [Forms](/docs/forms) |
 | Pinned team comments on live pages, with replies, resolution, and in-place Content text edits | [Comments](/docs/comments) |
 | App translation with no message keys, collected for translators and served in each request locale | [i18n](/docs/i18n) |
