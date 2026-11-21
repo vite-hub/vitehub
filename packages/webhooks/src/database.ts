@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, inArray, lt, or, sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import { webhooksErrors } from "./errors.ts"
@@ -75,8 +75,33 @@ export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
 /** The table of Webhooks, for `defineDatabase({ schema })` or a Database contribution. */
 export const webhooksSchema = { webhookDeliveries }
 
-/** The table of member endpoints. Webhooks adds it only when a feature of the app uses member endpoints. */
-export const webhookEndpointsSchema = { webhookEndpoints }
+/** Where a pairing code is: not used yet, used by an agent that waits for Allow, used up, or used with a refused URL. */
+export type MemberPairingState = "waiting" | "paired" | "used" | "refused"
+
+const pairingStates = ["waiting", "paired", "used", "refused"] as const satisfies readonly MemberPairingState[]
+
+/**
+ * One row for each pairing code, for 10 minutes. `id` is the SHA-256 hash of the code. `sealed` holds the signing secret
+ * that the member's agent gets with the code, and after pairing the agent's URL too, encrypted with `VITEHUB_WEBHOOKS_KEY`.
+ */
+export const webhookPairings = sqliteTable("vitehub_webhook_pairings", {
+  id: text("id").primaryKey(),
+  owner: text("owner").notNull(),
+  state: text("state", { enum: pairingStates }).notNull(),
+  /** The agent that used the code, such as `t3`, `claude-code`, or `codex`. */
+  agent: text("agent"),
+  host: text("host"),
+  /** Where the agent can be reached, such as the T3 thread link that the pair post gave. */
+  address: text("address"),
+  sealed: text("sealed").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, table => [
+  index("vitehub_webhook_pairings_owner").on(table.owner),
+])
+
+/** The tables of member endpoints and their pairing codes. Webhooks adds them only when a feature of the app uses member endpoints. */
+export const webhookEndpointsSchema = { webhookEndpoints, webhookPairings }
 
 export { webhookEndpointsTableNames, webhooksTableNames } from "./table-names.ts"
 
@@ -88,6 +113,8 @@ export const webhooksTables: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_state` ON `vitehub_webhook_deliveries` (`state`,`due_at`)",
   "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `address` text DEFAULT '' NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
   "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`,`address`)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_pairings` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `state` text NOT NULL, `agent` text, `host` text, `address` text, `sealed` text NOT NULL, `expires_at` integer NOT NULL, `created_at` integer NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS `vitehub_webhook_pairings_owner` ON `vitehub_webhook_pairings` (`owner`)",
 ]
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
@@ -398,12 +425,22 @@ export interface WebhookEndpointStore {
   disable: (id: string, now: number, by: string | null) => Promise<StoredMemberEndpoint | undefined>
   /** Enables a disabled endpoint. Returns the endpoint after the change. */
   enable: (id: string, now: number) => Promise<StoredMemberEndpoint | undefined>
+  /** Stores a new pairing code, after it deletes the expired codes and the finished codes of the same owner. */
+  insertPairing: (row: StoredMemberPairing) => Promise<void>
+  pairing: (id: string) => Promise<StoredMemberPairing | undefined>
+  /** Moves a code from `from` to `to` and writes `set`, when it is still in `from` and not expired. */
+  movePairing: (id: string, from: MemberPairingState, to: MemberPairingState, now: number, set?: Partial<Pick<StoredMemberPairing, "agent" | "host" | "address" | "sealed">>) => Promise<StoredMemberPairing | undefined>
+  removePairing: (id: string, owner: string) => Promise<void>
 }
+
+/** One pairing code as the table holds it. */
+export type StoredMemberPairing = typeof webhookPairings.$inferSelect
 
 /** Member endpoints in a Drizzle SQLite Database. Pass a function when the Database connects per request. */
 export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (() => WebhooksDatabase)): WebhookEndpointStore {
   const db = typeof database === "function" ? database : () => database
   const t = webhookEndpoints
+  const p = webhookPairings
   return {
     put: endpoint => guarded("store a member endpoint", async () => {
       await db().insert(t).values(endpoint).onConflictDoUpdate({
@@ -453,6 +490,21 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
     enable: (id, now) => guarded("enable a member endpoint", async () => {
       const [row] = await db().update(t).set({ disabledAt: null, disabledBy: null, updatedAt: now }).where(eq(t.id, id)).returning()
       return row
+    }),
+    insertPairing: row => guarded("store a pairing code", async () => {
+      await db().delete(p).where(or(lt(p.expiresAt, row.createdAt), and(eq(p.owner, row.owner), inArray(p.state, ["used", "refused"]))))
+      await db().insert(p).values(row)
+    }),
+    pairing: id => guarded("read a pairing code", async () => {
+      const [row] = await db().select().from(p).where(eq(p.id, id)).limit(1)
+      return row
+    }),
+    movePairing: (id, from, to, now, set = {}) => guarded("update a pairing code", async () => {
+      const [row] = await db().update(p).set({ ...set, state: to }).where(and(eq(p.id, id), eq(p.state, from), gte(p.expiresAt, now))).returning()
+      return row
+    }),
+    removePairing: (id, owner) => guarded("remove a pairing code", async () => {
+      await db().delete(p).where(and(eq(p.id, id), eq(p.owner, owner)))
     }),
   }
 }

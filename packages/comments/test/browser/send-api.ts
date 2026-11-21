@@ -1,11 +1,13 @@
 // The Comments API with Send on, for send.browser.mjs: the real handler and the real Send service on an in-memory
-// Database. Webhooks is a stand-in that keeps endpoints in memory and answers each delivery as the test says, so the
-// pill can show every state without posting anywhere. The URL guard is the real one.
+// Database. Webhooks pairs and keeps endpoints for real, but answers each delivery as the test says, so the pill can
+// show every state without posting anywhere.
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3 } from "h3"
 
-import { checkWebhookUrl } from "../../../webhooks/src/url-guard.ts"
+import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../../webhooks/src/database.ts"
+import * as realWebhooks from "../../../webhooks/src/index.ts"
+import { installWebhooks } from "../../../webhooks/src/runtime.ts"
 import { defineComments } from "../../src/index.ts"
 import { installComments } from "../../src/install.ts"
 import { createCommentsHandler } from "../../src/runtime/handler.ts"
@@ -19,28 +21,21 @@ const people: Record<string, { id: string, name: string }> = { ana: { id: "ana",
 
 export async function createSendApi() {
   const client = createClient({ url: ":memory:" })
-  await client.executeMultiple([commentsMigration, ...commentSendsTables.map(statement => `${statement};`)].join("\n"))
+  await client.executeMultiple([commentsMigration, ...[...commentSendsTables, ...webhooksTables].map(statement => `${statement};`)].join("\n"))
+  process.env.VITEHUB_WEBHOOKS_KEY ??= btoa(String.fromCharCode(...new Uint8Array(32).fill(7)))
+  const db = drizzle({ client })
+  installWebhooks({ webhooks: {}, store: createDrizzleWebhookStore(db), endpoints: createDrizzleWebhookEndpointStore(db) })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   const database = drizzle({ client }) as unknown as CommentsDatabase
-  const endpoints = new Map<string, { id: string, kind: "url" | "inbox", agent: string | null, host: string | null, disabledAt: number | null }>()
   const control = { fail: false, delay: 0, deliveries: 0 }
   const webhooks: CommentSendWebhooks = {
-    createMemberEndpoint: async (options) => {
-      const endpoint = { id: `whe_${options.owner}`, kind: options.kind, agent: options.agent ?? null, host: options.kind === "url" ? new URL(options.url).host : null, disabledAt: null }
-      endpoints.set(options.owner, endpoint)
-      return [undefined, endpoint]
-    },
-    getMemberEndpoint: async owner => [undefined, endpoints.get(owner) ?? null],
+    ...realWebhooks,
     getMemberDeliveryState: async () => undefined,
     sendToMemberEndpoint: async () => {
       await new Promise(resolve => setTimeout(resolve, control.delay))
       control.deliveries++
       return [undefined, { id: `whd_${control.deliveries}`, status: control.fail ? "failed" : "sent" }]
     },
-    // The real guard. The T3 relay resolves in public DNS; any other host fails before a lookup.
-    checkWebhookUrl,
-    sealWebhooksText: async (label, text) => [undefined, btoa(JSON.stringify([label, text]))],
-    unsealWebhooksText: async (_label, sealed) => [undefined, JSON.parse(atob(sealed))[1]],
   }
   const comments = defineComments({
     identify: ({ event }) => people[/(?:^|;\s*)user=(\w+)/.exec(event["~standard"].req.headers.get("cookie") ?? "")?.[1] ?? "ana"] ?? null,
@@ -72,7 +67,7 @@ export async function createSendApi() {
     },
     /** Makes every setup code too old. */
     expireCodes: async () => {
-      await client.execute("UPDATE vitehub_comment_send_codes SET expires_at = 0")
+      await client.execute("UPDATE vitehub_webhook_pairings SET expires_at = 0")
     },
   }
 }

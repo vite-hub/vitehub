@@ -21,18 +21,28 @@ interface EndpointLike {
   disabledAt: number | null
 }
 
+/** A pairing code, as Webhooks returns it. */
+interface PairingLike {
+  state: "waiting" | "paired" | "used" | "refused"
+  agent: string | null
+  host: string | null
+  address: string | null
+}
+
 /**
- * The parts of `@vite-hub/webhooks` that Send uses: the member endpoints, the URL guard, and the key that seals a
- * receiver's secret. The generated plugin imports the package only when `send` is on.
+ * The parts of `@vite-hub/webhooks` that Send uses: member pairing and member endpoints. The generated plugin imports the
+ * package only when `send` is on.
  */
 export interface CommentSendWebhooks {
-  createMemberEndpoint: (options: { owner: string, ownerName?: string, ownerEmail?: string, name: string, agent?: string, address?: string } & ({ kind: "url", url: string, secret: string, hosts?: readonly string[] } | { kind: "inbox" })) => Promise<Result<EndpointLike, string>>
+  startMemberPairing: (owner: string) => Promise<Result<{ code: string, secret: string, expiresAt: number }, string>>
+  pairMemberEndpoint: (input: unknown, options?: { hosts?: readonly string[] }) => Promise<Result<{ status: "paired", pairing: PairingLike } | { status: "expired" | "used" } | { status: "refused", reason: string }, string>>
+  refuseMemberPairing: (code: string) => Promise<Result<boolean, string>>
+  getMemberPairing: (owner: string, code: string) => Promise<Result<PairingLike | null, string>>
+  cancelMemberPairing: (owner: string, code: string) => Promise<Result<void, string>>
+  allowMemberPairing: (owner: string, code: string, options: { name: string | ((pairing: PairingLike) => string), ownerName?: string, ownerEmail?: string, hosts?: readonly string[] }) => Promise<Result<{ status: "allowed", endpoint: EndpointLike, pairing: PairingLike } | { status: "expired" | "not-owner" }, string>>
   getMemberEndpoint: (owner: string, options?: { address?: string }) => Promise<Result<EndpointLike | null, string>>
   getMemberDeliveryState: (id: string) => Promise<"pending" | "sending" | "sent" | "dead" | "cancelled" | undefined>
   sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, endpointId: string, deliveryId: string, sealBody: boolean, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
-  checkWebhookUrl: (url: string, options?: { hosts?: readonly string[] }) => Promise<Result<URL, string>>
-  sealWebhooksText: (label: string, text: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
-  unsealWebhooksText: (label: string, sealed: string) => Promise<readonly [ResultError<string>, undefined] | readonly [undefined, string]>
 }
 
 /** Who asks, and from which page: the user of the request, what the server checked, and where the API is. */
@@ -87,7 +97,6 @@ export interface CommentSendService {
   readOwn: (user: CommentsUser, id?: string, policy?: { gate: CommentsPolicyGate, console: boolean }) => Promise<CommentSendView | undefined>
 }
 
-const codeLifetime = 10 * 60_000
 const grantLifetime = 24 * 60 * 60_000
 const window = 60 * 60_000
 /** Sends that one member may make in one hour. */
@@ -99,22 +108,10 @@ const agents: Record<string, { name: string, logo: CommentSendLogo }> = {
   "claude-code": { name: "Claude Code", logo: "claude" },
   "codex": { name: "Codex", logo: "codex" },
 }
-const inboxes: Record<string, string> = { "Claude Code": "claude-code", "Codex": "codex" }
 
 const hex = (bytes: ArrayBuffer | Uint8Array) => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 const sha256 = async (text: string) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))
 const random = (bytes: number) => hex(crypto.getRandomValues(new Uint8Array(bytes)))
-
-/** Twelve letters and digits without look-alikes, as `K7QM-4XPA-9RTC`: 60 bits, read aloud without mistakes. */
-function setupCode(): string {
-  const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-  const bytes = crypto.getRandomValues(new Uint8Array(12))
-  const letters = [...bytes].map(byte => alphabet[byte % alphabet.length]).join("")
-  return `${letters.slice(0, 4)}-${letters.slice(4, 8)}-${letters.slice(8)}`
-}
-
-/** The key of a setup code: its hash, so the Database never holds a code that works. */
-const codeKey = (code: string) => sha256(`vitehub:comments:send-code:${code.trim().toUpperCase()}`)
 
 function agentOf(endpoint: { agent: string | null, host: string | null } | undefined): CommentSendAgent | undefined {
   const known = endpoint?.agent ? agents[endpoint.agent] : undefined
@@ -123,14 +120,6 @@ function agentOf(endpoint: { agent: string | null, host: string | null } | undef
 }
 
 const lastOf = (thread: CommentThread) => thread.messages.at(-1)
-
-/** A T3 thread link as `t3_thread_read` gives it: `t3-thread://v2/<environmentId>/<threadId>`. */
-const t3ThreadLink = /^t3-thread:\/\/v2\/[\w.~-]{1,128}\/[\w.~:-]{1,256}$/
-
-/** The thread link of a pair post, or `null`. It becomes an `href`, so anything but a T3 thread link is dropped. */
-export function commentSendThread(value: unknown): string | null {
-  return typeof value === "string" && t3ThreadLink.test(value) ? value : null
-}
 
 /** The member's email when Auth verified it, so a ViteHub Console account with that email acts as the endpoint's owner. */
 function verifiedEmail(user: CommentsUser): string | undefined {
@@ -427,69 +416,51 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if (plain) return plain
       const user = await maySend(caller)
       if (!user) return forbidden()
-      const now = Date.now()
-      const code = setupCode()
-      const id = await codeKey(code)
-      const secret = `whsec_${random(32)}`
-      const [keyError, sealed] = await (await webhooks()).sealWebhooksText(`comments-send-code:${id}`, JSON.stringify({ secret }))
-      if (keyError) throw keyError
-      await store.pruneCodes(user.id, now)
-      const expiresAt = now + codeLifetime
-      await store.insertCode({ id, member: user.id, state: "waiting", agent: null, host: null, thread: null, sealed, expiresAt, createdAt: now })
-      const prompt = commentSendPrompt({ origin: caller.origin, pairUrl: `${caller.origin}${caller.route}/send/pair`, code, secret, grant })
-      return [undefined, { code, prompt, expiresAt, agent: t3() }]
+      const tools = await webhooks()
+      const [error, started] = await tools.startMemberPairing(user.id)
+      if (error) throw error
+      const prompt = commentSendPrompt({ origin: caller.origin, pairUrl: `${caller.origin}${caller.route}/send/pair`, code: started.code, secret: started.secret, grant })
+      return [undefined, { code: started.code, prompt, expiresAt: started.expiresAt, agent: t3() }]
     },
 
     async pair(input, origin) {
       const code: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "code") : undefined
       const url: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "url") : undefined
       const inbox: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "inbox") : undefined
-      const thread: unknown = typeof input === "object" && input !== null ? Reflect.get(input, "thread") : undefined
       if (typeof code !== "string" || !code || code.length > 64) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the code of the setup prompt." }), undefined]
       if ((typeof url === "string") === (typeof inbox === "string")) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "Send `url`, the webhookUrl of the T3 task, or `inbox`, \"Claude Code\" or \"Codex\"." }), undefined]
-      const now = Date.now()
-      const id = await codeKey(code)
+      const tools = await webhooks()
       const plain = insecure(origin)
       if (plain) {
-        await store.moveCode(id, "waiting", "refused", now)
+        const [error] = await tools.refuseMemberPairing(code)
+        if (error) throw error
         return plain
       }
-      const row = await store.code(id)
-      if (!row || row.expiresAt < now) return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
-      if (row.state !== "waiting") return [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
-      const tools = await webhooks()
-      const label = `comments-send-code:${id}`
-      if (typeof inbox === "string") {
-        const agent = inboxes[inbox]
-        if (!agent) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "inbox: Send \"Claude Code\" or \"Codex\"." }), undefined]
-        const moved = await store.moveCode(id, "waiting", "paired", now, { agent })
-        return moved ? [undefined, { status: "paired", agent: agentOf(moved)! }] : [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
+      const [error, result] = await tools.pairMemberEndpoint(input, { hosts })
+      if (error) {
+        if (error.code === "WEBHOOKS_ENDPOINT_INVALID") return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: error.why }), undefined]
+        throw error
       }
-      const [refused, checked] = await tools.checkWebhookUrl(url as string, { hosts })
-      if (refused) {
-        await store.moveCode(id, "waiting", "refused", now)
-        return [commentsErrors.COMMENTS_SEND_CODE_REFUSED({ reason: refused.why }), undefined]
-      }
-      const [openError, opened] = await tools.unsealWebhooksText(label, row.sealed)
-      if (openError) throw openError
-      const secret = stringField(readFields(opened), "secret")
-      const [sealError, sealed] = await tools.sealWebhooksText(label, JSON.stringify({ secret, url: checked.href }))
-      if (sealError) throw sealError
-      const moved = await store.moveCode(id, "waiting", "paired", now, { agent: "t3", host: checked.host, thread: commentSendThread(thread), sealed })
-      return moved ? [undefined, { status: "paired", agent: agentOf(moved)! }] : [commentsErrors.COMMENTS_SEND_CODE_USED(), undefined]
+      if (result.status === "refused") return [commentsErrors.COMMENTS_SEND_CODE_REFUSED({ reason: result.reason }), undefined]
+      if (result.status !== "paired") return [result.status === "used" ? commentsErrors.COMMENTS_SEND_CODE_USED() : commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
+      return [undefined, { status: "paired", agent: agentOf(result.pairing)! }]
     },
 
     async check(caller, code) {
-      const row = caller.user ? await store.code(await codeKey(code)) : undefined
-      if (!row || row.member !== caller.user?.id || row.expiresAt < Date.now()) return { status: "expired" }
-      if (row.state === "waiting") return { status: "waiting" }
-      if (row.state === "refused") return { status: "refused" }
-      if (row.state === "paired") return { status: "paired", agent: agentOf(row)! }
+      if (!caller.user) return { status: "expired" }
+      const [error, pairing] = await (await webhooks()).getMemberPairing(caller.user.id, code)
+      if (error) throw error
+      if (!pairing) return { status: "expired" }
+      if (pairing.state === "waiting") return { status: "waiting" }
+      if (pairing.state === "refused") return { status: "refused" }
+      if (pairing.state === "paired") return { status: "paired", agent: agentOf(pairing)! }
       return { status: "expired" }
     },
 
     async cancel(caller, code) {
-      if (caller.user) await store.removeCode(await codeKey(code), caller.user.id)
+      if (!caller.user) return
+      const [error] = await (await webhooks()).cancelMemberPairing(caller.user.id, code)
+      if (error) throw error
     },
 
     async allow(caller, code) {
@@ -497,29 +468,18 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       if (plain) return plain
       const user = await maySend(caller)
       if (!user) return forbidden()
-      const id = await codeKey(code)
-      const row = await store.code(id)
-      // Only the member who copied the code may allow the agent that used it.
-      if (row && row.member !== user.id) return forbidden()
-      const used = row ? await store.moveCode(id, "paired", "used", Date.now()) : undefined
-      if (!used) return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
-      const tools = await webhooks()
-      const agent = agentOf(used)!
       const email = verifiedEmail(user)
       const name = typeof user.name === "string" && user.name.trim() ? user.name : undefined
-      const owner = { ...(name ? { ownerName: name } : {}), ...(email ? { ownerEmail: email } : {}) }
-      let created: Awaited<ReturnType<CommentSendWebhooks["createMemberEndpoint"]>>
-      if (used.host) {
-        const [openError, opened] = await tools.unsealWebhooksText(`comments-send-code:${id}`, used.sealed)
-        if (openError) throw openError
-        const target = readFields(opened)
-        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} thread`, agent: used.agent ?? "t3", ...(used.thread ? { address: used.thread } : {}), kind: "url", url: stringField(target, "url"), secret: stringField(target, "secret"), hosts })
-      }
-      else {
-        created = await tools.createMemberEndpoint({ owner: user.id, ...owner, name: `${agent.name} inbox`, agent: used.agent ?? "claude-code", kind: "inbox" })
-      }
-      if (created[0]) return [undefined, { status: "failed", reason: created[0].why }]
-      return [undefined, await deliver(caller, user, { id: created[1].id, thread: used.thread })]
+      const [error, allowed] = await (await webhooks()).allowMemberPairing(user.id, code, {
+        name: pairing => `${agentOf(pairing)?.name ?? "Agent"} ${pairing.host ? "thread" : "inbox"}`,
+        ...(name ? { ownerName: name } : {}),
+        ...(email ? { ownerEmail: email } : {}),
+        hosts,
+      })
+      if (error) return [undefined, { status: "failed", reason: error.why }]
+      // Only the member who copied the code may allow the agent that used it, and only once.
+      if (allowed.status !== "allowed") return allowed.status === "not-owner" ? forbidden() : [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
+      return [undefined, await deliver(caller, user, { id: allowed.endpoint.id, thread: allowed.pairing.address })]
     },
 
     async send(caller) {

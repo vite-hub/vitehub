@@ -264,6 +264,17 @@ describe("origin", () => {
     expect(deliveries).toHaveLength(0)
   })
 
+  it("rejects malformed pair posts over plain http without consuming the code", async () => {
+    const { call, page } = await setup()
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const code: string = started.body.data.code
+    for (const json of [{ code }, { code, url: relay, inbox: "Codex" }, { url: relay }, { code: "A".repeat(65), url: relay }]) {
+      const invalid = await call("/send/pair", { json, origin: null, base: "http://notes.test" })
+      expect(invalid).toMatchObject({ status: 400, body: { reason: "invalid", error: { code: "COMMENTS_INVALID_INPUT" } } })
+    }
+    expect((await call(`/send/pair/${code}`, { as: "ana" })).body.data).toEqual({ status: "waiting" })
+  })
+
   it("refuses a pair post over plain http, and refuses its code for good", async () => {
     const { call, page } = await setup()
     const { body } = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
