@@ -46,7 +46,9 @@ import {
 } from "./delivery-effects.ts"
 
 export { defineFinishEffect } from "./delivery-effects.ts"
-import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
+import { isTraceContentAttributeKey, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime/internal/trace"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { installAgentRunners, type RunAgentInlineOptions } from "./internal/agent-run.ts"
@@ -84,6 +86,7 @@ import {
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
+import { retainedUserMessages } from "./internal/input-attachments.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, resolveAgentInvocationsSetting, resolveFallbackAgentInvocations, type AgentInvocationsSetting } from "./invocations/app.ts"
 import { bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocations, type AgentInvocationWorkflowBinding } from "./invocations.ts"
@@ -243,6 +246,7 @@ import type {
   AgentUsage,
   AgentUsageRecord,
   AgentWorkflowRuntimeBinding,
+  ExternalAgentOptions,
   MaybePromise,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
@@ -443,6 +447,7 @@ export type {
   AgentAskQuestions,
   AgentAskQuestionsResolver,
   AgentDriver,
+  ExternalAgentOptions,
   AgentDriverAdaptiveCapacityOptions,
   AgentDriverCapacityOptions,
   AgentDriverCapacityQueueOptions,
@@ -498,6 +503,8 @@ export type {
   AgentModelResolver,
   AgentModelInstrumentationContext,
   AgentChannelsOptions,
+  AgentModelsEmulateSeed,
+  AgentModelsOptions,
   AgentOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
@@ -1065,8 +1072,8 @@ async function portableAgentWorkflowRunId(runId: string): Promise<string> {
   return `${generatedPrefix}${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`
 }
 
-async function portableWorkflowMessages(messages: Message[]): Promise<Message[]> {
-  const materialized = await materializeMessageAttachmentData(messages)
+async function portableWorkflowMessages(messages: Message[], optionalImage?: (message: Message) => boolean): Promise<Message[]> {
+  const materialized = await materializeMessageAttachmentData(messages, optionalImage)
   return await Promise.all(materialized.map(async message => ({
     ...message,
     parts: await Promise.all(message.parts.map(async (part) => {
@@ -1084,14 +1091,25 @@ async function portableWorkflowMessages(messages: Message[]): Promise<Message[]>
   })))
 }
 
-export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Promise<AgentRunInput<CALL_OPTIONS>> {
+export async function portableAgentWorkflowInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>, messageId?: string): Promise<AgentRunInput<CALL_OPTIONS>> {
   const workflowInput = { ...portableResolvedAgentInvokerInput(input) }
   delete workflowInput.abortSignal
   if (input.context?.[requireAgentWorkflowContextKey] === true) delete workflowInput.timeout
-  if (workflowInput.messages) workflowInput.messages = await portableWorkflowMessages(workflowInput.messages)
+  const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
+  if (workflowInput.messages) {
+    const messages = workflowInput.messages
+    const currentIndex = messageId ? messages.findIndex(message => message.id === messageId) : messages.findLastIndex(message => message.role === "user")
+    const history = new Set<Message>()
+    if (isAgentChannelDeliveryWorkflowBinding(delivery) && delivery.state === "chat" && currentIndex > 0) {
+      const queued = new Set(retainedUserMessages(messages, messageId))
+      for (const message of messages.slice(0, currentIndex)) {
+        if (message.role === "user" && !queued.has(message)) history.add(message)
+      }
+    }
+    workflowInput.messages = await portableWorkflowMessages(messages, message => history.has(message))
+  }
   if (workflowInput.message && typeof workflowInput.message !== "string") [workflowInput.message] = await portableWorkflowMessages([workflowInput.message])
   if (Array.isArray(workflowInput.prompt)) workflowInput.prompt = await portableWorkflowMessages(workflowInput.prompt)
-  const delivery = workflowInput.context?.[agentChannelDeliveryWorkflowContextKey]
   if (isAgentChannelDeliveryWorkflowBinding(delivery) && isRuntimeObject(delivery.steer) && isRuntimeObject(delivery.steer.lock)) {
     const { lock } = delivery.steer
     // State adapters may return RPC objects; only the lock fields cross runtimes.
@@ -1181,6 +1199,20 @@ async function reserveAgentChannelItem<TRuntimeConfig extends AgentRuntimeConfig
 }
 installAgentChannelItemReservation(reserveAgentChannelItem)
 
+/** The Agent Dev Loop marks the copy of an Agent whose `run` runs a Workspace command instead of the Driver. */
+const workspaceCommandRun = Symbol.for("vitehub.agentWorkspaceCommandRun")
+
+/**
+ * An Agent with `driver: "external"` runs outside the app. Fail before ViteHub writes an activity or a journal record.
+ * A Dev Loop Workspace command (`vitehub agent dev "!cmd"`) does not start the Driver, so it can still use the Workspace.
+ */
+function assertAgentRunsInApp(agent: unknown, context: Pick<AgentRuntimeContext, "agentIdentity">): void {
+  if (!hasAgentDefinition(agent) || Reflect.get(agent, workspaceCommandRun) === true) return
+  // SAFETY: defineBaseAgent sets this private Driver kind on every Agent Definition.
+  if ((agent as { [baseAgentDriverKind]?: AgentDriverKind })[baseAgentDriverKind] !== "external") return
+  throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUN({ agent: agentInvocationName(agent, context) ?? "agent" })
+}
+
 async function runAgentAsWorkflow<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1191,6 +1223,7 @@ async function runAgentAsWorkflow<
   input: AgentRunInput<CALL_OPTIONS>,
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
+  assertAgentRunsInApp(agent, context)
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
   const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
@@ -1308,7 +1341,7 @@ async function runAgentAsWorkflow<
         parsedInputData = false
       }
     }
-    workflowInput = await portableAgentWorkflowInput(parsedInput)
+    workflowInput = await portableAgentWorkflowInput(parsedInput, context.run?.messageId)
   }
   catch (error) {
     await recordPreparationFailure(error)
@@ -2226,7 +2259,9 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesInput<TRuntimeConfig, WorkspaceName, CALL_OPTIONS> | undefined, TOutput>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentInvocationContextValues, TOutput> {
   const driver = normalizeAgentDriver(options)
-  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runtime = defaultAgentWorkflowRuntime(), runEvents, uiMessageStream, version, workspace } = options
+  const { sandbox, capabilities, cli, description, hooks, invocations, messages, name, runEvents, uiMessageStream, version, workspace } = options
+  if (driver.kind === "external" && options.runtime) throw agentDiagnostics.AGENT_EXTERNAL_DRIVER_RUNTIME()
+  const runtime = options.runtime ?? (driver.kind === "external" ? false : defaultAgentWorkflowRuntime())
   const channels = normalizeAgentChannels(options.channels)
   const run = driver.kind === "run" || driver.kind === "ask" ? driver.run : undefined
   const capabilitiesResolver = typeof capabilities === "function"
@@ -2851,6 +2886,8 @@ type ConfiguredWorkspaceDefinition<TDefinition, TCapabilities = ConfiguredAgentS
   : never
 
 export interface DefineAgent {
+  (options: ExternalAgentOptions): AgentDefinition
+
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -3244,7 +3281,7 @@ export function agentWithColocatedInstructions<Agent>(agent: Agent, instructions
   const settings = (agent as AgentDefinition & { __vitehubAgentSettings?: AgentSettings }).__vitehubAgentSettings
   if (!settings) return agent
   const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "run" || driver.kind === "ask") return agent
+  if (driver.kind === "run" || driver.kind === "ask" || driver.kind === "external") return agent
   // An explicitly declared Workspace instruction Source remains authoritative for
   // Provider Drivers, even when a colocated instructions.md is present.
   const workspaceOptions = (agent as AgentDefinition & {
@@ -3527,7 +3564,7 @@ function toAgentAdapterRunContext<
 
 async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
   try {
-    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+    return await (await import("@vite-hub/workspace/runtime")).resolveRegisteredWorkspaceDefinition(name)
   }
   catch (error) {
     if (getViteHubErrorShape(error)?.code === "WORKSPACE_NOT_FOUND") return undefined
@@ -6264,7 +6301,7 @@ async function commitWorkspaceChanges<
   if (workspaceAutoCommitDisabled(context.workspaceDefinition, context.workspaceAutoCommit)) return
 
   const diff = await context.workspace.diff()
-  const { isWorkspaceConflict, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+  const [{ isWorkspaceConflict }, { resolveWorkspaceAutoCommit }] = await Promise.all([import("@vite-hub/workspace"), import("@vite-hub/workspace/internal/workspace")])
   const commit = resolveWorkspaceAutoCommit(
     workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
     diff,
@@ -8360,7 +8397,7 @@ function invocationCancellationDriver(definition: unknown): AgentInvocationCance
   const driver = internal?.[baseAgentDriver]
   const provider = isRuntimeRecord(driver) && typeof driver.provider === "string" ? driver.provider : undefined
   const kind = internal?.[baseAgentDriverKind] ?? "model"
-  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" ? "run" : kind }
+  const cancellationDriver: { kind: "model" | "provider" | "run", provider?: string } = { kind: kind === "ask" || kind === "external" ? "run" : kind }
   if (provider) cancellationDriver.provider = provider
   return agentInvocationCancellationDriver(cancellationDriver)
 }
@@ -8375,6 +8412,7 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  assertAgentRunsInApp(agent, context)
   await loadAgentHost()
   // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
   context = withForgeAccess(agent.channels, context)

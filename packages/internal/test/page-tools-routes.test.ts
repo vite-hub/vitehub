@@ -14,9 +14,9 @@ describe("addViteHubPageToolRoutes", () => {
     { mount: "" },
   ])("adds the session route and the loader asset once, for the first owner package: %j", ({ mount }) => {
     const kit = createNitroServerKit({ publicAssets: [{ baseURL: "/assets", dir: "/app/public" }] })
-    addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page", mount })
-    addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page", mount })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: `${mount}/_vitehub/page/session` }])
+    addViteHubPageToolRoutes(kit, { handler: "/a/page-tools-route.mjs", loader: "/a/dist/page", mount })
+    addViteHubPageToolRoutes(kit, { handler: "/b/page-tools-route.mjs", loader: "/b/dist/page", mount })
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", meta: { vitehubOwnAccess: true }, route: `${mount}/_vitehub/page/tools` }])
     expect(kit.config.publicAssets).toEqual([
       { baseURL: "/assets", dir: "/app/public" },
       { baseURL: `${mount}/_vitehub/page/assets`, dir: "/a/dist/page", maxAge: 300 },
@@ -45,9 +45,9 @@ describe("viteHubPageToolsBase", () => {
 
   it("adds the routes below the mount", () => {
     const kit = createNitroServerKit({})
-    addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page", mount: "/portal" })
-    addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page", mount: "/portal" })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: "/portal/_vitehub/page/session" }])
+    addViteHubPageToolRoutes(kit, { handler: "/a/page-tools-route.mjs", loader: "/a/dist/page", mount: "/portal" })
+    addViteHubPageToolRoutes(kit, { handler: "/b/page-tools-route.mjs", loader: "/b/dist/page", mount: "/portal" })
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-tools-route.mjs", meta: { vitehubOwnAccess: true }, route: "/portal/_vitehub/page/tools" }])
     expect(kit.config.publicAssets).toEqual([{ baseURL: "/portal/_vitehub/page/assets", dir: "/a/dist/page", maxAge: 300 }])
   })
 })

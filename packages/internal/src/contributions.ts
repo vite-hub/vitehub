@@ -35,6 +35,8 @@ export interface ContributionContext {
   projectRoot: string
   /** Server directories that the host forwards, for example Nuxt's `serverDir` and the server directories of layers. */
   serverDirs?: readonly string[]
+  /** The flat list of Vite plugins, so a factory can read what sibling plugins declare. */
+  plugins?: readonly unknown[]
 }
 
 /**
@@ -156,6 +158,8 @@ export async function collectContributions(
   const candidates: object[] = []
   await flattenPlugins(plugins ?? [], candidates, new Set())
   const collected = new Map<string, { contribution: CollectedContribution, identity: string }>()
+  // Factories see the flat plugin list, as Database contributions do, so they can read sibling plugins.
+  const context: ContributionContext = { ...options.context, plugins: candidates }
 
   for (const plugin of candidates) {
     if (!Object.hasOwn(plugin, "vitehub")) continue
@@ -168,7 +172,7 @@ export async function collectContributions(
       throw options.invalid(`[vitehub] Plugin ${JSON.stringify(contributor)} contributed an invalid ${options.kind}: ${reason}`)
     }
     const callable = typeof source === "function"
-    const entries: unknown = callable ? await Reflect.apply(source, undefined, [options.context]) : source
+    const entries: unknown = callable ? await Reflect.apply(source, undefined, [context]) : source
     if (entries === undefined && callable) continue
     if (!Array.isArray(entries)) fail(`\`vitehub.${options.key}\` must be an array or a function that returns one.`)
 

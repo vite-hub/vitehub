@@ -52,7 +52,8 @@ describe("schedule provider output", () => {
       const rootDir = await createTempProject("vitehub-schedule-netlify-url-")
       await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
         "import { defineSchedule } from '@vite-hub/schedule'",
-        "import { resolvePublicUrl, consoleInvocationUrl } from '@vite-hub/runtime'",
+        "import { resolvePublicUrl } from '@vite-hub/runtime'",
+        "import { consoleInvocationUrl } from '@vite-hub/runtime/internal/console'",
         "export default defineSchedule({ cron: '0 0 * * *', handler: () => {",
         "  const origin = resolvePublicUrl({ agentName: 'worker' })",
         "  globalThis.scheduleUrl = origin ? consoleInvocationUrl(origin, 'worker', 'invocation') : undefined",
@@ -61,7 +62,10 @@ describe("schedule provider output", () => {
       await generateProviderOutputs({
         clientOutDir: "dist/client",
         rootDir,
-        bundleAlias: { "@vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")) },
+        bundleAlias: {
+          "@vite-hub/runtime/internal/console": fileURLToPath(import.meta.resolve("@vite-hub/runtime/internal/console")),
+          "@vite-hub/runtime": fileURLToPath(import.meta.resolve("@vite-hub/runtime")),
+        },
         bundleDefines: {
           __VITEHUB_PUBLIC_URL__: JSON.stringify(origin ? { url: origin } : undefined) ?? "undefined",
           __VITEHUB_APP_BASE_URL__: JSON.stringify(base),

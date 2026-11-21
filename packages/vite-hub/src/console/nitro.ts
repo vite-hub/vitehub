@@ -37,7 +37,7 @@ export function addConsoleAppRoutes(
 
 /**
  * Serves the script of the **Console** page tool at `<mount>/_vitehub/console/assets`, and the page tools session
- * `GET <mount>/_vitehub/page/session` with the loader at `<mount>/_vitehub/page/assets`, so the Console link works in
+ * `GET <mount>/_vitehub/page/tools` with the loader at `<mount>/_vitehub/page/assets`, so the Console link works in
  * an app without Comments. When Comments added the session and the loader first, they stay as they are. `mount` is the
  * route prefix from `viteHubPageToolsBase()`, or empty when Nitro adds the app base, as with Nuxt.
  */
@@ -48,7 +48,7 @@ export function addConsolePageToolRoutes(
 ): void {
   const script = join(consoleRuntimeRoot, "page-tool")
   const loader = join(consoleRuntimeRoot, "page")
-  const handler = join(consoleRuntimeRoot, "server/page-session.js")
+  const handler = join(consoleRuntimeRoot, "server/page-tools-route.js")
   // A second registration, such as after Vite resolved another base, replaces the entries of the first one.
   nitro.handlers = (nitro.handlers ?? []).filter(candidate => candidate.handler !== handler)
   nitro.publicAssets = [
