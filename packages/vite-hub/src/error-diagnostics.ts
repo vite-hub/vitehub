@@ -81,6 +81,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Pass non-empty strings to `tags` and `invalidateTag()`, for example `[\"posts\", \"post:1\"]`.",
     },
+    VITE_HUB_CLOUDFLARE_RESOURCE_MISSING: {
+      why: ({ file, resources }: { file: string, resources: string }) => `${file} lacks ${resources}. ViteHub generates these resources for this build, and the Worker fails when code first reads a missing one.`,
+      fix: "Check the project Wrangler config and any Nitro hook or module that edits `cloudflare.wrangler` for a step that drops or renames the entry, and remove that step. Run `vitehub inspect resources` to list the resources and their names.",
+    },
     VITE_HUB_DEFINITION_PACKAGE_MISSING: {
       why: ({ definitions, packages }: { definitions: string, install: string, off: string, packages: string }) => `${definitions}, but the app does not have ${packages}.`,
       fix: ({ install, off }: { definitions: string, install: string, off: string, packages: string }) => `Run \`pnpm add ${install}\` in your app. To keep the feature off, set ${off} in the ViteHub options.`,
@@ -112,6 +116,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_PACKAGE_VERSION_UNSUPPORTED: {
       why: ({ installed }: { installed: string }) => `${installed} ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.`,
       fix: ({ install }: { install: string }) => `Install the ViteHub packages of the same release as vite-hub: \`pnpm add ${install}\`. When pnpm \`overrides\`, \`resolutions\`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.`,
+    },
+    VITE_HUB_PEER_VERSION_UNSUPPORTED: {
+      why: ({ installed }: { installed: string }) => `${installed} ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as \`drizzle-orm/libsql/codecs\` not exported.`,
+      fix: ({ install }: { install: string }) => `Install a supported version in your app: \`pnpm add ${install}\`. pnpm keeps a version that the lockfile or another dependency already has, even outside the peer range of vite-hub, and only warns. When pnpm \`overrides\` or \`resolutions\` pin the package, change them too, then install again.`,
     },
     VITE_HUB_PUBLIC_URL_INVALID: {
       why: ({ value }: { value: string }) => `\`publicUrl\` must be an http or https origin without a path, but it is ${value}.`,
