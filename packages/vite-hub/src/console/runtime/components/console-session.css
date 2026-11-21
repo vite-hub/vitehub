@@ -61,11 +61,17 @@
   flex: none;
   height: 2.5rem;
   min-width: 0;
+  position: relative;
 }
 
 /* The active tab has the theme's underline: a 1px line in the highlighted text color under the label. */
-.session-inspector__tab[data-active="true"] {
-  box-shadow: inset 0 -1px 0 var(--foreground);
+.session-inspector__underline {
+  background: var(--foreground);
+  bottom: 0;
+  height: 1px;
+  inset-inline: 0;
+  pointer-events: none;
+  position: absolute;
 }
 
 .session-inspector__surface-icon {

@@ -179,7 +179,13 @@
  */
 .vh-image-overlay {
   background: rgb(from var(--vh-media-scrim, var(--vh-bg-elevated)) r g b / 80%);
+  transition: opacity 150ms;
   z-index: 59;
+}
+
+/* The page shows again while a comment's picture travels back to its tile. */
+.vh-image-overlay--closing {
+  opacity: 0;
 }
 
 .vh-image-dialog {
@@ -340,18 +346,6 @@
   opacity: 1;
 }
 
-/* Under reduced motion the surface opens and closes at once. The labels still fade. */
-@media (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__surface {
-    transition: width 150ms cubic-bezier(0.2, 0, 0, 1);
-  }
-}
-
-/* Escape and a menu trigger close the rail at once, so a menu opens next to an icon that does not move. */
-.vh-primitive-rail[data-dismissed] .vh-primitive-rail__surface {
-  transition: none;
-}
-
 .vh-primitive-rail__item[aria-current="page"] {
   background: var(--vh-bg-accented);
   color: var(--vh-highlighted);
@@ -387,237 +381,9 @@
   width: 1.125rem;
 }
 
-.vh-primitive-icon [data-motion] {
-  transform-box: view-box;
-  transform-origin: var(--vh-primitive-icon-origin, 12px 12px);
-}
-
-/* Each icon moves once when a pointer enters or keyboard focus arrives. Nothing moves while idle. */
-@media (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__item:focus-visible .vh-primitive-icon [data-motion] {
-    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-@media (hover: hover) and (prefers-reduced-motion: no-preference) {
-  .vh-primitive-rail__item:hover .vh-primitive-icon [data-motion] {
-    animation: vh-primitive-icon 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-}
-
-@keyframes vh-primitive-icon {
-  50% {
-    opacity: var(--vh-primitive-icon-opacity, 1);
-    transform: var(--vh-primitive-icon-motion, none);
-  }
-}
-
-.vh-primitive-icon[data-icon="agent"] {
-  --vh-primitive-icon-motion: scaleY(0.2);
-  --vh-primitive-icon-origin: 12px 14px;
-}
-
-.vh-primitive-icon[data-icon="auth"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="blob"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="browser"] {
-  --vh-primitive-icon-motion: translate(1.5px, 1.5px);
-}
-
-.vh-primitive-icon[data-icon="bundle"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="cache"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="channels"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="cli"] {
-  --vh-primitive-icon-opacity: 0;
-}
-
-.vh-primitive-icon[data-icon="cms"] {
-  --vh-primitive-icon-motion: translate(-1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="codemods"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="comments"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="compare"] {
-  --vh-primitive-icon-motion: translateX(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="connections"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="console"] {
-  --vh-primitive-icon-motion: translateX(1px);
-}
-
-.vh-primitive-icon[data-icon="content"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="database"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="choices"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="development"] {
-  --vh-primitive-icon-motion: rotate(14deg);
-}
-
-.vh-primitive-icon[data-icon="docs"] {
-  --vh-primitive-icon-motion: skewY(-6deg);
-  --vh-primitive-icon-origin: 12px 12px;
-}
-
-.vh-primitive-icon[data-icon="email"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="env"] {
-  --vh-primitive-icon-motion: rotate(-16deg);
-  --vh-primitive-icon-origin: 7.5px 16.5px;
-}
-
-.vh-primitive-icon[data-icon="forge"] {
-  --vh-primitive-icon-motion: translateX(-1px);
-}
-
-.vh-primitive-icon[data-icon="forms"] {
-  --vh-primitive-icon-motion: translateY(1px);
-}
-
-.vh-primitive-icon[data-icon="gateways"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="guides"] {
-  --vh-primitive-icon-motion: rotate(45deg);
-}
-
-.vh-primitive-icon[data-icon="hosts"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="i18n"] {
-  --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="kv"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="logs"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="mcp"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="markdown-template"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="presets"] {
-  --vh-primitive-icon-motion: translate(-1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="queue"] {
-  --vh-primitive-icon-motion: translateX(2px);
-}
-
-.vh-primitive-icon[data-icon="rate-limit"] {
-  --vh-primitive-icon-motion: rotate(-70deg);
-  --vh-primitive-icon-origin: 12px 16px;
-}
-
-.vh-primitive-icon[data-icon="realtime"] {
-  --vh-primitive-icon-motion: scale(1.12);
-  --vh-primitive-icon-opacity: 0.4;
-}
-
-.vh-primitive-icon[data-icon="reference"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="runtime"] {
-  --vh-primitive-icon-motion: scale(0.6);
-}
-
-.vh-primitive-icon[data-icon="sandbox"] {
-  --vh-primitive-icon-motion: scale(0.7);
-}
-
-.vh-primitive-icon[data-icon="schedule"] {
-  --vh-primitive-icon-motion: translateX(4.5px);
-}
-
-.vh-primitive-icon[data-icon="shell"] {
-  --vh-primitive-icon-opacity: 0;
-}
-
-.vh-primitive-icon[data-icon="skills"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="source"] {
-  --vh-primitive-icon-motion: translateY(1.5px);
-}
-
-.vh-primitive-icon[data-icon="start"] {
-  --vh-primitive-icon-motion: skewY(-10deg);
-  --vh-primitive-icon-origin: 5px 8.5px;
-}
-
-.vh-primitive-icon[data-icon="ui"] {
-  --vh-primitive-icon-motion: translate(-1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="usage"] {
-  --vh-primitive-icon-motion: scaleY(0.75);
-  --vh-primitive-icon-origin: 12px 17px;
-}
-
-.vh-primitive-icon[data-icon="web-container"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
-.vh-primitive-icon[data-icon="webhooks"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="workflow"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
-}
-
-.vh-primitive-icon[data-icon="workspace"] {
-  --vh-primitive-icon-motion: translateY(-1px);
-}
-
 /* A picture's Remove button in a comment box is a 20px round badge in the inverted color, as in Drop. The button is a
    Nuxt UI button, so this rule stays outside a layer to win over its classes. */
-[data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) [data-slot="attachment-actions"] > button {
+[data-slot="comment-image-stack-remove"] {
   background: var(--vh-highlighted);
   border: 0;
   border-radius: 9999px;
@@ -1059,10 +825,10 @@
     color: var(--vh-error);
   }
 
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
   [data-trace-chevron] svg {
     stroke: currentColor;
     stroke-width: 2;
-    transition: rotate 150ms;
   }
 
   [data-slot="trace-collapsible-trigger"][aria-expanded="true"] [data-trace-chevron] svg {
@@ -1072,38 +838,6 @@
   [data-slot="trace-collapsible-content"] {
     min-width: 0;
     overflow: hidden;
-  }
-
-  [data-slot="trace-collapsible-content"][data-open] {
-    animation: vh-trace-open 200ms ease-out;
-  }
-
-  [data-slot="trace-collapsible-content"][data-closed] {
-    animation: vh-trace-close 200ms ease-out;
-  }
-
-  @keyframes vh-trace-open {
-    from {
-      height: 0;
-    }
-    to {
-      height: var(--collapsible-panel-height);
-    }
-  }
-
-  @keyframes vh-trace-close {
-    from {
-      height: var(--collapsible-panel-height);
-    }
-    to {
-      height: 0;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="trace-collapsible-content"] {
-      animation: none !important;
-    }
   }
 
   [data-slot="trace-collapsible-content-inner"] {
@@ -1730,10 +1464,6 @@
     flex: 1;
   }
 
-  [data-slot="prompt-input-toolbar"] button:active:not(:disabled) {
-    scale: 0.96;
-  }
-
   /* On a phone the Send button sends, so it gets a 48px target around its 32px circle without a larger circle. */
   @media (pointer: coarse) {
     [data-slot="prompt-input-toolbar"] button {
@@ -1857,26 +1587,20 @@
     color: var(--vh-highlighted);
   }
 
-  /* A pending state pings, as Kibo UI's StatusIndicator does. */
-  :is([data-slot="connection-status-indicator"]:not([data-status="connected"]), [data-slot="sync-status-indicator"]:is([data-status="loading"], [data-status="synchronizing"]))::after {
-    animation: vh-status-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-    background: inherit;
-    border-radius: inherit;
-    content: "";
-    inset: 0;
-    position: absolute;
+  /* A pending state pulses while it waits, as a running workspace step does. Work that runs fades, it does not travel
+     (docs/design/motion.md, "Spinners and fades"). */
+  :is([data-slot="connection-status-indicator"]:not([data-status="connected"]), [data-slot="sync-status-indicator"]:is([data-status="loading"], [data-status="synchronizing"])) {
+    animation: vh-status-pulse 1.5s ease-in-out infinite;
   }
 
-  @keyframes vh-status-ping {
-    75%,
-    100% {
-      opacity: 0;
-      transform: scale(2.25);
+  @keyframes vh-status-pulse {
+    50% {
+      opacity: 0.35;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    :is([data-slot="connection-status-indicator"], [data-slot="sync-status-indicator"])::after {
+    :is([data-slot="connection-status-indicator"], [data-slot="sync-status-indicator"]) {
       animation: none;
     }
   }
@@ -2029,18 +1753,13 @@
     white-space: nowrap;
   }
 
-  /* A live or pending status pings, as the connection dot does. */
-  [data-slot="status-indicator"][data-pulse]::after {
-    animation: vh-status-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-    background: inherit;
-    border-radius: inherit;
-    content: "";
-    inset: 0;
-    position: absolute;
+  /* A live or pending status pulses, as the connection dot does. */
+  [data-slot="status-indicator"][data-pulse] {
+    animation: vh-status-pulse 1.5s ease-in-out infinite;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [data-slot="status-indicator"][data-pulse]::after {
+    [data-slot="status-indicator"][data-pulse] {
       animation: none;
     }
   }
@@ -2128,7 +1847,6 @@
     position: absolute;
     right: 0;
     text-align: start;
-    transition: top 160ms ease;
   }
 
   button[data-slot="comment-margin-card"] {
@@ -2153,7 +1871,6 @@
     left: auto;
     position: fixed;
     right: 1rem;
-    transition: top 160ms ease;
     width: 18rem;
     z-index: 1;
   }
@@ -2180,10 +1897,6 @@
 
   [data-slot="comment-margin-card"] [data-slot="comment-list-text"] {
     -webkit-line-clamp: 3;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-margin-card"], [data-slot="comment-layer-popover"][data-margin="true"] { transition: none; }
   }
 
   [data-slot="comment-layer-item"] {
@@ -2236,7 +1949,6 @@
   [data-slot="comment-selection-bar"] {
     --vh-selection-bar-text: color-mix(in oklab, var(--vh-inverted) 82%, var(--vh-highlighted));
     align-items: center;
-    animation: vh-comment-selection-bar-in 140ms cubic-bezier(0.23, 1, 0.32, 1);
     background: var(--vh-highlighted);
     border: 1px solid color-mix(in oklab, var(--vh-inverted) 12%, transparent);
     border-radius: 12px;
@@ -2271,7 +1983,7 @@
     position: relative;
     touch-action: manipulation;
     transition-duration: 150ms;
-    transition-property: background-color, color, scale;
+    transition-property: background-color, color;
     transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
     white-space: nowrap;
   }
@@ -2297,35 +2009,10 @@
     }
   }
 
-  [data-slot="comment-selection-bar-action"]:active {
-    scale: 0.96;
-  }
-
   [data-slot="comment-selection-bar-kbd"] {
     font: inherit;
     margin-inline-start: 6px;
     opacity: 0.6;
-  }
-
-  @keyframes vh-comment-selection-bar-in {
-    from {
-      opacity: 0;
-      scale: 0.96;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-selection-bar"] {
-      animation: none;
-    }
-
-    [data-slot="comment-selection-bar-action"] {
-      transition-property: background-color, color;
-    }
-
-    [data-slot="comment-selection-bar-action"]:active {
-      scale: none;
-    }
   }
 
   /* Floating surfaces take the layered shadow of the theme, which draws their hairline too. Without the theme, the hairline stays. */
@@ -2449,19 +2136,18 @@
 
   /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
      of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
-     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
-     corner. The bubble is the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
+     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It comes out of its spot
+     with the appear effect of the motion layer (`data-motion-appear`), as a tooltip comes out of its trigger. The bubble is
+     the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
   [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
     --vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 8%, transparent);
     --vh-bubble-radius: 1.4375rem;
-    animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
     border: 0;
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
     box-shadow:
       0 0 0 1px var(--vh-bubble-edge),
       0 2px 4px color-mix(in oklab, var(--vh-highlighted) 6%, transparent),
       0 10px 24px -6px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
-    transform-origin: top left;
     width: 18rem;
   }
 
@@ -2476,30 +2162,14 @@
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
-    transform-origin: top right;
   }
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
-    transform-origin: bottom left;
   }
 
   [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
     border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
-    transform-origin: bottom right;
-  }
-
-  @keyframes vh-comment-bubble-in {
-    from {
-      opacity: 0;
-      scale: 0.96;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
-      animation: none;
-    }
   }
 
   [data-slot="comment-composer"] {
@@ -2520,32 +2190,8 @@
     padding-block: 0.5rem 0.125rem;
   }
 
-  [data-slot="comment-composer"][data-shake="shake"] {
-    animation: vh-comment-shake 400ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-  }
-
   [data-slot="comment-composer"][data-shake="flash"] [data-slot="prompt-input-group"] {
     animation: vh-comment-flash 450ms ease both;
-  }
-
-  @keyframes vh-comment-shake {
-    10%,
-    90% {
-      transform: translateX(-1px);
-    }
-    20%,
-    80% {
-      transform: translateX(3px);
-    }
-    30%,
-    50%,
-    70% {
-      transform: translateX(-5px);
-    }
-    40%,
-    60% {
-      transform: translateX(5px);
-    }
   }
 
   @keyframes vh-comment-flash {
@@ -2553,12 +2199,6 @@
     60% {
       border-color: var(--vh-error);
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-error) 25%, transparent);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    [data-slot="comment-composer"][data-shake="shake"] {
-      animation: none;
     }
   }
 
@@ -2894,43 +2534,11 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-primary) 20%, transparent);
   }
 
-  /* The files in a comment box wrap, as in Drop, so the Remove badge on a picture's corner is not cut off. */
+  /* The files in a comment box wrap, as in Drop. */
   [data-slot="comment-composer"] [data-slot="prompt-input-attachments"] {
     flex-wrap: wrap;
     gap: 0.375rem;
     overflow: visible;
-  }
-
-  /* A picture in a comment box is a 40px square, as in Drop: no name, and the Remove button on its top right corner.
-     The name stays for a screen reader. Other files keep their chip with the name. */
-  [data-slot="comment-composer"] [data-slot="attachment"]:has(> [data-slot="attachment-media"][data-variant="image"]) {
-    background: none;
-    border: 0;
-    border-radius: calc(var(--vh-radius) * 0.75);
-    min-width: 0;
-    padding: 0;
-
-    & > [data-slot="attachment-media"] {
-      border-radius: inherit;
-      outline: 1px solid color-mix(in oklab, var(--vh-highlighted) 10%, transparent);
-      outline-offset: -1px;
-      width: 2.5rem;
-    }
-
-    & > [data-slot="attachment-content"] {
-      clip-path: inset(50%);
-      height: 1px;
-      overflow: hidden;
-      position: absolute;
-      white-space: nowrap;
-      width: 1px;
-    }
-
-    & > [data-slot="attachment-actions"] {
-      position: absolute;
-      right: -0.375rem;
-      top: -0.375rem;
-    }
   }
 
   [data-slot="comment-reply-attachments"] {
@@ -2959,27 +2567,209 @@
     padding: 0.75rem 0.75rem 0.25rem;
   }
 
+  /*
+   * The pictures of a message as a mosaic, as in a chat: one keeps its own shape up to 10rem tall, so a wide screenshot
+   * shows whole; two split the width; three put the first beside the other two; four or more show four, and the last
+   * says how many more. Each tile crops its picture to fill it.
+   */
   [data-slot="comment-reply-images"] {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    display: grid;
+    gap: 0.25rem;
     margin-top: 0.5rem;
 
-    /* A comment's image keeps its own shape, up to 10rem tall, so a wide screenshot shows whole instead of a 4:3 crop. */
-    & .vh-image-preview {
-      aspect-ratio: auto;
-      max-height: 10rem;
-      max-width: 100%;
-      width: auto;
+    &[data-count="1"] {
+      display: flex;
     }
 
-    & .vh-image-preview img {
+    &[data-count="2"] {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 7rem;
+    }
+
+    &[data-count="3"] {
+      grid-template-columns: 2fr 1fr;
+      grid-template-rows: 4.75rem 4.75rem;
+
+      & > [data-slot="comment-reply-image"]:first-child {
+        grid-row: span 2;
+      }
+    }
+
+    &[data-count="4"] {
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 5.25rem 5.25rem;
+    }
+  }
+
+  [data-slot="comment-reply-image"] {
+    appearance: none;
+    background: var(--vh-bg-elevated);
+    border: 1px solid var(--vh-border);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    color: var(--vh-muted);
+    cursor: zoom-in;
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+    padding: 0;
+    position: relative;
+
+    & img {
+      display: block;
+      height: 100%;
+      object-fit: cover;
+      width: 100%;
+    }
+
+    /* The tile of the open picture is empty while the picture is out of it. */
+    &[data-open="true"] {
+      visibility: hidden;
+    }
+  }
+
+  [data-count="1"] > [data-slot="comment-reply-image"] {
+    max-width: 100%;
+
+    & img {
       height: auto;
       max-height: 10rem;
       max-width: 100%;
-      object-fit: contain;
       width: auto;
     }
+  }
+
+  [data-slot="comment-reply-image-more"] {
+    background: color-mix(in oklab, var(--vh-highlighted) 55%, transparent);
+    color: var(--vh-inverted);
+    display: grid;
+    font-size: 0.9375rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    inset: 0;
+    place-items: center;
+    position: absolute;
+  }
+
+  /*
+   * The pictures of a comment box as one stack of cards beside the text. The top card sits in front, and up to two
+   * more peek out behind it. The count sits on its corner. Hover, focus, or a tap fans the cards out above the box,
+   * each 3.5rem square with its Remove badge, and the motion layer travels them between the two places.
+   */
+  [data-slot="comment-image-stack"] {
+    align-self: flex-end;
+    flex: none;
+    height: 2rem;
+    position: relative;
+    width: 2.5rem;
+
+    &:not(:has([data-slot="comment-image-stack-card"])) {
+      display: none;
+    }
+  }
+
+  [data-slot="comment-image-stack-cards"] {
+    inset: 0;
+    position: absolute;
+  }
+
+  [data-slot="comment-image-stack-card"] {
+    --vh-stack-near: clamp(0, var(--vh-stack-depth), 2);
+    background: var(--vh-bg-elevated);
+    border-radius: calc(var(--vh-radius) * 0.75);
+    box-shadow: 0 0 0 2px var(--vh-bg), 0 1px 3px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
+    height: 1.75rem;
+    left: calc(0.125rem + var(--vh-stack-near) * 0.1875rem);
+    opacity: clamp(0, 3 - var(--vh-stack-depth), 1);
+    position: absolute;
+    top: calc(0.25rem - var(--vh-stack-near) * 0.1875rem);
+    width: 1.75rem;
+    z-index: calc(10 - var(--vh-stack-near));
+
+    & .vh-image-preview {
+      border-radius: inherit;
+    }
+
+    & [data-slot="comment-image-stack-remove"] {
+      position: absolute;
+      right: -0.375rem;
+      top: -0.375rem;
+      visibility: hidden;
+    }
+  }
+
+  [data-slot="comment-image-stack"][data-fanned="true"] [data-slot="comment-image-stack-cards"] {
+    --vh-fan-width: min(var(--vh-fan-room), calc(var(--vh-fan-count) * 4rem + 0.5rem));
+    bottom: 100%;
+    box-sizing: border-box;
+    display: flex;
+    gap: 0.5rem;
+    inset-inline: auto;
+    left: clamp(var(--vh-fan-left), -0.5rem, calc(var(--vh-fan-left) + var(--vh-fan-room) - var(--vh-fan-width)));
+    padding: 0.5rem;
+    top: auto;
+    width: var(--vh-fan-width);
+    z-index: 20;
+
+    &[data-scrollable="true"] {
+      overflow-x: auto;
+    }
+  }
+
+  [data-slot="comment-image-stack"][data-fanned="true"] [data-slot="comment-image-stack-card"] {
+    flex: none;
+    height: 3.5rem;
+    left: auto;
+    opacity: 1;
+    position: relative;
+    top: auto;
+    width: 3.5rem;
+    z-index: auto;
+
+    & [data-slot="comment-image-stack-remove"] {
+      visibility: visible;
+    }
+  }
+
+  [data-slot="comment-image-stack-toggle"] {
+    appearance: none;
+    background: none;
+    border: 0;
+    border-radius: calc(var(--vh-radius) * 0.75);
+    cursor: pointer;
+    inset: 0;
+    padding: 0;
+    position: absolute;
+    z-index: 15;
+  }
+
+  [data-slot="comment-image-stack-count"] {
+    background: var(--vh-highlighted);
+    border-radius: 9999px;
+    box-shadow: 0 0 0 2px var(--vh-bg);
+    color: var(--vh-inverted);
+    font-size: 0.6875rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    height: 1.125rem;
+    line-height: 1.125rem;
+    min-width: 1.125rem;
+    padding: 0 0.3125rem;
+    pointer-events: none;
+    position: absolute;
+    right: -0.25rem;
+    text-align: center;
+    top: -0.25rem;
+    transition: opacity 150ms;
+    z-index: 16;
+  }
+
+  [data-fanned="true"] > [data-slot="comment-image-stack-count"] {
+    opacity: 0;
+  }
+
+  /* Once the text of a row box wraps, the stack moves to the row of the buttons, after attach. */
+  [data-slot="comment-composer"][data-layout="row"][data-multiline="true"] [data-slot="comment-image-stack"] {
+    order: 1;
   }
 
   [data-slot="comment-thread-actions"] {
@@ -3449,6 +3239,51 @@
     object-fit: contain;
   }
 
+  /* The preview of a comment's pictures: the toolbar with the name and the count, and the picture between its arrows. */
+  .vh-image-gallery__body {
+    display: contents;
+  }
+
+  .vh-image-gallery .vh-image-dialog__toolbar {
+    transition: opacity 150ms;
+
+    &[data-closing="true"] {
+      opacity: 0;
+    }
+  }
+
+  .vh-image-gallery__count {
+    color: var(--vh-on-media, var(--vh-muted));
+    display: inline-flex;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    margin-inline-end: 0.25rem;
+    opacity: 0.8;
+    white-space: pre;
+  }
+
+  .vh-image-gallery__stage {
+    display: flex;
+    justify-content: center;
+    position: relative;
+  }
+
+  .vh-image-gallery__step {
+    border-radius: 9999px;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 1;
+
+    &.vh-image-gallery__step--previous {
+      left: 0.5rem;
+    }
+
+    &.vh-image-gallery__step--next {
+      right: 0.5rem;
+    }
+  }
+
   .vh-image-dialog__error {
     background: var(--vh-media-scrim, var(--vh-bg-elevated));
     border-radius: var(--vh-radius);
@@ -3622,12 +3457,12 @@
     height: 0.8rem;
     stroke: currentColor;
     stroke-width: 2;
-    transition: transform 150ms ease;
     width: 0.8rem;
   }
 
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
   .vh-agent-tool-list__disclosure[open] > summary .vh-agent-tool-list__chevron {
-    transform: rotate(180deg);
+    rotate: 180deg;
   }
 
   .vh-agent-tool-list__body {
@@ -4020,17 +3855,14 @@
     white-space: nowrap;
   }
 
-  /* The handle glides to the block under the pointer. A narrow screen has no room beside the text, as in Nuxt UI. */
+  /* The handle moves to the block under the pointer with the list mover of the motion layer (UEditorDragHandle). A
+     narrow screen has no room beside the text, as in Nuxt UI. */
   .vh-editor-drag-handle {
     align-items: center;
     display: flex;
     justify-content: center;
-    transition: top 200ms ease-out, left 200ms ease-out;
   }
   .vh-editor-drag-handle__handle { cursor: grab; padding-inline: 0.25rem; }
-  @media (prefers-reduced-motion: reduce) {
-    .vh-editor-drag-handle { transition: none; }
-  }
   @media (max-width: 639.98px) {
     .vh-editor-drag-handle { display: none; }
   }
@@ -4118,13 +3950,12 @@
     height: var(--vh-agent-control);
     justify-content: center;
     padding: 0;
-    transition: background-color 150ms ease-out, color 150ms ease-out, scale 150ms ease-out;
+    transition: background-color 150ms ease-out, color 150ms ease-out;
     width: var(--vh-agent-control);
   }
   .vh-agent-session__toggle > * { height: 1rem; width: 1rem; }
   .vh-agent-session__toggle:hover { background: var(--vh-agent-hover); color: var(--vh-text); }
   .vh-agent-session__toggle[aria-pressed="true"] { background: var(--vh-agent-pressed); color: var(--vh-highlighted); }
-  .vh-agent-session__toggle:active { scale: 0.96; }
 
   .vh-agent-session__body { display: flex; flex: 1 1 0; min-height: 0; position: relative; }
   .vh-agent-session__scroll { flex: 1 1 0; min-width: 0; overflow-y: auto; scrollbar-gutter: stable; }
@@ -4225,9 +4056,8 @@
     text-decoration: none;
     width: 100%;
   }
-  .vh-agent-session__row[data-interactive] { cursor: pointer; transition: background-color 150ms ease-out, scale 150ms ease-out; }
+  .vh-agent-session__row[data-interactive] { cursor: pointer; transition: background-color 150ms ease-out; }
   .vh-agent-session__row[data-interactive]:hover { background: var(--vh-agent-hover); }
-  .vh-agent-session__row[data-interactive]:active { scale: 0.98; }
   .vh-agent-session__row-icon { color: var(--vh-muted); flex: none; height: 1rem; width: 1rem; }
   .vh-agent-session__row-label { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vh-agent-session__row-value {
@@ -4311,7 +4141,8 @@
   .vh-agent-session__work-summary:hover { color: var(--vh-text); }
   .vh-agent-session__work-count { color: var(--vh-muted); font-size: 0.75rem; }
   .vh-agent-session__work-failed { color: var(--vh-error); }
-  .vh-agent-session__work-chevron { height: 0.875rem; transition: rotate 150ms ease-out; width: 0.875rem; }
+  /* The disclosure effect of the motion layer turns the chevron from its old angle to this one with a spring. */
+  .vh-agent-session__work-chevron { height: 0.875rem; width: 0.875rem; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-chevron { rotate: 180deg; }
   .vh-agent-session__work[data-open] .vh-agent-session__work-summary {
     align-self: stretch;
@@ -4689,10 +4520,6 @@
     transform-origin: top left;
   }
   .vh-device-frame[data-dragging] .vh-device-frame__page { pointer-events: none; }
-  @media (prefers-reduced-motion: no-preference) {
-    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__footprint { transition: width 200ms ease-out, height 200ms ease-out; }
-    .vh-device-frame[data-on]:not([data-dragging]) .vh-device-frame__page { transition: transform 200ms ease-out; }
-  }
   .vh-device-frame__readout {
     background: var(--vh-highlighted);
     border-radius: calc(var(--vh-radius) * 0.75);

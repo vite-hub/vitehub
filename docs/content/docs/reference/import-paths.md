@@ -168,6 +168,7 @@ the same behavior.
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
 | `vite-hub/ui/workspace` | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
 | `vite-hub/ui/motion` | The motion layer without Vue: `installMotion()` for a page or a shadow root, the spring engine, reduced motion, and `defineMotionEffect()`. |
+| `vite-hub/ui/motion/core` | The same motion layer, where `installMotion(root, { effects })` runs only the effects that you list, such as `pressEffect`, so a small script bundles only those. |
 | `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |
 | `vite-hub/ui/vite` | Register the canonical UI package for Vue with Vite. In Nuxt, `vite-hub/nuxt` adds the UI runtime. |
@@ -205,7 +206,6 @@ These paths have no `vite-hub` path:
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/comment-marks.css` | UI Package | The comment pins and highlights as plain CSS, for a page that reads the file as text with `?raw`. |
-| `@vite-hub/ui/icon-swap.css` | UI Package | A copy and check icon cross-fade as plain CSS, for a page that runs no script of ours and reads the file as text with `?raw`. |
 | `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 
