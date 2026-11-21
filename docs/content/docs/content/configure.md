@@ -432,6 +432,12 @@ A site that prerenders every page needs Content only while it builds. Keep Conte
 - Read it only from routes that the prerender needs, as the two forms below show.
 - List the routes that no page links, such as `/llms.txt`, in the Nitro `prerender.routes` option. In `nuxt.config.ts`, it is `nitro.prerender.routes`.
 
+Install `comark-content` in your app to import `fs()` in both examples:
+
+```bash
+pnpm add comark-content
+```
+
 ```ts [server/pages.ts]
 import fs from 'comark-content/sources/fs'
 import { defineContent } from 'vite-hub/content'
