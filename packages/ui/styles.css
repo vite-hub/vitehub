@@ -3822,14 +3822,18 @@
   .vh-ws-file-head { align-items: center; align-self: stretch; display: flex; flex: 1; gap: 4px; min-width: 0; }
   .vh-ws-file-head-spacer { flex: 1; }
   .vh-ws-breadcrumb { align-items: center; color: var(--vh-text); display: flex; font-size: 12.5px; gap: 2px; min-width: 0; overflow: hidden; white-space: nowrap; }
-  .vh-ws-breadcrumb > span { color: var(--vh-muted); }
-  .vh-ws-breadcrumb-separator { color: var(--vh-dimmed); flex: none; height: 13px; stroke-width: 1.5; width: 13px; }
-  .vh-ws-breadcrumb b { color: var(--vh-highlighted); font-weight: 500; margin-left: 3px; overflow: hidden; text-overflow: ellipsis; }
+  /* In a narrow pane the folders and their separators shrink first, so the file name keeps its room the longest. */
+  .vh-ws-breadcrumb > span { color: var(--vh-muted); flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .vh-ws-breadcrumb-separator { color: var(--vh-dimmed); flex: 0 1000 13px; height: 13px; min-width: 0; stroke-width: 1.5; width: 13px; }
+  .vh-ws-breadcrumb b { color: var(--vh-highlighted); flex: 0 1 auto; font-weight: 500; margin-left: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .vh-ws-wrap-button.vh-ws-wrap-button { border-radius: 4px; color: var(--vh-muted); flex: none; height: 24px; justify-content: center; min-height: 0; padding: 0; width: 24px; }
   .vh-ws-wrap-button svg { height: 15px; stroke-width: 1.5; width: 15px; }
   .vh-ws-wrap-button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
   /* The status line items. The shell gives the line its height, its gap, and its padding. */
   .vh-ws-status-items { align-items: center; display: flex; flex: 1; gap: inherit; min-width: 0; }
+  /* In a narrow pane the language and the indentation shorten, and the cursor stays whole. */
+  .vh-ws-status-items > span:not(.vh-ws-status-spacer) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .vh-ws-status-items > .vh-ws-status-cursor { flex: none; }
   .vh-ws-status-spacer { flex: 1; }
   .vh-ws-terminal { background: var(--vh-ws-terminal-bg); flex: 1; height: 100%; min-height: 0; padding: 0.5rem 0 0 0.75rem; }
   .vh-ws-terminal .xterm, .vh-ws-terminal .xterm-viewport { background: var(--vh-ws-terminal-bg) !important; }

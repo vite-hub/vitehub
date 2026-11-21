@@ -58,7 +58,7 @@ function extension(path: string): string {
 function iconBody(path: string): string {
   const type = extension(path);
   if (type === "vue") return vueLogo;
-  const entry = glyphs[type];
+  const entry = Object.hasOwn(glyphs, type) ? glyphs[type] : undefined;
   return entry ? glyph(entry[0], color(entry[1])) : glyph("·", "var(--vh-muted)");
 }
 
