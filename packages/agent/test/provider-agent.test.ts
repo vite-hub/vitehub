@@ -4525,6 +4525,32 @@ cli_auth_credentials_store = "keyring"
     await rm(directory as string, { force: true, recursive: true })
   })
 
+  it.each(["claude-code", "codex"] as const)("handles an older unsupported image on a new %s thread", async (driver) => {
+    const threadId = `thread-unsupported-history-${driver}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const adapter = createProviderAgentAdapter({ provider: driver })
+    const base = context(threadId)
+    const fetchData = vi.fn(async () => new Uint8Array([1, 2]))
+
+    await adapter.generate({
+      ...base,
+      messages: [
+        { id: "m-1", parts: [{ fetchData, mediaType: "image/bmp", name: "old.bmp", type: "image" }], role: "user" },
+        { id: "m-2", parts: [{ text: "continue without the image", type: "text" }], role: "user" },
+      ],
+      runtime: { ...base.runtime, run: { messageId: "m-2", runId: `run-${threadId}`, threadId } },
+    } as never)
+
+    if (driver === "claude-code") {
+      expect(fetchData).not.toHaveBeenCalled()
+      expect(provider.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
+    } else {
+      expect(fetchData).toHaveBeenCalledOnce()
+      expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ attachments: [expect.objectContaining({ mimeType: "image/bmp", name: "old.bmp" })] }))
+    }
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
   it("records an image type that the provider runtime does not send as image input", async () => {
     const threadId = "thread-attachment-report-heic"
     const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])

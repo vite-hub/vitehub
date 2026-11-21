@@ -271,7 +271,7 @@ text to the prompt.
 | Custom `driver.run` | Your code reads the prepared context. ViteHub builds no model prompt. |
 
 Read [Agent Drivers](/docs/agents/agent-drivers) for each Driver. Run
-`vitehub agent info --agent <name>` to see the resolved instructions and
+`vitehub agent get --agent <name>` to see the resolved instructions and
 coverage warnings. See the [CLI development loop](/docs/cli).
 
 ## Next steps

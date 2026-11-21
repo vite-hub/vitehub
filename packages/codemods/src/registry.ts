@@ -3,6 +3,8 @@ import { agentSurface } from "./agent-surface/index.ts"
 import { authAccessors } from "./auth-accessors/index.ts"
 import { authSignIn } from "./auth-sign-in/index.ts"
 import { channels } from "./channels/index.ts"
+import { choicesPackage } from "./choices-package/index.ts"
+import { cliGetList } from "./cli-get-list/index.ts"
 import { cliUrlFlag } from "./cli-url-flag/index.ts"
 import { cliYesFlag } from "./cli-yes-flag/index.ts"
 import { cmsRoles } from "./cms-roles/index.ts"
@@ -66,6 +68,8 @@ export const codemods: readonly Codemod[] = [
   cliUrlFlag,
   cliYesFlag,
   cmsRoles,
+  choicesPackage,
+  cliGetList,
 ]
 
 /**
@@ -100,4 +104,6 @@ export const upgradeCodemods: readonly Codemod[] = [
   cliUrlFlag,
   cliYesFlag,
   cmsRoles,
+  choicesPackage,
+  cliGetList,
 ]

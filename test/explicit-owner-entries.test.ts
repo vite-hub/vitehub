@@ -147,6 +147,7 @@ const pinnedOwnerEntries: Record<string, readonly string[]> = {
     "github",
     "glob",
     "isWorkspaceConflict",
+    "isWorkspaceName",
     "markdown",
     "mcpResources",
     "registerWorkspacePlugin",

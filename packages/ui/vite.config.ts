@@ -57,6 +57,8 @@ export default defineConfig({
       playground: "src/playground.ts",
       // Outside the root barrel, so pages that only render Markdown never load Tiptap.
       "markdown-editor": "src/markdown-editor.ts",
+      // The motion layer has no Vue, so plain TypeScript surfaces such as the page pill load it alone.
+      motion: "src/motion.ts",
       // Outside the root barrel, so chat pages never load CodeMirror or xterm.
       workspace: "src/workspace.ts",
       nuxt: "src/nuxt.ts",

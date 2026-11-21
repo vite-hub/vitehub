@@ -259,7 +259,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && Object.hasOwn(value, "cron")
 }
 
-async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
+export async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
   const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined

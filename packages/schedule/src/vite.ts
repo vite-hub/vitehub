@@ -8,7 +8,7 @@ import { durabilityModuleFile } from "@vite-hub/internal/durability"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/bundle-options"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { createRuntimeRegistryContents, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, hasViteConfigPlugin, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -58,6 +58,7 @@ const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroStartedRegistry = ".vitehub/nitro/schedule/started-registry.js"
+const generatedNitroInventoryRegistry = ".vitehub/nitro/schedule/inventory-registry.js"
 const defaultCatchUpMs = 60 * 60 * 1000
 const generatedNitroScheduleModule = "./.vitehub/nitro/schedule/module.mjs"
 const generatedNitroNetlifyEntry = ".vitehub/nitro/schedule/netlify-entry.mjs"
@@ -339,6 +340,8 @@ function mergeNitroVercelCrons(
 
 interface RenderNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
+  hostTimings: Record<string, { cron: string, timeZone?: string }>
+  inventoryRegistryFile?: string
   timeZoneCrons: ScheduleTimeZoneCrons
   /** The module that exports the app's `databases`. The Process Runtime claims occurrences in its Default Database. */
   leaseDatabaseImport?: string
@@ -360,9 +363,11 @@ const scheduleRuntimeModule = ownModule(import.meta.url, "runtime")
 const scheduleKVRuntimeModule = ownModule(import.meta.url, "runtime/kv")
 const scheduleProcessRuntimeModule = ownModule(import.meta.url, "runtime/process")
 const scheduleStaticRuntimeModule = ownModule(import.meta.url, "runtime/static")
+const scheduleStateModule = ownModule(import.meta.url, "runtime/state")
 
 function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): string {
   const providerWake = options.providerDefinitions.length > 0
+  const installInventory = options.inventoryRegistryFile !== undefined || Object.keys(options.hostTimings).length > 0
   const processRuntime = options.processRuntime
   const processRuntimeOptions = processRuntime
       ? {
@@ -381,6 +386,10 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
   const startedStoreFactory = memoryStores ? "createMemoryStartedScheduleStore" : "createKVStartedScheduleStore"
   return [
     "import { definePlugin } from 'nitro'",
+    ...(installInventory ? [`import { setHostScheduleInventory } from ${JSON.stringify(scheduleStateModule)}`] : []),
+    ...(options.inventoryRegistryFile
+      ? [`import inventoryRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.inventoryRegistryFile))}`]
+      : []),
     ...(providerWake
       ? [
           `import scheduleRegistry from ${JSON.stringify(moduleImportSpecifier(options.pluginFile, options.providerRegistryFile))}`,
@@ -414,6 +423,9 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
         ]
       : []),
     "export default definePlugin((nitroApp) => {",
+    ...(installInventory
+      ? [`  setHostScheduleInventory({ timings: ${JSON.stringify(options.hostTimings)}${options.inventoryRegistryFile ? ", registry: inventoryRegistry" : ""} })`]
+      : []),
     ...(options.startedRegistryFile
       ? [
           "  installStartedSchedules({",
@@ -621,6 +633,8 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 
 interface WriteNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
+  hostTimings: Record<string, { cron: string, timeZone?: string }>
+  inventoryDefinitions: DiscoveredScheduleDefinition[]
   leaseDatabaseImport?: string
   memoryProcessStores?: boolean
   startableDefinitions: DiscoveredScheduleDefinition[]
@@ -641,11 +655,14 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   const startedRegistryFile = options.startableDefinitions.length ? resolve(root, generatedNitroStartedRegistry) : undefined
+  const inventoryRegistryFile = options.inventoryDefinitions.length ? resolve(root, generatedNitroInventoryRegistry) : undefined
   // A CLI command that loads the project renders the same files while the dev server watches them. A rewrite of the
   // same bytes would reload the dev server's Nitro worker, which can read the file while it is empty.
   const writes: Array<Promise<void>> = [
     writeFileIfChanged(pluginFile, renderNitroSchedulePlugin({
       cronOverrides: options.cronOverrides,
+      hostTimings: options.hostTimings,
+      inventoryRegistryFile,
       timeZoneCrons: options.timeZoneCrons,
       leaseDatabaseImport: options.leaseDatabaseImport,
       memoryProcessStores: options.memoryProcessStores,
@@ -659,6 +676,10 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
       runtimeImport: options.runtimeImport,
     })),
   ]
+  if (inventoryRegistryFile) {
+    writes.push(writeFileIfChanged(inventoryRegistryFile, createRuntimeRegistryContents(inventoryRegistryFile, options.inventoryDefinitions)))
+    writes.push(writeFileIfChanged(inventoryRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
+  }
   if (startedRegistryFile) {
     writes.push(writeFileIfChanged(startedRegistryFile, createRuntimeRegistryContents(startedRegistryFile, options.startableDefinitions)))
     writes.push(writeFileIfChanged(startedRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase)))
@@ -704,8 +725,9 @@ function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinitio
   }
 }
 
-function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions, startable: number): boolean {
+function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleNitroConfigOptions, startable: number): boolean {
   return selectNitroScheduleDefinitions(definitions, options).length > 0 || options.runtime !== undefined || startable > 0
+    || (options.nitroOwnsPaths === true && definitions.length > 0)
 }
 
 function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleOptions): boolean {
@@ -777,8 +799,20 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
         return timing ? [[definition.name, timing]] : []
       }))
     : undefined
+  const processNames = new Set(processRuntime ? staticDefinitions.map(definition => definition.name) : [])
+  const hostTimings = new Map<string, { cron: string, timeZone?: string }>()
+  const inventoryDefinitions = definitions.filter(({ name, handler }) => {
+    if (processNames.has(name)) return false
+    const override = options.providerOutput !== false && cronOverrides && Object.hasOwn(cronOverrides, name) ? cronOverrides[name] : undefined
+    const timing = override ? { cron: override, timeZone: "UTC" } : options.command === "build" ? readStaticScheduleTiming(handler) : undefined
+    if (!timing) return true
+    hostTimings.set(name, timing)
+    return false
+  })
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
+    hostTimings: Object.fromEntries(hostTimings),
+    inventoryDefinitions,
     crons,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
     leaseDatabaseImport: internal.leaseDatabaseImport,
@@ -818,9 +852,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   let command: "build" | "serve" | undefined
-  const processStorageOptions = (plugins: readonly unknown[] | undefined) => ({
-    ...(hasVitePlugin(plugins, databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
-    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasVitePlugin(plugins, "@vite-hub/kv/vite"),
+  const processStorageOptions = (hasPlugin: (name: string) => boolean) => ({
+    ...(hasPlugin(databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
+    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
   })
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
@@ -866,7 +900,9 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
         contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
-        ...processStorageOptions(config.plugins),
+        ...processStorageOptions(typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function"
+          ? name => hasVitePlugin(config.plugins, name)
+          : name => hasViteConfigPlugin(env, name)),
         preliminary: true,
         root: config.root || process.cwd(),
         serverDirs,
@@ -887,7 +923,7 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
       const definitions = discoverRegistrySchedules()
       emitStandaloneProviderOutput = (options.runtime === undefined || options.providerOutput === "standalone") && shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
-      const storage = processStorageOptions(config.plugins)
+      const storage = processStorageOptions(name => hasVitePlugin(config.plugins, name))
       if (config.command) {
         const nitro = await createScheduleNitroConfig({
           ...options,

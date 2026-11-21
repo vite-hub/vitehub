@@ -82,7 +82,7 @@ Delivery options match the Agent-level `messages` settings in [Channels](/docs/a
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read this configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Chat History window sent to the trigger. `maxMessages` includes the current message. `maxImages` (default `0`) resends that many of the newest history images. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Chat History window sent to the trigger. `maxMessages` includes the current message. `maxImages` resends that many of the newest history images: default `4` for Codex and Claude Code Drivers, `0` for other Drivers. |
 | `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). Invalid values use UTC. |
 | `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Does not set model input. |
 | `messageHistory` | Chat SDK message-history configuration | inherited | Passed to the Chat SDK. |

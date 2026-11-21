@@ -1,8 +1,9 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
-import { runScheduleFrom } from "./execute.ts"
-import { getScheduleRunStore } from "./state.ts"
+import { loadStaticScheduleDefinition, runScheduleFrom } from "./execute.ts"
+import { startedSchedulesTickName } from "./started-name.ts"
+import { getHostScheduleInventory, getProcessScheduleDefinitions, getScheduleRunStore, getStartedScheduleRuntime } from "./state.ts"
 import { cancelSchedule, listSchedules, startSchedule } from "../started.ts"
 
 import type { ResultError } from "@vite-hub/runtime"
@@ -248,8 +249,18 @@ function operationError(error: ResultError): ResultError {
   return withStatus(error, startedErrorStatus[error.code] ?? 500)
 }
 
+/** Serializable view of one Static Schedule Definition, which runs on its own `cron`. */
+export interface ScheduleDefinitionSummary {
+  cron: string
+  name: string
+  timeZone?: string
+}
+
 /** Result of `schedule.list`. */
 export interface ScheduleListResult {
+  /** The Static Schedule Definitions of this server, by name. */
+  definitions: ScheduleDefinitionSummary[]
+  /** The Schedules that code started with `startSchedule()`, oldest first. Empty when no Definition can be started. */
   schedules: StartedScheduleSummary[]
 }
 
@@ -258,10 +269,29 @@ export interface StartedScheduleResult {
   schedule: StartedScheduleSummary
 }
 
+async function listStaticSchedules(filter?: string): Promise<ScheduleDefinitionSummary[]> {
+  const inventory = getHostScheduleInventory()
+  const registry = inventory?.registry ?? {}
+  const timings = new Map([...Object.entries(inventory?.timings ?? {}), ...(getProcessScheduleDefinitions() ?? [])])
+  const names = [...new Set([...timings.keys(), ...Object.keys(registry)])]
+    .filter(name => name !== startedSchedulesTickName && (filter === undefined || name === filter))
+    .sort((left, right) => left.localeCompare(right))
+  const definitions = await Promise.all(names.map(async name => [name, timings.get(name) ?? await loadStaticScheduleDefinition(name, registry)] as const))
+  return definitions.flatMap(([name, definition]) => definition?.cron === undefined
+    ? []
+    : [{ cron: definition.cron, name, ...(definition.timeZone === undefined ? {} : { timeZone: definition.timeZone }) }])
+}
+
+/**
+ * Lists the Static Schedule Definitions and the Schedules that code started. An app with only cron Schedules has no store
+ * for started Schedules, so it lists only its Definitions.
+ */
 export async function runScheduleList(input: { name?: string }): Promise<ScheduleListResult> {
+  const definitions = await listStaticSchedules(input.name)
+  if (!getStartedScheduleRuntime()) return { definitions, schedules: [] }
   const [error, schedules] = await listSchedules(input.name === undefined ? {} : { name: input.name })
   if (error) throw operationError(error)
-  return { schedules: schedules.map(summarizeStartedSchedule) }
+  return { definitions, schedules: schedules.map(summarizeStartedSchedule) }
 }
 
 export async function runScheduleStart(input: { at?: string, cron?: string, name: string, payload?: unknown, timeZone?: string }): Promise<StartedScheduleResult> {

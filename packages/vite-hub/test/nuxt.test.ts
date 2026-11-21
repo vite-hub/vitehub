@@ -2993,9 +2993,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       expect(config.noExternals).toEqual(expect.arrayContaining(["vite-hub", "@vite-hub/"]))
       expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
       expect(config.handlers).toEqual(expect.arrayContaining([
-        { handler, method: "post", route: "/_vitehub/connections" },
-        { handler, method: "get", route: "/_vitehub/connections/connect/**" },
-        { handler, method: "get", route: "/_vitehub/connections/callback" },
+        { handler, method: "post", meta: { vitehubOwnAccess: true }, route: "/_vitehub/connections" },
+        { handler, method: "get", meta: { vitehubOwnAccess: true }, route: "/_vitehub/connections/connect/**" },
+        { handler, method: "get", meta: { vitehubOwnAccess: true }, route: "/_vitehub/connections/callback" },
       ]))
       // Resolve generated imports, including the app's actor module and the discovered Connection.
       const output = await build({
@@ -3585,6 +3585,40 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       virtual: { "#vitehub/kv/config": "export const hosting = undefined\nexport const kv = false\nexport const loadDatabases = undefined\nexport default { hosting, kv }\n" },
       workflows: true,
     })
+  })
+
+  it.each(["cached", "uncached", "prepare"])("checks Agent State on a %s Nuxt build", async (mode) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-state-warning-"))
+    onTestFinished(() => rm(root, { force: true, recursive: true }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.stubEnv("VITEHUB_AGENT_STATE_URL", undefined)
+    vi.stubEnv("VERCEL", "1")
+    onTestFinished(() => {
+      vi.unstubAllEnvs()
+      warn.mockRestore()
+    })
+    const owner = hubAgent()
+    mocks.vitehub.mockReturnValue([owner])
+    const app = createNuxt()
+    const serverDir = resolve(root, "server")
+    Object.assign(app.nuxt.options, {
+      rootDir: root,
+      serverDir,
+      buildDir: resolve(root, ".nuxt"),
+      experimental: { nitroViteEnvironment: false },
+      _prepare: mode === "prepare",
+    })
+    await mkdir(resolve(serverDir, "agents"), { recursive: true })
+    await writeFile(resolve(serverDir, "agents/support.ts"), "export default {}\n")
+    await viteHubNuxtModule({ console: false, env: false, host: "vercel" }, app.nuxt)
+    await app.runNitroConfigHook({})
+    if (mode === "uncached") {
+      for (const hook of app.buildBeforeHooks) hook()
+      const configResolved = owner.configResolved as (config: Record<string, unknown>) => Promise<void>
+      await configResolved({ ...app.nuxt.options.vite, root, command: "build", logger: { info: vi.fn(), warn } })
+    }
+    if (mode !== "prepare") for (const hook of app.nitroBuildBeforeHooks) hook()
+    expect(warn.mock.calls.filter(([message]) => String(message).includes("AGENT_R0893"))).toHaveLength(mode === "prepare" ? 0 : 1)
   })
 
   it("writes primitive deployment env on a Nuxt Nitro-only cache hit", async () => {
@@ -4430,7 +4464,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
     expect(options.imports.imports).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
-      { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/choices/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
       { from: "vite-hub/device/vue", name: "useStoredData" },
@@ -4682,7 +4716,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
       { from: "vite-hub/agent/vue", name: "useChat" },
       { from: "vite-hub/source/client", name: "useCollection" },
-      { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/choices/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
       { from: "vite-hub/device/vue", name: "useStoredData" },
@@ -4721,7 +4755,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const imports = (nuxt: typeof withBlob.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
     expect(imports(withBlob.nuxt)).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
-      { from: "vite-hub/decisions/vue", name: "useChoices" },
+      { from: "vite-hub/choices/vue", name: "useChoices" },
       { from: "vite-hub/forms/vue", name: "useFormAction" },
       { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
       { from: "vite-hub/device/vue", name: "useStoredData" },
@@ -4732,7 +4766,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/blob/vue", name: "useMultipartUpload" },
       { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
-    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }, { from: "vite-hub/device/vue", name: "useStoredData" }, { from: "vite-hub/device/vue", name: "useStoredFetch" }, { from: "vite-hub/device", name: "setDeviceAccount" }, { from: "vite-hub/device", name: "clearDevice" }, { from: "vite-hub/device", name: "inspectDevice" }])
+    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/choices/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }, { from: "vite-hub/device/vue", name: "useStoredData" }, { from: "vite-hub/device/vue", name: "useStoredFetch" }, { from: "vite-hub/device", name: "setDeviceAccount" }, { from: "vite-hub/device", name: "clearDevice" }, { from: "vite-hub/device", name: "inspectDevice" }])
   })
 
   describe("Device", () => {
@@ -4928,10 +4962,70 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
       const src = resolve(root, ".vitehub/sync/nuxt-sign-out.mjs")
       expect(nuxt.options.plugins).toContainEqual({ src, mode: "client" })
-      expect(await readFile(src, "utf8")).toContain("onSignOut(() => clearSync())")
     }
     finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the queued writes of the user who signs out, and names the user of each write to Sync", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-sync-auth-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    await mkdir(resolve(root, "server/sync"), { recursive: true })
+    const { nuxt } = createNuxt()
+    nuxt.options.rootDir = root
+    nuxt.options.serverDir = resolve(root, "server")
+    await viteHubNuxtModule({ auth: true, host: "node" }, nuxt)
+
+    const { computed, ref, watch } = await import("vue")
+    const sync = await import("@vite-hub/sync/client")
+    const signOut = { listener: undefined as (() => unknown) | undefined }
+    const state = ref<{ pending: boolean, error: Error | null, user: { id: string } | null }>({ pending: true, error: null, user: null })
+    vi.doMock("#imports", async () => ({ defineNuxtPlugin: <T>(plugin: T) => plugin, watch: (await import("vue")).watch }))
+    vi.doMock("vite-hub/sync/client", () => sync)
+    vi.doMock("vite-hub/auth/vue", () => ({
+      onSignOut: (listener: () => unknown) => {
+        signOut.listener = listener
+        return () => undefined
+      },
+      useUserSession: () => ({
+        ready: computed(() => !state.value.pending),
+        error: computed(() => state.value.error),
+        user: computed(() => state.value.user),
+      }),
+    }))
+    const copy = await mkdtemp(resolve(import.meta.dirname, ".sync-plugin-"))
+    vi.stubGlobal("window", new EventTarget())
+    vi.stubGlobal("document", new EventTarget())
+    vi.stubGlobal("crypto", { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const store = sync.createSync("todos", { interval: false, fetch: async () => { throw new TypeError("Failed to fetch") } })
+    const writes = Array<ReturnType<typeof store.insert>>()
+    let stop: (() => void) | undefined
+    try {
+      await writeFile(resolve(copy, "plugin.mjs"), await readFile(resolve(root, ".vitehub/sync/nuxt-sign-out.mjs"), "utf8"))
+      // SAFETY: the generated plugin is the object that `defineNuxtPlugin()` got, which the fake returns as is.
+      const { default: plugin } = await import(pathToFileURL(resolve(copy, "plugin.mjs")).href) as { default: { dependsOn?: string[], setup: () => void } }
+      plugin.setup()
+      expect(plugin.dependsOn).toEqual(["vitehub:auth"])
+      stop = watch(() => state.value.user, user => {
+        if (user) writes.push(store.insert({ title: "Offline" }))
+      }, { flush: "sync" })
+      state.value = { pending: false, error: null, user: { id: "ada" } }
+      expect(store.getState()).toMatchObject({ queued: 1, rows: [{ title: "Offline" }] })
+      state.value = { pending: false, error: new Error("Failed to fetch"), user: null }
+      await signOut.listener?.()
+      expect(writes[0]?.state).toBe("queued")
+      expect(store.getState()).toMatchObject({ queued: 0, rows: [] })
+    }
+    finally {
+      stop?.()
+      store.destroy()
+      await sync.clearSync()
+      vi.unstubAllGlobals()
+      await rm(copy, { recursive: true, force: true })
+      vi.doUnmock("#imports")
+      vi.doUnmock("vite-hub/sync/client")
+      vi.doUnmock("vite-hub/auth/vue")
     }
   })
 

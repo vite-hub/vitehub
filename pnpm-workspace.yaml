@@ -48,7 +48,8 @@ catalogs:
     "@ai-sdk/mcp": 2.0.69
     "@ai-sdk/openai": 4.0.88
     "@ai-sdk/openai-compatible": 3.0.65
-    "@ai-sdk/provider": ^4.0.24
+    # Keep at the version that `ai` pins, so an Agent app installs one copy (test/ai-sdk-single-copy.test.ts).
+    "@ai-sdk/provider": 4.0.24
     "@ai-sdk/vue": 4.0.130
     "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15

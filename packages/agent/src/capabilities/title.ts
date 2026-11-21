@@ -416,6 +416,9 @@ async function generateTitleWithDriver(
   if (driver.kind === "ask") {
     throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] title({ driver }) requires a Driver that returns text. driver.ask returns Jev answers." })
   }
+  if (driver.kind === "external") {
+    throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] title({ driver }) requires a Driver that runs in the app. An \"external\" Driver runs outside it." })
+  }
   if (driver.kind === "run") {
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(context, await driver.run(titleRunContext(context, input, prompt) as never))

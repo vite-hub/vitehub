@@ -27,15 +27,16 @@ It needs the AI SDK provider package of its model API. The `api` option selects 
 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
-| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
 | `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
-The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need.
+The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need. `openai()` uses `@ai-sdk/openai` for both, so an OpenAI app installs only that package.
 
 - The gateway rereads its URL, key, and headers per request, so a rotated key applies at once.
 - `languageModel()` reads `process.env`, like a direct `ask()` call. Pass `fetch` for a custom implementation.
-- Put `providerOptions` under the name the API reads: the gateway name for `'chat'` (such as `{ openrouter: { ... } }`), `openai` for `'responses'`, and `anthropic` for `'messages'`.
+- Put `providerOptions` under the gateway name for compatible Chat (such as `{ openrouter: { ... } }`), `openai` for `openai()` Chat and Responses, and `anthropic` for Messages. Compatible Chat passes request fields to the gateway. `openai()` Chat reads native SDK options and still sends raw Chat Completions fields such as `parallel_tool_calls`. A raw field takes precedence over its SDK option.
+- `openai()` Chat keeps JSON mode for schema output, so `ask()` validates the result locally and accepts schemas with optional fields.
 
 ## Get typed data from a model
 

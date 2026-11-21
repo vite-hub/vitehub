@@ -117,7 +117,7 @@ Then run the schedule by hand from another terminal:
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report
-pnpm vitehub schedule runs daily-report --limit 5
+pnpm vitehub schedule runs list daily-report --limit 5
 ```
 
 `schedule run` needs `manual: true`. It runs the handler in the dev server, records a Schedule Run, and prints its status. `schedule runs` lists recorded runs. See [Run and inspect Schedules during development](/docs/schedule/hosts#run-and-inspect-schedules-during-development).

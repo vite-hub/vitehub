@@ -8,7 +8,7 @@ import { databaseDurabilityUrl } from "./durability.ts"
 import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, getDeploymentHost, getResolvedFeatureOptions, isServerEnvironment, markViteConfigPlugin, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
@@ -578,8 +578,12 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         }
       },
     },
-    config(config) {
-      serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+    config: {
+      order: "pre",
+      handler(config, env) {
+        markViteConfigPlugin(env, DB_VITE_PLUGIN_NAME)
+        serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
+      },
     },
     async configResolved(config) {
       resolved = config

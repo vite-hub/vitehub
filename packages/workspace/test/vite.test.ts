@@ -369,13 +369,14 @@ describe("hubWorkspace", () => {
     await writeFile(file, "export const registry = {}\n")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const configResolved = plugin.configResolved as (config: { command: "serve" | "build", root: string }) => Promise<void>
+    const configEnvironment = testFunction(plugin.configEnvironment, (_name: string, _config: { consumer: "server" }, _env: ConfigEnv) => undefined)
     const load = idHook(plugin.load)
     const filter = Reflect.get(Object(Reflect.get(Object(plugin.load), "filter")), "id") as RegExp
     const url = pathToFileURL(file).href
     const expected = `export * from ${JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${JSON.stringify(url)}`)}`)}\n`
 
-    await configResolved({ command: "serve", root })
+    vi.stubEnv("NITRO_DEV_RUNNER", "node-worker")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     for (const id of [file, url]) {
       expect(filter.test(id)).toBe(true)
       expect(load.call({ environment: { name: "nitro" } }, id)).toBe(expected)
@@ -388,7 +389,11 @@ describe("hubWorkspace", () => {
     const unrelatedUrl = pathToFileURL(join(root, "server", "api", "files.js")).href
     expect(load.call({ environment: { name: "nitro" } }, unrelatedUrl)).toBeUndefined()
 
-    await configResolved({ command: "build", root })
+    await configEnvironment("nitro", { consumer: "server" }, { command: "build", mode: "production" })
+    expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
+
+    vi.stubEnv("NITRO_DEV_RUNNER", "miniflare")
+    await configEnvironment("nitro", { consumer: "server" }, { command: "serve", mode: "development" })
     expect(load.call({ environment: { name: "nitro" } }, file)).toBeUndefined()
   })
 
@@ -1151,6 +1156,35 @@ describe("hubWorkspace", () => {
     expect(result.nitro?.rollupConfig).toMatchObject({ external: ["cloudflare:workers"] })
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("setActiveCloudflareEnv(vitehubEnv as unknown as Record<string, unknown>)")
+  })
+
+  it.each([
+    ["dev on Node", { preset: "node-server" }, "serve", false],
+    ["dev without a host", undefined, "serve", false],
+    ["dev on Cloudflare", { preset: "cloudflare-module" }, "serve", true],
+    ["a Node build", { preset: "node-server" }, "build", true],
+  ] as const)("loads the Definitions in config only when it needs their stores: %s", async (_case, nitro, command, loads) => {
+    const root = await createViteRoot()
+    // Loading a Definition runs app code, and its Nitro runtime imports print Nitro's stub warning outside Nitro.
+    await writeFile(join(root, "src", "docs.workspace.ts"), [
+      `globalThis.__vitehubWorkspaceDefinitionLoads = (globalThis.__vitehubWorkspaceDefinitionLoads ?? 0) + 1`,
+      `export default { store: { binding: "DOCS_FILES", driver: "cloudflare" } }`,
+      ``,
+    ].join("\n"))
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = mergedConfigHook(plugin.config) as (config: {
+      nitro?: { preset?: string }
+      plugins?: unknown[]
+      root: string
+    }, env: { command: "build" | "serve", mode: string }) => Promise<{ nitro?: { cloudflare?: { wrangler?: { artifacts?: unknown } } } }>
+
+    const result = await config({ ...(nitro ? { nitro } : {}), plugins: [{ name: "nitro:main" }], root }, { command, mode: command === "build" ? "production" : "development" })
+
+    expect(Reflect.get(globalThis, "__vitehubWorkspaceDefinitionLoads")).toBe(loads ? 1 : undefined)
+    expect(result.nitro?.cloudflare?.wrangler?.artifacts).toEqual(loads ? [{ binding: "DOCS_FILES", namespace: "vitehub" }] : undefined)
+    Reflect.deleteProperty(globalThis, "__vitehubWorkspaceDefinitionLoads")
   })
 
   it("falls through blank Cloudflare hosting signals", async () => {
