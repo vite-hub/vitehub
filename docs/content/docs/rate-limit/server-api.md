@@ -166,6 +166,25 @@ Use `createRateLimiter()` when you need the decision for a custom response, logg
 - A diagnostic thrown while ViteHub reads options passes through only when it comes from the same `nostics` package as this module. ViteHub cannot verify diagnostics from other packages or realms, so it reports them as `RATE_LIMIT_R0029`. This stops user values from slipping past the invalid-options check.
 - The managed guard throws H3 `HTTPError`: `429` when limited, and `503` when fail-closed enforcement is unavailable. It adds `retry-after` only when the driver gives `retryAfter`. Do not base billing or authorization on optional best-effort metadata.
 
+## See refusals on each request
+
+With the evlog Nitro module, added through `vitehub({ observability })` or by hand, `requireRateLimit()` and `checkRateLimit()` append each refusal or unavailable decision to the `rateLimit` array on the request's wide event:
+
+```json
+{ "path": "/api/uploads", "status": 429, "rateLimit": [{ "name": "image-upload", "limit": 10, "window": "1m", "driver": "kv", "keySource": "option", "allowed": false, "reason": "limited", "retryAfter": 42 }] }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `limit`, `window` | The stable ID and the policy of the Rate Limit. |
+| `driver` | The driver that counted: `memory`, `kv`, or `cloudflare`. |
+| `keySource` | Where the key came from: `option` for the `key` of the call, `client-address` for the client address. The key itself is not on the event, because it can be an IP address or a user id. |
+| `allowed` | `false` when the guard refused the request. `true` when the limiter was unavailable and the policy has `failure: "allow"`. |
+| `reason` | `limited` or `unavailable`. |
+| `retryAfter` | Seconds until the window resets, when the driver gives it. |
+
+A request with only successful limiter checks gets no `rateLimit` field. Without evlog, nothing is set.
+
 ## Use a direct driver
 
 Use `createRateLimiter()` when you choose the policy or driver yourself, outside managed Provider Output. Install the package first:

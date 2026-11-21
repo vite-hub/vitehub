@@ -1776,6 +1776,7 @@ async function startToolServer(
  */
 export function localWorkspaceHost(hostOptions: { path?: readonly string[] | (() => readonly string[]) } = {}): WorkspaceSessionHost {
   return {
+    archiveMaxBytes: 64 * 1024 * 1024,
     executionAuthority: normalizeExecutionAuthority({
       credentials: "ambient",
       environment: "ambient",

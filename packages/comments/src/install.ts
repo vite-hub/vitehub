@@ -4,7 +4,7 @@ import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
-import { createForgeSync } from "./forge/sync.ts"
+import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
 import { commentSendsTables } from "./send/database.ts"
 import { createCommentSendService } from "./send/service.ts"
 import { pendingKey, runtimes } from "./installed.ts"
@@ -97,12 +97,14 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
   }
   let sync: Installed["sync"]
   if (comments.options.forge) {
-    const forge = createForgeSync(comments.options.forge, { database: install.database, store, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
+    const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
     sync = forge.sync
     runtime.forge = {
       attach: forge.attach,
       changed(threadId) {
-        track(forge.sync(threadId).catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error)))
+        track(forge.sync(threadId).catch((error: unknown) => {
+          logSyncFailure("sync", "Comments could not sync a thread to its pull request", error, () => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error), { thread: threadId, waitUntil: track })
+        }))
       },
     }
   }

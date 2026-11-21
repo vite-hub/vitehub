@@ -60,6 +60,10 @@ class FakeGitHub {
         this.minted++
         return reply(201, { token: `ghs_${tokens![1]}_${this.minted}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
       }
+      if (path === "/users/acme-bot%5Bbot%5D") {
+        if (request.headers.authorization) return reply(401, { message: "A JSON web token could not be decoded" })
+        return reply(200, { id: 900, login: "acme-bot[bot]" })
+      }
       if (path === "/repos/acme/web") {
         if (!request.headers.authorization?.startsWith("Bearer ghs_42_")) return reply(401, { message: "Bad credentials" })
         return reply(200, { full_name: "acme/web" })
@@ -196,9 +200,12 @@ describe("useForge() with a GitHub App", () => {
     expect(github.requests.at(-1)?.authorization).toBe("Bearer ghs_42_1")
   })
 
-  it("names the App and its bot user", async () => {
-    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app())
-      .resolves.toEqual([undefined, { id: 123, slug: "acme-bot", login: "acme-bot[bot]" }])
+  it("names the App, its bot user, and the bot's commit email, once per App", async () => {
+    const identity = { id: 123, slug: "acme-bot", login: "acme-bot[bot]", email: "900+acme-bot[bot]@users.noreply.github.com" }
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    expect(github.count("GET", "/app")).toBe(1)
+    expect(github.count("GET", "/users/acme-bot%5Bbot%5D")).toBe(1)
   })
 
   it("returns FORGE_APP_NOT_INSTALLED when the App cannot reach the repository", async () => {
