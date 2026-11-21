@@ -283,7 +283,9 @@ function renderAuthAmbientTypes(options: { abilities?: string, client?: string, 
 /**
  * The declaration of the virtual module. It stays out of a file with imports, which would make it an augmentation of
  * a module that must already resolve. When only the bundler resolves `#vitehub/auth/server`, the tsconfig would not
- * find it and the types of everything that imports the Auth handlers would be `any`.
+ * find it and the types of everything that imports the Auth handlers would be `any`. An `export ... from` in this
+ * block must name a package: TypeScript drops one with a file path (TS2439), and the private entry of `vite-hub` is a
+ * file path. A `typeof import()` type takes any path.
  */
 function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`
@@ -291,7 +293,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
-    `  export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `  export const createAuthAccessHandler: typeof import(${JSON.stringify(privateAuthImport(importBase, "internal/server"))}).createAuthAccessHandler`,
     "}",
     "",
   ].join("\n")
