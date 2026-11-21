@@ -1,7 +1,7 @@
 import { Button as ButtonPart } from "@ui-sdk/vue/button";
 import { Dialog, DialogBackdrop, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@ui-sdk/vue/dialog";
 import { Input, InputGroup } from "@ui-sdk/vue/input";
-import { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuItemIcon, MenuSeparator, MenuTrigger } from "@ui-sdk/vue/menu";
+import { Menu, MenuCheckboxItem, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuItemIcon, MenuItemIndicator, MenuSeparator, MenuTrigger } from "@ui-sdk/vue/menu";
 import { Tabs, TabsList, TabsTab } from "@ui-sdk/vue/tabs";
 import { cloneVNode, type Component, computed, defineAsyncComponent, defineComponent, h, isVNode, nextTick, onMounted, ref, type PropType, type VNode } from "vue";
 
@@ -215,7 +215,7 @@ const UTabs = defineComponent({
   },
 });
 
-interface MenuEntry { description?: string, disabled?: boolean, icon?: string, label?: string, onSelect?: (event: Event) => void, type?: "label" | "separator" | "link" | "checkbox" }
+interface MenuEntry { checked?: boolean, description?: string, disabled?: boolean, icon?: string, label?: string, onSelect?: (event: Event) => void, type?: "label" | "separator" | "link" | "checkbox" }
 
 /**
  * Nuxt UI's `UDropdownMenu`: the default slot opens it, and `items` holds groups of entries, or one group.
@@ -232,14 +232,27 @@ const UDropdownMenu = defineComponent({
   emits: { "update:open": (_open: boolean) => true },
   setup(props, { emit, slots }) {
     const UIcon = useUIComponent("UIcon");
-    const entry = (item: MenuEntry, index: number) => {
+    const entry = (item: MenuEntry, index: number, group: number) => {
       if (item.type === "label") return h(MenuGroupLabel, { key: index }, () => item.label);
       if (item.type === "separator") return h(MenuSeparator, { key: index });
-      return h(MenuItem, { disabled: item.disabled, key: index, label: item.label, onSelect: item.onSelect }, () => [
+      const body = () => [
         item.icon ? h(MenuItemIcon, () => h(UIcon, { name: item.icon })) : null,
         h("span", item.label),
         item.description ? h("span", { "data-slot": "menu-item-description" }, item.description) : null,
-      ]);
+      ];
+      // As in Nuxt UI, a checkbox item shows its `checked` state and a pick runs `onSelect`. The menu then closes.
+      if (item.type === "checkbox") {
+        return h(MenuCheckboxItem, {
+          checked: item.checked ?? false,
+          closeOnSelect: true,
+          disabled: item.disabled,
+          key: index,
+          label: item.label,
+          value: `${group}-${index}`,
+          onCheckedChange: (_checked: boolean, details: { event?: Event }) => item.onSelect?.(details.event ?? new Event("select")),
+        }, () => [h(MenuItemIndicator), ...body()]);
+      }
+      return h(MenuItem, { disabled: item.disabled, key: index, label: item.label, onSelect: item.onSelect }, body);
     };
     return () => {
       const groups = (props.items.length && Array.isArray(props.items[0]) ? props.items : [props.items]) as MenuEntry[][];
@@ -247,7 +260,7 @@ const UDropdownMenu = defineComponent({
         h(MenuTrigger, null, { render: ({ props: trigger }: { props: Record<string, unknown> }) => asTrigger(slots.default?.(), trigger) }),
         h(MenuContent, { ...props.content, class: props.ui.content }, () => groups.flatMap((group, index) => [
           index ? h(MenuSeparator, { key: `separator-${index}` }) : null,
-          h(MenuGroup, { key: `group-${index}` }, () => group.map(entry)),
+          h(MenuGroup, { key: `group-${index}` }, () => group.map((item, position) => entry(item, position, index))),
         ])),
       ]);
     };

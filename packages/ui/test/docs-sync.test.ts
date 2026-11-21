@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import * as ui from "../src/index.ts";
+import { WorkspaceBar } from "../src/workspace/workspace-bar.ts";
+import { WorkspaceExamples } from "../src/workspace/workspace-examples.ts";
+import { WorkspaceSidebar } from "../src/workspace/workspace-sidebar.ts";
+import { WorkspaceStart } from "../src/workspace/workspace-start.ts";
 
 // Each public component maps to the docs page that documents it. A new component needs a page here.
 const pages: Record<string, string> = {
@@ -107,6 +111,16 @@ const pages: Record<string, string> = {
   TraceTitle: "trace",
 };
 
+// The parts of `vite-hub/ui/workspace` that have a docs page. The entry loads CodeMirror and xterm, so they are listed
+// one by one.
+const workspacePages: Record<string, [component: unknown, page: string]> = {
+  WorkspaceBar: [WorkspaceBar, "workspace-bar"],
+  WorkspaceExamples: [WorkspaceExamples, "workspace-bar"],
+  WorkspaceSidebar: [WorkspaceSidebar, "workspace-bar"],
+  WorkspaceStart: [WorkspaceStart, "workspace-bar"],
+};
+for (const [name, [, page]] of Object.entries(workspacePages)) pages[name] = page;
+
 const docsRoot = resolve(import.meta.dirname, "../../../docs/content/docs/ui");
 
 function isComponent(value: unknown): value is { emits?: Record<string, unknown> | string[]; name?: string; props?: Record<string, unknown> } {
@@ -124,7 +138,8 @@ function documentedNames(page: string, heading: string): Set<string> {
 }
 
 describe("UI docs stay in sync with the public components", () => {
-  const components = Object.entries(ui).flatMap(([name, component]) => isComponent(component) ? [[name, component] as const] : []);
+  const components = [...Object.entries(ui), ...Object.entries(workspacePages).map(([name, [component]]) => [name, component] as const)]
+    .flatMap(([name, component]) => isComponent(component) ? [[name, component] as const] : []);
 
   it("maps every public component to a docs page", () => {
     const pageNames = new Set(readdirSync(docsRoot).filter(file => file.endsWith(".md")).map(file => file.slice(0, -3)));

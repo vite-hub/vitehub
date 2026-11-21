@@ -16,11 +16,15 @@ export {
   type PlaygroundContext,
   type PlaygroundDevice,
 } from "./workspace/playground-container.ts";
+export { WorkspaceBar } from "./workspace/workspace-bar.ts";
 export { bootChecklist, WorkspaceBootStatus, type BootStepState, type BootStepView } from "./workspace/workspace-boot-status.ts";
 // The checklist formats its step times with the shared duration formatter. It stays public under its first name.
 export { formatDuration as formatElapsed } from "./internal/format.ts";
 export { WorkspaceEditor } from "./workspace/workspace-editor.ts";
+export { groupExamples, WorkspaceExamples, type WorkspaceExample } from "./workspace/workspace-examples.ts";
 export { WorkspaceFileTree } from "./workspace/workspace-file-tree.ts";
 export { WorkspacePreview, workspacePreviewScript, type WorkspacePreviewDevice } from "./workspace/workspace-preview.ts";
+export { WorkspaceSidebar, type WorkspaceSidebarAction } from "./workspace/workspace-sidebar.ts";
 export { WorkspaceShell, type WorkspaceLayout, type WorkspaceSplits, type WorkspaceTab, type WorkspaceTabItem } from "./workspace/workspace-shell.ts";
+export { WorkspaceStart } from "./workspace/workspace-start.ts";
 export { WorkspaceTerminal, type WorkspaceTerminalOutput } from "./workspace/workspace-terminal.ts";
