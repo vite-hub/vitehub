@@ -1,4 +1,4 @@
-import { H3, readBody } from "h3"
+import { H3, readBody, readFormData } from "h3"
 import { describe, expect, it } from "vitest"
 
 import { addSecurityHeaders, installSecurity } from "../src/_internal/runtime/security.ts"
@@ -97,6 +97,50 @@ describe("security.maxBodySize", () => {
     expect(large.status).toBe(413)
     expect(large.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin")
     expect(await large.json()).toMatchObject({ data: { code: "VITE_HUB_REQUEST_BODY_TOO_LARGE" } })
+  })
+})
+
+describe("security.maxBodySize on a fetch host", () => {
+  function app() {
+    const h3 = new H3()
+      .post("/upload", async (event) => {
+        const form = await readFormData(event)
+        const file = form.get("file")
+        return { title: form.get("title"), file: file instanceof File ? [file.name, file.type, await file.text()] : null }
+      })
+    const nitroApp = { fetch: (request: Request) => h3.fetch(request) }
+    installSecurity(nitroApp, { headers: [], maxBodySize: 1024 })
+    return nitroApp.fetch
+  }
+
+  function form() {
+    const body = new FormData()
+    body.set("title", "Ferry timetable")
+    body.set("file", new File(["08:15 Oslo"], "times.txt", { type: "text/plain" }))
+    return body
+  }
+
+  it("keeps the multipart Content-Type, so a route reads a form under the limit", async () => {
+    const response = await app()(new Request("http://app.test/upload", { method: "POST", body: form() }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ title: "Ferry timetable", file: ["times.txt", "text/plain", "08:15 Oslo"] })
+  })
+
+  it("keeps the Content-Type on blob() and on a clone", async () => {
+    const nitroApp = {
+      fetch: async (request: Request) => Response.json({ clone: (await request.clone().formData()).get("title"), type: (await request.blob()).type }),
+    }
+    installSecurity(nitroApp, { headers: [], maxBodySize: 1024 })
+    const response = await nitroApp.fetch(new Request("http://app.test/upload", { method: "POST", body: form() }))
+    expect(await response.json()).toEqual({ clone: "Ferry timetable", type: expect.stringMatching(/^multipart\/form-data;\s*boundary=/) })
+  })
+
+  it("still answers 413 for a form over the limit", async () => {
+    const body = new FormData()
+    body.set("file", new File(["x".repeat(2048)], "big.txt"))
+    const response = await app()(new Request("http://app.test/upload", { method: "POST", body }))
+    expect(response.status).toBe(413)
+    expect(await response.json()).toMatchObject({ data: { code: "VITE_HUB_REQUEST_BODY_TOO_LARGE" } })
   })
 })
 

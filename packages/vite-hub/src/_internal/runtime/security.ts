@@ -43,6 +43,23 @@ function declaredLength(request: Request): number {
 }
 
 /**
+ * srvx's `limitRequestBody()` reads `formData()` and `blob()` from a `Response` without the request headers, so a form
+ * loses its `multipart/form-data` boundary and `formData()` throws. These two reads keep the headers. The other reads
+ * and `body` go to srvx, which counts the bytes.
+ */
+function limitBody(request: Request, limit: number): Request {
+  const limited = limitRequestBody(request, limit, { createError: bodyTooLargeError })
+  if (limited === request) return request
+  return new Proxy(limited, {
+    get(target, prop) {
+      if (prop === "formData" || prop === "blob") return () => new Response(target.body, { headers: request.headers })[prop]()
+      if (prop === "clone") return () => limitBody(request.clone(), limit)
+      return Reflect.get(target, prop)
+    },
+  })
+}
+
+/**
  * Adds each header that the response does not set itself, so a route that sets a stricter value, such as
  * `X-Frame-Options: DENY`, keeps it. A WebSocket upgrade (101) is left as it is.
  */
@@ -77,7 +94,7 @@ export function installSecurity(nitroApp: NitroAppLike, policy: SecurityPolicy):
     let input = request
     if (maxBodySize !== undefined) {
       if (declaredLength(request) > maxBodySize) return addSecurityHeaders(bodyTooLargeResponse(maxBodySize), headers)
-      input = limitRequestBody(request, maxBodySize, { createError: bodyTooLargeError })
+      input = limitBody(request, maxBodySize)
     }
     if ((request as Partial<ServerRequest>).runtime?.node) {
       // Native Node handlers otherwise read and write the original socket, bypassing both Fetch controls.
