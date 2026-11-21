@@ -42,16 +42,18 @@ export const WorkspaceSidebar = defineComponent({
     const copyButton = ref<{ $el?: Element } | HTMLElement>();
     let previous: HTMLElement | undefined;
 
-    watch(() => props.open, (open) => {
+    function enter() {
       const active = document.activeElement;
-      if (open) {
-        previous = active instanceof HTMLElement ? active : undefined;
-        void nextTick(() => {
-          const first = panel.value?.querySelector<HTMLElement>(tabbable);
-          (first ?? panel.value)?.focus();
-        });
-        return;
-      }
+      previous = active instanceof HTMLElement ? active : undefined;
+      void nextTick(() => {
+        const first = panel.value?.querySelector<HTMLElement>(tabbable);
+        (first ?? panel.value)?.focus();
+      });
+    }
+
+    watch(() => props.open, (open) => {
+      if (open) return enter();
+      const active = document.activeElement;
       // Focus goes back only when it was in the panel. After a click outside, it stays where the reader clicked.
       const inside = !active || active === document.body || !!panel.value?.contains(active);
       if (inside && previous?.isConnected) previous.focus();
@@ -70,7 +72,11 @@ export const WorkspaceSidebar = defineComponent({
       if (path.some(node => node instanceof Element && node.getAttribute("aria-controls") === id())) return;
       emit("update:open", false);
     }
-    onMounted(() => document.addEventListener("pointerdown", outside, true));
+    onMounted(() => {
+      document.addEventListener("pointerdown", outside, true);
+      // A sidebar that mounts open takes focus too. The watcher above runs only on a change.
+      if (props.open) enter();
+    });
     onBeforeUnmount(() => document.removeEventListener("pointerdown", outside, true));
 
     const button = (action: WorkspaceSidebarAction) => {

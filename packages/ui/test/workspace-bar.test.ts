@@ -115,6 +115,23 @@ describe("WorkspaceSidebar", () => {
     sidebar.unmount();
   });
 
+  it("moves focus in when it mounts open, and back to the button when it closes", async () => {
+    const toggle = document.createElement("button");
+    document.body.append(toggle);
+    toggle.focus();
+    const sidebar = mount(WorkspaceSidebar, {
+      attachTo: document.body,
+      global,
+      props: { id: "side", open: true },
+      slots: { default: () => h("a", { href: "#intro" }, "Introduction") },
+    });
+    await nextTick();
+    expect(document.activeElement?.textContent).toBe("Introduction");
+    await sidebar.setProps({ open: false });
+    expect(document.activeElement).toBe(toggle);
+    sidebar.unmount();
+  });
+
   it("closes on a pointer down outside, but not on the panel or its button", async () => {
     const { outside, sidebar, toggle } = setup();
     await sidebar.setProps({ open: true });
