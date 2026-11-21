@@ -443,7 +443,11 @@ When the migrations table already lists every folder, startup runs no DDL. An ow
 
 D1 over HTTP has no lock, so ViteHub uses the migrations table instead. Each migration goes to D1 in one request with its row, and D1 applies all of the request or none of it, as `wrangler d1 migrations apply` expects. The `name` column of the table is unique. When two servers start together, both can send the same migration. D1 applies the first request. The second request fails, because its SQL or its row conflicts with the first one, and D1 rolls it back. That server then finds the row and goes on to the next migration. `vitehub database migrate` writes the same rows the same way, so a deploy step can run while servers start.
 
-Keep `name` unique, as Wrangler creates the table. A migrations table that you create without `UNIQUE` on `name` lets two servers apply the same migration.
+This is safe only under these conditions:
+
+- Every server and deploy step has the same migration history. D1 identifies a migration by its file name, not its SQL. A server that finds the name in the table skips its own file, even when that file has different SQL.
+- `name` stays unique, as Wrangler creates the table. A migrations table that you create without `UNIQUE` on `name` lets two servers apply the same migration.
+- A proxy in `cloudflare.http: { url, authToken }` runs a request with many statements as one transaction, as D1 does. If your proxy commits each statement on its own, set `migrateOnStart: false` and run `vitehub database migrate` from one place.
 
 ### Several processes on SQLite
 

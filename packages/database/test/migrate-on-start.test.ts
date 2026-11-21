@@ -764,9 +764,11 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     const api = mockCloudflareD1Api(root, "drop-account", "drop-d1")
     const users = sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() })
     const relations = defineRelations({ users })
+    // This seed succeeds twice on its own, so only D1's rollback of the second copy keeps one row.
+    const grace = { sql: "INSERT INTO `users` (`name`) VALUES ('Grace');", tag: "20231114221321_seed", when: seed.when }
     const statements = (migration: typeof init) => migration.sql.split("--> statement-breakpoint")
-    const files = [init, seed].map((migration, index) => ({ dataLoss: [], name: `000${index}_${migration.tag.split("_")[1]}.sql`, sql: migration.sql, statements: statements(migration), tag: migration.tag }))
-    const migrations = [init, seed].map(migration => ({ dataLoss: [], hash: migration.tag, name: migration.tag, statements: statements(migration), when: migration.when }))
+    const files = [init, grace].map((migration, index) => ({ dataLoss: [], name: `000${index}_${migration.tag.split("_")[1]}.sql`, sql: migration.sql, statements: statements(migration), tag: migration.tag }))
+    const migrations = [init, grace].map(migration => ({ dataLoss: [], hash: migration.tag, name: migration.tag, statements: statements(migration), when: migration.when }))
     // Both servers read the ledger before either one applies a migration.
     let release!: () => void
     const bothRead = new Promise<void>(resolve => release = resolve)
@@ -795,7 +797,7 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
       // Each server sent each migration. D1 rolled back the second copy, because its ledger row was not unique.
       expect(api.requests.filter(request => request.sql.includes("INSERT INTO `users`"))).toHaveLength(2)
       await expect(api.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_seed.sql"]])
-      await expect(api.rows("SELECT id, name FROM users")).resolves.toEqual([[7, "Ada"]])
+      await expect(api.rows("SELECT name FROM users")).resolves.toEqual([["Grace"]])
 
       // A later start reads the ledger and writes nothing.
       const sent = api.requests.length
