@@ -69,7 +69,7 @@ describe("hubAuth", () => {
     await mkdir(join(root, "shared"))
     await writeFile(join(root, "shared/abilities.ts"), 'export default { "app.rule": Object.assign(() => true, { guest: true }) }\n')
     await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
-    await writeFile(join(root, "main.js"), 'import { Can, useAbility } from "@vite-hub/auth/vue"; console.log(Can, useAbility)')
+    await writeFile(join(root, "main.js"), 'import { AuthPermission, useAbility } from "@vite-hub/auth/vue"; console.log(AuthPermission, useAbility)')
     const installed = join(root, "node_modules/@vite-hub/auth")
     await mkdir(installed, { recursive: true })
     await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
@@ -479,6 +479,17 @@ describe("hubAuth", () => {
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("import type { ServerEnv } from \"#vitehub/env/server\"")
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
+  })
+
+  it("checks access.pages in the virtual Auth Definition that the ViteHub Nuxt integration loads", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user' } },"])
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+
+    expect(loadAuthDefinition(plugin)).toContain("import { checkBuiltAuthPages } from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("checkBuiltAuthPages(definition, {\"/dashboard/**\":\"user\"})")
   })
 
   it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {

@@ -2450,17 +2450,19 @@
   /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
      of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
      button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
-     corner. The bubble is the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus. */
+     corner. The bubble is the field's frame (`frame="none"`), so its hairline grows firmer while the field has the focus.
+     On a dark page the shadow does not show and the bubble can have the page's color, so the hairline is the border
+     color, and the shadow is black, not the ink, which would glow. */
   [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
-    --vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 8%, transparent);
+    --vh-bubble-edge: var(--vh-border);
     --vh-bubble-radius: 1.4375rem;
     animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
     border: 0;
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
     box-shadow:
       0 0 0 1px var(--vh-bubble-edge),
-      0 2px 4px color-mix(in oklab, var(--vh-highlighted) 6%, transparent),
-      0 10px 24px -6px color-mix(in oklab, var(--vh-highlighted) 18%, transparent);
+      0 2px 4px color-mix(in oklab, var(--vh-comment-shadow) calc(100% / 3), transparent),
+      0 10px 24px -6px var(--vh-comment-shadow);
     transform-origin: top left;
     width: 18rem;
   }
@@ -3218,16 +3220,32 @@
   }
 
   /* Once the text of a row box wraps, the text takes the full width and attach and send move to a row under it, at its
-     two ends. Without this, every line of a narrow box starts after the attach button. */
+     two ends. Without this, every line of a narrow box starts after the attach button. The button row starts right under
+     the last line: the icons have room inside their buttons, so a gap above the row would leave a band of empty space. */
   [data-slot="comment-composer"][data-layout="row"][data-multiline="true"] {
+    & [data-slot="prompt-input-group"] {
+      row-gap: 0;
+    }
+
+    & [data-slot="prompt-input-attachments"] {
+      padding-bottom: 0.25rem;
+    }
+
     & [data-slot="prompt-input-textarea"] {
       flex-basis: 100%;
       order: 0;
+      padding-block-end: 0;
       padding-inline: 0.5rem;
     }
 
     & [data-slot="prompt-input-spacer"] {
       display: block;
+    }
+
+    @media (pointer: coarse) {
+      & [data-slot="prompt-input-toolbar"] > button::before {
+        inset-block-start: 0;
+      }
     }
   }
 

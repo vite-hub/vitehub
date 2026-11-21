@@ -165,6 +165,8 @@ export function pullRequestFilterContext(repository: string, pr: GitHubPullReque
 }
 
 const stringValue = (value: unknown): string => isRuntimeString(value) ? value : String(value)
+const ciEvidencePrefix = 'ci-evidence:v1:'
+const ciEvidenceAtPrefix = 'ci-evidence-at:v1:'
 const legacyRecordSchema = v.record(v.string(), v.unknown())
 const legacyWaitSchema = v.object({ headSha: v.pipe(v.string(), v.minLength(1)), contextKey: v.pipe(v.string(), v.minLength(1)) })
 const summarySchema = v.object({
@@ -496,6 +498,9 @@ export class PullRequestInbox {
   }
   private async setMetaIn(tx: PullRequestInboxExecutor, key: string, value: unknown): Promise<void> {
     await tx.execute(`INSERT OR REPLACE INTO ${this.tables.meta} (scope, key, value) VALUES (?,?,?)`, [this.scope, key, JSON.stringify(value)])
+    // CI evidence holds full job logs. A small row keeps its fetch time so pruning never reads the logs.
+    if (key.startsWith(ciEvidencePrefix) && isRuntimeRecord(value) && isRuntimeNumber(value.fetchedAt))
+      await tx.execute(`INSERT OR REPLACE INTO ${this.tables.meta} (scope, key, value) VALUES (?,?,?)`, [this.scope, ciEvidenceAtPrefix + key.slice(ciEvidencePrefix.length), JSON.stringify(value.fetchedAt)])
   }
   async meta(key: string): Promise<unknown> {
     await this.init()
@@ -1737,13 +1742,28 @@ export class PullRequestInbox {
     // Entries written before timestamps were introduced are expired too.
     await this.transaction(async tx => {
       signal?.throwIfAborted()
-      await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key>='ci-evidence:v1:' AND key<'ci-evidence:v1;'
-        AND CASE WHEN NOT json_valid(value) THEN 1 WHEN json_type(value)<>'object' THEN 1
-          WHEN coalesce(json_type(value, '$.fetchedAt'), '') NOT IN ('integer', 'real') THEN 1 ELSE json_extract(value, '$.fetchedAt')<? END`, [this.scope, now - payloadMs])
+      const meta = this.tables.meta, evidenceKeys = `key>='${ciEvidencePrefix}' AND key<'ci-evidence:v1;'`
+      // Entries written before fetch-time rows existed are read once here to add their row; the rest have no fetch time.
+      const unindexed = `scope=? AND ${evidenceKeys} AND NOT EXISTS (SELECT 1 FROM ${meta} WHERE scope=evidence.scope
+        AND key='${ciEvidenceAtPrefix}' || substr(evidence.key, ${ciEvidencePrefix.length + 1}))`
+      await tx.execute(`INSERT INTO ${meta} (scope, key, value) SELECT scope, '${ciEvidenceAtPrefix}' || substr(key, ${ciEvidencePrefix.length + 1}),
+        json_extract(value, '$.fetchedAt') FROM ${meta} AS evidence WHERE ${unindexed} AND json_valid(value) AND json_type(value)='object'
+        AND json_type(value, '$.fetchedAt') IN ('integer', 'real')`, [this.scope])
+      await tx.execute(`DELETE FROM ${meta} AS evidence WHERE ${unindexed}`, [this.scope])
+      const expiredAt = `key>='${ciEvidenceAtPrefix}' AND key<'ci-evidence-at:v1;' AND CAST(value AS REAL)<?`
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND key IN (SELECT '${ciEvidencePrefix}' || substr(key, ${ciEvidenceAtPrefix.length + 1})
+        FROM ${meta} WHERE scope=? AND ${expiredAt})`, [this.scope, this.scope, now - payloadMs])
+      await tx.execute(`DELETE FROM ${meta} WHERE scope=? AND ${expiredAt}`, [this.scope, now - payloadMs])
       signal?.throwIfAborted()
       await tx.execute(`DELETE FROM ${this.tables.deliveries} WHERE scope=? AND received<?`, [this.scope, now - idMs])
       signal?.throwIfAborted()
-      await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received<? AND payload IS NOT NULL`, [this.scope, now - payloadMs])
+      // Only an insert writes a payload, stamped with the clock, so rows below the last cutoff
+      // hold none. Scanning them all again visited every week-old delivery each hour.
+      const cutoff = now - payloadMs
+      const prunedBefore = await this.metaIn(tx, 'deliveries-payload-pruned-before')
+      const from = isRuntimeNumber(prunedBefore) && prunedBefore <= cutoff ? prunedBefore : 0
+      await tx.execute(`UPDATE ${this.tables.deliveries} SET payload=NULL WHERE scope=? AND received>=? AND received<? AND payload IS NOT NULL`, [this.scope, from, cutoff])
+      await this.setMetaIn(tx, 'deliveries-payload-pruned-before', cutoff)
       signal?.throwIfAborted()
     })
   }

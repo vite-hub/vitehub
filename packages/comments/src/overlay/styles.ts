@@ -58,24 +58,20 @@ export const overlayStyles = `
 [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
   border-radius: inherit; box-shadow: none; background: none; color: inherit; font: 600 11px/var(--vh-comment-pin-size) "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: .02em;
 }
-/* A new comment is one small surface, as in Drop: the line grows with the text, with the attach and send buttons beside it. */
-[data-draft="true"] [data-slot="comment-composer"] { padding: 4px; }
-[data-draft="true"] [data-slot="prompt-input-group"] { flex-flow: row wrap; align-items: flex-end; border: 0; box-shadow: none; background: none; }
-[data-draft="true"] [data-slot="prompt-input-attachments"] { flex-basis: 100%; }
-[data-draft="true"] [data-slot="prompt-input-textarea"] { flex: 1; min-width: 0; min-height: 2.25rem; padding: .5rem .25rem .375rem .625rem; }
-[data-draft="true"] [data-slot="prompt-input-toolbar"] { padding: .25rem; }
 [data-slot="comment-pin-number"] { display: none; }
 [data-slot="comment-pin"][data-draft="true"] { outline: none; }
 
 /*
  * --popover-width is the width the card wants. On a narrow screen it is the screen less 12px each side, and the card
  * moves toward the middle so that no part of it goes off screen. --vh-comment-x is the x of the spot on the screen.
+ * A dark page hides the shadow, and a Nuxt UI page's \`.dark\` tokens also reach the host, so a card can have the page's
+ * color. The hairline keeps its edge in view: a new comment's bubble edge, else the border color.
  */
 [data-slot="comment-layer-popover"] {
   --popover-width: 340px; --popover-room: min(var(--popover-width), calc(100vw - 24px));
   left: min(calc(var(--pin-x) + 36px), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
   top: var(--pin-y); width: var(--popover-room); max-width: none;
-  border-radius: 6px 16px 16px 16px; box-shadow: 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
+  border-radius: 6px 16px 16px 16px; box-shadow: 0 0 0 1px var(--vh-bubble-edge, var(--vh-border)), 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
   transform-origin: 0 14px; animation: vitehub-comments-pop 160ms cubic-bezier(.23, 1, .32, 1);
 }
 [data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
