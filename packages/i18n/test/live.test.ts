@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
-import { toResponse } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"

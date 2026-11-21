@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
-import { toResponse, unknownExecutionAuthority } from "@vite-hub/runtime"
+import { unknownExecutionAuthority } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import type { SandboxExecOptions, SandboxSession } from "@vite-hub/sandbox"
 
 const providerMocks = vi.hoisted(() => ({ open: vi.fn() }))

@@ -1,7 +1,7 @@
 import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { isRecord } from "@vite-hub/internal/object"
 
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveWorkflowOperationSupport } from "../results.ts"

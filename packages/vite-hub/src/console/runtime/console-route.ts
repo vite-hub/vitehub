@@ -1,5 +1,5 @@
 import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
-import { decodeRouteSegment, encodeRouteSegment } from "@vite-hub/runtime"
+import { decodeRouteSegment, encodeRouteSegment } from "@vite-hub/runtime/internal/console"
 export const consoleDatabasesSchemaPath = "/databases/:database/schema/diagram"
 export const consoleDatabasesTablePath = "/databases/:database?/:table?"
 
