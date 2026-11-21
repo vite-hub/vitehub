@@ -86,9 +86,9 @@ async function formTools(context: AgentCapabilityContext, forms: Map<string, Cha
       name: `ask_${form.name}`,
       title: `Asked for ${form.title}`,
       icon: "i-lucide-clipboard-list",
-      description: `Ask the person to fill in the form "${form.title}". In a Slack or Teams conversation, a button opens the form, ViteHub checks the values, and the checked values come back as the person's next message. Fields: ${describeFields(fields)}.`,
+      description: `Ask the person to fill in the form "${form.title}". In a Slack conversation that supports forms, a button opens the form and the checked values come back as the person's next message. Otherwise, ask for the returned fields in your reply. Fields: ${describeFields(fields)}.`,
       inputSchema: jsonObjectSchema({ message: { type: "string", description: "One short sentence on the card: why you need this form." } }, ["message"]),
-      async execute({ message }, options) {
+      async execute({ message }) {
         const cards = pendingCards.get(context.context)
         if (!cards) {
           return {
@@ -98,7 +98,7 @@ async function formTools(context: AgentCapabilityContext, forms: Map<string, Cha
             fields,
           }
         }
-        const { card, fallbackText } = channelFormCard(form, message, options?.toolCallId ?? crypto.randomUUID())
+        const { card, fallbackText } = channelFormCard(form, message)
         cards.push({ kind: "reply", payload: { card, markdown: fallbackText } })
         return {
           status: "asked",
@@ -112,11 +112,11 @@ async function formTools(context: AgentCapabilityContext, forms: Map<string, Cha
 }
 
 /**
- * Lets the Agent ask a person to fill in a form in a chat Channel. Each form gives one `ask_<name>` tool. In Slack and
- * Teams, the tool posts a card with a button, the button opens a modal drawn from the form, ViteHub checks the values
+ * Lets the Agent ask a person to fill in a form in a chat Channel. Each form gives one `ask_<name>` tool. In Slack,
+ * the tool posts a card with a button, the button opens a modal drawn from the form, ViteHub checks the values
  * with the form schema and shows errors in the modal, and the checked values start the next turn as the person's
- * message. A chat without modals, such as Telegram, gets the list of fields. In web chat, a durable Workflow turn, or
- * a run outside a chat Channel, the tool returns the fields so the Agent asks for them in its reply.
+ * message. In other Channels, durable Workflow turns, or runs outside a Channel, the tool returns the fields so the
+ * Agent asks for them in its reply.
  *
  * @example
  * capabilities: [forms({ expense })]
@@ -138,7 +138,7 @@ export function forms(options: AgentFormsOptions): AgentCapabilityDefinition {
     prepare(context) {
       // Only a Chat SDK message turn that runs in the webhook route has a thread that can show the card. Web chat and
       // durable Workflow turns have none, so the tool returns the fields there.
-      if (!context.context.get(messageChannelStateContextKey)) return
+      if (context.context.get(messageChannelStateContextKey)?.adapterName !== "slack") return
       const cards: AgentChannelDeliveryEffectIntent[] = []
       pendingCards.set(context.context, cards)
       context.delivery.finishEffect(Object.assign(() => cards.splice(0), { active: () => cards.length > 0, kind: "reply" as const }))

@@ -1390,19 +1390,18 @@ export default defineAgent({
 A Slack modal opens only after a person clicks or types a command, so the Agent cannot open it alone. The flow has four steps:
 
 1. The Agent calls `ask_expense` with one sentence on why it asks. Its reply comes with a card that has a **Fill in Expense** button.
-2. A click on the button opens a Slack modal or a Teams dialog, with one input for each field of the form.
+2. A click on the button opens a Slack modal, with one input for each field of the form.
 3. ViteHub checks the values with the form schema. A bad value shows its error under its input, and the Agent does not run.
-4. Good values close the modal, change the card to "filled in by", and start the next turn. The person's message has the checked values as JSON.
+4. Good values close the modal. If the Channel accepts the answer, ViteHub marks the card "filled in by" and starts the next turn. The person's message has the checked values as JSON.
 
 A form is a `defineForm()` result from `vite-hub/forms`, or a flat Standard Schema object, such as a Valibot or Zod object. Pass `{ form, title }` to set the title of the button and the modal. The default title is the name in words. Each field must be text, a number, true or false, or a choice. See [one schema on every surface](/docs/forms/server-api).
 
 | Where the tool runs | What happens |
 | --- | --- |
-| Slack, Teams | The button opens the form. |
-| A chat without modals, such as Telegram | The click posts the list of fields. The person answers in a message, and ViteHub does not check it. |
-| Web chat, a durable Workflow turn, `runAgent()`, or a Schedule | The tool returns `status: "unavailable"` and the fields, so the Agent asks for them in its reply. |
+| Inline Slack turn | The button opens the form. |
+| Other Channels (including Teams, Telegram, Discord, and web chat), durable Workflow turns, `runAgent()`, or Schedules | The tool returns `status: "unavailable"` and the fields, so the Agent asks for them in its reply. ViteHub does not validate the reply against the form schema. |
 
-The button and the modal carry the form name and the tool call id, so a click works on any server process and needs no stored state. Anyone in the thread can fill in the form. The answer is a message from that person, so `access()` and `messages.filter` decide it like any other message. A second answer to the same tool call is dropped. The tool calls show in the Invocation trace as `ask_<name>`.
+Anyone in the thread can fill in the form within 24 hours. The answer goes through `access()` and `messages.filter` as a message from that person. A rejected answer leaves the button available. Chat State stores the modal context and ensures that only the first accepted answer reaches the Agent. When you run more than one server process, use shared Chat State: in-memory State cannot accept a submission on a different process from the one that opened the modal. The tool calls show in the Invocation trace as `ask_<name>`.
 
 ## Separate responsibilities
 

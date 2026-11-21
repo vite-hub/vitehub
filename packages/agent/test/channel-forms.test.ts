@@ -57,17 +57,15 @@ function lastUserText({ messages }: AgentRunContext): string {
   return parts.map(part => part.type === "text" ? part.text : "").join("")
 }
 
-const cleanups: (() => void)[] = []
-afterEach(() => {
-  for (const cleanup of cleanups.splice(0)) cleanup()
-})
+afterEach(() => { vi.useRealTimers() })
 
 /** The Chat SDK Slack adapter with a fake Slack Web API, behind the Agent's channel webhook route. */
-function slackFixture() {
+function slackFixture(options: { adapterName?: string, allowAnswer?: (text: string) => boolean } = {}) {
   const adapter = createSlackAdapter({ botToken: "xoxb-test", signingSecret })
+  if (options.adapterName) Reflect.set(adapter, "name", options.adapterName)
   const posted: { blocks?: SlackBlock[], markdown_text?: string, text?: string, thread_ts?: string, ts: string }[] = []
   const updated: { blocks?: SlackBlock[], text?: string, ts: string }[] = []
-  const opened: SlackView[] = []
+  const opened: (SlackView & { id: string })[] = []
   let ts = 100
   Reflect.set(adapter, "_client", {
     auth: { test: async () => ({ ok: true, user_id: "UBOT", bot_id: "BBOT" }) },
@@ -89,23 +87,29 @@ function slackFixture() {
     users: { info: async () => ({ ok: true, user: { id: "U1", name: "ada", real_name: "Ada" } }) },
     views: {
       open: async (args: { view: SlackView }) => {
-        opened.push(args.view)
-        return { ok: true, view: { id: "V1" } }
+        const id = `V${opened.length + 1}`
+        opened.push({ ...args.view, id })
+        return { ok: true, view: { id } }
       },
     },
   })
   const runs: string[] = []
+  const results: unknown[] = []
   const agent = defineAgent({
     capabilities: [forms({ expense })],
     // SAFETY: The Slack adapter implements the Chat SDK Adapter that the Channel calls.
-    channels: { slack: slack({ adapter: adapter as unknown as Adapter, messages: { stream: false } }) },
+    channels: { slack: slack({ adapter: adapter as unknown as Adapter, messages: {
+      dedupeTtlMs: 25,
+      filter: ({ message }) => options.allowAnswer?.(message.parts.map(part => part.type === "text" ? part.text : "").join("")) ?? true,
+      stream: false,
+    } }) },
     driver: {
       async run(context) {
         const text = lastUserText(context)
         runs.push(text)
         if (text.includes("expense")) {
           const result = await context.tools!.ask_expense!.execute!({ message: "I need the details of your trip." }, { toolCallId: "call-1" })
-          expect(result).toMatchObject({ status: "asked", form: "expense" })
+          results.push(result)
           return { text: "Fill in the form with the button." }
         }
         return { text: "Saved your expense." }
@@ -116,11 +120,17 @@ function slackFixture() {
   })
   // SAFETY: The test agent has the shape that the route handler reads.
   const handler = createChannelWebhookRouteHandler(agent as never)
-  const send = (request: Request) => handler(request, "slack", { agentIdentity: { name: "support" } })
-  return { opened, posted, runs, send, updated }
+  const pending: Promise<unknown>[] = []
+  const send = (request: Request) => handler(request, "slack", { agentIdentity: { name: "support" }, waitUntil: task => { pending.push(task) } })
+  const settle = async () => {
+    while (pending.length) await Promise.all(pending.splice(0))
+  }
+  return { opened, posted, results, runs, send, settle, updated }
 }
 
-function viewSubmission(view: SlackView, values: Record<string, string>) {
+const mention = { type: "event_callback", team_id: "T1", api_app_id: "A1", event_id: "Ev1", event_time: 1700000000, event: { type: "app_mention", user: "U1", text: "<@UBOT> I want to file an expense", ts: "1700000000.000001", channel: "C1", event_ts: "1700000000.000001" } }
+
+function viewSubmission(view: SlackView & { id: string }, values: Record<string, string>) {
   const state: Record<string, Record<string, unknown>> = {}
   for (const block of view.blocks) {
     if (block.type !== "input" || !block.element || !block.block_id) continue
@@ -128,18 +138,19 @@ function viewSubmission(view: SlackView, values: Record<string, string>) {
     const { type, action_id } = block.element
     state[block.block_id] = { [action_id]: type === "static_select" || type === "radio_buttons" ? { type, selected_option: { value } } : { type, value } }
   }
-  const payload = { type: "view_submission", user: { id: "U1", name: "ada" }, view: { id: "V1", callback_id: view.callback_id, private_metadata: view.private_metadata, state: { values: state } } }
+  const payload = { type: "view_submission", user: { id: "U1", name: "ada" }, view: { id: view.id, callback_id: view.callback_id, private_metadata: view.private_metadata, state: { values: state } } }
   return signed(new URLSearchParams({ payload: JSON.stringify(payload) }).toString(), "application/x-www-form-urlencoded")
 }
 
 describe("an Agent asks for a form in Slack", () => {
   it("posts a button, opens the form on a click, shows errors in the modal, and starts the next turn with the values", async () => {
-    const slack = slackFixture()
+    let allowAnswer = false
+    const slack = slackFixture({ allowAnswer: text => !text.includes("I filled in") || allowAnswer })
 
     // 1. A person mentions the Agent. The Agent's tool asks for the expense form.
-    const mention = { type: "event_callback", team_id: "T1", api_app_id: "A1", event_id: "Ev1", event_time: 1700000000, event: { type: "app_mention", user: "U1", text: "<@UBOT> I want to file an expense", ts: "1700000000.000001", channel: "C1", event_ts: "1700000000.000001" } }
     expect((await slack.send(signed(JSON.stringify(mention), "application/json"))).status).toBe(200)
-    await vi.waitFor(() => expect(slack.posted.some(message => message.blocks?.some(block => block.type === "actions"))).toBe(true))
+    await slack.settle()
+    expect(slack.results).toEqual([expect.objectContaining({ status: "asked", form: "expense" })])
     const card = slack.posted.find(message => message.blocks?.some(block => block.type === "actions"))!
     const button = card.blocks!.flatMap(block => block.elements ?? []).find(element => element.type === "button")!
     expect(button.text?.text).toBe("Fill in Expense")
@@ -147,9 +158,14 @@ describe("an Agent asks for a form in Slack", () => {
 
     // 2. The click opens a Slack modal with one input for each field of the form.
     const click = { type: "block_actions", user: { id: "U1", username: "ada", name: "Ada" }, trigger_id: "trigger-1", channel: { id: "C1" }, container: { type: "message", channel_id: "C1", message_ts: card.ts, thread_ts: "1700000000.000001" }, message: { ts: card.ts, thread_ts: "1700000000.000001" }, actions: [{ type: "button", action_id: button.action_id, value: button.value, block_id: "actions" }] }
-    expect((await slack.send(signed(new URLSearchParams({ payload: JSON.stringify(click) }).toString(), "application/x-www-form-urlencoded"))).status).toBe(200)
-    await vi.waitFor(() => expect(slack.opened).toHaveLength(1))
-    const view = slack.opened[0]!
+    const open = async () => {
+      const length = slack.opened.length
+      expect((await slack.send(signed(new URLSearchParams({ payload: JSON.stringify({ ...click, trigger_id: `trigger-${length}` }) }).toString(), "application/x-www-form-urlencoded"))).status).toBe(200)
+      await slack.settle()
+      expect(slack.opened).toHaveLength(length + 1)
+      return slack.opened[length]!
+    }
+    const view = await open()
     expect(view.title.text).toBe("Expense")
     expect(view.blocks.filter(block => block.type === "input").map(block => block.block_id)).toEqual(["email", "amount", "reason"])
 
@@ -158,24 +174,51 @@ describe("an Agent asks for a form in Slack", () => {
     expect(await invalid.json()).toEqual({ response_action: "errors", errors: { email: "Enter a valid email.", amount: "Enter 1 or more." } })
     expect(slack.runs).toHaveLength(1)
 
-    // 4. Good values close the modal, mark the card as answered, and start the next turn with the checked values.
-    const valid = await slack.send(viewSubmission(view, { email: "ada@example.com", amount: "42", reason: "food" }))
+    const values = { email: "ada@example.com", amount: "42", reason: "food" }
+    await slack.send(viewSubmission(view, values))
+    await slack.settle()
+    expect(slack.runs).toHaveLength(1)
+    expect(slack.updated.some(message => message.ts === card.ts)).toBe(false)
+
+    allowAnswer = true
+    const accepted = await open()
+    const duplicate = await open()
+    const expired = await open()
+    expect(new Set(slack.opened.map(view => view.private_metadata)).size).toBe(4)
+
+    // 4. Admitted values close the modal, mark the card as answered, and start the next turn.
+    const valid = await slack.send(viewSubmission(accepted, values))
     expect(await valid.text()).toBe("")
-    await vi.waitFor(() => expect(slack.runs).toHaveLength(2))
+    await slack.settle()
+    expect(slack.runs).toHaveLength(2)
     const answer = slack.runs[1]!
     expect(answer).toContain("Expense")
     expect(JSON.parse(answer.slice(answer.indexOf("{"), answer.lastIndexOf("}") + 1))).toEqual({ email: "ada@example.com", amount: 42, reason: "food" })
-    await vi.waitFor(() => expect(slack.posted.some(message => message.markdown_text === "Saved your expense.")).toBe(true))
+    expect(slack.posted.some(message => message.markdown_text === "Saved your expense.")).toBe(true)
     expect(slack.updated.some(message => message.ts === card.ts && !message.blocks?.some(block => block.type === "actions"))).toBe(true)
 
-    // 5. A second answer to the same tool call, such as from a second open modal, starts no turn.
-    await slack.send(viewSubmission(view, { email: "ada@example.com", amount: "7", reason: "travel" }))
-    await new Promise(resolve => setTimeout(resolve, 500))
+    // 5. Another modal cannot answer, even outside the message dedupe window.
+    vi.setSystemTime(Date.now() + 1000)
+    await slack.send(viewSubmission(duplicate, { ...values, amount: "7" }))
+    await slack.settle()
+    expect(slack.runs).toHaveLength(2)
+    expect(slack.updated.filter(message => message.ts === card.ts)).toHaveLength(1)
+
+    vi.setSystemTime(Date.now() + 24 * 60 * 60 * 1000)
+    await slack.send(viewSubmission(expired, values))
+    await slack.settle()
     expect(slack.runs).toHaveLength(2)
   })
 })
 
 describe("an Agent asks for a form where no chat can show it", () => {
+  it.each(["teams", "telegram", "discord"])("returns fields without posting a form card for %s", async (adapterName) => {
+    const fixture = slackFixture({ adapterName })
+    expect((await fixture.send(signed(JSON.stringify(mention), "application/json"))).status).toBe(200)
+    await fixture.settle()
+    expect(fixture.results).toEqual([expect.objectContaining({ status: "unavailable", fields: expect.any(Array) })])
+    expect(fixture.posted.some(message => message.blocks?.some(block => block.type === "actions"))).toBe(false)
+  })
   it("returns the fields so the Agent asks for them in the conversation", async () => {
     let result: unknown
     const agent = defineAgent({

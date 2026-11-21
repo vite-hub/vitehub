@@ -143,7 +143,7 @@ declare global {
     "agent.output.progressSummary": boolean
     "agent.trigger": { channelId?: string, id?: string, name?: string, source?: "capability" | "channel" }
     "channel.delivery.titleDelivered": boolean
-    "chat.channelState": { keyPrefix: string, state: StateAdapter }
+    "chat.channelState": { adapterName?: string, keyPrefix: string, state: StateAdapter }
     "chat.finish": AgentChatFinishExtension
     /** The page that `page()` works, when the run has no request that names it with the `x-vitehub-page` header. */
     page: { id: string }

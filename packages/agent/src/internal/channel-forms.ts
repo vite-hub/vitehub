@@ -2,7 +2,8 @@ import { Actions, Button, Card, CardText, Message } from "chat"
 
 import { isRuntimeRecord } from "./runtime-type.ts"
 
-import type { ActionEvent, CardElement, Chat, ModalElement, ModalResponse, ModalSubmitEvent } from "chat"
+import type { ActionEvent, CardElement, Chat, ModalElement, ModalResponse, ModalSubmitEvent, Thread } from "chat"
+import type { MessageChannelStateBinding } from "./channels.ts"
 
 /** The id of the button that opens a form, and the callback id of its modal. */
 export const channelFormAction = "vitehub_form"
@@ -30,33 +31,38 @@ export interface ChannelForm {
   read: (values: Record<string, string>) => Promise<{ errors: Record<string, string> } | { data: unknown }>
 }
 
-/** What the button and the modal carry, so a click on any host process finds the form and the tool call. */
+const requestLifetimeMs = 24 * 60 * 60 * 1000
+const answerPrefix = "vitehub-form:"
+
 interface ChannelFormRequest {
   form: string
-  call: string
+  id: string
+  expiresAt: number
 }
 
-function encodeRequest(request: ChannelFormRequest): string {
-  return JSON.stringify(request)
+function readRequest(value: unknown): ChannelFormRequest | undefined {
+  if (isRuntimeRecord(value) && typeof value.form === "string" && typeof value.id === "string" && typeof value.expiresAt === "number" && Number.isFinite(value.expiresAt)) {
+    return { form: value.form, id: value.id, expiresAt: value.expiresAt }
+  }
 }
 
 function decodeRequest(value: string | undefined): ChannelFormRequest | undefined {
   if (!value) return
   try {
-    const parsed: unknown = JSON.parse(value)
-    if (isRuntimeRecord(parsed) && typeof parsed.form === "string" && typeof parsed.call === "string") return { form: parsed.form, call: parsed.call }
+    return readRequest(JSON.parse(value))
   }
   catch {}
   return undefined
 }
 
 /** The card that the tool posts: why the Agent asks, and one button that opens the form. */
-export function channelFormCard(form: Pick<ChannelForm, "name" | "title">, message: string, call: string): { card: CardElement, fallbackText: string } {
+export function channelFormCard(form: Pick<ChannelForm, "name" | "title">, message: string): { card: CardElement, fallbackText: string } {
+  const request: ChannelFormRequest = { form: form.name, id: crypto.randomUUID(), expiresAt: Date.now() + requestLifetimeMs }
   const card = Card({
     title: form.title,
     children: [
       CardText(message),
-      Actions([Button({ id: channelFormAction, label: `Fill in ${form.title}`, style: "primary", value: encodeRequest({ form: form.name, call }) })]),
+      Actions([Button({ id: channelFormAction, label: `Fill in ${form.title}`, style: "primary", value: JSON.stringify(request) })]),
     ],
   })
   return { card, fallbackText: `${message}\n\nUse the button to fill in ${form.title}.` }
@@ -72,8 +78,23 @@ export function channelFormsOf(capabilities: readonly object[]): Map<string, Cha
   return found
 }
 
-function fieldList(fields: ChannelFormField[]): string {
-  return fields.map(field => `- ${field.label}${field.options ? ` (${field.options.join(", ")})` : ""}${field.required ? "" : " (optional)"}`).join("\n")
+function answerKey(binding: MessageChannelStateBinding, thread: Thread, request: ChannelFormRequest): string {
+  return `${binding.keyPrefix}channel-form:${JSON.stringify([thread.id, request.id])}`
+}
+
+/** Claim a Slack form only after the answer passes Channel admission. */
+export async function acceptChannelFormAnswer(binding: MessageChannelStateBinding, thread: Thread, message: Message): Promise<boolean> {
+  if (!message.id.startsWith(answerPrefix)) return true
+  const raw = message.raw
+  if (!isRuntimeRecord(raw)) return false
+  const request = readRequest(raw.request)
+  if (!request || request.expiresAt <= Date.now()) return false
+  if (!await binding.state.setIfNotExists(answerKey(binding, thread, request), true, requestLifetimeMs)) return false
+  if (request.expiresAt <= Date.now()) return false
+  if (typeof raw.cardId === "string" && typeof raw.title === "string") {
+    await thread.adapter.editMessage(thread.id, raw.cardId, `${raw.title}: filled in by ${message.author.fullName || message.author.userName}.`).catch(() => undefined)
+  }
+  return true
 }
 
 /** The text of the person's next message: the checked values of the form, as JSON. */
@@ -83,41 +104,37 @@ function channelFormAnswerText(form: Pick<ChannelForm, "title">, data: unknown):
 
 /**
  * Opens the form when a person clicks its button, checks the modal values with the form schema, and starts the next
- * Agent turn with the checked values as the person's message. A chat that cannot open a modal, such as Telegram, gets
- * the list of fields to answer in a message instead.
+ * Agent turn with the checked values as the person's message.
  */
-export function registerChannelForms(chat: Chat, forms: Map<string, ChannelForm>, waitUntil?: (task: Promise<unknown>) => void): void {
+export function registerChannelForms(chat: Chat, forms: Map<string, ChannelForm>, binding: MessageChannelStateBinding, waitUntil?: (task: Promise<unknown>) => void): void {
   if (!forms.size) return
   chat.onAction(channelFormAction, async (event: ActionEvent) => {
     const request = decodeRequest(event.value)
     const form = request && forms.get(request.form)
-    if (!request || !form) {
+    if (!request || !form || !event.thread || request.expiresAt <= Date.now() || await binding.state.get(answerKey(binding, event.thread, request))) {
       await event.thread?.post("This form is no longer available. Ask again.")
       return
     }
-    const opened = await event.openModal(await form.modal(encodeRequest(request)))
-    if (!opened) await event.thread?.post(`This chat cannot open forms. Reply with these values for ${form.title}:\n\n${fieldList(await form.fields())}`)
+    await event.openModal(await form.modal(JSON.stringify(request)))
   })
   chat.onModalSubmit(channelFormAction, async (event: ModalSubmitEvent): Promise<ModalResponse | undefined> => {
     const request = decodeRequest(event.privateMetadata)
     const form = request && forms.get(request.form)
     const thread = event.relatedThread
-    if (!request || !form || !thread) {
+    if (!request || !form || !thread || request.expiresAt <= Date.now()) {
       await thread?.post("This form is no longer available. Ask again.")
       return undefined
     }
     const answer = await form.read(event.values)
     if ("errors" in answer) return { action: "errors", errors: answer.errors }
-    await event.relatedMessage?.edit(`${form.title}: filled in by ${event.user.fullName || event.user.userName}.`).catch(() => undefined)
     const message = new Message({
       attachments: [],
       author: event.user,
       formatted: { children: [], type: "root" },
-      // One answer per tool call: Chat SDK drops a second submission of the same form as a duplicate message.
-      id: `vitehub-form:${request.call}`,
+      id: `${answerPrefix}${crypto.randomUUID()}`,
       isMention: true,
       metadata: { dateSent: new Date(), edited: false },
-      raw: { form: request.form, toolCallId: request.call },
+      raw: { request, cardId: event.relatedMessage?.id, title: form.title },
       text: channelFormAnswerText(form, answer.data),
       threadId: thread.id,
     })
