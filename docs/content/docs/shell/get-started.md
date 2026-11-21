@@ -8,62 +8,25 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Shell lets your server run simple shell commands, such as `ls`, `cat`, and `rg`, on files that you choose. You decide which commands are allowed, and how long and how much output each one can have.
+Shell lets your server run simple shell commands, such as `ls`, `cat`, and `rg`, on files that you choose. You decide which commands are allowed, how long each command can run, and how much output it can return.
 
-In this tutorial, you write a Markdown file, search it with `rg`, and return the matching line from an API route. You check the exit code and the output of the command.
+In this tutorial, you write a Markdown file to a Workspace, search it with `rg`, and return the exit code and matching line from an API route.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You do not need an account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files that you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Install and define a Workspace"}
+## Install and define a Workspace
 
-Shell runs its commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
+Shell runs commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
 
-Install Shell and Workspace:
+Install Shell, Workspace, and Valibot:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/shell @vite-hub/workspace valibot
 ```
 
-Add `workspace: true` to the ViteHub options of your app. Keep the other options of your app. Shell needs no option, because your route creates it.
-
-:::tabs{sync="framework"}
-::::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: { host: 'node', workspace: true },
-})
-```
-::::
-
-::::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true }), nitro()],
-})
-```
-::::
-
-::::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ host: 'node', workspace: true })],
-})
-```
-::::
-:::
-
-
-Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
+Create `server/workspaces/docs.ts` to define the `docs` Workspace that holds your file. This file turns Workspace on. Shell needs no option, because your route creates it:
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
@@ -76,15 +39,15 @@ export default defineWorkspace({
 })
 ```
 
-- `driver: 'memory'` keeps the files in memory. A server restart loses them.
-- `write: true` lets your route write Markdown files to the Workspace.
+- `driver: 'memory'` stores files in process memory, which resets when the server restarts.
+- `write: true` allows your route to write Markdown files into the Workspace.
 
 ::
 
 ::tutorial-step{title="Run one command"}
 ## Run one command
 
-Create `server/api/search-docs.get.ts`. This route writes `README.md` to the Workspace, then searches it for the word `auth`.
+Create `server/api/search-docs.get.ts` to write `README.md` into the Workspace and search it for `auth`.
 
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
@@ -115,10 +78,10 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- `policy` allows one command, keeps at most 10,000 characters of output, and stops the command after 30 seconds.
-- `commands` lists the only commands that Shell can run: `pwd`, `ls`, `cat`, and `rg`. Shell has no network access.
-- `createReadonlyWorkspaceFs(workspace.fs)` gives Shell the Workspace files, but it cannot change them. The route can still write, because it opened the Workspace with `mode: 'write'`.
-- `shell.exec('rg auth .')` runs the search and returns the result: its exit code and its output.
+- `policy` allows one command call, caps output at 10,000 characters, and stops the command after 30 seconds.
+- `commands` limits the shell to `pwd`, `ls`, `cat`, and `rg`. Shell has no network access.
+- `createReadonlyWorkspaceFs(workspace.fs)` gives Shell the Workspace files, but Shell cannot change them. The route can still write, because it opened the Workspace with `mode: 'write'`.
+- `shell.exec('rg auth .')` runs the search and returns its exit code and output.
 
 ::
 
@@ -131,13 +94,13 @@ Start the dev server:
 pnpm dev
 ```
 
-Open a second terminal, and call the route:
+From a second terminal, call the route:
 
 ```bash [commands/request]
 curl http://localhost:3000/api/search-docs
 ```
 
-The response shows that the command worked. Exit code `0` means success, and `stdout` has the matching line:
+Exit code `0` confirms the search succeeded, and `stdout` contains the matching line:
 
 ```json [output/response.json]
 {
@@ -153,10 +116,10 @@ The response shows that the command worked. Exit code `0` means success, and `st
 
 ::card-group
 :::card{title="Server API" icon="i-lucide-code" to="/docs/shell/server-api"}
-Keep a Shell session open and check a command before it runs.
+Keep a Shell session open across calls, and check a command before it runs.
 :::
 
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/shell/configure"}
-Set the driver, its limits, and network access.
+Set the Shell driver, its limits, and network access.
 :::
 ::

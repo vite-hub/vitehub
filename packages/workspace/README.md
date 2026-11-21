@@ -1,9 +1,9 @@
 # @vite-hub/workspace
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
-  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
-  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/static/v1?label=ViteHub&amp;message=vitehub.dev&amp;color=blue"></a>
+  <img alt="TypeScript" src="https://img.shields.io/static/v1?label=TypeScript&amp;message=ready&amp;color=blue">
+  <img alt="Vite" src="https://img.shields.io/static/v1?label=Vite&amp;message=discovery&amp;color=blue">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -162,7 +162,7 @@ import { workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 export default defineDatabase({ name: "history", schema: workspaceHistorySchema })
 ```
 
-```ts [server/workspaces/drop.ts]
+```ts [server/workspaces/notes.ts]
 import { blob } from "@vite-hub/blob"
 import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
@@ -172,7 +172,7 @@ export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
     blob: blob.store("workspace-history"),
     database: () => useDatabase("history").db,
-    workspace: "drop-123",
+    workspace: "notes-123",
   }),
 })
 ```
@@ -180,12 +180,12 @@ export default defineWorkspace({
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
 
-const workspace = useWorkspace("drop", { mode: "write" })
+const workspace = useWorkspace("notes", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
   files: { "index.html": "<h1>Hello</h1>" },
   message: "Publish",
-  metadata: { author: "maxi" },
+  metadata: { author: "ada" },
 })
 const version = await workspace.history.open(revision.id)
 await version.readFile("index.html")
@@ -196,7 +196,7 @@ await workspace.history.usage()
 Commits publish the complete desired file set with an atomic head comparison.
 Catch `isWorkspaceConflict(error)` for a stale `ifHead`. Omitted paths disappear
 from the new revision; earlier versions retain their bytes. Read mode exposes
-`head`, `list`, `refs`, `open`, and `usage`. Stores without retained history
+`head`, `list`, `refs`, `open`, `diff`, and `usage`. Stores without retained history
 throw `WORKSPACE_R0069`. Existing checkpoint and rebase behavior is unchanged.
 
 History has named refs. Calls without `ref` use `main`. Each ref has its own head
@@ -213,6 +213,53 @@ await workspace.history.commit({
 await workspace.history.refs() // [{ name: "draft", head }, { name: "main", head }]
 ```
 
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
+before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
+
+`history.diff({ from, to })` lists the files that were added, modified, or removed
+between two revisions, also on different refs. Changes to bytes, media type, or
+retained metadata count as modifications:
+
+```ts fragment
+const [published, saved] = await Promise.all([
+  workspace.history.head({ ref: "published" }),
+  workspace.history.head({ ref: "draft" }),
+])
+if (saved) {
+  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
+  // [{ path: "posts/hello.md", type: "modified", before, after }]
+}
+```
+
+`history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
+does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
+working ref:
+
+```ts fragment
+const head = await workspace.history.head({ ref: runId })
+await workspace.history.deleteRef({ ref: runId, ifHead: head?.id })
+```
+
+Blob + Database checks `ifHead` atomically with ref deletion and also removes the
+ref's revisions and bytes that no other revision uses. GitHub only deletes the
+branch, so commits and bytes may still be readable by SHA. Its `ifHead` check
+happens before a separate, unconditional delete request.
+
 Rules, validators, hooks, and Source ownership run on every changed path in both
 forms. Use `registerWorkspacePlugin(name, plugin)` to add rules and hooks to a
 Workspace your package does not define. In a history commit, each hook gets
@@ -220,7 +267,7 @@ Workspace your package does not define. In a history commit, each hook gets
 that the commit changes. A hook can check all paths at once, and read the intent of
 the caller from the metadata, as Content reads `lease: "override"`.
 
-File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>` Blob keys.
+File objects use `_vitehub/workspace-history[/<prefix>]/<sha256(workspace)>/sha256/<digest>-<generation>` Blob keys. Existing digest-only keys remain readable.
 The optional `prefix` nests below `_vitehub/workspace-history/`, so ViteHub owns every
 history object.
 Identical bytes share one object within a workspace. Database stores immutable
@@ -232,7 +279,8 @@ Normal file writes stage changes in instance memory until checkpoint or snapshot
 which commit to `main`. Only committed history is durable; keep drafts on a ref. `store.delete()` permanently tombstones the
 identity and removes its history and objects. Retry deletion after storage errors
 or after stopping abandoned uploads. Failed publications can leave reusable
-objects outside retained usage accounting until deletion. Pruning is not supported.
+objects outside retained usage accounting until deletion. `history.deleteRef()` deletes
+one ref and the objects that no other revision uses.
 Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
@@ -244,8 +292,8 @@ runtime of the dev server, or of a deployed app with `--url`, and never write:
 vitehub workspace history content            # revisions on every ref, newest first
 vitehub workspace history content --ref draft
 vitehub workspace refs content                # each ref and its head revision
-vitehub workspace show content draft          # one revision and its files
-vitehub workspace show content draft posts/hello.md
+vitehub workspace get content draft          # one revision and its files
+vitehub workspace get content draft posts/hello.md
 ```
 
 Add `--json` for machine-readable output. A Store without retained history
@@ -326,11 +374,11 @@ Bind a standalone Source definition when direct reads, Content, and Workspace
 need the same origin:
 
 ```ts
-import { createSource, glob } from "@vite-hub/source"
+import { glob, useSource } from "@vite-hub/source"
 import { defineWorkspace } from "@vite-hub/workspace"
 
 const docs = glob({ cwd: "docs", include: "**/*.md" })
-const reader = createSource(docs)
+const reader = useSource(docs)
 await reader.read("intro.md")
 
 export default defineWorkspace({
@@ -346,7 +394,7 @@ placement, materialization, sync, and access rules. Source owns retrieval.
 Without a `mount` path, the Source kind picks the mount, not the import. A file
 Source (`file()` or `markdown()` from either package, or the `"README.md"` and
 `{ path }` shorthands) puts its one file at its own key, so
-`readme: file("README.md")` appears at `README.md`. `fetch()` also puts its one
+`readme: file("README.md")` appears at `README.md`. `url()` also puts its one
 file at its own path. Every other Source mounts under its binding key. Set `mount` to move a file:
 `readme: { source: file("README.md"), mount: "docs" }` appears at
 `docs/README.md`.
@@ -420,7 +468,7 @@ export default defineNuxtConfig({
     workspace: {
       store: {
         driver: "github",
-        repository: "owner/repo",
+        repo: "owner/repo",
         branch: "main",
         root: ".vitehub/workspaces/docs",
       },
@@ -484,14 +532,14 @@ import { defineWorkspace } from "@vite-hub/workspace"
 export default defineWorkspace({
   store: {
     driver: "github",
-    repository: "owner/repo",
+    repo: "owner/repo",
     branch: "main",
     root: ".vitehub/workspaces/<workspace>",
   },
 })
 ```
 
-The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, and `history.open(id).preload(paths)` reads many files from one archive. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot moves the changes onto the new head and commits once more. A path that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`; `details.paths` names the paths. A Store without staged writes reads the branch head again when it loaded it more than 5 seconds ago, so one cached Store serves many requests without `resetWorkspaceStoreCache()`. The Cloudflare Artifacts Store does the same. Writes stay staged until `snapshot()`. When a request, a Schedule run, or a Queue job throws, a Store that holds only its staged writes drops them and loads the branch again on its next call, so a later snapshot cannot commit them. This holds for every writer of the Store, Source materialization included, and for Workspaces that live longer than one request. Requests that overlap in one instance share one Store, so their staged writes stay until one of them snapshots.
+The GitHub Store talks to GitHub through `@vite-hub/forge`, an optional peer. Install it with `pnpm add @vite-hub/forge`. Without it, the first request fails with `INTERNAL_FORGE_NOT_INSTALLED`. Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. Branch heads are revalidated with their ETag, answers for a commit sha stay in memory, and with `registerWorkspaceKV()` (Content calls it with ViteHub KV) they also go to KV for 7 days. `history.list()` reads one request per page, `history.open(id).preload(paths)` reads many files from one archive, and `history.open(id).lastChanged(paths)` finds the last commit of 100 paths per request. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot moves the changes onto the new head and commits once more. A path that changed on both sides, or a second move, fails with `WORKSPACE_CONFLICT`; `details.paths` names the paths. A Store without staged writes reads the branch head again when it loaded it more than 5 seconds ago, so one cached Store serves many requests without `resetWorkspaceStoreCache()`. The Cloudflare Artifacts Store does the same. Writes stay staged until `snapshot()`. When a request, a Schedule run, or a Queue job throws, a Store that holds only its staged writes drops them and loads the branch again on its next call, so a later snapshot cannot commit them. This holds for every writer of the Store, Source materialization included, and for Workspaces that live longer than one request. Requests that overlap in one instance share one Store, so their staged writes stay until one of them snapshots.
 
 GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 
@@ -499,9 +547,13 @@ GitHub-backed Stores also expose the retained history reader. Repository branche
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
 includes the commit author and a `url` that opens the commit on GitHub. Revision file
 views read the configured Workspace root from the commit tree and fetch file bytes from
-that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
+that commit. The `vitehub workspace history`, `refs`, and `get` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
+
+`lastChanged(paths)` returns only changes it can confirm on the first-parent history,
+including deletions. A `null` value means no change. A missing key means the Store
+could not confirm an answer.
 
 The GitHub Store also writes history. `history.commit()` creates one commit, checks `ifHead` and
 `ifHeads` against the branch heads, and starts a missing branch from the `refs.published` branch when it is set, else from the default branch. `startFrom` names the revision a missing ref starts from. Options:

@@ -13,7 +13,7 @@ export { seal, unseal } from "./seal-value.ts"
 export { checkServiceToken, requireServiceToken } from "./service-token.ts"
 export type { ServiceTokenErrorCode, ServiceTokenEvent } from "./service-token.ts"
 export { signWebhook, verifyWebhook } from "./webhook.ts"
-export type { SignWebhookOptions, VerifyWebhookOptions, WebhookErrorCode } from "./webhook.ts"
+export type { SignWebhookOptions, VerifyWebhookOptions, VerifyWebhookSchemaOptions, WebhookErrorCode } from "./webhook.ts"
 export type { SealOptions, SealUsesDatabase, UnsealErrorCode, UnsealOptions, UnsealSchemaOptions } from "./seal-value.ts"
 export type { EnvErrorCode, EnvErrorDetails, EnvSourceIdentifier } from "./core/errors.ts"
 export type {

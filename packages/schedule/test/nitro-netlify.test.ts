@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { evlogBridgeKey } from "@vite-hub/internal/runtime/request-log"
 import { build, createNitro, prepare } from "nitro/builder"
 import { nitro as nitroPlugin } from "nitro/vite"
 import { createBuilder } from "vite"
@@ -16,12 +17,17 @@ const roots: string[] = []
 const scheduleGlobal = globalThis as typeof globalThis & {
   vitehubNetlifyScheduleRun?: { cron: string, nitroPlugin: unknown, scheduledAt: unknown }
   vitehubNetlifyNitroPlugin?: string
+  vitehubNetlifyDrained?: unknown
+  vitehubNetlifyStartup?: Promise<void>
 }
 
 afterEach(async () => {
   vi.unstubAllEnvs()
   delete scheduleGlobal.vitehubNetlifyScheduleRun
   delete scheduleGlobal.vitehubNetlifyNitroPlugin
+  delete scheduleGlobal.vitehubNetlifyDrained
+  delete scheduleGlobal.vitehubNetlifyStartup
+  Reflect.deleteProperty(globalThis, Symbol.for(evlogBridgeKey))
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -43,7 +49,21 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     await writeFile(join(root, "package.json"), "{\"type\":\"module\"}\n")
     await symlink(fileURLToPath(new URL("../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
     // Nitro's plugins configure the app's primitives, such as the Database, before any handler runs.
-    await writeFile(join(root, "configure.mjs"), "export default () => { globalThis.vitehubNetlifyNitroPlugin = 'configured' }\n")
+    let finishStartup!: () => void
+    scheduleGlobal.vitehubNetlifyStartup = new Promise<void>(resolve => { finishStartup = resolve })
+    await writeFile(join(root, "configure.mjs"), [
+      "export default async () => {",
+      "  await globalThis.vitehubNetlifyStartup",
+      "  globalThis.vitehubNetlifyNitroPlugin = 'configured'",
+      `  globalThis[Symbol.for(${JSON.stringify(evlogBridgeKey)})] = {`,
+      "    createLogger: fields => ({ info() {}, emit: () => fields }),",
+      "    async drain(event) {",
+      "      await new Promise(resolve => setImmediate(resolve))",
+      "      globalThis.vitehubNetlifyDrained = event.schedule",
+      "    },",
+      "  }",
+      "}",
+    ].join("\n"))
     await writeFile(join(root, "server", "schedules", "cleanup.ts"), [
       `import { defineSchedule } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/schedule")))}`,
       "export default defineSchedule({",
@@ -137,9 +157,12 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     // The server function's entry keeps Nitro's request handler.
     expect(typeof (await import(pathToFileURL(join(deployed, "main.mjs")).href) as { default: unknown }).default).toBe("function")
     expect(scheduled.config).toEqual({ includedFiles: ["**"], nodeBundler: "none", schedule: "0 0 * * *" })
-    expect((await scheduled.default(new Request("https://app.netlify.app/", { body: "{\"next_run\":\"\"}", method: "POST" }))).status).toBe(204)
+    const response = scheduled.default(new Request("https://app.netlify.app/", { body: "{\"next_run\":\"\"}", method: "POST" }))
+    setImmediate(finishStartup)
+    expect((await response).status).toBe(204)
     expect(scheduleGlobal.vitehubNetlifyScheduleRun).toMatchObject({ cron: "0 0 * * *", nitroPlugin: "configured" })
     expect(scheduleGlobal.vitehubNetlifyScheduleRun?.scheduledAt).toBeInstanceOf(Date)
+    expect(scheduleGlobal.vitehubNetlifyDrained).toMatchObject({ name: "cleanup", outcome: "success" })
   })
 
   it.each([

@@ -70,13 +70,13 @@ Delivery is at least once. A receiver can get the same delivery twice, for examp
 
 | Function | Does |
 | --- | --- |
-| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, and `debounceMs`. It returns the list, not a Result. |
+| `listWebhooks()` | Every webhook, with the names of its variables, `urlSet` and `secretSet`, `debounceMs`, and `events`. It returns the list, not a Result. |
 | `listWebhookDeliveries({ webhook?, state?, limit?, before? })` | Deliveries, newest first. `limit` is 100 by default, 500 at most. |
 | `listPendingWebhookDeliveries({ webhook?, limit? })` | Pending deliveries, the soonest due first. |
 | `getWebhookDelivery(id)` | One delivery. |
-| `flushWebhookDelivery(id)` | Delivers a pending delivery now, without the rest of its debounce. |
+| `flushWebhookDelivery(id, { caller? })` | Delivers a pending delivery now, without the rest of its debounce. |
 | `cancelWebhookDelivery(id)` | Cancels a pending delivery. Its wake then does nothing. |
-| `redeliverWebhookDelivery(id)` | Sends a `sent`, `dead`, or `cancelled` delivery again now, as a new delivery with a new id, the same body, event, and count. |
+| `redeliverWebhookDelivery(id, { caller? })` | Sends a `sent`, `dead`, or `cancelled` delivery again now, as a new delivery with a new id, the same body, event, and count. A [member delivery](/docs/webhooks/member-endpoints#who-owns-an-endpoint) needs its owner as `caller`. |
 
 ```ts [server/utils/retry-dead.ts]
 import { listWebhookDeliveries, redeliverWebhookDelivery } from 'vite-hub/webhooks/runtime'
@@ -99,15 +99,15 @@ A delivery has `id`, `webhook`, `key`, `event`, `body`, `revision`, `count`, `st
 
 ## Tests
 
-In a unit test, call `installWebhooks()` from `@vite-hub/webhooks/runtime` with your definitions, a store, and a wake sender. `createDrizzleWebhookStore(db)` from `@vite-hub/webhooks/database` gives a store on a libSQL or D1 Drizzle client, and `webhooksTables` holds the SQL of the table.
+In a unit test, call `installWebhooks()` from `@vite-hub/webhooks/runtime` with your definitions, a store, and a wake sender. `createDrizzleWebhookStore(db)` from `@vite-hub/webhooks/database` gives a store on a libSQL or D1 Drizzle client, and `webhooksTables` holds the SQL of the tables. For member endpoints, also pass `endpoints: createDrizzleWebhookEndpointStore(db)`.
 
 ## Public imports
 
 | Import | Purpose |
 | --- | --- |
-| `vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, and the types |
+| `vite-hub/webhooks` | `defineWebhook()`, `sendWebhook()`, the [member endpoint](/docs/webhooks/member-endpoints) functions, `checkWebhookUrl()`, and the types |
 | `vite-hub/webhooks/runtime` | The delivery functions above, and `installWebhooks()` for tests |
-| `vite-hub/webhooks/database` | The table as `webhooksSchema`, as SQL in `webhooksTables`, and `createDrizzleWebhookStore()` |
+| `vite-hub/webhooks/database` | The tables as `webhooksSchema` and `webhookEndpointsSchema`, as SQL in `webhooksTables`, `createDrizzleWebhookStore()`, and `createDrizzleWebhookEndpointStore()` |
 | `@vite-hub/webhooks/vite` | `hubWebhooks()`. `vitehub()` adds it for you. |
 
 Outside a ViteHub app, import the same names from `@vite-hub/webhooks`.

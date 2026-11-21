@@ -122,8 +122,7 @@ export interface UnrelatedFailureWait {
 
 /**
  * The wait for a PR whose failing checks it did not cause, or undefined when a pass has work: one `pr`
- * failure, or no failure. On 2026-11-05 vitehub#3024 and comark-ui#351 spent their repair pushes on
- * failures their changes did not cause.
+ * failure, or no failure. Without it, a pass spends its repair pushes on failures the PR did not cause.
  */
 export function unrelatedFailureWait(causes: readonly FailureCause[], base: string, now = Date.now()): UnrelatedFailureWait | undefined {
   // A gate job fails because of the other failed jobs in its run, so their causes decide.
@@ -178,8 +177,7 @@ export type InheritedCheckEvaluation = ReturnType<typeof evaluateGitHubRequiredC
 
 /**
  * The required-check evaluation with the PR's own failing Actions counted. Where a branch requires no
- * checks, GitHub reported `passed` beside failing CI, so an assessed head could merge red
- * (comark-plugins#45). Failures inherited from the base do not count against the PR, and a required
+ * checks, GitHub reports `passed` beside failing CI, so an assessed head could merge red. Failures inherited from the base do not count against the PR, and a required
  * check named in `bypassChecks` that only repeats the base's failure passes.
  */
 export function inheritedCheckEvaluation(snapshot: Snapshot, policy: GitHubRequiredCheckPolicy, inheritedCheckIds: ReadonlySet<number>, reviewChecks: ReadonlySet<string>, bypassChecks: ReadonlySet<string> = new Set()): InheritedCheckEvaluation {

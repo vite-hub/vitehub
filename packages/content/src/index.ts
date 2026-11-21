@@ -117,8 +117,9 @@ export type { ContentSourceInput, ContentSourceMarkdown, ContentSourceMarkdownPa
 export { registerContentKV } from "./kv.ts"
 export type { ContentKV } from "./kv.ts"
 export type { ContentHistoryEntry, ContentHistoryOptions, ContentHistoryResult } from "./history.ts"
-export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery } from "./source-heads.ts"
-export { contentGitHubWebhookRoute, defineContentGitHubWebhookHandler } from "./github-webhook.ts"
+export type { ContentSourceHead, ContentSourceHeadDiagnostic, ContentSourceHeads, ContentSourceView, ContentSourceWebhookDelivery, ContentPrewarmJob } from "./source-heads.ts"
+export { contentGitHubWebhookRoute, contentPrewarmQueueName, defineContentGitHubWebhookHandler, prewarmContentPage } from "./github-webhook.ts"
+export type { ContentGitHubWebhookOptions } from "./github-webhook.ts"
 export { defineContentPreviewRoutesPlugin, parseContentPreviewPath, rewriteContentLinks } from "./ref-routes.ts"
 export type { ContentPreviewAppConfig, ContentPreviewLink, ContentPreviewLinkAccess, ContentPreviewLinks, ContentPreviewLinksOptions, ContentPreviewPath, ContentPreviewRouteKind, ContentPreviewRoutesHost, ContentPreviewRoutesHostLoader, ContentPreviewRoutesPluginOptions, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 export type { ContentSourcePull, ContentSourceRef, ContentSourceRefKind } from "./source-refs.ts"
@@ -533,7 +534,7 @@ export function defineContent<
   const TCollections extends ContentCollections = {},
   TPresetOptions extends object = object,
 >(options: DefineContentOptions<TPlugins, TCollections, TPresetOptions> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
-  if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
+  if (options.source && options.sources) throw contentErrorDiagnostics.CONTENT_SOURCE_CONFLICT()
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_PRESET_WORKSPACE_CONFLICT()
   }
@@ -654,7 +655,7 @@ export function defineContent<
     } }
   }
   const instances = Object.entries(inputs).map(([name, input]) => {
-    if (!input) throw new Error(`Content source ${JSON.stringify(name)} is missing.`)
+    if (!input) throw contentErrorDiagnostics.CONTENT_SOURCE_MISSING({ name })
     const kind = contentSourceKind(input)
     const commits = heads.commits(name, input, snapshots?.[name])
     if (commits) sourceCommits.set(name, commits)
@@ -793,12 +794,12 @@ export function defineContent<
   const byName = new Map(instances.map(instance => [instance.name, instance]))
   function from(name: string) {
     const instance = byName.get(name)
-    if (!instance) throw new Error(`Unknown content source ${JSON.stringify(name)}.`)
+    if (!instance) throw contentErrorDiagnostics.CONTENT_SOURCE_UNKNOWN({ name })
     return instance
   }
   function cacheForKey(key: string) {
     const instance = instances.find(candidate => key.startsWith(`${candidate.name}:`))
-    if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
+    if (!instance) throw contentErrorDiagnostics.CONTENT_CACHE_KEY_UNKNOWN({ key })
     return instance.cache
   }
   const routedSources = Object.entries(inputs).flatMap(([name, input]) => {

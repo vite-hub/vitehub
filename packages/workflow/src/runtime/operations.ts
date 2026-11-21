@@ -1,7 +1,7 @@
 import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { isRecord } from "@vite-hub/internal/object"
 
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveWorkflowOperationSupport } from "../results.ts"
@@ -10,11 +10,11 @@ import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
 import { toWorkflowRunError } from "./run-error.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
-import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
+import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
 import type { WorkflowRun, WorkflowRunStatus } from "../types.ts"
 import type { WorkflowDevRecorder, WorkflowDevRunRecord } from "./dev-recorder.ts"
 
-export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunView, WorkflowSignalResult }
+export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult }
 
 const maxRememberedRuns = 1024
 
@@ -30,9 +30,10 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKFLOW_PROVIDER_OPERATION_FAILED: 502,
   WORKFLOW_REGISTRY_MISSING: 409,
   WORKFLOW_RUN_AMBIGUOUS: 400,
-  WORKFLOW_RUN_NOT_FOUND: 404,
   WORKFLOW_RUN_UNKNOWN: 400,
   WORKFLOW_RUNS_UNAVAILABLE: 409,
+  WORKFLOW_SIGNAL_NOT_WAITING: 409,
+  WORKFLOW_SIGNAL_TOKEN_INVALID: 400,
 }
 
 /** Gives an operation error the status of its code and the redacted message that the CLI and the Console report. */
@@ -231,21 +232,31 @@ async function run(operation: WorkflowOperationName, input: WorkflowOperationInp
       const available = workflows.length ? ` Available Workflows: ${workflows.join(", ")}.` : " The Workflow registry of the runtime is empty."
       throw failure(workflowErrorDiagnostics.WORKFLOW_DEFINITION_NOT_FOUND({ available, workflow }))
     }
-    const started = await startWorkflow(workflow, payload)
+    const [error, started] = await startWorkflow(workflow, payload)
+    if (error) throw error
     rememberRun(started.id, workflow)
     return { run: await toWorkflowRunView(started, workflow) }
   }
   if (operation === "resume") {
     const { payload, token } = input as WorkflowOperationInputs["resume"]
-    const signal = await resumeWorkflow(token, payload)
+    const [error, signal] = await resumeWorkflow(token, payload)
+    if (error) throw error
     return { signal: { id: signal.id, provider: signal.provider } }
   }
   const { runId, workflow: named } = input as WorkflowOperationInputs["get"]
+  // `vite dev` records each run with its steps, also a run that the app started, so `get` shows them.
+  const recorded = operation === "get" ? getWorkflowDevRecorder()?.list().filter(record => record.id === runId && (named === undefined || record.workflow === named)) ?? [] : []
+  if (recorded.length > 1) {
+    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: runId, workflows: recorded.map(record => record.workflow).join(", ") }))
+  }
+  const [record] = recorded
+  if (record) return { run: { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) } }
   const workflow = named ?? startedRuns.get(runId)
   if (!workflow) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_UNKNOWN({ runId }))
   }
-  const found = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
+  const [error, found] = operation === "get" ? await getWorkflowRun(workflow, runId) : await cancelWorkflow(workflow, runId)
+  if (error) throw error
   return { run: await toWorkflowRunView(found, workflow) }
 }
 
@@ -298,20 +309,6 @@ export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<Wo
     .filter(record => (input.workflow === undefined || record.workflow === input.workflow) && (input.status === undefined || record.status === input.status))
     .slice(0, input.limit ?? workflowDevRunLimit)
   return { runs: await Promise.all(records.map(async record => ({ ...await toWorkflowRunView(devRunView(record), record.workflow), stepCount: record.steps.length }))) }
-}
-
-/** Shows one run that `vite dev` recorded, with its steps, result, and error. */
-export async function showWorkflowRun(input: { id: string, workflow?: string }): Promise<WorkflowRunsShowResult> {
-  const matches = devRecorder().list().filter(record => record.id === input.id && (input.workflow === undefined || record.workflow === input.workflow))
-  if (matches.length === 0) {
-    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_NOT_FOUND({ id: input.id }))
-  }
-  if (matches.length > 1) {
-    throw failure(workflowErrorDiagnostics.WORKFLOW_RUN_AMBIGUOUS({ id: input.id, workflows: matches.map(record => record.workflow).join(", ") }))
-  }
-  const record = matches[0]!
-  const run: WorkflowRunDetailView = { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) }
-  return { run }
 }
 
 /** Removes the runs that `vite dev` recorded. A run that is still active finishes but is not listed again. */

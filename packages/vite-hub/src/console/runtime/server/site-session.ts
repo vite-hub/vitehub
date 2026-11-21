@@ -37,7 +37,7 @@ export interface ConsoleSiteKV {
   set: (key: string, value: string, options: { ttl: number }) => Promise<readonly [unknown, unknown]>
   get: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
   getAndDelete: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
-  keys: (base: string) => Promise<readonly [unknown, string[] | undefined]>
+  list: (options: { prefix: string }) => Promise<readonly [unknown, { keys: string[] } | undefined]>
   delete: (key: string) => Promise<readonly [unknown, unknown]>
 }
 
@@ -48,7 +48,7 @@ function unwrap<T>([error, value]: readonly [unknown, T]): T {
 
 /** The keys of a KV store below a prefix. Some drivers list keys with `/` where the key had `:`. */
 export async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<string[]> {
-  const keys = unwrap(await kv.keys(prefix.replace(/:$/, ""))) ?? []
+  const keys = unwrap(await kv.list({ prefix }))?.keys ?? []
   return keys.map(key => key.replaceAll("/", ":")).filter(key => key.startsWith(prefix))
 }
 
@@ -78,8 +78,8 @@ function memorySiteKV(): ConsoleSiteKV {
       entries.delete(key)
       return [undefined, value]
     },
-    async keys(base) {
-      return [undefined, [...entries.keys()].filter(key => key.startsWith(base) && live(key) !== null)]
+    async list({ prefix }) {
+      return [undefined, { keys: [...entries.keys()].filter(key => key.startsWith(prefix) && live(key) !== null) }]
     },
     async delete(key) {
       entries.delete(key)

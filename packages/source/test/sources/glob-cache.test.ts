@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { glob as tinyglobby } from "tinyglobby"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createSource } from "../../src/core/reader.ts"
+import { useSource } from "../../src/core/registry.ts"
 import { glob } from "../../src/index.ts"
 
 vi.mock("tinyglobby", () => ({
@@ -40,7 +40,7 @@ describe("@vite-hub/source glob source cache", () => {
     await expect(docs.getMeta?.("docs/README.md", ctx)).resolves.toMatchObject({ digest: expect.any(String) })
     await expect(docs.getItem("missing.md", ctx)).rejects.toThrow('glob could not find "missing.md"')
 
-    const reader = createSource(docs, ctx)
+    const reader = useSource(docs, ctx)
     const readerKeys = await reader.keys()
     readerKeys.splice(0, 1, "missing.md")
     await expect(reader.keys()).resolves.toEqual(["docs/README.md"])

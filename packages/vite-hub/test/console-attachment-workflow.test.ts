@@ -51,7 +51,10 @@ it.each(["import", "connect", "registration", "dispatch"] as const)("rolls back 
   setWorkflowRuntimeRegistry({ [name]: async () => ({ default: { handler: async () => "unreachable" } }) })
   await expect(withConsoleInputMessage("", { files }, (message, onInputHandoff) => runWithWorkflowRuntimeEvent(
     { onDispatch: onInputHandoff },
-    () => startWorkflow(name, { messages: [message] }),
+    async () => {
+      const [error] = await startWorkflow(name, { messages: [message] })
+      if (error) throw error
+    },
   ))).rejects.toThrow()
   expect(dispatch).toHaveBeenCalledTimes(stage === "dispatch" ? 1 : 0)
   const [listError, result] = await blob.list({ prefix: "_vitehub/console/attachments/" })

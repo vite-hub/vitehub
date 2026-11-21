@@ -19,7 +19,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
@@ -49,7 +48,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
@@ -78,7 +76,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       // Safe to show in the browser
       public: {
@@ -145,11 +142,11 @@ export default defineEventHandler(() => {
   :::
 
   :::product-feature-item{title="Typed values" icon="i-lucide-sliders-horizontal" to="/docs/env/configure#typed-values"}
-  Read host text as a boolean, a number, or one of a list of choices. A wrong value fails with a clear error.
+  Read environment strings as a boolean, a number, or one of a list of choices. A wrong value fails with a clear error.
   :::
 
   :::product-feature-item{title="Secrets stay hidden" icon="i-lucide-shield-check" to="/docs/env/server-api#use-it-at-runtime"}
-  A secret prints as hidden text until you call `unseal()`.
+  Secrets print as hidden text until you call `unseal()`.
   :::
 
   :::product-feature-item{title="Clear variable names" icon="i-lucide-tag" to="/docs/env/configure#variable-names"}

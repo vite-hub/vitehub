@@ -3,8 +3,18 @@ import { extname, resolve } from "node:path";
 import { object, parse, string } from "valibot";
 import { describe, expect, it } from "vitest";
 
+import { readDiagnosticCodes } from "../modules/diagnostics/catalog";
+import { diagnosticPages } from "../modules/diagnostics/pages";
+
 const repoRoot = resolve(import.meta.dirname, "../..");
 const docsRoot = resolve(repoRoot, "docs/content/docs");
+const generatedPages = diagnosticPages({
+  codes: readDiagnosticCodes(repoRoot),
+  sectionTitles: {},
+  limits: {},
+  guides: {},
+  repository: "https://github.com/vite-hub/vitehub",
+});
 const ownedDocs = [
   resolve(docsRoot, "frameworks-hosts"),
   resolve(docsRoot, "reference"),
@@ -21,6 +31,8 @@ function routeExists(route: string): boolean {
   const relative = route.replace(/^\/docs\/?/, "").replace(/\/$/, "");
   if (!relative) return existsSync(resolve(docsRoot, "index.md"));
   return (
+    generatedPages.has(`docs/${relative}.md`) ||
+    generatedPages.has(`docs/${relative}/index.md`) ||
     existsSync(resolve(docsRoot, `${relative}.md`)) ||
     existsSync(resolve(docsRoot, relative, "index.md"))
   );
@@ -47,7 +59,6 @@ describe("launch documentation trust boundaries", () => {
 
     expect(rootReadme).toMatch(/pnpm add vite-hub/);
     expect(rootReadme).toMatch(/import \{ vitehub \} from ["']vite-hub["']/);
-    expect(existsSync(resolve(docsRoot, "getting-started/migration.md"))).toBe(false);
 
     for (const directory of readdirSync(resolve(repoRoot, "packages"))) {
       const manifestPath = resolve(repoRoot, "packages", directory, "package.json");

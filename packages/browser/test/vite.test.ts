@@ -311,9 +311,12 @@ describe("hubBrowser", () => {
     await writeFile(
       join(root, "consumer.ts"),
       [
-        `import { runBrowser, type BrowserRunResult } from "@vite-hub/browser"`,
-        `const result: Promise<BrowserRunResult> = runBrowser("code-image", { code: "const ok = true" })`,
-        `void result`,
+        `import { runBrowser } from "@vite-hub/browser"`,
+        `export async function measure(): Promise<number> {`,
+        `  const [error, image] = await runBrowser("code-image", { code: "const ok = true" })`,
+        `  if (error) throw error`,
+        `  return image.length`,
+        `}`,
         `// @ts-expect-error unknown Browser Definition`,
         `runBrowser("missing", { code: "const ok = false" })`,
         `// @ts-expect-error incorrect input`,

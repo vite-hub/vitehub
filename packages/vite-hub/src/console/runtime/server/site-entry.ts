@@ -1,4 +1,4 @@
-import { hostedConsoleOrigin } from "@vite-hub/runtime"
+import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { viteHubPageToolAllows } from "@vite-hub/internal/runtime/page-tools"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
@@ -34,7 +34,7 @@ const entrySegment = /\/_vitehub(?=\/|$)/
 
 /**
  * The first path segments below `/_vitehub` that ViteHub serves itself, such as `/_vitehub/rpc` of the Console and
- * `/_vitehub/blob/signed` of Blob. `/_vitehub/<name>/...` never goes back to a page: the route answers 404 for a path
+ * `/_vitehub/blob-signed` of Blob. `/_vitehub/<name>/...` never goes back to a page: the route answers 404 for a path
  * that no ViteHub route served. Open such a page and follow a link to `/_vitehub` from it.
  */
 export const siteEntryReservedNames: ReadonlySet<string> = new Set([
@@ -44,6 +44,8 @@ export const siteEntryReservedNames: ReadonlySet<string> = new Set([
   "agents",
   "api",
   "blob",
+  "blob-signed",
+  "browser-errors",
   "channel-task",
   "channels",
   "comments",
@@ -61,6 +63,7 @@ export const siteEntryReservedNames: ReadonlySet<string> = new Set([
   "realtime",
   "rpc",
   "schedule",
+  "sync",
   "warm",
   "webhook-queue",
 ])

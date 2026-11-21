@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("deploy options", () => {
   it("checks the health route first, once, and keeps the order of deploy.check", () => {
-    expect(resolveDeployManifest({ deploy: { check: ["/", "/api/_vitehub/health"] }, health: true, publicUrl: undefined })).toEqual({ check: ["/api/_vitehub/health", "/"] })
+    expect(resolveDeployManifest({ deploy: { check: ["/", "/_vitehub/health"] }, health: true, publicUrl: undefined })).toEqual({ check: ["/_vitehub/health", "/"] })
     expect(resolveDeployManifest({ deploy: { check: "/" }, health: { route: "/api/health" }, publicUrl: undefined })).toEqual({ check: ["/api/health", "/"] })
     expect(resolveDeployManifest({ deploy: undefined, health: undefined, publicUrl: "https://shop.example.com" })).toBeUndefined()
   })
@@ -51,7 +51,7 @@ describe("deploy options in a built Nitro 3 app", () => {
 
     const key = indexNowKey("https://shop.example.com")
     const manifest = JSON.parse(await readFile(join(root, ".output/deployment.json"), "utf8")) as Record<string, unknown>
-    expect(manifest.deploy).toEqual({ check: ["/api/_vitehub/health", "/"], indexNow: { key, url: "https://shop.example.com" } })
+    expect(manifest.deploy).toEqual({ check: ["/_vitehub/health", "/"], indexNow: { key, url: "https://shop.example.com" } })
 
     process.chdir(root)
     const server = await startBuiltServer(root, {})

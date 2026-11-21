@@ -105,6 +105,7 @@ const packageEntries = [
 const bundledInternal: Record<string, string[]> = {
   agent: ["@sqlite.org/sqlite-wasm", "@valibot/to-json-schema", "@vercel/nft", "birpc"],
   blob: ["@valibot/to-json-schema", "birpc"],
+  bundle: ["@valibot/to-json-schema"],
   cli: ["@babel/parser", "birpc"],
   comments: ["@valibot/to-json-schema", "birpc"],
   content: ["@valibot/to-json-schema", "birpc"],
@@ -186,6 +187,10 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   // The OS timer tests check the generated files with the OS tools, when the machine has them.
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
+    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg and ffprobe.
+    ignoreBinaries: ["ffmpeg", "ffprobe"],
+    // `motion-lists.browser.mjs` serves this module from git: the Console upload queue from before the motion helpers.
+    ignoreUnresolved: ["/@uploads-today"],
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
       "nuxt-nightly",
@@ -261,6 +266,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        ".github/scripts/claim-npm-packages.mjs",
         // Root tasks come from `test/tasks.ts`, which the vite-plus plugin cannot read
         // (https://github.com/webpro-nl/knip/issues/2406).
         "test/package-metadata.mjs",
@@ -302,8 +308,6 @@ const config: KnipConfiguration = {
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
         "@better-auth/cimd",
         "@chat-adapter/slack",
-        // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
-        "@takumi-rs/core",
         // Nuxt UI installs `@nuxt/icon` by name, and Nuxt resolves it from the app first, so this pins the copy that loads.
         "@nuxt/icon",
         // On Cloudflare, the MCP endpoint of `@nuxtjs/mcp-toolkit` imports `agents/mcp`.

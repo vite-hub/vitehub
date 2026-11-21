@@ -110,7 +110,7 @@ Search uses optional `comark-content` plugins. [Search configuration](/docs/cont
   :::
 
   :::product-feature-item{title="Edit, publish, and schedule from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
-  `vitehub content` lists, edits, and diffs drafts in the running dev server, then publishes or schedules what you reviewed.
+  `vitehub content` lists, edits, and diffs drafts in your running dev server, then publishes or schedules what you reviewed.
   :::
 
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
@@ -122,7 +122,7 @@ Search uses optional `comark-content` plugins. [Search configuration](/docs/cont
   :::
 
   :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/cms"}
-  `extends: cms` adds the Workspace, its history tables, and a Database if the app has none.
+  `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
   :::
 
   :::product-feature-item{title="Let an Agent draft, publish, and schedule documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}

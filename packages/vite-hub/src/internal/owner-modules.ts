@@ -40,6 +40,7 @@ const [
   sandboxTaskVite,
   scheduleVite,
   syncVite,
+  webContainerVite,
   webhooksVite,
   workflowVite,
   workspaceVite,
@@ -69,6 +70,7 @@ const [
   importOptionalOwner("@vite-hub/sandbox", () => import("@vite-hub/sandbox/task/vite")),
   importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),
   importOptionalOwner("@vite-hub/sync", () => import("@vite-hub/sync/vite")),
+  importOptionalOwner("@vite-hub/web-container", () => import("@vite-hub/web-container/vite")),
   importOptionalOwner("@vite-hub/webhooks", () => import("@vite-hub/webhooks/vite")),
   importOptionalOwner("@vite-hub/workflow", () => import("@vite-hub/workflow/vite")),
   importOptionalOwner("@vite-hub/workspace", () => import("@vite-hub/workspace/vite")),
@@ -100,6 +102,7 @@ export const ownerModules = {
   sandboxTaskVite,
   scheduleVite,
   syncVite,
+  webContainerVite,
   webhooksVite,
   workflowVite,
   workspaceVite,
@@ -176,7 +179,7 @@ export function optionalOwnerEntriesPlugin(options: { database?: boolean } = {})
       if (hasWebhooksDirectory(projectRoot, serverDirs)) features.push("webhooks")
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
-      assertFeaturePackages([...new Set(features)])
+      assertFeaturePackages([...new Set(features)], {}, false)
     },
   }
 }
@@ -202,7 +205,8 @@ const ownerFacadeFeatures = new Map<string, OptionalFeature>(Object.entries({
   "channels": "channels",
   "connections": "connections",
   "console/ui": "console ui",
-  "decisions": "decisions",
+  "choices": "choices",
+  "device": "device",
   "email": "email",
   "forge": "forge",
   "forms": "forms",

@@ -1,5 +1,5 @@
 import { invariant } from "@vite-hub/internal/invariant"
-import type { AgentStateCacheMutation, AtomicAgentStateLockAdapter } from "../../internal/state-lock.ts"
+import { acquireLockWithSeparateCalls, releaseLockWithSeparateCalls, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../../internal/state-lock.ts"
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
 import { parseAgentStateQueueEntry } from "../../internal/state-queue.ts"
@@ -7,6 +7,7 @@ import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
 export interface ViteHubAgentStateDurableObjectStub {
   acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> | Lock | null
+  acquireLockWith?(threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ lock: Lock | null, values: Array<string | null> }> | { lock: Lock | null, values: Array<string | null> }
   cacheMutateWithLock(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[]): Promise<boolean> | boolean
   cacheDelete(key: string): Promise<void> | void
   cacheGet(key: string): Promise<string | null> | string | null
@@ -23,6 +24,7 @@ export interface ViteHubAgentStateDurableObjectStub {
   queueReplaceHead(threadId: string, expected: string | null, replacement: string[], maxSize: number): Promise<boolean> | boolean
   queueDepth(threadId: string): Promise<number> | number
   releaseLock(threadId: string, token: string): Promise<void> | void
+  releaseLockWith?(threadId: string, token: string, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ committed: boolean, values: Array<string | null> }> | { committed: boolean, values: Array<string | null> }
   subscribe(threadId: string): Promise<void> | void
   unsubscribe(threadId: string): Promise<void> | void
 }
@@ -66,12 +68,26 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
   }
 
   async mutateWithLock(lock: Lock, mutations: readonly AgentStateCacheMutation[]): Promise<boolean> {
-    invariant(!this.shardKey || this.shardKey(lock.threadId) === this.defaultName, "ViteHub calls forCacheLocks() before cache lease mutations on a sharded State")
+    this.assertCacheLockShard(lock.threadId)
     return await this.stub().cacheMutateWithLock(lock.threadId, lock.token, mutations)
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
     return await this.stub(threadId).acquireLock(threadId, ttlMs)
+  }
+
+  async acquireLockWith(threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ lock: Lock | null, values: unknown[] }> {
+    this.assertCacheLockShard(threadId)
+    const result = await optionalBatchRpc("acquireLockWith", () => this.stub().acquireLockWith?.(threadId, ttlMs, mutations, keys))
+    if (result) return { lock: result.lock, values: result.values.map(parseCacheValue) }
+    return await acquireLockWithSeparateCalls(this, threadId, ttlMs, mutations, keys)
+  }
+
+  async releaseLockWith(lock: Lock, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]): Promise<{ committed: boolean, values: unknown[] }> {
+    this.assertCacheLockShard(lock.threadId)
+    const result = await optionalBatchRpc("releaseLockWith", () => this.stub().releaseLockWith?.(lock.threadId, lock.token, mutations, keys))
+    if (result) return { committed: result.committed, values: result.values.map(parseCacheValue) }
+    return await releaseLockWithSeparateCalls(this, lock, mutations, keys)
   }
 
   async appendToList(key: string, value: unknown, options?: { maxLength?: number; ttlMs?: number }): Promise<void> {
@@ -175,6 +191,10 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     await this.stub(threadId).unsubscribe(threadId)
   }
 
+  private assertCacheLockShard(threadId: string): void {
+    invariant(!this.shardKey || this.shardKey(threadId) === this.defaultName, "ViteHub calls forCacheLocks() before cache lease mutations on a sharded State")
+  }
+
   private ensureConnected(): void {
     if (!this.connected) {
       throw agentDiagnostics.AGENT_R0848({ message: "[vitehub] Cloudflare Agent State is not connected. Call connect() before using state." })
@@ -187,6 +207,19 @@ export class ViteHubAgentStateAdapter implements StateAdapter {
     const id = this.namespace.idFromName(name)
     return this.locationHint ? this.namespace.get(id, { locationHint: this.locationHint }) : this.namespace.get(id)
   }
+}
+
+async function optionalBatchRpc<T>(method: "acquireLockWith" | "releaseLockWith", call: () => T | Promise<T> | undefined): Promise<T | undefined> {
+  try {
+    return await call()
+  }
+  catch (error) {
+    if (!(error instanceof Error) || error.message !== `The RPC receiver does not implement the method "${method}".`) throw error
+  }
+}
+
+function parseCacheValue(raw: string | null): unknown {
+  return raw === null ? null : JSON.parse(raw)
 }
 
 export function createCloudflareAgentState(options: CloudflareAgentStateOptions): StateAdapter {

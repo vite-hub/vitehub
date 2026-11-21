@@ -1,4 +1,4 @@
-import { requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "./state-lock.ts"
+import { acquireLockWith, releaseLockWith, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "./state-lock.ts"
 import * as v from "valibot"
 
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
@@ -1001,8 +1001,13 @@ function mailboxState(binding: AgentChannelStateBinding): AtomicAgentStateLockAd
  * Reads the mailbox record. A record of another mailbox reads as empty. Without a record, it reads the cursor and the
  * checkpoint of earlier versions, so failed messages that wait for a retry are not lost on upgrade.
  */
-async function readMailboxRecord(state: AtomicAgentStateLockAdapter, keys: GmailMailboxKeys, mailbox: string | undefined): Promise<{ legacy: boolean, record: GmailMailboxRecord }> {
-  const record = await state.get<GmailMailboxRecord>(keys.mailbox)
+async function readMailboxRecord(
+  state: AtomicAgentStateLockAdapter,
+  keys: GmailMailboxKeys,
+  mailbox: string | undefined,
+  stored?: { record: GmailMailboxRecord | null },
+): Promise<{ legacy: boolean, record: GmailMailboxRecord }> {
+  const record = stored ? stored.record : await state.get<GmailMailboxRecord>(keys.mailbox)
   if (record) return { legacy: false, record: mailbox && record.mailbox && record.mailbox !== mailbox ? {} : record }
   const historyId = await state.get<string>(keys.legacyCursor)
   if (!historyId) return { legacy: false, record: {} }
@@ -1102,6 +1107,11 @@ interface MailboxLease {
   record: GmailMailboxRecord
   state: AtomicAgentStateLockAdapter
   write: (record: GmailMailboxRecord, mutations?: readonly AgentStateCacheMutation[]) => Promise<void>
+  /**
+   * Keeps the final record of the sync and writes it when the sync releases the lock, in the same State request.
+   * A later `write()` writes it first.
+   */
+  finish: (record: GmailMailboxRecord, mutations?: readonly AgentStateCacheMutation[]) => void
 }
 
 /**
@@ -1276,7 +1286,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, lease: MailboxLease, noti
   }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
   // Completion, health, and checkpoint cleanup commit in one write, only while this worker owns the mailbox lease.
-  await lease.write(
+  lease.finish(
     { historyId: progress.historyId, syncedAt: new Date().toISOString(), ...(lease.record.watchExpiresAt ? { watchExpiresAt: lease.record.watchExpiresAt } : {}) },
     seenStored ? [{ key: keys.seen, type: "delete" }] : [],
   )
@@ -1314,14 +1324,21 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
     }
     if (known && !isNewerHistoryId(notification, known)) return { finished: true }
   }
-  let lock = await state.acquireLock(keys.lock, syncLockTtlMs)
+  // Each lock takes one State request that also reads the record, and clears the pending mark when there is one.
+  // On Cloudflare each State request is a Durable Object request, which Workers Logs record one by one.
+  const acquire = async (clear: boolean) => {
+    const { lock, values } = await acquireLockWith(state, keys.lock, syncLockTtlMs, clear ? [{ key: keys.pending, type: "delete" }] : [], [keys.mailbox])
+    // SAFETY: Only this sync writes the mailbox key, always with a GmailMailboxRecord.
+    return lock ? { lock, stored: { record: (values[0] ?? null) as GmailMailboxRecord | null } } : undefined
+  }
+  let acquired = await acquire(false)
   // The lock holder clears the pending mark before it reads history. Only a holder that saw a mark has one to clear.
   let clearPending = false
-  if (!lock) {
+  if (!acquired) {
     await state.set(keys.pending, true)
     // The holder may have released the lock before it saw the pending mark.
-    lock = await state.acquireLock(keys.lock, syncLockTtlMs)
-    if (!lock) {
+    acquired = await acquire(true)
+    if (!acquired) {
       if (sync.throwOnDispatchFailure) throw agentDiagnostics.AGENT_GMAIL_SYNC_BUSY()
       // The holder reads once more. The caller still learns that no sync covered this notification yet.
       return { finished: false }
@@ -1333,7 +1350,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
   const failures: unknown[] = []
   let watchFailure: unknown
   for (let first = true; ; first = false) {
-    const heldLock = lock
+    const { lock: heldLock, stored } = acquired
     const previousFailures = failures.length
     let outcome: MailboxSyncOutcome | undefined
     let ownershipLost = false
@@ -1342,6 +1359,24 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       return agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "mailbox" })
     }
     let legacy = false
+    /** The final record that waits for the lock release. */
+    let finishing: { record: GmailMailboxRecord, mutations: readonly AgentStateCacheMutation[] } | undefined
+    const recordWrite = (next: GmailMailboxRecord, mutations: readonly AgentStateCacheMutation[]) => {
+      const record: GmailMailboxRecord = { ...next, ...(sync.mailbox ? { mailbox: sync.mailbox } : {}) }
+      const compatibility: AgentStateCacheMutation[] = [
+        // The checkpoint of earlier versions is in the record now.
+        ...(legacy ? [{ key: keys.legacyProgress, type: "delete" as const }] : []),
+        // Earlier versions read the cursor from this key. Writing it keeps the place of an app that pins an earlier
+        // version again. Stop writing it after @vite-hub/agent 0.2.0 ships.
+        ...(record.historyId ? [{ key: keys.legacyCursor, type: "set" as const, value: record.historyId }] : []),
+      ]
+      return { mutations: [{ key: keys.mailbox, type: "set" as const, value: record }, ...compatibility, ...mutations], record }
+    }
+    const written = (record: GmailMailboxRecord) => {
+      legacy = false
+      lease.record = record
+      if (record.historyId) sync.cursors?.set(cacheKey, record.historyId)
+    }
     const lease: MailboxLease = {
       assertOwner: () => { if (ownershipLost) throw lost() },
       keys,
@@ -1349,18 +1384,14 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       record: {},
       state,
       write: async (next, mutations = []) => {
-        const record: GmailMailboxRecord = { ...next, ...(sync.mailbox ? { mailbox: sync.mailbox } : {}) }
-        const compatibility: AgentStateCacheMutation[] = [
-          // The checkpoint of earlier versions is in the record now.
-          ...(legacy ? [{ key: keys.legacyProgress, type: "delete" as const }] : []),
-          // Earlier versions read the cursor from this key. Writing it keeps the place of an app that pins an earlier
-          // version again. Stop writing it after @vite-hub/agent 0.2.0 ships.
-          ...(record.historyId ? [{ key: keys.legacyCursor, type: "set" as const, value: record.historyId }] : []),
-        ]
-        if (ownershipLost || !await state.mutateWithLock(heldLock, [{ key: keys.mailbox, type: "set", value: record }, ...compatibility, ...mutations])) throw lost()
-        legacy = false
-        lease.record = record
-        if (record.historyId) sync.cursors?.set(cacheKey, record.historyId)
+        const write = recordWrite(next, [...finishing?.mutations ?? [], ...mutations])
+        if (ownershipLost || !await state.mutateWithLock(heldLock, write.mutations)) throw lost()
+        finishing = undefined
+        written(write.record)
+      },
+      finish: (next, mutations = []) => {
+        finishing = { record: next, mutations: [...finishing?.mutations ?? [], ...mutations] }
+        lease.record = next
       },
     }
     let renewalTask = Promise.resolve()
@@ -1372,9 +1403,9 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       }).catch(() => { ownershipLost = true })
     }, syncLockTtlMs / 3)
     let recordRead = false
+    let pendingMark: unknown = null
     try {
-      if (clearPending && !await state.mutateWithLock(heldLock, [{ key: keys.pending, type: "delete" }])) throw lost()
-      const read = await readMailboxRecord(state, keys, sync.mailbox)
+      const read = await readMailboxRecord(state, keys, sync.mailbox, stored)
       legacy = read.legacy
       lease.record = read.record
       recordRead = true
@@ -1387,6 +1418,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       // A resumed checkpoint can end before the newest history.
       if (outcome === "stopped" || outcome === "resumed") unfinished = true
       if (outcome !== "stopped" && sync.topic && (!lease.record.watchExpiresAt || Date.parse(lease.record.watchExpiresAt) - Date.now() <= watchRenewalMarginMs)) {
+        if (finishing) await lease.write(lease.record)
         try {
           const watch = await startGmailWatch(sync.client, sync.topic)
           await lease.write({ ...lease.record, watchExpiresAt: watch.expiration })
@@ -1406,7 +1438,7 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       if (failure !== undefined) {
         await (async () => {
           if (!recordRead) {
-            const read = await readMailboxRecord(state, keys, sync.mailbox)
+            const read = await readMailboxRecord(state, keys, sync.mailbox, stored)
             legacy = read.legacy
             lease.record = read.record
           }
@@ -1416,16 +1448,21 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       }
       clearInterval(timer)
       await renewalTask
-      await state.releaseLock(heldLock)
+      // The final record, the release, and the pending check go in one State request.
+      const final = finishing && !ownershipLost ? recordWrite(finishing.record, finishing.mutations) : undefined
+      const released = await releaseLockWith(state, heldLock, final?.mutations ?? [], [keys.pending])
+      if (final && released.committed) written(final.record)
+      else if (finishing) failures.push(lost())
+      pendingMark = released.values[0] ?? null
     }
-    if (await state.get(keys.pending) === null) break
+    if (pendingMark === null) break
     if (pastDeadline()) {
       // The pending notification waits for the next push or poll.
       unfinished = true
       break
     }
-    lock = await state.acquireLock(keys.lock, syncLockTtlMs)
-    if (!lock) break
+    acquired = await acquire(true)
+    if (!acquired) break
     clearPending = true
   }
   if (failures.length === 1) throw failures[0]

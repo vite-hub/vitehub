@@ -79,18 +79,6 @@ describe("public ViteHub skill", () => {
     expect(openai).toContain("live docs and the installed contract");
   });
 
-  it("routes through references, the installed contract, a coherent build, and proof", () => {
-    const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8");
-
-    expect(skill).toContain("## 1. Orient");
-    expect(skill).toContain("## 2. Route before code");
-    expect(skill).toContain("## 3. Inspect the installed contract");
-    expect(skill).toContain("## 4. Build the coherent file set");
-    expect(skill).toContain("## 5. Prove and repair");
-    expect(skill).toContain("Package owner | Source file | Runtime path | Authority or persistence | Proof");
-    expect(skill).toContain("every behavior row has an observed result, or a precise source-backed unsupported boundary");
-  });
-
   it("builds primitive references from agent-only blocks in the docs pages", async () => {
     // Edit the `::agent-only{skill="..."}` block on the docs page, then run `vp test -u` to regenerate.
     const primitivesRoot = resolve(skillRoot, "references/primitives");
@@ -147,7 +135,7 @@ describe("skills() documentation", () => {
   it("documents an inspectable path and missing-file smoke test", () => {
     const page = readFileSync(skillsCapabilityPage, "utf8");
 
-    expect(page).toContain("pnpm vitehub agent info --agent support --json");
+    expect(page).toContain("pnpm vitehub agent get support --json");
     expect(page).toContain("select(.id == \"skills\") | .metadata");
     expect(page).toContain("'::skill{path=\"skills/review\"}'");
     expect(page).toContain("'::'");

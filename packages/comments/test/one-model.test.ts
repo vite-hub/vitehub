@@ -56,8 +56,8 @@ describe("attachments", () => {
     const comments = await setup({}, { attachments: { put: vi.fn(), get } })
     await comments.create({ subject: page, body: "See attached", author: ada, attachments: [key] })
     expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-    expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    expect((await app.fetch(new Request(`http://site.test/_vitehub/comments/attachments/${key}`))).status).toBe(404)
     expect(get).not.toHaveBeenCalled()
   })
 
@@ -70,8 +70,8 @@ describe("attachments", () => {
       expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
     }
     else {
-      const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-      expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+      const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+      expect((await app.fetch(new Request(`http://site.test/_vitehub/comments/attachments/${key}`))).status).toBe(404)
     }
     expect(get).not.toHaveBeenCalledWith(key)
   })
@@ -94,8 +94,8 @@ describe("attachments", () => {
     const restarted = defineComments({ authorize: () => true })
     installComments(restarted, install)
     expect(await call("comments.attachment", { key })).toMatchObject({ ok: true, value: { key, data: btoa("hello"), type: "text/plain" } })
-    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments: restarted, realtime: false }))
-    const response = await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))
+    const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments: restarted, realtime: false }))
+    const response = await app.fetch(new Request(`http://site.test/_vitehub/comments/attachments/${key}`))
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("hello")
 
@@ -105,7 +105,7 @@ describe("attachments", () => {
     expect(await call("comments.attachment", { key: sibling })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
     files.set(key, files.get(sibling)!)
     expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
-    expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+    expect((await app.fetch(new Request(`http://site.test/_vitehub/comments/attachments/${key}`))).status).toBe(404)
   })
 
   it("fails an upload when its ownership record cannot be saved and leaves the file unreadable", async () => {
