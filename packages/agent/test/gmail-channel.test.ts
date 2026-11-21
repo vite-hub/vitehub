@@ -884,26 +884,28 @@ describe("gmail() Channel", () => {
   it("saves completed history before renewing an expiring watch", async () => {
     const state = createLibsqlAgentState({ url: ":memory:" })
     await state.connect()
-    const renewalStarted = Promise.withResolvers<void>()
-    const renew = Promise.withResolvers<void>()
+    let startRenewal!: () => void
+    const renewalStarted = new Promise<void>(resolve => { startRenewal = resolve })
+    let finishRenewal!: () => void
+    const renew = new Promise<void>(resolve => { finishRenewal = resolve })
     const options = { bodyLimit: 1000, notificationHistoryId: "105", state: { keyPrefix: "mail:", state }, dispatch: vi.fn() }
     const client: GmailClient = async request => {
       if (request.path === "history") return { historyId: "105", history: [] }
       expect(request.path).toBe("watch")
-      renewalStarted.resolve()
-      await renew.promise
+      startRenewal()
+      await renew
       return { expiration: String(Date.now() + 604_800_000), historyId: "105" }
     }
     await state.set("mail:mailbox", { historyId: "100", watchExpiresAt: new Date().toISOString() })
     const earlier = syncGmailMailbox({ ...options, client, topic: "projects/example/topics/mail" })
     try {
-      await Promise.race([renewalStarted.promise, earlier])
+      await Promise.race([renewalStarted, earlier])
       await state.forceReleaseLock("mail:sync")
       const successor = vi.fn<GmailClient>(async () => ({ historyId: "110", history: [] }))
       await syncGmailMailbox({ ...options, client: successor, notificationHistoryId: "110" })
       expect(successor).toHaveBeenCalledWith(expect.objectContaining({ path: "history", query: expect.objectContaining({ startHistoryId: "105" }) }))
     } finally {
-      renew.resolve()
+      finishRenewal()
       await earlier.catch(() => undefined)
       await state.disconnect()
     }
