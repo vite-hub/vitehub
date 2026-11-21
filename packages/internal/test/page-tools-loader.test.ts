@@ -124,19 +124,19 @@ describe("loadViteHubPageTools", () => {
     const fetch = session({ tools: [comments] })
     const { load, started } = modules()
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([comments])
-    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/tools?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
     expect(load.mock.calls).toEqual([["/comments.js"]])
     expect(started.map(context => [context.tool.id, context.open, context.signal.aborted])).toEqual([["comments", false, false]])
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=9")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=9")).toBe("/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=9")).toBe("/portal/_vitehub/page/tools")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=9")).toBe("/_vitehub/page/tools")
+    expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/tools")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
-    await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/session" })
-    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
+    await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/tools" })
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/tools?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("does nothing more when no tool is allowed, or when the session fails", async () => {
@@ -696,7 +696,7 @@ describe("loadViteHubPageTools", () => {
     session({ tools: [{ ...consoleTool, lazy: true }] })
     if (restored) {
       localStorage.setItem("vitehub-tools-collapsed", "1")
-      sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+      sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     }
     const onHide = vi.fn()
     const load = async () => ({ default(context: ViteHubPageToolContext) {
@@ -721,7 +721,7 @@ describe("loadViteHubPageTools", () => {
     expect(element.shadowRoot!.activeElement).toBe(mark)
     expect(element.hasAttribute("collapsed")).toBe(true)
     expect(onHide).toHaveBeenCalledOnce()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("false")
     mark.click()
     expect(element.hasAttribute("collapsed")).toBe(false)
     pill().exit.click()
@@ -789,7 +789,7 @@ describe("loadViteHubPageTools", () => {
 
   it("leaves a small mark where the pill was, and the mark brings the tools back with their windows", async () => {
     page("/?vitehub=console")
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 20 }))
     const fetch = session({ tools: [comments, consoleTool] })
     const { load, started } = modules()
@@ -922,7 +922,7 @@ describe("loadViteHubPageTools", () => {
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
     expect(document.querySelector("vitehub-pill")).toBeNull()
     expect(document.querySelector("vitehub-window")).toBeNull()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:comments")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:comments")).toBe("false")
   })
 
   it("cleans up exactly once when a tool exits during startup", async () => {
@@ -1069,7 +1069,7 @@ describe("lazy tools", () => {
     const second = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
     first.show()
     first.destroy()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("false")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("false")
     expect(document.querySelectorAll("vitehub-window")).toHaveLength(1)
     second.show()
     expect(onHide).not.toHaveBeenCalled()
@@ -1088,7 +1088,7 @@ describe("lazy tools", () => {
     const replacement = context.createWindow({ id: "console", title: "Console", trigger: context.bar, onHide })
     replacement.show()
     first.destroy()
-    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("true")
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/tools:console")).toBe("true")
     const other = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
     other.show()
     expect(onHide).toHaveBeenCalledOnce()
@@ -1099,7 +1099,7 @@ describe("lazy tools", () => {
   it("restores a remembered eager window", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool] })
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     const load = vi.fn(async () => ({ default(context: ViteHubPageToolContext) {
       const trigger = document.createElement("button")
       context.bar.append(trigger)
@@ -1116,7 +1116,7 @@ describe("lazy tools", () => {
   it.each([false, true])("keeps the query-selected window visible when a restored import finishes later (lazy: %s)", async (lazy) => {
     page("/?vitehub=console")
     session({ tools: [{ ...consoleTool, lazy: true }, { ...comments, lazy }] })
-    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:comments", "true")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:comments", "true")
     const started: string[] = []
     const tool: ViteHubPageToolModule = { default(context) {
       const trigger = document.createElement("button")
@@ -1146,7 +1146,7 @@ describe("lazy tools", () => {
     page(activation === "query" ? "/?vitehub=console" : "/?vitehub")
     const lazyTool = { ...consoleTool, lazy: true }
     session({ tools: [lazyTool] })
-    if (activation === "restored") sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    if (activation === "restored") sessionStorage.setItem("vitehub-open:/_vitehub/page/tools:console", "true")
     const { load: modulesLoad, started } = modules()
     const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(modulesLoad)
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([lazyTool])

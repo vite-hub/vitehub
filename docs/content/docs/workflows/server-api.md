@@ -79,7 +79,7 @@ On Cloudflare, ViteHub cannot tell the delay from other sleeps, so the run repor
 | `deferWorkflow(name, payload?, options?)` | Starts a run after the response, through `waitUntil`. Returns nothing. A failure goes to the log. |
 | `getWorkflowRun(name, id)` | Reads the current run state. Returns `[error, run]`. |
 | `cancelWorkflow(name, id)` | Cancels a Cloudflare run, a native Vercel run, or a pending or running OpenWorkflow run. Returns `[error, run]`. |
-| `resumeWorkflow(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. Returns `[error, signal]`. |
+| `resumeWorkflow(token, payload)` | Sends `payload` to a run that waits on the token of `context.createSignal()`, or to a Workflow DevKit hook on Vercel. Returns `[error, signal]`. |
 | `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. `start`, `getRun`, and `cancel` return `[error, data]`. |
 
 `WorkflowStartOptions` accepts `id` and `delay`. For `id`, use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
@@ -98,7 +98,7 @@ Use a durable provider when inspection must survive abandonment or a process res
 
 Cancellation works for Cloudflare, native Vercel workflows, and OpenWorkflow. On Cloudflare, `cancelWorkflow()` calls `instance.terminate()` on a queued, running, waiting, or paused run, and returns the run with the status `cancelled`. On OpenWorkflow, it cancels a pending or running run in storage. A step that already runs finishes, but its worker records no more steps or result. On both, a finished run keeps its status and a run that does not exist reports `unknown`. On OpenWorkflow, a run of another workflow also reports `unknown`. Inline runs, such as Cloudflare runs in `vite dev` without a binding and inline Vercel runs, return the error `WORKFLOW_OPERATION_UNSUPPORTED`.
 
-Signal resumption needs the Vercel provider, the Workflow DevKit runtime, and a registered hook token. You can choose a fixed opaque token. It becomes resumable when a native workflow registers the hook and waits for it. Pass it to `resumeWorkflow()`. It names the hook, not a run. Cloudflare, OpenWorkflow, and inline runs do not support signals: `resumeWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. In `vite dev` every run is inline, and so is an app with no native entry.
+A folder Workflow waits for a value with `context.createSignal()`, and `resumeWorkflow(signal.token, value)` sends it. Signals work on Cloudflare, OpenWorkflow, and inline runs. On Vercel, `createSignal()` throws `WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED` for now. There, `resumeWorkflow()` resumes a Workflow DevKit hook token that a native workflow registers with `defineHook()`. See [Wait for a signal](/docs/workflows/limits-and-errors#wait-for-a-signal).
 
 ## Workflow Run shape
 

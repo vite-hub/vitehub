@@ -31,8 +31,9 @@ import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path"
 
 import { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, resolveRuntimeValue, ViteHubError } from "@vite-hub/runtime"
-import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace"
+import { formatRuntimeDiagnosticError, getViteHubErrorShape, normalizeExecutionAuthority, ViteHubError } from "@vite-hub/runtime"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
+import { resolveWorkspaceAutoCommit } from "@vite-hub/workspace/internal/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { createProviderRuntime, createSqliteProviderRuntimeSessionStore, inspectProvider } from "@t3tools/provider-runtime"
 

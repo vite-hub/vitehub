@@ -6,7 +6,7 @@ import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions 
 
 export { viteHubPageToolsEdgeAt } from "./page-pill.ts"
 /**
- * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/session`
+ * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/tools`
  * which tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
  * It finds the app base from its own URL, `<base>/_vitehub/page/assets/loader.js`, so it needs no configuration.
  *
