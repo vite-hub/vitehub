@@ -378,9 +378,8 @@ describe("Blob Nitro runtime module", () => {
       expect.objectContaining({ method: "PUT" }),
     )
 
-    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
-    expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore")
-    expect(runtimeContents).toContain("createDriver0(resolveRuntimeVercelBlobStore(store, process.env))")
+    const [, init] = fetchMock.mock.lastCall!
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer secret-token")
   })
 
   it("selects named stores from generated runtime output", { timeout: 30_000 }, async () => {
@@ -437,8 +436,6 @@ describe("Blob Nitro runtime module", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("resolveRuntimeVercelBlobStore(resolveRuntimeBlobSecrets(store, blobRuntimeEnv()), process.env)")
     expect(runtimeContents).not.toMatch(/assets-token|default-token/)
-    expect(runtimeContents).toContain("store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage)")
-    expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
   })
 
   it.each(["lazy", "eager"] as const)("applies read mode to %s generated handles", { timeout: 30_000 }, async (kind) => {
@@ -523,6 +520,30 @@ describe("Blob Nitro runtime module", () => {
     expect(archived?.url).toBeUndefined()
   })
 
+  it("checks the filesystem roots of generated stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-health-")
+    const broken = join(rootDir, "archive")
+    const resolved = normalizeBlobOptions({
+      stores: {
+        archive: { base: broken, driver: "fs" },
+        default: { base: join(rootDir, "default"), driver: "fs" },
+      },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const runtime = join(rootDir, "runtime.mjs")
+    await writeFile(runtime, renderBlobRuntimeModule(runtime, resolved))
+    await writeFile(broken, "not a directory")
+
+    const state = new URL("../dist/runtime/state.js", import.meta.url).href
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import ${JSON.stringify(pathToFileURL(runtime).href)}
+      import { rejects } from 'node:assert/strict'
+      import { checkBlobStoreHealth } from ${JSON.stringify(state)}
+      await checkBlobStoreHealth('default')
+      await rejects(() => checkBlobStoreHealth('archive'), { code: 'ENOTDIR' })
+    `])
+  })
+
   it("generates Netlify Blobs driver reachability for selected stores", { timeout: 30_000 }, async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-netlify-runtime-")
 
@@ -582,8 +603,6 @@ describe("Blob Nitro runtime module", () => {
     expect(runtimeContents).toContain("drivers/minio")
     expect(runtimeContents).toContain("\"driver\": \"minio\"")
     expect(runtimeContents).toContain(`"endpoint": "${endpoint}"`)
-    expect(runtimeContents).toContain("resolveRuntimeMinioBlobStore")
-    expect(runtimeContents).toContain("createDriver0(resolveRuntimeMinioBlobStore(store, process.env))")
     expect(runtimeContents).toContain("\"accessKeyId\": \"********\"")
     expect(runtimeContents).toContain("\"secretAccessKey\": \"********\"")
     expect(runtimeContents).not.toContain("build-user")

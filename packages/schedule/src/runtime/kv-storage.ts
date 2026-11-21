@@ -10,7 +10,7 @@ interface ViteHubKVStorage {
   delete(key: string): Promise<readonly [unknown, unknown]>
   get<T = unknown>(key: string): Promise<readonly [unknown, T | null | undefined]>
   has(key: string): Promise<readonly [unknown, boolean | undefined]>
-  keys(base?: string): Promise<readonly [unknown, string[] | undefined]>
+  list(options: { prefix?: string }): Promise<readonly [unknown, { keys: string[] } | undefined]>
   set<T = unknown>(key: string, value: T): Promise<readonly [unknown, unknown]>
 }
 
@@ -31,9 +31,10 @@ export function createScheduleKVStorage(kvStore: ViteHubKVStorage): ScheduleKVSt
       return value ?? false
     },
     async keys(base) {
-      const [error, value] = await kvStore.keys(base)
+      // `keys(base)` lists the keys below `base`, so the KV text prefix ends with a separator.
+      const [error, value] = await kvStore.list({ prefix: base && !/[:/\\]$/.test(base) ? `${base}:` : base })
       if (error) throw error
-      return value ?? []
+      return value?.keys ?? []
     },
     async set(key, value) {
       const [error] = await kvStore.set(key, value)

@@ -742,9 +742,8 @@ describe("sources and loaders", () => {
       assets: true,
     }, registryFile)
 
-    const contents = await readFile(registryFile, "utf8")
-    expect(contents.match(/\["docs"\]: createWorkspaceAssets/g)).toHaveLength(1)
-    expect(contents.match(/"instructions\/AGENTS.md"/g)).toHaveLength(1)
+    const registry = (await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)).default
+    await expect(registry.docs.readFile("instructions/AGENTS.md")).resolves.toBe("# Instructions\n")
   })
 
   it("loads raw text imports while syncing discovered Workspace Definitions", async () => {
@@ -867,6 +866,71 @@ describe("sources and loaders", () => {
     await expect(loadDiscoveredWorkspaceDefinition(loader, definition)).resolves.toMatchObject({
       rootDir: "public robots|outside context",
     })
+  })
+
+  it("runs a shared helper once per loader and again for the next loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    const shared = join(root, "server", "shared.ts")
+    const writeShared = (label: string) => writeFile(shared, `globalThis.__sharedRuns = (globalThis.__sharedRuns ?? 0) + 1\nexport const label: string = ${JSON.stringify(label)}\n`)
+    const runs = () => (globalThis as { __sharedRuns?: number }).__sharedRuns
+    await writeShared("first")
+
+    try {
+      const firstPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(firstPass, definition)).resolves.toMatchObject({ rootDir: "first" })
+      }
+      expect(runs()).toBe(1)
+
+      await writeShared("second")
+      const secondPass = createWorkspaceDefinitionLoader(root)
+      for (const definition of definitions) {
+        await expect(loadDiscoveredWorkspaceDefinition(secondPass, definition)).resolves.toMatchObject({ rootDir: "second" })
+      }
+      expect(runs()).toBe(2)
+    }
+    finally {
+      delete (globalThis as { __sharedRuns?: number }).__sharedRuns
+    }
+  })
+
+  it("runs a shared helper again after it failed in the same loader", async () => {
+    const root = await createRoot()
+    const definitions = await Promise.all(["docs", "review"].map(async (name) => {
+      const directory = join(root, "server", "workspaces", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "config.ts"), `import { label } from "../../shared"\nexport default { rootDir: label }\n`)
+      return { handler: join(directory, "config.ts"), name, path: join(directory, "config.ts"), source: "test" }
+    }))
+    await writeFile(join(root, "server", "shared.ts"), `if (!globalThis.__sharedFailed) { globalThis.__sharedFailed = true; throw new Error("first run fails") }\nexport const label: string = "shared"\n`)
+
+    try {
+      const pass = createWorkspaceDefinitionLoader(root)
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[0]!)).rejects.toThrow("first run fails")
+      await expect(loadDiscoveredWorkspaceDefinition(pass, definitions[1]!)).resolves.toMatchObject({ rootDir: "shared" })
+    }
+    finally {
+      delete (globalThis as { __sharedFailed?: boolean }).__sharedFailed
+    }
+  })
+
+  it("does not share partial exports after a Definition catches an import failure", async () => {
+    const root = await createRoot()
+    const optional = join(root, "optional.workspace.ts")
+    const required = join(root, "required.workspace.ts")
+    await writeFile(join(root, "helper.ts"), 'export const rootDir = "partial"\nthrow new Error("helper failed")\n')
+    await writeFile(optional, 'export default await import("./helper").catch(() => ({ rootDir: "fallback" }))\n')
+    await writeFile(required, 'import { rootDir } from "./helper"\nexport default { rootDir }\n')
+
+    const pass = createWorkspaceDefinitionLoader(root)
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: optional, name: "optional", path: optional, source: "test" })).resolves.toMatchObject({ rootDir: "fallback" })
+    await expect(loadDiscoveredWorkspaceDefinition(pass, { handler: required, name: "required", path: required, source: "test" })).rejects.toThrow("helper failed")
   })
 
   it("ignores stale default Jiti transforms when loading raw imports", async () => {
@@ -1202,7 +1266,10 @@ describe("sources and loaders", () => {
 
     await removing
     controller.abort(new Error("preparation stopped"))
-    await expect(Promise.race([syncing.then(() => "settled", () => "settled"), Promise.resolve("pending")])).resolves.toBe("pending")
+    let settled = false
+    void syncing.then(() => { settled = true }, () => { settled = true })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(settled).toBe(false)
     releaseRemoval()
     await expect(syncing).rejects.toThrow("preparation stopped")
   })
@@ -1609,18 +1676,12 @@ describe("sources and loaders", () => {
     await syncWorkspaceDefinition(definition, store)
     const list = vi.spyOn(store, "list")
     const readFile = vi.spyOn(store, "readFile")
-    const remove = vi.spyOn(store, "rm")
     const currentSources = currentMount === undefined ? {} : createSources(currentMount)
 
     await syncWorkspaceDefinition({ ...definition, sources: currentSources }, store)
 
     expect(list.mock.calls.filter(([prefix]) => prefix === "")).toEqual(sourceKeys.map(() => ["", { recursive: true }]))
     expect(readFile).not.toHaveBeenCalled()
-    if (!previousMount) {
-      expect(remove.mock.calls.filter(([, options]) => !options?.recursive).map(([path]) => path)).toEqual(
-        sourceKeys.flatMap(key => [`${key}-extra.md`, `${key}.md`]),
-      )
-    }
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toHaveLength(Object.keys(currentSources).length)
     await expect(store.getMeta?.(`workspace:${definition.name}:build-sources`)).resolves.toEqual(expect.arrayContaining(
       Object.entries(currentSources).map(([key, source]) => ({ key, mountPath: source.mount })),

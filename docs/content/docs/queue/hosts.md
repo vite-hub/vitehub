@@ -13,7 +13,7 @@ icon: i-lucide-cloud-cog
 ```bash [Terminal]
 pnpm vitehub queue list
 pnpm vitehub queue jobs list
-pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs get <message-id>
 pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```

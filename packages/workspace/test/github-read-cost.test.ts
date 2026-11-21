@@ -21,8 +21,18 @@ afterEach(() => {
 })
 
 function history() {
-  return createGitHubWorkspaceStore({ driver: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
+  return createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "draft" } }, "docs").history!
 }
+
+it("finds a deleted path and distinguishes it from a path with no history", async () => {
+  fake.commit("main", { "guide.md": "Guide\n" })
+  const id = fake.commit("main", { "guide.md": null }, { author: { date: "2026-10-20T08:00:00.000Z", name: "Ada" } })
+  const view = await history().open(id)
+  expect(await view.lastChanged?.(["guide.md", "missing.md"])).toEqual(new Map([
+    ["guide.md", { id, createdAt: "2026-10-20T08:00:00.000Z" }],
+    ["missing.md", null],
+  ]))
+})
 
 /** Requests by shape, such as `GET /commits` or `GET /git/trees/:sha`. */
 function shapes(): string[] {

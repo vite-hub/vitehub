@@ -39,11 +39,11 @@ describe("Collection history Invocation joins", () => {
       history: { collection: { parseQuery: async query => query, page: async () => ({ items: [item("m1"), item("m2")], nextCursor: null }) },
         key: entry => entry.data.message.id, thread: entry => entry.data.thread.id, invocationItem },
       triggers: { webhook: defineChannelTrigger({ invoke: () => ({ input: { prompt: "unused" } }) }) },
-      webhooks: { secretHeader: "x-test-secret", secretToken: "secret" },
+      webhooks: { secretHeader: "x-test-secret", secret: () => "secret" },
     })
     const agent = defineAgent({ name: "bot-dev", channels: { productlane: channel }, driver: { run: () => "unused" }, invocations, runtime: false })
     const handler = createChannelWebhookRouteHandler(agent)
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/bot-dev/webhooks/productlane", {
+    const response = await handler(new Request("https://example.com/_vitehub/agents/bot-dev/webhooks/productlane", {
       method: "POST", body: JSON.stringify({ invocations: true }), headers: { "x-test-secret": "secret", "x-vitehub-channel-history": "1" },
     }), "productlane", { agentIdentity: { name: "discovered-file" } })
     expect(response.status).toBe(200)

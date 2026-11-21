@@ -97,7 +97,7 @@ describe("AutoForm", () => {
     const message = root.querySelector("[data-field=message] :is(input, select, textarea)")!
     expect(root.querySelector(`#${message.getAttribute("aria-describedby")}`)?.textContent).toBe("A few lines is plenty.")
     // Without JavaScript, or before it loads, the form posts to its route.
-    expect([root.querySelector("form")?.getAttribute("method"), root.querySelector("form")?.getAttribute("action")]).toEqual(["post", "/api/_vitehub/forms/contact"])
+    expect([root.querySelector("form")?.getAttribute("method"), root.querySelector("form")?.getAttribute("action")]).toEqual(["post", "/_vitehub/forms/contact"])
     // The live region is there before the message, so screen readers announce it.
     expect(root.querySelector("[role=status]")?.textContent).toBe("")
     expect(root.querySelector("input[name=website]")?.getAttribute("tabindex")).toBe("-1")

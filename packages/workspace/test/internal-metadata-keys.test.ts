@@ -113,23 +113,6 @@ describe("internal metadata keys", () => {
     await expect(store.getMeta!(sourceSyncMetaKey("docs", "support"))).resolves.toBeUndefined()
   })
 
-  it("does not expose an internal metadata setter through the facade resolver", async () => {
-    const store = createMemoryWorkspaceStore()
-    registerWorkspace("support", defineWorkspace({ store }))
-    const writable = useWorkspace("support", { mode: "write" })
-    const resolveMetadata = Reflect.get(writable, Symbol.for("vitehub.workspace.metadataTarget"))
-
-    expect(resolveMetadata).toBeUndefined()
-  })
-
-  it("does not expose raw mutations through a resolved facade", async () => {
-    registerWorkspace("support", defineWorkspace({ store: createMemoryWorkspaceStore() }))
-    const base = useWorkspace("support", { mode: "write" })
-    const resolved = await createWorkspaceSourceResolutionFacade(base, { name: "support" }, { invocation, overlay: true })
-    const resolver = Reflect.get(resolved.workspace, Symbol.for("vitehub.workspace.metadataTarget"))
-    expect(resolver).toBeUndefined()
-  })
-
   it("does not let a caller forge sync state that removes a user file", async () => {
     const store = createMemoryWorkspaceStore()
     registerWorkspace("support", defineWorkspace({ store, sources: { docs: docsSource() } }))

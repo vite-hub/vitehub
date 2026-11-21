@@ -40,7 +40,7 @@ const revisions = sqliteTable("workspace_history_revisions", {
   index("workspace_history_timeline").on(table.workspace, table.ref, table.committed, table.sequence),
 ])
 
-// Register before upload so deletion can find objects from failed publications.
+// Catalog keys are the legacy bare digest or `${digest}-${generation}`. A negative size queues that key for deletion.
 const objects = sqliteTable("workspace_history_objects", {
   workspace: text("workspace").notNull(),
   digest: text("digest").notNull(),

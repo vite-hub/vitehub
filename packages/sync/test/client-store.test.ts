@@ -8,7 +8,7 @@ import { createHarness, until } from "./client-harness.ts"
 
 import type { SyncValues } from "../src/protocol.ts"
 import type { SyncStorage } from "../src/client/storage.ts"
-import type { SyncPage } from "../src/client/store.ts"
+import type { SyncPage, SyncStoreWithReset } from "../src/client/store.ts"
 import type { SyncLocal, SyncStore } from "../src/client/types.ts"
 import type { FakeSyncServer } from "./client-fake-server.ts"
 import type { Harness, Tab, Todo, TodoActions } from "./client-harness.ts"
@@ -75,6 +75,114 @@ describe("start and pull", () => {
     expect(store.getState().rows.map(item => item.id)).toEqual(["a", "b", "c", "d"])
   })
 
+  it("pulls a snapshot in pages, and takes the rows that changed between two pages", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        const response = await h.server.fetch(input, init)
+        if (++answered === 1) h.server.write({ id: "r00", ownerId: "ada", title: "changed" })
+        return response
+      },
+    })
+    await store.refresh()
+    expect(pulls(h).map(request => [request.url.searchParams.get("paged"), request.url.searchParams.get("after")])).toEqual([["1", null], ["1", "r04"], ["1", "r09"], ["1", null]])
+    expect(store.getState().rows).toHaveLength(12)
+    expect(store.get("r00")?.title).toBe("changed")
+  })
+
+  it("goes on with a paged snapshot from the stored page after a reload", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const first = h.open({
+      fetch: async (input, init) => {
+        if (++answered > 1) throw new TypeError("Failed to fetch")
+        return await h.server.fetch(input, init)
+      },
+    })
+    await first.store.refresh()
+    expect(first.store.getState().rows).toHaveLength(5)
+    first.store.destroy()
+    const { store } = h.open()
+    await store.refresh()
+    expect(pulls(h).at(-2)!.url.searchParams.get("after")).toBe("r04")
+    expect(store.getState().rows).toHaveLength(12)
+  })
+
+  it("is ready and complete only once the last page of a snapshot is in, also after a reload between two pages", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 8 }, (_, index) => ({ id: `r${index}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const first = h.open({
+      fetch: async (input, init) => {
+        if (++answered > 1) throw new TypeError("Failed to fetch")
+        return await h.server.fetch(input, init)
+      },
+    })
+    const seen: [string, number, boolean][] = []
+    first.store.subscribe(() => {
+      const { status, rows, complete } = first.store.getState()
+      seen.push([status, rows.length, complete])
+    })
+    await first.store.refresh()
+    expect(seen.some(([status, , complete]) => status === "ready" || complete)).toBe(false)
+    expect(first.store.getState()).toMatchObject({ status: "offline", complete: false })
+    expect(first.store.getState().rows).toHaveLength(5)
+    first.store.destroy()
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        await gate
+        return await h.server.fetch(input, init)
+      },
+    })
+    await until(() => store.getState().rows.length === 5)
+    expect(store.getState()).toMatchObject({ status: "loading", complete: false })
+    release()
+    await store.refresh()
+    expect(pulls(h).map(request => request.url.searchParams.get("after"))).toContain("r4")
+    expect(store.getState()).toMatchObject({ status: "ready", complete: true })
+    expect(store.getState().rows).toHaveLength(8)
+  })
+
+  it("is complete after a snapshot in one answer, and stays complete offline", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
+    const { store } = h.open()
+    expect(store.getState().complete).toBe(false)
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready", complete: true })
+    h.server.failWith = 503
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "error", complete: true })
+  })
+
+  it("starts the snapshot again when the server answers its next page with changes, as a server without paging", async () => {
+    const h = setup()
+    h.server.snapshotPageSize = 5
+    seed(h, Array.from({ length: 12 }, (_, index) => ({ id: `r${String(index).padStart(2, "0")}`, ownerId: "ada", title: "old" })))
+    let answered = 0
+    const { store } = h.open({
+      fetch: async (input, init) => {
+        const response = await h.server.fetch(input, init)
+        if (++answered === 1) h.server.paging = false
+        return response
+      },
+    })
+    await store.refresh()
+    expect(store.getState()).toMatchObject({ status: "ready" })
+    expect(store.getState().rows).toHaveLength(12)
+  })
+
   it("pulls again while the server has more changes", async () => {
     const h = setup()
     const { store } = h.open()
@@ -121,6 +229,132 @@ describe("start and pull", () => {
     h.server.offline = false
     await store.refresh()
     expect(store.getState()).toMatchObject({ status: "ready", error: null })
+  })
+})
+
+describe("clear with keepWrites", () => {
+  it("settles a kept write in the tab that made it when another tab sends it", async () => {
+    const h = setup()
+    const one = h.open()
+    const two = h.open()
+    await one.store.refresh()
+    await two.store.refresh()
+    h.server.offline = true
+    const write = one.store.insert({ title: "Eggs" })
+    write.then(undefined, () => undefined)
+    await until(() => one.store.getState().queued === 1)
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    h.server.offline = false
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    await until(() => write.state === "applied")
+    await expect(write).resolves.toMatchObject({ title: "Eggs" })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("delivers a kept action's result while its originating store stays paused", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    const one = h.open()
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    h.server.offline = true
+    const action = one.store.actions.complete({ id: "a" })
+    action.then(undefined, () => undefined)
+    await until(() => one.store.getState().status === "offline")
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    h.server.offline = false
+    await two.store.refresh()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("settles a kept action sent before the originating tab finishes storing it", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    let markStored!: () => void
+    const stored = new Promise<void>((resolve) => { markStored = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const one = h.open({ storage: {
+      ...h.storage,
+      async write(id, change) {
+        const result = await h.storage.write(id, change)
+        if (change.add?.length) {
+          markStored()
+          await gate
+        }
+        return result
+      },
+    } })
+    const two = h.open()
+    await Promise.all([one.store.refresh(), two.store.refresh()])
+    const action = one.store.actions.complete({ id: "a" })
+    action.then(undefined, () => undefined)
+    await stored
+    for (const { store } of [one, two]) (store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    await two.store.refresh()
+    expect(h.server.applied).toHaveLength(1)
+    expect(action.state).toBe("queued")
+    release()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(one.store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("settles an action whose terminal storage commit overlaps a clear", async () => {
+    const h = setup()
+    h.server.actions.complete = () => ({ answer: 42 })
+    let markCommitted!: () => void
+    const committed = new Promise<void>((resolve) => { markCommitted = resolve })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const { store } = h.open({ storage: {
+      ...h.storage,
+      async write(id, change) {
+        const result = await h.storage.write(id, change)
+        if (change.remove?.length) {
+          markCommitted()
+          await gate
+        }
+        return result
+      },
+    } })
+    await store.refresh()
+    const action = store.actions.complete({ id: "a" })
+    await committed
+    ;(store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    release()
+    await until(() => action.state === "applied")
+    await expect(action).resolves.toEqual({ answer: 42 })
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
+  })
+
+  it("rejects a kept handle when its in-flight storage write fails", async () => {
+    const h = setup()
+    let failWrite!: (error: Error) => void
+    const { store } = h.open({ storage: {
+      ...h.storage,
+      write(id, change) {
+        if (!change.add?.length) return h.storage.write(id, change)
+        return new Promise((_resolve, reject) => { failWrite = reject })
+      },
+    } })
+    await store.refresh()
+    const write = store.insert({ title: "Eggs" })
+    const rejected = expect(write).rejects.toMatchObject({ code: "SYNC_BAD_REQUEST", message: expect.stringContaining("disk full") })
+    ;(store as unknown as SyncStoreWithReset<Todo>).forget(true)
+    await h.storage.clear({ keepWrites: true })
+    const refresh = store.refresh()
+    failWrite(new Error("disk full"))
+    await rejected
+    await refresh
+    expect(store.getState()).toMatchObject({ rows: [], queued: 0 })
   })
 })
 
@@ -217,6 +451,18 @@ describe("writes", () => {
     await Promise.all(writes)
     expect(most).toBe(1)
     expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["1", "2", "3"])
+  })
+
+  it("sends the rest of the queue when a push answers for its first writes only", async () => {
+    const h = setup()
+    h.server.pushSize = 3
+    const { store } = h.open()
+    await store.refresh()
+    const writes = Array.from({ length: 10 }, (_, index) => store.insert({ title: String(index) }))
+    await Promise.all(writes)
+    expect(h.server.applied.map(mutation => mutation.op === "insert" && mutation.value.title)).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+    expect(posts(h).map(request => request.body!.mutations.length)).toEqual([10, 7, 4, 1])
+    expect(store.getState().queued).toBe(0)
   })
 
   it("merges two offline updates of one row, and sends the last value (farm.js: writes raced)", async () => {
@@ -392,7 +638,7 @@ describe("accounts", () => {
     expect(h.server.applied).toEqual([])
     expect(store.getState()).toMatchObject({ queued: 0, failures: [], status: "ready" })
     expect(write.state).toBe("queued")
-    const stored = await h.storage.readQueue("/api/_vitehub/sync/todos")
+    const stored = await h.storage.readQueue("/_vitehub/sync/todos")
     expect(stored.writes).toMatchObject([{ id: expect.any(String), account: accountOf("ada"), op: "insert" }])
   })
 
@@ -951,7 +1197,7 @@ describe("coalescing and pending", () => {
     await Promise.all([first, second])
     expect(h.server.rows.get("a")).toMatchObject({ title: "newer", done: true })
     expect(store.get("a")).toMatchObject({ title: "newer", done: true })
-    const stored = await h.storage.readQueue("/api/_vitehub/sync/todos")
+    const stored = await h.storage.readQueue("/_vitehub/sync/todos")
     expect(stored.writes).toEqual([])
   })
 
@@ -1190,7 +1436,7 @@ describe("live", () => {
     const { store } = h.open({ interval: 30_000 })
     await store.refresh()
     await until(() => store.getState().live)
-    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1" }])
+    expect(streams(h)[0]!.live!.pulls).toEqual([{ name: "todos", cursor: 1, scope: scopeIdOf({ name: "todos", ownerId: "ada" }), version: "v1", paged: true }])
     const count = pulls(h).length
     h.server.write({ id: "b", ownerId: "ada", title: "Eggs" })
     h.server.write({ id: "c", ownerId: "bob", title: "Not mine" })
@@ -1445,7 +1691,7 @@ describe("persistence and tabs", () => {
     first.store.destroy()
     expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
     expect(h.server.rows.get(write.key)).toMatchObject({ title: "Milk", ownerId: "ada" })
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
+    expect((await h.storage.readQueue("/_vitehub/sync/todos")).writes).toEqual([])
   })
 
   it("keeps sending the queue of a destroyed store until it is empty, as after a navigation while offline", async () => {
@@ -1460,7 +1706,7 @@ describe("persistence and tabs", () => {
     // The backoff timer of the failed push fires.
     browser.fire()
     expect(await write).toMatchObject({ title: "Milk", ownerId: "ada" })
-    expect((await h.storage.readQueue("/api/_vitehub/sync/todos")).writes).toEqual([])
+    expect((await h.storage.readQueue("/_vitehub/sync/todos")).writes).toEqual([])
     const requests = h.server.requests.length
     expect(browser.fire()).toEqual([])
     await new Promise(resolve => setTimeout(resolve, 5))

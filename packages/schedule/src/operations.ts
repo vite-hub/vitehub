@@ -41,7 +41,7 @@ function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefini
 }
 
 const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRunsResult>({
-  cli: { command: "runs", format: formatRuns, namespace: "schedule", positional: ["id"] },
+  cli: { command: "runs list", format: formatRuns, namespace: "schedule", positional: ["id"] },
   description: "List the recorded runs of one Schedule Definition, newest first.",
   input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
   kind: "read",
@@ -50,8 +50,8 @@ const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRun
 })
 
 const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>({
-  cli: { command: "attempts", format: formatAttempts, namespace: "schedule", positional: ["id"] },
-  description: "List the attempts of one Schedule Run, oldest first.",
+  cli: { command: "runs get", format: formatAttempts, namespace: "schedule", positional: ["id"] },
+  description: "Show one Schedule Run with its attempts, oldest first.",
   input: v.object({ id }),
   kind: "read",
   name: "schedule.attempts",
@@ -73,12 +73,25 @@ function timingOf(schedule: StartedScheduleSummary): string {
   return schedule.timeZone && schedule.timeZone !== "UTC" ? `${schedule.cron} (${schedule.timeZone})` : schedule.cron ?? "-"
 }
 
-function formatSchedules({ schedules }: { schedules: readonly StartedScheduleSummary[] }): string {
-  if (schedules.length === 0) return "No started Schedules.\n"
-  return `${table([
-    ["ID", "SCHEDULE", "RUNS", "STARTED AT"],
-    ...schedules.map(schedule => [schedule.id, schedule.name, timingOf(schedule), schedule.createdAt]),
-  ])}\n`
+function formatSchedules({ definitions = [], schedules }: {
+  definitions?: ScheduleListResult["definitions"]
+  schedules: ScheduleListResult["schedules"]
+}): string {
+  if (definitions.length === 0 && schedules.length === 0) return "No Schedules.\n"
+  const parts: string[] = []
+  if (definitions.length > 0) {
+    parts.push(table([
+      ["SCHEDULE", "CRON"],
+      ...definitions.map(definition => [definition.name, definition.timeZone && definition.timeZone !== "UTC" ? `${definition.cron} (${definition.timeZone})` : definition.cron]),
+    ]))
+  }
+  if (schedules.length > 0) {
+    parts.push(table([
+      ["ID", "SCHEDULE", "RUNS", "STARTED AT"],
+      ...schedules.map(schedule => [schedule.id, schedule.name, timingOf(schedule), schedule.createdAt]),
+    ]))
+  }
+  return `${parts.join("\n\n")}\n`
 }
 
 function formatStartedSchedule(verb: string) {
@@ -87,7 +100,7 @@ function formatStartedSchedule(verb: string) {
 
 const list = defineScheduleOperation<{ name?: string }, ScheduleListResult>({
   cli: { command: "list", format: formatSchedules, namespace: "schedule", positional: ["name"] },
-  description: "List the Schedules that code started with startSchedule(), oldest first. `name` keeps the Schedules of one Definition.",
+  description: "List the Static Schedule Definitions with their cron, and the Schedules that code started with startSchedule(), oldest first. `name` keeps one Definition and its started Schedules.",
   input: v.object({ name: v.optional(id) }),
   kind: "read",
   name: "schedule.list",

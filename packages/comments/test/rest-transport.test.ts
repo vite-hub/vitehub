@@ -1,7 +1,7 @@
 import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, createRestTransport } from "../src/client.ts"
+import { createCommentsClient, createMemoryOutboxStore, createRestTransport } from "../src/client.ts"
 import { defineCommentSubject } from "../src/index.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { anchor, createComments } from "./harness.ts"
@@ -31,7 +31,7 @@ async function setup(options: DefineCommentsOptions = {}, attachments?: Map<stri
       : {}),
     ...options,
   })
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+  const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(new URL(String(input), origin), init)
     // Browsers send Origin on writes.
@@ -77,6 +77,84 @@ describe("createRestTransport", () => {
     expect(afterDelete?.messages).toHaveLength(1)
     expect(await ada.delete({ threadId: created.id })).toBeNull()
     expect(await ada.list({ subject })).toEqual([])
+  })
+
+  it("binds queued creates and uploads to the author of each request", async () => {
+    const files = new Map<string, Blob>()
+    const { as } = await setup({}, files)
+    const subject = { kind: "drop", id: "42" }
+    const draft = { subject, anchor: { kind: "page" } as const, body: "Saved offline", requestId: "saved" }
+    const outbox = { account: "ada", uploaded: vi.fn(async () => {}) }
+    const screenshot = new File(["image"], "shot.png", { type: "image/png" })
+    await expect(as("ben").create({ ...draft, outbox, files: [screenshot] })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_ACCOUNT_CHANGED", status: 401 })
+    expect(files.size).toBe(0)
+    await expect(as("ben").create({ ...draft, outbox })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_ACCOUNT_CHANGED", status: 401 })
+    const created = await as("ada").create({ ...draft, outbox, files: [screenshot] })
+    expect(created.author.id).toBe("ada")
+    expect(outbox.uploaded).toHaveBeenCalledWith(created.messages[0]?.attachments[0])
+    expect(files.size).toBe(1)
+  })
+
+  it("resumes a guest's saved upload and reconciles a lost reply through REST", async () => {
+    const files = new Map<string, Blob>()
+    const { as } = await setup({ authorize: () => true, rateLimit: { limit: 1, window: "1m" } }, files)
+    const rest = as(undefined, { id: "7", name: "Visitor" })
+    const reply = vi.fn(rest.reply).mockImplementationOnce(async (input) => {
+      await rest.reply(input)
+      throw new TypeError("Lost response")
+    })
+    const subject = { kind: "drop", id: "42" }
+    const store = createMemoryOutboxStore()
+    const client = () => createCommentsClient({
+      transport: { ...rest, reply },
+      query: { subject },
+      outbox: {
+        account: "guest:7",
+        store,
+        environment: {
+          isOnline: () => true,
+          isVisible: () => true,
+          listen: () => () => {},
+          lock: (_name, task) => task(),
+          lead(_name, task) {
+            const controller = new AbortController()
+            void task(controller.signal)
+            return () => controller.abort()
+          },
+          receive: () => () => {},
+          post: () => {},
+          schedule: () => () => {},
+          random: () => 0,
+        },
+      },
+    })
+    let now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const first = client()
+    try {
+      const screenshot = new File(["image"], "shot.png", { type: "image/png" })
+      await first.create({ subject, anchor, body: "Screenshot", files: [screenshot] })
+      await vi.waitFor(() => expect(first.outbox.entries[0]?.error?.status).toBe(429))
+      expect(files.size).toBe(1)
+
+      now += 60_000
+      const reloaded = client()
+      await reloaded.outbox.retry()
+      await vi.waitFor(() => expect(reloaded.threads[0]?.messages[0]?.attachments).toEqual(["files/1/shot.png"]))
+      expect(files.size).toBe(1)
+      const threadId = reloaded.threads[0]!.id
+
+      now += 60_000
+      await reloaded.reply({ threadId, body: "Follow-up" })
+      await vi.waitFor(() => expect(reloaded.outbox.entries[0]?.error?.status).toBe(0))
+      expect((await reloaded.refresh())[0]?.messages.map(message => message.body)).toEqual(["Screenshot", "Follow-up"])
+      await reloaded.outbox.retry()
+      await vi.waitFor(() => expect(reloaded.outbox.entries).toHaveLength(0))
+      expect(reply).toHaveBeenCalledTimes(2)
+      expect((await rest.get({ id: threadId }))?.messages).toHaveLength(2)
+    } finally {
+      clock.mockRestore()
+    }
   })
 
   it("paginates beyond the first 200 page threads", async () => {
@@ -128,7 +206,7 @@ describe("createRestTransport", () => {
     const stored = await ada.upload({ name: "shot.png", type: "image/png", data: Buffer.from(png).toString("base64"), subject: { kind: "drop", id: "1" } })
     expect(stored).toEqual({ key: "files/1/shot.png", name: "shot.png", type: "image/png", size: 7 })
     const url = ada.attachmentUrl(stored.key)
-    expect(url).toBe("/api/_vitehub/comments/attachments/files/1/shot.png")
+    expect(url).toBe("/_vitehub/comments/attachments/files/1/shot.png")
 
     const read = (token: string, path = url) => app.fetch(new Request(`${origin}${path}`, { headers: { "x-share-token": token } }))
     // Nobody reads a file before a message lists it.
@@ -161,7 +239,7 @@ describe("createRestTransport", () => {
       const author = { id: "ada", name: "Ada" }
       const [, denied] = await comments.create({ page: "/private", anchor, body: "Private", attachments: [key], author })
       for (let index = 0; index < 205; index++) await comments.reply(denied!.id, { body: "Private reference", attachments: [key], author })
-      const read = () => app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
+      const read = () => app.fetch(new Request(`${origin}/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
       expect((await read()).status).toBe(404)
       await comments.create({ page: "/public", anchor, body: "Readable reference", attachments: [key], author })
       const response = await read()
@@ -177,7 +255,7 @@ describe("createRestTransport", () => {
     const files = new Map<string, Blob>([["files/evil.svg", new Blob(["<svg onload=alert(1)>"], { type: "image/svg+xml" })]])
     const { as, app } = await setup({}, files)
     await as("ada").create({ subject: { kind: "drop", id: "1" }, anchor: { kind: "page" }, body: "See", attachments: ["files/evil.svg"] })
-    const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/files/evil.svg`, { headers: { "x-share-token": "ada" } }))
+    const response = await app.fetch(new Request(`${origin}/_vitehub/comments/attachments/files/evil.svg`, { headers: { "x-share-token": "ada" } }))
     expect(response.headers.get("content-type")).toBe("application/octet-stream")
     expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''evil.svg")
   })

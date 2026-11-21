@@ -7,8 +7,9 @@ import {
 } from "@vite-hub/comments/client";
 import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
+import { renderToString } from "@vue/server-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { createSSRApp, defineComponent, h, nextTick, ref } from "vue";
 import {
   CommentComposer,
   CommentFilters,
@@ -36,8 +37,8 @@ const pricing = { id: "/pricing", kind: "page" };
 const about = { id: "/about", kind: "page" };
 
 const UButton = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, type: "button" }, typeof attrs.label === "string" ? attrs.label : undefined);
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? (typeof attrs.label === "string" ? attrs.label : undefined));
   },
 });
 const global = { components: { UButton, UIcon: defineComponent({ setup: () => () => h("span") }) } };
@@ -1704,6 +1705,37 @@ describe("margin placement", () => {
     await drop(wrapper);
     expect(wrapper.find(`${inMargin} [data-slot=comment-composer]`).exists()).toBe(true);
     expect(wrapper.find("[data-slot=comment-pin][data-draft=true]").exists()).toBe(true);
+  });
+
+  it("renders the server layout first, then moves into the margin on a wide screen", async () => {
+    setWidth(1280);
+    const { client } = setup();
+    const app = () => createSSRApp({ render: () => h(CommentLayer, { client, subject: pricing, placement: "margin" }) })
+      .component("UButton", global.components.UButton)
+      .component("UIcon", global.components.UIcon);
+    // A server has no window, so it cannot know the width of the screen.
+    vi.stubGlobal("window", undefined);
+    let html: string;
+    try {
+      html = await renderToString(app());
+    }
+    finally {
+      vi.unstubAllGlobals();
+    }
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.append(container);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const instance = app();
+    instance.mount(container);
+    await nextTick();
+    const mismatches = [...warn.mock.calls, ...error.mock.calls].flat().map(String).filter(line => /hydration/i.test(line));
+    const margin = container.querySelector("[data-slot=comment-margin]");
+    instance.unmount();
+    expect(html).not.toContain("comment-margin");
+    expect(mismatches).toEqual([]);
+    expect(margin).not.toBeNull();
   });
 
   it("puts threads beside their pins on a narrow screen", async () => {

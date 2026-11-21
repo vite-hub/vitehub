@@ -1,4 +1,5 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { runtimeErrorDiagnostics } from "@vite-hub/runtime/internal/error-diagnostics"
 
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
@@ -7,6 +8,7 @@ import { dynamicQueue } from "./client.ts"
 
 import type { LocalQueueJob, LocalQueueJobDetail, LocalQueueStatus, QueueJobStore } from "../providers/local.ts"
 
+import type { Duration } from "@vite-hub/runtime"
 import type { LocalQueueRules, QueueEnqueueOptions, QueueDriver } from "../types.ts"
 
 export interface QueueListResult {
@@ -57,7 +59,8 @@ export interface QueueSendOperationResult {
 }
 
 export interface QueueSendOperationInput {
-  delaySeconds?: number
+  /** Time before delivery, such as `"1m"`. The send reads it, and a wrong one fails with `RUNTIME_DURATION_INVALID`. */
+  delay?: string
   idempotencyKey?: string
   payload: unknown
   queue: string
@@ -79,6 +82,7 @@ const statuses: Readonly<Record<string, number>> = {
 
 /** Gives a Queue catalog error the status and the redacted message that the CLI and the Console report. */
 function failure(error: unknown): unknown {
+  if (runtimeErrorDiagnostics.RUNTIME_DURATION_INVALID.is(error)) return Object.assign(error, { status: 400, statusMessage: redactInspectionText(error.message) })
   if (!isQueueError(error)) return error
   return Object.assign(error, { status: statuses[error.code] ?? 500, statusMessage: redactInspectionText(error.message) })
 }
@@ -111,7 +115,8 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   const queue = normalizePublicQueueIdentifier(input.queue)
   if (!queue) throw failure(queueErrorDiagnostics.QUEUE_DEFINITION_NAME_INVALID())
   const options: QueueEnqueueOptions = {
-    ...(input.delaySeconds === undefined ? {} : { delaySeconds: input.delaySeconds }),
+    // SAFETY: CLI and Console input is text. The send reads it with parseDuration() and returns RUNTIME_DURATION_INVALID for a wrong one.
+    ...(input.delay === undefined ? {} : { delay: input.delay as Duration }),
     ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
   }
   let result

@@ -1,13 +1,33 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { readdir } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
 import type { HostCliRun } from "./host-credentials.ts"
 import type { ProvisionProvider, ProvisionStep } from "./provision.ts"
 
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { isPlainObject } from "./object.ts"
+
+/** Validate an explicit `--url` before sending a Console request. The caller adds the RPC path. */
+export function appUrlError(url: string): string | undefined {
+  let base: URL
+  try {
+    base = new URL(url)
+  }
+  catch {
+    return "--url must be a URL."
+  }
+  const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+  if (base.protocol !== "https:" && !(local && base.protocol === "http:")) return "--url must use HTTPS, except for localhost."
+  if (base.username || base.password || base.search || base.hash) return "--url must not contain credentials, a query, or a fragment."
+  const consolePath = /(?:^|\/)_vitehub(?:\/|$)/.exec(base.pathname)
+  if (consolePath) {
+    const app = `${base.origin}${base.pathname.slice(0, consolePath.index).replace(/\/$/, "")}`
+    return `--url is the app URL, not the Console URL. Pass --url ${app}.`
+  }
+}
 
 export interface ViteHubCliStreams {
   stderr: { write: (chunk: string | Uint8Array, encoding?: BufferEncoding | StdoutWriteCallback, callback?: StdoutWriteCallback) => unknown }
@@ -226,6 +246,32 @@ export function createCliDiscoveryNitroCloser(): { close: () => Promise<void>, p
   }
 }
 
+/** The inline config of {@link viteCliProjectConfig}. Its plugin is typed structurally, because this package does not depend on Vite. */
+export interface ViteCliProjectConfig {
+  configFile?: string
+  plugins: { config: { handler: (config: { root?: string }) => { root: string }, order: "pre" }, enforce: "pre", name: string }[]
+  root?: string
+}
+
+/** Let Vite load its config normally, without overriding the root declared by the project. */
+export function viteCliProjectConfig(rootDir: string): ViteCliProjectConfig {
+  const configFile = ["js", "mjs", "ts", "cjs", "mts", "cts"]
+    .map(extension => resolve(rootDir, `vite.config.${extension}`))
+    .find(file => existsSync(file))
+  if (!configFile) return { root: rootDir, plugins: [] }
+  return {
+    configFile,
+    plugins: [{
+      name: "vite-hub/cli-discovery-root",
+      enforce: "pre" as const,
+      config: {
+        order: "pre" as const,
+        handler: ({ root }: { root?: string }) => ({ root: resolve(rootDir, root || ".") }),
+      },
+    }],
+  }
+}
+
 /** Returns the unredirected process stdout writer for payload output. */
 export function getStableStdoutWrite(): typeof process.stdout.write {
   const current = process.stdout.write
@@ -300,10 +346,6 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
  */
 export const viteHubDevServerUrlEnv = "VITEHUB_DEV_SERVER_URL"
 
-/**
- * Default Compatible Vite Development Server URL when neither `--url` nor `VITEHUB_DEV_SERVER_URL` is set.
- */
-export const defaultViteHubDevServerUrl = "http://localhost:5173"
 
 /**
  * Dev server target options that runtime commands share.
@@ -325,6 +367,8 @@ export interface ViteHubDevTargetOptionErrors {
   invalidInlineTimeout: (message: string) => Error
   invalidTimeout: (message: string) => Error
   missingValue: (message: string) => Error
+  /** A removed option, such as `--server`. The message names the option that replaces it. */
+  unknownOption: (message: string) => Error
 }
 
 /**
@@ -357,9 +401,6 @@ export interface ViteHubDevServerTarget<TDiscovery> {
   url: string
 }
 
-export function resolveViteHubDevServerUrl(env: NodeJS.ProcessEnv): string {
-  return env[viteHubDevServerUrlEnv] || defaultViteHubDevServerUrl
-}
 
 function parseViteHubDevTimeout(value: string, error: (message: string) => Error): number {
   if (!/^\d+$/.test(value)) throw error("--timeout must be an integer from 1 to 2147483647 milliseconds.")
@@ -372,8 +413,8 @@ function parseViteHubDevTimeout(value: string, error: (message: string) => Error
 }
 
 /**
- * Reads one dev target option at `args[index]`: `--url <url>`, `--server <url>`,
- * `--url=<url>`, `--timeout <ms>` or `--timeout=<ms>`.
+ * Reads one dev target option at `args[index]`: `--url <url>`, `--url=<url>`,
+ * `--timeout <ms>` or `--timeout=<ms>`. `--url` is always the app, and `--server` fails with the fix.
  *
  * Returns the number of extra arguments that the option used (`0` or `1`), or
  * `undefined` when `args[index]` is not a dev target option.
@@ -391,7 +432,8 @@ export function readViteHubDevTargetOption(
     if (!value || value.startsWith("-")) throw errors.missingValue(`Missing value for ${arg}.`)
     return value
   }
-  if (arg === "--url" || arg === "--server") {
+  if (arg === "--server" || arg.startsWith("--server=")) throw errors.unknownOption("--server is now --url. Pass --url with the app URL, such as --url http://localhost:3000.")
+  if (arg === "--url") {
     target.url = readValue()
     return 1
   }
@@ -573,7 +615,11 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   if (!response.ok) {
-    options.stderr.write(`No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
+    // A server error carries its cause, such as an Agent module that does not load.
+    const message = response.status >= 500 ? redactInspectionText((await response.text().catch(() => "")).trim()) : ""
+    options.stderr.write(message
+      ? `The Vite Development Server at ${devServerDisplayUrl(options.serverUrl)} failed with HTTP ${response.status}: ${message}\n`
+      : `No Compatible Vite Development Server found at ${devServerDisplayUrl(options.serverUrl)}.\n`)
     return
   }
   const payload: unknown = await response.json().catch(() => ({}))
@@ -638,4 +684,27 @@ export function findViteHubDevServerUrl(roots: readonly string[], env: NodeJS.Pr
     if (file && roots.some(candidate => candidate.replace(/\/+$/, "") === file.root.replace(/\/+$/, ""))) return file.url
   }
   return env[viteHubDevServerUrlEnv] || undefined
+}
+
+/**
+ * The dev server of the project, as {@link findViteHubDevServerUrl} finds it. Without one, it throws
+ * `INTERNAL_DEV_SERVER_NOT_FOUND` for `command`, such as `agent dev`, instead of guessing a port.
+ */
+export function requireViteHubDevServerUrl(roots: readonly string[], env: NodeJS.ProcessEnv, command: string): string {
+  const url = findViteHubDevServerUrl(roots, env)
+  if (!url) throw internalErrorDiagnostics.INTERNAL_DEV_SERVER_NOT_FOUND({ command })
+  return url
+}
+
+/** Whether an explicit app URL identifies this project's discovered dev listener. */
+export function isViteHubDevServerUrl(app: URL, roots: readonly string[], env: NodeJS.ProcessEnv): boolean {
+  const configured = findViteHubDevServerUrl(roots, env)
+  if (!configured) return false
+  try {
+    const dev = new URL(configured)
+    return app.origin === dev.origin && app.pathname.replace(/\/+$/, "") === dev.pathname.replace(/\/+$/, "")
+  }
+  catch {
+    return false
+  }
 }

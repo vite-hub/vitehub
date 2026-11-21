@@ -79,7 +79,7 @@ List the folders where a Provider-backed Agent may write public artifacts. The A
 ```ts [server/agents/review.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { blob } from 'vite-hub/agent/capabilities'
-import { github } from 'vite-hub/agent/channels'
+import { github } from 'vite-hub/channels/adapters'
 
 export default defineAgent({
   capabilities: [
@@ -146,7 +146,7 @@ await blob_edit({
 ## Verify Blob access
 
 1. Start the dev server.
-2. Run `vitehub agent info --agent support --json`. Check that `tools` has an entry with `name: "blob"`. It lists one entry per Capability, not per tool.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "blob"`. It lists one entry per Capability, not per tool.
 3. Run `vitehub agent dev "List the objects under reports/" --agent support`. Check for a `[tool] blob_read` call with `operation: "list"`.
 4. For Provider artifacts, make the Agent write a file under an `assetPaths` root and link it in its answer. Check that the final text has the published URL.
 

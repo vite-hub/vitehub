@@ -229,7 +229,7 @@ export default defineSync({
 
 While a page shows, each tab keeps one live stream open for all its synced tables and subsets. Other people's changes show within about a second.
 
-The stream is `POST <base>api/_vitehub/sync` with `{ pulls: [{ name, where, cursor, scope, version }] }`, one item for each store of the tab. The answer is Server-Sent Events. The server:
+The stream is `POST <base>_vitehub/sync` with `{ pulls: [{ name, where, cursor, scope, version }] }`, one item for each store of the tab. The answer is Server-Sent Events. The server:
 
 1. Checks each store once, when the stream opens, with the `where` of its definition. A store that the caller may not see gets an `event: error` with its `name`, `where`, and the error. The other stores stream on.
 2. Sends the comment `: open` at once, so the headers reach the browser at once. Then it sends an `event: pull` with `{ name, where, pull }` for each store that changed since its cursor.
@@ -241,20 +241,22 @@ The cost is one indexed query for each second and each open stream, for any numb
 
 ## The route
 
-Each Sync name has one route: `<base>api/_vitehub/sync/<name>`. Every answer has `Cache-Control: private, no-store`.
+Each Sync name has one route: `<base>_vitehub/sync/<name>`. Every answer has `Cache-Control: private, no-store`.
 
 | Request | Does |
 | --- | --- |
 | `GET ?cursor=<n>&scope=<id>&version=<v>&where=<json>` | Pulls the rows that changed since `cursor`. Without `cursor`, or with another scope or version, the answer is every row of the scope. |
 | `POST` | Applies up to 100 writes and actions in order, and answers with the result of each and a pull. |
 
-`POST <base>api/_vitehub/sync` is the [live stream](#live-pulls) of every Sync name.
+`POST <base>_vitehub/sync` is the [live stream](#live-pulls) of every Sync name.
 
 Each pull has `version`, a fingerprint of the table's columns. When you change the table, the browser drops the rows that it stored and gets every row again. Its queued writes stay. Each pull also has `defaults`: the static `.default()` values of the columns, so a new row shows every column at once.
 
 The types of the requests and answers are in `@vite-hub/sync`'s `protocol.ts`: `SyncPullResponse`, `SyncPushRequest`, `SyncPushResponse`, `SyncLiveRequest`, and `SyncLiveEvent`. The cursor is a number from the change log of the Database, not a time, so a clock that is wrong cannot skip a change.
 
 Each write applies in one transaction with its id. A write that the server applied before is answered `duplicate`, and is not applied again. One refused write does not stop the others of a push.
+
+A push has a budget of 40 Database calls, where a batch is one call. It reads the ledger once for the whole push. A plain write usually makes two more calls: one row read and one batch. The budget leaves room for the response but does not count request setup or stop the first mutation. The server returns results for the mutations it finished, and the browser sends the rest in a new push. A long queue drains as long as each mutation fits in its own Worker invocation. On the Workers Free plan, D1 allows 50 calls in an invocation. Without a ViteHub app, set the budget with `push: { calls }` of the services.
 
 ## Writes from server code
 

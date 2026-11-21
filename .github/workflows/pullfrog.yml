@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OPENAI_COMPATIBLE_BASE_URL: https://ai.onmax.me/v1
-      OPENAI_COMPATIBLE_MODEL: gpt-6.1-sol(medium)
+      OPENAI_COMPATIBLE_MODEL: ${{ vars.PULLFROG_MODEL }}(${{ vars.PULLFROG_EFFORT }})
     permissions:
       id-token: write
       contents: read
@@ -45,11 +45,11 @@ jobs:
             "$OPENAI_COMPATIBLE_BASE_URL/chat/completions")
           jq -e '.choices[0].message.content | contains("PROXY_OK")' <<< "$response" > /dev/null
       - name: Run agent
-        uses: pullfrog/pullfrog@3c58d31073422cc1b9573f58b5dbadb7a4914715 # v0.1.123
+        uses: pullfrog/pullfrog@495916b7e4d5499b7e1b796b22b8c9228d62bdba # v0.1.128
         with:
           prompt: ${{ inputs.prompt }}
           model: openai-compatible/byok
-          effort: medium
+          effort: ${{ vars.PULLFROG_EFFORT }}
         env:
           OPENAI_COMPATIBLE_API_KEY: ${{ secrets.CLIPROXY_API_KEY }}
           OPENAI_COMPATIBLE_CONTEXT: 921000

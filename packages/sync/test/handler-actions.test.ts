@@ -278,7 +278,7 @@ describe("actions across definitions", () => {
       },
     })
     const app = await createHarness({ name: "cards", definition: board, ddl: [ddl, activityDdl], definitions: { cards: board, activity: activityDefinition }, live: { interval: 60_000, seconds: 30 } })
-    const pullActivity = async (caller: { user: string, teams: string[] }, query: string) => await handleSyncRequest("activity", activityDefinition, new Request(`https://app.test/api/_vitehub/sync/activity${query}`, { headers: { "x-user": caller.user, "x-teams": caller.teams.join(",") } }), app.services)
+    const pullActivity = async (caller: { user: string, teams: string[] }, query: string) => await handleSyncRequest("activity", activityDefinition, new Request(`https://app.test/_vitehub/sync/activity${query}`, { headers: { "x-user": caller.user, "x-teams": caller.teams.join(",") } }), app.services)
     return {
       ...app,
       rows: async () => await app.db.select().from(cards).orderBy(cards.title),
@@ -310,6 +310,22 @@ describe("actions across definitions", () => {
     const event = await events.next(2000)
     expect(event).toMatchObject({ event: "pull", data: { name: "activity", pull: { rows: [{ id: "n1", text: "Moved to b" }] } } })
     stream.abort()
+  })
+
+  it("defers an action when its trigger setup cannot fit in the push budget", async () => {
+    const app = await crossSetup()
+    const held = await app.start(dave)
+    const inserts = Array.from({ length: 18 }, (_, index) => ({ id: `m${index}`, op: "insert", value: { id: `c${index}`, teamId: "a", title: "Card" } }))
+    const note = action("note", "note", { id: "n1", cardId: "c0" })
+    const before = app.calls()
+    const first = await app.push(dave, { ...as(held), mutations: [...inserts, note] })
+    expect(first.status).toBe(200)
+    expect(app.calls() - before).toBeLessThanOrEqual(40)
+    expect(first.body.results).toEqual(inserts.map(({ id }) => ({ id, status: "applied" })))
+
+    const second = await app.push(dave, { ...as(held), mutations: [note] })
+    expect(second.body.results).toEqual([{ id: "note", status: "applied" }])
+    expect(await app.activity()).toMatchObject([{ id: "n1", cardId: "c0" }])
   })
 
   it("refuses the whole action when the other definition refuses one write", async () => {

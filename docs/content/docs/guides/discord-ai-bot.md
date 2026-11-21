@@ -7,7 +7,7 @@ navigation.group: Chat bots
 icon: i-lucide-bot
 ---
 
-Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
+Create a Discord application, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/channels/adapters` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, and run with the `node` host. The server opens the Discord Gateway at start, and the Agent answers direct messages and mentions.
 
 ## What a ViteHub Discord bot is
 
@@ -43,9 +43,7 @@ Use the version that matches ViteHub's `chat` package. `pnpm why chat` shows it.
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     agent: true,
-    workflow: false,
   },
 })
 ```
@@ -60,9 +58,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
     nitro(),
   ],
@@ -78,9 +74,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      host: 'node',
       agent: true,
-      workflow: false,
     }),
   ],
 })
@@ -88,14 +82,14 @@ export default defineConfig({
 :::
 ::
 
-The `node` host starts the Gateway listener in the server process. `workflow: false` runs each reply inline in that process.
+The `node` host starts the Gateway listener in the server process. The Agent runs each reply inline in that process.
 
 ### Define the Agent
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { access } from 'vite-hub/agent/capabilities'
-import { discord } from 'vite-hub/agent/channels'
+import { discord } from 'vite-hub/channels/adapters'
 
 const allowedUsers = new Set(['discord:111111111111111111'])
 
@@ -155,7 +149,7 @@ The Gateway connection goes out from your machine to Discord, so you need no pub
 Check what ViteHub found:
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent assistant --url http://localhost:3000
+pnpm vitehub agent get assistant --dev --url http://localhost:3000
 ```
 
 If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener failed and will retry.` in the server log. ViteHub retries 5 seconds after a failure. Listener start, stop, and failure events also show in the JSON logs under the `vitehub.channel.listener` scope. See [Inspect delivery custody](/docs/agents/channels#inspect-delivery-custody).
@@ -230,7 +224,7 @@ export default defineConfig({
 :::
 ::
 
-This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/api/_vitehub/agents/<agent>/webhooks/discord`.
+This adds `GET /_vitehub/agents/<agent>/discord/gateway`. In production it needs `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes (or `VITEHUB_DISCORD_GATEWAY_DURATION_MS`) and forwards each event to the webhook route `/_vitehub/agents/<agent>/webhooks/discord`.
 
 ViteHub does not call this route. Call it on a timer that overlaps the listener time, and the host must let the function run that long. Many serverless plans stop it sooner, and we have no deployed test of this path. For an always-online bot, use the `node` host. There, `routes.discordGateway` adds no route, because the server process owns the listener.
 

@@ -5,6 +5,7 @@ import { cancelWorkflow, getWorkflowRun, startWorkflow } from "../src/runtime/cl
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 const config = { driver: "openworkflow", sqlite: { path: ":memory:" } } as const
 const seenIds: Array<string | undefined> = []
@@ -15,10 +16,10 @@ beforeEach(() => {
   setWorkflowRuntimeConfig(config)
   setWorkflowRuntimeRegistry({
     checkout: async () => ({
-      default: defineWorkflow("checkout", async (payload: { order: number }, context) => {
+      default: defineWorkflow<{ order: number }>({ handler: async ({ payload, ...context }) => {
         seenIds.push(context.id)
         return { order: payload.order }
-      }),
+      } }),
     }),
   })
 })
@@ -28,27 +29,27 @@ afterEach(async () => {
 })
 
 it("uses the id that the caller passes as the OpenWorkflow run id", async () => {
-  const started = await startWorkflow("checkout", { order: 1042 }, { id: "checkout-1042" })
+  const started = await unwrap(startWorkflow("checkout", { order: 1042 }, { id: "checkout-1042" }))
   expect(started.id).toBe("checkout-1042")
 
-  await expect(getWorkflowRun("checkout", "checkout-1042")).resolves.toMatchObject({ id: "checkout-1042", status: "queued" })
+  await expect(unwrap(getWorkflowRun("checkout", "checkout-1042"))).resolves.toMatchObject({ id: "checkout-1042", status: "queued" })
 
   const worker = await createOpenWorkflowWorker()
   await worker.tick()
   await worker.stop()
 
   expect(seenIds).toEqual(["checkout-1042"])
-  await expect(getWorkflowRun("checkout", "checkout-1042")).resolves.toMatchObject({ id: "checkout-1042", status: "completed" })
+  await expect(unwrap(getWorkflowRun("checkout", "checkout-1042"))).resolves.toMatchObject({ id: "checkout-1042", status: "completed" })
 })
 
 it("cancels a run by the id that the caller passes", async () => {
-  await startWorkflow("checkout", { order: 7 }, { id: "checkout-7" })
+  await unwrap(startWorkflow("checkout", { order: 7 }, { id: "checkout-7" }))
 
-  await expect(cancelWorkflow("checkout", "checkout-7")).resolves.toMatchObject({ id: "checkout-7", status: "cancelled" })
+  await expect(unwrap(cancelWorkflow("checkout", "checkout-7"))).resolves.toMatchObject({ id: "checkout-7", status: "cancelled" })
 })
 
 it("returns the stored run for a second start with the same id after the OpenWorkflow idempotency window", async () => {
-  const first = await startWorkflow("checkout", { order: 1 }, { id: "checkout-old" })
+  const first = await unwrap(startWorkflow("checkout", { order: 1 }, { id: "checkout-old" }))
   const runtime = await getOpenWorkflowRuntime(config)
   const stored = await runtime.backend.listWorkflowRuns({})
   expect(stored.data).toHaveLength(1)
@@ -56,37 +57,37 @@ it("returns the stored run for a second start with the same id after the OpenWor
   const db: { prepare(sql: string): { run(...values: unknown[]): unknown } } = Reflect.get(runtime.backend, "db")
   db.prepare(`UPDATE "workflow_runs" SET "created_at" = ?`).run(new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
 
-  const second = await startWorkflow("checkout", { order: 2 }, { id: "checkout-old" })
+  const second = await unwrap(startWorkflow("checkout", { order: 2 }, { id: "checkout-old" }))
 
   expect(second.id).toBe(first.id)
   expect((await runtime.backend.listWorkflowRuns({})).data).toHaveLength(1)
 })
 
 it("keeps the OpenWorkflow id for runs that start without an id", async () => {
-  const started = await startWorkflow("checkout", { order: 3 })
+  const started = await unwrap(startWorkflow("checkout", { order: 3 }))
 
   expect(started.id).toMatch(/^[0-9a-f-]{36}$/)
-  await expect(getWorkflowRun("checkout", started.id)).resolves.toMatchObject({ id: started.id, status: "queued" })
+  await expect(unwrap(getWorkflowRun("checkout", started.id))).resolves.toMatchObject({ id: started.id, status: "queued" })
 })
 
 it("reports unknown for an id of another Workflow", async () => {
   setWorkflowRuntimeRegistry({
-    checkout: async () => ({ default: defineWorkflow("checkout", async () => "ok") }),
-    refund: async () => ({ default: defineWorkflow("refund", async () => "ok") }),
+    checkout: async () => ({ default: defineWorkflow({ handler: async () => "ok" }) }),
+    refund: async () => ({ default: defineWorkflow({ handler: async () => "ok" }) }),
   })
-  await startWorkflow("refund", undefined, { id: "shared-1" })
+  await unwrap(startWorkflow("refund", undefined, { id: "shared-1" }))
 
-  await expect(getWorkflowRun("checkout", "shared-1")).resolves.toEqual({ id: "shared-1", provider: "openworkflow", status: "unknown" })
+  await expect(unwrap(getWorkflowRun("checkout", "shared-1"))).resolves.toEqual({ id: "shared-1", provider: "openworkflow", status: "unknown" })
 })
 
 it("reuses a provider-assigned run id without redirecting inspection or cancellation", async () => {
-  const first = await startWorkflow("checkout", { order: 1 })
-  const second = await startWorkflow("checkout", { order: 2 }, { id: first.id })
+  const first = await unwrap(startWorkflow("checkout", { order: 1 }))
+  const second = await unwrap(startWorkflow("checkout", { order: 2 }, { id: first.id }))
   const runtime = await getOpenWorkflowRuntime(config)
 
   expect(second.id).toBe(first.id)
   expect((await runtime.backend.listWorkflowRuns({})).data).toHaveLength(1)
-  await expect(getWorkflowRun("checkout", first.id)).resolves.toMatchObject({ id: first.id, payload: { order: 1 }, status: "queued" })
-  await expect(cancelWorkflow("checkout", first.id)).resolves.toMatchObject({ id: first.id, status: "cancelled" })
+  await expect(unwrap(getWorkflowRun("checkout", first.id))).resolves.toMatchObject({ id: first.id, payload: { order: 1 }, status: "queued" })
+  await expect(unwrap(cancelWorkflow("checkout", first.id))).resolves.toMatchObject({ id: first.id, status: "cancelled" })
   await expect(runtime.backend.getWorkflowRun({ workflowRunId: first.id })).resolves.toMatchObject({ status: "canceled" })
 })

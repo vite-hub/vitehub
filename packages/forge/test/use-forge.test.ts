@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync, verify } from "node:crypto"
+import { createHmac, createPublicKey, generateKeyPairSync, verify } from "node:crypto"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
@@ -60,6 +60,10 @@ class FakeGitHub {
         this.minted++
         return reply(201, { token: `ghs_${tokens![1]}_${this.minted}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
       }
+      if (path === "/users/acme-bot%5Bbot%5D") {
+        if (request.headers.authorization) return reply(401, { message: "A JSON web token could not be decoded" })
+        return reply(200, { id: 900, login: "acme-bot[bot]" })
+      }
       if (path === "/repos/acme/web") {
         if (!request.headers.authorization?.startsWith("Bearer ghs_42_")) return reply(401, { message: "Bad credentials" })
         return reply(200, { full_name: "acme/web" })
@@ -98,6 +102,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   await github.stop()
 })
 
@@ -195,9 +200,12 @@ describe("useForge() with a GitHub App", () => {
     expect(github.requests.at(-1)?.authorization).toBe("Bearer ghs_42_1")
   })
 
-  it("names the App and its bot user", async () => {
-    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app())
-      .resolves.toEqual([undefined, { id: 123, slug: "acme-bot", login: "acme-bot[bot]" }])
+  it("names the App, its bot user, and the bot's commit email, once per App", async () => {
+    const identity = { id: 123, slug: "acme-bot", login: "acme-bot[bot]", email: "900+acme-bot[bot]@users.noreply.github.com" }
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    expect(github.count("GET", "/app")).toBe(1)
+    expect(github.count("GET", "/users/acme-bot%5Bbot%5D")).toBe(1)
   })
 
   it("returns FORGE_APP_NOT_INSTALLED when the App cannot reach the repository", async () => {
@@ -304,6 +312,54 @@ describe("useForge() with a token", () => {
 
     expect(() => useForge({ forge: "forgejo", env: { VITEHUB_GITHUB_TOKEN: "ghp" } }))
       .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The forgejo Forge has no credentials. It reads VITEHUB_FORGEJO_TOKEN." }))
+  })
+
+  it("reads the Gitea names and calls the Gitea API of the instance", async () => {
+    const requests: Array<{ authorization: string | null, url: string }> = []
+    const fetcher: typeof fetch = async (input, init) => {
+      const request = new Request(input, init)
+      requests.push({ authorization: request.headers.get("authorization"), url: request.url })
+      return Response.json({ id: 1, name: "web", owner: { login: "acme" } })
+    }
+    const forge = useForge({ forge: "gitea", env: { VITEHUB_GITEA_TOKEN: "gitea-token", VITEHUB_GITEA_BASE_URL: "https://git.example.test" }, fetch: fetcher })
+    expect(forge).toMatchObject({ kind: "gitea", auth: "token", baseUrl: "https://git.example.test" })
+
+    const [error, provider] = await forge.provider()
+    expect(error).toBeUndefined()
+    expect(provider!.forge).toBe("gitea")
+    await provider!.request("GET", "/repos/acme/web")
+    expect(requests).toEqual([{ authorization: "token gitea-token", url: "https://git.example.test/api/v1/repos/acme/web" }])
+
+    expect(() => useForge({ forge: "gitea", env: {} }))
+      .toThrow(expect.objectContaining({ code: "FORGE_MISSING_ENV", why: "The gitea Forge has no credentials. It reads VITEHUB_GITEA_TOKEN." }))
+  })
+
+  it.each([
+    { VITEHUB_GITEA_WEBHOOK_SECRET: "gitea-secret", FORGES_GITEA_WEBHOOK_SECRET: "fallback-secret" },
+    { FORGES_GITEA_WEBHOOK_SECRET: "gitea-secret" },
+  ])("verifies Gitea webhooks with env %o", async (env) => {
+    const [error, provider] = await useForge({ forge: "gitea", env: { VITEHUB_GITEA_TOKEN: "token", ...env } }).provider()
+    expect(error).toBeUndefined()
+
+    const body = JSON.stringify({ ref: "refs/heads/main" })
+    const signature = createHmac("sha256", "gitea-secret").update(body).digest("hex")
+    const headers = { "x-gitea-signature": signature }
+    expect(await provider!.webhooks.verify({ headers, body })).toBe(true)
+    expect(await provider!.webhooks.verify({ headers, body: "{}" })).toBe(false)
+  })
+
+  // `forges` sends no User-Agent of its own where `WorkerGlobalScope` exists, and GitHub refuses a request without one.
+  it.each(["github", "gitlab", "forgejo", "gitea"] as const)("sends a User-Agent from a %s provider on Cloudflare Workers", async (kind) => {
+    vi.stubGlobal("WorkerGlobalScope", class {})
+    const agents: Array<string | null> = []
+    const fetcher: typeof fetch = async (input, init) => {
+      agents.push(new Request(input, init).headers.get("user-agent"))
+      return Response.json({})
+    }
+    const name = kind.toUpperCase()
+    const [, provider] = await useForge({ forge: kind, env: { [`VITEHUB_${name}_TOKEN`]: "token", [`VITEHUB_${name}_BASE_URL`]: "https://forge.example.test" }, fetch: fetcher }).provider()
+    await provider!.request("GET", "/user")
+    expect(agents).toEqual(["vitehub"])
   })
 })
 

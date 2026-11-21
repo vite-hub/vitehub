@@ -114,37 +114,17 @@ export const overlayStyles = `
    areas of threads are in their own root, under the page's floating controls (see areaStyles). */
 [data-slot="comment-layer-area"] { position: fixed; }
 
-/* The bar over selected text: the pill's dark glass on a light page, its light twin on a dark one. */
-.selection-bar {
-  position: fixed; z-index: 2147483001; translate: -50% -100%; display: flex; gap: 4px; padding: 4px;
-  border: 1px solid rgb(255 255 255 / 12%); border-radius: 12px; background: rgb(17 17 17 / 92%);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 25%); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-  font: 500 12px/1 "Geist Variable", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased;
-  --bar-text: #d4d4d4; --bar-strong: #fafafa; --bar-hover: rgb(255 255 255 / 8%);
-  transform-origin: 50% 100%; animation: vitehub-comments-pop 140ms cubic-bezier(.23, 1, .32, 1);
-}
-.selection-bar[data-below="true"] { translate: -50% 0; transform-origin: 50% 0; }
-:host(.dark) .selection-bar {
-  border-color: rgb(0 0 0 / 10%); background: rgb(250 250 250 / 94%); box-shadow: 0 8px 24px rgb(0 0 0 / 40%);
-  --bar-text: #404040; --bar-strong: #0a0a0a; --bar-hover: rgb(0 0 0 / 6%);
-}
-.selection-bar button {
-  all: unset; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px;
-  border-radius: 8px; color: var(--bar-text); cursor: pointer; touch-action: manipulation; white-space: nowrap;
-  transition: background-color 150ms, color 150ms, scale 150ms; transition-timing-function: cubic-bezier(.23, 1, .32, 1);
-}
-.selection-bar button::before { content: ""; position: absolute; inset: -9px -2px; }
-@media (hover: hover) and (pointer: fine) { .selection-bar button:hover { background: var(--bar-hover); color: var(--bar-strong); } }
-.selection-bar button:active { scale: .96; }
-.selection-bar button:focus-visible { outline: 2px solid var(--bar-strong); outline-offset: 1px; }
+/* The bar over selected text is CommentSelectionBar of @vite-hub/ui. The overlay places it over the text, or under it
+   near the top of the screen. The page's theme does not reach the shadow root, so the overlay draws the focus ring. */
+.selection { position: fixed; z-index: 2147483001; translate: -50% -100%; }
+.selection[data-below="true"] { translate: -50% 0; }
+[data-slot="comment-selection-bar-action"]:focus-visible { outline: 2px solid var(--vh-inverted); outline-offset: 1px; }
 
 @keyframes vitehub-comments-pop { from { opacity: 0; scale: .96; } }
 @keyframes vitehub-comments-enter { from { opacity: 0; transform: translateY(4px); } }
 .toast, .card { animation: vitehub-comments-enter 180ms cubic-bezier(.23, 1, .32, 1); }
 @media (prefers-reduced-motion: reduce) {
-  .toast, .card, .selection-bar, [data-slot="comment-layer-popover"] { animation: none; }
-  .selection-bar button { transition-property: background-color, color; }
-  .selection-bar button:active { scale: none; }
+  .toast, .card, [data-slot="comment-layer-popover"] { animation: none; }
   .cursor { transition: none; }
 }
 `

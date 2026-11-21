@@ -98,7 +98,7 @@ export default defineEventHandler(async () => {
 
 ::product-features
   :::product-feature-item{title="Save and read by key" icon="i-lucide-key-round" to="/docs/kv/server-api#use-it-at-runtime"}
-  `kv.set()` saves a value. `kv.get()` reads it, or returns `null`.
+  `kv.set()` saves a value under a key. `kv.get()` reads it back or returns `null`.
   :::
 
   :::product-feature-item{title="Check errors without try/catch" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
@@ -106,7 +106,7 @@ export default defineEventHandler(async () => {
   :::
 
   :::product-feature-item{title="Keep data apart" icon="i-lucide-layers" to="/docs/kv/configure#configuration-options"}
-  Add named stores in config. Select one with `kv.store(name)`.
+  Declare named stores in your config and pick one with `kv.store(name)`.
   :::
 
   :::product-feature-item{title="Same code on every host" icon="i-lucide-server" to="/docs/kv/configure#providers"}

@@ -27,7 +27,7 @@ describe("vitehub/no-internal-imports", () => {
         "import { kv } from \"vite-hub/_internal/kv\"",
         "import { isPlainObject } from \"@vite-hub/internal/object\"",
         "import state from \"@vite-hub/queue/internal/runtime/state\"",
-        "export * from \"@vite-hub/sandbox/_internal/task/runtime\"",
+        "export * from \"@vite-hub/sandbox/internal/task/runtime\"",
         "const env = await import(\"../../.vitehub/env/server.ts\")",
         "export { kv, isPlainObject, state, env }",
       ].join("\n"),
@@ -168,6 +168,62 @@ describe("vitehub/destructure-result-tuples", () => {
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003", "VHUB0003"])
+  })
+
+  it("reports Browser and Sandbox Task results used as values", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/render.post.ts": [
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        "export default async () => {",
+        '  const html = await runBrowserContent("https://example.com")',
+        '  const notes = await runSandboxTask("release-notes", {})',
+        '  return { html, notes, page: await runBrowser("page-html", { url: "https://example.com" }) }',
+        "}",
+      ].join("\n"),
+    })).toEqual(["VHUB0003", "VHUB0003", "VHUB0003"])
+  })
+
+  it("reports Auth event, i18n save, and gateway ask results used as values", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/audit.get.ts": [
+        'import { aggregateAuthEvents, listAuthEvents } from "vite-hub/auth/server"',
+        'import { listAuthEvents as listConsoleEvents } from "@vite-hub/auth/runtime/console"',
+        'import { useTranslations } from "vite-hub/i18n/server"',
+        'import { ask, askWithModel, typesafe } from "vite-hub/gateways"',
+        "const gateway = typesafe()",
+        "export default async () => {",
+        '  const page = await listAuthEvents({ limit: 50 })',
+        '  const totals = await aggregateAuthEvents({ groupBy: "type" })',
+        "  const consolePage = await listConsoleEvents({})",
+        "  const translations = useTranslations()",
+        '  await translations.save({ locale: "es", source: "Hi", translation: "Hola" })',
+        '  const records = await useTranslations().list("es")',
+        '  const answers = await gateway.ask("text", { kind: ask.if("Is it?") })',
+        '  if (await askWithModel(model).ask("text", {})) return',
+        "  return { page, totals, consolePage, records, answers }",
+        "}",
+      ].join("\n"),
+    })).toEqual(Array(7).fill("VHUB0003"))
+  })
+
+  it("accepts the tuple form of Auth event, i18n save, and gateway ask results", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/api/audit.get.ts": [
+        'import { listAuthEvents } from "vite-hub/auth/server"',
+        'import { ask, typesafe } from "vite-hub/gateways"',
+        "export default async () => {",
+        '  const [pageError, page] = await listAuthEvents({ limit: 50 })',
+        "  if (pageError) throw pageError",
+        '  const [saveError] = await useTranslations().save({ locale: "es", source: "Hi", translation: "Hola" })',
+        "  if (saveError) throw saveError",
+        '  const [askError, answers] = await typesafe().ask("text", { kind: ask.if("Is it?") })',
+        "  if (askError) throw askError",
+        '  const [, other] = await ask("prompt", { model })',
+        "  return { page, answers, other }",
+        "}",
+      ].join("\n"),
+    }, "nuxt")).toEqual([])
   })
 
   it("reports auto-imported helpers in Nuxt server files", async () => {
@@ -366,6 +422,8 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',
         'import { runAgent } from "vite-hub/agent"',
+        'import { cancelWorkflow, getWorkflowRun, resumeWorkflow, startWorkflow } from "vite-hub/workflow"',
+        'import { runSchedule } from "vite-hub/schedule"',
         "import support from \"../agents/support\"",
         "export async function send() {",
         '  const record = await blob.media.put("a.png", body)',
@@ -376,10 +434,15 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         "  const receipt = await queue.send({})",
         '  const tool = await callMcpTool({ connection: "crm" }, "search", {})',
         '  const answer = await runAgent(support, { prompt: "hi" })',
-        "  return { record, sent, delivery, receipt, tool, answer }",
+        '  const run = await startWorkflow("onboard", {})',
+        '  await cancelWorkflow("onboard", "run-1")',
+        '  if ((await getWorkflowRun("onboard", "run-1")).status) return',
+        '  const signal = await resumeWorkflow("token", {})',
+        '  const report = await runSchedule("report")',
+        "  return { record, sent, delivery, receipt, tool, answer, run, signal, report }",
         "}",
       ].join("\n"),
-    })).toEqual(Array(7).fill("VHUB0003"))
+    })).toEqual(Array(12).fill("VHUB0003"))
   })
 
   it("reports tuples compared, iterated, interpolated, or returned from a route handler", async () => {
@@ -389,7 +452,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         'import { blob } from "vite-hub/blob"',
         "export default defineEventHandler(async (event) => {",
         '  if ((await kv.get("a")) === null) return',
-        '  for (const key of await kv.keys()) console.log(key)',
+        '  for (const key of await kv.list()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
         '  return blob.get("a.txt")',
         "})",
@@ -499,7 +562,7 @@ describe("vitehub/destructure-result-tuples dropped results", () => {
         "async function enqueueNext(subscriber: Subscriber) {",
         "  if (!subscriber.next_lesson_day || !subscriber.next_send_at)",
         "    return",
-        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delaySeconds: 60 })",
+        "  await sendQueue('daily-lessons', { day: subscriber.next_lesson_day, email: subscriber.email }, { delay: '1m' })",
         "}",
       ].join("\n"),
     }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])

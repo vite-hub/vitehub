@@ -142,6 +142,7 @@ export function messageSegment(message: string, context?: string): MessageSegmen
  * `validate()` reads the kind only for code comments and single-line kinds, and a plain segment is one line anyway.
  */
 export function diglotSegment(segment: MessageSegment): Pick<Segment, "hash" | "skeleton" | "salt"> & ValidationTarget {
+  // SAFETY: "message" is not a Diglot SegmentKind. validate() only compares it with single-line and code-comment kinds, so it is checked as a plain segment and its errors still name "message".
   return { ...segment, kind: segment.kind as string as SegmentKind }
 }
 

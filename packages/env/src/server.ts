@@ -75,7 +75,7 @@ interface DevelopmentSecret {
 export async function deriveSecret(purpose: string, options: DeriveSecretOptions = {}, development: DevelopmentSecret = {}): Promise<string> {
   const env = runtimeEnv(options.event)
   const root = options.root ?? readViteHubSecret(env) ?? (development.envKey ? env[development.envKey] as string | undefined : undefined)
-  if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", "VITEHUB_SECRET")
+  if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", undefined, ["VITEHUB_SECRET"])
   if (root.length < viteHubSecretMinimumLength) {
     throw invalidRuntimeEnvValue("env", `VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`, "VITEHUB_SECRET")
   }
@@ -194,7 +194,7 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
-      throw missingRequiredEnv(entry.source.kind, missingRuntimeValueMessage(entry, path), path)
+      throw missingRequiredEnv(entry.source.kind, missingRuntimeValueMessage(entry, path), path, entry.source.kind === "env" ? entry.source.names || [entry.source.name] : [])
     }
     return undefined
   }

@@ -18,7 +18,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -46,7 +45,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -73,7 +71,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       public: {
         appName: env({ default: 'Acme', mode: 'build' }),
@@ -95,7 +92,7 @@ export default defineConfig({
 
 ## Integration options
 
-Pass these to the `env` option of `vitehub({ host: 'node' })`, or to `vitehub.env` in Nuxt.
+Pass these to the `env` option of `vitehub()`, or to `vitehub.env` in Nuxt.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -142,7 +139,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -167,7 +163,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -191,7 +186,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         labeller: {
@@ -281,7 +275,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -304,7 +297,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -326,7 +318,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         apiUrl: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiUrl') }),
@@ -362,7 +353,6 @@ import { envSchema } from '@vite-hub/env/vite'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   },
 })
@@ -378,7 +368,6 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   }), nitro()],
 })
@@ -393,7 +382,6 @@ import { envSchema } from '@vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: envSchema(new URL('./.env.example', import.meta.url)),
   })],
 })
@@ -475,7 +463,6 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -498,7 +485,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -520,7 +506,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         // Reads VITEHUB_GITHUB_TOKEN, then GITHUB_TOKEN.
@@ -544,7 +529,7 @@ Built-in Channels and gateway presets use vendor names as conventional names. So
 - Two declarations that produce the same canonical name, such as `apiKey` and `api_key`, fail with `ENV_DECLARATION_INVALID`. Rename one, or set `prefix: false` in the `env` option.
 - `prefix: 'APP_'` in the `env` option changes the prefix. `prefix: false` reads only the conventional names.
 
-Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` and `vitehub env inspect --json` list every name of a declaration in `names`, in read order. The build writes the same names to `deployment.json`. No output shows a value.
+Inspection reports `via: 'canonical'` or `via: 'conventional'` for each value, and `conflict: true` when the two names differ. The canonical value wins. `describeServerEnv()` and `vitehub env list --json` list every name of a declaration in `names`, in read order. The build writes the same names to `deployment.json`. No output shows a value.
 
 On Cloudflare, the Wrangler config lists a required secret only when it has one exact name. Wrangler has no fallback names, so name pairs work at runtime only. For an exact Wrangler entry, set `prefix: false`, or a source equal to the canonical name.
 

@@ -5,15 +5,16 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, expect, it, vi } from "vitest"
 
-const { traceBuild } = vi.hoisted(() => ({ traceBuild: vi.fn<typeof import("esbuild").build>() }))
-vi.mock("esbuild", async (importOriginal) => {
-  const original = await importOriginal<typeof import("esbuild")>()
-  traceBuild.mockImplementation(original.build)
-  return { ...original, build: traceBuild }
+const { traceBuild } = vi.hoisted(() => ({ traceBuild: vi.fn<Awaited<ReturnType<typeof import("../src/build/rolldown.ts").importRolldown>>["rolldown"]>() }))
+vi.mock("../src/build/rolldown.ts", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/build/rolldown.ts")>()
+  const rolldown = await original.importRolldown()
+  traceBuild.mockImplementation(rolldown.rolldown)
+  return { ...original, importRolldown: async () => ({ ...rolldown, rolldown: traceBuild }) }
 })
 
 import { retainProviderOutputSources } from "../src/build/provider-output-sources.ts"
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 
 const roots: string[] = []
 afterEach(async () => {
@@ -39,7 +40,7 @@ it("does not schedule another trace for static modules already read by the host 
 
   await expect(readFile(retained.resolve(dependency), "utf8")).resolves.toContain('"retained"')
   expect(traceBuild).toHaveBeenCalled()
-  for (const [options] of traceBuild.mock.calls) expect(options.entryPoints).toEqual([entry])
+  for (const [options] of traceBuild.mock.calls) expect(options.input).toEqual([entry])
 })
 
 it("retains dependencies recovered by retracing a shared module after a host variant fails", async () => {

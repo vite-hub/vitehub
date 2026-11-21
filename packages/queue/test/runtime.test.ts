@@ -165,8 +165,8 @@ describe("cloudflare queue runtime", () => {
     expect(send).not.toHaveBeenCalled()
     expect(sendBatch).not.toHaveBeenCalled()
 
-    expect((await client.send({ id: 3 }, { contentType: "json", delaySeconds: 1 }))[0]).toBeUndefined()
-    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delaySeconds: 2 })).toEqual([undefined, [{ status: "queued" }]])
+    expect((await client.send({ id: 3 }, { contentType: "json", delay: "1s" }))[0]).toBeUndefined()
+    expect(await client.sendBatch([{ body: { id: 4 }, contentType: "json" }], { delay: "2s" })).toEqual([undefined, [{ status: "queued" }]])
     expect(send).toHaveBeenCalledWith({ id: 3 }, { contentType: "json", delaySeconds: 1 })
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
@@ -308,8 +308,8 @@ describe("cloudflare queue runtime", () => {
     ["ack", true, "ack"],
     ["retry", false, "retry"],
     ["retry", true, "retry"],
-    [{ retry: { delaySeconds: 30 } }, false, "retry"],
-    [{ retry: { delaySeconds: 30 } }, true, "retry"],
+    [{ retry: { delay: "30s" } }, false, "retry"],
+    [{ retry: { delay: "30s" } }, true, "retry"],
   ] as const)("preserves the message receiver for action %j with non-retryable error %s", async (action, nonRetryable, expected) => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
@@ -328,8 +328,7 @@ describe("cloudflare queue runtime", () => {
     expect(message.retry).toHaveBeenCalledTimes(expected === "retry" ? 1 : 0)
     expect(message[expected].mock.contexts).toEqual([message])
     if (typeof action === "object") {
-      expect(message.retry).toHaveBeenCalledWith(action.retry)
-      expect(message.retry.mock.calls[0]![0]).toBe(action.retry)
+      expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 30 })
     } else {
       expect(message[expected]).toHaveBeenCalledWith()
     }
@@ -354,6 +353,18 @@ describe("cloudflare queue runtime", () => {
     expect(onError).toHaveBeenCalledOnce()
     expect(retry).toHaveBeenCalledOnce()
     expect(report).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports a removed Cloudflare retry option and uses the fallback", async () => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError: () => ({ retry: { delaySeconds: 60 } }) as never,
+      onMessage: async () => { throw new Error("handler failed") },
+    })
+    await batchHandler({ ackAll: vi.fn(), messages: [message], queue: "queue--666f6f", retryAll: vi.fn() })
+    expect(report).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ error: expect.objectContaining({ code: "QUEUE_UNSUPPORTED_OPTION" }) }))
+    expect(message.retry).toHaveBeenCalledExactlyOnceWith()
   })
 
   it("acknowledges non-retryable Cloudflare errors when the onError hook throws", async () => {
@@ -382,9 +393,9 @@ describe("cloudflare queue runtime", () => {
   })
 
   it.each([
-    ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
-    ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
-    ["array", Object.assign([], { retry: { delaySeconds: 30 } })],
+    ["inherited", Object.create({ retry: { delay: "30s" } })],
+    ["callable", Object.assign(() => undefined, { retry: { delay: "30s" } })],
+    ["array", Object.assign([], { retry: { delay: "30s" } })],
   ].flatMap(([kind, action]) => [false, true].map(nonRetryable => ({ kind, action, nonRetryable }))))("ignores $kind Cloudflare retry directives with non-retryable error $nonRetryable", async ({ action, nonRetryable }) => {
     const ack = vi.fn()
     const retry = vi.fn()
@@ -921,15 +932,15 @@ describe("vercel provider", () => {
     })
 
     await expect(client.sendBatch([
-      { body: { email: "ava@example.com" } },
-      { body: { email: "ben@example.com" }, delaySeconds: 5, idempotencyKey: "welcome-ben" },
-    ], { delaySeconds: 60, retentionSeconds: 3600 })).resolves.toEqual([undefined, [
+      { body: { email: "ava@example.com" }, retention: undefined },
+      { body: { email: "ben@example.com" }, delay: "4500ms", idempotencyKey: "welcome-ben", retention: "60.5s" },
+    ], { delay: "1m", retention: 60.5 })).resolves.toEqual([undefined, [
       { messageId: "message-0", status: "queued" },
       { messageId: undefined, status: "queued" },
     ]])
     expect(sendBatch).toHaveBeenCalledExactlyOnceWith("topic--77656c636f6d65", [
-      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 3600 },
-      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 3600 },
+      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 61 },
+      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 61 },
     ])
   })
 
@@ -1227,7 +1238,7 @@ describe("vercel provider", () => {
     const acknowledge = vi.fn()
     const definition = {
       handler: async () => new Response("failed", { status }),
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
     // The Vercel SDK acknowledges resolved handlers and retries only rejections.
@@ -1269,7 +1280,7 @@ describe("vercel provider", () => {
     const response = new Response(new ReadableStream({ cancel }), { status })
     const retry = vi.fn(() => ({ afterSeconds: 30 }))
     const acknowledge = vi.fn()
-    const definition = { handler: async () => response, options: { callbackOptions: { retry } } }
+    const definition = { handler: async () => response, callbackOptions: { retry } }
     vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
       try {
         await (handler as (payload: unknown) => Promise<unknown>)({})
@@ -1296,7 +1307,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.", { cause: new Error("private provider detail") })
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 3, messageId: "message-3" }
 
@@ -1332,7 +1343,7 @@ describe("vercel provider", () => {
       handler: async () => {
         throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.")
       },
-      options: { callbackOptions: { retry } },
+      callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
 

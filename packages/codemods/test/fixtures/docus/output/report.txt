@@ -1,0 +1,32 @@
+docus: moved the site from the docus layer to @vite-hub/docs/nuxt and 4 pages to its frontmatter.
+Dry run: no files were written.
+
+Files to change (13):
+  nuxt.config.ts
+  app.config.ts
+  content/1.getting-started/.navigation.yml (deleted)
+  content/getting-started/.navigation.yml (new)
+  content/1.getting-started/1.index.md (deleted)
+  content/getting-started/index.md (new)
+  content/1.getting-started/2.installation.md (deleted)
+  content/getting-started/installation.md (new)
+  content/2.guide/1.harbors.md (deleted)
+  content/guide/harbors.md (new)
+  content/index.md
+  content/guide/.navigation.yml (new)
+  package.json
+
+Manual follow-ups (4):
+  1. app.config.ts:15 toc: The outline has a fixed title. Hide it on one page with toc: false in the frontmatter.
+  2. content/2.guide/1.harbors.md The codemod dropped the links field, which @vite-hub/docs does not read. Put the links in the page body, for example as a ::card-group.
+  3. content/index.md:10 ::u-page-hero is a Nuxt UI component, which the docs Markdown does not render. Rewrite the block with comark-ui blocks, such as ::card-group, or with the home layout.
+  4. app/components/content/TideTable.vue Docus rendered this component from Markdown. Give @vite-hub/docs a component map with docs.components, so pages that use it keep rendering it.
+
+Notes:
+  - Page URLs stay the same: Nuxt Content dropped the order prefixes of file names, and @vite-hub/docs reads the order from navigation.order and .navigation.yml.
+  - Without a content/docs/ folder, the docs are the whole site: content/index.md is /, and each folder in content/ is a section.
+  - @vite-hub/docs renders GitHub callouts, ::note, ::tip, ::warning, ::caution, tabs, code groups, steps, and cards with comark-ui. See https://vitehub.dev/docs/docs-site.
+
+Next steps:
+  - Run `pnpm install` to install @vite-hub/docs and remove docus.
+  - Run `npx nuxi dev` and open each section. A wrong frontmatter field stops the build with DOCS_CONTENT_INVALID.

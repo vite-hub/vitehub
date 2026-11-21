@@ -88,9 +88,12 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
         const reset = await db.read("/a")
         const b = await db.read("/b")
         const queued = await db.queuedIds()
+        await db.write("/b", { add: [{ id: "n1", account: null, key: "n1", op: "delete" }] })
+        await db.clear({ keepWrites: true })
+        const kept = [await db.read("/a"), await db.read("/b")]
         await db.clear()
         const cleared = await db.read("/a")
-        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, cleared, seqs, action: action.writes, actionSeq, queued }
+        return { persisted: db.persisted, a, queue, reset: reset.rows, b: b.rows, kept, cleared, seqs, action: action.writes, actionSeq, queued }
       })
       assert.equal(result.persisted, true)
       assert.deepEqual(result.a.meta, { scope: { id: "s", values: {} }, key: "id", cursor: 2, account: "acc", version: "v1", defaults: { done: false } })
@@ -101,6 +104,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       assert.deepEqual(result.reset, [["k9", { id: "k9" }]])
       assert.deepEqual(result.b, [["x", { id: "x" }]])
       assert.deepEqual(result.action, [{ seq: result.actionSeq, id: "a1", account: "acc", key: "a1", op: "action", name: "complete", args: { id: "x" } }])
+      assert.deepEqual(result.kept, [{ meta: undefined, rows: [], writes: result.a.writes }, { meta: undefined, rows: [], writes: result.action }])
       assert.deepEqual(result.cleared, { meta: undefined, rows: [], writes: [] })
       assert.deepEqual(result.queued, ["/a", "/b"])
       await page.close()
@@ -188,7 +192,7 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await two.waitForFunction(() => window.todos.getState().rows.length === 0 && window.todos.getState().queued === 0)
       const stored = await two.evaluate(async () => {
         const db = window.storage.createIndexedDBStorage(() => { throw new Error("no fallback") })
-        return db.read("/api/_vitehub/sync/todos")
+        return db.read("/_vitehub/sync/todos")
       })
       assert.deepEqual(stored, { meta: undefined, rows: [], writes: [] })
       server.offline = false

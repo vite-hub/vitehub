@@ -35,7 +35,8 @@ export const builtInChannelEnv: BuiltInChannelEnv = {
   gitlab: forgeEnv.gitlab,
   forgejo: forgeEnv.forgejo,
   teams: {
-    apiUrl: { names: ["TEAMS_API_URL"], requiredUnless: ["adapter"] },
+    // The Teams SDK sends to the service URL of each conversation. TEAMS_API_URL only pins a gateway or an emulator.
+    apiUrl: { names: ["TEAMS_API_URL"] },
     appId: { names: ["TEAMS_APP_ID"], requiredUnless: ["adapter"] },
     appPassword: { names: ["TEAMS_APP_PASSWORD"], requiredUnless: ["adapter"], secret: true },
     appTenantId: { names: ["TEAMS_APP_TENANT_ID"], requiredUnless: ["adapter"] },

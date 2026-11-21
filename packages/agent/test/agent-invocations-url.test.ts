@@ -78,38 +78,50 @@ describe("vitehub agent invocations --url is the app URL", () => {
     expect(app.calls).toEqual([{ method: "POST", operation: "invocations.cancel", url: "http://localhost:3000/_vitehub/rpc" }])
   })
 
-  it.each(["http://localhost:3000/_vitehub", "https://agent.example.com/_vitehub/agents/support"])("still takes the Console URL %s for one minor version, with a deprecation diagnostic", async (url) => {
-    const app = localApp({ console: () => ({ invocations: [] }) })
-    const result = await run(["list", "--url", url], app.fetch)
+  it.each([
+    ["http://localhost:3000/_vitehub", "http://localhost:3000"],
+    ["https://agent.example.com/portal/_vitehub/agents/support", "https://agent.example.com/portal/"],
+  ])("refuses the Console URL %s and names the app URL", async (url, app) => {
+    const fetch = localApp({ console: () => ({ invocations: [] }) })
+    const result = await run(["list", "--url", url], fetch.fetch)
 
-    expect(result.exitCode).toBe(0)
-    expect(app.calls.map(call => call.url)).toEqual([`${new URL(url).origin}/_vitehub/rpc`])
-    expect(result.stderr).toContain("AGENT_R1053")
-    expect(result.stderr).toContain(`--url ${new URL(url).origin}`)
+    expect(result.exitCode).toBe(1)
+    expect(fetch.calls).toEqual([])
+    expect(result.stderr).toContain(`--url is the app URL, not the Console URL. Pass --url ${app}.`)
   })
 
-  it("still reads a local invocation endpoint for one minor version, with a deprecation diagnostic", async () => {
+  it("refuses a local app without a Console for reads", async () => {
     const app = localApp()
     const result = await run(["list", "--url", "http://localhost:5173/api/invocations"], app.fetch)
 
-    expect(result.exitCode, result.stderr).toBe(0)
-    expect(app.calls.at(-1)).toEqual({ method: "GET", url: "http://localhost:5173/api/invocations" })
-    expect(result.stderr).toContain("AGENT_R1053")
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("did not answer as a ViteHub Console")
   })
 
-  it("still cancels on a dev server without a Console for one minor version, with a deprecation diagnostic", async () => {
+  it("fails for the removed --server and names --url", async () => {
+    const app = localApp()
+    const result = await run(["cancel", "ainv_1", "--server", "http://localhost:5173"], app.fetch)
+
+    expect(result.exitCode).toBe(1)
+    expect(app.calls).toEqual([])
+    expect(result.stderr).toContain("--server is now --url")
+  })
+
+  it.each([false, true])("cancels through the dev endpoint (discovered: %s)", async discovered => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-url-"))
     const serverId = `${process.pid + 1}:5173`
     await refreshWorkspaceDevToken(rootDir, { serverId })
     try {
-      const app = localApp({ root: rootDir, serverId })
+      if (discovered) {
+        await mkdir(join(rootDir, ".vitehub"))
+        await writeFile(join(rootDir, ".vitehub/dev-server.json"), JSON.stringify({ root: rootDir, url: "http://localhost:5173/" }))
+      }
+      const app = localApp({ root: rootDir, serverId, ...(discovered ? { console: () => { throw new Error("The Console must not be called") } } : {}) })
       const result = await run(["cancel", "ainv_1", "--url", "http://localhost:5173"], app.fetch, rootDir)
 
-      expect(result.exitCode, result.stderr).toBe(0)
-      expect(result.stdout).toBe("ainv_1 cancel requested\n")
+      expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "ainv_1 cancel requested\n" })
       expect(app.calls.at(-1)).toEqual({ method: "POST", url: "http://localhost:5173/__vitehub/agent/invocations/dev" })
-      expect(result.stderr).toContain("AGENT_R1053")
-      expect(result.stderr).toContain("--server http://localhost:5173")
+      expect(app.calls.some(call => call.url.endsWith("/_vitehub/rpc"))).toBe(!discovered)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -156,4 +168,29 @@ describe("vitehub agent invocations without --url", () => {
       await rm(rootDir, { force: true, recursive: true })
     }
   })
+})
+
+describe("vitehub agent invocations through the Console of the app", () => {
+  it("lists capabilities and reads one Invocation Workspace", async () => {
+    const app = localApp({ console: operation => operation === "invocations.capabilities" ? { capabilities: [{ name: "fetch" }] } : { files: [] } })
+    const capabilities = await run(["capabilities", "--agent", "support", "--url", "http://localhost:3000"], app.fetch)
+    expect(capabilities).toEqual({ exitCode: 0, stderr: "", stdout: `${JSON.stringify({ capabilities: [{ name: "fetch" }] }, null, 2)}\n` })
+    expect((await run(["workspace", "ainv_1", "--path", "README.md", "--ref=main", "--revision", "rev_1", "--cursor", "next", "--history", "false", "--url", "http://localhost:3000"], app.fetch)).exitCode).toBe(0)
+    expect(app.calls.map(call => call.operation)).toEqual(["invocations.capabilities", "invocations.workspace"])
+    expect(operationRpcRequest(vi.mocked(app.fetch).mock.calls[1]?.[1]?.body).input).toEqual({ cursor: "next", history: false, id: "ainv_1", path: "README.md", ref: "main", revision: "rev_1" })
+    expect((await run(["workspace", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("workspace requires an invocation id")
+  })
+
+  it("deletes through the Console only after a question or --yes", async () => {
+    const app = localApp({ console: () => ({ deleted: true }) })
+    // Vitest has no terminal, so nothing can confirm.
+    const refused = await run(["delete", "ainv_1", "--url", "http://localhost:3000"], app.fetch)
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("run it again with --yes")
+    expect(app.calls).toEqual([])
+    expect(await run(["delete", "ainv_1", "--url", "http://localhost:3000", "--yes"], app.fetch)).toEqual({ exitCode: 0, stderr: "", stdout: "Deleted ainv_1.\n" })
+    expect(app.calls.map(call => call.operation)).toEqual(["invocations.delete"])
+    expect((await run(["list", "--yes", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("--yes is only supported for delete")
+  })
+
 })
