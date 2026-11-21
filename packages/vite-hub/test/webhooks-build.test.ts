@@ -44,10 +44,51 @@ const files = {
   ].join("\n"),
 }
 
-async function build(root: string, options: ViteHubOptions): Promise<void> {
+async function build(root: string, options: ViteHubOptions, plugins: unknown[] = []): Promise<void> {
   const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub(options), nitro() as never], root } as never)
+  const builder = await createBuilder({ cacheDir: `${root}.vite-cache`, logLevel: "silent", plugins: [vitehub(options), nitro() as never, ...plugins], root } as never)
   await builder.buildApp()
+}
+
+// Stands for an owner package, such as Comments with `send: true`, that turns on member endpoints.
+const sendPlugin = { name: "fixture-send", vitehub: { webhooks: { memberEndpoints: true, reason: "Sends waiting comments to each member's agent." } } }
+
+// 203.0.113.10 is a public address in TEST-NET-3, so the guard takes it without DNS. The route sends its requests
+// to the local receiver, because a test cannot get a certificate for it.
+const memberFiles = {
+  "index.html": "<!doctype html><title>Member endpoints</title>\n",
+  "package.json": JSON.stringify({ name: "webhooks-members", private: true, type: "module" }),
+  "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
+  "server/routes/connect.post.ts": [
+    "import { createMemberEndpoint } from 'vite-hub/webhooks'",
+    "",
+    "export default {",
+    "  async fetch(request: Request) {",
+    "    const { owner, url, secret } = await request.json()",
+    "    const [error, endpoint] = await createMemberEndpoint({ owner, ownerName: 'Ana Ruiz', ownerEmail: 'ana@example.com', name: 'Launch plan thread', agent: 't3', kind: 'url', url, secret, hosts: ['203.0.113.10'] })",
+    "    return error ? Response.json({ code: error.code, message: error.message }, { status: 400 }) : Response.json(endpoint)",
+    "  },",
+    "}",
+    "",
+  ].join("\n"),
+  "server/routes/send.post.ts": [
+    "import { sendToMemberEndpoint } from 'vite-hub/webhooks'",
+    "",
+    "const realFetch = globalThis.fetch",
+    "globalThis.fetch = (input, init) => {",
+    "  const url = new URL(String(input))",
+    "  return url.hostname === '203.0.113.10' ? realFetch(`${process.env.RECEIVER_ORIGIN}${url.pathname}${url.search}`, init) : realFetch(input, init)",
+    "}",
+    "",
+    "export default {",
+    "  async fetch(request: Request) {",
+    "    const { owner, body, key } = await request.json()",
+    "    const [error, sent] = await sendToMemberEndpoint(owner, body, { event: 'comments.send', key })",
+    "    return error ? Response.json({ code: error.code }, { status: 500 }) : Response.json(sent)",
+    "  },",
+    "}",
+    "",
+  ].join("\n"),
 }
 
 const queueHex = Buffer.from("vitehub-webhooks").toString("hex")
@@ -59,13 +100,107 @@ describe("Webhooks in a built Nitro 3 app", () => {
     await expect(build(root, { database: true, host: "node", queue: false })).rejects.toMatchObject({ code: "WEBHOOKS_QUEUE_OFF", message: expect.stringContaining("server/webhooks/t3.ts") })
   }, 240_000)
 
+  it("delivers to member endpoints in an app with no Queue and no server/webhooks/ files", async () => {
+    const received: Array<{ headers: IncomingHttpHeaders, body: string, url: string }> = []
+    const receiver = createServer((request, response) => {
+      const chunks: Buffer[] = []
+      request.on("data", chunk => chunks.push(chunk))
+      request.on("end", () => {
+        received.push({ headers: request.headers, body: Buffer.concat(chunks).toString("utf8"), url: request.url ?? "" })
+        response.statusCode = 202
+        response.end("ok")
+      })
+    })
+    await new Promise<void>(done => receiver.listen(0, "127.0.0.1", done))
+    const address = receiver.address()
+    if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
+
+    const root = await createProject(memberFiles)
+    process.chdir(root)
+    process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
+    const port = await freePort()
+    // `console: true` takes signed operation calls, such as `vitehub webhooks endpoints --url` with a CI key.
+    const options: ViteHubOptions = { console: true, database: true, host: "node", publicUrl: `http://127.0.0.1:${port}` }
+    const ci = await consoleTestKey("CI")
+    const generate = await runCli(root, [vitehub(options), sendPlugin], ["database", "generate"])
+    expect(generate.stderr).toBe("")
+    expect(generate.exitCode).toBe(0)
+    const migrations = join(root, "server/databases/default/migrations")
+    const migration = (await readdir(migrations)).find(file => /^\d{14}_/.test(file))!
+    const sql = await readFile(join(migrations, migration, "migration.sql"), "utf8")
+    expect(sql).toContain("CREATE TABLE `vitehub_webhook_deliveries`")
+    expect(sql).toContain("CREATE TABLE `vitehub_webhook_endpoints`")
+    expect((await runCli(root, [vitehub(options), sendPlugin], ["database", "migrate"])).exitCode).toBe(0)
+
+    await build(root, options, [sendPlugin])
+    const registry = await readFile(join(root, ".vitehub/nitro/webhooks/registry.mjs"), "utf8")
+    expect(registry).toContain("createDrizzleWebhookEndpointStore")
+    expect(registry).not.toContain("dynamicQueue")
+    const key = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
+    const server = await startBuiltServer(root, { ...ci.env, RECEIVER_ORIGIN: `http://127.0.0.1:${address.port}`, VITEHUB_WEBHOOKS_KEY: key }, { port })
+    try {
+      const post = (route: string, body: unknown) => server.fetch(route, { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" })
+      const secret = "whsec_member_build"
+      const refused = await post("/connect", { owner: "user_ana", url: "https://127.0.0.1/hooks/abc", secret })
+      expect(refused.status).toBe(400)
+      expect(await refused.json()).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
+      const connected = await post("/connect", { owner: "user_ana", url: "https://203.0.113.10/hooks/abc?token=relay", secret })
+      expect(await connected.json()).toMatchObject({ owner: "user_ana", host: "203.0.113.10" })
+
+      const sent = await (await post("/send", { owner: "user_ana", body: { threads: ["thr_1"] }, key: "thr_1:msg_1" })).json() as { id: string, status: string }
+      expect(sent).toEqual({ id: expect.stringMatching(/^whd_/), status: "sent" })
+      expect(await (await post("/send", { owner: "user_ana", body: { threads: ["thr_1"] }, key: "thr_1:msg_1" })).json()).toEqual(sent)
+      expect(received).toHaveLength(1)
+      expect(received[0]!.url).toBe("/hooks/abc?token=relay")
+      expect(received[0]!.headers).toMatchObject({ "x-vitehub-delivery": sent.id, "x-vitehub-event": "comments.send" })
+      process.env.MEMBER_SECRET = secret
+      try {
+        const headers = new Headers(Object.entries(received[0]!.headers).flatMap(([name, value]) => typeof value === "string" ? [[name, value] as [string, string]] : []))
+        expect(await verifyWebhook(new Request("http://127.0.0.1/hooks/abc", { body: received[0]!.body, headers, method: "POST" }), { provider: "github", secret: "MEMBER_SECRET" })).toEqual([undefined, { threads: ["thr_1"] }])
+      }
+      finally {
+        delete process.env.MEMBER_SECRET
+      }
+
+      // The app has no `server/webhooks/` files, and the member endpoints still bring the webhooks operations.
+      vi.stubEnv(`VITEHUB_CONSOLE_PRIVATE_KEY_${ci.key.name}`, ci.key.privateKey)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
+      const cli = (...args: string[]) => runCli(root, [vitehub(options), sendPlugin], ["webhooks", ...args, "--url", `http://127.0.0.1:${port}`])
+      const listed = await cli("endpoints")
+      expect(listed.stderr).toBe("")
+      expect(listed.exitCode).toBe(0)
+      expect(JSON.parse(listed.stdout)).toEqual([expect.objectContaining({ owner: "user_ana", ownerName: "Ana Ruiz", agent: "t3", host: "203.0.113.10", mine: false, last: expect.objectContaining({ state: "sent", status: 202 }) })])
+      expect(listed.stdout).not.toMatch(/token=|whsec_|\/hooks|ana@example\.com/)
+      const [first] = JSON.parse(listed.stdout) as Array<{ createdAt: number, id: string }>
+      const next = await cli("endpoints", "--after", JSON.stringify({ createdAt: first!.createdAt, id: first!.id }))
+      expect(next.stderr).toBe("")
+      expect(next.exitCode).toBe(0)
+      expect(JSON.parse(next.stdout)).toEqual([])
+      // A CLI key names no person, so it never owns a member endpoint.
+      const redelivered = await cli("redeliver", sent.id)
+      expect(redelivered.exitCode).not.toBe(0)
+      expect(redelivered.stderr).toContain("WEBHOOKS_DELIVERY_NOT_OWNER")
+      expect(received).toHaveLength(1)
+    }
+    finally {
+      server.close()
+      await new Promise(done => receiver.close(done))
+    }
+  }, 300_000)
+
   it("contributes the vitehub-webhooks Queue to the Cloudflare output", async () => {
     const root = await createProject({
       ...files,
       // D1 output needs the database id at build time.
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ cloudflare: { binding: 'DB', databaseId: 'database-id', databaseName: 'app' }, schema: {} })\n",
     })
-    await build(root, { database: { driver: "cloudflare" }, host: "cloudflare", queue: true })
+    const options = { database: { driver: "cloudflare" }, host: "cloudflare", queue: true } as const
+    const generate = await runCli(root, vitehub(options), ["database", "generate"])
+    expect(generate.stderr).toBe("")
+    expect(generate.exitCode).toBe(0)
+    await build(root, options)
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8")) as { queues?: { producers?: Array<{ binding: string, queue: string }>, consumers?: Array<{ queue: string }> } }
     expect(wrangler.queues?.producers).toContainEqual({ binding: `QUEUE_${queueHex.toUpperCase()}`, queue: expect.stringContaining(queueHex) })
     expect(wrangler.queues?.consumers).toContainEqual(expect.objectContaining({ queue: expect.stringContaining(queueHex) }))

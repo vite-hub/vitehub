@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceDiff, WorkspaceDiffEntry, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryDiffOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeCommit, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteCommit, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -53,7 +53,7 @@ function historyUnavailable() {
 }
 
 /** Forward history only when the caller can inspect the complete folder. */
-export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | undefined, complete: boolean): WorkspaceHistoryReader {
+export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | undefined, complete: boolean): WorkspaceHistoryReader & Pick<WorkspaceRetainedHistory, "diff"> {
   function requireHistory() {
     if (!complete) throw workspaceErrorDiagnostics.WORKSPACE_R0069({ message: "[vitehub] Retained folder history requires access to the complete Workspace." })
     if (!history) throw historyUnavailable()
@@ -68,6 +68,46 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
     refs: async () => await requireHistory().refs(),
     open: async id => await requireHistory().open(id),
     usage: async () => await requireHistory().usage(),
+    diff: async options => await diffWorkspaceRevisions(requireHistory(), options),
+  }
+}
+
+/** The files whose bytes or retained attributes changed from one revision to another. */
+async function diffWorkspaceRevisions(history: Pick<WorkspaceHistoryReader, "open">, options: WorkspaceHistoryDiffOptions): Promise<WorkspaceDiff> {
+  const open = async (id: string) => {
+    const view = await history.open(id)
+    const files = new Map<string, WorkspaceEntry>()
+    for (const entry of await view.list("", { recursive: true })) {
+      if (entry.type === "file") files.set(entry.path, entry)
+    }
+    return { view, files }
+  }
+  const [from, to] = await Promise.all([options.from === undefined ? undefined : open(options.from), open(options.to)])
+  const sameBytes = async (path: string, before: WorkspaceEntry, after: WorkspaceEntry) => {
+    if (before.digest !== undefined && after.digest !== undefined) return before.digest === after.digest
+    const [left, right] = await Promise.all([from!.view.readFile(path, { encoding: "binary" }), to.view.readFile(path, { encoding: "binary" })])
+    return left.length === right.length && left.every((byte, index) => byte === right[index])
+  }
+  const entries: WorkspaceDiffEntry[] = []
+  for (const path of [...new Set([...from?.files.keys() ?? [], ...to.files.keys()])].sort()) {
+    const before = from?.files.get(path)
+    const after = to.files.get(path)
+    if (!before) entries.push({ path, type: "added", after: snapshotEntry(after!) })
+    else if (!after) entries.push({ path, type: "removed", before: snapshotEntry(before) })
+    else if (before.mediaType !== after.mediaType || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata) || !await sameBytes(path, before, after)) {
+      entries.push({ path, type: "modified", before: snapshotEntry(before), after: snapshotEntry(after) })
+    }
+  }
+  return { ...(options.from === undefined ? {} : { from: options.from }), to: options.to, entries }
+}
+
+function snapshotEntry({ digest, mediaType, metadata, size }: WorkspaceEntry): NonNullable<WorkspaceDiffEntry["before"]> {
+  return {
+    type: "file",
+    ...(digest === undefined ? {} : { digest }),
+    ...(mediaType === undefined ? {} : { mediaType }),
+    ...(metadata === undefined ? {} : { metadata }),
+    ...(size === undefined ? {} : { size }),
   }
 }
 
@@ -286,6 +326,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     refs: async () => await history().refs(),
     open: async id => await history().open(id),
     usage: async () => await history().usage(),
+    diff: async options => await diffWorkspaceRevisions(history(), options),
     commit,
   }
 }

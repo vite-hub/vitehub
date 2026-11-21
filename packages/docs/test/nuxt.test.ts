@@ -407,6 +407,17 @@ describe("docs Nuxt setup", () => {
     expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
   })
 
+  it("prefetches no lazy chunk, such as the editor, a comark block, or a panel", async () => {
+    await setupDocs({})
+    const chunks: Record<string, { file: string, prefetch?: boolean }> = {
+      "node_modules/@nuxt/ui/dist/runtime/components/Editor.vue": { file: "editor.js" },
+      "node_modules/comark-charts/dist/vue.mjs": { file: "charts.js" },
+      ".nuxt/docs/panels/0.mjs": { file: "panel.js" },
+    }
+    await callHook("build:manifest", chunks)
+    expect(Object.values(chunks).map(chunk => chunk.prefetch)).toEqual([false, false, false])
+  })
+
   it("keeps the app's own choice of when links prefetch", async () => {
     const prefetchOn = { visibility: true }
     const options = await setupDocs({}, "/", false, [{ config: { srcDir: "/app", experimental: { defaults: { nuxtLink: { prefetchOn } } } } }])
@@ -532,6 +543,30 @@ describe("docs Nuxt setup", () => {
     nitro.options.prerender.ignore = []
     writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}_vitehub">Console</a>`)
     await expect(compiled[0]!()).rejects.toThrow(/_vitehub, which has no page or file/)
+  })
+
+  it("warns but keeps standalone Source pages when none are under the default base", async () => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ sources: [{ source: app.dir, mount: "/legal" }] })
+    expect(options.runtimeConfig.public.docs.base).toBe("/docs")
+    expect(manifestTemplate()).toMatchObject({ sections: [], pages: [{ path: "/legal/privacy" }] })
+    const nitro = { prerender: { routes: [] as string[] } }
+    await callHook("nitro:config", nitro)
+    expect(nitro.prerender.routes).toContain("/legal/privacy")
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/DOCS_BASE_EMPTY[\s\S]*\/legal\/privacy[\s\S]*base: '\/'/))
+  })
+
+  it.each([
+    { base: "/docs", mount: "/legal" },
+    { base: "/", mount: "/legal" },
+    { base: undefined, mount: "/docs" },
+  ])("does not warn for sources at $mount with base $base", async ({ base, mount }) => {
+    const app = appWithDocs({ "privacy.md": "Privacy" })
+    logger.warn.mockClear()
+    const options = await setupDocs({ base, sources: [{ source: app.dir, mount }] })
+    expect(options.runtimeConfig.public.docs.base).toBe(base ?? "/docs")
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("DOCS_BASE_EMPTY"))
   })
 
   it("reads source files in development through Vite, writes raw copies from the right directory and loads configured components", async () => {

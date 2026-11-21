@@ -226,6 +226,11 @@ describe("direct uploads on Vercel Blob", () => {
     const [putError] = await oidc.sign("a.txt", { expiresIn: 60, method: "PUT" })
     expect(putError).toMatchObject({ cause: { code: "BLOB_R0025" } })
   })
+
+  it("refuses an exact contentLength, which a client token cannot bind", async () => {
+    const [error] = await vercelStorage().sign("a.txt", { contentLength: 4, expiresIn: 60, method: "PUT" })
+    expect(error).toMatchObject({ cause: { code: "BLOB_R0025", message: expect.stringContaining("Bind the largest size with `maxSize`") } })
+  })
 })
 
 describe("uploadFiles({ direct: true })", () => {

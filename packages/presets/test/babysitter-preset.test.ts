@@ -2472,15 +2472,18 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it.each([["repair-bot", true], ["other[bot]", false]] as const)("recovers an interrupted reopen only if the closer %s is the host", async (login, recovered) => {
+  // GitHub's clock may run behind the host's, so a close can carry a time before the host noted it.
+  it.each([["repair-bot", 0, true], ["repair-bot", 30_000, true], ["other[bot]", 0, false]] as const)("recovers an interrupted reopen only if the closer %s is the host (GitHub clock %i ms behind)", async (login, behind, recovered) => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;
     let reopenFails = true;
+    let closedAt = 0;
     f.command.mockImplementation(async (args, request) => {
       const path = args.find(arg => arg.startsWith("repos/")) ?? "";
       if (path === "repos/acme/app/pulls/12/files?per_page=100") return { stdout: JSON.stringify({ filename: "source.ts" }), stderr: "" };
+      if (args.includes("state=closed")) closedAt = Date.now() - behind;
       if (args.includes("state=open") && reopenFails) throw new Error("HTTP 502: Bad Gateway");
-      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date().toISOString(), closed_by: { login, type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
+      if (path === "repos/acme/app/issues/12") return { stdout: JSON.stringify({ number: 12, state: "closed", closed_at: new Date(closedAt).toISOString(), closed_by: { login, type: "Bot" }, pull_request: { merged_at: null } }), stderr: "" };
       const result = await command(args, request);
       if (path !== "repos/acme/app/pulls/12" && !path.includes("pulls?state")) return result;
       return { stdout: result.stdout.split("\n").filter(Boolean).map((line) => {

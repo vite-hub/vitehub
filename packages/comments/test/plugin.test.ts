@@ -10,7 +10,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=21" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=22" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -27,7 +27,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
 }
 
 async function pageSession(app: object, cookie: string, page?: string) {
-  const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
+  const request = new Request(`http://site.test/_vitehub/page/tools${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
   const response = await respondViteHubPageSession(app, request)
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
