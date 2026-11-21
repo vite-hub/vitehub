@@ -117,6 +117,7 @@ openssl rand -base64 32
 | `getMemberEndpoint(owner, { address? })` | The member's endpoint at that address, otherwise their newest endpoint, or `null` |
 | `listMemberEndpoints({ limit?, after? })` | A page of endpoints, with `last`, the newest delivery to each |
 | `removeMemberEndpoint(owner, id)` | Removes the endpoint when the member owns it |
+| `removeMemberEndpoints(owner)` | Removes every endpoint of the member, such as when they disconnect their agents |
 | `disableMemberEndpoint(id, { by })` | Stops sends to the endpoint. `by` names who did it. Check that the caller is an admin first. |
 | `enableMemberEndpoint(id)` | Starts sends to a disabled endpoint again |
 

@@ -192,6 +192,20 @@ export async function removeMemberEndpoint(owner: string, id: string): Promise<R
   }
 }
 
+/**
+ * Removes every endpoint of a member, such as when they disconnect their agents, and returns `[error, removed]`. A member
+ * with no endpoint gets an empty list.
+ */
+export async function removeMemberEndpoints(owner: string): Promise<Result<MemberEndpoint[], MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    return [undefined, (await endpoints.removeAll(owner)).map(toMemberEndpoint)]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
 /** A member endpoint with the newest delivery to it, as the Console lists them. */
 export interface MemberEndpointWithLastDelivery extends MemberEndpoint {
   /** The newest delivery to the endpoint, or `null` before the first send. */

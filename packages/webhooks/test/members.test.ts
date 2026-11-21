@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { verifyWebhook } from "@vite-hub/env"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../src/database.ts"
-import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
+import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoint, removeMemberEndpoints, sendToMemberEndpoint } from "../src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries } from "../src/runtime.ts"
 
 import type { Client } from "@libsql/client"
@@ -395,6 +395,19 @@ describe("member endpoints", () => {
     expect(await getMemberEndpoint("user_ana")).toEqual([undefined, null])
     expect((await sendToMemberEndpoint("user_ana", {}, { event: "comments.send", key: "none" }))[0]).toMatchObject({ code: "WEBHOOKS_ENDPOINT_NOT_FOUND" })
     expect(received).toEqual([])
+  })
+
+  it("removes every endpoint of one member, and no other member's", async () => {
+    const [, inbox] = await createMemberEndpoint({ owner: "user_ana", name: "Claude Code inbox", agent: "claude-code", kind: "inbox", address: "inbox:claude" })
+    const thread = await connect("user_ana")
+    const other = await connect("user_tom")
+    const [error, removed] = await removeMemberEndpoints("user_ana")
+    expect(error).toBeUndefined()
+    expect(removed?.map(endpoint => endpoint.id).sort()).toEqual([inbox!.id, thread.id].sort())
+    expect(removed?.[0]).not.toHaveProperty("sealed")
+    expect(await getMemberEndpoint("user_ana")).toEqual([undefined, null])
+    expect((await getMemberEndpoint("user_tom"))[1]?.id).toBe(other.id)
+    expect(await removeMemberEndpoints("user_ana")).toEqual([undefined, []])
   })
 
   it("needs VITEHUB_WEBHOOKS_KEY, and a sealed endpoint opens only with its key and row", async () => {
