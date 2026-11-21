@@ -13,7 +13,7 @@ icon: i-lucide-rocket
 In this tutorial, you build the docs site of Lumen, a made-up command-line tool. The site has a home page and one section with two pages. At the end, you read a page in the browser, and you read its Markdown copy with `curl`.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer and pnpm. You need no account and no API key. You start from an empty folder.
+> You need Node.js 24.15 or newer and pnpm. You need no account or API key. Start from an empty folder.
 
 ::tutorial-step{title="Create the app"}
 ## Create the app
@@ -32,7 +32,7 @@ Create a folder for the site. Add a `package.json` with the two scripts that Nux
 }
 ```
 
-Install Nuxt 5, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers and comark-ui, and the docs module. `vite-hub` gives the module its `vite-hub/docs/nuxt` path. Nuxt 5 is only in nightly builds for now:
+Install Nuxt 5, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers, `comark-ui`, and the docs module. `vite-hub` gives the module its `vite-hub/docs/nuxt` path. Nuxt 5 is only in nightly builds for now:
 
 ```bash pm [commands/install]
 pnpm add vite-hub @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
@@ -43,7 +43,7 @@ pnpm add vite-hub @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss c
 ::tutorial-step{title="Turn on the module"}
 ## Turn on the module
 
-Add the module to `nuxt.config.ts`, and give the site a name:
+Add `vite-hub/docs/nuxt` to `nuxt.config.ts` and give the site a name:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -59,8 +59,8 @@ export default defineNuxtConfig({
 })
 ```
 
-- `name` shows in the page titles and in llms.txt.
-- `url` is the public address of the site. The links in llms.txt and in the Markdown copies start with it. llms.txt is the list of pages for coding agents.
+- `name` shows in the page titles and in `llms.txt`.
+- `url` is the public address of the site. The links in `llms.txt` and in the Markdown copies start with it. `llms.txt` is the list of pages for coding agents.
 - `modules` has only one entry. The docs module adds Nuxt UI and the other modules that it needs.
 
 ::
@@ -84,7 +84,7 @@ description: Install Lumen and compress your first folder of images.
 navigation.title: Overview
 ---
 
-Lumen needs Node.js 22.22 or newer. Read [Install Lumen](/docs/guide/install) first.
+Lumen needs Node.js 24.15 or newer. Read [Install Lumen](/docs/guide/install) first.
 ```
 
 Add a second page:
@@ -146,8 +146,8 @@ pnpm dev
 
 Open `http://localhost:3000/docs/guide/install`. You see:
 
-- The sidebar on the left, with the Guide section and Install Lumen. Select Guide to open the section page.
-- On a wide screen, the outline on the right, with Check the version.
+- The sidebar on the left, with the **Guide** section and **Install Lumen**. Select **Guide** to open the section page.
+- On a wide screen, the outline on the right, with **Check the version**.
 - No agent-only text.
 
 Press `⌘K`, or `Ctrl+K` on Windows and Linux, to search.
@@ -186,7 +186,7 @@ All pages: [llms.txt](https://lumen.example.com/llms.txt)
 
 The copy starts with the title as a heading, and it has the agent-only text. At the end, it links the other pages of the section. The links start with `url`. Run `curl http://localhost:3000/llms.txt` to see both pages with their descriptions.
 
-Change the `title` of `install.md` and save. The server restarts, and the sidebar shows the new title. A change to the body shows only when you reload the page.
+Change the `title` in `install.md` and save. The server restarts, and the sidebar shows the new title. A change to the body shows only when you reload the page.
 
 ::
 

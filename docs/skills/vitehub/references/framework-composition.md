@@ -18,7 +18,7 @@ vitehub(...)
 nitro(...)
 ```
 
-For Nuxt, register `vite-hub/nuxt` and turn features on under the `vitehub` key, for example `vitehub: { auth: true, database: true, schedule: true }`. It is the only Nuxt module for ViteHub primitives. Owner-package Nuxt entries such as `@vite-hub/auth/nuxt` are internal; do not add them to `modules`. Do not reproduce app-local aliases or output rewrites from project examples without a source-backed need.
+For Nuxt, register `vite-hub/nuxt` and turn features on under the `vitehub` key, for example `vitehub: { database: true, kv: true }`. A Definition file turns its feature on without a key, such as `server/auth.ts` or a file in `server/schedules/`; set the key to `false` to keep it off. It is the only Nuxt module for ViteHub primitives. Owner-package Nuxt entries such as `@vite-hub/auth/nuxt` are internal; do not add them to `modules`. Do not reproduce app-local aliases or output rewrites from project examples without a source-backed need.
 
 ## Generated state
 

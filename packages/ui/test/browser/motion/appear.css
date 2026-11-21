@@ -1,0 +1,45 @@
+/* The stylesheet of the appear page: the one of the motion page, and the classes of appear.ts. */
+@import "./styles.css";
+@source "./appear.ts";
+@source "../../../../vite-hub/src/console/runtime/components/console-toaster.vue";
+
+/* The Console toaster before the motion layer, for the "today" recording: it entered from below and faded out. */
+@keyframes vitehub-console-toast-in {
+  from { opacity: 0; transform: translateY(0.5rem) scale(0.97); }
+}
+
+@keyframes vitehub-console-toast-out {
+  to { opacity: 0; }
+}
+
+/* A tooltip of our own: one element that the page moves between the triggers of a toolbar. */
+.own-tip {
+  position: absolute;
+  z-index: 10;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--ui-text-highlighted);
+  color: var(--ui-bg);
+  font: 500 12px/24px var(--font-sans, sans-serif);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.own-tip[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-mode="today"] [data-slot="toast"] {
+    animation: vitehub-console-toast-in 200ms cubic-bezier(0.25, 0.75, 0.6, 0.98);
+  }
+
+  html[data-mode="today"] [data-slot="toast"][data-ending-style] {
+    animation: vitehub-console-toast-out 150ms ease-out;
+  }
+
+  html[data-mode="today"] [data-slot="toast"][data-swipe-direction] {
+    animation: vitehub-console-toast-out 100ms ease-out;
+  }
+}

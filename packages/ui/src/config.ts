@@ -1,6 +1,8 @@
 import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "vue";
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
+import { vRing } from "./components/motion.ts";
+import { installMotion } from "./motion/layer.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 
@@ -28,6 +30,8 @@ export interface ViteHubUIIconOptions {
   close?: string;
   copy?: string;
   copyCheck?: string;
+  /** The spinner of `CopyButton` while its text loads. */
+  loading?: string;
   /** Open the original of an image preview. */
   external?: string;
   /** An attachment that is not an image. */
@@ -58,6 +62,11 @@ export interface ViteHubUIOptions {
   components?: ViteHubUIComponents;
   /** Icons by name, such as `vitehubTheme.icons` from `@vite-hub/ui/theme`. A ref or a getter keeps them reactive. */
   icons?: MaybeRefOrGetter<ViteHubUIIconOptions | undefined>;
+  /**
+   * The motion layer of `@vite-hub/ui/motion`: press, toggle, select, drag, and appear motion by role. It starts in the
+   * browser and stops when the app unmounts. `false` leaves it off. Default: `true`.
+   */
+  motion?: boolean;
 }
 
 export interface ResolvedViteHubUIDefaults {
@@ -83,6 +92,7 @@ const defaultIcons: Required<ViteHubUIIconOptions> = {
   close: "i-lucide-x",
   copy: "i-lucide-copy",
   copyCheck: "i-lucide-check",
+  loading: "i-lucide-loader-circle",
   external: "i-lucide-external-link",
   file: "i-lucide-file",
   plus: "i-lucide-plus",
@@ -124,6 +134,8 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       if (options.components) app.provide(uiComponentsKey, options.components);
       if (options.icons) app.provide(iconsKey, options.icons);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
+      if (options.motion !== false && typeof document !== "undefined") app.onUnmount(installMotion());
+      app.directive("ring", vRing);
     },
   };
 }

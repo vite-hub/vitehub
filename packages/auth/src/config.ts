@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync, statSync } from "node:fs"
+import { dirname, resolve } from "node:path"
 
 import { defaultExportExpression, objectProperties, scanModule, staticString, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
-import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 import { accessRouteSyntaxError } from "./application-path.ts"
 import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
@@ -24,7 +25,7 @@ interface DefinitionObjectBody {
   callback: boolean
   /** Local names of `authDatabase` imported from the Auth database module. */
   authDatabase: ReadonlySet<string>
-  /** The plugins of `AuthSchemaPlugin` that the Definition module imports and calls. */
+  /** The plugins of `AuthSchemaPlugin` that the Definition module and the local modules it imports call. */
   plugins: AuthSchemaPlugin[]
 }
 
@@ -50,25 +51,181 @@ const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, A
   "@better-auth/stripe": { stripe: "stripe" },
 }
 
-/** The plugins of `AuthSchemaPlugin` that `module` imports and calls, such as `twoFactor()` from `better-auth/plugins`. */
-function readAuthSchemaPlugins(module: ScannedModule): AuthSchemaPlugin[] {
-  const locals = new Map<string, AuthSchemaPlugin>()
-  for (const statement of module.program.body) {
-    if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
-    const source = statement.source.value.startsWith("better-auth/plugins/") ? "better-auth/plugins" : statement.source.value
-    const exports = authSchemaPluginImports[source]
-    if (!exports) continue
-    for (const specifier of statement.specifiers) {
-      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
-      const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
-      if (Object.hasOwn(exports, imported)) locals.set(specifier.local.name, exports[imported]!)
+// Vite's default `resolve.extensions`, in its order.
+const viteExtensions = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
+const typeScriptSources: Readonly<Record<string, readonly string[]>> = { ".js": [".ts", ".tsx"], ".jsx": [".tsx"], ".mjs": [".mts"], ".cjs": [".cts"] }
+
+const isFile = (file: string): boolean => existsSync(file) && statSync(file).isFile()
+
+/**
+ * The file of a relative import, resolved in the order Vite uses: the file itself, the TypeScript source of a `.js`
+ * path, the path with each extension, then the `index` file of the folder.
+ */
+function resolveLocalModule(importer: string, specifier: string): string | undefined {
+  const path = resolve(dirname(importer), specifier)
+  if (isFile(path)) return path
+  const extension = Object.keys(typeScriptSources).find(item => path.endsWith(item))
+  const candidates = [
+    ...extension ? typeScriptSources[extension]!.map(item => path.slice(0, -extension.length) + item) : [],
+    ...viteExtensions.map(item => path + item),
+    ...viteExtensions.map(item => resolve(path, `index${item}`)),
+  ]
+  return candidates.find(isFile)
+}
+
+const nameOf = (node: { type: string, name?: string, value?: unknown }): string => node.type === "Identifier" ? node.name! : String(node.value)
+
+/** What one module needs from another: some export names, or the whole module. */
+type ModuleNeeds = "all" | Set<string>
+
+interface ModuleBindings {
+  /** Top-level declarations by local name. */
+  declarations: Map<string, Node[]>
+  /** Value imports from local modules, by local name. `*` is a namespace import. */
+  imports: Map<string, { file: string, imported: string }>
+  /** Local names and re-exports, by export name. */
+  exports: Map<string, { local: string } | { file: string, imported: string }>
+  /** The local modules of `export * from`. */
+  exportAll: string[]
+  /** The plugin factories that the module imports, by local name. */
+  pluginFactories: Map<string, AuthSchemaPlugin>
+}
+
+function addBoundNames(pattern: Node, names: string[]): void {
+  walk(pattern, (node) => {
+    if (node.type === "Identifier") names.push(node.name)
+    // A default value is an expression, not a bound name.
+    if (node.type === "AssignmentPattern") {
+      addBoundNames(node.left, names)
+      return false
     }
+  })
+}
+
+function readModuleBindings(module: ScannedModule): ModuleBindings {
+  const bindings: ModuleBindings = { declarations: new Map(), imports: new Map(), exports: new Map(), exportAll: [], pluginFactories: new Map() }
+  const localFile = (specifier: string) => specifier.startsWith("./") || specifier.startsWith("../") ? resolveLocalModule(module.file, specifier) : undefined
+  const declare = (name: string, node: Node) => bindings.declarations.set(name, [...bindings.declarations.get(name) ?? [], node])
+  const readDeclaration = (declaration: Node, exported: boolean) => {
+    const names: string[] = []
+    if ((declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") && declaration.id) names.push(declaration.id.name)
+    if (declaration.type === "VariableDeclaration") {
+      for (const declarator of declaration.declarations) {
+        const bound: string[] = []
+        addBoundNames(declarator.id, bound)
+        for (const name of bound) declare(name, declarator)
+        names.push(...bound)
+      }
+    }
+    else for (const name of names) declare(name, declaration)
+    if (exported) for (const name of names) bindings.exports.set(name, { local: name })
   }
+  for (const statement of module.program.body) {
+    if (statement.type === "ImportDeclaration") {
+      if (statement.importKind === "type") continue
+      const source = statement.source.value
+      const factories = authSchemaPluginImports[source.startsWith("better-auth/plugins/") ? "better-auth/plugins" : source]
+      const file = localFile(source)
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind === "type") continue
+        const imported = specifier.type === "ImportSpecifier" ? nameOf(specifier.imported) : specifier.type === "ImportDefaultSpecifier" ? "default" : "*"
+        if (factories && Object.hasOwn(factories, imported)) bindings.pluginFactories.set(specifier.local.name, factories[imported]!)
+        if (file) bindings.imports.set(specifier.local.name, { file, imported })
+      }
+    }
+    else if (statement.type === "ExportNamedDeclaration") {
+      if (statement.exportKind === "type") continue
+      if (statement.declaration) readDeclaration(statement.declaration, true)
+      const file = statement.source ? localFile(statement.source.value) : undefined
+      for (const specifier of statement.specifiers) {
+        if (specifier.exportKind === "type") continue
+        const local = nameOf(specifier.local)
+        if (statement.source) {
+          if (file) bindings.exports.set(nameOf(specifier.exported), { file, imported: local })
+        }
+        else bindings.exports.set(nameOf(specifier.exported), { local })
+      }
+    }
+    else if (statement.type === "ExportAllDeclaration") {
+      const file = statement.exportKind === "type" ? undefined : localFile(statement.source.value)
+      if (!file) continue
+      if (statement.exported) bindings.exports.set(nameOf(statement.exported), { file, imported: "*" })
+      else bindings.exportAll.push(file)
+    }
+    else if (statement.type === "ExportDefaultDeclaration") {
+      declare("default", statement.declaration as Node)
+      bindings.exports.set("default", { local: "default" })
+      const declaration = statement.declaration as Node
+      if ((declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") && declaration.id) declare(declaration.id.name, declaration)
+    }
+    else readDeclaration(statement as Node, false)
+  }
+  return bindings
+}
+
+/**
+ * Reads what `needs` reaches in `module`: the plugin factories that its reached code calls, and what it needs from the
+ * local modules it imports. The whole module counts for the Definition. In an imported module, only the exports that
+ * the importer uses count, with the declarations and imports that they use.
+ */
+function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: AuthSchemaPlugin[], imports: Array<[string, ModuleNeeds]> } {
+  const bindings = readModuleBindings(module)
   const plugins = new Set<AuthSchemaPlugin>()
-  if (locals.size) {
-    walk(module.program, (node) => {
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" && locals.has(node.callee.name)) plugins.add(locals.get(node.callee.name)!)
-    })
+  const imports: Array<[string, ModuleNeeds]> = []
+  const need = (file: string, imported: string) => imports.push([file, imported === "*" ? "all" : new Set([imported])])
+  const collectCalls = (node: Node, references?: Set<string>) => walk(node, (child) => {
+    if (child.type === "ImportDeclaration") return false
+    if (child.type === "CallExpression" && child.callee.type === "Identifier" && bindings.pluginFactories.has(child.callee.name)) plugins.add(bindings.pluginFactories.get(child.callee.name)!)
+    if (child.type === "Identifier") references?.add(child.name)
+  })
+  if (needs === "all") {
+    const references = new Set<string>()
+    collectCalls(module.program, references)
+    for (const [name, { file, imported }] of bindings.imports) if (references.has(name)) need(file, imported)
+    for (const [, target] of bindings.exports) if ("file" in target) need(target.file, target.imported)
+    return { plugins: [...plugins], imports }
+  }
+  const locals: string[] = []
+  for (const name of needs) {
+    const target = bindings.exports.get(name)
+    if (!target) for (const file of bindings.exportAll) need(file, name)
+    else if ("file" in target) need(target.file, target.imported)
+    else locals.push(target.local)
+  }
+  const reached = new Set<string>()
+  for (let local = locals.pop(); local !== undefined; local = locals.pop()) {
+    if (reached.has(local)) continue
+    reached.add(local)
+    const imported = bindings.imports.get(local)
+    if (imported) need(imported.file, imported.imported)
+    const references = new Set<string>()
+    for (const declaration of bindings.declarations.get(local) ?? []) collectCalls(declaration, references)
+    for (const reference of references) if (bindings.declarations.has(reference) || bindings.imports.has(reference)) locals.push(reference)
+  }
+  return { plugins: [...plugins], imports }
+}
+
+/**
+ * The plugins of `AuthSchemaPlugin` that the Definition module calls, and that the local modules it imports call in
+ * the exports it uses, such as `stripe()` in `src/server/auth-plugins.ts` that returns the plugins of `server/auth.ts`.
+ */
+function readDefinitionSchemaPlugins(definition: ScannedModule): AuthSchemaPlugin[] {
+  const plugins = new Set<AuthSchemaPlugin>()
+  const modules = new Map<string, ScannedModule>([[definition.file, definition]])
+  const done = new Map<string, ModuleNeeds>()
+  const queue: Array<[string, ModuleNeeds]> = [[definition.file, "all"]]
+  for (let item = queue.shift(); item; item = queue.shift()) {
+    const [file, needs] = item
+    const previous = done.get(file)
+    if (previous === "all") continue
+    const fresh: ModuleNeeds = needs === "all" ? "all" : new Set([...needs].filter(name => !previous?.has(name)))
+    if (fresh !== "all" && !fresh.size) continue
+    done.set(file, fresh === "all" ? "all" : new Set([...previous ?? [], ...fresh]))
+    let module = modules.get(file)
+    if (!module) modules.set(file, module = scanModule(readFileSync(file, "utf8"), file))
+    const result = readModuleNeeds(module, fresh)
+    for (const plugin of result.plugins) plugins.add(plugin)
+    queue.push(...result.imports)
   }
   return [...plugins].sort()
 }
@@ -152,15 +309,37 @@ function readReturnedObject(callback: Expression): ObjectExpression | undefined 
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
+/** The value of a top-level `const name = value`, exported or not. */
+function topLevelConstValue(module: ScannedModule, name: string): Expression | undefined {
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.id.name === name) return declarator.init ? unwrapExpression(declarator.init) : undefined
+    }
+  }
+}
+
+/**
+ * The exported `defineAuth()` call: `export default defineAuth(...)`, or `export default auth` after a top-level
+ * `const auth: AuthDefinition<...> = defineAuth(...)`. A composite TypeScript project needs that annotation when it
+ * cannot write the inferred type of the Definition (TS7056), as with the Better Auth `apiKey()` plugin.
+ */
+function exportedDefineAuthCall(module: ScannedModule): CallExpression | undefined {
+  const exported = defaultExportExpression(module)
+  const call = exported?.type === "Identifier" ? topLevelConstValue(module, exported.name) : exported
+  return call?.type === "CallExpression" && call.callee.type === "Identifier" && call.callee.name === "defineAuth" ? call : undefined
+}
+
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const authDatabase = readAuthDatabaseImports(module)
-  const call = defaultExportExpression(module)
-  if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
+  const call = exportedDefineAuthCall(module)
+  if (!call) return
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
-  const plugins = readAuthSchemaPlugins(module)
+  const plugins = readDefinitionSchemaPlugins(module)
   if (hasObjectProperty(objectLiteral(options) ?? readReturnedObject(options), "runtime")) {
     throw authErrorDiagnostics.AUTH_C0039({ message: "`defineAuth()` no longer takes `runtime`. Pass one callback that returns all options, so no option replaces another." })
   }
@@ -334,6 +513,28 @@ function readAuthAccessPublicConfig(body: ObjectExpression | undefined): string[
   })
 }
 
+/** `access.signIn` and `access.afterSignIn`, which the Nuxt page guard reads at build time, like `basePath`. */
+function readAuthAccessSignInConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> {
+  const access = objectLiteral(readObjectPropertyValue(body, "access"))
+  if (!access) return {}
+  const resolved: Pick<ResolvedAuthViteConfig["access"], "afterSignIn" | "signIn"> = {}
+  if (hasObjectProperty(access, "signIn")) {
+    const value = readObjectPropertyValue(access, "signIn")
+    const page = staticString(value)
+    const provider = objectLiteral(value)
+    if (provider && hasObjectProperty(provider, "callbackURL")) throw authErrorDiagnostics.AUTH_SIGN_IN_CALLBACK_URL_MOVED()
+    if (provider) resolved.signIn = { provider: true }
+    else if (page?.startsWith("/") && !/^\/[/\\]/.test(page)) resolved.signIn = { page }
+    else throw authErrorDiagnostics.AUTH_C0028({ message: "`defineAuth()` access.signIn must be an inline path that starts with one `/`, such as `'/login'`, or an inline object, such as `{ provider: 'github' }`." })
+  }
+  if (hasObjectProperty(access, "afterSignIn")) {
+    const afterSignIn = staticString(readObjectPropertyValue(access, "afterSignIn"))
+    if (!afterSignIn?.startsWith("/") || /^\/[/\\]/.test(afterSignIn)) throw authErrorDiagnostics.AUTH_AFTER_SIGN_IN_INVALID()
+    resolved.afterSignIn = afterSignIn
+  }
+  return resolved
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -414,6 +615,7 @@ export function resolveAuthViteConfig(
     access: {
       routes: readAuthAccessRoutesConfig(body),
       ...(publicRoutes.length ? { public: publicRoutes } : {}),
+      ...readAuthAccessSignInConfig(body),
     },
     basePath,
     definition,

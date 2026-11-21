@@ -7,23 +7,23 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-An AI gateway is one object that knows where to send AI requests and how to sign them. A preset is a ready-made gateway for one provider, such as `openrouter()`.
+An AI gateway defines where model requests go and how to sign them. A preset like `openrouter()` gives you a ready-made gateway for one provider.
 
 In this tutorial, you send a prompt to a model through OpenRouter and get typed data back. Then you ask [TypeSafe Jev](https://typesafe.ai) a typed question.
 
 > [!NOTE] Before you start
-> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need an [OpenRouter](https://openrouter.ai) API key, and a TypeSafe API key for the last step.
+> Start with the app from [Installation](/docs/getting-started/installation) and run commands from the app root. You need an [OpenRouter](https://openrouter.ai) API key, plus a TypeSafe API key for the last step.
 
 ::tutorial-step{title="Install the packages"}
 ## Install the packages
 
-Install AI Gateways, the AI SDK, and the AI SDK provider package of the model API. OpenRouter serves OpenAI-compatible Chat Completions, so install `@ai-sdk/openai-compatible`:
+Install AI Gateways, the AI SDK, and the AI SDK provider package for the model API. OpenRouter serves OpenAI-compatible Chat Completions, so install `@ai-sdk/openai-compatible`:
 
 ```bash pm [commands/install]
 pnpm add @vite-hub/gateways ai @ai-sdk/openai-compatible
 ```
 
-A ViteHub app imports the package as `vite-hub/gateways`.
+ViteHub apps import the package from `vite-hub/gateways`.
 
 ::
 
@@ -49,25 +49,25 @@ const model = languageModel(openrouter(), 'google/gemini-3-flash')
 const { text } = await generateText({ model, prompt: 'What is a Server Primitive?' })
 ```
 
-- `languageModel(gateway, modelId)` returns an [AI SDK](https://ai-sdk.dev) model. Use it with `generateText()`, `streamText()`, or any library that takes a model.
-- The model ID is the ID that the gateway uses, such as `google/gemini-3-flash` on OpenRouter.
-- The gateway reads its URL, key, and headers again for each request, so a rotated key applies at once.
+- `languageModel(gateway, modelId)` returns an [AI SDK](https://ai-sdk.dev) model for `generateText()`, `streamText()`, or any library that takes a model.
+- Pass the model ID that the gateway expects, such as `google/gemini-3-flash` on OpenRouter.
+- The gateway reads its URL, key, and headers on each request, so rotated keys apply at once.
 
 ::
 
 ::tutorial-step{title="Change the provider"}
 ## Change the provider
 
-Change the preset, and use a model ID of that provider. For example, `ollama()` with `llama3.3` sends the request to a local Ollama server. The code that uses `model` does not change.
+To switch providers, change the preset and use a model ID of that provider. For example, `ollama()` with `llama3.3` sends the request to a local Ollama server. The code that uses `model` does not change.
 
-TypeScript accepts only a gateway that serves the model API. `languageModel(typesafe(), ...)` is a type error, because TypeSafe answers questions and serves no model API. [Presets](/docs/gateways/configure#presets) lists what each preset serves.
+TypeScript accepts only gateways that serve the model API. `languageModel(typesafe(), ...)` is a type error because TypeSafe answers questions instead of serving a model API. [Presets](/docs/gateways/configure#presets) lists what each preset serves.
 
 ::
 
 ::tutorial-step{title="Get typed data from one call"}
 ## Get typed data from one call
 
-Call `ask(prompt, { model, schema })` when you need data in a fixed shape, such as fields read from a receipt. It sends one request and checks the answer against your schema. You do not need an Agent for this.
+Call `ask(prompt, { model, schema })` when you need data in a fixed shape, like fields from a receipt. It sends one request and checks the answer against your schema. You do not need an Agent for this.
 
 Create `receipt.ts`:
 
@@ -85,8 +85,9 @@ if (error) throw error
 receipt.merchant // string
 ```
 
-- `schema` is a [Standard Schema](https://standardschema.dev) that converts to JSON Schema, such as Zod 4 or ArkType. For Valibot, wrap the schema with `toStandardJsonSchema()` from `@valibot/to-json-schema`.
-- The result is `[error, data]`. `error` is set when the request fails or when the answer does not match the schema.
+- `schema` takes any [Standard Schema](https://standardschema.dev) that converts to JSON Schema, such as Zod 4 or ArkType. For Valibot, wrap it with `toStandardJsonSchema()` from `@valibot/to-json-schema`.
+- `ask()` returns `[error, data]`. `error` is set when the request fails or when the answer does not match the schema.
+- Leave out `schema` to get the answer as text.
 - Use an Agent when the model must call tools, keep a conversation, or run for a long time.
 
 ::
@@ -110,13 +111,14 @@ import { ask, typesafe } from 'vite-hub/gateways'
 // Reads TYPESAFE_API_KEY.
 const gateway = typesafe()
 
-const answers = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+const [error, answers] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
   category: ask.choice('Which category fits this bank transaction?', {
     groceries: 'Food and household shopping.',
     eatingOut: 'Restaurants and cafes.',
   }),
   recurring: ask.if('Is it a recurring payment?'),
 })
+if (error) throw error
 
 answers.category.choice // 'groceries' | 'eatingOut'
 answers.category.confidence // 0 to 1
@@ -124,14 +126,14 @@ answers.recurring // boolean
 ```
 
 - The first argument is the state: the text that every question is about.
-- TypeScript infers the type of each answer from its question.
+- TypeScript infers each answer's type from its question.
 - Only `vercel()`, `cloudflare()`, and `typesafe()` have `ask()`. On other presets, `ask()` is a type error.
 
 ::
 
 ## In production
 
-The preset reads the same variables in production. In an Agent, ViteHub declares them in Server Env, so the Console shows them and an Env provider can supply them. See [Use with Agents](/docs/gateways/agents).
+Presets read the same variables in production. In an Agent, ViteHub declares them in Server Env, so the Console shows them and an Env provider can supply them. See [Use with Agents](/docs/gateways/agents).
 
 ::card-group
 :::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/gateways/configure"}

@@ -6,8 +6,9 @@ export { selectCommentsDatabase } from "./database.ts"
 export { commentsDefinitionOf } from "./definition.ts"
 export type { CommentsDatabaseRegistry } from "./database.ts"
 export { commentsMcpTools } from "./mcp.ts"
+export { mcpToolResult } from "@vite-hub/internal/runtime/mcp-server"
 export type { CommentsMcpToolsOptions } from "./mcp.ts"
-// The route `GET /_vitehub/page/session` of the page tools. The Vite plugin serves it from this module.
+// The route `GET /_vitehub/page/tools` of the page tools. The Vite plugin serves it from this module.
 export { viteHubPageSessionHandler } from "@vite-hub/internal/runtime/page-tools"
 export { createCommentsGitHubLogin, githubLoginEnv } from "./github-login.ts"
 export type { CommentsGitHubLogin } from "./github-login.ts"

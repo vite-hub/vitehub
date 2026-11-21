@@ -4,8 +4,10 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { findDataLoss, splitSqlStatements } from "./migration-sql.ts"
+import { findDataLoss, migrationParts, splitSqlStatements } from "./migration-sql.ts"
+import { readOldMigrationsLayout } from "./migrations-layout.ts"
 
+import type { DatabaseDialect } from "../types.ts"
 import type { DataLossStatement, ReferencingKey, TableColumns, TableReferences } from "./migration-sql.ts"
 
 /** A migration in the migrations folder that the database has not applied. */
@@ -41,15 +43,14 @@ export function migrationSqlFile(migrationsDir: string, tag: string): string {
   return existsSync(folder) ? folder : join(migrationsDir, `${tag}.sql`)
 }
 
-/** Reports whether `migrationsDir` has the layout of Drizzle Kit 0.x, which `vitehub database up` converts. */
-export function hasDrizzleKit0xLayout(migrationsDir: string): boolean {
-  return existsSync(join(migrationsDir, "meta", "_journal.json"))
-}
-
-/** Reads the migration folders of `migrationsDir` in the order that Drizzle's migrator applies them. */
-export function readMigrations(migrationsDir: string, database?: string): MigrationEntry[] {
+/**
+ * Reads the migration folders of `migrationsDir` in the order that Drizzle's migrator applies them. `flat` accepts a
+ * folder of flat `.sql` files, which only D1 HTTP applies itself; Drizzle skips them.
+ */
+export function readMigrations(migrationsDir: string, database?: string, options: { flat?: boolean } = {}): MigrationEntry[] {
   if (!existsSync(migrationsDir)) return []
-  if (hasDrizzleKit0xLayout(migrationsDir)) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database, dir: migrationsDir })
+  const layout = readOldMigrationsLayout(migrationsDir, { existsSync, readdirSync })
+  if (layout && !(layout === "flat" && options.flat)) throw databaseErrorDiagnostics.DATABASE_MIGRATIONS_OLD_LAYOUT({ database, dir: migrationsDir, layout })
   return readdirSync(migrationsDir, { withFileTypes: true })
     // A generated folder without its SQL is incomplete history, even though Drizzle 1.0 silently skips it.
     .filter(entry => entry.isDirectory() && (/^\d{14}_/.test(entry.name) || existsSync(join(migrationsDir, entry.name, "migration.sql"))))
@@ -95,9 +96,9 @@ function readSnapshotTables(migrationsDir: string, tag: string): { columns: Tabl
   return { columns: tables, references }
 }
 
-export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[]): PendingMigration {
-  const sql = readFileSync(migrationSqlFile(migrationsDir, tag), "utf8")
-  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(statement => splitSqlStatements(statement).length)
+/** Reads one migration with the parts that Drizzle runs one by one, see `migrationParts()`, and the statements that lose data. */
+export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[], dialect: DatabaseDialect): PendingMigration {
+  const statements = migrationParts(readFileSync(migrationSqlFile(migrationsDir, tag), "utf8"), dialect)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
   let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()

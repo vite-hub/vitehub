@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { kvInferredStoreNotice, kvRedisEnvWarning, normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
+import { kvInferredStoreNotice, kvRedisEnvHint, normalizeKVOptions, warnVercelKVFallback } from "../src/config.ts"
 import { configureCloudflareKV } from "../src/integrations/cloudflare.ts"
 
 describe("normalizeKVOptions", () => {
@@ -102,38 +102,41 @@ describe("kvInferredStoreNotice", () => {
   })
 })
 
-describe("kvRedisEnvWarning", () => {
+describe("kvRedisEnvHint", () => {
   const redisEnv = { REDIS_URL: "redis://localhost:6379" }
 
   it("names REDIS_URL and the fix when a Node build infers fs-lite or the Database", () => {
-    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "node-server" })).toBe(
-      "[vitehub] The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses fs-lite in .vitehub/data/kv. To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.",
-    )
-    expect(kvRedisEnvWarning({}, { env: redisEnv, hosting: "", postgresDatabase: true })).toContain("uses the table vitehub_kv of the Database \"default\"")
+    expect(kvRedisEnvHint(undefined, { env: redisEnv, hosting: "node-server" })).toMatchObject({
+      code: "KV_REDIS_URL_UNUSED",
+      why: "The build has `REDIS_URL`, but KV does not select Redis on its own. The KV store \"default\" uses fs-lite in .vitehub/data/kv.",
+      fix: "To keep KV in that Redis, set `kv: { driver: \"redis\" }`. To keep this store, set its `driver`.",
+      docs: "https://vitehub.dev/docs/kv/diagnostics/kv_redis_url_unused",
+    })
+    expect(kvRedisEnvHint({}, { env: redisEnv, hosting: "", postgresDatabase: true })?.why).toContain("uses the table vitehub_kv of the Database \"default\"")
   })
 
   it("gives the KV_URL fix for a TLS KV_URL", () => {
-    const warning = kvRedisEnvWarning(undefined, { env: { KV_URL: "rediss://default:secret@example.com:6380" }, hosting: "node-server" })
-    expect(warning).toContain("`kv: { driver: \"redis\", url: \"env:KV_URL\" }`")
-    expect(warning).not.toContain("secret")
-    expect(kvRedisEnvWarning(undefined, { env: { KV_URL: "redis://localhost:6379" }, hosting: "node-server" })).toBeUndefined()
+    const hint = kvRedisEnvHint(undefined, { env: { KV_URL: "rediss://default:secret@example.com:6380" }, hosting: "node-server" })
+    expect(hint?.fix).toContain("`kv: { driver: \"redis\", url: \"env:KV_URL\" }`")
+    expect(`${hint?.why} ${hint?.fix}`).not.toContain("secret")
+    expect(kvRedisEnvHint(undefined, { env: { KV_URL: "redis://localhost:6379" }, hosting: "node-server" })).toBeUndefined()
   })
 
   it("says that Upstash fails on Vercel when the build has only REDIS_URL", () => {
-    const warning = kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "vercel" })
-    expect(warning).toContain("KV on Vercel uses Upstash, and the build has no `KV_REST_API_URL` and `KV_REST_API_TOKEN`")
-    expect(warning).toContain("`kv: { driver: \"redis\" }`")
-    expect(kvRedisEnvWarning(undefined, { env: { ...redisEnv, KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://example.upstash.io" }, hosting: "vercel" })).toBeUndefined()
+    const hint = kvRedisEnvHint(undefined, { env: redisEnv, hosting: "vercel" })
+    expect(hint?.why).toContain("KV on Vercel uses Upstash, and the build has no `KV_REST_API_URL` and `KV_REST_API_TOKEN`")
+    expect(hint?.fix).toContain("`kv: { driver: \"redis\" }`")
+    expect(kvRedisEnvHint(undefined, { env: { ...redisEnv, KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://example.upstash.io" }, hosting: "vercel" })).toBeUndefined()
   })
 
   it("stays quiet for an explicit driver, Cloudflare, Deno, dev, and builds without a Redis URL", () => {
-    expect(kvRedisEnvWarning({ driver: "fs-lite" }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
-    expect(kvRedisEnvWarning({ stores: { default: { driver: "database" } } }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
-    expect(kvRedisEnvWarning(false, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
-    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "cloudflare-module" })).toBeUndefined()
-    expect(kvRedisEnvWarning(undefined, { env: redisEnv, hosting: "deno-deploy" })).toBeUndefined()
-    expect(kvRedisEnvWarning(undefined, { dev: true, env: redisEnv, hosting: "node-server" })).toBeUndefined()
-    expect(kvRedisEnvWarning(undefined, { env: {}, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvHint({ driver: "fs-lite" }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvHint({ stores: { default: { driver: "database" } } }, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvHint(false, { env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvHint(undefined, { env: redisEnv, hosting: "cloudflare-module" })).toBeUndefined()
+    expect(kvRedisEnvHint(undefined, { env: redisEnv, hosting: "deno-deploy" })).toBeUndefined()
+    expect(kvRedisEnvHint(undefined, { dev: true, env: redisEnv, hosting: "node-server" })).toBeUndefined()
+    expect(kvRedisEnvHint(undefined, { env: {}, hosting: "node-server" })).toBeUndefined()
   })
 })
 
@@ -557,5 +560,52 @@ describe("renamed KV drivers", () => {
       fix: expect.stringContaining("\"upstash\""),
       why: "`kv.driver` \"toString\" is not a KV driver.",
     }))
+  })
+})
+
+describe("unknown KV store options", () => {
+  // strata kept its config in `build/host-profile.ts`. It dropped `driver` from `{ binding, driver, namespaceId }`, and
+  // KV used the default binding and namespace instead of its own.
+  const hostProfile = { binding: "STRATA_KV", namespaceId: "4f701e72f4414181b2a760cbb798fa8d" }
+
+  it("throws for a driver option of a store without driver, and names the driver that reads it", () => {
+    // SAFETY: An app config without types, or one that a cast widens, passes a key that the inferred store does not read.
+    expect(() => normalizeKVOptions(hostProfile as never, { env: {}, hosting: "cloudflare" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      fix: expect.stringContaining("Set `driver` to \"cloudflare\", which reads `binding`."),
+      why: "`kv.binding` is not an option of a KV store without `driver`. ViteHub picks the driver from the host and would ignore it.",
+    }))
+    expect(normalizeKVOptions({ driver: "cloudflare", ...hostProfile }, { env: {}, hosting: "cloudflare" })?.store).toMatchObject(hostProfile)
+  })
+
+  it("throws for an option of another driver and for a key that no driver reads", () => {
+    expect(() => normalizeKVOptions({ driver: "fs-lite", url: "redis://localhost:6379" } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      fix: "Remove `url`, or set `driver` to \"redis\" or \"upstash\", which reads it.",
+      why: "`kv.url` is not an option of the `fs-lite` KV driver.",
+    }))
+    expect(() => normalizeKVOptions({ stores: { default: { driver: "cloudflare", ttl: 60 } } } as never, { env: {}, hosting: "cloudflare" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      why: "`kv.stores.default.ttl` is not an option of the `cloudflare` KV driver.",
+    }))
+    expect(() => normalizeKVOptions({ driver: "fs-lite", stores: { default: { driver: "fs-lite" } } } as never, { env: {}, hosting: "" })).toThrow(expect.objectContaining({
+      code: "KV_UNKNOWN_STORE_OPTION",
+      why: "`kv` has `stores`, so it takes no other key, and it has `driver`.",
+    }))
+  })
+
+  it("accepts every documented option of each driver", () => {
+    const env = { KV_REST_API_TOKEN: "token", KV_REST_API_URL: "https://upstash.example" }
+    expect(() => normalizeKVOptions({
+      stores: {
+        default: { driver: "cloudflare", binding: "KV", namespaceId: "id", namespaceName: "app", remote: false },
+        database: { driver: "database", database: "default" },
+        deno: { driver: "deno-kv", path: "./kv.sqlite", remote: false },
+        fs: { driver: "fs-lite", base: ".data/kv", remote: false },
+        redis: { driver: "redis", base: "app", url: "env:REDIS_URL" },
+        upstash: { driver: "upstash", base: "app", remote: true, token: "token", url: "https://upstash.example" },
+      },
+    }, { env, hosting: "" })).not.toThrow()
+    expect(() => normalizeKVOptions({ remote: true }, { env, hosting: "vercel" })).not.toThrow()
   })
 })

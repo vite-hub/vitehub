@@ -8,13 +8,15 @@ import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
+  name: optional(string()),
   permissions: optional(record(string(), string())),
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   steps: array(object({ name: optional(string()), if: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
-const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
+// Jobs after the gate, such as the preview publish, wait for it and are not part of it.
+const jobNames = Object.entries(workflow.jobs).filter(([name, job]) => name !== "ci" && !job.needs?.includes("ci")).map(([name]) => name)
 const gate = workflow.jobs.ci!
 
 function runGate(results: Record<string, { result: string }>, event = "pull_request", fullSuite = event !== "pull_request") {
@@ -92,6 +94,16 @@ fi
   it("waits for every verification job and runs even when a dependency fails", () => {
     expect(gate.needs?.toSorted()).toEqual(jobNames.toSorted())
     expect(gate.if).toBe("${{ always() }}")
+  })
+
+  it("publishes previews only after the gate passes, under the required check name", () => {
+    const publish = workflow.jobs["publish-preview"]
+    expect(publish?.name).toBe("publish preview packages")
+    expect(publish?.needs).toEqual(["ci"])
+    expect(publish?.if).toBe([
+      "${{ !cancelled() && needs.ci.result == 'success' &&",
+      "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}",
+    ].join(" "))
   })
 
   it.each(["pull_request", "push", "workflow_dispatch"])("accepts successful checks on %s", (event) => {
@@ -279,6 +291,7 @@ fi
     "typecheck",
     "ui-sdk",
     "service-tests",
+    "agent-codex-emulator",
     "docs",
     "docs-snippets",
     "docs-demo",
@@ -294,7 +307,7 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it.each(["node-22", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
+  it.each(["node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
     const results = { ...successfulJobs, [name]: { result: "skipped" } }
     expect(runGate(results, "pull_request").status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
@@ -322,7 +335,7 @@ fi
     const result = runGate({ ...results, "docs-deploy": { result: "skipped" } }, "pull_request", true)
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("contracts-examples: skipped")
-    expect(result.stderr).toContain("node-22: skipped")
+    expect(result.stderr).toContain("node-floor: skipped")
     expect(result.stderr).toContain("prepublish-contracts: skipped")
   })
 

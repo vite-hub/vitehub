@@ -13,10 +13,11 @@ import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { resolveConsoleSectionGroup } from "../src/console/runtime/sections.ts"
-import { canRedeliverWebhook, missingWebhookVariables, webhookCountdown, webhookDebounceLabel, webhookLastResult, webhookStateStatus } from "../src/console/runtime/client/webhooks.ts"
+import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
+import { canRedeliverDelivery, canRedeliverWebhook, deliveryMemberEndpoint, memberEndpointOwner, memberEndpointResult, missingWebhookVariables, webhookCountdown, webhookDebounceLabel, webhookLastResult, webhookStateStatus } from "../src/console/runtime/client/webhooks.ts"
 
 import type { Component } from "vue"
-import type { ConsoleWebhook, ConsoleWebhookDelivery } from "../src/console/runtime/client/webhooks.ts"
+import type { ConsoleMemberEndpoint, ConsoleWebhook, ConsoleWebhookDelivery } from "../src/console/runtime/client/webhooks.ts"
 
 const mocks = vi.hoisted(() => ({ operation: vi.fn(), toast: vi.fn() }))
 vi.mock("../src/console/runtime/client/request", async importOriginal => ({
@@ -33,6 +34,13 @@ import Webhooks from "../src/console/runtime/components/console-webhooks.vue"
 const minute = 60_000
 
 const t3: ConsoleWebhook = { debounceMs: 30 * minute, host: "t3.example.com", name: "t3", secret: "T3_WEBHOOK_SECRET", secretSet: true, signature: "github", url: "T3_WEBHOOK_URL", urlSet: true }
+
+function member(fields: Partial<ConsoleMemberEndpoint> & Pick<ConsoleMemberEndpoint, "id" | "owner">): ConsoleMemberEndpoint {
+  return { agent: "t3", createdAt: 0, disabledAt: null, disabledBy: null, host: "relay.t3.codes", kind: "url", last: null, mine: false, name: "Launch plan thread", ownerName: null, updatedAt: 0, ...fields }
+}
+
+const ana = member({ id: "whe_ana", owner: "user_ana", ownerName: "Ana Ruiz", last: { at: 5, error: null, failures: 0, state: "sent", status: 202 } })
+const tom = member({ id: "whe_tom", mine: true, owner: "user_tom", ownerName: "Tom Becker", last: { at: 7, error: "HTTP 401", failures: 3, state: "dead", status: 401 } })
 
 function delivery(fields: Partial<ConsoleWebhookDelivery> & Pick<ConsoleWebhookDelivery, "id" | "state">): ConsoleWebhookDelivery {
   return { attempts: 0, body: {}, count: 1, createdAt: 0, dueAt: 0, event: "comments.created", key: null, lastError: null, lastStatus: null, sentAt: null, updatedAt: 0, webhook: "t3", ...fields }
@@ -70,6 +78,28 @@ describe("Webhooks section helpers", () => {
     expect(webhookStateStatus("sent")).toEqual({ label: "Sent", tone: "success" })
     expect(missingWebhookVariables({ ...t3, secretSet: false })).toEqual(["T3_WEBHOOK_SECRET"])
   })
+
+  it("names the last result of a member endpoint", () => {
+    expect(memberEndpointResult(ana)).toEqual({ at: 5, label: "202", tone: "success" })
+    expect(memberEndpointResult(tom)).toEqual({ at: 7, label: "401, 3 in a row", tone: "error" })
+    expect(memberEndpointResult({ ...tom, last: { at: 7, error: "HTTP 401", failures: 1, state: "dead", status: 401 } }).label).toBe("401")
+    expect(memberEndpointResult({ ...ana, kind: "inbox", last: { at: 9, error: null, failures: 0, state: "sent", status: null } })).toEqual({ at: 9, label: "In the inbox", tone: "info" })
+    expect(memberEndpointResult({ ...ana, disabledAt: 11, disabledBy: "Ana" })).toEqual({ at: 11, label: "Disabled by Ana", tone: "neutral" })
+    expect(memberEndpointResult({ ...ana, last: null })).toEqual({ label: "No sends yet", tone: "neutral" })
+    expect(memberEndpointOwner({ owner: "user_sam", ownerName: null })).toBe("user_sam")
+  })
+
+  it("offers Redeliver of a member delivery only to its owner", () => {
+    const toAna = delivery({ id: "whd_ana", state: "dead", webhook: "@whe_ana" })
+    const toTom = delivery({ id: "whd_tom", state: "dead", webhook: "@whe_tom" })
+    expect(deliveryMemberEndpoint(toTom, [ana, tom])).toBe(tom)
+    expect(deliveryMemberEndpoint(delivery({ id: "whd_t3", state: "dead" }), [ana, tom])).toBeUndefined()
+    expect(canRedeliverDelivery(toAna, [ana, tom])).toBe(false)
+    expect(canRedeliverDelivery(toTom, [ana, tom])).toBe(true)
+    expect(canRedeliverDelivery({ ...toTom, state: "pending" }, [ana, tom])).toBe(false)
+    expect(canRedeliverDelivery(delivery({ id: "whd_gone", state: "dead", webhook: "@whe_gone" }), [ana, tom])).toBe(false)
+    expect(canRedeliverDelivery(delivery({ id: "whd_t3", state: "sent" }), [])).toBe(true)
+  })
 })
 
 describe("Webhooks Console section", () => {
@@ -102,6 +132,17 @@ describe("Webhooks Console section", () => {
     expect(catalog.sectionOverrides?.webhooks).toEqual(describeViteHubConsoleSection(webhooksConsoleSection))
   })
 
+  it("turns on when a plugin uses member endpoints, without server/webhooks/", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-members-"))
+    roots.push(root)
+    const send = { name: "fixture-send", vitehub: { webhooks: { memberEndpoints: true, reason: "Sends waiting comments to each member's agent." } } }
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: [send], projectRoot: root, sections: ["env"] })
+    expect(withConsoleDocumentEditorSections(["env"], catalog)).toContain("webhooks")
+    expect(catalog.content.webhooks).toEqual({ kind: "webhooks" })
+    const off = { name: "fixture-send", vitehub: { webhooks: () => undefined } }
+    expect(withConsoleDocumentEditorSections(["env"], await discoverConsoleBuildCatalog({ discoveryRoot: root, plugins: [off], projectRoot: root, sections: ["env"] }))).toEqual(["env"])
+  })
+
   it("keeps the playground section equal to the owner section", async () => {
     const { playgroundWebhooksSection } = await vi.importActual<{ playgroundWebhooksSection: unknown }>("../../../playground/console/sections.ts")
     expect(JSON.parse(JSON.stringify(playgroundWebhooksSection))).toEqual(describeViteHubConsoleSection(webhooksConsoleSection))
@@ -115,7 +156,16 @@ const renderer = createRenderer({
 })
 
 interface WebhooksState {
+  canRedeliver: (entry: ConsoleWebhookDelivery) => boolean
+  canSendNow: (entry: ConsoleWebhookDelivery) => boolean
   cancelling: ConsoleWebhookDelivery | undefined
+  chooseOwner: (value: unknown) => void
+  deliveryTarget: (entry: ConsoleWebhookDelivery) => string
+  memberEndpoints: ConsoleMemberEndpoint[] | undefined
+  memberEndpointsError: unknown
+  ownerFilter: string | undefined
+  toggleEndpoint: (endpoint: ConsoleMemberEndpoint) => Promise<void>
+  webhookFilter: string | undefined
   confirmCancel: () => void
   deliveries: ConsoleWebhookDelivery[]
   deliveriesError: unknown
@@ -156,10 +206,18 @@ async function mountWebhooks(path = "/webhooks") {
   return { router, state: (instance.$ as unknown as { setupState: WebhooksState }).setupState }
 }
 
-/** Answers each `webhooks.*` read from the lists, and records every call. */
-function answer(lists: { deliveries?: ConsoleWebhookDelivery[], pending?: ConsoleWebhookDelivery[], webhooks?: ConsoleWebhook[] }, failures: Record<string, Error> = {}) {
+/** Answers each `webhooks.*` read from the lists, and records every call. Without `members`, member endpoints are off. */
+function answer(lists: { deliveries?: ConsoleWebhookDelivery[], members?: ConsoleMemberEndpoint[], pending?: ConsoleWebhookDelivery[], webhooks?: ConsoleWebhook[] }, failures: Record<string, Error> = {}) {
   mocks.operation.mockImplementation(async (operation: string, input: Record<string, unknown>) => {
     if (failures[operation]) throw failures[operation]
+    if (operation === "webhooks.endpoints") {
+      if (lists.members) {
+        const after = input.after as Pick<ConsoleMemberEndpoint, "id" | "createdAt"> | undefined
+        const start = after ? lists.members.findIndex(row => row.id === after.id && row.createdAt === after.createdAt) + 1 : 0
+        return lists.members.slice(start, start + 500)
+      }
+      throw new ConsoleRequestError(409, { code: "WEBHOOKS_ENDPOINTS_OFF", message: "Member endpoints are not on in this server." })
+    }
     if (operation === "webhooks.list") return lists.webhooks ?? [t3]
     if (operation === "webhooks.pending") return lists.pending ?? []
     if (operation === "webhooks.deliveries") return (lists.deliveries ?? []).filter(entry => !input.state || entry.state === input.state)
@@ -252,6 +310,59 @@ describe("Webhooks page", () => {
     expect(calls("webhooks.get")).toEqual([{ id: "whd_sent" }])
     state.openId = undefined
     await vi.waitFor(() => expect(state.opened).toBeUndefined())
+  })
+
+  it("hides member endpoints while the app has them off", async () => {
+    answer({ deliveries: [sent] })
+    const { state } = await mountWebhooks()
+    await vi.waitFor(() => expect(state.loading).toBe(false))
+    expect(state.memberEndpoints).toBeUndefined()
+    expect(state.memberEndpointsError).toBeUndefined()
+    expect(state.error).toBeUndefined()
+  })
+
+  it("lists member endpoints read-only, disables one, and offers Redeliver and Send now only on the user's own", async () => {
+    const toAna = delivery({ attempts: 1, id: "whd_ana", lastStatus: 202, state: "sent", webhook: "@whe_ana" })
+    const toTom = delivery({ attempts: 1, id: "whd_tom", lastStatus: 401, state: "dead", webhook: "@whe_tom" })
+    const retryAna = delivery({ id: "whd_retry", state: "pending", webhook: "@whe_ana" })
+    answer({ deliveries: [toTom, toAna, sent], members: [ana, tom], pending: [retryAna], webhooks: [] })
+    const { state } = await mountWebhooks()
+    await vi.waitFor(() => expect(state.loading).toBe(false))
+    expect(state.memberEndpoints).toEqual([ana, tom])
+    expect(state.deliveryTarget(toTom)).toBe("Tom Becker · T3 Code")
+    expect(state.deliveryTarget(delivery({ id: "whd_old", state: "sent", webhook: "@whe_gone" }))).toBe("A removed member endpoint")
+    expect([toTom, toAna, sent].filter(entry => state.canRedeliver(entry)).map(entry => entry.id)).toEqual(["whd_tom", "whd_sent"])
+    expect(state.canSendNow(retryAna)).toBe(false)
+
+    await state.toggleEndpoint(ana)
+    expect(calls("webhooks.disable-endpoint")).toEqual([{ id: "whe_ana" }])
+    await state.toggleEndpoint({ ...tom, disabledAt: 1 })
+    expect(calls("webhooks.enable-endpoint")).toEqual([{ id: "whe_tom" }])
+    expect(mocks.toast).not.toHaveBeenCalled()
+    // Admins never create or edit an endpoint.
+    expect(mocks.operation.mock.calls.map(([name]) => name).filter(name => !["webhooks.list", "webhooks.pending", "webhooks.deliveries", "webhooks.endpoints", "webhooks.disable-endpoint", "webhooks.enable-endpoint"].includes(name))).toEqual([])
+  })
+
+  it("filters the log by owner and endpoint from the URL", async () => {
+    answer({ deliveries: [], members: [ana, tom] })
+    const { router, state } = await mountWebhooks("/webhooks?owner=user_tom&webhook=%40whe_tom")
+    await vi.waitFor(() => expect(state.loading).toBe(false))
+    expect(calls("webhooks.deliveries")).toEqual([{ owner: "user_tom", webhook: "@whe_tom" }])
+    state.chooseOwner("all")
+    await vi.waitFor(() => expect(calls("webhooks.deliveries").at(-1)).toEqual({ webhook: "@whe_tom" }))
+    expect(router.currentRoute.value.query.owner).toBeUndefined()
+  })
+
+  it("recognizes a delivery to an owned endpoint beyond the first page", async () => {
+    const first = Array.from({ length: 500 }, (_, i) => member({ id: `whe_${i}`, owner: `user_${i}` }))
+    const toTom = delivery({ id: "whd_tom", state: "sent", webhook: "@whe_tom" })
+    answer({ deliveries: [toTom], members: [...first, tom] })
+    const { state } = await mountWebhooks()
+    await vi.waitFor(() => expect(state.loading).toBe(false))
+    expect(state.memberEndpoints).toHaveLength(501)
+    expect(state.deliveryTarget(toTom)).toBe("Tom Becker · T3 Code")
+    expect(state.canRedeliver(toTom)).toBe(true)
+    expect(calls("webhooks.endpoints")).toEqual([{}, { after: { createdAt: 0, id: "whe_499" } }])
   })
 
   it("loads the lists again until a sending delivery settles", async () => {

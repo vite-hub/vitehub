@@ -284,6 +284,34 @@ export default defineEventHandler((event) => {
 | `customMetadata` | `Record<string, string>` | Provider custom metadata. |
 | `addRandomSuffix` | `boolean` | Adds a random suffix, when the driver supports it. |
 | `prefix` | `string` | Path prefix, when the driver supports it. |
+| `ifMatch` | `string` | Writes only when the stored file still has this `httpEtag`. |
+| `overwrite` | `boolean` | `false` writes only when no file exists at the pathname. Defaults to `true`. |
+
+### Write only if unchanged
+
+Two requests that read a file, change it, and write it back can lose a change. Pass the `httpEtag` that you read as `ifMatch`, and the write happens only when nobody wrote the file in between:
+
+```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  const [headError, object] = await blob.head('settings.json')
+  if (headError) throw headError
+  const [readError, file] = await blob.get('settings.json')
+  if (readError) throw readError
+
+  const settings = { ...JSON.parse(await file?.text() ?? '{}'), ...await readBody<Record<string, unknown>>(event) }
+  const [error] = await blob.put('settings.json', JSON.stringify(settings), object
+    ? { contentType: 'application/json', ifMatch: object.httpEtag }
+    : { contentType: 'application/json', overwrite: false })
+  if (error?.code === 'BLOB_CONFLICT') return { retry: true }
+  if (error) throw error
+  return settings
+})
+```
+
+When the condition does not hold, `put()` writes nothing and returns `BLOB_CONFLICT`. Read the file again and retry. The provider checks the condition and writes in one step on the `cloudflare` store with its R2 binding, `vercel`, `netlify-blobs`, and `s3` on AWS. The `fs` driver checks it in the process, so two processes that write the same folder can still overwrite each other. The other drivers, and `cloudflare` without its binding, throw `BLOB_PUT_CONDITION_UNSUPPORTED`.
 
 ## Upload files
 
@@ -587,20 +615,31 @@ import { blob } from 'vite-hub/blob'
 
 const [sourceError, source] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'GET',
-  expiresIn: 6 * 60 * 60,
+  expiresIn: '6h',
+  download: 'Interview with Ana.mp3',
 })
 if (sourceError) throw sourceError
 
 const [uploadError, upload] = await blob.sign('users/user/jobs/job/source.mp3', {
   method: 'PUT',
-  expiresIn: 15 * 60,
+  expiresIn: '15m',
   contentType: 'audio/mpeg',
+  contentLength: 18_874_368,
   createOnly: true,
 })
 if (uploadError) throw uploadError
 ```
 
-Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. Drivers that cannot enforce it throw, so they never allow an overwrite silently. `maxSize`, such as `'8MB'`, limits the size of the body. Only the `fs` and `vercel` drivers bind it, and the other drivers fail the request.
+`expiresIn` is a duration such as `'15m'`, or a whole number of seconds. `download` makes the browser save the file with `Content-Disposition: attachment`, as it does for `blob.serve()`: `true` names the file after the last segment of the pathname, and a string sets the name.
+
+Send `upload.headers` unchanged with the `PUT` body. `contentType` locks the MIME type into the signed request. `createOnly` makes the provider reject the upload when the file already exists. `contentLength` is the exact size of the file in bytes: the provider rejects a body of another size. The client sends a body of that size, so `upload.headers` does not list `Content-Length`. `maxSize`, such as `'8MB'`, limits the size of the body. A driver that cannot bind an option fails the request, so it never allows an overwrite or a larger file silently:
+
+| Driver | `createOnly` | `contentLength` | `maxSize` | `download` |
+| --- | --- | --- | --- | --- |
+| `fs` | No | Yes | Yes | Yes |
+| `cloudflare` | Yes | Yes | No | Yes |
+| `vercel` | Yes | No | Yes | No `GET` |
+| files-sdk drivers | No | No | No | When the provider can |
 
 The `fs` driver, the `cloudflare` driver, the files-sdk drivers (`s3`, `minio`, `gcs`, `azure`, and the others that use files-sdk), and the `vercel` driver sign requests. The `vercel` driver signs a `PUT` only. It returns a request to the Vercel Blob API with a client token, as `@vercel/blob/client` uploads a file. The token binds the pathname, `contentType`, `maxSize`, `createOnly`, and the expiry, and it needs `BLOB_READ_WRITE_TOKEN`. A files-sdk driver signs a `GET` only when its provider gives a URL that expires after exactly `expiresIn` seconds. It signs a `PUT` only when its provider gives a direct upload URL. These drivers cannot bind `createOnly`. When the provider cannot sign, `blob.sign()` returns `BLOB_OPERATION_FAILED`, and `cause` says why. It never returns a permanent public link instead.
 
@@ -608,14 +647,14 @@ Cloudflare R2 signs with its S3-compatible HTTP credentials, even when reads and
 
 ### Signed links of `fs` stores
 
-A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob/signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob/signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
+A file on disk has no URL of its own, so an `fs` store signs a link to the app: `/_vitehub/blob-signed/<store>/<pathname>`. ViteHub adds this route only when a store uses the `fs` driver, also for the local store of `vite dev`. The route checks the link. Then a `GET` reads the file through `blob.serve()`, with the same headers as the serve route, and a `PUT` writes it with `blob.put()`. Set `urlBaseUrl` on the store, such as `https://app.example`, to get an absolute URL. Without it, the URL starts with `/_vitehub/blob-signed/` on the current origin. When the app has a base URL, such as Nitro `baseURL: '/app'`, the route is under it, so add it to `urlBaseUrl`: `https://app.example/app`.
 
-The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, and the `contentType` and `maxSize` of a `PUT`. The route rejects a request that does not match its link:
+The link is signed with HMAC-SHA256. The key comes from `VITEHUB_SECRET`, or `NUXT_APP_SECRET`, through `deriveSecret('vitehub:blob:sign')`. The signature covers the method, the store, the pathname, the expiry, the `download` name of a `GET`, and the `contentType`, `maxSize`, and `contentLength` of a `PUT`. The route rejects a request that does not match its link:
 
 | Request | Status | Code |
 | --- | --- | --- |
 | The link expired. | `403` | `BLOB_R0042` |
-| The URL, the method, or the `Content-Type` changed, or another secret signed the link. | `403` | `BLOB_R0041` |
+| The URL, the method, or the `Content-Type` changed, the body is not `contentLength` bytes, or another secret signed the link. | `403` | `BLOB_R0041` |
 | The method is not `GET` or `PUT`. | `405` | `BLOB_R0041` |
 | The body is larger than `maxSize`. | `413` | `BLOB_R0043` |
 

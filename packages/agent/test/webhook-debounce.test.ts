@@ -40,7 +40,7 @@ async function setup(debounce: unknown) {
             },
           },
         },
-        webhooks: { secretToken: false },
+        webhooks: { secret: false },
       }),
     },
     driver: { run },

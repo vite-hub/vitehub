@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { createServer as createHttpServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import {
@@ -599,7 +599,7 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-provider-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "provider-app", type: "module" }), "utf8")
     await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
-    await symlink(new URL("..", import.meta.url).pathname, join(root, "node_modules", "@vite-hub", "env"), "dir")
+    await symlink(fileURLToPath(new URL("..", import.meta.url)), join(root, "node_modules", "@vite-hub", "env"), "dir")
     await mkdir(join(root, "server", "env#blue?%"), { recursive: true })
     const providerPath = join(root, "server", "env#blue?%", "secrets.mjs")
     await writeFile(providerPath, [
@@ -1220,7 +1220,7 @@ describe("Vite plugin", () => {
 
     expect(() => resolveServerEnv(registry, cloudflareRequest({
         WEBHOOK_URL: "https://example.test/hook",
-      }))).toThrow("[vitehub] Required Env value is missing.")
+      }))).toThrow("[vitehub] Required Env value env.server.airtableToken is missing. Set VITEHUB_AIRTABLE_TOKEN or AIRTABLE_TOKEN.")
   })
 
 })

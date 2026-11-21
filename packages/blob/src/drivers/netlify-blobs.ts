@@ -396,6 +396,31 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
   const connection = resolveNetlifyConnection(options)
   const store = createStore(options, connection)
   const fetchListPage = createListPageFetcher(options, connection)
+  type Condition = { onlyIfMatch: string } | { onlyIfNew: true }
+  // A conditional write that Netlify refuses returns `modified: false`.
+  function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions): Promise<BlobObject>
+  function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition: Condition): Promise<BlobObject | null>
+  async function write(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions, condition?: Condition): Promise<BlobObject | null> {
+    const normalizedBody = await normalizeBody(body)
+    const contentType = putOptions.contentType
+      || (isBlob(normalizedBody) ? normalizedBody.type : undefined)
+      || "application/octet-stream"
+    const size = typeof normalizedBody === "string"
+      ? new TextEncoder().encode(normalizedBody).byteLength
+      : isBlob(normalizedBody)
+        ? normalizedBody.size
+        : normalizedBody.byteLength
+    const uploadedAt = new Date()
+    const metadata: StoredMetadata = {
+      __contentType: contentType,
+      __lastModified: uploadedAt.getTime(),
+      __size: size,
+      __user: putOptions.customMetadata,
+    }
+    const result = await store.set(pathname, normalizedBody, { metadata, ...condition })
+    return condition && !result.modified ? null : toBlobObject(pathname, result.etag, metadata)
+  }
+
   return {
     name: options.driver,
     options,
@@ -473,29 +498,8 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         hasMore,
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      const normalizedBody = await normalizeBody(body)
-      const contentType = putOptions.contentType
-        || (isBlob(normalizedBody) ? normalizedBody.type : undefined)
-        || "application/octet-stream"
-      const size = typeof normalizedBody === "string"
-        ? new TextEncoder().encode(normalizedBody).byteLength
-        : isBlob(normalizedBody)
-          ? normalizedBody.size
-          : normalizedBody.byteLength
-      const uploadedAt = new Date()
-      const metadata: StoredMetadata = {
-        __contentType: contentType,
-        __lastModified: uploadedAt.getTime(),
-        __size: size,
-        __user: putOptions.customMetadata,
-      }
-      const result = await store.set(pathname, normalizedBody, {
-        metadata,
-      })
-      return {
-        ...toBlobObject(pathname, result.etag, metadata),
-      }
-    },
+    put: (pathname, body, putOptions = {}) => write(pathname, body, putOptions),
+    // Netlify sends the ETag as it got it, in the `If-Match` header of the write.
+    putIf: (pathname, body, putOptions, condition) => write(pathname, body, putOptions, condition.type === "create" ? { onlyIfNew: true } : { onlyIfMatch: condition.etag }),
   }
 }

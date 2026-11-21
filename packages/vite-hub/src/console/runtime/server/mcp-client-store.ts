@@ -75,7 +75,7 @@ export interface ConsoleMcpRecords {
 export interface ConsoleMcpKV {
   delete: (key: string) => Promise<readonly [unknown, unknown]>
   get: (key: string) => Promise<readonly [unknown, unknown]>
-  keys: (base?: string) => Promise<readonly [unknown, string[] | undefined]>
+  list: (options: { prefix: string }) => Promise<readonly [unknown, { keys: string[] } | undefined]>
   set: (key: string, value: unknown) => Promise<readonly [unknown, unknown]>
 }
 
@@ -201,7 +201,7 @@ export function kvConsoleMcpRecords(kv: ConsoleMcpKV, key: SealKey): ConsoleMcpR
     },
     connections: async (owner) => {
       const base = `${prefix}:connections:${await hashed(owner)}`
-      const names = (unwrap(await kv.keys(base)) ?? []).map(name => name.replaceAll("/", ":")).filter(name => name.startsWith(`${base}:`))
+      const names = (unwrap(await kv.list({ prefix: `${base}:` }))?.keys ?? []).map(name => name.replaceAll("/", ":")).filter(name => name.startsWith(`${base}:`))
       const connections = await Promise.all(names.map(name => read(name, connectionSchema)))
       return connections.filter((connection): connection is StoredConnection => connection?.owner === owner)
     },

@@ -1,6 +1,6 @@
 import { classifySqliteUrl } from "@vite-hub/runtime/durability"
 
-import { defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "./invocations/default-location.ts"
+import { agentJournalBesideState, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "./invocations/default-location.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 
@@ -29,11 +29,14 @@ export function agentStateDurability(input: AgentStateDurabilityInput, { env }: 
   return [{ primitive: "agent-state", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: "Set VITEHUB_AGENT_STATE_URL to a remote libSQL URL." }) }]
 }
 
-/** What the build passes to `agentInvocationsDurability()`. `url` follows the same rule as Agent state. */
+/**
+ * What the build passes to `agentInvocationsDurability()`. `url` follows the same rule as Agent state. `stateUrl` is
+ * the `file:` Agent State URL that the default journal goes next to.
+ */
 export type AgentInvocationsDurabilityInput =
   | { store: "database", database?: string }
   | { store: "d1" }
-  | { store: "file", url?: string }
+  | { store: "file", stateUrl?: string, url?: string }
   | { store: "memory" }
 
 const journalFix = `Set ${defaultAgentInvocationsUrlEnv} to a remote libSQL URL, or set agent.invocations to "database" with a shared Database.`
@@ -50,7 +53,8 @@ export function agentInvocationsDurability(input: AgentInvocationsDurabilityInpu
     if (!database) return [{ primitive: "agent-invocations", store: "database", scope: "process", reason: `The ${name} Database is off.`, fix: journalFix }]
     return [{ primitive: "agent-invocations", store: `database (${database.store})`, scope: database.scope, reason: `Rows in the ${name} Database. ${database.reason}`, ...(database.fix ? { fix: database.fix } : {}) }]
   }
-  const url = context.env[defaultAgentInvocationsUrlEnv]?.trim() || input.url || `file:${defaultAgentInvocationsPath}`
+  // The same order as the journal: its env var, its configured URL, the file next to a `file:` State, the default file.
+  const url = context.env[defaultAgentInvocationsUrlEnv]?.trim() || input.url || agentJournalBesideState(input.stateUrl, context.env)?.url || `file:${defaultAgentInvocationsPath}`
   const sqlite = classifySqliteUrl(url)
   return [{ primitive: "agent-invocations", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: journalFix }) }]
 }

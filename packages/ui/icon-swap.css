@@ -1,7 +1,8 @@
 /*
- * The icon swap of CopyButton: the copy icon and the check cross-fade when the button copies, and again when it returns.
- * This is plain CSS with no framework, so a page without Vue, such as Drop's document frame, draws the same swap. Load
- * it in the page or in a shadow root. `styles.css` imports it into its components layer.
+ * A copy button's icon swap in plain CSS, for a page that runs no script of ours, such as Drop's document frame: the
+ * copy icon and the check cross-fade when the button copies, and again when it returns. Load it in the page or in a
+ * shadow root. `CopyButton` does not use it: its icons swap with `swapIcon` of `@vite-hub/ui/motion`, which a page
+ * with a script uses too.
  *
  * The markup:
  *

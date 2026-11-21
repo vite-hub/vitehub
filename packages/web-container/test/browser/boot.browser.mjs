@@ -6,7 +6,7 @@ import { test } from "node:test"
 import { chromium } from "playwright-core"
 import { createServer } from "vite"
 
-import { hubWebContainer } from "../../dist/vite.js"
+import { webContainerVitePlugin } from "../../dist/vite.js"
 
 const port = Number(process.env.WEB_CONTAINER_TEST_PORT ?? 4793)
 const root = fileURLToPath(new URL("./page", import.meta.url))
@@ -49,7 +49,7 @@ async function startPage(t) {
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
-    plugins: [hubWebContainer({ routes: ["/**"] })],
+    plugins: [webContainerVitePlugin({ routes: ["/**"] })],
     resolve: { alias: { "@vite-hub/web-container": distEntry } },
     root,
     server: { host: "127.0.0.1", port, strictPort: true },

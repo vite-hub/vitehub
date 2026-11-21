@@ -21,7 +21,8 @@ export interface WorkflowSignalView {
 }
 
 export interface WorkflowRunResult {
-  run: WorkflowRunView
+  /** `workflow.get` adds the steps of a run that `vite dev` recorded. */
+  run: WorkflowRunView | WorkflowRunDetailView
 }
 
 /** One step of a run that `vite dev` recorded. */
@@ -49,11 +50,6 @@ export interface WorkflowRunsClearResult {
   cleared: number
 }
 
-/** Result of `workflow.runs-show`. */
-export interface WorkflowRunsShowResult {
-  run: WorkflowRunDetailView
-}
-
 export interface WorkflowSignalResult {
   signal: WorkflowSignalView
 }
@@ -68,10 +64,6 @@ interface WorkflowOperationSupport {
 
 const inlineRunNote = "Runs the Workflow inline in the Nitro runtime, as the app does in development. Inline runs are not durable and have no retries."
 
-function unsupported(note: string): WorkflowOperationSupport {
-  return { note, supported: false }
-}
-
 /**
  * Operations that each provider supports. A supported operation can still fail when the runtime decides, for example
  * cancel on an inline Vercel run.
@@ -81,7 +73,7 @@ export function resolveWorkflowOperationSupport(provider: WorkflowDriver): Recor
     return {
       cancel: { note: "Terminates a queued, running, waiting, or paused run through the Cloudflare Workflow binding. A finished run keeps its status. Inline runs return an unsupported error.", supported: true },
       get: { note: "Reads the run from the Cloudflare Workflow binding when the runtime has one.", supported: true },
-      resume: unsupported("Cloudflare Workflows do not support ViteHub signals."),
+      resume: { note: "Queues a signal through the Cloudflare Workflow binding, or delivers it to an inline run in this process.", supported: true },
       start: { note: `Uses the Cloudflare Workflow binding when the runtime has one. Otherwise: ${inlineRunNote}`, supported: true },
     }
   }
@@ -89,7 +81,7 @@ export function resolveWorkflowOperationSupport(provider: WorkflowDriver): Recor
     return {
       cancel: { note: "Cancels a pending or running run in OpenWorkflow storage. A step that is already running finishes, but its worker records no further steps or result.", supported: true },
       get: { note: "Reads the run from OpenWorkflow storage.", supported: true },
-      resume: unsupported("OpenWorkflow does not support ViteHub signals."),
+      resume: { note: "Delivers a signal to a waiting OpenWorkflow run, or to an inline run in this process.", supported: true },
       start: { note: "Enqueues the run in OpenWorkflow storage. The run stays queued until an OpenWorkflow worker processes the same storage.", supported: true },
     }
   }

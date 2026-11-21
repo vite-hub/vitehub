@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RollNumber } from "@vite-hub/ui";
 import { consoleNumber } from "../client/format";
 import { computed, nextTick, onBeforeUnmount, ref, useTemplateRef, watch } from "vue";
 import * as v from "valibot";
@@ -338,6 +339,7 @@ const headline = computed(() => {
   return metricOptions.value.map(option => ({
     ...option,
     note: option.value === "cost" && value.totals.costEstimated ? "models.dev prices" : undefined,
+    count: option.value === "sessions" ? value.sessionCount : consoleUsageMetricValue(value.totals, option.value),
     text: option.value === "sessions"
       ? `${consoleNumber(value.sessionCount)}${value.totals.invocationsAvailable ? "" : " recorded"}`
       : formatConsoleUsageValue(value.totals, option.value).replace(/^~/, ""),
@@ -549,7 +551,8 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                   @click="metric = item.value"
                 >
                   <span class="usage-headline__label">{{ item.label }}</span>
-                  <span class="usage-headline__value">{{ item.text.replace(/ recorded$/, "") }}</span>
+                  <!-- The digits that change roll, up when the total grows. -->
+                  <RollNumber class="usage-headline__value" :value="item.count" :text="item.text.replace(/ recorded$/, '')" />
                   <span class="usage-headline__note">{{ item.text.endsWith(" recorded") ? "recorded" : item.note ?? "" }}&nbsp;</span>
                 </button>
               </div>

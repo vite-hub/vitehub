@@ -31,9 +31,10 @@ For each `POST`, `handleFormRequest()`:
 5. Asks `rateLimit` with the key `form:<name>`. The default policy is 5 a minute. It answers 429 with `retry-after`.
 6. Answers 202 and stores nothing when the honeypot field, `website` by default, is filled.
 7. Validates the other fields with `schema`. It answers 400 with `{ message, issues: [{ message, path }] }`. Schema output must be JSON data: plain objects, arrays, strings, finite numbers, booleans, or `null`. Transforms that return `Date`, `Map`, `bigint`, `undefined`, or cycles get 400 before `onSubmit`, email, or storage. Convert these values in the schema, for example a date to an ISO string. Accepted output uses its JSON representation in every step.
-8. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
-9. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
-10. Answers 201 with `{ id }`.
+8. With a UUID in the `Idempotency-Key` header and a store, answers a stored submission of that id with the same 201, or with 422 when its values differ. A retry with a key the store has reserved but not yet saved gets 409. A key that is not a UUID gets 400.
+9. Runs `onSubmit`. When it returns a Response, the request gets that Response and nothing is stored.
+10. Stores the submission, then sends the email. A stored submission is safe, so an email failure is only logged.
+11. Answers 201 with `{ id }`.
 
 A browser form without JavaScript, which sends form data and accepts HTML, gets a 303 back to its page with `?form=<name>.sent` or `?form=<name>.error`, such as `?form=contact.sent`.
 
@@ -64,11 +65,13 @@ One schema draws a web form, an MCP elicitation, and a Slack modal or Teams dial
 | MCP elicitation | `toElicitation(form, { message })`: the params of `elicitation/create` in form mode | `readElicitation(form, result)` |
 | Slack modal, Teams dialog | `toChatModal(form, { callbackId, title })`: a Chat SDK modal, one input for each field, with the field name as its id | `readChatModal(form, event.values)`, then `chatModalErrors(error, form)` |
 
-Each check is `checkForm(form, values)`, the check of `handleFormRequest()`. It returns `[error, data]`, and `fieldErrors(error)` gives the error of each field by name. Form data, chat text, and checkbox values decode to the field types first. A nested object, a list, a union, or a root that is not an object throws `FORMS_FIELD_NOT_DRAWABLE` when a surface draws it. An MCP elicitation also refuses a choice of numbers, because MCP choices are text. The `@vite-hub/mcp` server answers with stateless JSON, so its tools cannot send `elicitation/create` yet.
+Each check is `checkForm(form, values)`, the check of `handleFormRequest()`. It returns `[error, data]`, and `fieldErrors(error)` gives the error of each field by name. Form data, chat text, and checkbox values decode to the field types first. A nested object, a list, a union, or a root that is not an object throws `FORMS_FIELD_NOT_DRAWABLE` when a surface draws it. An MCP elicitation also refuses a choice of numbers, because MCP choices are text. A tool of the `@vite-hub/mcp` server calls `elicit(form, { message })` of its handler, which sends `toElicitation()` and returns `readElicitation()`.
 
 ## The Database
 
 `@vite-hub/forms/database` has the `vitehub_form_submissions` table as `formsSchema`, the same table as SQL in `formsTables`, and `createDrizzleFormsStore(db)`. Each row keeps the form name, the validated data as JSON, the page, the anchor, the user, a status (`open`, `done`, or `spam`), and the times. A change to a form schema needs no migration.
+
+A custom `FormsStore` returns `false` from `insert` when an id already exists or is reserved. It also implements `insertWith`, which reserves the id before calling the hook callback, then publishes the submission only if the callback returns `true`. A reservation is not a submission: `get`, `list`, and `setStatus` must not expose it.
 
 `createFormsInbox(store)` lists submissions and changes their status. Each call returns `[error, data]`.
 
@@ -81,7 +84,9 @@ const [error, sent] = await submitForm("contact", { email, message })
 if (error) showFieldErrors(error.issues)
 ```
 
-`submitForm()` posts JSON to `/api/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
+`submitForm()` posts JSON to `/_vitehub/forms/<name>` with the current page. Pass `url` for another route, `base` for an app base, and `anchor` for a selected sentence. Pass `FormData` instead of an object to send the controls of a `<form>`: the server decodes them to the schema types, as for a post without JavaScript. `fieldErrors(error)` gives the first message of each field by name, such as `{ email: "Enter a valid email." }`.
+
+Each message has an `Idempotency-Key` header, a UUID. After a failure, a retry with the same values sends the same key, and the route stores the message with the key as its id: a retry after a lost answer gets the same `201 { id }` and stores, runs, and emails nothing again. Pass `idempotencyKey` to choose the key.
 
 ## Vue
 

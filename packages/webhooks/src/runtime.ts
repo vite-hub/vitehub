@@ -1,14 +1,20 @@
 import { signWebhook } from "@vite-hub/env"
-import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { isWebhookDefinition } from "./define.ts"
 import { webhooksErrors } from "./errors.ts"
+import { readString, serverEnv, unsealEndpoint } from "./sealing.ts"
+import { resolveWebhookUrl } from "./url-guard.ts"
 
-import type { Result, ResultError } from "@vite-hub/runtime"
-import type { WebhookDefinition, WebhookSignature } from "./define.ts"
-import type { ListWebhookDeliveriesOptions, WebhookDelivery, WebhookDeliveryStore, WebhooksDatabase } from "./database.ts"
+import type { LookupAddress } from "node:dns"
+import type { Duration, Result, ResultError } from "@vite-hub/runtime"
+import type { RunFailedEvent } from "@vite-hub/runtime/internal/run-failed"
+import type { WebhookDefinition, WebhookEvent, WebhookSignature } from "./define.ts"
+import type { ListWebhookDeliveriesOptions, MemberEndpoint, WebhookDelivery, WebhookDeliveryStore, WebhookEndpointStore, WebhooksDatabase } from "./database.ts"
 import type { SendWebhookErrorCode, WebhookDeliveryErrorCode } from "./errors.ts"
+import type { SendToMemberEndpointResult } from "./members.ts"
+import type { EndpointTarget } from "./sealing.ts"
+import type { ResolvedWebhookUrl } from "./url-guard.ts"
 
 export { webhooksQueueName } from "./queue-name.ts"
 
@@ -28,7 +34,7 @@ export interface WebhookWake {
 }
 
 /** Sends a wake to the `vitehub-webhooks` Queue. `dynamicQueue.send()` of `@vite-hub/queue` fits. */
-export type WebhookWakeSender = (wake: WebhookWake, options: { delaySeconds: number }) => Promise<readonly [unknown, unknown]>
+export type WebhookWakeSender = (wake: WebhookWake, options: { delay: Duration }) => Promise<readonly [unknown, unknown]>
 
 /** What the generated server code of a ViteHub app passes. */
 export interface InstallWebhooksOptions {
@@ -36,14 +42,26 @@ export interface InstallWebhooksOptions {
   webhooks: Record<string, unknown>
   /** Where deliveries live: `createDrizzleWebhookStore()` from `@vite-hub/webhooks/database`. */
   store: WebhookDeliveryStore
-  wake: WebhookWakeSender
+  resolveVerifiedOwner?: (email: string, request: Request) => Promise<string | undefined>
+  /**
+   * Sends a wake to the Queue. Without it, which is fine for an app with only member endpoints, a member delivery that
+   * fails is not tried again.
+   */
+  wake?: WebhookWakeSender
+  /** Where member endpoints live: `createDrizzleWebhookEndpointStore()`. Without it, member endpoints are off. */
+  endpoints?: WebhookEndpointStore
+  /** The project-local key that the generated development registry reads. */
+  developmentKey?: string
 }
 
 /** The webhooks of the running app. */
 export interface InstalledWebhooks {
   webhooks: ReadonlyMap<string, WebhookDefinition>
   store: WebhookDeliveryStore
-  wake: WebhookWakeSender
+  wake: WebhookWakeSender | undefined
+  endpoints: WebhookEndpointStore | undefined
+  developmentKey: string | undefined
+  resolveVerifiedOwner: InstallWebhooksOptions["resolveVerifiedOwner"]
 }
 
 /** One webhook, as the CLI and the Console list it. It names the variables, never their values. */
@@ -55,6 +73,8 @@ export interface WebhookInfo {
   secret: string
   signature: WebhookSignature
   debounceMs: number
+  /** The events that ViteHub sends to this webhook by itself. */
+  events: readonly WebhookEvent[]
   /** Whether this server has a value for `url` and for `secret`. */
   urlSet: boolean
   secretSet: boolean
@@ -89,15 +109,62 @@ export function installWebhooks(options: InstallWebhooksOptions): InstalledWebho
     }
     webhooks.set(name, definition)
   }
-  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake }
+  const installed: InstalledWebhooks = { webhooks, store: options.store, wake: options.wake, endpoints: options.endpoints, developmentKey: options.developmentKey, resolveVerifiedOwner: options.resolveVerifiedOwner }
   Reflect.set(globalThis, installedKey, installed)
+  if (!Reflect.get(globalThis, listenerKey)) Reflect.set(globalThis, listenerKey, onRunFailed(sendRunFailed))
   return installed
+}
+
+const listenerKey = Symbol.for("vitehub.webhooks.runFailedListener")
+
+/**
+ * The body of an event that ViteHub sends by itself, such as `workflow.failed`. `text` is one line that a person reads,
+ * so a Slack incoming webhook shows it as the message.
+ */
+export type WebhookEventBody = RunFailedEvent & { text: string }
+
+/** The Agent, Workflow, or Schedule that failed: the key that collapses repeated failures of it while a debounce waits. */
+function failedSubject(event: RunFailedEvent): string {
+  if (event.event === "invocation.failed") return event.agent ?? event.invocationId
+  return event.event === "workflow.failed" ? event.workflow : event.schedule
+}
+
+function toWebhookEventBody(event: RunFailedEvent): WebhookEventBody {
+  const subject = event.event === "invocation.failed"
+    ? `The Agent Invocation ${event.invocationId}${event.agent ? ` of ${JSON.stringify(event.agent)}` : ""}`
+    : event.event === "workflow.failed"
+      ? `The Workflow run ${event.runId} of ${JSON.stringify(event.workflow)}`
+      : `The Schedule run ${event.runId} of ${JSON.stringify(event.schedule)}`
+  return { ...event, text: `${subject} failed: ${event.error.message}` }
+}
+
+/**
+ * Sends a failed run to each webhook that lists its event. With a debounce, failures of the same Agent, Workflow, or
+ * Schedule collapse into one delivery that holds the last failure, and `x-vitehub-events` counts them.
+ */
+async function sendRunFailed(event: RunFailedEvent): Promise<void> {
+  const installed = installedWebhooks()
+  if (!installed) return
+  const body = toWebhookEventBody(event)
+  for (const [name, definition] of installed.webhooks) {
+    if (!definition.events.includes(event.event)) continue
+    const key = definition.debounceMs > 0 ? `${event.event}:${failedSubject(event)}` : null
+    const [error] = await enqueue(name, body, { event: event.event, key, delayMs: definition.debounceMs })
+    if (error) console.error(`[vitehub] The webhook ${name} did not store the ${event.event} event.`, error)
+  }
 }
 
 function requireInstalled(): InstalledWebhooks {
   const installed = installedWebhooks()
   if (!installed) throw webhooksErrors.WEBHOOKS_NOT_INSTALLED()
   return installed
+}
+
+/** The installed webhooks with member endpoints on. */
+export function requireMemberEndpoints(): InstalledWebhooks & { endpoints: WebhookEndpointStore } {
+  const installed = installedWebhooks()
+  if (!installed?.endpoints) throw webhooksErrors.WEBHOOKS_ENDPOINTS_OFF()
+  return { ...installed, endpoints: installed.endpoints }
 }
 
 /**
@@ -114,17 +181,8 @@ export function selectDefaultDatabase(useDatabase: () => { db: WebhooksDatabase 
   }
 }
 
-/** The server variables: Node's `process.env`, the Cloudflare bindings, and the values of `setEnv()` in app tests. */
-function serverEnv(): Record<string, unknown> {
-  return { ...(typeof process === "object" && process?.env ? process.env : {}), ...getActiveCloudflareEnv(), ...getViteHubTestMode()?.env }
-}
-
-function readString(env: Record<string, unknown>, name: string): string | undefined {
-  const value = env[name]
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
-}
-
-type Target = { url: string, secret: string }
+/** Where an attempt posts. `guard` checks the URL with `checkWebhookUrl()` first, as member endpoints need. */
+type Target = { url: string, secret: string, signature: WebhookSignature, guard?: boolean }
 type TargetError = ReturnType<typeof webhooksErrors.WEBHOOKS_URL_UNSET | typeof webhooksErrors.WEBHOOKS_URL_INVALID | typeof webhooksErrors.WEBHOOKS_SECRET_UNSET>
 type WakeError = ReturnType<typeof webhooksErrors.WEBHOOKS_WAKE_FAILED>
 
@@ -136,17 +194,67 @@ function resolveTarget(name: string, definition: WebhookDefinition): [TargetErro
   if (!URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) return [webhooksErrors.WEBHOOKS_URL_INVALID({ name: definition.url, webhook: name }), undefined]
   const secret = readString(env, definition.secret)
   if (!secret) return [webhooksErrors.WEBHOOKS_SECRET_UNSET({ name: definition.secret, webhook: name }), undefined]
-  return [undefined, { url, secret }]
+  return [undefined, { url, secret, signature: definition.signature }]
 }
 
-function createDeliveryId(): string {
+/** A member delivery names its endpoint as `@<endpoint id>` in the `webhook` column. */
+export const memberWebhookPrefix = "@"
+
+/** The URL and secret of a member endpoint, or why the delivery cannot go out. The reason never holds the URL. */
+async function resolveMemberTarget(installed: InstalledWebhooks, id: string): Promise<[string, undefined] | [undefined, Target]> {
+  const endpoint = await installed.endpoints?.find(id)
+  if (!endpoint) return [`No member endpoint has the id ${JSON.stringify(id)}.`, undefined]
+  if (endpoint.disabledAt !== null) return [`The member endpoint ${id} is disabled.`, undefined]
+  if (endpoint.sealed === null) return [`The member endpoint ${id} is an inbox, so it takes no posts.`, undefined]
+  const [error, target] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed }, installed.developmentKey)
+  if (error) return [error.message, undefined]
+  return [undefined, { ...target, signature: "github", guard: true }]
+}
+
+/**
+ * Who asks for an action on a member delivery, such as Redeliver. `id` is an app user. A ViteHub Console account is
+ * not an app user, so the operation first resolves its verified email to a current app user id.
+ */
+export type MemberCaller = { id: string, verifiedConsoleEmail?: string }
+
+/**
+ * Whether `caller` has the app user id of the owner. Console callers must also match the email set at connect time.
+ */
+export function ownsMemberEndpoint(endpoint: Pick<MemberEndpoint, "owner" | "ownerEmail">, caller: MemberCaller | undefined): boolean {
+  return caller?.id === endpoint.owner && (caller.verifiedConsoleEmail === undefined || caller.verifiedConsoleEmail === endpoint.ownerEmail)
+}
+
+/**
+ * Posts a claimed member delivery now, or keeps it for the inbox when `target` is `undefined`. A failed post is tried
+ * again through the Queue when the app has one, so its status is `"pending"`; without Queue it is `"failed"`.
+ */
+export async function deliverMemberClaim(installed: InstalledWebhooks, claim: WebhookDelivery, target: EndpointTarget | undefined): Promise<[WakeError, undefined] | [undefined, SendToMemberEndpointResult]> {
+  const { store } = installed
+  if (!target) {
+    await store.sent(claim, { status: null, error: null }, Date.now())
+    return [undefined, { id: claim.id, status: "inbox" }]
+  }
+  const result = await postDelivery(claim, { ...target, signature: "github", guard: true })
+  if (result.ok) {
+    await store.sent(claim, { status: result.status, error: null }, Date.now())
+    return [undefined, { id: claim.id, status: "sent" }]
+  }
+  const retry = installed.wake !== undefined && !result.final
+  const wakeError = retry ? await wake(installed, claim, webhookTimeoutMs) : undefined
+  const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), !retry || wakeError !== undefined)
+  if (wakeError) return [wakeError, undefined]
+  return [undefined, { id: claim.id, status: state === "pending" ? "pending" : "failed" }]
+}
+
+export function createDeliveryId(): string {
   return `whd_${crypto.randomUUID()}`
 }
 
-async function wake(installed: InstalledWebhooks, delivery: { id: string, revision: number, webhook: string }, delayMs: number): Promise<WakeError | undefined> {
+export async function wake(installed: InstalledWebhooks, delivery: { id: string, revision: number, webhook: string }, delayMs: number): Promise<WakeError | undefined> {
+  if (!installed.wake) return webhooksErrors.WEBHOOKS_WAKE_FAILED({ webhook: delivery.webhook, cause: new Error("The app has no Queue.") })
   try {
     // Hosted Queues take whole seconds, so a debounce waits at least until the next whole second.
-    const [error] = await installed.wake({ id: delivery.id, revision: delivery.revision }, { delaySeconds: Math.ceil(Math.max(0, delayMs) / 1000) })
+    const [error] = await installed.wake({ id: delivery.id, revision: delivery.revision }, { delay: `${Math.ceil(Math.max(0, delayMs) / 1000)}s` })
     return error === undefined ? undefined : webhooksErrors.WEBHOOKS_WAKE_FAILED({ webhook: delivery.webhook, cause: error })
   }
   catch (cause) {
@@ -246,60 +354,108 @@ export async function deliverWebhookWake(payload: unknown): Promise<void> {
     }
     return
   }
-  const definition = installed.webhooks.get(claim.webhook)
-  if (!definition) {
-    await store.failed(claim, { status: null, error: `No webhook is named ${JSON.stringify(claim.webhook)} in this build.` }, Date.now(), true)
+  const [targetError, target] = claim.webhook.startsWith(memberWebhookPrefix)
+    ? await resolveMemberTarget(installed, claim.webhook.slice(memberWebhookPrefix.length))
+    : resolveFileTarget(installed, claim.webhook)
+  if (targetError !== undefined) {
+    // A missing variable or endpoint needs a fix, so retries cannot help. Redeliver after the fix.
+    await store.failed(claim, { status: null, error: targetError }, Date.now(), true)
     return
   }
-  const [targetError, target] = resolveTarget(claim.webhook, definition)
-  if (targetError) {
-    // A missing variable needs a deploy, so retries cannot help. Redeliver after the fix.
-    await store.failed(claim, { status: null, error: targetError.message }, Date.now(), true)
+  const result = await postDelivery(claim, target)
+  if (result.ok) {
+    await store.sent(claim, { status: result.status, error: null }, Date.now())
     return
+  }
+  const dead = result.final || claim.attempts >= webhookMaxAttempts
+  const state = await store.failed(claim, { status: result.status, error: result.failure }, Date.now(), dead)
+  if (state === "pending") throw webhooksErrors.WEBHOOKS_DELIVERY_FAILED({ reason: result.failure, webhook: claim.webhook })
+}
+
+function resolveFileTarget(installed: InstalledWebhooks, name: string): [string, undefined] | [undefined, Target] {
+  const definition = installed.webhooks.get(name)
+  if (!definition) return [`No webhook is named ${JSON.stringify(name)} in this build.`, undefined]
+  const [error, target] = resolveTarget(name, definition)
+  return error ? [error.message, undefined] : [undefined, target]
+}
+
+/** One attempt. `final` means a retry cannot help, such as a URL that the guard refuses. */
+export type PostResult =
+  | { ok: true, status: number }
+  | { ok: false, status: number | null, failure: string, final: boolean }
+
+async function postWithCheckedAddresses(url: URL, addresses: LookupAddress[], body: string, headers: Record<string, string>, signal: AbortSignal): Promise<number> {
+  const { request } = await import("node:https")
+  return new Promise((resolve, reject) => {
+    const outgoing = request(url, {
+      agent: false,
+      method: "POST",
+      headers: { ...headers, "content-length": String(Buffer.byteLength(body)) },
+      signal,
+      lookup(_hostname, options, callback) {
+        const candidates = addresses.filter(address => !options.family || address.family === options.family)
+        const first = candidates[0]
+        if (!first) callback(new Error("No checked address matches the requested family."), "", 0)
+        else if (options.all) callback(null, candidates)
+        else callback(null, first.address, first.family)
+      },
+    }, (response) => {
+      const status = response.statusCode ?? 0
+      response.destroy()
+      resolve(status)
+    })
+    outgoing.on("error", reject)
+    outgoing.end(body)
+  })
+}
+
+/** Posts a claimed delivery once, signed, with a 10 second timeout and no redirects. */
+export async function postDelivery(claim: WebhookDelivery, target: Target): Promise<PostResult> {
+  let checked: ResolvedWebhookUrl | undefined
+  if (target.guard) {
+    const [refused, resolved] = await resolveWebhookUrl(target.url)
+    if (refused) return { ok: false, status: null, failure: refused.message, final: true }
+    checked = resolved
   }
   // The stored body is JSON text, so this gives the same bytes that the last send stored.
   const body = JSON.stringify(claim.body)
-  let status: number | null = null
-  let failure: string
   try {
-    const signed = await signWebhook(body, { provider: definition.signature, secret: target.secret })
-    const response = await fetch(target.url, {
-      method: "POST",
-      body,
-      headers: {
-        ...signed,
-        "content-type": "application/json",
-        "user-agent": "ViteHub-Webhooks",
-        "x-vitehub-delivery": claim.id,
-        "x-vitehub-event": claim.event,
-        "x-vitehub-events": String(claim.count),
-      },
-      // A redirect would send the signed body to another place.
-      redirect: "manual",
-      signal: AbortSignal.timeout(webhookTimeoutMs),
-    })
-    status = response.status
-    // Free the connection. The answer body is not stored.
-    await response.body?.cancel().catch(() => {})
-    if (response.ok) {
-      await store.sent(claim, { status, error: null }, Date.now())
-      return
+    const signed = await signWebhook(body, { provider: target.signature, secret: target.secret })
+    const headers = {
+      ...signed,
+      "content-type": "application/json",
+      "user-agent": "ViteHub-Webhooks",
+      "x-vitehub-delivery": claim.id,
+      "x-vitehub-event": claim.event,
+      "x-vitehub-events": String(claim.count),
     }
-    failure = `HTTP ${status}`
+    const signal = AbortSignal.timeout(webhookTimeoutMs)
+    let status: number
+    if (checked?.addresses) {
+      status = await postWithCheckedAddresses(checked.url, checked.addresses, body, headers, signal)
+    }
+    else {
+      const response = await fetch(checked?.url ?? target.url, { method: "POST", body, headers, redirect: "manual", signal })
+      await response.body?.cancel().catch(() => {})
+      status = response.status
+    }
+    return status >= 200 && status < 300 ? { ok: true, status } : { ok: false, status, failure: `HTTP ${status}`, final: false }
   }
   catch (error) {
-    failure = describeFailure(error)
+    return { ok: false, status: null, failure: describeFailure(error), final: false }
   }
-  const dead = claim.attempts >= webhookMaxAttempts
-  const state = await store.failed(claim, { status, error: failure }, Date.now(), dead)
-  if (state === "pending") throw webhooksErrors.WEBHOOKS_DELIVERY_FAILED({ reason: failure, webhook: claim.webhook })
 }
 
 const deliveryErrorCodes: readonly string[] = [
   "WEBHOOKS_DATABASE_MISSING",
   "WEBHOOKS_DELIVERY_ACTIVE",
   "WEBHOOKS_DELIVERY_NOT_FOUND",
+  "WEBHOOKS_DELIVERY_NOT_OWNER",
   "WEBHOOKS_DELIVERY_NOT_PENDING",
+  "WEBHOOKS_ENDPOINT_DISABLED",
+  "WEBHOOKS_ENDPOINT_NOT_FOUND",
+  "WEBHOOKS_KEY_INVALID",
+  "WEBHOOKS_KEY_UNSET",
   "WEBHOOKS_STORE_FAILED",
   "WEBHOOKS_WAKE_FAILED",
 ] satisfies readonly WebhookDeliveryErrorCode[]
@@ -332,6 +488,7 @@ export function listWebhooks(): WebhookInfo[] {
       secret: definition.secret,
       signature: definition.signature,
       debounceMs: definition.debounceMs,
+      events: definition.events,
       urlSet: url !== undefined,
       secretSet: readString(env, definition.secret) !== undefined,
       host: url !== undefined && URL.canParse(url) ? new URL(url).host || null : null,
@@ -359,9 +516,35 @@ export function getWebhookDelivery(id: string): Promise<Result<WebhookDelivery, 
   return attempt(installed => findDelivery(installed, id))
 }
 
-/** Delivers a pending delivery now, without the rest of its debounce. */
-export function flushWebhookDelivery(id: string): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
+/** What the delivery functions that send take. */
+export interface WebhookDeliveryActionOptions {
+  /** Who asks. A delivery to a member endpoint goes out again only for its owner: see `ownsMemberEndpoint()`. */
+  caller?: MemberCaller
+  resolveCaller?: () => Promise<MemberCaller | undefined>
+}
+
+/** The member endpoint of a member delivery, when `caller` owns it. Throws the error that the action returns. */
+async function ownedMemberEndpoint(installed: InstalledWebhooks, delivery: WebhookDelivery, options: WebhookDeliveryActionOptions) {
+  const id = delivery.webhook.slice(memberWebhookPrefix.length)
+  const endpoint = await installed.endpoints?.find(id)
+  if (!endpoint) throw webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)}` })
+  if (!ownsMemberEndpoint(endpoint, options.resolveCaller ? await options.resolveCaller() : options.caller)) {
+    throw webhooksErrors.WEBHOOKS_DELIVERY_NOT_OWNER({ id: JSON.stringify(delivery.id) })
+  }
+  return endpoint
+}
+
+/**
+ * Delivers a pending delivery now, without the rest of its debounce. A pending member delivery, which waits for a
+ * Queue retry, goes out only for its owner, so pass `caller`.
+ */
+export function flushWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<WebhookDelivery, WebhookDeliveryErrorCode>> {
   return attempt(async (installed) => {
+    const current = await findDelivery(installed, id)
+    if (current.webhook.startsWith(memberWebhookPrefix)) {
+      const endpoint = await ownedMemberEndpoint(installed, current, options)
+      if (endpoint.disabledAt !== null) throw webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id })
+    }
     const delivery = await installed.store.due(id, Date.now())
     if (!delivery) {
       const current = await findDelivery(installed, id)
@@ -386,11 +569,16 @@ export function cancelWebhookDelivery(id: string): Promise<Result<WebhookDeliver
 /**
  * Sends a sent, dead, or cancelled delivery again, now, as a new delivery with a new id. It keeps the body, the event,
  * and the count. The webhook must still exist.
+ *
+ * A delivery to a member endpoint goes out again only for the owner of the endpoint, so pass `caller`. Anyone else gets
+ * `WEBHOOKS_DELIVERY_NOT_OWNER`. It posts in the request, as `sendToMemberEndpoint()` does, and returns its status.
  */
-export function redeliverWebhookDelivery(id: string): Promise<Result<SendWebhookResult, WebhookDeliveryErrorCode>> {
-  return attempt(async (installed) => {
+export function redeliverWebhookDelivery(id: string, options: WebhookDeliveryActionOptions = {}): Promise<Result<SendWebhookResult | SendToMemberEndpointResult, WebhookDeliveryErrorCode>> {
+  return attempt(async (installed): Promise<SendWebhookResult | SendToMemberEndpointResult> => {
     const source = await findDelivery(installed, id)
+    const endpoint = source.webhook.startsWith(memberWebhookPrefix) ? await ownedMemberEndpoint(installed, source, options) : undefined
     if (source.state === "pending" || source.state === "sending") throw webhooksErrors.WEBHOOKS_DELIVERY_ACTIVE({ id: JSON.stringify(id), state: source.state })
+    if (endpoint) return await redeliverToMember(installed, source, endpoint)
     if (!installed.webhooks.has(source.webhook)) throw webhooksErrors.WEBHOOKS_NOT_FOUND({ name: JSON.stringify(source.webhook) })
     const now = Date.now()
     const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
@@ -398,4 +586,22 @@ export function redeliverWebhookDelivery(id: string): Promise<Result<SendWebhook
     if (error) throw error
     return { id: recorded.id, status: "pending" as const }
   })
+}
+
+async function redeliverToMember(installed: InstalledWebhooks, source: WebhookDelivery, endpoint: MemberEndpoint & { sealed: string | null }): Promise<SendToMemberEndpointResult> {
+  if (endpoint.disabledAt !== null) throw webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id })
+  let target: EndpointTarget | undefined
+  if (endpoint.sealed !== null) {
+    const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed }, installed.developmentKey)
+    if (keyError) throw keyError
+    target = opened
+  }
+  const now = Date.now()
+  const recorded = await installed.store.record({ id: createDeliveryId(), webhook: source.webhook, owner: endpoint.owner, key: null, event: source.event, body: JSON.stringify(source.body), count: source.count, dueAt: now, now })
+  // `0` claims only a pending delivery, never one that another server is sending.
+  const claim = await installed.store.claim(recorded.id, recorded.revision, now, 0)
+  if (!claim) return { id: recorded.id, status: "pending" }
+  const [wakeError, result] = await deliverMemberClaim(installed, claim, target)
+  if (wakeError) throw wakeError
+  return result
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createExecutionBudget, type ExecutionBudget } from "../../runtime/src/index.ts"
+import type { ExecutionBudget } from "../../runtime/src/index.ts"
+import { createExecutionBudget } from "../../runtime/src/internal/execution-budget.ts"
 
 import { workspaceShell } from "../src/capabilities.ts"
 import { setActiveAgentWorkspaceCommands } from "../src/agent-workspace-runtime.ts"

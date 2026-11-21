@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -74,6 +74,11 @@
       "types": "./dist/internal/path.d.ts",
       "import": "./dist/internal/path.js",
       "default": "./dist/internal/path.js"
+    },
+    "./internal/workspace": {
+      "types": "./dist/internal/workspace.d.ts",
+      "import": "./dist/internal/workspace.js",
+      "default": "./dist/internal/workspace.js"
     },
     "./lineage": {
       "types": "./dist/lineage.d.ts",
@@ -150,7 +155,6 @@
     "@vite-hub/source": "workspace:*",
     "birpc": "catalog:runtime",
     "defu": "catalog:unjs",
-    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
@@ -172,6 +176,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
+    "esbuild": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -203,6 +208,6 @@
     }
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   }
 }

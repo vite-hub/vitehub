@@ -1,12 +1,15 @@
 import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream } from "node:fs"
-import { copyFile, lstat, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, open, opendir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
+import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
 import { signFsRequest } from "../internal/fs-sign.ts"
 
@@ -14,6 +17,19 @@ interface FsMultipartState {
   contentType?: string
   customMetadata?: Record<string, string>
   pathname: string
+}
+
+// The ops that already logged a failure. `list()` reads every file, so a broken cache folder would log once per file.
+const loggedFsFailures = new Set<string>()
+
+/**
+ * Logs a failed cache or metadata write that the operation survives, once per process for each `op`. The driver does
+ * not know the request or a `waitUntil()`, so the failure is an event of its own.
+ */
+function logFsFailure(op: string, message: string, error: unknown, fallback: () => void): void {
+  if (loggedFsFailures.has(op)) return
+  loggedFsFailures.add(op)
+  logFailure({ field: "blob", fields: { op, driver: "fs" }, message, error }, fallback)
 }
 
 const uploadIdPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
@@ -296,7 +312,7 @@ async function readCopiedMetadata(root: string, pathname: string, path: string, 
   // before the sidecar is published, so readers also check its recorded hash.
   if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
     await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
-      console.error("[vitehub/blob] Filesystem metadata re-key failed", error)
+      logFsFailure("fs-metadata-rekey", "Blob filesystem metadata re-key failed", error, () => console.error("[vitehub/blob] Filesystem metadata re-key failed", error))
     })
   }
   return metadata
@@ -463,7 +479,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         if (!bytes || version !== await currentVersion(path)) continue
         contentHash = sha256(bytes)
         await writeHash(root, pathname, { contentHash, fileVersion: version }).catch((error) => {
-          console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+          logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
         })
       }
       const hash = contentHash
@@ -611,6 +627,10 @@ async function listKeys(root: string, options: BlobListOptions, after: string): 
   }
 }
 
+// Writes of one file run one at a time in this process, across drivers of the same folder, so `putIf()` checks the
+// object that its write replaces.
+const writes = new Map<string, Promise<unknown>>()
+
 export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdapter<ResolvedFsBlobStoreConfig> {
   const root = resolveRoot(options)
 
@@ -648,7 +668,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     const published = await stat(publishedPath, { bigint: true })
     if (written && published.dev === written.dev && published.ino === written.ino && published.size === written.size && published.mtimeNs === written.mtimeNs) {
       await writeHash(root, pathname, { contentHash, fileVersion: fileVersion(published) }).catch((error) => {
-        console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+        logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
       })
     }
     const entry = await readEntry(root, pathname)
@@ -664,7 +684,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await assertNoSymlinkPath(root, dir)
         await rm(dir, { force: true, recursive: true })
       },
-      async complete(parts) {
+      complete: parts => oneWriteAtATime(state.pathname, async () => {
         await assertNoSymlinkPath(root, dir)
         const ordered = [...parts].sort((left, right) => left.partNumber - right.partNumber)
         // Copy each part into the final file in turn, so only one read buffer is in memory.
@@ -707,7 +727,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         }, { contentType: state.contentType, customMetadata: state.customMetadata })
         await rm(dir, { force: true, recursive: true })
         return object
-      },
+      }),
       async uploadPart(partNumber, body) {
         const bytes = await bodyToBytes(body)
         const partPath = resolve(dir, String(partNumber))
@@ -719,8 +739,32 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     }
   }
 
+  async function put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions) {
+    await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
+    await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
+    const bytes = await bodyToBytes(body)
+    return await publish(pathname, async (temporary) => {
+      await writeFile(temporary, bytes, { flag: "wx" })
+      return sha256(bytes)
+    }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
+  }
+
+  async function oneWriteAtATime<T>(pathname: string, write: () => Promise<T>): Promise<T> {
+    const key = resolveBlobPath(root, pathname)
+    const run = (writes.get(key) ?? Promise.resolve()).catch(() => {}).then(write)
+    writes.set(key, run)
+    return await run.finally(() => {
+      if (writes.get(key) === run) writes.delete(key)
+    })
+  }
+
   const driver: BlobDriverAdapter<ResolvedFsBlobStoreConfig> = {
     name: "fs",
+    async checkHealth() {
+      await assertNoSymlinkPath(root, root)
+      const directory = await opendir(root).catch(ignoreNotFound)
+      await directory?.close()
+    },
     canonicalPathname: pathname => relative(root, resolveBlobPath(root, pathname)).split(sep).join("/"),
     options,
     // A file has no URL of its own. ViteHub signs a link to its signed route, which checks it and serves the file.
@@ -795,11 +839,11 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         }
       }
 
-      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(async pathname => {
+      await Promise.all((Array.isArray(pathnames) ? pathnames : [pathnames]).map(pathname => oneWriteAtATime(pathname, async () => {
         // A writer that moves `docs` into its folder object holds the bytes in both places for a moment. Delete both.
         const removed = await Promise.all([resolveBlobPath(root, pathname), folderObjectPath(root, pathname)].map(path => unpublish(pathname, path)))
         if (!removed.some(Boolean)) await removeMetadata(root, pathname)
-      }))
+      })))
     },
     async get(pathname) {
       try {
@@ -852,17 +896,15 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         throw error
       }
     },
-    async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
-      await assertNoSymlinkPath(root, resolveBlobPath(root, pathname))
-      await assertNoSymlinkPath(root, resolveMetaPath(root, pathname))
-      const bytes = await bodyToBytes(body)
-      return await publish(pathname, async (temporary) => {
-        await writeFile(temporary, bytes, { flag: "wx" })
-        return sha256(bytes)
-      }, { contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined), customMetadata: putOptions.customMetadata })
-    },
+    put: (pathname, body, putOptions = {}) => oneWriteAtATime(pathname, () => put(pathname, body, putOptions)),
+    // The check and the write run in this process only. Another process that writes the same folder can write between them.
+    putIf: (pathname, body, putOptions, condition) => oneWriteAtATime(pathname, async () => {
+      const current = await readEntry(root, pathname)
+      const holds = condition.type === "create" ? !current : current?.contentHash === bareETag(condition.etag)
+      return holds ? await put(pathname, body, putOptions) : null
+    }),
     // Copies the file, then writes the metadata of the source for the new file.
-    async copy(from, to) {
+    copy: (from, to) => oneWriteAtATime(to, async () => {
       const source = await readEntry(root, from)
       const sourcePath = source && (await resolvePayload(root, from))?.path
       if (!source || !sourcePath) return null
@@ -872,7 +914,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await copyFile(payload?.path ?? sourcePath, temporary, constants.COPYFILE_EXCL)
         return sha256File(temporary)
       }, source.meta)
-    },
+    }),
   }
 
   return driver

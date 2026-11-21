@@ -14,13 +14,13 @@ describe("Blob access", () => {
   it("does not let a per-put access option pretend that a served object is private", async () => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-access-"))
     try {
-      setBlobRuntimeConfig({ serve: { access: "public", route: "/api/_vitehub/blob", store: "default" }, store: { base, driver: "fs" } })
+      setBlobRuntimeConfig({ serve: { access: "public", route: "/_vitehub/blob", store: "default" }, store: { base, driver: "fs" } })
       // JavaScript callers can still pass the removed option.
       const options = { access: "private", contentType: "text/plain" } as BlobPutOptions
       await expect(blob.put("invoices/1.txt", "secret", options)).rejects.toMatchObject({ code: "BLOB_R0045" })
 
       // Nothing was written, so the public route has nothing to send.
-      const response = await blob.serve(new Request("http://localhost/api/_vitehub/blob/invoices/1.txt"), "invoices/1.txt")
+      const response = await blob.serve(new Request("http://localhost/_vitehub/blob/invoices/1.txt"), "invoices/1.txt")
       expect(response.status).toBe(404)
     }
     finally {
@@ -38,7 +38,7 @@ describe("Blob access", () => {
     expect(() => normalizeBlobOptions({ driver: "fs", serve: { access: "private" } } as never))
       .toThrow(expect.objectContaining({ code: "BLOB_C0021", message: expect.stringContaining("Set `authorize: true` to require sign-in.") }))
     expect(() => normalizeBlobOptions({ driver: "fs", serve: { authorize: true, access: "public" } } as never)).toThrow(expect.objectContaining({ code: "BLOB_C0021" }))
-    expect(normalizeBlobOptions({ driver: "fs", serve: { access: "public" } })?.serve).toEqual({ access: "public", route: "/api/_vitehub/blob", store: "default" })
-    expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: true } })?.serve).toEqual({ authorize: true, route: "/api/_vitehub/blob", store: "default" })
+    expect(normalizeBlobOptions({ driver: "fs", serve: { access: "public" } })?.serve).toEqual({ access: "public", route: "/_vitehub/blob", store: "default" })
+    expect(normalizeBlobOptions({ driver: "fs", serve: { authorize: true } })?.serve).toEqual({ authorize: true, route: "/_vitehub/blob", store: "default" })
   })
 })
