@@ -44,33 +44,33 @@ function parseAccept(accept: string | null): AcceptEntry[] {
   return entries
 }
 
-/** The quality of the most specific range that matches `target`: the type itself, then `type/*`, then `*\/*`. */
-function acceptQuality(entries: readonly AcceptEntry[], target: string): number {
+/**
+ * The range that decides `target`: the most specific one that matches it (the type itself, then `type/*`, then `*\/*`),
+ * with its quality, how specific it is, and its place in the header.
+ */
+function matchingRange(entries: readonly AcceptEntry[], target: string): { q: number, specificity: number, index: number } {
   const type = target.split("/")[0]
-  let specificity = 0
-  let q = 0
-  for (const entry of entries) {
+  let best = { q: 0, specificity: 0, index: Infinity }
+  for (const [index, entry] of entries.entries()) {
     const rank = entry.type === target ? 3 : entry.type === `${type}/*` ? 2 : entry.type === "*/*" ? 1 : 0
     if (!rank) continue
-    if (rank > specificity) {
-      specificity = rank
-      q = entry.q
-    }
-    else if (rank === specificity) q = Math.max(q, entry.q)
+    if (rank > best.specificity || (rank === best.specificity && entry.q > best.q)) best = { q: entry.q, specificity: rank, index }
   }
-  return q
+  return best
 }
 
 /**
- * Whether an `Accept` header asks for Markdown before HTML: `text/markdown` with a quality at least that of
- * `text/html`, or a range such as `text/*` that matches Markdown but not HTML.
+ * Whether an `Accept` header asks for Markdown before HTML: `text/markdown` with a higher quality than `text/html`. At
+ * the same quality, a type named exactly beats a range such as `text/*`, and else the type listed first wins. Without
+ * `text/markdown` in the header, a range such as `text/*` gives Markdown only when HTML is refused.
  */
 export function acceptsMarkdown(accept: string | null): boolean {
   const entries = parseAccept(accept)
-  const html = acceptQuality(entries, "text/html")
-  const markdown = Math.max(0, ...entries.filter(entry => entry.type === "text/markdown").map(entry => entry.q))
-  if (markdown) return markdown >= html
-  return html === 0 && acceptQuality(entries, "text/markdown") > 0
+  const html = matchingRange(entries, "text/html")
+  const markdown = matchingRange(entries, "text/markdown")
+  if (!entries.some(entry => entry.type === "text/markdown")) return html.q === 0 && markdown.q > 0
+  if (markdown.q !== html.q) return markdown.q > html.q
+  return markdown.q > 0 && (markdown.specificity !== html.specificity ? markdown.specificity > html.specificity : markdown.index < html.index)
 }
 
 /** A link in the "Where to look next" list of the Markdown 404 body. */
@@ -387,7 +387,7 @@ export function defineContentMarkdownHandler(content: ContentMarkdownRuntime | (
       let response: Response
       if (status !== 200) response = new Response(request.method === "HEAD" ? null : body, { status, headers })
       else {
-        headers.set("content-location", copy ? url.pathname : twin)
+        headers.set("content-location", `${copy ? url.pathname : twin}${url.search}`)
         const etag = await markdownEtag(body)
         headers.set("etag", etag)
         const fresh = etagMatches(request.headers.get("if-none-match"), etag)
