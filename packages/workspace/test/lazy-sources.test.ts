@@ -495,6 +495,9 @@ describe("lazy sources", () => {
           materialize: "startup",
           async getKeys() { return ["child/file.md"] },
           async getItem(key) { return { key, content: key } },
+          ...(local && stage === "abort" ? {
+            async getItems() { return [{ key: "child/file.md", content: "child/file.md" }] },
+          } : {}),
         }),
       },
     }
