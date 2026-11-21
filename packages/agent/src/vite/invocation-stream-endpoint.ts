@@ -529,6 +529,8 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
 function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  // The command does not start the Driver, so an Agent with `driver: "external"` can run it too.
+  Object.defineProperty(clone, Symbol.for("vitehub.agentWorkspaceCommandRun"), { value: true })
   clone.run = async (context) => {
     if (!context.workspace) throw agentDiagnostics.AGENT_R0876({ message: "[vitehub] Agent Dev Loop command requires an Agent with a Workspace." })
     const { resolveSandbox } = await import("@vite-hub/" + "sandbox") as typeof import("@vite-hub/sandbox")

@@ -1,4 +1,4 @@
-import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
+import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime/internal/response"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { readNonRetryableStepResult, resolveWorkflowStepOptions, runSerializedWorkflowHandler, toDurationMilliseconds, toNonRetryableStepResult, withWorkflowStepTimeout } from "./execute.ts"
 import { createWorkflowError } from "../errors.ts"

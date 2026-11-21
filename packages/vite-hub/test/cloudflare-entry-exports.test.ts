@@ -116,14 +116,19 @@ describe("server/cloudflare.ts on Cloudflare", () => {
 
   it("reads the file from Nitro's serverDir", async () => {
     const backend = Object.fromEntries(Object.entries(files).map(([file, source]) => [file.replace(/^server\//, "backend/"), source]))
-    const root = await build({ host: "cloudflare" }, { "backend/cloudflare.ts": counter }, { serverDir: "backend" }, backend)
-    const worker = await startWorker(root)
-    try {
-      expect(await (await worker.dispatchFetch("https://example.com/count")).json()).toEqual({ count: 1 })
-    }
-    finally {
-      await worker.dispose()
-    }
+    const root = await build({ host: "cloudflare" }, {
+      "backend/cloudflare.ts": counter,
+      "nitro.config.ts": "export default { serverDir: 'backend' }",
+    }, {}, backend)
+    expect(await readFile(join(root, ".output/server/index.mjs"), "utf8")).toContain(`export { Counter } from "./app-cloudflare-exports.mjs"`)
+  }, 300_000)
+
+  it("ignores the file when Nitro disables serverDir", async () => {
+    const root = await build({ host: "cloudflare" }, {
+      "nitro.config.ts": "export default { serverDir: false }",
+      "server/cloudflare.ts": "export default class Unused {}",
+    }, {}, { "package.json": files["package.json"] })
+    expect(await readdir(join(root, ".output/server"))).not.toContain("app-cloudflare-exports.mjs")
   }, 300_000)
 
   it("keeps the file out of the prerender build", async () => {

@@ -84,7 +84,7 @@ async function open(url: string): Promise<{ response: Response, cookie: string }
 
 /** The page tools that the session route gives this browser. */
 async function tools(cookie: string): Promise<string[]> {
-  const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session?page=%2Fguide`, { headers: { cookie } }))
+  const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools?page=%2Fguide`, { headers: { cookie } }))
   const body: unknown = await response.json()
   return (Reflect.get(Object(body), "tools") as Array<{ id: string }>).map(tool => tool.id)
 }
