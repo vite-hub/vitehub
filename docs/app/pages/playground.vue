@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlaygroundContainer, type PlaygroundContainerTemplate } from "@vite-hub/ui/workspace";
+import { webContainer, Workspace, type WorkspaceExample } from "@vite-hub/ui/workspace";
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
 import { playgroundTemplates } from "#build/playground-templates.mjs";
@@ -17,21 +17,25 @@ const route = useRoute();
 const router = useRouter();
 const fallback = playgroundTemplates[0]!;
 
-// Templates with the same dependencies share one snapshot function, so the container switches between them without a
+// Examples with the same dependencies share one snapshot function, so the runner switches between them without a
 // new boot. The tutorial with those dependencies uses the same cache name, so the browser keeps one copy of the parts.
 const snapshots = new Map<string, () => Promise<Uint8Array>>();
-const templates: PlaygroundContainerTemplate[] = playgroundTemplates.map(({ snapshot: prebuilt, snapshotOf, ...template }) => {
-  if (prebuilt && !snapshots.has(snapshotOf)) {
-    snapshots.set(snapshotOf, () => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${snapshotOf}`, sha256: prebuilt.sha256 }));
+const snapshotOf = new Map<string, string>();
+const examples: WorkspaceExample[] = playgroundTemplates.map(({ snapshot: prebuilt, snapshotOf: key, ...example }) => {
+  if (prebuilt && !snapshots.has(key)) {
+    snapshots.set(key, () => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${key}`, sha256: prebuilt.sha256 }));
   }
-  return { ...template, snapshot: snapshots.get(snapshotOf) };
+  snapshotOf.set(example.id, key);
+  return example;
 });
 
 // Tokens stay in this tab (sessionStorage). They reach the app only as environment variables of the dev server.
 const connect = defineConnect({ anthropic: true, github: true, netlify: true, openai: true, vercel: true });
+// The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app.
+const runner = webContainer({ connect, port: 3000, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") });
 const open = ref(false);
 
-/** The address keeps the template that is open. A share link no longer matches the files, so its hash goes. */
+/** The address keeps the example that is open in `?template=`, so older links open. A share link no longer matches the files, so its hash goes. */
 function keep(id: string) {
   void router.replace({ query: { ...route.query, template: id === fallback.id ? undefined : id }, hash: "" });
 }
@@ -39,16 +43,14 @@ function keep(id: string) {
 
 <template>
   <div class="vh-playground">
-    <!-- The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app. -->
-    <PlaygroundContainer
+    <Workspace
       v-model:open="open"
-      :templates="templates"
-      :template="typeof route.query.template === 'string' ? route.query.template : undefined"
+      :examples="examples"
+      :example="typeof route.query.template === 'string' ? route.query.template : undefined"
+      :runner="runner"
       label="playground"
       name="vitehub"
-      :port="3000"
-      :connect="connect"
-      @update:template="keep"
+      @update:example="keep"
     >
       <template #intro>
         <h1 class="text-balance text-3xl font-semibold text-highlighted">{{ title }}</h1>
@@ -58,10 +60,10 @@ function keep(id: string) {
       <template #fallback>
         <h2 class="mt-10 text-lg font-semibold text-highlighted">Examples</h2>
         <ul class="vh-playground-list">
-          <li v-for="template in playgroundTemplates" :key="template.id">
-            <!-- A new document boots the template, as a link from another page does. -->
-            <a :href="template.id === fallback.id ? '/playground' : `/playground?template=${template.id}`" class="font-medium text-highlighted">{{ template.label }}</a>
-            <span class="text-muted">: {{ template.description }}</span>
+          <li v-for="example in examples" :key="example.id">
+            <!-- A new document boots the example, as a link from another page does. -->
+            <a :href="example.id === fallback.id ? '/playground' : `/playground?template=${example.id}`" class="font-medium text-highlighted">{{ example.label }}</a>
+            <span class="text-muted">: {{ example.description }}</span>
           </li>
         </ul>
 
@@ -72,12 +74,12 @@ function keep(id: string) {
           <li>Download saves the files of the app as a zip, so you can run it on your machine.</li>
         </ul>
       </template>
-    </PlaygroundContainer>
+    </Workspace>
   </div>
 </template>
 
 <style scoped>
-.vh-playground :deep(.vh-pc-gate-content) {
+.vh-playground :deep(.vh-workspace-gate-content) {
   width: 100%;
   max-width: calc(65ch + 2rem);
   margin-inline: auto;

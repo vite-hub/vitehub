@@ -116,26 +116,16 @@ describe("@vite-hub/ui package contract", () => {
     const read = (name: string) => readFileSync(new URL(name, dist), "utf8");
     const root = read("index.js");
     for (const name of ["@vite-hub/web-container", "@codemirror/", "@xterm/"]) expect(root, name).not.toContain(name);
-    // The app runs the WebContainer with `useWebContainer()` of @vite-hub/web-container/vue, and the parts render its state.
-    // Only PlaygroundContainer, the whole playground, runs it itself.
+    // The parts render the state of a WebContainer. Only the webContainer() runner of Workspace runs one.
     const webContainerImporters = (readdirSync(dist, { recursive: true }) as string[])
       .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container(?:\/vue)?"/.test(read(name)));
-    expect(webContainerImporters).toEqual(["parts/workspace/playground-container.js"]);
+    expect(webContainerImporters).toEqual(["parts/workspace/runners/web-container.js"]);
     expect(read("parts/workspace/workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
     expect(read("parts/workspace/workspace-terminal.js")).not.toMatch(/from\s*"@xterm\//);
     expect(read("parts/workspace/workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
-    expect(read("parts/workspace/playground-container.js")).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
-  });
-
-  it("loads Shiki for PlaygroundRender only after its first render", () => {
-    const dist = new URL("../dist/", import.meta.url);
-    const read = (name: string) => readFileSync(new URL(name, dist), "utf8");
-    expect(read("index.js")).not.toMatch(/from\s*"shiki/);
-    const part = read("parts/playground/playground-render.js");
-    expect(part).not.toMatch(/from\s*"shiki/);
-    const chunk = part.match(/import\("\.\/(highlight[^"]*\.js)"\)/)?.[1];
-    expect(chunk).toBeDefined();
-    expect(read(`parts/playground/${chunk}`)).toMatch(/from\s*"shiki\/core"/);
+    for (const part of ["parts/workspace/runners/web-container.js", "parts/workspace/runners/render.js", "parts/workspace/workspace.js"]) {
+      expect(read(part), part).not.toMatch(/from\s*"@(?:codemirror|xterm)\//);
+    }
   });
 
   it("keeps Tiptap out of the root barrel and its own dependency", () => {

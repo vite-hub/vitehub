@@ -60,7 +60,6 @@ export const componentNames = [
   "FileDiff",
   "FileTree",
   "DeviceFrame",
-  "PlaygroundRender",
   "Markdown",
   "MessageParts",
   "MultiFileDiff",

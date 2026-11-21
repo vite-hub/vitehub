@@ -11,6 +11,10 @@ export interface WorkspaceExample {
   group?: string;
   /** The files of the example. The start screen shows how many there are. */
   files?: Readonly<Record<string, string>>;
+  /** The file that the editor of a `Workspace` opens first. Defaults to the first file. */
+  open?: string;
+  /** The path that the preview of a `webContainer()` runner opens. Defaults to `/`. */
+  preview?: string;
 }
 
 /** The examples by group, in the order of their first example. Examples without a group come first. */

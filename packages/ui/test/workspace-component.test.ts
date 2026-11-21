@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, type PropType, ref } from "vue";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundUrl } from "../src/playground/share.ts";
 import { downloadZip } from "../src/playground/zip.ts";
-import type { PlaygroundContainerTemplate, PlaygroundContext } from "../src/workspace/playground-container.ts";
+import type { WorkspaceExample } from "../src/workspace/workspace-examples.ts";
+import type { WorkspaceSlotProps } from "../src/workspace/workspace.ts";
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -22,18 +23,35 @@ vi.mock("@xterm/xterm", () => ({
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 vi.mock("../src/playground/zip.ts", () => ({ downloadZip: vi.fn() }));
 
-// A container that boots at once, writes to a map, and is ready when the dev server starts.
-const fake = vi.hoisted(() => ({ boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
+// A container that boots at once, writes to a map, and is ready when the dev server starts. `hold` keeps each boot
+// waiting until the test calls `open()`, and `live` counts the containers that are booting or running.
+const fake = vi.hoisted(() => ({
+  boots: [] as { files: Record<string, string>, snapshot: boolean }[],
+  runs: [] as unknown[],
+  disk: new Map<string, string>(),
+  supported: true,
+  hold: false,
+  gates: [] as (() => void)[],
+  live: 0,
+  maxLive: 0,
+  open() {
+    for (const gate of this.gates.splice(0)) gate();
+  },
+}));
 vi.mock("@vite-hub/web-container", () => ({
   checkWebContainerSupport: () => ({ supported: fake.supported }),
   async bootWebContainer(options: { files: Record<string, string>, snapshot?: unknown, onStatus: (status: unknown) => void }) {
+    fake.live++;
+    fake.maxLive = Math.max(fake.maxLive, fake.live);
     fake.boots.push({ files: { ...options.files }, snapshot: options.snapshot !== undefined });
+    if (fake.hold) await new Promise<void>((resolve) => { fake.gates.push(resolve); });
     for (const [path, contents] of Object.entries(options.files)) fake.disk.set(path, contents);
     options.onStatus({ stage: "mounting", steps: [] });
     let ready: (server: { url: string, port: number }) => void = () => {};
     const serverReady = new Promise<{ url: string, port: number }>((resolve) => { ready = resolve; });
     let url: string | undefined;
     let onServerReady: ((server: { url: string, port: number }) => void) | undefined;
+    let down = false;
     return {
       status: { stage: "mounting", steps: [] },
       preview: { ready: serverReady, get url() { return url; } },
@@ -55,12 +73,16 @@ vi.mock("@vite-hub/web-container", () => ({
         }
         return { exit: new Promise<number>(() => {}), kill: () => {}, output: new ReadableStream<string>() };
       },
-      teardown: () => {},
+      teardown: () => {
+        if (!down) fake.live--;
+        down = true;
+      },
     };
   },
 }));
 
-const { PlaygroundContainer } = await import("../src/workspace/playground-container.ts");
+const { Workspace } = await import("../src/workspace/workspace.ts");
+const { webContainer } = await import("../src/workspace/runners/web-container.ts");
 
 // Nuxt UI stand-ins: a button, a menu that lists its items as buttons, a tab strip, and a modal that shows its footer
 // when open.
@@ -102,16 +124,25 @@ function viewport(width: number) {
 }
 
 const kvSnapshot = vi.fn(async () => new Uint8Array([1]));
-const kv: PlaygroundContainerTemplate = {
+const agentSnapshot = async () => new Uint8Array([2]);
+const kv: WorkspaceExample = {
   id: "kv",
   label: "KV",
   files: { "package.json": "{\"name\":\"kv\"}\n", "server/api/health.get.ts": "export default () => 'ok'\n" },
   open: "server/api/health.get.ts",
   preview: "/api/health",
-  snapshot: kvSnapshot,
 };
-const blob: PlaygroundContainerTemplate = { ...kv, id: "blob", label: "Blob", files: { ...kv.files, "server/api/note.get.ts": "export default () => 'note'\n" }, open: "server/api/note.get.ts" };
-const agent: PlaygroundContainerTemplate = { id: "agent", label: "Agent", files: { "package.json": "{\"name\":\"agent\"}\n" }, snapshot: async () => new Uint8Array([2]) };
+const blob: WorkspaceExample = { ...kv, id: "blob", label: "Blob", files: { ...kv.files, "server/api/note.get.ts": "export default () => 'note'\n" }, open: "server/api/note.get.ts" };
+const agent: WorkspaceExample = { id: "agent", label: "Agent", files: { "package.json": "{\"name\":\"agent\"}\n" } };
+// KV and Blob have the same dependencies, so they share one snapshot.
+const runner = () => webContainer({ snapshot: example => example.id === "agent" ? agentSnapshot : kvSnapshot });
+const files = (example: WorkspaceExample) => ({ ...example.files });
+
+/** Keeps the slot props of the bar, which the context of the workspace fills. */
+function spy() {
+  const box: { context?: WorkspaceSlotProps } = {};
+  return { box, slot: (props: WorkspaceSlotProps) => { box.context = props; return []; } };
+}
 
 beforeEach(() => {
   vi.mocked(downloadZip).mockClear();
@@ -119,6 +150,10 @@ beforeEach(() => {
   fake.runs.length = 0;
   fake.disk.clear();
   fake.supported = true;
+  fake.hold = false;
+  fake.gates.length = 0;
+  fake.live = 0;
+  fake.maxLive = 0;
   history.replaceState(null, "", "/play");
   sessionStorage.clear();
   localStorage.clear();
@@ -129,26 +164,27 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-describe("PlaygroundContainer", () => {
+describe("Workspace with webContainer()", () => {
   it("boots the first example on a desktop, tracks edits, and asks before it replaces them", async () => {
-    let context: PlaygroundContext | undefined;
-    const wrapper = mount(PlaygroundContainer, {
+    const { box, slot } = spy();
+    const wrapper = mount(Workspace, {
       attachTo: document.body,
       global,
-      props: { templates: [kv, blob, agent], name: "vitehub", onContext: (value: PlaygroundContext) => { context = value; } },
+      props: { examples: [kv, blob, agent], runner: runner(), name: "vitehub" },
+      slots: { "bar-lead": slot },
     });
     await flushPromises();
     expect(fake.boots).toEqual([{ files: kv.files, snapshot: true }]);
     // The snapshot has the dependencies, so nothing installs.
     expect(fake.runs).toEqual(["dev"]);
     expect(wrapper.emitted("update:open")).toEqual([[true]]);
-    expect(wrapper.get(".vh-pc-run-state").text()).toBe("Running");
+    expect(wrapper.get(".vh-workspace-run-state").text()).toBe("Running");
     expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/health.get.ts");
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console"]);
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Terminal"]);
 
-    await context!.workspace.setFiles({ "server/api/health.get.ts": "export default () => 'edited'\n" });
+    await box.context!.setFile("server/api/health.get.ts", "export default () => 'edited'\n");
     await flushPromises();
-    expect(context!.edited).toEqual(["server/api/health.get.ts"]);
+    expect(box.context!.edited).toEqual(["server/api/health.get.ts"]);
     expect(wrapper.findComponent({ name: "WorkspaceFileTree" }).props("edited")).toEqual(["server/api/health.get.ts"]);
 
     // Blob has the same snapshot and manifest, so it opens in place after the question.
@@ -156,10 +192,10 @@ describe("PlaygroundContainer", () => {
     expect(wrapper.get("[role='dialog']").text()).toContain("Open the Blob example?");
     await wrapper.get("[role='dialog'] button:last-child").trigger("click");
     await flushPromises();
-    expect(wrapper.emitted("update:template")).toEqual([["blob"]]);
+    expect(wrapper.emitted("update:example")).toEqual([["blob"]]);
     expect(fake.boots).toHaveLength(1);
-    expect(fake.disk.get("server/api/note.get.ts")).toBe(blob.files["server/api/note.get.ts"]);
-    expect(context!.edited).toEqual([]);
+    expect(fake.disk.get("server/api/note.get.ts")).toBe(blob.files!["server/api/note.get.ts"]);
+    expect(box.context!.edited).toEqual([]);
     expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
 
     // Agent has another snapshot, so it boots again. Without edits there is no question.
@@ -167,33 +203,54 @@ describe("PlaygroundContainer", () => {
     await flushPromises();
     expect(wrapper.find("[role='dialog']").exists()).toBe(false);
     expect(fake.boots.at(-1)).toEqual({ files: agent.files, snapshot: true });
-    expect(wrapper.emitted("update:template")).toEqual([["blob"], ["agent"]]);
+    expect(wrapper.emitted("update:example")).toEqual([["blob"], ["agent"]]);
     wrapper.unmount();
+  });
+
+  it("boots one WebContainer at a time when the reader switches examples during a boot", async () => {
+    fake.hold = true;
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, agent], runner: runner() } });
+    await flushPromises();
+    expect(fake.boots).toHaveLength(1);
+    // Each switch needs another snapshot, so each one starts a new run while the first boot still waits.
+    await wrapper.get("[data-item='Agent']").trigger("click");
+    await flushPromises();
+    await wrapper.get("[data-item='KV']").trigger("click");
+    await flushPromises();
+    for (let round = 0; round < 3; round++) {
+      fake.open();
+      await flushPromises();
+    }
+    expect(fake.maxLive).toBe(1);
+    // The run for Agent stopped before its turn, so it never booted. The last run boots KV.
+    expect(fake.boots.map(boot => boot.files)).toEqual([kv.files, kv.files]);
+    expect(fake.live).toBe(1);
+    expect(wrapper.get(".vh-workspace-run-state").text()).toBe("Running");
+    wrapper.unmount();
+    expect(fake.live).toBe(0);
   });
 
   it("copies a link that opens the same files, and restores it on the next visit", async () => {
     const writeText = vi.fn(async (_text: string) => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    let context: PlaygroundContext | undefined;
-    const wrapper = mount(PlaygroundContainer, {
-      global,
-      props: { templates: [kv, blob], onContext: (value: PlaygroundContext) => { context = value; } },
-    });
+    const { box, slot } = spy();
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner() }, slots: { "bar-lead": slot } });
     await flushPromises();
-    await context!.workspace.setFiles({ "server/api/health.get.ts": "edited" });
+    await box.context!.setFile("server/api/health.get.ts", "edited");
     await wrapper.findAll("button").find(button => button.text() === "Copy link")!.trigger("click");
     await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
     await flushPromises();
     const url = new URL(writeText.mock.calls[0]![0]);
     expect(url.pathname).toBe("/play");
-    expect(await decodePlaygroundLink(url.hash.slice("#code=".length), [kv, blob])).toEqual({ template: "kv", files: { ...kv.files, "server/api/health.get.ts": "edited" } });
+    const templates = [kv, blob].map(example => ({ id: example.id, files: files(example) }));
+    expect(await decodePlaygroundLink(url.hash.slice("#code=".length), templates)).toEqual({ template: "kv", files: { ...kv.files, "server/api/health.get.ts": "edited" } });
     expect(wrapper.text()).toContain("Link copied");
     wrapper.unmount();
 
     fake.boots.length = 0;
     fake.runs.length = 0;
-    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: { ...blob.files, "package.json": "{}" } }, blob.files)));
-    const restored = mount(PlaygroundContainer, { global, props: { templates: [kv, blob] } });
+    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: { ...blob.files, "package.json": "{}" } }, files(blob))));
+    const restored = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner() } });
     // The link inflates in a stream, so it takes more than one tick.
     await vi.waitFor(() => expect(restored.text()).toContain("You opened shared files on the Blob example."));
     await flushPromises();
@@ -203,45 +260,44 @@ describe("PlaygroundContainer", () => {
     restored.unmount();
 
     history.replaceState(null, "", "/play#code=broken");
-    const invalid = mount(PlaygroundContainer, { global, props: { templates: [kv, blob] } });
+    const invalid = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner() } });
     await vi.waitFor(() => expect(invalid.text()).toContain("This link has no files that the workspace can read. It opened the KV example."));
     invalid.unmount();
   });
 
-  it("boots the current tutorial files when a tablet opens after a step change", async () => {
+  it("boots the current lesson files when a tablet opens after a step change", async () => {
     viewport(900);
-    let context: PlaygroundContext | undefined;
-    const wrapper = mount(PlaygroundContainer, {
-      global,
-      props: { templates: [kv], share: false, onContext: (value: PlaygroundContext) => { context = value; } },
-    });
+    const { box, slot } = spy();
+    const wrapper = mount(Workspace, { global, props: { examples: [kv], runner: runner(), share: false }, slots: { "bar-lead": slot } });
     await flushPromises();
-    expect(context).toBeUndefined();
+    expect(box.context).toBeUndefined();
     const next = { ...kv, files: { ...kv.files, "server/api/health.get.ts": "next step" } };
-    await wrapper.setProps({ templates: [next] });
+    await wrapper.setProps({ examples: [next] });
     await wrapper.findAll("button").find(button => button.text() === "Open workspace")!.trigger("click");
     await flushPromises();
     expect(fake.boots).toEqual([{ files: next.files, snapshot: true }]);
-    expect(context!.edited).toEqual([]);
+    expect(box.context!.edited).toEqual([]);
     wrapper.unmount();
   });
 
-  it("downloads the current tutorial files on a phone without booting", async () => {
+  it("downloads the current lesson files on a phone without booting", async () => {
     viewport(390);
-    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [kv], share: false } });
+    const wrapper = mount(Workspace, { global, props: { examples: [kv], runner: runner(), share: false } });
     await flushPromises();
     const next = { ...kv, files: { ...kv.files, "server/api/health.get.ts": "next step" } };
-    await wrapper.setProps({ templates: [next] });
+    await wrapper.setProps({ examples: [next] });
     await wrapper.findAll("button").find(button => button.text() === "Download files")!.trigger("click");
     expect(downloadZip).toHaveBeenCalledWith(next.files, next.id);
     expect(fake.boots).toHaveLength(0);
     wrapper.unmount();
   });
 
-  it("updates the selected model when a new boot cannot open the previous path", async () => {
+  it("updates the selected model when a new run cannot open the previous path", async () => {
     const selected = ref(kv.open);
-    const wrapper = mount(defineComponent(() => () => h(PlaygroundContainer, {
-      templates: [kv, agent],
+    const workspaceRunner = runner();
+    const wrapper = mount(defineComponent(() => () => h(Workspace, {
+      examples: [kv, agent],
+      runner: workspaceRunner,
       selected: selected.value,
       "onUpdate:selected": (path: string) => { selected.value = path; },
     })), { global });
@@ -255,25 +311,26 @@ describe("PlaygroundContainer", () => {
     wrapper.unmount();
   });
 
-  it("puts the preview in the first tab, and adds Connect and the tabs of the page", async () => {
-    const wrapper = mount(PlaygroundContainer, {
+  it("puts the preview in the first tab, and adds Connect, the tabs of the page, and the bar slots", async () => {
+    const wrapper = mount(Workspace, {
       global,
       props: {
-        layout: "guide-side",
-        templates: [kv],
+        guide: "side",
+        examples: [kv],
+        runner: webContainer({ connect: defineConnect({ github: true }) }),
         share: false,
-        connect: defineConnect({ github: true }),
         tabs: [{ label: "Messages", value: "messages" }, { label: "Status", value: "status" }, { label: "Path", value: "editor-head" }],
       },
       slots: {
         messages: () => h("p", "messages"),
         status: () => h("button", "Custom status"),
         "editor-head": () => h("p", "Custom path"),
-        toolbar: ({ edited }: PlaygroundContext) => h("span", { class: "extra" }, `${edited.length} edited`),
+        "bar-actions": ({ edited }: WorkspaceSlotProps) => h("span", { class: "extra" }, `${edited.length} edited`),
       },
     });
     await flushPromises();
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages", "Status", "Path"]);
+    expect(wrapper.get(".vh-ws-shell").attributes("data-layout")).toBe("guide-side");
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Terminal", "Connect", "Messages", "Status", "Path"]);
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
     expect(wrapper.get(".vh-ws-editor-head .vh-ws-breadcrumb").attributes("title")).toBe("server/api/health.get.ts");
     expect(wrapper.get(".vh-ws-status").text()).not.toContain("Custom status");
@@ -282,24 +339,41 @@ describe("PlaygroundContainer", () => {
     expect(wrapper.get("[data-tab='editor-head']").text()).toBe("Custom path");
     expect(wrapper.get(".extra").text()).toBe("0 edited");
     expect(wrapper.text()).not.toContain("Copy link");
-    expect(wrapper.find(".vh-pc-toolbar .menu").exists()).toBe(true);
+    expect(wrapper.find(".vh-ws-topbar [data-item='Restart dev server']").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("moves Reset, Download and Copy link to the bottom of the sidebar when the page gives one", async () => {
+    const bar = (wrapper: ReturnType<typeof mount>) => wrapper.get(".vh-ws-topbar").findAll("button").map(button => button.text());
+    const plain = mount(Workspace, { global, props: { examples: [kv], runner: runner() } });
+    await flushPromises();
+    expect(bar(plain)).toEqual(expect.arrayContaining(["Reset", "Download", "Copy link"]));
+    plain.unmount();
+
+    const wrapper = mount(Workspace, { global, props: { examples: [kv], runner: runner() }, slots: { sidebar: () => h("nav", { class: "pages" }, "Pages") } });
+    await flushPromises();
+    expect(bar(wrapper)).not.toContain("Reset");
+    expect(bar(wrapper)).not.toContain("Copy link");
+    const sidebar = wrapper.get("#vh-workspace-sidebar");
+    expect(sidebar.get(".pages").text()).toBe("Pages");
+    expect(sidebar.findAll("button").map(button => button.text())).toEqual(["Reset", "Download", "Copy link"]);
     wrapper.unmount();
   });
 
   it("shows the start screen on a first visit, opens the picked example, and skips the screen for a share link", async () => {
-    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [kv, blob], start: true } });
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner(), start: true } });
     await flushPromises();
     expect(wrapper.findAll(".vh-ws-start-label").map(label => label.text())).toEqual(["KV", "Blob"]);
-    expect(wrapper.findAll(".vh-ws-start-files").map(files => files.text())).toEqual(["2 files", "3 files"]);
+    expect(wrapper.findAll(".vh-ws-start-files").map(count => count.text())).toEqual(["2 files", "3 files"]);
     await wrapper.findAll(".vh-ws-start-card")[1]!.trigger("click");
     await flushPromises();
     expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
-    expect(wrapper.emitted("update:template")).toEqual([["blob"]]);
+    expect(wrapper.emitted("update:example")).toEqual([["blob"]]);
     expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
     wrapper.unmount();
 
-    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: blob.files }, blob.files)));
-    const shared = mount(PlaygroundContainer, { global, props: { templates: [kv, blob], start: true } });
+    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: files(blob) }, files(blob))));
+    const shared = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner(), start: true } });
     await vi.waitFor(() => expect(shared.text()).toContain("on the Blob example"));
     await flushPromises();
     expect(shared.find(".vh-ws-start").exists()).toBe(false);
@@ -307,9 +381,24 @@ describe("PlaygroundContainer", () => {
     shared.unmount();
   });
 
+  it("makes the covered workspace inert while the start screen shows", async () => {
+    const wrapper = mount(Workspace, { attachTo: document.body, global, props: { examples: [kv, blob], runner: runner(), start: true } });
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(true);
+    // Focus reaches only the cards: the bar and the body under the start screen are inert.
+    expect(wrapper.get(".vh-ws-body").attributes()).toHaveProperty("inert");
+    expect(wrapper.get(".vh-ws-topbar").attributes()).toHaveProperty("inert");
+    expect(wrapper.get(".vh-ws-start").element.closest("[inert]")).toBeNull();
+    await wrapper.findAll(".vh-ws-start-card")[0]!.trigger("click");
+    await flushPromises();
+    expect(wrapper.get(".vh-ws-body").attributes()).not.toHaveProperty("inert");
+    expect(wrapper.get(".vh-ws-topbar").attributes()).not.toHaveProperty("inert");
+    wrapper.unmount();
+  });
+
   it("boots on a tablet only after a tap, never on a phone, and shows a notice where WebContainers do not run", async () => {
     viewport(900);
-    const tablet = mount(PlaygroundContainer, { global, props: { templates: [kv], label: "playground" } });
+    const tablet = mount(Workspace, { global, props: { examples: [kv], runner: runner(), label: "playground" } });
     await flushPromises();
     expect(fake.boots).toHaveLength(0);
     await tablet.findAll("button").find(button => button.text() === "Open playground")!.trigger("click");
@@ -319,9 +408,9 @@ describe("PlaygroundContainer", () => {
     tablet.unmount();
 
     viewport(390);
-    const phone = mount(PlaygroundContainer, { global, props: { templates: [kv], label: "playground", open: true }, slots: { intro: () => h("h1", "Playground") } });
+    const phone = mount(Workspace, { global, props: { examples: [kv], runner: runner(), label: "playground", open: true }, slots: { intro: () => h("h1", "Playground") } });
     await flushPromises();
-    expect(phone.get(".vh-pc-gate").attributes("data-state")).toBe("phone");
+    expect(phone.get(".vh-workspace-gate").attributes("data-state")).toBe("phone");
     expect(phone.text()).toContain("Playground");
     expect(phone.text()).toContain("The live playground runs in a desktop browser.");
     expect(fake.boots).toHaveLength(1);
@@ -329,11 +418,30 @@ describe("PlaygroundContainer", () => {
 
     viewport(1440);
     fake.supported = false;
-    const unsupported = mount(PlaygroundContainer, { global, props: { templates: [kv] } });
+    const unsupported = mount(Workspace, { global, props: { examples: [kv], runner: runner() } });
     await flushPromises();
-    expect(unsupported.get(".vh-pc-gate").attributes("data-state")).toBe("unsupported");
+    expect(unsupported.get(".vh-workspace-gate").attributes("data-state")).toBe("unsupported");
     expect(unsupported.text()).toContain("Download files");
     expect(fake.boots).toHaveLength(1);
     unsupported.unmount();
+  });
+
+  it("gives useWorkspace() and the runner state to code inside and outside the workspace", async () => {
+    const workspaceRunner = runner();
+    const { useWorkspace } = await import("../src/workspace/workspace.ts");
+    let fromInside: ReturnType<typeof useWorkspace> | undefined;
+    const Inside = defineComponent(() => {
+      fromInside = useWorkspace();
+      return () => h("span");
+    });
+    const wrapper = mount(Workspace, { global, props: { examples: [kv], runner: workspaceRunner }, slots: { "bar-lead": () => h(Inside) } });
+    await flushPromises();
+    expect(fromInside!.files.value).toEqual(kv.files);
+    expect(workspaceRunner.workspace.value?.status.value).toBe("ready");
+    fromInside!.show("package.json");
+    await flushPromises();
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("package.json");
+    wrapper.unmount();
+    expect(workspaceRunner.workspace.value).toBeUndefined();
   });
 });

@@ -34,7 +34,7 @@ const server = await createServer({
         : undefined,
     },
     {
-      // PlaygroundContainer boots a WebContainer. The page boots a fake one, from the sources of its Vue composable.
+      // The webContainer() runner of Workspace boots a WebContainer. The page boots a fake one, from the sources of its Vue composable.
       name: "fake-web-container",
       enforce: "pre",
       resolveId(id, importer) {
@@ -66,7 +66,7 @@ before(async () => {
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => message.type() === "error" && errors.push(message.text()))
   await page.goto(base)
-  await page.locator("[data-part-name=PlaygroundContainer]").waitFor()
+  await page.locator("[data-part-name=Workspace] .vh-workspace-run-state").waitFor()
   if (screenshots) await page.screenshot({ fullPage: true, path: join(screenshots, "ui-sdk.png") })
 })
 
@@ -300,8 +300,8 @@ test("WorkspaceExamples: the arrow keys move, a letter jumps, and Enter picks", 
   assert.equal((await events()).filter(event => event === "examples:plurals").length, 1)
 })
 
-test("PlaygroundContainer: the examples menu and the More actions menu work with the keyboard", async () => {
-  const container = part("PlaygroundContainer")
+test("Workspace: the examples menu and the More actions menu work with the keyboard", async () => {
+  const container = part("Workspace")
   // Examples menu: Enter opens it, the arrow keys move, Enter picks, and focus returns to the trigger.
   const trigger = container.getByRole("button", { name: "Example: KV" })
   await trigger.focus()
@@ -319,7 +319,7 @@ test("PlaygroundContainer: the examples menu and the More actions menu work with
   await more.focus()
   await page.keyboard.press("Enter")
   await menu.waitFor()
-  assert.equal(await menu.getByRole("menuitem", { name: "Discard changes" }).getAttribute("aria-disabled"), "true")
+  await menu.getByRole("menuitem", { name: "Restart dev server" }).waitFor()
   await page.keyboard.press("Escape")
   await menu.waitFor({ state: "hidden" })
   assert.equal(await focused(), "button \"More actions\"")

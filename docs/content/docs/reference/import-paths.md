@@ -169,7 +169,7 @@ the same behavior.
 | `vite-hub/sync/vue` | `useSync()`: the reactive rows and writes of a Sync table. Re-exports `@vite-hub/sync/vue`; auto-imported in Nuxt. |
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | Every AI interface component, headless message scrolling, and default styles. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor` with uploads to Blob. Kept out of the root import, so it loads Tiptap only where you use it. |
-| `vite-hub/ui/workspace` | The WebContainer workspace parts and `PlaygroundContainer`, outside the root so a chat page never loads CodeMirror or xterm. |
+| `vite-hub/ui/workspace` | The workspace parts, `Workspace`, and the `webContainer()` and `render()` runners, outside the root so a chat page never loads CodeMirror or xterm. |
 | `vite-hub/ui/motion` | The motion layer without Vue: `installMotion()` for a page or a shadow root, the spring engine, reduced motion, and `defineMotionEffect()`. |
 | `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens and focus ring. |

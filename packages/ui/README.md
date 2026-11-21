@@ -18,7 +18,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui`          | Every styled component: chat, prompt, Markdown, session, trace, diff, file tree, comments, and the shadcn/ui part families | State, transport, persistence, routes, and authorization                                       |
 | `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, `useComments()`, and the Choices input parts | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
-| `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
+| `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `Workspace` with the `webContainer()` and `render()` runners, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
 | `@vite-hub/ui/motion` | The motion layer: press, toggle, select, drag, and appear motion by role, the shared spring engine, and reduced motion. No Vue, so a plain TypeScript page or a shadow root can use it | Nothing: `createViteHubUI()` and the Nuxt module install it |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
@@ -79,11 +79,11 @@ The menus run each item's `kind`, such as `{ kind: "heading", level: 2 }`, throu
 
 The workspace parts render a live app next to a docs page: a tutorial with the lesson in a column on the left, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
-`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "side" | "guide-top" | "guide-side"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The bar parts are `WorkspaceBar` (the 44px bar), `WorkspaceExamples` (the examples menu, with group headings), `WorkspaceSidebar` (a panel over the workspace with Reset, Download, and Copy link at the bottom), and `WorkspaceStart` (the examples as cards on a first visit). See [Workspace bar](https://vitehub.dev/docs/ui/workspace-bar). The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "side" | "guide-top" | "guide-side"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `Workspace` with `useWorkspace()` and `useWorkspaceDevice()`, a complete playground or lesson built from these parts. The bar parts are `WorkspaceBar` (the 44px bar), `WorkspaceExamples` (the examples menu, with group headings), `WorkspaceSidebar` (a panel over the workspace with Reset, Download, and Copy link at the bottom), and `WorkspaceStart` (the examples as cards on a first visit). See [Workspace bar](https://vitehub.dev/docs/ui/workspace-bar). The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
 
 The code side has four parts for the slots of `WorkspaceShell`: `WorkspaceFileTree` takes the edited paths as `edited`, a list or a set, and draws a type icon per file and a dot per edited file. `WorkspaceEditorHead` shows the path as a breadcrumb and a wrap button. `WorkspaceEditor` takes `v-model:wrap`, which Alt+Z toggles, and emits `cursor`. `WorkspaceStatus` shows the cursor, the language from `workspaceLanguage(path)`, and the indentation.
 
-`PlaygroundRender`, a playground that renders files in the page, is in the root `@vite-hub/ui`. See [Render files in the page](#render-files-in-the-page). `@vite-hub/ui/playground` has the share links and zips: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, and `downloadZip()`.
+`@vite-hub/ui/playground` has the share links and zips: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, and `downloadZip()`.
 
 A share link holds the files in its URL hash, so nothing is stored on a server. Only the changes from the template go into the link, deflated and in base64url. `@vite-hub/ui/playground` has no UI and runs in browsers and in Node, so a build can write links and starter zips too.
 
@@ -101,11 +101,11 @@ const state = await decodePlaygroundLink(readPlaygroundHash(location.hash) ?? ""
 
 A playground without templates, such as one Markdown file, leaves `template` out. Links longer than `playgroundLinkLimit` (16,000 characters) are cut by chat apps, so offer `downloadZip()` instead.
 
-`PlaygroundContainer` is the whole page part: a toolbar with the run state, an examples menu, Download, Copy link, and Restart and Discard changes. Under it are the file tree, the editor, the preview, and the dev server console. It marks edited files, asks before it replaces edits, and opens `#code=` links. Desktops boot it on their own, tablets boot it on a tap, and phones get a card with Copy link and Download files. A browser without WebContainer support gets `BrowserSupportNotice`.
+`Workspace` is the whole page part: a bar with the run state, an examples menu, Reset, Download, Copy link, and a More menu. Under it are the file tree, the editor, and the output of its runner. It marks edited files, asks before it replaces edits, and opens `#code=` links. `webContainer()` runs the files as an app with a Preview tab, a Terminal tab, and a Connect tab for `connect`. Desktops boot it on their own, tablets boot it on a tap, and phones get a card with Copy link and Download files. A browser without WebContainer support gets `BrowserSupportNotice`. `render()` runs the files through a function in the page, on every device. See [Workspace](https://vitehub.dev/docs/ui/workspace).
 
 ```vue
 <script setup lang="ts">
-import { PlaygroundContainer } from "@vite-hub/ui/workspace";
+import { webContainer, Workspace } from "@vite-hub/ui/workspace";
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
 
@@ -114,73 +114,38 @@ const files = {
   "package.json": JSON.stringify({ scripts: { dev: "vite --port 3000" }, devDependencies: { vite: "^8.0.0" } }),
   "index.html": "<h1>Hello</h1>",
 };
-const templates = [
-  { id: "hello", label: "Hello", files, open: "index.html", snapshot: () => fetchSnapshot(["/snapshots/hello.0.bin"]) },
+const examples = [
+  { id: "hello", label: "Hello", files, open: "index.html" },
   { id: "empty", label: "Empty", files: { ...files, "index.html": "" } },
 ];
+const hello = () => fetchSnapshot(["/snapshots/hello.0.bin"]);
+const runner = webContainer({ port: 3000, connect, snapshot: () => hello });
 </script>
 
 <template>
-  <PlaygroundContainer :templates="templates" label="playground" name="my-app" :port="3000" :connect="connect" :tabs="[{ value: 'messages', label: 'Messages' }]">
-    <template #messages="{ workspace }">
-      <pre>{{ workspace.files.value["index.html"] }}</pre>
+  <Workspace :examples :runner label="playground" name="my-app" :tabs="[{ value: 'messages', label: 'Messages' }]">
+    <template #messages="{ files }">
+      <pre>{{ files["index.html"] }}</pre>
     </template>
-  </PlaygroundContainer>
+  </Workspace>
 </template>
 ```
 
-- Props: `templates` (one or more, each `{ id, label, files, description?, group?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"side"`, the default, or `"guide-side"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, `v-model:open`, and `start` (show the examples as cards on a first visit without a share link). The examples menu groups the templates by `group`.
-- Templates with the same `snapshot` function switch in place. Another snapshot, or an edited `package.json`, boots a new workspace.
-- Slots: `#toolbar` adds buttons before Download, `#banner` shows under the toolbar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ workspace, template, edited, show, showTab, guard }`, and `@context` gives the same object to code outside the container. `#intro` and `#fallback` show around the card when the workspace does not show.
-- It emits `update:template` when the reader opens an example or discards the changes to one. The prop and the share link keep the name `template`, so older links open.
-- A tutorial gives one template with the files of its step, sets `layout="guide-side"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
-
-```vue
-<script setup lang="ts">
-import { WorkspaceBootStatus, WorkspaceEditor, WorkspacePreview, WorkspaceShell, WorkspaceTerminal, workspacePreviewScript } from "@vite-hub/ui/workspace";
-import { useWebContainer } from "@vite-hub/web-container/vue";
-import { computed, ref } from "vue";
-
-const workspace = useWebContainer({ files: { "package.json": "...", "server.js": "..." }, previewScript: workspacePreviewScript });
-const tab = ref<"preview" | "terminal">("preview");
-const source = computed({
-  get: () => workspace.files.value["server.js"] ?? "",
-  set: value => workspace.setFiles({ "server.js": value }),
-});
-</script>
-
-<template>
-  <WorkspaceShell v-model:tab="tab" layout="side">
-    <template #editor><WorkspaceEditor v-model="source" path="server.js" /></template>
-    <template #preview><WorkspacePreview :url="workspace.previewUrl.value" /></template>
-    <template #terminal><WorkspaceTerminal :output="workspace.logs.value" /></template>
-    <template v-if="workspace.status.value !== 'ready'" #overlay>
-      <WorkspaceBootStatus
-        :status="workspace.status.value"
-        :steps="workspace.steps.value"
-        :failure="workspace.failure.value"
-        :online="workspace.online.value"
-        @retry="workspace.boot()"
-        @retry-install="workspace.install()"
-        @restart="workspace.restart()"
-        @show-output="tab = 'terminal'"
-      />
-    </template>
-  </WorkspaceShell>
-</template>
-```
-
-- `useWebContainer()` returns the state that the parts take: `status`, `steps`, `failure`, `files`, `modified`, `previewUrl`, `logs`, and `online`. Its [README](../web-container/README.md#run-it-from-vue) lists the options. Pass `env: useConnectStore().env(connect)` to give the dev server the reader's tokens.
-- `WorkspaceShell` has the slots `#bar`, `#files`, `#editor-head`, `#editor`, `#status`, `#guide`, `#terminal`, `#preview`, `#connect`, and `#overlay`. Preview, Terminal, and Connect are tabs in the output pane. The layout puts the panes in place:
+- Props: `examples` (one or more, each `{ id, label, files, description?, group?, open?, preview? }`), `runner`, `v-model:example` (the open example), `v-model:selected`, `steps` with `v-model:step` and `guide` (`"top"` or `"side"`) for a lesson, `tabs`, `share` (default `true`), `name` (the start of the zip name), `start` (show the examples as cards on a first visit without a share link), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), and `v-model:open`. The examples menu groups the examples by `group`.
+- Examples with the same `snapshot` loader and the same `package.json` switch in place. Another snapshot, or an edited `package.json`, boots a new run. One runner boots one WebContainer at a time.
+- Slots: `#bar-lead` and `#bar-actions` add controls to the bar, `#sidebar` fills the sidebar and moves Reset, Download, and Copy link to its bottom, `#guide` holds the text of a step, `#banner` shows under the bar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ files, setFile, edited, example, show, showTab, guard, runner, run }`, and `useWorkspace()` gives the same values to a component in a slot. `#intro` and `#fallback` show around the card when the workspace does not show.
+- The share link keeps the key `template` for the example id, so older links open.
+- While the start screen covers the workspace, the parts under it are `inert`.
+- `WorkspaceShell` has three layouts:
   - `side` (default): the code on the left and the output at the side, with a draggable line between them.
   - `guide-top`: the `#guide` pane over the code, with a draggable line between them, and the output at the side.
   - `guide-side`: the `#guide` pane on the left is up to 360px wide and takes at most half the available width. On the right, the output takes 40% at the top and the code sits under it.
 - The `#bar` slot is 44px high. The `#editor-head` row and the output tab bar are 32px high, so their bottom lines align. The `#status` line is 24px high. The draggable lines also move with the arrow keys, Home, and End. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
 - `tabs` sets the tabs and their order, with a label and an optional `badge` each. For custom tabs, use `#tab-<value>` (for example, `#tab-status`). A slot named by the value alone still works if it is not a layout slot and does not start with `tab-`.
-- The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe. The page cannot read the address or the history of that cross-origin frame either, so pass `previewScript: workspacePreviewScript` to `useWebContainer()`. The script reports the address of each preview page, and Back and Forward work. Without it, the bar shows the path that it opened, and Back and Forward stay disabled. `PlaygroundContainer` passes it.
+- The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe. The page cannot read the address or the history of that cross-origin frame either, so pass `previewScript: workspacePreviewScript` to `useWebContainer()`. The script reports the address of each preview page, and Back and Forward work. Without it, the bar shows the path that it opened, and Back and Forward stay disabled. `webContainer()` passes it.
 - The width switch of `WorkspacePreview` shows the page at 768 (Tablet) or 390 (Phone) CSS pixels in a `DeviceFrame`, scaled down to fit the pane. Desktop fills the pane. Use `v-model:device`, or let it keep the last width in localStorage.
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
-- The learn parts fill the `#guide` and `#bar` slots of a lesson. `WorkspaceGuide` shows the position and title of the step, your rendered Markdown in its default slot (it never parses Markdown), and Back and Next at the bottom of the pane. `WorkspaceSteps` is the steps menu with Previous and Next for the bar. Bind both with `v-model:step`. `WorkspaceTask` is the task box of a step. `WorkspaceFileLink` opens its `path` through the opener of `provideWorkspaceFileOpener({ show })` and emits `open`. `WorkspaceIssues` lists `{ message, line? }` issues, and `PlaygroundRender` uses it. See [Workspace guide](https://vitehub.dev/docs/ui/workspace-guide).
+- The learn parts fill the `#guide` and `#bar` slots of a lesson. `WorkspaceGuide` shows the position and title of the step, your rendered Markdown in its default slot (it never parses Markdown), and Back and Next at the bottom of the pane. `WorkspaceSteps` is the steps menu with Previous and Next for the bar. Bind both with `v-model:step`. `WorkspaceTask` is the task box of a step. `WorkspaceFileLink` opens its `path` through the opener of `provideWorkspaceFileOpener({ show })` and emits `open`. `WorkspaceIssues` lists `{ message, line? }` issues, and the Issues tab of `render()` uses it. See [Workspace guide](https://vitehub.dev/docs/ui/workspace-guide).
 
 The demo page in `test/browser/page` shows every part in the `guide-side` layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
 
@@ -188,38 +153,28 @@ The demo page in `test/browser/page` shows every part in the `guide-side` layout
 
 ## Render files in the page
 
-`PlaygroundRender` from `@vite-hub/ui` is a playground for code that renders in the browser, such as Markdown or YAML. It needs no WebContainer. You give it a `render` function, the editor panes, and the examples. It shows the editors, the examples, the issues, and the preview.
+`render(fn)` from `@vite-hub/ui/workspace` is a runner for code that renders in the browser, such as Markdown or YAML. It needs no WebContainer, so every device runs it.
 
 ```vue
 <script setup lang="ts">
-import { PlaygroundRender, type PlaygroundFiles } from "@vite-hub/ui";
+import { render, Workspace } from "@vite-hub/ui/workspace";
 import { marked } from "marked";
 
-const presets = [
+const examples = [
   { id: "hello", label: "Hello", group: "Basics", files: { "content.md": "# Hello\n" } },
   { id: "list", label: "A list", group: "Basics", files: { "content.md": "- One\n- Two\n" } },
 ];
-const panes = [{ file: "content.md", label: "Markdown", language: "markdown" }];
-const languages = [() => import("shiki/langs/markdown.mjs")];
-
-async function render(files: PlaygroundFiles) {
-  return { html: await marked.parse(files["content.md"] ?? ""), issues: [] };
-}
+const runner = render(async files => ({ html: await marked.parse(files["content.md"] ?? "") }));
 </script>
 
 <template>
-  <PlaygroundRender :presets :panes :languages :render class="h-[70vh]" />
+  <Workspace :examples :runner name="markdown" class="h-[70vh]" />
 </template>
 ```
 
-- The state is a set of files. Each edit renders 200 ms after the last key, and a render that ends after a newer one is dropped. The preview keeps its scroll position.
-- The URL hash holds the files as a share link of `@vite-hub/ui/playground`, with the open example as its template. The playground replaces the hash, so Back leaves the page. It loads the hash again on `hashchange`, and says so when a link cannot be read.
-- `render(files)` returns `{ html, issues? }`. An issue is `{ message, line? }`. A thrown error shows as an issue.
-- `previewDocument(html, files)` wraps the HTML in the preview page, with your stylesheets, body class, and theme. The default is a plain white page. The preview runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach your page.
-- `languages` are Shiki languages for the `language` of each pane. Shiki loads after the first render. Without `languages`, the panes are plain text.
-- `preset` is the id of the example that opens first. Copy link refuses links longer than `playgroundLinkLimit`; Download gives a zip of the files instead. Reset asks first, then goes back to the example.
-- A pane with `slot: "theme"` shows the `#theme` slot in place of the editor, with `{ pane, value, files, setFile }`. The `#toolbar` slot gets `{ files, preset, setFile }`, and the `#preset` slot gets `{ preset, active }` to draw each example. The `#group` slot gets `{ group, presets }` to draw the heading of a group of examples.
-- `@load` fires with `{ preset, files }` when files open from the hash or the opening example. `@preset-change` fires with the same payload when another example opens, from a click or a link.
+- Each edit renders 200 ms after the last key, and a render that ends after a newer one is dropped. The output keeps its scroll position.
+- `fn(files)` returns `{ html, issues? }`. An issue is `{ message, line? }`. A thrown error shows as an issue in the Issues tab.
+- `document(html, files)`, the second argument, wraps the HTML in the output page, with your stylesheets, body class, and theme. The default is a plain white page. The output runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach your page.
 
 ## Nuxt
 
