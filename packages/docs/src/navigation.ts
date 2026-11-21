@@ -1,4 +1,4 @@
-import type { DocsAppPage, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
+import type { DocsAppPage, DocsLayout, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
 
 /** A link that the site options add to the shell, such as a tutorials page or a community chat. */
 export interface DocsLink {
@@ -486,6 +486,14 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
  * that serves prerendered HTML reads it.
  */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/**
+ * Whether a layout fills the page with a workspace: `playground` and `learn`. Such a page renders in the docs shell
+ * wherever it lives, and fills the viewport under the header.
+ */
+export function isDocsWorkspaceLayout(layout: DocsLayout | undefined): layout is "playground" | "learn" {
+  return layout === "playground" || layout === "learn"
+}
 
 /** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
 export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {

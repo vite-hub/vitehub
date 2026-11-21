@@ -2487,6 +2487,12 @@ importers:
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../../shell
+      '@vite-hub/ui':
+        specifier: workspace:*
+        version: link:../../ui
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../../web-container
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../../workflow

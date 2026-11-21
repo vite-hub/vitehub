@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { camelize, capitalize } from "vue"
 import { pageBlocks } from "#docs/components"
-import { docsAppPath, docsRawPath, normalizeDocsPath } from "#docs/navigation"
+import { docsAppPath, docsRawPath, isDocsWorkspaceLayout, normalizeDocsPath } from "#docs/navigation"
 import { articleLayout } from "#docs/shell"
+import workspaces from "#docs/workspaces"
 
 import type { Node as ComarkNode } from "comark"
 import type { DocsDocument, DocsPageResponse } from "@vite-hub/docs"
@@ -20,15 +21,19 @@ const { page } = response
 const isRoot = page.path === manifest.root?.path
 // A page that `start.links` lists opens inside the start section, like the pages of a section.
 const isStartLink = isDocsStartLink(useDocsConfig(), page.path)
+// A `playground` or `learn` page fills the docs shell with its workspace, whose data the build wrote. A Content
+// preview of a new such page has no data yet, so it shows as an article.
+const loadWorkspace = isDocsWorkspaceLayout(page.layout) ? workspaces[page.path] : undefined
+const workspace = loadWorkspace && (await loadWorkspace()).default
 // Content previews can change a page's layout or add a home page after the manifest was built.
-const layout = page.layout !== "home" && (response.section || isRoot || isStartLink) ? "docs" : articleLayout
+const layout = isDocsWorkspaceLayout(page.layout) || (page.layout !== "home" && (response.section || isRoot || isStartLink)) ? "docs" : articleLayout
 if (import.meta.client && route.meta.layout !== layout) {
   // The server has already rendered the manifest's layout. Finish hydrating it before switching shells.
   if (useNuxtApp().isHydrating) onNuxtReady(() => setPageLayout(layout))
   else setPageLayout(layout)
 }
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !response.section && !isRoot && !isStartLink && page.layout !== "home"
+const isStandalone = !response.section && !isRoot && !isStartLink && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)
 
 // A home page draws the app's `components/content/` blocks at full width. The Markdown between two of them, such as a
 // heading and a list, goes in one column with the prose styles of a docs page.
@@ -66,13 +71,16 @@ useDocsSeo({
   description: page.seo?.description ?? page.description,
   section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
   image: indexed ? page.seo?.image : false,
-  type: isRoot || page.layout === "landing" || page.layout === "home" ? "page" : "article",
+  type: isRoot || page.layout === "landing" || page.layout === "home" || page.layout === "playground" ? "page" : "article",
 })
 </script>
 
 <template>
   <!-- The layout's UMain is the page's only main landmark. -->
-  <div v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
+  <DocsLearn v-if="workspace?.layout === 'learn'" :key="page.path" :response="response" :data="workspace" />
+  <DocsPlayground v-else-if="workspace" :key="page.path" :response="response" :data="workspace" />
+
+  <div v-else-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
       :headline="page.eyebrow ?? undefined"
       :title="page.sourceTitle"

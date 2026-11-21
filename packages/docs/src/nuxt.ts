@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { readdir, readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { invariantError } from "@vite-hub/internal/invariant"
 import { dirname, join, posix, resolve, sep } from "node:path"
@@ -32,13 +33,15 @@ import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
+import { webContainerRoutes } from "./runnable/workspaces.ts"
+import { docsWebContainerDefaults } from "./workspace-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { setupDocsRunnable, type DocsRunnableOptions } from "./runnable/nuxt.ts"
 import { checkDocsLinks, docsLinkError, docsLinkExclusion, docsOutputFile, type DocsLinkCheckOptions } from "./check-links.ts"
 import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoLocation } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
 import { docsAppManifest, docsAppManifestSource, docsAppPanelSource, readDocsContent, resolveDocsSources } from "./manifest.ts"
-import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPageIndexed, docsRailIcon, docsRawPath, docsSectionIcon, isDocsPath, isDocsWorkspaceLayout, normalizeDocsBase, normalizeDocsPath, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
@@ -327,6 +330,18 @@ export interface DocsNuxtModule {
   getMeta?: () => Promise<Record<string, unknown>>
 }
 
+/**
+ * The content folder, the Content Sources, and the docs base of the module options. Setup and the module dependencies
+ * read the pages with the same `manifestOptions`.
+ */
+function docsContentOf(options: DocsModuleOptions, rootDir: string) {
+  const contentDir = resolve(rootDir, options.dir ?? "content")
+  const sources = options.sources && resolveDocsSources(options.sources, rootDir)
+  const resolveBase = () => normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
+  const base = resolveBase()
+  return { contentDir, sources, resolveBase, base, manifestOptions: { dir: contentDir, base, sources: options.sources, rootDir, sections: options.sections } }
+}
+
 const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
   meta: { configKey: "docs", name: "@vite-hub/docs" },
   defaults: {},
@@ -342,9 +357,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const uiFontsPath = createRequire(dependency("@nuxt/ui")).resolve("@nuxt/fonts")
     nuxt.options.alias["@nuxt/fonts"] = fontsPath
     nuxt.options.alias[uiFontsPath] = fontsPath
+    // Comments keeps threads in a ViteHub Database, and the playground and learn pages run a WebContainer, which needs
+    // cross-origin isolation. Both run through `vite-hub/nuxt`, which the app installs, so they share its defaults.
+    const comments = await docsCommentsDependencies(nuxt, docs.comments)
+    const { manifestOptions } = docsContentOf(docs, nuxt.options.rootDir)
+    const webContainer = await docsWebContainerDefaults(nuxt, webContainerRoutes(docsManifestPages((await readDocsContent(manifestOptions)).manifest)))
+    const vitehubDefaults = { ...comments["vite-hub/nuxt"]?.defaults, ...webContainer }
     return {
-      // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
-      ...await docsCommentsDependencies(nuxt, docs.comments),
+      ...Object.keys(vitehubDefaults).length > 0 ? { "vite-hub/nuxt": { optional: true, defaults: vitehubDefaults } } : {},
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
       // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build.
       // Resolve the shared dependency to this package's Nitro 3-compatible version in either module order.
@@ -393,17 +413,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const transform = nuxt.options.imports.transform ??= {}
     transform.include ??= []
     transform.include.push(new RegExp(`^${packageRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`))
-    const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
-    const sources = options.sources && resolveDocsSources(options.sources, nuxt.options.rootDir)
+    const { contentDir, sources, resolveBase, base, manifestOptions } = docsContentOf(options, nuxt.options.rootDir)
     // The server cannot read a Content Source, such as `github()`, so the build copies its pages here.
     const sourcesDir = join(nuxt.options.buildDir, "docs/sources")
     /** The folder that the server reads each source's pages from, by page `source` name. */
     const sourceDirs = sources?.map((source, index) => source.dir ?? join(sourcesDir, `docs-${index}`))
     const contentDirsToWatch = sources ? sources.flatMap(source => source.dir ?? []) : [contentDir]
     const agentDir = join(nuxt.options.buildDir, "docs/agent")
-    const resolveBase = () => normalizeDocsBase(options.base ?? (sources || existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
-    const base = resolveBase()
-    const manifestOptions = { dir: contentDir, base, sources: options.sources, rootDir: nuxt.options.rootDir, sections: options.sections }
     const config = publicConfig(options, base, nuxt.options.app.baseURL)
     // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
     // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
@@ -493,9 +509,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
     const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
     const readPage = (page: DocsPage): string => sourcePages.get(`${page.source}/${page.file}`) ?? readFileSync(pageFile(page), "utf8")
-    if (options.runnable) {
+    // Pages with `layout: playground` or `layout: learn` run a workspace even without `runnable` options.
+    const runnable = options.runnable || docsManifestPages(manifest).some(page => isDocsWorkspaceLayout(page.layout))
       // Lessons read their pages by URL, from `dir` or `sources`, so a lesson can live in any Content Source.
-      await setupDocsRunnable(options.runnable, {
+      ? await setupDocsRunnable(options.runnable ?? {}, {
         nuxt,
         content: {
           pages: () => docsManifestPages(manifest),
@@ -505,7 +522,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           },
         },
       })
-    }
+      : undefined
+    // `DocsPlayground` and `DocsLearn` load the data of their page from here. A site without such pages gets none.
+    nuxt.options.alias["#docs/workspaces"] = addTemplate({ filename: "docs/workspaces.mjs", write: true, getContents: () => runnable?.workspaces ?? "export default {}\n" }).dst
+    addTemplate({
+      filename: "docs/workspaces.d.mts",
+      write: true,
+      getContents: () => `declare const workspaces: Record<string, (() => Promise<{ default: import(${JSON.stringify(ownModule(import.meta.url, "runnable"))}).DocsWorkspaceData }>) | undefined>\nexport default workspaces\n`,
+    })
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
@@ -653,6 +677,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    // The browser half of lessons and playgrounds, for the `learn` and `playground` pages.
+    nuxt.options.alias["#docs/runnable"] = resolver.resolve("./runnable.js")
     nuxt.options.alias["#docs/primitive-rail"] = resolver.resolve("./primitive-rail.js")
     nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\nexport const names = ${JSON.stringify(comarkCssNames)}\n` }).dst
     addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\nexport declare const names: string[]\n" })
