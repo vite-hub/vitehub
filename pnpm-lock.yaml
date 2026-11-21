@@ -180,7 +180,7 @@ catalogs:
       specifier: 3.0.65
       version: 3.0.65
     '@ai-sdk/provider':
-      specifier: ^4.0.24
+      specifier: 4.0.24
       version: 4.0.24
     '@ai-sdk/vue':
       specifier: 4.0.130
@@ -1130,6 +1130,12 @@ importers:
       '@chat-adapter/teams':
         specifier: catalog:chat
         version: 4.45.0(ai@7.0.130(zod@4.6.7))(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+      '@emulators/ai':
+        specifier: 0.14.0
+        version: 0.14.0
+      '@emulators/core':
+        specifier: 0.14.0
+        version: 0.14.0
       '@json-render/core':
         specifier: 0.22.0
         version: 0.22.0(zod@4.6.7)
@@ -1193,6 +1199,9 @@ importers:
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.5(@cloudflare/workers-types@5.20261019.1)(@electric-sql/pglite@0.5.16)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
+      emulate:
+        specifier: 0.14.0
+        version: 0.14.0
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -2758,6 +2767,9 @@ importers:
       '@ai-sdk/provider':
         specifier: catalog:ai
         version: 4.0.24
+      '@emulators/ai':
+        specifier: 0.14.0
+        version: 0.14.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -2770,6 +2782,9 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
+      emulate:
+        specifier: 0.14.0
+        version: 0.14.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2909,6 +2924,9 @@ importers:
       magic-string:
         specifier: ^0.30.21
         version: 0.30.21
+      minimatch:
+        specifier: catalog:workspace
+        version: 10.2.6
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
@@ -3757,6 +3775,9 @@ importers:
 
   packages/sync:
     dependencies:
+      '@noble/hashes':
+        specifier: catalog:auth
+        version: 2.4.0
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -6043,6 +6064,12 @@ packages:
 
   '@emnapi/wasi-threads@1.2.2':
     resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
+
+  '@emulators/ai@0.14.0':
+    resolution: {integrity: sha512-pevzlDMdd6YNN2CKDpz71OSxj3HZZMwi6Jb/+IvzRlTw/KmPeNJIPnm3w+ZvMPK1gbn0/nSjZ7R+EaluYBfn7A==}
+
+  '@emulators/core@0.14.0':
+    resolution: {integrity: sha512-3XAxtzFh1quWqyFur/Ufcz+Z+kdODWDrfjoxMYtaBiYQrwaa7EWmIQ2W3KjDKiZ7tox+KxRa9F4d7DJoVqHSKw==}
 
   '@env-spec/parser@0.6.2':
     resolution: {integrity: sha512-VTw21XMOwqVqAhZWJtkiH4thp6UrS1nyG85Abu+ISvPBPupw9mOwftwukg7AWj+IIu9qodbqJ2J7w79Su8hYAQ==}
@@ -14428,6 +14455,10 @@ packages:
     resolution: {integrity: sha512-AnfC1ATldl49/cvZdLPDjBfrRNwbDO05aibiOtzQu3qtlbJtomNLhF30HEtn/7iBz50dlMECqATo3fG0LrdEgw==}
     engines: {node: '>=14'}
 
+  emulate@0.14.0:
+    resolution: {integrity: sha512-mlM/PJ34ynD2OTGVBvy+8/F7gEDwkHWmpqLG/JetaDmaqifkHtCw2VMmXTKBy6Zwa5yvCziLvyyvmAoVeuPZoA==}
+    hasBin: true
+
   encodeurl@2.0.0:
     resolution: {integrity: sha512-Q0n9HRi4m6JuGIV1eFlmvJB7ZEVxu93IrMyiMsGC0lrMJMWzRgx6WGquyfQgZVb31vhGgXnfmPNNXmxnOkRBrg==}
     engines: {node: '>= 0.8'}
@@ -21677,6 +21708,14 @@ snapshots:
     dependencies:
       tslib: 2.8.1
     optional: true
+
+  '@emulators/ai@0.14.0':
+    dependencies:
+      '@emulators/core': 0.14.0
+
+  '@emulators/core@0.14.0':
+    dependencies:
+      jose: 6.2.12
 
   '@env-spec/parser@0.6.2': {}
 
@@ -33102,6 +33141,12 @@ snapshots:
     optional: true
 
   empathic@2.1.0: {}
+
+  emulate@0.14.0:
+    dependencies:
+      commander: 14.0.3
+      picocolors: 1.1.1
+      yaml: 2.9.1
 
   encodeurl@2.0.0: {}
 

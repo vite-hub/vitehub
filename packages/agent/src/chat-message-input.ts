@@ -400,6 +400,19 @@ export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory 
   return normalizedMaxMessages(triggerHistory.maxMessages)
 }
 
+/** How many history images a provider Driver gets again when `triggerHistory.maxImages` is not set. */
+const providerDriverHistoryImages = 4
+
+/**
+ * Codex and Claude Code read images, so a thread window sends them the newest history images unless `maxImages` is set.
+ * Other Drivers keep 0: ViteHub cannot tell whether their model reads images.
+ */
+export function withDriverTriggerHistoryDefaults<TOptions extends Pick<AgentChatOptions, "triggerHistory">>(options: TOptions | undefined, driverKind: unknown): TOptions | undefined {
+  const triggerHistory = options?.triggerHistory
+  if (driverKind !== "provider" || !options || !triggerHistory || triggerHistory === "none" || triggerHistory.maxImages !== undefined) return options
+  return { ...options, triggerHistory: { ...triggerHistory, maxImages: providerDriverHistoryImages } }
+}
+
 /** Returns how many recent history images to send again, and how old they may be. */
 export function chatTriggerHistoryImages(triggerHistory: AgentChatTriggerHistory | undefined): { maxAgeMs: number, maxImages: number } {
   if (!chatTriggerHistoryLimit(triggerHistory) || !triggerHistory || triggerHistory === "none") return { maxAgeMs: Infinity, maxImages: 0 }

@@ -20,7 +20,7 @@ Turn on the Console endpoint of your app, deploy it, and link it in [console.vit
 ## In development
 
 ```bash [Terminal]
-pnpm vitehub project info
+pnpm vitehub project get
 pnpm vitehub kv list
 ```
 

@@ -70,6 +70,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 // The root entry installs the internal Agent runners that this entry exports.
 import "../index.ts"
 export { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
+export { opensLibsqlAgentState } from "../internal/agent-state-runtime.ts"
 export type { RunAgentInlineOptions } from "../internal/agent-run.ts"
 
 type AgentGeneratedRuntimeErrorCode = "AGENT_R0893" | "AGENT_R0894" | "AGENT_R0895" | "AGENT_R0896" | "AGENT_R0897"
