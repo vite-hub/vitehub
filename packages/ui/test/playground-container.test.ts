@@ -262,16 +262,23 @@ describe("PlaygroundContainer", () => {
         templates: [kv],
         share: false,
         connect: defineConnect({ github: true }),
-        tabs: [{ label: "Messages", value: "messages" }],
+        tabs: [{ label: "Messages", value: "messages" }, { label: "Status", value: "status" }, { label: "Path", value: "editor-head" }],
       },
       slots: {
         messages: () => h("p", "messages"),
+        status: () => h("button", "Custom status"),
+        "editor-head": () => h("p", "Custom path"),
         toolbar: ({ edited }: PlaygroundContext) => h("span", { class: "extra" }, `${edited.length} edited`),
       },
     });
     await flushPromises();
-    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages"]);
+    expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Console", "Connect", "Messages", "Status", "Path"]);
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
+    expect(wrapper.get(".vh-ws-editor-head .vh-pc-path").text()).not.toBe("Custom path");
+    expect(wrapper.find(".vh-ws-status").exists()).toBe(false);
+    expect(wrapper.get("[data-tab='status']").attributes()).toHaveProperty("inert");
+    expect(wrapper.get("[data-tab='status']").text()).toBe("Custom status");
+    expect(wrapper.get("[data-tab='editor-head']").text()).toBe("Custom path");
     expect(wrapper.get(".extra").text()).toBe("0 edited");
     expect(wrapper.text()).not.toContain("Copy link");
     expect(wrapper.find(".vh-pc-toolbar .menu").exists()).toBe(true);

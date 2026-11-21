@@ -376,7 +376,7 @@ const PlaygroundSession = defineComponent({
             "onCopy-command": (command: string) => void copy(command),
           })),
         },
-        ...Object.fromEntries(props.tabs.map(item => [item.value, () => slots[item.value]?.(context)])),
+        ...Object.fromEntries(props.tabs.map(item => [`tab-${item.value}`, () => slots[item.value]?.(context)])),
       };
       return h("div", { class: "vh-pc-session" }, [
         toolbar(),
