@@ -214,53 +214,14 @@ HEALTHCHECK --interval=30s --timeout=5s \
   CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
-To check only some primitives, list them in `checks`. For example, when the
-S3 credential cannot list the bucket, check only the Database and KV:
+To check only some primitives, list them in `checks`. For example, if the app
+already enables Database and KV, but its S3 credential cannot list the bucket,
+add this option to `vitehub` in `nuxt.config.ts` or to the `vitehub()` options
+in `vite.config.ts` for Nitro and Vite:
 
-::tabs{sync="framework"}
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  vitehub: {
-    health: { checks: ['database', 'kv'] },
-  },
-})
+```ts
+health: { checks: ['database', 'kv'] },
 ```
-:::
-
-:::tabs-item{label="Nitro"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [
-    vitehub({
-      health: { checks: ['database', 'kv'] },
-    }),
-    nitro(),
-  ],
-})
-```
-:::
-
-:::tabs-item{label="Vite"}
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [
-    vitehub({
-      health: { checks: ['database', 'kv'] },
-    }),
-  ],
-})
-```
-:::
-::
 
 A Docker build context often has no `.git`. Pass the commit as
 `VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See

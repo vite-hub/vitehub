@@ -38,9 +38,10 @@ export interface HealthTargets {
 }
 
 /** The targets that `checks` keeps. A listed primitive that the app does not turn on fails the build. */
-export function selectHealthTargets(checks: readonly HealthCheck[] | undefined, targets: HealthTargets): HealthTargets {
+export function selectHealthTargets(checks: readonly unknown[] | undefined, targets: HealthTargets): HealthTargets {
   if (!checks) return targets
   for (const check of checks) {
+    if (check !== "database" && check !== "kv" && check !== "blob") throw viteHubErrorDiagnostics.VITE_HUB_HEALTH_CHECK_INVALID({ check: String(check) })
     if (check === "database" ? !targets.database : !targets[check].length) throw viteHubErrorDiagnostics.VITE_HUB_HEALTH_CHECK_DISABLED({ check })
   }
   return {
@@ -125,10 +126,10 @@ async function readAppVersion(projectRoot: string): Promise<string | undefined> 
 
 /** Registers the health route, with the app version and commit of the build, and the primitives to check. */
 export function healthVitePlugin(options: HealthOptions, available: HealthTargets): Plugin {
-  const targets = selectHealthTargets(options.checks, available)
   return {
     name: "vite-hub/health",
     async config(config) {
+      const targets = selectHealthTargets(options.checks, available)
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, nitro?: Record<string, unknown> }
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"

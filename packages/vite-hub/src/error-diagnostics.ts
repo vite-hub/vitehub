@@ -113,6 +113,10 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ check }: { check: string }) => `\`health.checks\` lists "${check}", but the app does not turn on \`${check}\` in \`vitehub()\`, so the health route has nothing to check.`,
       fix: ({ check }: { check: string }) => `Remove "${check}" from \`health.checks\`, or turn on \`${check}\` in \`vitehub()\`.`,
     },
+    VITE_HUB_HEALTH_CHECK_INVALID: {
+      why: ({ check }: { check: string }) => `\`health.checks\` lists ${JSON.stringify(check)}, which is not a health check name.`,
+      fix: 'Use only "database", "kv", and "blob" in `health.checks`.',
+    },
     VITE_HUB_HOST_PROVIDER_CONFLICT: {
       why: ({ detected, host, variable }: { detected: string, host: string, variable: string }) => `\`vitehub({ host: "${host}" })\` builds ${host} output, but \`${variable}\` is set, so this build runs on the ${detected} host, which cannot run ${host} output.`,
       fix: ({ host }: { host: string }) => `Remove \`host\` from \`vitehub()\` to build for the host that the environment names. To build ${host} output on purpose, set \`VITEHUB_HOST=${host}\`.`,
