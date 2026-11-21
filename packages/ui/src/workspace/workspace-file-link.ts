@@ -16,11 +16,6 @@ export function provideWorkspaceFileOpener(opener: WorkspaceFileOpener): void {
   provide(fileOpenerKey, opener);
 }
 
-/** The file opener above this component, if there is one. Call it in `setup()`. */
-export function injectWorkspaceFileOpener(): WorkspaceFileOpener | undefined {
-  return inject(fileOpenerKey, undefined);
-}
-
 /**
  * An inline link in a guide that opens a file in the workspace editor. It shows the file name, or its slot. It calls
  * the opener of `provideWorkspaceFileOpener()` above it, and emits `open` either way.
@@ -35,7 +30,7 @@ export const WorkspaceFileLink = defineComponent({
     open: (path: string) => typeof path === "string",
   },
   setup(props, { emit, slots }) {
-    const opener = injectWorkspaceFileOpener();
+    const opener = inject(fileOpenerKey, undefined);
     return () => h("button", {
       class: "vh-ws-file-link",
       "data-path": props.path,
