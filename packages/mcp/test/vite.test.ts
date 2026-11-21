@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { nitro } from "nitro/vite"
 import ts from "typescript"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { discoverMcpTools, hubMcp } from "../src/vite.ts"
@@ -55,19 +57,20 @@ describe("hubMcp", () => {
     return { config, plugin }
   }
 
-  it("names the build host where a tool cannot elicit, and only there", () => {
-    const entry = (nitro: object, command: "build" | "serve") => {
-      const root = app({ "server/mcp/tools/add.ts": tool })
-      configure(root, { auth: false }, { nitro }, command)
-      return readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
-    }
-    expect(entry({ preset: "cloudflare-module" }, "build")).toContain('elicitationUnsupportedHost: "cloudflare-module"')
-    expect(entry({ preset: "vercel" }, "build")).toContain('elicitationUnsupportedHost: "vercel"')
-    expect(entry({ preset: "node-cluster" }, "build")).toContain('elicitationUnsupportedHost: "node-cluster"')
-    expect(entry({ preset: "node-server" }, "build")).not.toContain("elicitationUnsupportedHost")
-    expect(entry({ preset: "bun" }, "build")).not.toContain("elicitationUnsupportedHost")
-    // The dev server runs in one process, whatever the preset.
-    expect(entry({ preset: "cloudflare-module" }, "serve")).not.toContain("elicitationUnsupportedHost")
+  it.each([
+    { command: "build", fromFile: true, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: false, preset: "node-cluster", supported: false },
+    { command: "build", fromFile: true, preset: "node-server", supported: true },
+    { command: "serve", fromFile: true, preset: "node-cluster", supported: true },
+  ] as const)("uses Nitro's resolved $preset preset for $command (from config file: $fromFile)", async ({ command, fromFile, preset, supported }) => {
+    const root = app({
+      "server/mcp/tools/add.ts": tool,
+      ...(fromFile ? { "nitro.config.ts": `export default { preset: ${JSON.stringify(preset)} }\n` } : {}),
+    })
+    await resolveConfig({ configFile: false, root, plugins: [hubMcp({ auth: false }), nitro(fromFile ? {} : { preset })] }, command)
+    const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
+    if (supported) expect(entry).not.toContain("elicitationUnsupportedHost")
+    else expect(entry).toContain(`elicitationUnsupportedHost: ${JSON.stringify(preset)}`)
   })
 
   it("checks the access token by default", () => {

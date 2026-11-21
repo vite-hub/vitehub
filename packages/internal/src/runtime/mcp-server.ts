@@ -74,8 +74,8 @@ export interface McpToolCallContext {
   /**
    * Sends `elicitation/create` to the client and waits for the person. The answer to the `tools/call` becomes an SSE
    * stream. The person has 10 minutes to answer. After that, or when the client closes the stream, the answer is
-   * `cancel`. The waiting call lives in the memory of this process, so the client must send its answer to the same
-   * process.
+   * `cancel`. Cancelling the tool call also cancels its prompts. The waiting call lives in the memory of this process,
+   * so the client must send its answer to the same process.
    */
   elicit(params: McpFormElicitation): Promise<McpElicitationResult>
 }
@@ -350,10 +350,35 @@ function missingScopes(server: McpServer, tool: McpTool): string[] {
   return granted ? (tool.scopes ?? []).filter(scope => !granted.includes(scope)) : []
 }
 
-// The server keeps no session. `initialize` gives a client that declares form elicitation an `Mcp-Session-Id` with this
-// prefix, and the client sends it with every request, so a later `tools/call` knows that the client can answer.
 const elicitationSession = "elicit-form."
 const elicitationTimeoutMs = 10 * 60_000
+const elicitationSessionPattern = /^elicit-form\.([\da-f-]{36})\.([A-Za-z0-9+/]{43}=)$/
+let sessionKey: ReturnType<typeof generateElicitationKey> | undefined
+
+function generateElicitationKey() {
+  return crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"])
+}
+
+function sessionBinding(request: Request, server: McpServer): string {
+  return JSON.stringify([new URL(request.url).pathname, forwardedRequestOrigin(request), server.principal])
+}
+
+function sessionData(binding: string, nonce: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${binding}\n${nonce}`)
+}
+
+async function issueElicitationSession(binding: string): Promise<string> {
+  const nonce = crypto.randomUUID()
+  const signature = await crypto.subtle.sign("HMAC", await (sessionKey ??= generateElicitationKey()), sessionData(binding, nonce))
+  return `${elicitationSession}${nonce}.${btoa(String.fromCharCode(...new Uint8Array(signature)))}`
+}
+
+async function verifyElicitationSession(binding: string, session: string): Promise<boolean> {
+  const [, nonce, signature] = elicitationSessionPattern.exec(session) ?? []
+  if (!nonce || !signature || !sessionKey) return false
+  const bytes = Uint8Array.from(atob(signature), char => char.charCodeAt(0))
+  return crypto.subtle.verify("HMAC", await sessionKey, bytes, sessionData(binding, nonce))
+}
 
 function declaresFormElicitation(params: Record<string, unknown>): boolean {
   const elicitation = record(record(params.capabilities)?.elicitation)
@@ -362,7 +387,14 @@ function declaresFormElicitation(params: Record<string, unknown>): boolean {
 }
 
 /** The `tools/call` requests that wait for an answer to `elicitation/create`, by the id of that request. */
-const waitingElicitations = new Map<string, { principal: string | undefined, settle: (answer: Record<string, unknown>) => void }>()
+const waitingElicitations = new Map<string, { binding: string, session: string, settle: (answer: Record<string, unknown>) => void }>()
+/** Cancel an in-flight `tools/call` by endpoint, principal, session, and the client's JSON-RPC id. */
+const elicitingCalls = new Map<string, () => void>()
+const cancelElicitation = { result: { action: "cancel" } }
+
+function toolCallKey(binding: string, session: string, id: string | number): string {
+  return JSON.stringify([binding, session, id])
+}
 
 function readElicitationAnswer(message: Record<string, unknown>): McpElicitationResult | Error {
   const error = record(message.error)
@@ -375,7 +407,7 @@ function readElicitationAnswer(message: Record<string, unknown>): McpElicitation
   return new Error("The MCP client answered elicitation/create without an accept, decline, or cancel action.")
 }
 
-function waitForElicitationAnswer(requestId: string, principal: string | undefined): Promise<McpElicitationResult> {
+function waitForElicitationAnswer(requestId: string, binding: string, session: string): Promise<McpElicitationResult> {
   return new Promise((resolve, reject) => {
     const settle = (message: Record<string, unknown>) => {
       clearTimeout(timer)
@@ -384,16 +416,16 @@ function waitForElicitationAnswer(requestId: string, principal: string | undefin
       if (answer instanceof Error) reject(answer)
       else resolve(answer)
     }
-    const timer = setTimeout(() => settle({ result: { action: "cancel" } }), elicitationTimeoutMs)
-    waitingElicitations.set(requestId, { principal, settle })
+    const timer = setTimeout(() => settle(cancelElicitation), elicitationTimeoutMs)
+    waitingElicitations.set(requestId, { binding, session, settle })
   })
 }
 
 /** Takes the answer of the client to `elicitation/create`: a JSON-RPC response in its own POST. */
-function answerElicitation(server: McpServer, id: JsonRpcId, message: Record<string, unknown>): Response {
+function answerElicitation(request: Request, server: McpServer, id: JsonRpcId, message: Record<string, unknown>): Response {
   const waiting = typeof id === "string" ? waitingElicitations.get(id) : undefined
-  // An answer from another principal looks the same as an unknown id, so it tells nothing about the calls of others.
-  if (!waiting || waiting.principal !== server.principal) {
+  // The waiting call already verified the session. Require the same session and binding on the answer.
+  if (!waiting || waiting.session !== request.headers.get("mcp-session-id") || waiting.binding !== sessionBinding(request, server)) {
     return rpcError(null, -32600, "No tool call waits for this answer. It timed out, the client closed the call, or another server instance has it.", 400)
   }
   waiting.settle(message)
@@ -405,60 +437,93 @@ function answerElicitation(server: McpServer, id: JsonRpcId, message: Record<str
  * `elicitation/create` requests, then the result of the `tools/call`.
  */
 async function callTool(request: Request, server: McpServer, tool: McpTool, input: Record<string, unknown>, id: JsonRpcId): Promise<Response> {
-  const encoder = new TextEncoder()
-  let stream: { body: ReadableStream<Uint8Array>, send: (message: object) => void, close: () => void } | undefined
+  const session = request.headers.get("mcp-session-id")
+  if (!session?.startsWith(elicitationSession) || id === null) {
+    return reply(id, await tool.handler(input, { canElicit: false, elicit: async () => ({ action: "cancel" }) }))
+  }
+  const binding = sessionBinding(request, server)
+  const key = toolCallKey(binding, session, id)
+  if (elicitingCalls.has(key)) return rpcError(id, -32600, "This tool call id is already in use.")
+  let stream: ReturnType<typeof openStream> | undefined
   let opened: () => void = () => undefined
   const streaming = new Promise<void>((resolve) => {
     opened = resolve
   })
   const asked = new Set<string>()
+  let finished = false
+  function finish(closeStream = true) {
+    if (finished) return
+    finished = true
+    elicitingCalls.delete(key)
+    for (const requestId of asked) waitingElicitations.get(requestId)?.settle(cancelElicitation)
+    if (closeStream) stream?.close()
+  }
   const openStream = () => {
+    const encoder = new TextEncoder()
     let controller: ReadableStreamDefaultController<Uint8Array> | undefined
-    let closed = false
     const body = new ReadableStream<Uint8Array>({
       start(value) {
         controller = value
       },
       cancel() {
-        // The client closed the stream, so no one can answer. The handler gets `cancel` and finishes.
-        closed = true
-        for (const requestId of asked) waitingElicitations.get(requestId)?.settle({ result: { action: "cancel" } })
+        finish(false)
       },
     })
     opened()
     return {
       body,
-      send(message: object) {
-        if (!closed) controller?.enqueue(encoder.encode(`event: message\ndata: ${JSON.stringify(message)}\n\n`))
+      send(message: string) {
+        controller?.enqueue(encoder.encode(`event: message\ndata: ${message}\n\n`))
       },
       close() {
-        if (!closed) controller?.close()
-        closed = true
+        controller?.close()
       },
     }
   }
-  const call: McpToolCallContext = {
-    canElicit: request.headers.get("mcp-session-id")?.startsWith(elicitationSession) === true,
-    async elicit(params) {
-      const requestId = crypto.randomUUID()
-      asked.add(requestId)
-      const answer = waitForElicitationAnswer(requestId, server.principal)
-      stream ??= openStream()
-      stream.send({ jsonrpc: "2.0", id: requestId, method: "elicitation/create", params })
-      return await answer
-    },
-  }
-  const result = tool.handler(input, call)
+  elicitingCalls.set(key, () => finish())
+  const result = (async () => {
+    const canElicit = await verifyElicitationSession(binding, session)
+    return await tool.handler(input, {
+      canElicit,
+      async elicit(params) {
+        if (finished || !canElicit) return { action: "cancel" }
+        const requestId = crypto.randomUUID()
+        const message = JSON.stringify({ jsonrpc: "2.0", id: requestId, method: "elicitation/create", params })
+        stream ??= openStream()
+        stream.send(message)
+        asked.add(requestId)
+        try {
+          return await waitForElicitationAnswer(requestId, binding, session)
+        }
+        finally {
+          asked.delete(requestId)
+        }
+      },
+    })
+  })()
   await Promise.race([result.catch(() => undefined), streaming])
-  if (!stream) return reply(id, await result)
+  if (!stream) {
+    try {
+      return reply(id, await result)
+    }
+    finally {
+      finish()
+    }
+  }
   const open = stream
-  result.then(
-    value => open.send({ jsonrpc: "2.0", id, result: value }),
-    (error) => {
+  void (async () => {
+    try {
+      const value = await result
+      if (!finished) open.send(JSON.stringify({ jsonrpc: "2.0", id, result: value }))
+    }
+    catch (error) {
       console.error("[vitehub] MCP request failed:", error)
-      open.send({ jsonrpc: "2.0", id, error: { code: -32603, message: "The request failed on the server." } })
-    },
-  ).finally(() => open.close())
+      if (!finished) open.send(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32603, message: "The request failed on the server." } }))
+    }
+    finally {
+      finish()
+    }
+  })()
   return new Response(open.body, { headers: { ...headers, "content-type": "text/event-stream" } })
 }
 
@@ -497,16 +562,24 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
   const id: JsonRpcId = typeof raw === "string" || (typeof raw === "number" && Number.isFinite(raw)) ? raw : null
   if ("id" in message && id === null) return rpcError(null, -32600, "The request id must be a string or a number.", 400)
   // A message with a result or an error and no method is the answer of the client to a request of the server.
-  if (!("method" in message) && ("result" in message || "error" in message)) return answerElicitation(server, id, message)
+  if (!("method" in message) && ("result" in message || "error" in message)) return answerElicitation(request, server, id, message)
   const method = message.method
   if (typeof method !== "string" || !method) return rpcError(id, -32600, "A request needs a method, such as tools/list.", 400)
   const version = request.headers.get("mcp-protocol-version")
   if (method !== "initialize" && version !== null && !mcpProtocolVersions.includes(version)) {
     return rpcError(id, -32600, `Unsupported MCP-Protocol-Version ${JSON.stringify(version)}. This server speaks ${mcpProtocolVersions.join(", ")}.`, 400)
   }
-  // A notification, such as `notifications/initialized`, gets no answer.
-  if (!("id" in message)) return new Response(null, { headers, status: 202 })
   const params = record(message.params) ?? {}
+  if (!("id" in message)) {
+    if (method === "notifications/cancelled") {
+      const session = request.headers.get("mcp-session-id")
+      const requestId = params.requestId
+      if (session?.startsWith(elicitationSession) && (typeof requestId === "string" || typeof requestId === "number")) {
+        elicitingCalls.get(toolCallKey(sessionBinding(request, server), session, requestId))?.()
+      }
+    }
+    return new Response(null, { headers, status: 202 })
+  }
   const called = method === "tools/call" ? server.tools.find(candidate => candidate.name === params.name) : undefined
   const limit = called?.maxRequestBytes ?? maximumBodyBytes
   if (bytes > limit) return tooLarge(limit)
@@ -585,7 +658,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
         serverInfo: server.serverInfo,
         instructions: server.instructions,
       })
-      if (declaresFormElicitation(params)) response.headers.set("mcp-session-id", `${elicitationSession}${crypto.randomUUID()}`)
+      if (declaresFormElicitation(params)) response.headers.set("mcp-session-id", await issueElicitationSession(sessionBinding(request, server)))
       return response
     }
     case "ping":

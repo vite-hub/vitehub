@@ -83,7 +83,7 @@ export default defineMcpTool({
 
 `elicit()` returns `[error, answer]`:
 
-- `answer.action` is `accept` with the checked values in `answer.data`, `decline` when the person refused, or `cancel` when the person closed the form or did not answer in 10 minutes.
+- `answer.action` is `accept` with the checked values in `answer.data`, `decline` when the person refused, or `cancel` when the person closed the form, the client closed the stream or cancelled the tool call, or no answer came in 10 minutes.
 - `error` has the issue of each field when the values do not pass the schema, the same issues as the [form route](/docs/forms/server-api). Call `elicit()` again to ask again.
 
 A tool that elicits answers the `tools/call` with an event stream. Tools that do not elicit keep a JSON answer. Do not ask for passwords, API keys, or payment details: MCP does not allow them in a form.

@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 
-import { getDeploymentHost, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { detectHost, normalizeNitroPreset } from "@vite-hub/internal/deployment"
-import { resolveHostPreset } from "@vite-hub/internal/hosting"
+import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeNitroPreset } from "@vite-hub/internal/deployment"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
@@ -38,7 +37,10 @@ export interface McpVitePluginOptions extends McpOptions {
   }
 }
 
-export type McpVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type McpVitePlugin = Plugin & {
+  nitro: { name: string, setup(nitro: { options: { dev: boolean, preset: string } }): void }
+  vitehub: ViteHubInspectionPluginMetadata
+}
 
 export const MCP_VITE_PLUGIN_NAME = "@vite-hub/mcp/vite"
 
@@ -123,9 +125,8 @@ function packageName(projectRoot: string): string | undefined {
 const oneProcessPresets = new Set(["bun", "deno-server", "node", "node-middleware", "node-server"])
 
 /** The preset of a build where `elicit()` cannot work, or `undefined` when it can. Dev runs in one process. */
-function elicitationUnsupportedHost(config: object, nitro: unknown): string | undefined {
-  const preset = resolveHostPreset({ hosting: getDeploymentHost(config), nitro }) ?? detectHost()
-  if (!preset) return undefined
+function elicitationUnsupportedHost({ dev, preset }: { dev: boolean, preset: string }): string | undefined {
+  if (dev) return undefined
   const normalized = normalizeNitroPreset(preset)
   return oneProcessPresets.has(normalized) ? undefined : normalized
 }
@@ -260,14 +261,20 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
         }, inspector("prompts"), inspector("resources")],
       }),
     },
-    config(config, env) {
+    nitro: {
+      name: MCP_VITE_PLUGIN_NAME,
+      setup({ options }) {
+        unsupportedHost = elicitationUnsupportedHost(options)
+        write(writeFileIfChangedSync)
+      },
+    },
+    config(config) {
       projectRoot = resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
       // SAFETY: ViteHub writes this string-array metadata through its shared Vite config contract.
       const configured = (config as UserConfig & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
       serverDirs = configured ?? [resolve(projectRoot, "server")]
       const kit = createNitroServerKit((config as { nitro?: unknown }).nitro)
       base = typeof kit.config.baseURL === "string" ? kit.config.baseURL.replace(/\/+$/, "") : ""
-      unsupportedHost = env.command === "build" ? elicitationUnsupportedHost(config, kit.config) : undefined
       // Nitro reads the generated files when it starts, so they exist before its config hook runs.
       write(writeFileIfChangedSync)
       // With `auth: true`, the route checks the access token of each request. `auth: false` and `"optional"` serve tools

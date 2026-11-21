@@ -48,7 +48,7 @@ function server(options: Partial<McpHandlerOptions> = {}) {
 }
 
 /** A real MCP SDK client whose requests go to the handler. `answer` is what the person does in the form. */
-async function connect(handler: ReturnType<typeof server>, answer?: (message: string) => ElicitResult): Promise<Client> {
+async function connect(handler: ReturnType<typeof server>, answer?: (message: string) => ElicitResult | Promise<ElicitResult>): Promise<Client> {
   const client = new Client({ name: "test-client", version: "1" }, { capabilities: answer ? { elicitation: { form: {} } } : {} })
   if (answer) client.setRequestHandler(ElicitRequestSchema, request => answer(request.params.message))
   const transport = new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
@@ -63,7 +63,45 @@ function text(result: Awaited<ReturnType<Client["callTool"]>>): string {
   return block!.text
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((settle) => { resolve = settle })
+  return { promise, resolve }
+}
+
 describe("MCP elicitation through a real MCP client", () => {
+  it("cancels both the pending prompt and a follow-up prompt when the SDK aborts just the call", async () => {
+    const asked = deferred<void>()
+    const response = deferred<ElicitResult>()
+    const cancelled = deferred<string[]>()
+    const handler = server({ tools: { ask_twice: defineMcpTool({
+      description: "Ask twice.",
+      async handler(_input, { elicit }) {
+        const [, first] = await elicit(Invite, { message: "First" })
+        const [, second] = await elicit(Invite, { message: "Second" })
+        cancelled.resolve([first?.action ?? "invalid", second?.action ?? "invalid"])
+        return "Done."
+      },
+    }) } })
+    const client = await connect(handler, () => {
+      asked.resolve()
+      return response.promise
+    })
+    const controller = new AbortController()
+    const call = client.callTool({ name: "ask_twice" }, undefined, { signal: controller.signal })
+    try {
+      await asked.promise
+      controller.abort()
+      await expect(call).rejects.toThrow()
+      await expect(cancelled.promise).resolves.toEqual(["cancel", "cancel"])
+      await expect(client.ping()).resolves.toEqual({})
+    }
+    finally {
+      response.resolve({ action: "decline" })
+      await client.close()
+    }
+  })
+
   it("asks the person and continues the tool call with the checked answer", async () => {
     const asked: string[] = []
     const client = await connect(server(), (message) => {
@@ -133,8 +171,8 @@ async function nextMessage(reader: ReadableStreamDefaultReader<string>, buffer: 
   return JSON.parse(data) as SseMessage
 }
 
-function post(handler: ReturnType<typeof server>, body: unknown, headers: Record<string, string> = {}): Promise<Response> {
-  return handler(eventOf(new Request(`${origin}/mcp`, {
+function post(handler: ReturnType<typeof server>, body: unknown, headers: Record<string, string> = {}, route = "/mcp"): Promise<Response> {
+  return handler(eventOf(new Request(`${origin}${route}`, {
     body: JSON.stringify(body),
     headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", "mcp-protocol-version": "2025-11-25", ...headers },
     method: "POST",
@@ -142,6 +180,54 @@ function post(handler: ReturnType<typeof server>, body: unknown, headers: Record
 }
 
 describe("MCP elicitation on the wire", () => {
+  it("does not elicit for an unissued session or a session from another endpoint", async () => {
+    const handler = server()
+    const initialized = await post(server({ route: "/other/mcp" }), { id: 1, jsonrpc: "2.0", method: "initialize", params: { capabilities: { elicitation: {} } } }, {}, "/other/mcp")
+    for (const session of [`elicit-form.${crypto.randomUUID()}`, initialized.headers.get("mcp-session-id")!]) {
+      const call = await post(handler, { id: 2, jsonrpc: "2.0", method: "tools/call", params: { arguments: { drop: "launch-notes" }, name: "share_drop" } }, { "mcp-session-id": session })
+      const type = call.headers.get("content-type")
+      if (type === "text/event-stream") await call.body?.cancel()
+      expect(type).toContain("application/json")
+      expect(await call.text()).toContain("MCP_ELICITATION_CLIENT_UNSUPPORTED")
+    }
+  })
+
+  it("rejects a late answer after cancellation from the originating session", async () => {
+    const handler = server()
+    const init = { id: 1, jsonrpc: "2.0", method: "initialize", params: { capabilities: { elicitation: {} } } }
+    const first = await post(handler, init)
+    const second = await post(handler, init)
+    const headers = { "mcp-session-id": first.headers.get("mcp-session-id")! }
+    const other = { "mcp-session-id": second.headers.get("mcp-session-id")! }
+    const call = await post(handler, { id: 2, jsonrpc: "2.0", method: "tools/call", params: { arguments: { drop: "launch-notes" }, name: "share_drop" } }, headers)
+    const reader = call.body!.pipeThrough(new TextDecoderStream()).getReader()
+    const prompt = await nextMessage(reader, { text: "" })
+    const cancel = { jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 2 } }
+    expect((await post(handler, cancel, other)).status).toBe(202)
+    expect((await post(handler, cancel, headers)).status).toBe(202)
+    expect((await post(handler, { id: prompt.id, jsonrpc: "2.0", result: { action: "decline" } }, headers)).status).toBe(400)
+    expect((await reader.read()).done).toBe(true)
+  })
+
+  it("sends a JSON-RPC error if the final tool result cannot be serialized", async () => {
+    const handler = server({ tools: { invalid: defineMcpTool({
+      description: "Return an unserializable result.",
+      async handler(_input, { elicit }) {
+        await elicit(Invite, { message: "Who?" })
+        return { content: [{ type: "text", text: "Done" }], structuredContent: { value: 1n } }
+      },
+    }) } })
+    const initialized = await post(handler, { id: 1, jsonrpc: "2.0", method: "initialize", params: { capabilities: { elicitation: {} } } })
+    const headers = { "mcp-session-id": initialized.headers.get("mcp-session-id")! }
+    const call = await post(handler, { id: 2, jsonrpc: "2.0", method: "tools/call", params: { name: "invalid" } }, headers)
+    const reader = call.body!.pipeThrough(new TextDecoderStream()).getReader()
+    const buffer = { text: "" }
+    const request = await nextMessage(reader, buffer)
+    expect((await post(handler, { id: request.id, jsonrpc: "2.0", result: { action: "decline" } }, headers)).status).toBe(202)
+    expect(await nextMessage(reader, buffer)).toMatchObject({ id: 2, error: { code: -32603 } })
+    expect((await reader.read()).done).toBe(true)
+  })
+
   it("answers with SSE only when the handler elicits, and takes the answer as a new POST", async () => {
     const handler = server()
     const initialized = await post(handler, { id: 1, jsonrpc: "2.0", method: "initialize", params: { capabilities: { elicitation: {} }, clientInfo: { name: "raw", version: "1" }, protocolVersion: "2025-11-25" } })
@@ -196,6 +282,11 @@ describe("MCP elicitation on the wire", () => {
     const answer = { id: request.id, jsonrpc: "2.0", result: { action: "accept", content: { email: "eve@acme.dev", role: "editor" } } }
     const stolen = await post(handler, answer, { ...sam, authorization: "Bearer eve" })
     expect(stolen.status).toBe(400)
+
+    const second = await post(handler, { id: 1, jsonrpc: "2.0", method: "initialize", params: { capabilities: { elicitation: {} } } }, { authorization: "Bearer sam" })
+    const otherSession = { ...sam, "mcp-session-id": second.headers.get("mcp-session-id")! }
+    expect(otherSession["mcp-session-id"]).not.toBe(sam["mcp-session-id"])
+    expect((await post(handler, answer, otherSession)).status).toBe(400)
 
     const declined = await post(handler, { id: request.id, jsonrpc: "2.0", result: { action: "decline" } }, sam)
     expect(declined.status).toBe(202)

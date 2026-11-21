@@ -433,7 +433,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
       instructions,
       serverInfo: resolveServerInfo(serverInfo, request),
       tools: tools.map(tool => toMcpTool(tool.listed, tool.definition, scope)),
-      ...(caller ? { principal: `${caller.user.id}\n${caller.clientId ?? ""}` } : {}),
+      ...(caller ? { principal: JSON.stringify([caller.user.id, caller.clientId]) } : {}),
       prompts: visible(prompts).map(prompt => toMcpPrompt(prompt.listed, prompt.definition, scope)),
       resources: visible(resources).map(({ name, definition }) => toMcpResource(name, definition, scope)),
       // An optional route answers missing scopes with a tool result instead, which ChatGPT reads.
