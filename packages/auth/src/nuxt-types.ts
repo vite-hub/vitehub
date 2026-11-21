@@ -19,3 +19,10 @@ export interface AuthPageGuardConfig {
   /** `access.afterSignIn`, where signed-in users go from `auth: 'guest'` pages. */
   afterSignIn: string
 }
+
+/**
+ * `access.pages`: the Nuxt pages that the page guard protects, by route pattern, such as `'/dashboard/**'`. A key has
+ * static segments, `:name`, and a last `**`. `'user'` and `'guest'` work as in `definePageMeta({ auth })`. `false`
+ * removes the guard of a wider pattern from the matching pages.
+ */
+export type AuthPages = Record<`/${string}`, AuthPageMode | false>

@@ -481,6 +481,17 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
   })
 
+  it("checks access.pages in the virtual Auth Definition that the ViteHub Nuxt integration loads", async () => {
+    const root = await createTempProject()
+    await writeAuth(root, "server/auth.ts", ["  access: { pages: { '/dashboard/**': 'user' } },"])
+
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+
+    expect(loadAuthDefinition(plugin)).toContain("import { checkBuiltAuthPages } from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("checkBuiltAuthPages(definition, {\"/dashboard/**\":\"user\"})")
+  })
+
   it("declares #vitehub/auth/server for a tsconfig that cannot resolve it", async () => {
     const root = await createTempProject()
     await writeAuth(root)

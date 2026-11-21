@@ -1,4 +1,5 @@
 import { parseDuration } from "@vite-hub/runtime"
+import { assertAuthPages } from "./access-pages.ts"
 import { accessRouteSyntaxError } from "./application-path.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -117,6 +118,7 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
   validateAuthAccessPolicy(access.policy)
   validateAuthSignIn(access.signIn)
   if (typeof access.afterSignIn !== "undefined" && !isAppPath(access.afterSignIn)) throw authErrorDiagnostics.AUTH_AFTER_SIGN_IN_INVALID()
+  if (typeof access.pages !== "undefined") assertAuthPages(access.pages)
 }
 
 export function validateAuthComponents(value: unknown): void {
