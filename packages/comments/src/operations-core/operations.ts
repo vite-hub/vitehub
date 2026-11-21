@@ -189,7 +189,7 @@ async function limitGuest(who: CommentsCaller): Promise<void> {
 }
 
 function writeOptions(who: CommentsCaller) {
-  return { console: who.console, gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
+  return { console: who.console, gate: who.gate, user: who.user, ...(who.request ? { request: who.request } : {}), ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
 }
 
 /** A thread that does not exist and one that the caller may not read look the same: not found. */

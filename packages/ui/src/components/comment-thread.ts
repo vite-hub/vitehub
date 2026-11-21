@@ -1,5 +1,6 @@
 import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { RollNumber } from "./motion.ts";
 import {
   consumedPointerEvents,
   pathOf,
@@ -18,6 +19,7 @@ import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { MotionList } from "./motion-list.ts";
 import { RelativeTime } from "./relative-time.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
@@ -497,7 +499,7 @@ export const CommentThread = defineComponent({
         const replies = thread.messages.length - 1;
         return h("div", { ...deliveryAttributes(thread.delivery), "data-preview": "true", "data-size": props.size, "data-slot": "comment-thread", "data-status": thread.status }, [
           first ? h(CommentReply, { compact: true, message: first, people: people.value, size: props.size, user: user.value }, { ...(slots.body ? { body: slots.body } : {}), ...(slots.status ? { status: slots.status } : {}) }) : null,
-          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
+          replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, [h(RollNumber, { value: replies }), replies === 1 ? " reply" : " replies"]) : null,
         ]);
       }
       const back = props.navigation === "back";
@@ -530,7 +532,7 @@ export const CommentThread = defineComponent({
             }),
             back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: icons.value.close, onClick: close, size: "xs", variant: "ghost" }),
           ]),
-          h("div", { "data-slot": "comment-thread-messages" }, [
+          h(MotionList, { "data-slot": "comment-thread-messages" }, () => [
             anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")

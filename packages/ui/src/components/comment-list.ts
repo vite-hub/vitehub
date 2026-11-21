@@ -1,9 +1,11 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, type SlotsType } from "vue";
+import { RollNumber } from "./motion.ts";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
 import { deliveryAttributes } from "../internal/comment-status.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
+import { MotionList } from "./motion-list.ts";
 import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
@@ -28,11 +30,13 @@ export const CommentFilters = defineComponent({
             "data-slot": "comment-filter",
             "data-state": comments.filters[key] ? "on" : "off",
             key,
-            label: count === undefined ? label : `${label} ${count}`,
+            label: count === undefined ? label : undefined,
             onClick: () => (comments.filters[key] = !comments.filters[key]),
             size: "xs",
             variant: comments.filters[key] ? "soft" : "ghost",
           },
+          // A count rolls its digits when it changes.
+          count === undefined ? undefined : { default: () => [`${label} `, h(RollNumber, { value: count })] },
         );
       return h("div", { "aria-label": "Filter comments", "data-slot": "comment-filters", role: "group" }, [
         button("open", "Open", comments.counts.value.open),
@@ -99,9 +103,9 @@ export const CommentList = defineComponent({
                   : "No comments here.",
             )
           : h(
-              "ol",
-              { "data-slot": "comment-list-items" },
-              rows.map((thread) => {
+              MotionList,
+              { "data-slot": "comment-list-items", tag: "ol" },
+              () => rows.map((thread) => {
                 const detached = comments.positions.value.get(thread.id)?.detached === true;
                 return h("li", { key: thread.id }, [
                   h(

@@ -7,7 +7,7 @@ import { recordD1MigrationNames } from "./d1-migrations.ts"
 import { readMigrations, readPendingMigration } from "./migration-journal.ts"
 
 import type { MigrationBackup, StartD1Migrations, StartMigration } from "../runtime/migrate-on-start.ts"
-import type { DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
+import type { DatabaseDialect, DatabaseIntegrationOptions, MigrationBackupOptions, ResolvedDBViteConfig } from "../types.ts"
 
 /** The Nitro plugin that applies migrations at boot, relative to the Database project root. */
 export const migrateOnStartPluginFile = ".vitehub/nitro/database/migrate-on-start.mjs"
@@ -136,14 +136,14 @@ function assertMigrationBackupSupported(config: ResolvedDBViteConfig | undefined
 }
 
 /** Reads the migration folders with the name, hash and timestamp that Drizzle's ledger stores. */
-export function readStartMigrations(migrationsDir: string, database?: string): StartMigration[] {
+export function readStartMigrations(migrationsDir: string, dialect: DatabaseDialect, database?: string): StartMigration[] {
   const entries = readMigrations(migrationsDir, database)
-  return startMigrationsFromEntries(migrationsDir, entries)
+  return startMigrationsFromEntries(migrationsDir, entries, dialect)
 }
 
-function startMigrationsFromEntries(migrationsDir: string, entries: ReturnType<typeof readMigrations>): StartMigration[] {
+function startMigrationsFromEntries(migrationsDir: string, entries: ReturnType<typeof readMigrations>, dialect: DatabaseDialect): StartMigration[] {
   return entries.map((entry) => {
-    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries)
+    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries, dialect)
     return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
   })
 }
@@ -153,10 +153,10 @@ function readShippedDatabaseMigrations(config: ResolvedDBViteConfig, name: strin
   const migrationsDir = resolve(config.rootDir, database.migrationsDir)
   const mayUseD1 = database.dialect === "sqlite" && (database.cloudflare || config.definitionDefaults?.cloudflareProjections[name]?.resource === "opaque")
   const entries = readMigrations(migrationsDir, name, { flat: Boolean(database.cloudflare?.http) })
-  const migrations = startMigrationsFromEntries(migrationsDir, entries)
+  const migrations = startMigrationsFromEntries(migrationsDir, entries, database.dialect)
   const d1: StartD1Migrations | undefined = mayUseD1 ? {
     files: recordD1MigrationNames(migrationsDir).map((file) => {
-      const { dataLoss, statements } = readPendingMigration(migrationsDir, file.tag, entries)
+      const { dataLoss, statements } = readPendingMigration(migrationsDir, file.tag, entries, "sqlite")
       return { dataLoss, name: file.name, sql: readFileSync(file.source, "utf8"), statements, tag: file.tag }
     }),
   } : undefined

@@ -18,6 +18,11 @@ export interface CloudflareWorkflowEvent {
   payload?: unknown
 }
 
+/** The `step` of a Cloudflare Workflow: the ViteHub step runner names, and `waitForEvent()`. */
+export interface CloudflareWorkflowStep extends Omit<WorkflowProviderStep, "waitForSignal"> {
+  waitForEvent?: (name: string, options: { timeout?: string, type: string }) => Promise<{ payload?: unknown }>
+}
+
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
   createNonRetryableError?: (error: Error) => Error
@@ -25,8 +30,19 @@ export interface RunCloudflareWorkflowOptions {
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep
+  step?: CloudflareWorkflowStep
 }
+
+/**
+ * The Cloudflare event type of a signal wait, such as `vitehub-signal-1`. `resumeWorkflow()` sends the event of this
+ * type to the instance.
+ */
+export function cloudflareSignalEventType(signal: string): string {
+  return `vitehub-${signal}`
+}
+
+/** Cloudflare waits 24 hours for an event by default. A signal waits as long as Cloudflare allows. */
+const cloudflareSignalTimeout = "365 days"
 
 /** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */
 const cloudflareNonRetryableErrors = new WeakSet<object>()
@@ -42,7 +58,7 @@ function translateNonRetryableError(
 }
 
 function wrapCloudflareWorkflowStep(
-  step: WorkflowProviderStep | undefined,
+  step: CloudflareWorkflowStep | undefined,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
   env: CloudflareWorkerEnv,
   runtimeEvent: () => unknown,
@@ -64,6 +80,9 @@ function wrapCloudflareWorkflowStep(
     },
     ...(step.sleep ? { sleep: async (name: string, milliseconds: number) => await step.sleep!(name, milliseconds) } : {}),
     ...(step.sleepUntil ? { sleepUntil: async (name: string, date: Date) => await step.sleepUntil!(name, date) } : {}),
+    ...(step.waitForEvent
+      ? { waitForSignal: async (name: string) => (await step.waitForEvent!(name, { timeout: cloudflareSignalTimeout, type: cloudflareSignalEventType(name) })).payload }
+      : {}),
   }
 }
 

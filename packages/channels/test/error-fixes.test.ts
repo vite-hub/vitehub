@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { expect, it } from "vitest"
 
 import { channelsErrorDiagnostics } from "../src/error-diagnostics.ts"
-import { defineChannel, webhook } from "../src/index.ts"
+import { webhook } from "../src/adapters.ts"
+import { defineChannel } from "../src/index.ts"
 import { hubChannels } from "../src/vite.ts"
 
 const fixedCodes = [
@@ -45,7 +46,7 @@ it("names the webhook host when a webhook Channel builds without the Agent plugi
   const root = await mkdtemp(join(tmpdir(), "channels-error-fixes-"))
   try {
     await mkdir(join(root, "server/channels"), { recursive: true })
-    await writeFile(join(root, "server/channels/payments.ts"), "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })")
+    await writeFile(join(root, "server/channels/payments.ts"), "import { defineChannel } from 'vite-hub/channels'\nimport { stripe } from 'vite-hub/channels/adapters'\nexport default defineChannel({ adapter: stripe() })")
     // SAFETY: configResolved reads only `plugins` and `root` in this test.
     const configure = hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>
     await expect(configure({ plugins: [], root })).rejects.toMatchObject({

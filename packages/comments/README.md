@@ -41,7 +41,7 @@ export const comments = defineComments({
 
 Without the file, `vitehub({ comments: true })` turns Comments on with `defineComments()`, and so does an object such as `{ database: "team" }`. The Console does not turn it on. `comments: false` turns it off. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
 
-ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub database generate` and `vitehub database migrate`. A production build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED` while the migrations lack a Comments table or column, such as one that a new version of Comments added.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
@@ -107,6 +107,10 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 ## Post to the pull request
 
 On a preview, `forge: { provider: "github" }` posts each thread to the pull request that the build previews: one summary comment that lists every thread, then one comment per comment, with the page, the element, the components, and the browser. Resolving a thread hides its comment. It posts with the GitHub App of `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY`, or as each person: people who signed in with GitHub post as themselves, and `token(author)` returns the token for any other sign-in. Each thread's `forge` field says whether it posted.
+
+## Failures in logs
+
+A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module registered, Comments logs it with `comments: { hook, step?, thread, code }`: a failed `onComment` on the wide event of the request, the others as their own evlog events. Without evlog, they go to the console. See [Limits and errors](https://vitehub.dev/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs).
 
 ## Deployment and security boundaries
 
