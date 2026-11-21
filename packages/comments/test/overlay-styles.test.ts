@@ -8,3 +8,9 @@ it("leaves the comment field's layout to @vite-hub/ui", () => {
   const fieldParts = selectors.filter((selector) => /\[data-slot="(?:prompt-input-[a-z-]+|comment-composer)"\][^\s>+~]*$/.test(selector))
   expect(fieldParts).toEqual([])
 })
+
+// A dark page hides a shadow, and a Nuxt UI page's `.dark` tokens can give a card the page's color.
+it("keeps a hairline around a card or a new comment, so it shows on a dark page", () => {
+  const popover = /\n\[data-slot="comment-layer-popover"\] \{([^}]*)\}/.exec(overlayStyles)?.[1]
+  expect(popover).toMatch(/box-shadow: 0 0 0 1px var\(--vh-bubble-edge, var\(--vh-border\)\),/)
+})

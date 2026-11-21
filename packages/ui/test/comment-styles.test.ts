@@ -81,7 +81,9 @@ it("centers one line of a small row box on its 28px buttons, and gives a wrapped
   expect(small).toContain("min-height: 1.75rem;");
   expect(small).toContain("padding: 0.21875rem 0.25rem;");
   const wrapped = /\[data-slot="comment-composer"\]\[data-layout="row"\]\[data-multiline="true"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
-  expect(wrapped).toMatch(/& \[data-slot="prompt-input-textarea"\] \{[^}]*flex-basis: 100%;[^}]*order: 0;/);
+  expect(wrapped).toMatch(/& \[data-slot="prompt-input-textarea"\] \{[^}]*flex-basis: 100%;[^}]*order: 0;[^}]*padding-block-end: 0;/);
+  // The button row starts right under the last line, with no band of empty space between them.
+  expect(wrapped).toMatch(/& \[data-slot="prompt-input-group"\] \{[^}]*row-gap: 0;/);
   expect(wrapped).toMatch(/& \[data-slot="prompt-input-spacer"\] \{[^}]*display: block;/);
 });
 
@@ -96,6 +98,11 @@ it("draws one frame around the box of a new comment: the bubble's, with a firmer
   const focused = /\[data-slot="comment-layer-popover"\]:has\(\[data-slot="comment-composer"\]\[data-frame="none"\] \[data-slot="prompt-input-textarea"\]:focus-visible\) \{([^}]*)\}/.exec(stylesheet);
   expect(focused?.[1]).toContain("--vh-bubble-edge: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);");
   expect(stylesheet).toContain("0 0 0 1px var(--vh-bubble-edge),");
+  // On a dark page the shadow does not show, so the resting hairline is the border color, and the shadow is not the
+  // ink, which would glow.
+  const bubble = /\[data-slot="comment-layer-item"\]\[data-draft="true"\] > \[data-slot="comment-layer-popover"\] \{([^}]*)\}/.exec(stylesheet)?.[1];
+  expect(bubble).toContain("--vh-bubble-edge: var(--vh-border);");
+  expect(bubble).not.toMatch(/box-shadow:[^;]*--vh-highlighted/);
   const small = /> \[data-slot="comment-layer-popover"\]:has\(> \[data-slot="comment-composer"\]\[data-size="sm"\]\) \{([^}]*)\}/.exec(stylesheet);
   expect(small?.[1]).toContain("--vh-bubble-radius: 1.125rem;");
 });
