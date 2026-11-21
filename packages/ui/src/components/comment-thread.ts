@@ -19,6 +19,7 @@ import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { MotionList } from "./motion-list.ts";
 import { RelativeTime } from "./relative-time.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
@@ -531,7 +532,7 @@ export const CommentThread = defineComponent({
             }),
             back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: icons.value.close, onClick: close, size: "xs", variant: "ghost" }),
           ]),
-          h("div", { "data-slot": "comment-thread-messages" }, [
+          h(MotionList, { "data-slot": "comment-thread-messages" }, () => [
             anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")

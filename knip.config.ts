@@ -189,6 +189,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   ui: {
     // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg and ffprobe.
     ignoreBinaries: ["ffmpeg", "ffprobe"],
+    // `motion-lists.browser.mjs` serves this module from git: the Console upload queue from before the motion helpers.
+    ignoreUnresolved: ["/@uploads-today"],
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
       "nuxt-nightly",
