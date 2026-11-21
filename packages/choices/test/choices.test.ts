@@ -247,6 +247,14 @@ describe("defineChoices().resolve() onUsage", () => {
     expect(onUsage).toHaveBeenCalledWith({ model: "jev-1.14", provider: "typesafe", usage: { inputTokens: 100, outputTokens: 0, totalTokens: 100 } })
   })
 
+  it("leaves onUsage out of the gateway options when resolve() gets none", async () => {
+    const { ask: jev } = typesafe({ apiKey: "ts-key", fetch: jevFetch() })
+    const ask = vi.fn<typeof jev>((state, questions, options) => jev(state, questions, options))
+    const choices = defineChoices({ gateway: { ask }, groups: { chart: { label: "Chart", multiple: false, options: [{ label: "Line", value: "line" }] } } })
+    await choices.resolve("line")
+    expect(ask.mock.calls[0]![2]).not.toHaveProperty("onUsage")
+  })
+
   it("does not report usage when no question is asked", async () => {
     const fetch = jevFetch()
     const choices = defineChoices({

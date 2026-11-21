@@ -79,7 +79,7 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check. The `supported` check is not sent when every group infers.
+The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check. An `infer` group with one option sends no question, and the `supported` check is not sent when every group infers.
 
 `error.code` is `DECISIONS_R0002` to `DECISIONS_R0006` ([Limits and errors](/docs/choices/limits-and-errors)).
 
@@ -114,7 +114,7 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 
 ## Track token usage
 
-Pass `onUsage` to read the model, provider, and token counts of each gateway request:
+Pass `onUsage` to read the model, provider, and token counts that the gateway reports:
 
 ```ts fragment
 await forecast.resolve(text, {
@@ -122,9 +122,9 @@ await forecast.resolve(text, {
 })
 ```
 
-`onUsage` can run more than once in one `resolve()`. Jev sends at most 60 KB of questions in one request, so a large plan goes in more than one request, and each request reports its own usage. With `model`, it runs once. It does not run when no question is sent, for example when every group is an `infer` group with one option, or when `resolve()` returns an error before it asks.
+`onUsage` can run more than once in one `resolve()`. Jev sends at most 60 KB of questions in one request, so a large plan goes in more than one request, and each request reports its own usage. With `model`, it runs at most once. It runs only when the gateway reports usage: not when no question is sent, not when a TypeSafe response has no token counts, and not when a `model` response fails validation.
 
-The number of questions sets the cost. A multi-select group with 100 options sends 101 questions: one per option, and `supported`. A single-select group with 100 options sends 2: one for the group, and `supported`.
+The number of questions sets the cost. A multi-select group with 100 options sends 101 questions: one per option, and `supported`. A single-select group with 100 options sends 2: one for the group, and `supported`. With `infer: true` it sends 1, since nothing is left for `supported` to check.
 
 ## Inspect
 
