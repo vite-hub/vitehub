@@ -18,6 +18,7 @@ describe("matchesWebContainerRoute", () => {
     expect(matchesWebContainerRoute("/tutorial/step-1", routes)).toBe(false)
     expect(matchesWebContainerRoute("/", routes)).toBe(false)
     expect(matchesWebContainerRoute("/anything", ["/**"])).toBe(true)
+    expect(matchesWebContainerRoute("/play/editor", ["/play/**/"])).toBe(true)
   })
 })
 

@@ -4796,7 +4796,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         },
         defineNuxtPlugin: <T>(plugin: T) => plugin,
         navigateTo: (path: string, options: { external?: boolean }) => ({ path, external: options.external }),
+        useRouter: () => router,
       }))
+      const { createMemoryHistory, createRouter } = await import("vue-router")
+      const router = createRouter({ history: createMemoryHistory("/portal/"), routes: [{ path: "/:path(.*)*", component: {} }] })
       vi.doMock("vite-hub/web-container", async () => ({ matchesWebContainerRoute: (await import("@vite-hub/web-container")).matchesWebContainerRoute }))
       // A copy inside this package resolves `vite-hub/web-container` to the file that the mock replaces.
       const copy = await mkdtemp(resolve(import.meta.dirname, ".web-container-plugin-"))
@@ -4811,9 +4814,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         vi.doUnmock("#imports")
         vi.doUnmock("vite-hub/web-container")
       }
-      const navigate = (from: string, to: string, first = false) => middleware.current!({ path: to, fullPath: `${to}?x=1` }, { path: from, matched: first ? [] : [{}] })
-      expect(navigate("/docs", "/play/editor")).toEqual({ path: "/play/editor?x=1", external: true })
-      expect(navigate("/play", "/docs")).toEqual({ path: "/docs?x=1", external: true })
+      const navigate = (from: string, to: string, first = false) => middleware.current!(router.resolve(`${to}?x=1#target`), { path: from, matched: first ? [] : [{}] })
+      expect(navigate("/docs", "/play/editor")).toEqual({ path: "/portal/play/editor?x=1#target", external: true })
+      expect(navigate("/play", "/docs")).toEqual({ path: "/portal/docs?x=1#target", external: true })
       expect(navigate("/play", "/play/editor")).toBeUndefined()
       expect(navigate("/docs", "/guide")).toBeUndefined()
       expect(navigate("/docs", "/play", true)).toBeUndefined()

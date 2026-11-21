@@ -4,14 +4,20 @@ export const webContainerHeaders: Readonly<Record<string, string>> = Object.free
   "Cross-Origin-Opener-Policy": "same-origin",
 })
 
+/** Removes trailing slashes without changing the root path. */
+export function normalizeWebContainerPath(path: string): string {
+  return path.replace(/\/+$/, "") || "/"
+}
+
 /** Returns true when `pathname` matches one of the route patterns. `/playground/**` also matches `/playground`. */
 export function matchesWebContainerRoute(pathname: string, routes: readonly string[]): boolean {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
+  const path = normalizeWebContainerPath(pathname)
   return routes.some((route) => {
-    if (route.endsWith("/**")) {
-      const base = route.slice(0, -3) || "/"
+    const pattern = normalizeWebContainerPath(route)
+    if (pattern.endsWith("/**")) {
+      const base = pattern.slice(0, -3) || "/"
       return base === "/" || path === base || path.startsWith(`${base}/`)
     }
-    return path === (route.length > 1 ? route.replace(/\/+$/, "") : route)
+    return path === pattern
   })
 }

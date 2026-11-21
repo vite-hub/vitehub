@@ -499,7 +499,7 @@ export default defineNuxtPlugin({
  */
 async function addWebContainerBoundaryPlugin(nuxt: NuxtLike, projectRoot: string, routes: readonly string[]): Promise<void> {
   const src = join(projectRoot, ".vitehub/web-container/nuxt-boundary.mjs")
-  await writeFileIfChanged(src, `import { addRouteMiddleware, defineNuxtPlugin, navigateTo } from "#imports"
+  await writeFileIfChanged(src, `import { addRouteMiddleware, defineNuxtPlugin, navigateTo, useRouter } from "#imports"
 import { matchesWebContainerRoute } from "vite-hub/web-container"
 
 const routes = ${JSON.stringify(routes)}
@@ -508,9 +508,10 @@ const isolated = path => matchesWebContainerRoute(path, routes)
 export default defineNuxtPlugin({
   name: "vitehub:web-container",
   setup() {
+    const router = useRouter()
     addRouteMiddleware("vitehub-web-container", (to, from) => {
       // The first navigation of a page load has nothing to leave.
-      if (from.matched.length > 0 && isolated(to.path) !== isolated(from.path)) return navigateTo(to.fullPath, { external: true })
+      if (from.matched.length > 0 && isolated(to.path) !== isolated(from.path)) return navigateTo(router.resolve(to.fullPath).href, { external: true })
     }, { global: true })
   },
 })

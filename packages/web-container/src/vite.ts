@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin } from "vite"
 
+import { cloudflareWebContainerHeaders } from "./cloudflare.ts"
 import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
-import { matchesWebContainerRoute, webContainerHeaders } from "./routes.ts"
+import { matchesWebContainerRoute, normalizeWebContainerPath, webContainerHeaders } from "./routes.ts"
 
 export { matchesWebContainerRoute, webContainerHeaders } from "./routes.ts"
 
@@ -37,7 +38,7 @@ export function resolveWebContainerRoutes(options: WebContainerOptions): string[
 export function webContainerRouteRules(routes: readonly string[], existing: Record<string, NitroRouteRule> = {}): Record<string, NitroRouteRule> {
   const rules: Record<string, NitroRouteRule> = {}
   for (const route of routes) {
-    const path = route.length > 1 ? route.replace(/\/+$/, "") : route
+    const path = normalizeWebContainerPath(route)
     const base = path.endsWith("/**") ? path.slice(0, -3) : undefined
     for (const pattern of base === undefined ? [path] : [base || "/", path]) {
       const rule = existing[pattern] ?? {}
@@ -53,6 +54,7 @@ export function webContainerRouteRules(routes: readonly string[], existing: Reco
  */
 export function webContainerVitePlugin(options: WebContainerOptions): Plugin {
   const routes = resolveWebContainerRoutes(options)
+  const staticHeaders = cloudflareWebContainerHeaders(routes, Object.keys(webContainerRouteRules(routes)))
 
   function setHeaders(request: IncomingMessage, response: ServerResponse, next: () => void) {
     const pathname = new URL(request.url ?? "/", "http://localhost").pathname
@@ -64,11 +66,15 @@ export function webContainerVitePlugin(options: WebContainerOptions): Plugin {
 
   return {
     name: "@vite-hub/web-container/vite",
-    config(config) {
+    config(config, { command }) {
       // SAFETY: Nitro reads its options from the `nitro` key of the Vite config.
-      const viteConfig = config as typeof config & { nitro?: { routeRules?: Record<string, NitroRouteRule> } }
+      const viteConfig = config as typeof config & { nitro?: { modules?: unknown[], routeRules?: Record<string, NitroRouteRule> } }
       const nitro = (viteConfig.nitro ??= {})
       nitro.routeRules = { ...nitro.routeRules, ...webContainerRouteRules(routes, nitro.routeRules) }
+      if (command === "build") {
+        const modules = (nitro.modules ??= [])
+        if (!modules.includes(staticHeaders)) modules.push(staticHeaders)
+      }
     },
     configureServer(server) {
       server.middlewares.use(setHeaders)
