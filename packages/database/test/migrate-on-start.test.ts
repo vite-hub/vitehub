@@ -7,16 +7,19 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { createClient } from "@libsql/client"
+import { defineRelations } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { build } from "esbuild"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createD1QueryAt } from "../src/internal/d1-ledger.ts"
 import { resolveMigrateOnStart, selectMigrateOnStartDatabases } from "../src/internal/migrate-on-start.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDatabase } from "../src/nuxt.ts"
+import { createCloudflareD1HttpResolver } from "../src/runtime/d1-http.ts"
 import { ensureDatabaseMigrations, migrateOnStart, migratePostgres, postgresMigrationLock, readPostgresDatabaseKey } from "../src/runtime/migrate-on-start.ts"
 import { hubDatabase as hubDatabaseVite } from "../src/vite.ts"
 
@@ -29,6 +32,7 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const roots: string[] = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -550,6 +554,42 @@ async function startD1Proxy(root: string, rowlessWrites = false) {
   return { close: () => new Promise<void>(resolve => server.close(() => { client.close(); resolve() })), requests, rows, url }
 }
 
+/**
+ * Cloudflare's D1 `/query` API as a `fetch` that never leaves the process, backed by a SQLite file. It answers in the
+ * shape of the real API: rows as objects, and HTTP 400 with `errors` when a statement fails. Like D1, a request with
+ * many statements changes all or nothing.
+ */
+function mockCloudflareD1Api(root: string, accountId: string, databaseId: string) {
+  const client = createClient({ url: `file:${join(root, "cloudflare-d1.db")}` })
+  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`
+  const requests: Array<{ authorization: string | null, sql: string, url: string }> = []
+  const reply = (status: number, payload: Record<string, unknown>) => Response.json({ errors: [], messages: [], ...payload }, { status })
+  const request = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input)
+    const { params = [], sql } = JSON.parse(String(init?.body)) as { params?: Array<string | number | null>, sql: string }
+    requests.push({ authorization: new Headers(init?.headers).get("authorization"), sql, url })
+    if (url !== endpoint) return reply(404, { errors: [{ code: 7404, message: "Not found" }], result: null, success: false })
+    try {
+      if (!sql.trim().replace(/;$/, "").includes(";")) {
+        const result = await client.execute({ args: params, sql })
+        const results = result.rows.map(row => Object.fromEntries(result.columns.map((column, index) => [column, row[index]])))
+        return reply(200, { result: [{ meta: { changes: result.rowsAffected }, results, success: true }], success: true })
+      }
+      await client.executeMultiple(`BEGIN;\n${sql}\nCOMMIT;`)
+      return reply(200, { result: [{ meta: {}, results: [], success: true }], success: true })
+    }
+    catch (error) {
+      await client.execute("ROLLBACK").catch(() => {})
+      return reply(400, { errors: [{ code: 7500, message: `${String(error)}: SQLITE_CONSTRAINT` }], result: [], success: false })
+    }
+  }
+  const rows = async (sql: string) => {
+    const result = await client.execute(sql)
+    return result.rows.map(row => result.columns.map((_, index) => row[index]))
+  }
+  return { close: () => client.close(), endpoint, request, requests, rows }
+}
+
 describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
   async function createD1Project(opaque = false) {
     const root = await createProject()
@@ -711,6 +751,83 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
       expect(d1.requests.filter(sql => sql.includes("CREATE TABLE `users`"))).toHaveLength(2)
       await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_init.sql"]])
       expect([...first, ...second]).toEqual(['[vitehub] Database "default": applied 20231114221320_init.'])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("applies each migration once through Cloudflare's D1 API when two servers start together on a fresh database", async () => {
+    const root = await createProject()
+    vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "drop-account")
+    vi.stubEnv("CLOUDFLARE_API_TOKEN", "cloudflare-token")
+    const api = mockCloudflareD1Api(root, "drop-account", "drop-d1")
+    const users = sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() })
+    const relations = defineRelations({ users })
+    const statements = (migration: typeof init) => migration.sql.split("--> statement-breakpoint")
+    const files = [init, seed].map((migration, index) => ({ dataLoss: [], name: `000${index}_${migration.tag.split("_")[1]}.sql`, sql: migration.sql, statements: statements(migration), tag: migration.tag }))
+    const migrations = [init, seed].map(migration => ({ dataLoss: [], hash: migration.tag, name: migration.tag, statements: statements(migration), when: migration.when }))
+    // Both servers read the ledger before either one applies a migration.
+    let release!: () => void
+    const bothRead = new Promise<void>(resolve => release = resolve)
+    let reads = 0
+    const racing: typeof fetch = async (input, options) => {
+      const response = await api.request(input, options)
+      if (String(options?.body).includes("FROM sqlite_master")) {
+        if (++reads === 2) release()
+        await bothRead
+      }
+      return response
+    }
+    // Each server builds its own client, as two processes do.
+    const start = (log: string[]) => {
+      const db = createCloudflareD1HttpResolver({ cloudflare: { databaseId: "drop-d1", http: true }, name: "default" }, relations, racing)()
+      return migrateOnStart([{ d1: { files }, db, dialect: "sqlite", migrations, name: "default" }], { log: message => log.push(message) })
+    }
+    try {
+      const first: string[] = []
+      const second: string[] = []
+      await Promise.all([start(first), start(second)])
+      expect([...first, ...second].sort()).toEqual([
+        '[vitehub] Database "default": applied 20231114221320_init.',
+        '[vitehub] Database "default": applied 20231114221321_seed.',
+      ])
+      // Each server sent each migration. D1 rolled back the second copy, because its ledger row was not unique.
+      expect(api.requests.filter(request => request.sql.includes("INSERT INTO `users`"))).toHaveLength(2)
+      await expect(api.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_seed.sql"]])
+      await expect(api.rows("SELECT id, name FROM users")).resolves.toEqual([[7, "Ada"]])
+
+      // A later start reads the ledger and writes nothing.
+      const sent = api.requests.length
+      await start([])
+      expect(api.requests.slice(sent).map(request => request.sql).filter(sql => !sql.startsWith("SELECT "))).toEqual([])
+      expect(api.requests.every(request => request.url === api.endpoint && request.authorization === "Bearer cloudflare-token")).toBe(true)
+    }
+    finally {
+      api.close()
+    }
+  })
+
+  it("adopts the ledger of Drop's own D1 migrator, and numbers a new folder that d1-migrations.json does not list", { timeout: 60_000 }, async () => {
+    const root = await createD1Project()
+    const migrationsDir = await writeMigrations(root, [init, seed])
+    // Drop's `scripts/migrate-d1.mjs` applied the listed folder into Wrangler's table. Then `drizzle-kit generate`
+    // wrote the seed folder, and nothing listed it, so that script would never apply it.
+    await writeFile(join(migrationsDir, "d1-migrations.json"), `${JSON.stringify({ [init.tag]: "0004_init.sql" })}\n`)
+    const d1 = await startD1Proxy(root)
+    try {
+      for (const statement of init.sql.split("--> statement-breakpoint")) await d1.rows(statement)
+      await d1.rows("CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)")
+      await d1.rows("INSERT INTO d1_migrations (name) VALUES ('0004_init.sql')")
+
+      const server = await buildNodeServer(root, { migrateOnStart: true })
+      // The build gives the new folder the next number, as `vitehub database migrate` does.
+      expect(JSON.parse(readFileSync(join(migrationsDir, "d1-migrations.json"), "utf8"))).toEqual({ [init.tag]: "0004_init.sql", [seed.tag]: "0005_seed.sql" })
+      expect((await server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })).stdout.trim().split("\n")).toEqual([
+        '[vitehub] Database "default": applied 20231114221321_seed.',
+        JSON.stringify([{ id: 7, name: "Ada" }]),
+      ])
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0004_init.sql"], ["0005_seed.sql"]])
     }
     finally {
       await d1.close()
