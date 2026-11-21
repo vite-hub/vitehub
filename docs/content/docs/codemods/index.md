@@ -44,7 +44,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`shell-driver`](/docs/codemods/upgrade-vitehub#shell-driver) | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()` |
 | [`access-spellings`](/docs/codemods/upgrade-vitehub#access-spellings) | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: 'public'` |
 | [`auth-sign-in`](/docs/codemods/upgrade-vitehub#auth-sign-in) | `vitehub({ auth: { redirects } })` and `access.signIn.callbackURL` to `access: { signIn, afterSignIn }` in `server/auth.ts` |
-| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Replace simple Agent `http()` calls with `channelAdapter('http')`, and move webhook `secretToken` and signature names to the ones of Webhooks |
+| [`channels`](/docs/codemods/upgrade-vitehub#channels) | Imports of `vite-hub/agent/channels` to `vite-hub/channels/adapters` and `vite-hub/channels`, simple Agent `http()` calls to `channelAdapter('http')`, and webhook `secretToken` and signature names to the ones of Webhooks |
 | [`auth-accessors`](/docs/codemods/upgrade-vitehub#auth-accessors) | Auth `auth` and `getAuth()` to `useAuth()`, and `isGitHubOrgMember()` to `checkGitHubOrgMember()` |
 | [`workspace-repo`](/docs/codemods/upgrade-vitehub#workspace-repo) | The GitHub Workspace Store option `repository` to `repo` |
 | [`kv-list-prefix`](/docs/codemods/upgrade-vitehub#kv-list-prefix) | `kv.keys(base)` to `kv.list({ prefix })`, and `kv.clear(base)` to `kv.clear({ prefix })` |

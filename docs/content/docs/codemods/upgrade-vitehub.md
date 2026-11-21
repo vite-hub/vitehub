@@ -388,15 +388,16 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 ## channels
 
-`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+`channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. The adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
 
 ```bash [Terminal]
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
 ```diff [server/agents/support.ts]
--import { http, slack } from 'vite-hub/agent/channels'
-+import { channelAdapter, slack } from 'vite-hub/agent/channels'
+-import { defineChannelTrigger, http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/channels/adapters'
++import { defineChannelTrigger } from 'vite-hub/channels'
 
  export default defineAgent({
 -  channels: { portal: http({ route: true }), slack: slack() },
@@ -404,7 +405,31 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
  })
 ```
 
-The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+It also moves `webhook`, `stripe`, and their types from `vite-hub/channels` to `vite-hub/channels/adapters` in named imports, re-exports, and module loads that only use those adapters. The report flags namespace uses and mixed loads that need a manual split. Namespace imports, re-exports, `import()` calls, and mock paths of the removed Agent facade move to `vite-hub/channels/adapters`. The report lists each mock because helpers that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
+
+The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
+
+```diff [server/channels/portal.ts]
+ webhooks: {
+   secretHeader: 'x-hub-signature-256',
+-  secretToken: process.env.GITHUB_WEBHOOK_SECRET,
+-  signature: 'github-sha256',
++  secret: 'GITHUB_WEBHOOK_SECRET',
++  signature: 'github',
+ },
+```
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` | `secret: 'X'` |
+| `secretToken: () => …` | `secret: () => …` |
+| `'github-sha256'`, `'stripe-sha256'` | `'github'`, `'stripe'` |
+| `{ preset: 'hmac-sha256', … }` | `{ type: 'hmac-sha256', … }` |
+| `toleranceSeconds: 600` | `tolerance: '600s'` |
+
+A direct Server Env read, such as `useServerEnv().github.webhookSecret`, moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify and asks you to check secret strings on `stripe()` or with an old signature. Move any hard-coded secret to a server variable and set `secret` to its name. A `secretToken` string stays unchanged and the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED` until you migrate it.
 
 It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
 
