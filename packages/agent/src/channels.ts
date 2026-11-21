@@ -1947,7 +1947,7 @@ async function githubPullRequestAccess<TRuntimeConfig extends AgentRuntimeConfig
   repository?: string,
   signal?: AbortSignal,
   minLifetime?: number,
-) {
+): Promise<GitHubAppAccess | undefined> {
   const env = await githubEnv(context)
   const token = cleanSecret(env.token)
   const fallback = token ? { token } : undefined
