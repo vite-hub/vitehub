@@ -1,6 +1,8 @@
-import { defineNuxtPlugin, useAppConfig, useRuntimeConfig } from "#app";
+import { defineNuxtPlugin, useAppConfig, useRuntimeConfig, useState } from "#app";
 import { defineAsyncComponent } from "vue";
+import { provideRelativeNow } from "../components/relative-time.ts";
 import { createViteHubUI, type ViteHubUIIconOptions, type ViteHubUIOptions } from "../config.ts";
+import { startRelativeClock } from "../internal/relative-now.ts";
 
 const viteHubUIPlugin: unknown = defineNuxtPlugin((nuxtApp) => {
   const options = useRuntimeConfig().public.viteHubUI as ViteHubUIOptions | undefined;
@@ -11,6 +13,11 @@ const viteHubUIPlugin: unknown = defineNuxtPlugin((nuxtApp) => {
   const appConfig = useAppConfig();
   const icons = () => ({ ...iconsIn(appConfig, "ui"), ...iconsIn(appConfig, "viteHubUI") });
   nuxtApp.vueApp.use(createViteHubUI({ ...options, components: { UIcon }, icons }));
+  // The clock of `RelativeTime`: the request time, sent in the payload so the browser hydrates the same words, then
+  // the browser clock once the page has hydrated.
+  const now = useState("vite-hub-ui:now", () => Date.now());
+  provideRelativeNow(now, nuxtApp.vueApp);
+  if (import.meta.client) nuxtApp.hooks.hookOnce("app:suspense:resolve", () => void startRelativeClock(now));
 });
 
 function iconsIn(appConfig: object, key: string): ViteHubUIIconOptions | undefined {

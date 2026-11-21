@@ -21,7 +21,8 @@ host-neutral. Cloudflare details stay in the config and generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
+| Browser | Browser Run. It requires this host. |
+| Email | Cloudflare Email for `email: true`. |
 | Workers Logs | `observability: { enabled: true }` in `wrangler.json` |
 
 The app name comes from `vitehub({ name })`, then `WRANGLER_CI_OVERRIDE_NAME`
@@ -107,6 +108,10 @@ export default defineConfig({
 :::
 ::
 
+Keep `host: 'cloudflare'` in development too. With the Vite configurations above, `vite dev` runs Nitro on Node by default. ViteHub supplies Node stubs for `cloudflare:workers` and `cloudflare:email`, as it does in `nuxt dev`. The `cloudflare:workers` stub reads request bindings and `process.env`.
+
+In plain Vite, select the `miniflare` runner with `NITRO_DEV_RUNNER=miniflare` or `nitro.devServer.runner: 'miniflare'` to use the native modules in workerd. The `cloudflare-module` Nitro preset already selects Miniflare for `vite dev`. This runner selection does not remove the stubs in Nuxt.
+
 D1 metadata belongs to each Database Definition, because a Vite app can have several Named Databases.
 
 ```ts [src/database.ts] fragment
@@ -125,7 +130,7 @@ export default defineDatabase({
 
 The Nuxt-only `database.driver: 'cloudflare'` option sets up one host resource for Nuxt Content and Nitro. It is not a shortcut for a Vite Database Definition.
 
-With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores).
+With the Console and Agents on, a Cloudflare build stores the Console run journal in this D1 binding. The journal creates its `vitehub_agent_invocations` table on first use. See [Cloudflare journal](/docs/console/agents#which-journal-the-console-reads).
 
 ## Provision boundary
 
@@ -149,6 +154,8 @@ pnpm build
 test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
 ```
+
+The Worker gets ViteHub's tested `compatibility_date`, `2026-04-20`, not the day of the build, because Wrangler refuses a date newer than its own workerd. To use another date, set `nitro({ compatibilityDate: '2026-11-01' })` in Vite, or `nitro: { compatibilityDate: '2026-11-01' }` in `nuxt.config.ts`. You can also set `compatibility_date` in a project Wrangler config or set `COMPATIBILITY_DATE` in the build environment or the project's `.env` file.
 
 Some generated server files under `.vitehub/nitro/`, such as the Database middleware, import `cloudflare:workers`. In Nuxt, ViteHub adds the types of that module to the app's TypeScript config, so `nuxt typecheck` passes without `@cloudflare/workers-types`. When the app installs `@cloudflare/workers-types`, ViteHub adds its full types instead. You do not need a `declare module "cloudflare:workers"` file in the app.
 
@@ -181,7 +188,98 @@ pnpm wrangler dev
 
 Agent routes come from Provider Output. Raw Worker fetch handlers are not a public Agent API.
 
-A required secret Server Env declaration with one exact Env Source goes to `secrets.required` in the Wrangler config, and to each named Wrangler environment, since they do not inherit secrets. Wrangler reuses an existing Worker secret and stops the deploy when it is missing. ViteHub records only the name, never the value. Optional secrets, non-secret values, defaults, and fallback source lists stay runtime-only, because Wrangler's list cannot express fallbacks.
+A required secret Server Env declaration that reads exactly one variable name goes to `secrets.required` in the Wrangler config, and to each named Wrangler environment, since they do not inherit secrets. Wrangler reuses an existing Worker secret and stops the deploy when it is missing. ViteHub records only the name, never the value. Optional secrets, non-secret values, defaults, and fallback source lists stay runtime-only, because Wrangler's list cannot express fallbacks.
+
+With the default `VITEHUB_` prefix, a declaration reads two names: `env({ secret: true, source: env.source('EXECUTOR_API_KEY') })` reads `VITEHUB_EXECUTOR_API_KEY`, then `EXECUTOR_API_KEY`. Either one works at runtime, so Wrangler cannot require one of them, and the build leaves it out. To get `secrets.required`, set `env: { prefix: false }`, or use a source equal to the canonical name. See [Variable names](/docs/env/configure#variable-names).
+
+### Worker vars from Server Env
+
+Set `cloudflare: { vars: true }` to write the non-secret Server Env values that are set when you build to `vars` in `.output/server/wrangler.json`:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    host: 'cloudflare',
+    cloudflare: { vars: true },
+    env: {
+      server: {
+        executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+        executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+        dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      cloudflare: { vars: true },
+      env: {
+        server: {
+          executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+          executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+          dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      host: 'cloudflare',
+      cloudflare: { vars: true },
+      env: {
+        server: {
+          executorUrl: env({ source: env.source('EXECUTOR_URL') }),
+          executorApiKey: env({ secret: true, source: env.source('EXECUTOR_API_KEY') }),
+          dryRun: env.boolean({ default: true, source: env.source('LABELLER_DRY_RUN') }),
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
+
+With `EXECUTOR_URL=https://executor.example.com` and `LABELLER_DRY_RUN=false` in `.env`, the build writes `"vars": { "EXECUTOR_URL": "https://executor.example.com", "LABELLER_DRY_RUN": "false" }`. `EXECUTOR_API_KEY` stays out.
+
+- ViteHub reads the process environment and the `.env` files that Vite loads for the build mode. `.env.development` never applies to `vite build`.
+- Each value keeps the name that holds it, in the order Server Env reads names at runtime. `VITEHUB_EXECUTOR_URL` wins over `EXECUTOR_URL`.
+- A name read by a secret declaration is not copied to `vars`, even if another declaration also reads it. Set secrets with `wrangler secret put` or [upload them with the version](#upload-secrets-with-the-version).
+- A missing or empty value, a default, a literal, and a provider source stay out. The default applies at runtime.
+- A var that your Wrangler config already sets keeps its value. Named Wrangler environments get the same vars, since they do not inherit them.
+
+::warning
+Build where the deployment values are set, such as Workers Builds. A build that reads a `.env` made for local testing sends those values to the Worker.
+::
 
 ### Workers Builds
 
@@ -208,7 +306,7 @@ A direct Wrangler command with `--containers-rollout=none` skips ViteHub's deplo
 - The file is JSON, because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values.
 - Wrangler keeps the secrets that the file does not name.
 
-See [Deploy from your machine](/docs/development/cli#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
+See [Deploy from your machine](/docs/cli/project#deploy-from-your-machine) for the names that deploy checks and the values that it sets.
 
 ### Rate Limiting bindings
 
@@ -230,7 +328,7 @@ export default defineConfig({
 })
 ```
 
-Cloudflare enforcement is best-effort, with 10-second or 60-second fixed windows. The build rejects `enforcement: 'strict'` and other periods rather than weaken a policy silently. Inspection reports per-location counters, unknown rejected-attempt behavior, and `availability: 'never'` for all quota metadata. The binding only allows or rejects.
+Cloudflare enforcement is best-effort, with 10-second or 60-second fixed windows. The build rejects `enforcement: 'strict'` on these windows rather than weaken a policy silently. A Rate Limit with another window counts in the default KV store, which needs a shared atomic `increment`, such as Upstash. See [Windows longer than one minute](/docs/rate-limit/hosts#windows-longer-than-one-minute). Inspection reports per-location counters, unknown rejected-attempt behavior, and `availability: 'never'` for all quota metadata. The binding only allows or rejects.
 
 The binding is request-scoped. If it is missing at runtime, the handle's `failure` policy decides whether to deny or allow the request. Rate Limiting bindings do not use Cloudflare KV and need no provisioning.
 
@@ -409,9 +507,9 @@ Agent Definitions run on Cloudflare through generated output when the Agent inte
 
 ### Console on Workers
 
-Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/development/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/development/console) describes.
+Cloudflare can send two requests from one browser to different Workers. The [Console](/docs/console) sends each operation as one stateless `POST /_vitehub/rpc`, so it needs no session affinity or memory state. Agent runs started from the Console pass background work to the Worker's `waitUntil`. Configure a durable hosted run journal, as the [Console guide](/docs/console) describes.
 
-To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/development/console#protect-the-console-route).
+To open the Worker in the Console, set `console: true`, link the Worker URL in the Console, and set the `VITEHUB_CONSOLE_KEY_<NAME>` line that it shows with `wrangler secret put`. See [Protect the Console route](/docs/console/access#who-can-call-the-endpoint).
 
 ## Next steps
 

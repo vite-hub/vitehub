@@ -200,6 +200,12 @@ const realtimeAvailabilityId = "#vitehub/realtime/availability"
 const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
 
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
+  // Without `driver`, Realtime picks the host's driver, so the former `authority` key would be ignored silently.
+  if (options.driver === undefined && Object.hasOwn(options, "authority")) {
+    // SAFETY: An app config without types still passes the former `authority` key.
+    const authority = (options as { authority?: unknown }).authority
+    throw realtimeErrorDiagnostics.REALTIME_RENAMED_AUTHORITY_KEY({ value: JSON.stringify(authority) ?? String(authority) })
+  }
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
@@ -349,7 +355,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
       const { mount } = viteHubPageToolsBase(config)
-      kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/api/_vitehub/realtime/**` })
+      kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
       if (busPlugin) kit.addPlugin(busPlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)

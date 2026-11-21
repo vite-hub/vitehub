@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Command-line workflows for ViteHub projects.",
   "keywords": [
     "agent",
@@ -77,7 +77,7 @@
     "vite": "catalog:vite-compat"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.15.0"
   },
   "peerDependenciesMeta": {
     "@vite-hub/forge": {

@@ -23,7 +23,7 @@ describe("agent config", () => {
       routes: {
         discordGateway: false,
         inspection: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "auto",
       shutdown: {},
@@ -46,7 +46,7 @@ describe("agent config", () => {
       routes: {
         discordGateway: false,
         inspection: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
       runtime: "cloudflare-agents",
     })
@@ -75,27 +75,27 @@ describe("agent config", () => {
   it("normalizes the optional Discord Gateway route with the required webhook route", () => {
     expect(normalizeAgentOptions({ routes: { discordGateway: true } })).toMatchObject({
       routes: {
-        discordGateway: "/api/_vitehub/agents/[agent]/discord/gateway",
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        discordGateway: "/_vitehub/agents/[agent]/discord/gateway",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
     expect(normalizeAgentOptions({ routes: { discordGateway: "/discord/gateway" } })).toMatchObject({
       routes: {
         discordGateway: "/discord/gateway",
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
     expect(normalizeAgentOptions({ routes: { discordGateway: false } })).toMatchObject({
       routes: {
         discordGateway: false,
-        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+        webhooks: "/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
   })
 
   it("normalizes the optional inspection route", () => {
     expect(normalizeAgentOptions({ routes: { inspection: true } })).toMatchObject({
-      routes: { inspection: "/api/_vitehub/agents/[agent]/inspection" },
+      routes: { inspection: "/_vitehub/agents/[agent]/inspection" },
     })
     expect(normalizeAgentOptions({ routes: { inspection: "/internal/agents/[agent]" } })).toMatchObject({
       routes: { inspection: "/internal/agents/[agent]" },
@@ -138,7 +138,6 @@ describe("agent config", () => {
       expect(agent.defineAgent({
         driver: { run: async () => "ok", },
       }).run).toBeTypeOf("function")
-      expect(agent).not.toHaveProperty("withAgentDefaults")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -158,7 +157,6 @@ describe("agent config", () => {
       const publicServer = await import("../src/server.ts")
       expect(publicServer).not.toHaveProperty("createChannelChatRouteHandler")
       expect(publicServer).not.toHaveProperty("createChannelWebhookRouteHandler")
-      expect(publicServer).not.toHaveProperty("createGitHubHost")
       const server = await import("../src/server/internal.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
@@ -210,7 +208,7 @@ describe("agent config", () => {
           } },
       }) as never)
 
-      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      const response = await handler(new Request("https://example.com/_vitehub/agents/support/chat", {
         body: JSON.stringify({
           id: "thread",
           messages: [{

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createLogger } from "better-auth"
-import { createAuthMiddleware, isAPIError } from "better-auth/api"
+import { createAuthMiddleware, getOAuthState, isAPIError } from "better-auth/api"
 import { requestLog } from "@vite-hub/internal/runtime/request-log"
 
 import type { BetterAuthOptions, BetterAuthPlugin, GenericEndpointContext } from "better-auth"
@@ -83,12 +83,20 @@ function provider(ctx: GenericEndpointContext): string | undefined {
   return typeof value === "string" && ctx.context.socialProviders.some(entry => entry.id === value) ? value : undefined
 }
 
-/** The `error` of a redirect to Better Auth's error page, such as `state_mismatch` after a failed OAuth callback. */
-function redirectError(headers: ConstructorParameters<typeof Headers>[0], baseURL: string): string | undefined {
+async function redirectError(ctx: GenericEndpointContext, headers: ConstructorParameters<typeof Headers>[0]): Promise<string | undefined> {
+  if (ctx.path !== "/callback/:id" && ctx.path !== "/oauth2/callback/:providerId") return undefined
+  if (ctx.path === "/callback/:id" && ctx.method === "POST") return undefined
   const location = headers ? new Headers(headers).get("location") : null
   if (!location) return undefined
+  const { baseURL, options } = ctx.context
+  const state = await getOAuthState()
   try {
-    return errorCode(new URL(location, baseURL || "http://localhost").searchParams.get("error"))
+    const target = new URL(location, baseURL)
+    if (state && [state.callbackURL, state.newUserURL].some(url => url && new URL(url, baseURL).href === target.href)) return undefined
+    const errorPage = new URL(state?.errorURL || options.onAPIError?.errorURL || `${baseURL}/error`, baseURL)
+    const prefix = errorPage.search.endsWith("&") || !errorPage.search ? errorPage.search || "?" : `${errorPage.search}&`
+    if (target.origin !== errorPage.origin || target.pathname !== errorPage.pathname || !target.search.startsWith(`${prefix}error=`)) return undefined
+    return errorCode(new URLSearchParams(target.search.slice(prefix.length)).get("error"))
   }
   catch {
     return undefined
@@ -96,7 +104,7 @@ function redirectError(headers: ConstructorParameters<typeof Headers>[0], baseUR
 }
 
 /** The outcome of one endpoint: an error, a redirect to the error page, or a new session. Else `undefined`. */
-function endpointOutcome(ctx: GenericEndpointContext): AuthRequestOutcome | undefined {
+async function endpointOutcome(ctx: GenericEndpointContext, createdUserId: string | undefined): Promise<AuthRequestOutcome | undefined> {
   const path = ctx.path ?? ""
   const oauthProvider = provider(ctx)
   const fields = { path, ...(oauthProvider ? { provider: oauthProvider } : {}) }
@@ -108,23 +116,30 @@ function endpointOutcome(ctx: GenericEndpointContext): AuthRequestOutcome | unde
     const code = errorCode(returned.body?.code)
     return { ...fields, outcome: "failure", status: returned.statusCode, ...(code ? { code } : {}) }
   }
-  const oauthError = redirect ? redirectError(returned.headers, ctx.context.baseURL) : undefined
-  if (oauthError) return { ...fields, outcome: "failure", status: 302, code: oauthError }
   const session = ctx.context.newSession
-  return session && signInPath.test(path) ? { ...fields, outcome: "success", userId: session.user.id } : undefined
+  if (session && signInPath.test(path)) return { ...fields, outcome: "success", userId: session.user.id }
+  const oauthError = redirect ? await redirectError(ctx, returned.headers) : undefined
+  if (oauthError) return { ...fields, outcome: "failure", status: 302, code: oauthError }
+  if (createdUserId && !redirect) return { ...fields, outcome: "success", userId: createdUserId }
+  return undefined
 }
 
 /** Sets the outcome of each Better Auth endpoint on the request's wide event. */
 export function createRequestLogPlugin(): BetterAuthPlugin {
+  const signUps = new WeakMap<object, string>()
   return {
     id: "vitehub-request-log",
+    init: () => ({ options: { databaseHooks: { user: { create: { async after(user, ctx) {
+      const request = requestOf(ctx)
+      if (ctx?.path === "/sign-up/email" && request && requestLog(request)) signUps.set(request, user.id)
+    } } } } } }),
     hooks: {
       after: [{
         matcher: () => true,
         handler: createAuthMiddleware(async (ctx) => {
           const request = requestOf(ctx)
           if (!requestLog(request)) return
-          const outcome = endpointOutcome(ctx)
+          const outcome = await endpointOutcome(ctx, request && signUps.get(request))
           if (outcome) setAuthOutcome(request, outcome)
         }),
       }],
@@ -132,17 +147,10 @@ export function createRequestLogPlugin(): BetterAuthPlugin {
   }
 }
 
-/** Removes the query and hash of URLs, and email addresses, from a log message. */
+/** Keeps URL validation reasons, not the submitted URL, and removes URLs and emails from other messages. */
 function scrub(text: string): string {
-  return text.replace(/[?#][^\s"'`<>]*/g, "").replace(/[^\s"'`<>@]+@[^\s"'`<>@]+\.[a-z]{2,}/gi, "[email]").slice(0, 500)
-}
-
-/** An error with `text` as its message and the stack frames of `cause`, without the message or fields of `cause`. */
-function errorWithStack(cause: Error, text: string): Error {
-  const error = Object.assign(new Error(text), { name: cause.name })
-  const frames = (cause.stack ?? "").split("\n").filter(line => /^\s+at /.test(line))
-  error.stack = [`${cause.name}: ${text}`, ...frames].join("\n")
-  return error
+  const validation = /^(Invalid (?:origin|callbackURL|redirectURL|errorCallbackURL|newUserCallbackURL|redirect URL)):/i.exec(text)
+  return validation?.[1] ?? text.replace(/\bhttps?:\/\/[^\s"'`<>]+/gi, "[url]").replace(/[?#][^\s"'`<>]*/g, "").replace(/[^\s"'`<>@]+(?:@|%40)[^\s"'`<>@]+\.[a-z]{2,}/gi, "[email]").slice(0, 500)
 }
 
 type BetterAuthLogger = NonNullable<BetterAuthOptions["logger"]>
@@ -161,9 +169,7 @@ export function withRequestLogger(logger: BetterAuthLogger | undefined): BetterA
       const log = level === "warn" || level === "error" ? authRequestLog() : undefined
       if (log) {
         const text = `[Better Auth] ${scrub(message)}`
-        const cause: unknown = args[0]
         if (level === "warn") log.warn(text)
-        else if (cause instanceof Error) log.error(errorWithStack(cause, text))
         else log.error(text)
       }
       if (logger?.log) logger.log(level, message, ...args)

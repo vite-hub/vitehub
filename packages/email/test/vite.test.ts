@@ -5,7 +5,7 @@ import { dirname, join, posix } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
-import * as esbuild from "@vite-hub/internal/build/esbuild"
+import * as rolldown from "@vite-hub/internal/build/rolldown"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -139,7 +139,7 @@ describe("hubEmail", () => {
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("https://api.resend.com")
     expect(source).toContain("RESEND_API_KEY")
-    expect(source).toContain("options[\"apiKey\"]?.unseal()")
+    expect(source).toMatch(/options(?:\.apiKey|\[["'`]apiKey["'`]\])\?\.unseal\(\)/)
     expect(source).not.toContain(secret)
   })
 
@@ -161,8 +161,8 @@ describe("hubEmail", () => {
         },
       },
     })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce((entry, output, options) =>
       bundle(entry, output, {
         ...options,
         alias: { [fileURLToPath(new URL("../src/drivers/resend.ts", import.meta.url))]: driver },
@@ -218,8 +218,8 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     const source = await loadConfiguredDefinition(plugin)
-    expect(source).toMatch(/import\s*\{\s*env as vitehubEmailEnv\s*\}\s*from\s*"cloudflare:workers"/)
-    expect(source).toContain("runWithCloudflareEnv(vitehubEmailEnv,()=>resolveServerEnv(registry))")
+    expect(source).toMatch(/import\s*\{\s*env\s*\}\s*from\s*"cloudflare:workers"/)
+    expect(source).toContain("runWithCloudflareEnv(env,()=>resolveServerEnv(registry))")
   })
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
@@ -240,7 +240,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toContain("cloudflare:email")
-    expect(source).toContain("binding:vitehubEmailEnv.EMAIL")
+    expect(source).toContain("binding:env.EMAIL")
     expect(source).toContain("EmailMessage")
     expect(source).not.toContain("fileURLToPath(import.meta.url)")
   })
@@ -487,6 +487,33 @@ describe("hubEmail", () => {
     }
   })
 
+  it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
+    const root = await createTempProject()
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await Promise.all([
+      writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] })),
+      writeFile(join(root, "server", "emails", "welcome.md"), "Hello {{ data.name }}"),
+    ])
+
+    const paths = await hubEmail({ driver: "resend" }).api.prepareTypes({ materialize: true, projectRoot: root })
+
+    // SAFETY: prepareTypes materializes each template as a module that exports its renderer.
+    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<string> }
+    await expect(template.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+  })
+
+  it("bundles the Email definition before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
+    const root = await createTempProject()
+    await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
+    const plugin = hubEmail({ driver: "cloudflare" })
+    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toMatch(/from\s*"cloudflare:workers"/)
+  })
+
   it("resolves nested standalone host templates through exact aliases", async () => {
     const root = await createTempProject()
     const parentTemplate = join(root, "server", "emails", "monthly.md")
@@ -535,8 +562,8 @@ describe("hubEmail", () => {
     const started = new Promise<void>((resolve) => { signalStarted = resolve })
     let resume!: () => void
     const resumed = new Promise<void>((resolve) => { resume = resolve })
-    const bundle = esbuild.bundleEsmEntry
-    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
+    const bundle = rolldown.bundleEsmEntry
+    const bundler = vi.spyOn(rolldown, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
       const result = await bundle(...args)
       signalStarted()
       await resumed

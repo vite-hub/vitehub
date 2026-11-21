@@ -7,7 +7,7 @@ import { dirname, join, relative, sep } from "node:path"
 
 import { afterEach, expect, it } from "vitest"
 
-import { bundleEsmEntry } from "../src/build/esbuild.ts"
+import { bundleEsmEntry } from "../src/build/rolldown.ts"
 import { providerOutputAliasSources, publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
@@ -1294,6 +1294,41 @@ it("snapshots requested symlinked files inside the retained generation", async (
   await expect(readFile(retained.resolve(handler), "utf8")).resolves.toContain('value = "captured"')
 })
 
+it("retains modules that a generated registry imports through its symlinked generation directory", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-generated-registry-"))
+  tempDirs.push(rootDir)
+  const generationDir = join(rootDir, ".vitehub", "sandbox-task", ".runtime-generations", "runtime-one")
+  const runtimeDir = join(rootDir, ".vitehub", "sandbox-task", "runtime")
+  await mkdir(join(generationDir, "sandbox-task-definitions"), { recursive: true })
+  await Promise.all([
+    writeFile(join(generationDir, "sandbox-task-registry.mjs"), [
+      "export default {",
+      "  analyze: { load: async () => import(\"./sandbox-task-definitions/analyze.mjs\") },",
+      "}",
+      "",
+    ].join("\n")),
+    writeFile(join(generationDir, "sandbox-task-definitions", "analyze.mjs"), "export default { name: \"analyze\" }\n"),
+  ])
+  await symlink(generationDir, runtimeDir, process.platform === "win32" ? "junction" : "dir")
+  // Nuxt gives Vite the `app` folder as its root, so the project's `.vitehub` folder is outside the configured root.
+  const appDir = join(rootDir, "app")
+  await mkdir(appDir)
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "app", private: true, type: "module" }))
+  const registry = join(runtimeDir, "sandbox-task-registry.mjs")
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [registry],
+    roots: [appDir],
+  })
+  const outfile = join(rootDir, "registry-bundle.mjs")
+  await bundleEsmEntry(retained.resolve(registry), outfile, { platform: "neutral" })
+
+  await expect(readFile(join(dirname(retained.resolve(registry)), "sandbox-task-definitions", "analyze.mjs"), "utf8"))
+    .resolves.toContain("\"analyze\"")
+  await expect(readFile(outfile, "utf8")).resolves.toContain("\"analyze\"")
+})
+
 it("snapshots requested files beneath symlinked directories", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-source-"))
   const handlerSource = await mkdtemp(join(tmpdir(), "vitehub-provider-symlinked-parent-target-"))
@@ -1773,7 +1808,7 @@ it("skips unrelated nested repositories while retaining requested and imported o
 
   await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ imported: true })
   await expect(readFile(retained.resolve(requested), "utf8")).resolves.toContain("requested = true")
-  await expect(readFile(retained.resolve(join(unrelatedRepository, "large-cache.bin")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  await expect(readFile(retained.resolve(join(unrelatedRepository, "runtime-source.mjs")), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
 it("retains nested repositories when a requested handler has a computed import", async () => {

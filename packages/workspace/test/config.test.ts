@@ -261,7 +261,7 @@ describe("workspace config", () => {
       store: {
         branch: "workspace-state",
         driver: "github",
-        repository: "acme/app",
+        repo: "acme/app",
         root: ".vitehub/workspaces/<workspace>",
         token: "secret-token",
       },
@@ -273,7 +273,7 @@ describe("workspace config", () => {
     expect(config && config.store).toEqual({
       branch: "workspace-state",
       driver: "github",
-      repository: "acme/app",
+      repo: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "********",
     })
@@ -283,7 +283,7 @@ describe("workspace config", () => {
     const store = normalizeWorkspaceStoreOptions({
       branch: "workspace-state",
       driver: "github",
-      repository: "acme/app",
+      repo: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "secret-token",
     }, {
@@ -294,7 +294,7 @@ describe("workspace config", () => {
     expect(store).toEqual({
       branch: "workspace-state",
       driver: "github",
-      repository: "acme/app",
+      repo: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "secret-token",
     })
@@ -302,13 +302,13 @@ describe("workspace config", () => {
 
   it("preserves lazy GitHub store options while resolving runtime definitions", () => {
     const branch = () => "workspace-state"
-    const repository = () => "acme/app"
+    const repo = () => "acme/app"
     const root = () => ".vitehub/workspaces/<workspace>"
     const token = () => "secret-token"
     const store = normalizeWorkspaceStoreOptions({
       branch,
       driver: "github",
-      repository,
+      repo,
       root,
       token,
     }, {
@@ -319,7 +319,7 @@ describe("workspace config", () => {
     expect(store).toEqual({
       branch,
       driver: "github",
-      repository,
+      repo,
       root,
       token,
     })
@@ -336,7 +336,7 @@ describe("workspace config", () => {
     expect(store).toEqual({
       branch: undefined,
       driver: "github",
-      repository: undefined,
+      repo: undefined,
       root: undefined,
       token: "********",
     })
@@ -359,7 +359,7 @@ describe("workspace config", () => {
     expect(config && config.store).toEqual({
       branch: "workspace-state",
       driver: "github",
-      repository: "acme/app",
+      repo: "acme/app",
       root: "state/<workspace>",
       token: "********",
     })
@@ -404,6 +404,20 @@ describe("renamed Workspace Store drivers", () => {
     // A `root` once made any driver a local Store.
     // SAFETY: An app config without types passes the former driver name.
     expect(() => normalizeWorkspaceStoreOptions({ driver, root: "content" } as never)).toThrow(expected)
+  })
+
+  it.each([
+    ["github", "github"],
+    ["cloudflare-artifacts", "cloudflare"],
+  ])("rejects the former provider key %s instead of making a local Store", (provider, driver) => {
+    const expected = expect.objectContaining({
+      code: "WORKSPACE_RENAMED_STORE_PROVIDER_KEY",
+      fix: expect.stringContaining(`store: { driver: "${driver}" }`),
+    })
+    // SAFETY: An app config without types still passes the former key. quiver-wiki sets this shape.
+    expect(() => normalizeWorkspaceStoreOptions({ provider, root: "/", repository: "acme/wiki" } as never)).toThrow(expected)
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => normalizeWorkspaceOptions({ store: { provider } } as never, { env: {}, rootDir: "/repo" })).toThrow(expected)
   })
 
   it("keeps the driver list for a name that was never a driver", () => {

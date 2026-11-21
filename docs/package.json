@@ -54,7 +54,6 @@
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
-    "@takumi-rs/core": "catalog:nuxt",
     "@types/node": "catalog:tooling",
     "drizzle-kit": "catalog:database",
     "playwright-core": "catalog:browser",
@@ -66,6 +65,6 @@
     "wrangler": "catalog:"
   },
   "engines": {
-    "node": "^22.22.0 || ^24.11.0 || >=26.0.0"
+    "node": "^24.15.0 || >=26.0.0"
   }
 }

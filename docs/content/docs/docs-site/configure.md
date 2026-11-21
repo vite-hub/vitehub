@@ -156,7 +156,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
+The link checker accepts links to the old URL. Instead, a production build checks the rule. It stops with [`DOCS_REDIRECTS_BROKEN`](/docs/docs-site/diagnostics/docs_redirects_broken) when the rule leads to a docs URL that no page answers, or starts at a page that still exists. A target that a server route of the app answers is not a docs URL, such as `/api/auth/sign-in` from Auth when a section is at `/api`. Rules from other modules count too. Wildcard rules, such as `/docs/old/**`, are not checked this way.
 
 Rules added in a module's `nitro:config` hook are also checked, and keep the link checker's own redirect warnings.
 
@@ -215,7 +215,7 @@ Set `layout` in the frontmatter:
 | `article` (default) | Guides, concepts, and reference pages | Title, description, text, and outline. |
 | `tutorial` | Steps that build one result | Numbered `::tutorial-step` blocks. With `codePanel: true`, a code panel beside the text. |
 | `landing` | Section Overviews | A wide page with no outline, ending with the catalog of every section. |
-| `home` | A product home page | Only the page's own blocks, full width under the site header, with no docs sidebar. |
+| `home` | A product home page | Your `components/content/` blocks at full width, and the Markdown between them as on a docs page. No title or docs sidebar. |
 
 ### Tutorials
 
@@ -563,7 +563,7 @@ pnpm add @vite-hub/comments
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: [
-    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],
+    ['vite-hub/nuxt', { console: { auth: false } }],
     'vite-hub/docs/nuxt',
   ],
 })
@@ -574,7 +574,7 @@ The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A deploy keeps threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people `authorize` lets read. Without `authorize`, a production build admits GitHub users who can push to the repository. Signed-out readers get no toolbar. With no Console and no Auth, but GitHub sign-in set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests Auth users who may read the thread. Without Auth, it suggests people who wrote in threads you can read.
-- **The Console lists the threads.** Open the app in the [Console](/docs/development/console) and select **Comments** to see every thread with its page.
+- **The Console lists the threads.** Open the app in the [Console](/docs/console) and select **Comments** to see every thread with its page.
 
 `comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
 
@@ -587,7 +587,7 @@ export default defineNuxtConfig({
 })
 ```
 
-A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DocsCommentsSetupError`](/docs/docs-site/limits-and-errors#docscommentssetuperror).
+A site without `vite-hub/nuxt` has no server for threads, so it has no Comments. Setting `comments` to `true` or an object there stops the build with [`DOCS_COMMENTS_VITEHUB_MISSING`](/docs/docs-site/diagnostics/docs_comments_vitehub_missing).
 
 ## Edit in the Console
 
@@ -601,12 +601,12 @@ import cms from 'vite-hub/cms'
 import { docsCollection } from 'vite-hub/docs'
 
 export default defineContent({
-  extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
+  extends: [cms, { repo: 'owner/name', publish: 'pr', roles: true }],
   collections: { docs: docsCollection() },
 })
 ```
 
-Open the app in the [Console](/docs/development/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give `cms` options as string literals. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
+Open the app in the [Console](/docs/console), select **Content**, then **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and use literal `cms` options. Use the boolean literal `true` for `roles`. Leave out the Content `seo` option. The docs module already serves the sitemap and each page's Markdown copy, and Content's `.md` copies would compete in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 
@@ -618,6 +618,6 @@ With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A s
 
 Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files the site renders, so use it only to try the editor. Run `vitehub database generate` and `vitehub database migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
 
-`access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
+`roles: true` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it. For example, `authorize: () => import.meta.dev` lets everyone edit in development and nobody in production.
 
 The page route can render a draft: it reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. Draft-only pages preview too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page; a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.

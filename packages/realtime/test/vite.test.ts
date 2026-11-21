@@ -20,12 +20,21 @@ afterEach(async () => {
 })
 
 describe("hubRealtime", () => {
+  it("rejects the former authority key instead of picking the host driver", async () => {
+    const { hubRealtime } = await import("../src/vite.ts")
+    // SAFETY: An app config without types still passes the former key.
+    expect(() => hubRealtime({ authority: "redis" } as never)).toThrow(expect.objectContaining({
+      code: "REALTIME_RENAMED_AUTHORITY_KEY",
+      fix: expect.stringContaining('`realtime: { driver: "redis" }`'),
+    }))
+  })
+
   it.each([
-    { base: "/", nitro: {}, route: "/api/_vitehub/realtime/**" },
-    { base: "/portal/", nitro: {}, route: "/portal/api/_vitehub/realtime/**" },
-    { base: "/portal/", nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
-    { base: "/nested/portal/", nitro: { baseURL: "/nested/" }, route: "/portal/api/_vitehub/realtime/**" },
-    { base: "/assets/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/") }, nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
+    { base: "/", nitro: {}, route: "/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: {}, route: "/portal/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: { baseURL: "/portal/" }, route: "/_vitehub/realtime/**" },
+    { base: "/nested/portal/", nitro: { baseURL: "/nested/" }, route: "/portal/_vitehub/realtime/**" },
+    { base: "/assets/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/") }, nitro: { baseURL: "/portal/" }, route: "/_vitehub/realtime/**" },
   ])("mounts Realtime for $base with Nitro $nitro", async ({ base, define, nitro, route }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
@@ -118,7 +127,7 @@ describe("hubRealtime", () => {
     expect(config.nitro).toMatchObject({
       preset: "cloudflare-module",
       // Loaded on the first Realtime request, so the server (Tiptap, ProseMirror, Yjs) stays out of the Worker's start.
-      handlers: [expect.objectContaining({ lazy: true, route: "/wiki/api/_vitehub/realtime/**" })],
+      handlers: [expect.objectContaining({ lazy: true, route: "/wiki/_vitehub/realtime/**" })],
       cloudflare: {
         wrangler: {
           durable_objects: {

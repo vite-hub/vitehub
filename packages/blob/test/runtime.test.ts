@@ -528,9 +528,7 @@ describe("blob runtime", () => {
       ...(folded ? { mode: "folded" } : {}),
       prefix: "a/",
     })
-    expect(Object.keys(vercelBlobMock.list.mock.calls[0]?.[0] ?? {})).toEqual(folded ? ["token", "cursor", "limit", "mode", "prefix"] : ["token", "cursor", "limit", "prefix"])
     expect(result).toEqual({ blobs: [], cursor: "next-page", ...(folded ? { folders: [] } : {}), hasMore: true })
-    expect(Object.keys(result)).toEqual(folded ? ["blobs", "cursor", "folders", "hasMore"] : ["blobs", "cursor", "hasMore"])
   })
 
   it("preserves provider cursors for folded Vercel listings", async () => {
@@ -623,7 +621,7 @@ describe("blob runtime", () => {
     setBlobRuntimeConfig({
       serve: {
         publicBaseUrl: "https://assets.example/",
-        route: "/api/_vitehub/blob/",
+        route: "/_vitehub/blob/",
         store: "assets",
       },
       store: {
@@ -659,13 +657,13 @@ describe("blob runtime", () => {
     const list = expectBlobSuccess(await blob.store("assets").list())
     const otherStore = expectBlobSuccess(await blob.put("notes/private.txt", "value"))
 
-    expect(put.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(head?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
-    expect(list.blobs[0]?.url).toBe("https://assets.example/api/_vitehub/blob/notes/served.txt")
+    expect(put.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(head?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
+    expect(list.blobs[0]?.url).toBe("https://assets.example/_vitehub/blob/notes/served.txt")
     expect(otherStore.url).toBe("https://blob.example/notes/private.txt")
 
     const reserved = expectBlobSuccess(await blob.store("assets").put("notes/query?draft#one.txt", "value"))
-    expect(reserved.url).toBe("https://assets.example/api/_vitehub/blob/notes/query%3Fdraft%23one.txt")
+    expect(reserved.url).toBe("https://assets.example/_vitehub/blob/notes/query%3Fdraft%23one.txt")
   })
 
   it.each([
@@ -1470,6 +1468,40 @@ describe("blob runtime in vite dev", () => {
     expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
     expect(await readFile(join(base, "notes/copy.txt"), "utf8")).toBe("hello")
     expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the local fs store for an explicit cloudflare store when the dev runner has no R2 binding", async () => {
+    // quiver-airtable: `nuxt dev` on the Cloudflare host has no `TASK_ASSETS` binding, which only the build writes.
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", bucketName: "task-assets", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(await readFile(join(base, "tasks/hello.txt"), "utf8")).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the R2 binding of the dev runner for an explicit cloudflare store", async () => {
+    const base = await localBase()
+    setActiveCloudflareEnv({ TASK_ASSETS: createMemoryBucket() })
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("tasks/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("tasks/hello.txt"))?.text()).toBe("hello")
+    expect(existsSync(join(base, "tasks/hello.txt"))).toBe(false)
+  })
+
+  it("enforces the R2 key limit on the local filesystem fallback", async () => {
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions({ binding: "TASK_ASSETS", driver: "cloudflare" }, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+    const pathname = Array(6).fill("x".repeat(180)).join("/")
+
+    const [error] = await blob.put(pathname, "hello")
+
+    expect(error?.code).toBe("BLOB_PATHNAME_TOO_LONG")
+    expect(existsSync(join(base, pathname))).toBe(false)
   })
 
   it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {

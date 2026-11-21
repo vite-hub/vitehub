@@ -19,9 +19,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_UNSUPPORTED_OPTION: {
       why: ({ options, provider }: { options: string, provider: QueueDriver }) => `The ${provider} queue provider does not support the enqueue option ${options}.`,
-      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("`id`")
-        ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
-        : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
+      fix: ({ options }: { options: string, provider: QueueDriver }) => options.includes("Seconds`")
+        ? "Rename `delaySeconds` to `delay` and `retentionSeconds` to `retention`, and write the time as a duration: `{ delay: \"60s\" }` in place of `{ delaySeconds: 60 }`. `vitehub migrate` renames them."
+        : options.includes("`id`")
+          ? "Remove `id`. ViteHub generates the message ID. To deduplicate sends, pass `idempotencyKey` on a provider that supports it."
+          : "Remove the option for this provider. The enqueue options table on the Queue Server API page shows which provider supports each option.",
     },
 
     // Provider cause errors. They are the `cause` of `QUEUE_PROVIDER_FAILED`, as the provider error is in production.
@@ -30,12 +32,12 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
         "batch-bytes": `${provider} accepts up to ${max} bytes in one \`sendBatch()\`, got ${value} bytes of JSON.`,
         "batch-empty": "Vercel requires at least one job in a `sendBatch()`.",
         "batch-jobs": `${provider} accepts up to ${max} jobs in one \`sendBatch()\`, got ${value}.`,
-        "delay": `\`delaySeconds\` must be a number of seconds from 0, got ${value}.`,
-        "delay-max": `${provider} accepts \`delaySeconds\` up to ${max}, got ${value}.`,
+        "delay": `\`delay\` must be a time from 0, got ${value} seconds.`,
+        "delay-max": `${provider} accepts a \`delay\` of up to ${max} seconds, got ${value} seconds.`,
         "payload": `${provider} accepts a payload of up to ${max} bytes, got ${value} bytes of JSON.`,
-        "retention": `${provider} accepts \`retentionSeconds\` from ${min} to ${max}, got ${value}.`,
+        "retention": `${provider} accepts a \`retention\` from ${min} to ${max} seconds, got ${value} seconds.`,
       })[limit],
-      fix: "Change the job as the message says: `delaySeconds`, `retentionSeconds`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
+      fix: "Change the job as the message says: `delay`, `retention`, the payload size, or the number or size of the jobs in one `sendBatch()`. The local provider applies the limits of the production provider, so the same job fails there too.",
     },
     QUEUE_VERCEL_BATCH_REJECTED: {
       why: ({ failed, total }: { failed: number, total: number }) => `@vercel/queue did not accept ${failed} of ${total} batch messages.`,
@@ -164,8 +166,8 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Pass an object, for example `queue: { driver: 'cloudflare' }`.",
     },
     QUEUE_INVALID_DEFINITION: {
-      why: "`defineQueue()` needs a handler function.",
-      fix: "Pass the handler as the first argument, for example `defineQueue(async (job) => { ... })`.",
+      why: ({ reason }: { reason: string }) => reason,
+      fix: "Pass one object with a `handler` function and the options next to it, for example `defineQueue({ handler: async ({ payload }) => { ... }, concurrency: 2 })`. Run `npx vitehub migrate` to move the former `defineQueue(handler, options)` form.",
     },
     QUEUE_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`queue.driver\` "${driver}" is not a Queue driver.`,
@@ -190,6 +192,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_PROVISION_FAILED: {
       why: "Cloudflare returned an invalid queue list during provisioning.",
       fix: "Run `vitehub provision run --host cloudflare --dry-run` again, and check the Cloudflare token permissions.",
+    },
+    QUEUE_RENAMED_PROVIDER_KEY: {
+      why: ({ value }: { value: string }) => `\`queue.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Queue would not use the driver you chose.`,
+      fix: ({ value }: { value: string }) => `Set \`queue: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
   },
 })

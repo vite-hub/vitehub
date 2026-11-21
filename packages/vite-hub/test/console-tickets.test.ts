@@ -17,8 +17,8 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 
 /** Replaces the Auth Console of a request when a test sets it. */
 const authServer = vi.hoisted(() => ({ console: undefined as ((request: Request) => unknown) | undefined }))
-vi.mock("@vite-hub/auth/internal/server", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@vite-hub/auth/internal/server")>()
+vi.mock("@vite-hub/auth/server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/auth/server")>()
   return {
     ...original,
     getAuthConsoleForRequest: (...args: Parameters<typeof original.getAuthConsoleForRequest>) => authServer.console ? authServer.console(args[0]) : original.getAuthConsoleForRequest(...args),

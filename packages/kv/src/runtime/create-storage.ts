@@ -1,8 +1,9 @@
-import { createStorage, normalizeBaseKey, normalizeKey } from "unstorage"
+import { createStorage, normalizeKey } from "unstorage"
 import type { Driver, StorageValue, TransactionOptions } from "unstorage"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { mapWithLimit } from "./batch.ts"
+import { normalizeKVListPrefix } from "./list-prefix.ts"
 
 /** The batch methods behind `kv.getMany()` and `kv.setMany()`. */
 export interface KVBatchStorage {
@@ -17,17 +18,17 @@ function isRawType(type: unknown): boolean {
 
 const removeBatchSize = 100
 
-/** Gives single-store KV prefixes the same meaning for clear() and getKeys(), and adds the batch methods. */
+/** Gives `clear(prefix)` the text-prefix meaning of `list({ prefix })`, and adds the batch methods. */
 export function createKVStorage(driver: Driver & { validateBatch?: (items: Parameters<NonNullable<Driver["setItems"]>>[0], removals: string[], options?: TransactionOptions) => void | Promise<void> }) {
   const storage = createStorage({ driver })
   const clear = storage.clear
   storage.clear = async (base, options = {}) => {
-    const prefix = normalizeBaseKey(base)
-    if (!prefix) return clear(base, options)
-    // unstorage clear(base) selects mounted stores, not keys in the root store, so give the base to the driver.
-    // Every KV driver deletes only the keys that start with `prefix`. It ends with ":", so "a" never clears "ab".
+    const prefix = normalizeKVListPrefix(base)
+    if (!prefix) return clear("", options)
+    // unstorage clear(base) selects mounted stores, not keys in the root store, so give the prefix to the driver.
+    // Every KV driver deletes only the keys that start with `prefix`, as text: "user" also clears "users:1".
     if (driver.clear) return driver.clear(prefix, options)
-    const keys = await storage.getKeys(base, options)
+    const keys = (await storage.getKeys("", options)).filter(key => key.startsWith(prefix))
     for (let offset = 0; offset < keys.length; offset += removeBatchSize) {
       await Promise.all(keys.slice(offset, offset + removeBatchSize).map(key => storage.removeItem(key, options)))
     }

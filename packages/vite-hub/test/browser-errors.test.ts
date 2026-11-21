@@ -17,7 +17,7 @@ const report = { kind: "error", path: "/orders", name: "TypeError", message: "x 
 type Log = { error?: (error: Error, fields: Record<string, unknown>) => void, warn?: (message: string, fields: Record<string, unknown>) => void }
 
 function post(body: unknown, headers: Record<string, string> = { origin, "sec-fetch-site": "same-origin" }, log?: Log) {
-  const request = new Request(`${origin}/api/_vitehub/browser-errors`, {
+  const request = new Request(`${origin}/_vitehub/browser-errors`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: typeof body === "string" ? body : JSON.stringify(body),
@@ -39,7 +39,7 @@ function tabStorage() {
 function runReporter(path = "/orders", sessionStorage: unknown = tabStorage()) {
   const listeners = new Map<string, Listener>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
-  const run = new Function("addEventListener", "fetch", "location", "sessionStorage", browserErrorsReporterSource(JSON.stringify("/api/_vitehub/browser-errors")))
+  const run = new Function("addEventListener", "fetch", "location", "sessionStorage", browserErrorsReporterSource(JSON.stringify("/_vitehub/browser-errors")))
   run((name: string, listener: Listener) => listeners.set(name, listener), fetch, { pathname: path }, sessionStorage)
   const bodies = () => fetch.mock.calls.map(([, init]) => JSON.parse(String(init.body)) as Record<string, unknown>)
   return { listeners, fetch, bodies }
@@ -163,7 +163,7 @@ describe("browser error ingest", () => {
         cancelled = true
       },
     })
-    const request = new Request(`${origin}/api/_vitehub/browser-errors`, {
+    const request = new Request(`${origin}/_vitehub/browser-errors`, {
       method: "POST",
       headers: { "content-type": "application/json", origin, "sec-fetch-site": "same-origin" },
       body,
@@ -214,7 +214,7 @@ describe("browser error ingest", () => {
 describe("browser error reporter", () => {
   it("is off unless observability.browserErrors is set", () => {
     const names = (options: Parameters<typeof viteHubPlugins>[0]) => viteHubPlugins(options).flat(3).filter((plugin): plugin is Plugin => Boolean(plugin && typeof plugin === "object" && "name" in plugin)).map(plugin => plugin.name)
-    expect(names({ host: "node", observability: { logs: true } })).not.toContain("vite-hub/browser-errors")
+    expect(names({ host: "node", logs: true })).not.toContain("vite-hub/browser-errors")
     expect(names({ host: "node", observability: { browserErrors: true } })).toContain("vite-hub/browser-errors")
   })
 
@@ -222,9 +222,9 @@ describe("browser error reporter", () => {
     const plugin = browserErrorsVitePlugin()
     const config: Record<string, unknown> = { base: "/shop/" }
     plugin.config(config)
-    expect(config.nitro).toMatchObject({ handlers: [expect.objectContaining({ method: "POST", route: "/shop/api/_vitehub/browser-errors" })] })
+    expect(config.nitro).toMatchObject({ handlers: [expect.objectContaining({ method: "POST", route: "/shop/_vitehub/browser-errors" })] })
     const [tag] = plugin.transformIndexHtml()
-    expect(tag!.children).toContain(`const endpoint = "/shop/api/_vitehub/browser-errors"`)
+    expect(tag!.children).toContain(`const endpoint = "/shop/_vitehub/browser-errors"`)
   })
 
   it("reports each message once, at most 10 times a page load, without the query", async () => {
@@ -237,7 +237,7 @@ describe("browser error reporter", () => {
     for (let index = 0; index < 20; index++) listeners.get("unhandledrejection")!({ reason: `failure ${index}` })
     expect(fetch).toHaveBeenCalledTimes(10)
     const [url, init] = fetch.mock.calls[0]!
-    expect(url).toBe("/api/_vitehub/browser-errors")
+    expect(url).toBe("/_vitehub/browser-errors")
     expect(init).toMatchObject({ method: "POST", keepalive: true })
     expect(JSON.parse(String(init.body))).toMatchObject({ kind: "error", path: "/orders", name: "TypeError", message: "x is undefined" })
   })
@@ -266,7 +266,7 @@ describe("browser error reporter", () => {
     hooks.get("vue:error")!(error)
     hooks.get("app:error")!(Object.assign(new Error("x is undefined", { cause: error }), { name: "NuxtError" }))
     expect(fetch).toHaveBeenCalledOnce()
-    expect(fetch.mock.calls[0]![0]).toBe("/shop/api/_vitehub/browser-errors")
+    expect(fetch.mock.calls[0]![0]).toBe("/shop/_vitehub/browser-errors")
     expect(bodies()[0]).toMatchObject({ kind: "vue", name: "TypeError" })
   })
 

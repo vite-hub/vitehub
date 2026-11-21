@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 ## Configuration
 
-`browser: true` turns on Cloudflare Browser Run. Pass an object only to change the binding or engine, or to use the hosted service locally.
+A file in `server/browsers/` turns on Cloudflare Browser Run, so you do not add a `browser` option. Pass an object only to change the binding or engine, or to use the hosted service locally.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

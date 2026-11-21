@@ -11,9 +11,10 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
+import { parseDuration } from "@vite-hub/runtime"
 import type { Result } from "@vite-hub/runtime"
 
-import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobPutBody, BlobPutOptions, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
@@ -29,6 +30,25 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
+
+const blobStorageHealthChecks = new WeakMap<BlobStorage, () => Promise<void>>()
+
+export function registerBlobStorageHealthCheck(storage: BlobStorage, check: () => Promise<void>): void {
+  blobStorageHealthChecks.set(storage, check)
+}
+
+export async function checkBlobStorageHealth(storage: BlobStorage): Promise<void> {
+  const check = blobStorageHealthChecks.get(storage)
+  if (check) return check()
+  const [error] = await storage.head("vitehub-health-check")
+  if (error) throw error
+}
+
+export async function checkBlobDriverHealth(driver: BlobDriverAdapter<unknown>): Promise<void> {
+  if (driver.checkHealth) await driver.checkHealth()
+  else if (driver.name === "s3") await driver.list({ limit: 1 })
+  else await driver.head("vitehub-health-check")
+}
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
 export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
@@ -344,19 +364,35 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
         prefix: normalizedPrefix,
       }))
     },
-    async put(pathname: string, body: BlobPutBody, options: BlobPutOptions = {}) {
+    async put(pathname, body, options = {}) {
       assertNoPutAccess(options)
-      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), options)
+      const { ifMatch, overwrite, ...putOptions } = options
+      const condition: BlobDriverPutCondition | undefined = overwrite === false
+        ? { type: "create" }
+        : ifMatch === undefined ? undefined : { etag: ifMatch, type: "replace" }
+      if (condition && !driver.putIf) throw blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED({ driver: driver.name })
+      const normalizedPath = normalizeBlobPath(normalizePathname(pathname), putOptions)
       assertWritablePath(normalizedPath)
-      const contentType = options.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
-      return blobResult("put", store, () => driver.put(normalizedPath, body, {
-        ...options,
-        contentType,
-      }))
+      const contentType = putOptions.contentType || (isBlob(body) ? body.type : undefined) || guessContentType(normalizedPath)
+      const [error, object] = await blobResult("put", store, async () => condition
+        ? driver.putIf!(normalizedPath, body, { ...putOptions, contentType }, condition)
+        : driver.put(normalizedPath, body, { ...putOptions, contentType }))
+      // A driver that finds at write time that it cannot check the condition throws, like the check above.
+      if (blobErrorDiagnostics.BLOB_PUT_CONDITION_UNSUPPORTED.is(error?.cause)) throw error.cause
+      if (error) return [error, undefined]
+      if (!object) {
+        return [blobError("BLOB_CONFLICT", "put", store, {
+          detail: condition?.type === "create"
+            ? `Blob ${normalizedPath} already exists in the "${store}" store, and the put() had \`overwrite: false\`.`
+            : `Blob ${normalizedPath} in the "${store}" store does not have the \`ifMatch\` ETag of the put(). Another writer changed or deleted it.`,
+        }), undefined]
+      }
+      return [undefined, object]
     },
     async sign(pathname, options) {
-      if (!Number.isInteger(options.expiresIn) || options.expiresIn <= 0) {
-        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive integer." })
+      const expiresIn = typeof options.expiresIn === "string" ? parseDuration(options.expiresIn) / 1000 : options.expiresIn
+      if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+        throw blobErrorDiagnostics.BLOB_R0024({ message: "`expiresIn` must be a positive whole number of seconds or a duration such as \"15m\"." })
       }
       if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
@@ -366,7 +402,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       }
       const normalizedPathname = normalizePathname(pathname)
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
-      return blobResult("sign", store, () => driver.sign!(normalizedPathname, options, { store }))
+      return blobResult("sign", store, () => driver.sign!(normalizedPathname, { ...options, expiresIn }, { store }))
     },
     async serve(request, pathname, options = {}) {
       // Like a static file server, answer every other method without reading storage, so a POST to a file URL does

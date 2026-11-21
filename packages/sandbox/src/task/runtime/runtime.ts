@@ -15,8 +15,8 @@ import {
   resolveTaskSandbox,
   withSandboxTaskProvider,
 } from './provider-resolution'
-import { err, ok } from './result'
-import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeRegistry, isSandboxTaskRuntimeDevelopment, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
+import { runFailed } from './result'
+import { getSandboxTaskRuntimeConfig, getSandboxTaskRuntimeLocalProvider, getSandboxTaskRuntimeRegistry, type SandboxTaskRegistryEntry, type SandboxTaskRuntimeRegistry } from './state'
 
 import type {
   AgentSandboxTaskConfig,
@@ -147,6 +147,14 @@ async function resolveSandboxTaskProvider(
   definition: SandboxTaskRegistryEntry,
 ): Promise<ResolvedTaskSandbox> {
   assertSandboxTaskDefinitionOptions(definition.options ?? {})
+  // `vite dev` runs Sandbox Tasks on this machine, unless `remote: true` asks for the host's Sandbox.
+  const local = getSandboxTaskRuntimeLocalProvider()
+  if (local && !(sandboxTaskConfig && sandboxTaskConfig.remote)) {
+    const policy = sandboxTaskConfig && 'networkPolicy' in sandboxTaskConfig ? sandboxTaskConfig.networkPolicy : undefined
+    if (policy !== undefined && policy !== 'allow-all')
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NETWORK_POLICY()
+    return await local()
+  }
   const config = getSandboxTaskFeatureDriver(sandboxTaskConfig)
   const provider = resolveRuntimeProvider(config)
 
@@ -281,16 +289,16 @@ export async function runSandboxTaskRuntime<TPayload = unknown, TResult = unknow
   name?: string,
   payload?: TPayload,
   options?: SandboxTaskExecutionOptions,
-): Promise<SandboxTaskRunResult> {
+): Promise<SandboxTaskRunResult<TResult>> {
   try {
     options?.signal?.throwIfAborted()
     const sandbox = await resolveSandboxTaskRunner<TPayload | undefined, TResult>(name)
-    return await ok(await sandbox.run(payload, options))
+    return [undefined, await sandbox.run(payload, options)]
   }
   catch (error) {
     if (options?.signal?.aborted)
       throw options.signal.reason ?? error
-    return err(toSandboxTaskError(error), isSandboxTaskRuntimeDevelopment())
+    return [runFailed(name ?? '', toSandboxTaskError(error)), undefined]
   }
 }
 

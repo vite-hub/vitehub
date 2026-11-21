@@ -18,7 +18,7 @@ import type { Plugin, UserConfig } from "vite"
 export const FORMS_VITE_PLUGIN_NAME = "@vite-hub/forms/vite"
 
 /** The route of every form, below the app base. */
-export const formsRoute = "/api/_vitehub/forms"
+export const formsRoute = "/_vitehub/forms"
 
 const extensions = [".ts", ".mts", ".js", ".mjs"]
 const namePattern = /^[a-z0-9][a-z0-9-]*$/
@@ -111,7 +111,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
   const lines = [
     `import { createFormsHandler } from ${JSON.stringify(imports.runtime)}`,
     ...imports.standard ? [`import { getStandardContext } from ${JSON.stringify(imports.standard)}`] : [],
-    ...options.database && imports.databases ? [`import { databases } from ${JSON.stringify(imports.databases)}`] : [],
+    ...options.database && imports.databases ? [`import { useDatabase } from ${JSON.stringify(imports.databases)}`] : [],
     ...options.email && imports.email ? [`import { email } from ${JSON.stringify(imports.email)}`] : [],
     ...options.auth && imports.auth ? [`import { useAuth } from ${JSON.stringify(imports.auth)}`] : [],
     ...options.rateLimit && imports.rateLimit ? [`import { checkRateLimit } from ${JSON.stringify(imports.rateLimit)}`] : [],
@@ -119,7 +119,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
     "",
     "export default createFormsHandler({",
     `  forms: { ${forms.map((form, index) => `${JSON.stringify(form.name)}: form${index}`).join(", ")} },`,
-    ...options.database && imports.databases ? ["  databases,"] : [],
+    ...options.database && imports.databases ? ["  useDatabase,"] : [],
     ...options.memory ? ["  memory: true,"] : [],
     ...options.email && imports.email ? ["  sendEmail: message => email.send(message),"] : [],
     ...options.auth && imports.auth
@@ -141,7 +141,7 @@ export function renderFormsHandler(forms: readonly DiscoveredForm[], options: Hu
 
 /**
  * Forms in a ViteHub app: each `server/forms/<name>.ts` that default-exports `defineForm()` gets the route
- * `POST <base>api/_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
+ * `POST <base>_vitehub/forms/<name>`, and its submissions go to the `vitehub_form_submissions` table of the
  * default Database.
  */
 export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { databases: (context: { projectRoot?: string, root?: string, rootDir?: string }) => unknown[], operations: OperationContributions } } {
@@ -190,11 +190,14 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         }
         await mkdir(directory, { recursive: true })
         const handler = join(directory, "handler.mjs")
+        const plugin = join(directory, "plugin.mjs")
         await writeFile(handler, renderFormsHandler(forms, { ...options, imports, memory: !options.database && dev }))
+        await writeFile(plugin, 'import handler from "./handler.mjs"\nexport default app => handler.registerUserData(app)\n')
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
         kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
+        kit.addPlugin(plugin)
         Reflect.set(config, "nitro", kit.config)
         await installStandaloneOperationRpc(config, env?.command ?? "build", imports.operations)
       },

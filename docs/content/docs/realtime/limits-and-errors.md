@@ -14,8 +14,17 @@ icon: i-lucide-circle-alert
 const realtime = useRealtimeTiptap('pages', () => props.path)
 const toast = useToast()
 
+realtime.onReset(({ reason }) => {
+  if (reason === 'source-changed')
+    toast.add({ title: 'The editor reset because the stored page changed' })
+})
+
 async function publish() {
   const [error, checkpoint] = await realtime.history.checkpoint()
+  if (error?.code === 'REALTIME_SOURCE_CHANGED') {
+    toast.add({ title: 'Not published', description: 'The stored page changed outside this room.' })
+    return
+  }
   if (error) {
     toast.add({ title: 'Not published', description: error.why })
     return
@@ -24,13 +33,13 @@ async function publish() {
 }
 ```
 
-`error.code` has the type `RealtimeRequestErrorCode`. The composable retries `409` answers with `REALTIME_SYNC_PENDING` before it returns an error.
+`error.code` has the type `RealtimeRequestErrorCode`. Check the code first to read the typed `error.data`. When the server names why it refused the request, such as a stored document that changed outside the room, a read-only room, or edits that still did not reach the room after 20 retries, `error.code` is that name. [Realtime diagnostics](/docs/realtime/diagnostics) explains each code. Other server and network errors are `REALTIME_REQUEST_FAILED`.
 
 Room errors happen after the WebSocket opens, so the server closes the connection with a close code. Configuration and build errors throw.
 
 | Code | Where |
 | --- | --- |
-| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED` | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
+| `REALTIME_DISABLED`, `REALTIME_DISCONNECTED`, `REALTIME_INVALID_RESPONSE`, `REALTIME_MISSING_DOCUMENT`, `REALTIME_REQUEST_FAILED`, and the codes that the server names | Returned by `save()`, `history.checkpoint()`, and `refresh()` |
 | `REALTIME_AWARENESS_OWNERSHIP_CONFLICT` | WebSocket close code `4500` |
 | `REALTIME_AWARENESS_TOO_LARGE`, `REALTIME_DOCUMENT_TOO_LARGE`, `REALTIME_INVALID_AWARENESS`, `REALTIME_TOO_MANY_AWARENESS_CLIENTS` | WebSocket close code `4400` |
 | `REALTIME_DOCUMENT_CONFLICT` | Thrown by a document adapter. The room re-seeds and clients reset. |
@@ -65,7 +74,7 @@ The client cannot use the server's answer. Use the same `@vite-hub/realtime` ver
 
 ### REALTIME_REQUEST_FAILED
 
-The server answered with an error, or the network request failed. `error.why` has the HTTP status and server message. A network error is in `error.cause`. A read-only room answers `409` with `REALTIME_READ_ONLY`. Read `readOnlyReason` and `saveStatus` for the reason.
+The server answered with an error that names no Realtime code, or the network request failed. `error.why` has the HTTP status and server message, and `error.data.status` has the HTTP status. A network error has no status, and the error is in `error.cause`.
 
 ## Room request errors
 
@@ -129,18 +138,29 @@ One peer sent more than 1,024 awareness clients.
 
 ### REALTIME_MISSING_ACCESS
 
-The definition sets no access rule. Without one, each person could read and write each room. Set `auth: true` to require a signed-in user, add `authorize()` to decide each request, or set `access: 'public'` for open rooms.
+The definition sets no access rule. Without one, each person could read and write each room. Set `authorize: true` to require a signed-in user, set `authorize()` to decide each request, or set `access: 'public'` for open rooms.
 
 ```diff [server/realtime/docs.ts]
  export default defineRealtime({
-+  auth: true,
++  authorize: true,
    document: { workspace: 'docs' },
  })
 ```
 
 ### REALTIME_INVALID_ACCESS
 
-The access rule is not clear. `access` accepts only `'public'`, and you cannot use it with `auth` or `authorize()`. `origins()` with `auth: true` and no `identify()` is also an error, because the ViteHub Auth session is a cookie that only the app's own origin can use.
+The access rule is not clear. `access` accepts only `'public'`, and you cannot use it with `authorize`. `authorize` accepts only `true` or a function. `origins()` with `authorize: true` and no `identify()` is also an error. Only the Auth trusted-origin policy can allow a different origin to use the ViteHub Auth session.
+
+A definition that still sets `auth` fails too. Replace `auth: true` with `authorize: true`. Next to an `authorize()` callback, remove `auth`: the callback now also runs for signed-out callers, so return `false` when `user` is `null`. `vitehub migrate` makes the first change and lists the second.
+
+```diff [server/realtime/pages.ts]
+ export default defineRealtime({
+-  auth: true,
+-  authorize: ({ user, mode }) => mode === 'read' || isEditor(user),
++  authorize: ({ user, mode }) => user !== null && (mode === 'read' || isEditor(user)),
+   document: pagesDocument,
+ })
+```
 
 ### REALTIME_CHECKPOINT_UNSUPPORTED
 

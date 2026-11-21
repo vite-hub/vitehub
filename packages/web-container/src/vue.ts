@@ -357,7 +357,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       }
       catch (cause) {
         const error = toError(cause);
-        failure.value = error.name === "WebContainerUnsupportedError" ? { kind: "unsupported", error } : { kind: "boot", error };
+        failure.value = Reflect.get(error, "code") === "WEB_CONTAINER_UNSUPPORTED" ? { kind: "unsupported", error } : { kind: "boot", error };
         status.value = failure.value.kind === "unsupported" ? "unsupported" : "error";
       }
       finally {

@@ -7,8 +7,8 @@ The build stops with `VITE_HUB_PACKAGE_VERSION_UNSUPPORTED` when an installed `@
 
 ```text [output/unsupported-vitehub-package.txt]
 [VITE_HUB_PACKAGE_VERSION_UNSUPPORTED] @vite-hub/agent 0.0.0-preview-8724a59 is installed, but vite-hub 0.0.0-preview-391b51f supports @vite-hub/agent@0.1.0 || 0.0.0-preview-391b51f. ViteHub packages of another release do not work with this vite-hub. The app can build and then fail at runtime, or run the code of the other release.
-├▶ fix: Install the ViteHub packages of the same release as vite-hub: `pnpm add https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@391b51fd4b56d75242fb767bdd2b001808dba29f`. When pnpm `overrides`, `resolutions`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.
-╰▶ see: https://vitehub.dev/docs/development/diagnostics/vite_hub_package_version_unsupported
+├▶ see: https://vitehub.dev/docs/development/diagnostics/vite_hub_package_version_unsupported
+╰▶ fix: Install the ViteHub packages of the same release as vite-hub: `pnpm add https://pkg.pr.new/vite-hub/vitehub/@vite-hub/agent@391b51fd4b56d75242fb767bdd2b001808dba29f`. When pnpm `overrides`, `resolutions`, or the lockfile pin a @vite-hub package, change them to the same release too, then install again.
 ```
 
 ## Why it happens

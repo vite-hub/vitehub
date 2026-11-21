@@ -1,7 +1,7 @@
 export { createRateLimiter } from "./limiter.ts"
 export { peekRateLimit, resetRateLimit } from "./counters.ts"
 export type { RateLimitCounterSnapshot, RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
-export { checkRateLimit, requireRateLimit } from "./guard.ts"
+export { checkRateLimit, refundRateLimit, requireRateLimit } from "./guard.ts"
 
 export type {
   CheckRateLimitErrorCode,
@@ -17,6 +17,7 @@ export type {
   RateLimitDriverOutcome,
   RateLimitDriverPeekOutcome,
   RateLimitDriverPeekResult,
+  RateLimitDriverRefundOutcome,
   RateLimitDriverResetOutcome,
   RateLimitDriverResult,
   RateLimitEnforcement,
@@ -26,12 +27,13 @@ export type {
   RateLimitOptions,
   RateLimitPeekResult,
   RateLimitPolicy,
+  RateLimitRefundResult,
   RateLimitRejectedAttemptBehavior,
   RateLimitRequest,
   RateLimitRequestEvent,
   RateLimitResetResult,
   RateLimitRuntimeConfig,
-  RateLimitWindow,
+  RefundRateLimitErrorCode,
   RequireRateLimitOptions,
   ResolvedRateLimitPolicy,
 } from "./types.ts"

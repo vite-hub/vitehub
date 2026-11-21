@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
+import { hubSource, inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -181,6 +181,31 @@ it.each([
   expect(generated.routes).toEqual(routes)
 })
 
+it.each([true, false])("sends the pages of a push to the prewarm Queue when the app has Queue: %s", async (queue) => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { github } from "vite-hub/source"\n\nexport default defineContent({ sources: { docs: github({ repo: "acme/docs" }) }, access: "public" })\n`)
+    const plugin = hubSource({ contentImportBase: "vite-hub/content", queue, queueImport: "vite-hub/queue" })
+    await plugin.api.prepareSources({ projectRoot })
+    const webhook = await readFile(join(projectRoot, ".vitehub/content/github-webhook.mjs"), "utf8")
+    const queues = await plugin.vitehub.queues({ projectRoot, root: projectRoot })
+    if (!queue) {
+      expect(webhook).toContain("export default defineContentGitHubWebhookHandler(content)\n")
+      expect(queues).toEqual([])
+      return
+    }
+    expect(webhook).toContain("defineContentGitHubWebhookHandler(content, { prewarm: job => dynamicQueue.send(\"vitehub-content-prewarm\", job) })")
+    expect(webhook).toContain("import { dynamicQueue } from \"vite-hub/queue\"")
+    const module = join(projectRoot, ".vitehub/content/prewarm-queue.mjs")
+    expect(queues).toEqual([{ name: "vitehub-content-prewarm", definition: { module }, reason: expect.stringContaining("GitHub push") }])
+    expect(await readFile(module, "utf8")).toContain("export default defineQueue(job => prewarmContentPage(content, job.payload))")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
 it.each([
   ["previews: true", true],
   ["previews: { source: \"docs\" }", true],
@@ -223,7 +248,7 @@ it("keeps preview interception, RSS, and LLMs routes together, then removes both
     const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
     const llms = join(projectRoot, ".vitehub/content/llms.mjs")
     expect(mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers).plugins![0]).toBe(plugin)
-    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/llms-full.txt", "/llms.txt", "/sitemap.md"])
+    expect(handlers.filter(handler => handler.handler === llms).map(handler => handler.route)).toEqual(["/:locale/llms-full.txt", "/llms-full.txt", "/llms.txt", "/sitemap.md"])
     expect(handlers.some(handler => handler.handler === join(projectRoot, ".vitehub/content/markdown.mjs"))).toBe(true)
     await access(plugin)
     await access(llms)

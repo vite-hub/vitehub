@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { WorkflowDefinition } from "../src/types.ts"
 import { createWorkflow, startWorkflow } from "../src/runtime/client.ts"
 import { getInlineWorkflowDefinitions, loadWorkflowDefinition, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { unwrap } from "./unwrap.ts"
 
 afterEach(resetWorkflowRuntime)
 
@@ -22,10 +23,10 @@ describe("Workflow registry entries", () => {
     setWorkflowRuntimeRegistry({})
     const workflow = createWorkflow(name, async () => "inline")
 
-    const run = await workflow.start()
+    const run = await unwrap(workflow.start())
     expect(run).toMatchObject({ provider: "vercel", status: "queued" })
     await vi.waitFor(async () => {
-      await expect(workflow.getRun(run.id)).resolves.toMatchObject({ result: "inline", status: "completed" })
+      await expect(unwrap(workflow.getRun(run.id))).resolves.toMatchObject({ result: "inline", status: "completed" })
     })
   })
 
