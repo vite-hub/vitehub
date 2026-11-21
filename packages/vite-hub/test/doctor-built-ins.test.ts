@@ -58,6 +58,16 @@ describe("vitehub/prefer-built-ins", () => {
     })).toEqual([])
   })
 
+  it("accepts Drizzle Kit configs when the ViteHub Database is disabled", async () => {
+    const files = {
+      "package.json": manifest({ scripts: { generate: "drizzle-kit generate" } }),
+      "vite.config.ts": 'import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ database: false })] }',
+      "drizzle.config.ts": 'export default { schema: "./server/databases/default/index.ts" }',
+    }
+    expect(await codes(preferBuiltIns, files)).toEqual([])
+    expect(await codes(preferBuiltInCommands, files)).toEqual([])
+  })
+
   it("reports Drop's D1 migrator once per file", async () => {
     const diagnostics = await report(preferBuiltIns, {
       "package.json": app,
@@ -325,6 +335,22 @@ describe("vitehub/prefer-built-in-commands", () => {
           "migrate:preview": "wrangler d1 migrations apply DB --remote --env preview",
           "deploy:email": "wrangler deploy --config workers/email/wrangler.toml --secrets-file workers/email/secrets.json",
           "postinstall": "nuxt prepare && vitehub types prepare",
+        },
+      }),
+    })).toEqual([])
+  })
+
+  it("does not infer replacement targets from unrelated config text or Worker overrides", async () => {
+    expect(await codes(preferBuiltInCommands, {
+      "drizzle.config.ts": '// "./server/databases/default/index.ts"\nexport default { schema: "./analytics/schema.ts" }',
+      "nuxt.config.ts": '// Add "vite-hub/nuxt" later.\nexport default defineNuxtConfig({ modules: [] })',
+      "package.json": manifest({
+        dependencies: { nuxt: "^4.0.0" },
+        scripts: {
+          generate: "drizzle-kit generate",
+          postinstall: "nuxt prepare && vitehub types prepare",
+          deploy: "wrangler deploy --name email --config .output/server/wrangler.json --secrets-file .env",
+          migrate: "wrangler d1 migrations apply analytics --remote --config .output/server/wrangler.json",
         },
       }),
     })).toEqual([])

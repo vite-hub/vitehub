@@ -1195,7 +1195,7 @@ A `package.json` script runs a tool that a ViteHub command wraps. The rule reads
 | Script | Command |
 | --- | --- |
 | `drizzle-kit generate`, `migrate`, or `up`, when its config points into `databases/` of a server directory | [`vitehub database generate`, `migrate`, or `up`](/docs/database/configure#apply-migrations), which run Drizzle Kit on each Database Definition |
-| `wrangler d1 migrations apply ... --remote --config .output/server/wrangler.json` | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy) with `vitehub deploy` |
+| `wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json` | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy) with `vitehub deploy` |
 | `wrangler deploy --config .output/server/wrangler.json --secrets-file ...` | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy) |
 | `vitehub types prepare` in a Nuxt app whose `nuxt.config` registers `vite-hub/nuxt` | `nuxt prepare`, where [the Nuxt module writes the types](/docs/development/generated-files#include-generated-types) |
 
@@ -1209,7 +1209,7 @@ A `package.json` script runs a tool that a ViteHub command wraps. The rule reads
 }
 ```
 
-It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, and Drizzle Kit configs for another database.
+It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, `--name`, or `--cwd`. It also skips Drizzle Kit configs for another database or when the ViteHub Database is explicitly disabled.
 
 ## VHUB0039
 

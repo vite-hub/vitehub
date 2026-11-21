@@ -1,9 +1,10 @@
-import { join, resolve } from "node:path"
+import { join, posix, resolve } from "node:path"
 
+import { findProperty, parseProgram, walk } from "@vite-hub/internal/ast"
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
-import { callArguments, defaultExport, isIdentifier, isNode, isNodeType, isTestFile, numberValue, objectProperty, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
+import { callArguments, isIdentifier, isNode, isNodeType, isTestFile, numberValue, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
 import type { AstNode } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
@@ -85,7 +86,7 @@ const generatedWranglerConfig = /^(?:\.\/)?\.output\/server\/wrangler\.json$/
 
 /** True when a Wrangler command targets the build's Worker: `--config` names the build's config, without `--env`. */
 function targetsGeneratedWorker(args: string[]): boolean {
-  if (args.some(arg => /^(?:--env|-e)(?:=|$)/.test(arg))) return false
+  if (args.some(arg => /^(?:--env|-e|--name|--cwd)(?:=|$)/.test(arg))) return false
   const config = flagValue(args, ["--config", "-c"])
   return config !== undefined && generatedWranglerConfig.test(config)
 }
@@ -113,6 +114,77 @@ function sourceOf(ctx: RuleContext, node: unknown): string | undefined {
 // vitehub/prefer-built-ins (VHUB0037): code that a ViteHub built-in replaces.
 
 const drizzleConfigFile = /(?:^|\/)drizzle\.config\.[cm]?[jt]s$/
+const viteConfigNames = ["ts", "mts", "cts", "js", "mjs", "cjs"].map(extension => `vite.config.${extension}`)
+
+function configProgram(text: string | undefined) {
+  if (text === undefined) return
+  try {
+    return parseProgram(text).program
+  }
+  catch {
+    return undefined
+  }
+}
+
+function configObject(text: string | undefined) {
+  const program = configProgram(text)
+  const exported = program?.body.find(node => node.type === "ExportDefaultDeclaration")?.declaration
+  const value = exported?.type === "Identifier"
+    ? program?.body.flatMap(node => node.type === "VariableDeclaration" && node.kind === "const" ? node.declarations : [])
+      .find(node => node.id.type === "Identifier" && node.id.name === exported.name)?.init
+    : exported
+  const object = value?.type === "CallExpression" ? value.arguments[0] : value
+  if (object?.type === "ObjectExpression") return object
+}
+
+function drizzleTarget(text: string | undefined, databaseDirs: string[]) {
+  const config = configObject(text)
+  if (!config) return
+  let target: ReturnType<typeof findProperty>
+  for (const name of ["out", "schema"]) {
+    const property = findProperty(config, name)
+    if (!property) continue
+    const paths = property.value.type === "ArrayExpression" ? property.value.elements : [property.value]
+    if (!paths.length || !paths.every(path => path?.type === "StringLiteral" && databaseDirs.some(dir => posix.normalize(path.value).startsWith(dir)))) return
+    target ??= property
+  }
+  return target
+}
+
+function databaseDisabled(read: (path: string) => string | undefined): boolean {
+  for (const name of nuxtConfigNames) {
+    const config = configObject(read(name))
+    const options = config && findProperty(config, "vitehub")?.value
+    const database = options?.type === "ObjectExpression" ? findProperty(options, "database")?.value : undefined
+    if (database?.type === "BooleanLiteral" && !database.value) return true
+  }
+  for (const name of viteConfigNames) {
+    const program = configProgram(read(name))
+    if (!program) continue
+    const imports = program.body.flatMap(node => node.type === "ImportDeclaration" && node.source.value === "vite-hub"
+      ? node.specifiers.flatMap(specifier => specifier.type === "ImportSpecifier" && specifier.imported.type === "Identifier" && specifier.imported.name === "vitehub" ? [specifier.local.name] : [])
+      : [])
+    let disabled = false
+    walk(program, (node) => {
+      if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !imports.includes(node.callee.name)) return
+      const options = node.arguments[0]
+      const database = options?.type === "ObjectExpression" ? findProperty(options, "database")?.value : undefined
+      if (database?.type === "BooleanLiteral" && !database.value) disabled = true
+    })
+    if (disabled) return true
+  }
+  return false
+}
+
+function registersViteHubNuxt(text: string | undefined): boolean {
+  const config = configObject(text)
+  const modules = config && findProperty(config, "modules")?.value
+  return modules?.type === "ArrayExpression" && modules.elements.some((entry) => {
+    const module = entry?.type === "ArrayExpression" ? entry.elements[0] : entry
+    return module?.type === "StringLiteral" && module.value === "vite-hub/nuxt"
+  })
+}
+
 const migrationsLedgerSql = /\b(?:create\s+table|insert\s+(?:or\s+\w+\s+)?into|select\b[\s\S]*\bfrom|delete\s+from|update)\b[\s\S]*\bd1_migrations\b/i
 const vacuumInto = /\bvacuum\s+into\b/i
 const proxyIdentityHeaders = [
@@ -170,16 +242,9 @@ export const preferBuiltIns: DoctorRule = createRule({
       // Config paths are relative to the package root. Database Definitions live in `databases/` of a server directory.
       const { prefix } = owningPackage(ctx)
       const databaseDirs = serverDirPrefixes(ctx).filter(dir => dir.startsWith(prefix)).map(dir => `${dir.slice(prefix.length)}databases/`)
-      const inDatabases = (path: string) => databaseDirs.some(dir => path.replace(/^\.\//, "").startsWith(dir))
-      const exported = unwrap(defaultExport(ctx)?.value)
-      const config = isNodeType(exported, "CallExpression") ? unwrap(callArguments(exported)[0]) : exported
-      for (const name of ["out", "schema"]) {
-        const property = objectProperty(config, name)
-        const value = unwrap(property?.value)
-        const paths = isNodeType(value, "ArrayExpression") && Array.isArray(value.elements) ? value.elements.map(stringValue) : [stringValue(value)]
-        if (!property || !paths.some(path => path !== undefined && inDatabases(path))) continue
-        report("drizzle-config", property, `This Drizzle Kit config reads or writes \`databases/\`, the folder of ViteHub Database Definitions. ViteHub loads every Definition and writes its migrations with ${builtIns.generate.name}, so a second config can drift from the Definitions and write migrations ViteHub does not track.`, `Delete this config and run ${builtIns.generate.name} and ${builtIns.migrate.name}. ${see(builtIns.generate)}`)
-        break
+      const target = drizzleTarget(ctx.file.text, databaseDirs)
+      if (target && !databaseDisabled(path => ctx.fs.readText(join(prefix, path)))) {
+        report("drizzle-config", target, `This Drizzle Kit config reads or writes \`databases/\`, the folder of ViteHub Database Definitions. ViteHub loads every Definition and writes its migrations with ${builtIns.generate.name}, so a second config can drift from the Definitions and write migrations ViteHub does not track.`, `Delete this config and run ${builtIns.generate.name} and ${builtIns.migrate.name}. ${see(builtIns.generate)}`)
       }
     }
 
@@ -203,7 +268,7 @@ export const preferBuiltIns: DoctorRule = createRule({
       if (!forwardAuthImported && stringValue(node) !== undefined && proxyIdentityHeaders.some(header => header.test(text))) {
         report("proxy-header", node, `This reads \`${text}\`, an identity header that a sign-in proxy such as oauth2-proxy, Cloudflare Access, or Tailscale Serve sends. Anyone who reaches the app without the proxy can send it too. ${builtIns.forwardAuth.name} turns the header into a Better Auth session only after your \`verify\` function proves it.`, `Use ${builtIns.forwardAuth.name} with \`header: "${text}"\` and a \`verify\` function. ${see(builtIns.forwardAuth)}`)
       }
-      if (text === "--secrets-file" && /\bwrangler\b/.test(ctx.file.text) && targetsGeneratedWorker(wranglerArgs)) {
+      if (text === "--secrets-file" && wranglerArgs.includes("wrangler") && wranglerArgs.includes("deploy") && targetsGeneratedWorker(wranglerArgs)) {
         report("secrets-file", node, "This passes a secrets file to `wrangler deploy`. A `.env` file holds more than the Worker needs, and Wrangler's dotenv mode expands `$VAR`. `vitehub deploy` sends only the env that the app declares, as a JSON file with mode 600 that it deletes after the deploy.", `Deploy with ${builtIns.deploy.name}. ${see(builtIns.deploy)}`)
       }
     }
@@ -258,7 +323,6 @@ function flagValue(args: string[], names: string[]): string | undefined {
   }
 }
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
 const drizzleConfigNames = ["ts", "mts", "cts", "js", "mjs", "cjs"].map(extension => `drizzle.config.${extension}`)
 const nuxtConfigNames = ["ts", "mts", "js", "mjs"].map(extension => `nuxt.config.${extension}`)
 
@@ -269,7 +333,7 @@ const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, args:
     builtIn: (match, args, pkg) => {
       const config = flagValue(args, ["--config"])
       const text = config ? pkg.read(config) : drizzleConfigNames.map(pkg.read).find(text => text !== undefined)
-      if (!text || !pkg.databaseDirs.some(dir => new RegExp(`["'\`](?:\\./)?${escapeRegExp(dir)}`).test(text))) return
+      if (!drizzleTarget(text, pkg.databaseDirs) || databaseDisabled(pkg.read)) return
       return {
         why: `\`drizzle-kit ${match[1]}\` runs Drizzle Kit on the ViteHub Database Definitions with its own config. \`vitehub database ${match[1]}\` runs it on every Definition, with the dialect, aliases, and migrations folder of each.`,
         fix: `Run \`vitehub database ${match[1]}\`. ${see(builtIns.generate)}`,
@@ -278,7 +342,7 @@ const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, args:
   },
   {
     pattern: /\bwrangler\s+d1\s+migrations\s+apply\b/,
-    builtIn: (_match, args) => args.includes("--remote") && targetsGeneratedWorker(args)
+    builtIn: (_match, args, pkg) => args[4] === "DB" && args.includes("--remote") && !args.includes("--local") && targetsGeneratedWorker(args) && !databaseDisabled(pkg.read)
       ? {
           why: "This applies D1 migrations to the build's Worker in a separate step before the deploy. With `database.migrateOnDeploy`, `vitehub deploy` applies them for each D1 binding and stops when one fails. Without it, `vitehub deploy` stops when the build has a migration that D1 does not list.",
           fix: `Set ${builtIns.migrateOnDeploy.name} and deploy with ${builtIns.deploy.name}. ${see(builtIns.migrateOnDeploy)}`,
@@ -297,7 +361,7 @@ const scriptCommands: { pattern: RegExp, builtIn: (match: RegExpExecArray, args:
   {
     pattern: /\bvitehub\s+types\s+prepare\b/,
     // Only when the package's Nuxt config registers the ViteHub Nuxt module, which `nuxt prepare` runs.
-    builtIn: (_match, _args, pkg) => dependencyNames(pkg.manifest).has("nuxt") && nuxtConfigNames.some(name => pkg.read(name)?.includes("vite-hub/nuxt"))
+    builtIn: (_match, _args, pkg) => dependencyNames(pkg.manifest).has("nuxt") && nuxtConfigNames.some(name => registersViteHubNuxt(pkg.read(name)))
       ? {
           why: "In a Nuxt app, the ViteHub Nuxt module writes its types during `nuxt prepare`, so `vitehub types prepare` does the same work twice.",
           fix: `Remove \`vitehub types prepare\` and keep \`nuxt prepare\`. ${see(builtIns.nuxtTypes)}`,
