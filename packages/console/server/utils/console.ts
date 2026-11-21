@@ -20,7 +20,7 @@ import type { ConsoleProjectStore } from "../../src/projects.ts"
 
 export { consoleCallerOf, consoleCallerUser, type ConsoleCallOptions } from "../../src/caller.ts"
 
-const { member, organization, session } = authSqliteSchema
+const { member, organization, session, user: authUser } = authSqliteSchema
 
 export function consoleProblem(status: number, code: string, message: string): Response {
   return Response.json({ code, message, ok: false, status }, { headers: { "cache-control": "no-store" }, status })
@@ -67,12 +67,13 @@ export async function consoleTeamCaller(user: ConsoleCallerUser, teamId: string)
   const userId = user.id
   const { db } = useDatabase("default")
   const [membership] = teamId
-    ? await db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
+    ? await db.select({ role: member.role, email: authUser.email, emailVerified: authUser.emailVerified }).from(member)
+      .innerJoin(authUser, eq(authUser.id, member.userId)).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
     : []
   if (!membership) return consoleProblem(403, "CONSOLE_TEAM_REQUIRED", "Choose a team that you are a member of.")
   const projects = useConsoleProjects(teamId)
   if (projects instanceof Response) return projects
-  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, user }
+  return { projects, roles: String(membership.role).split(",").map(role => role.trim()), teamId, user: consoleCallerUser({ ...user, email: membership.email, emailVerified: membership.emailVerified }) }
 }
 
 /** The caller of an API key: a team caller with the key and the team's name. */

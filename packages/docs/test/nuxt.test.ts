@@ -407,6 +407,17 @@ describe("docs Nuxt setup", () => {
     expect(options.experimental.defaults.nuxtLink.prefetchOn).toEqual({ visibility: false, interaction: true })
   })
 
+  it("prefetches no lazy chunk, such as the editor, a comark block, or a panel", async () => {
+    await setupDocs({})
+    const chunks: Record<string, { file: string, prefetch?: boolean }> = {
+      "node_modules/@nuxt/ui/dist/runtime/components/Editor.vue": { file: "editor.js" },
+      "node_modules/comark-charts/dist/vue.mjs": { file: "charts.js" },
+      ".nuxt/docs/panels/0.mjs": { file: "panel.js" },
+    }
+    await callHook("build:manifest", chunks)
+    expect(Object.values(chunks).map(chunk => chunk.prefetch)).toEqual([false, false, false])
+  })
+
   it("keeps the app's own choice of when links prefetch", async () => {
     const prefetchOn = { visibility: true }
     const options = await setupDocs({}, "/", false, [{ config: { srcDir: "/app", experimental: { defaults: { nuxtLink: { prefetchOn } } } } }])

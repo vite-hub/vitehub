@@ -622,11 +622,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       write: true,
       getContents: () => `export default {\n${panelFiles.map(({ path, file }) => `  ${JSON.stringify(path)}: () => import(${JSON.stringify(file)}),\n`).join("")}}\n`,
     }).dst
-    // Nuxt prefetches every dynamic import when the browser is idle. A reader opens one panel at most, so the others
-    // would download for nothing.
-    nuxt.hook("build:manifest", (chunks) => {
-      for (const [key, chunk] of Object.entries(chunks)) if (/docs[/\\]panels[/\\]\d+\.mjs$/.test(decodeURIComponent(key))) chunk.prefetch = false
-    })
     addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
@@ -919,6 +914,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // the reader points at it or focuses it instead, unless the app chose when links prefetch.
     if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
       nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
+    // Nuxt also prefetches every lazy chunk of the app when the browser is idle: the CMS editor, every comark block, and
+    // the panels, about 500 kB gzip on each page. A page loads the chunks that it renders, and a link loads its page when
+    // the reader points at it.
+    nuxt.hook("build:manifest", (chunks) => {
+      for (const chunk of Object.values(chunks)) chunk.prefetch = false
+    })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })
