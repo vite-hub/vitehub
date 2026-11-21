@@ -121,6 +121,40 @@ describe("wordGateway()", () => {
     expect(selection?.supplier).toEqual({ exclude: [], include: ["S3"] })
     expect(selection?.chart).toMatchObject({ value: null })
   })
+
+  it.each([["line, not columns", "line"], ["not columns", null]] as const)("skips negated options in a single group: %s", async (text, value) => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: { chart: { ...groups.chart, options: [{ aliases: ["columns"], label: "Bar", value: "bar" }, groups.chart.options[0]] } },
+    })
+    const [error, selection] = await choices.resolve(text)
+    expect(error).toBeUndefined()
+    expect(selection?.chart.value).toBe(value)
+  })
+
+  it.each([
+    ["east", { exclude: [], include: ["east"] }],
+    ["except east", { exclude: ["east"], include: [] }],
+  ] as const)("keeps alias matches tied to the option: %s", async (text, expected) => {
+    const options = [{ aliases: ["east"], label: "Depot", value: "east" }, { aliases: ["west"], label: "Depot", value: "west" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { site: { label: "Site", options } } }).resolve(text)
+    expect(selection?.site).toEqual(expected)
+  })
+
+  it.each([
+    ["कला", { exclude: [], include: ["art"] }],
+    ["except कला", { exclude: ["art"], include: [] }],
+  ] as const)("keeps combining marks within a word: %s", async (text, expected) => {
+    const options = [{ aliases: ["कल"], label: "Yesterday", value: "yesterday" }, { label: "कला", value: "art" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { topic: { label: "Topic", options } } }).resolve(text)
+    expect(selection?.topic).toEqual(expected)
+  })
+
+  it("ignores blank aliases", async () => {
+    const options = [{ aliases: ["", "  "], label: "Line", value: "line" }]
+    const [, selection] = await defineChoices({ gateway: wordGateway(), groups: { chart: { label: "Chart", options } } }).resolve("show chart.")
+    expect(selection?.chart).toEqual({ exclude: [], include: [] })
+  })
 })
 
 describe("scriptedAsk() with defineChoices()", () => {
