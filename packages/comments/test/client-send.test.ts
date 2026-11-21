@@ -356,7 +356,7 @@ describe("createCommentSend", () => {
     await flush()
     delivery.resolve({ status: "sent", id: "old-send" })
     await allowing
-    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false, canPairAnother: true })
     expect(server.cancelled).toEqual(interrupted === "sending" ? [] : ["code-1"])
   })
 
@@ -421,7 +421,9 @@ describe("createCommentSend", () => {
     await sending
     expect(send.state).toMatchObject({ status: "sent", count: 1 })
     await vi.advanceTimersByTimeAsync(2000)
-    expect(send.state).toEqual(done ? { status: "idle", count: 1, inbox: false } : { status: "working", count: 1, agent: t3, thread })
+    expect(send.state).toEqual(done
+      ? { status: "idle", count: 1, inbox: false, canPairAnother: true }
+      : { status: "working", count: 1, agent: t3, thread })
   })
 
   it("keeps a pushed count when an earlier status response arrives", async () => {
@@ -433,7 +435,7 @@ describe("createCommentSend", () => {
     server.push({ type: "count", count: 3 })
     load.resolve({ count: 2, agent: t3 })
     await flush()
-    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false })
+    expect(send.state).toEqual({ status: "idle", count: 3, inbox: false, canPairAnother: true })
   })
 
   it("handles setup failure even when the clipboard awaits the prompt", async () => {
