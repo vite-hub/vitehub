@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 
 import { createClient } from "@libsql/client"
@@ -13,9 +13,9 @@ import { invariantError } from "@vite-hub/internal/invariant"
 
 import { applyD1Migrations, createD1Query, d1MigrationNamesFile, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
-import { readMigrations, readPendingMigration } from "./migration-journal.ts"
+import { migrationSqlFile, readMigrations, readPendingMigration } from "./migration-journal.ts"
 import { findRenumbered, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
-import { withoutNewTableDataLoss } from "./migration-sql.ts"
+import { addStatementBreakpoints, migrationParts, withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
@@ -70,6 +70,7 @@ type MigrationTarget =
 
 // Drizzle Kit uses these defaults because the generated config sets no `migrations` option. D1 HTTP uses Wrangler's ledger.
 const sqliteMigrationsTable = "__drizzle_migrations"
+const createSqliteMigrationsTable = `CREATE TABLE IF NOT EXISTS ${sqliteMigrationsTable} (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
 const postgresMigrationsTable = "\"drizzle\".\"__drizzle_migrations\""
 
 function resolveTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot }: MigrationPlanOptions): MigrationTarget | undefined {
@@ -348,7 +349,7 @@ export async function readMigrationPlan(
       const ledger = await readD1Ledger(createD1Query(target, fail, options.fetch), database, entries)
       const pending = listD1Migrations(database.migrationsDir)
         .filter(file => !ledger.applied.has(file.name))
-        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries))
+        .map(file => readPendingMigration(database.migrationsDir, file.tag, entries, database.dialect))
       const adopted = ledger.adopted.map(migration => ({ from: migration.from, name: migration.tag }))
       return [undefined, { adopted, applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
@@ -373,7 +374,7 @@ export async function readMigrationPlan(
     }
     const pending = entries
       .filter(entry => !applied.has(entry.tag) && !adopted.has(entry.tag))
-      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
+      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries, database.dialect))
     return [undefined, {
       adopted: [...adopted].map(([name, from]) => ({ from, name })),
       applied: entries.length - pending.length,
@@ -414,7 +415,7 @@ export async function adoptSqliteMigrations(
       const appliedAt = new Date().toISOString()
       await client.batch([
         ...!ledgers.drizzle
-          ? [`CREATE TABLE IF NOT EXISTS ${sqliteMigrationsTable} (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`]
+          ? [createSqliteMigrationsTable]
           : ledgers.drizzle.named ? [] : ledgerUpgradeStatements(sqliteMigrationsTable, match.match),
         ...entries.filter(entry => match.adopted.has(entry.tag)).map(entry => match.renamed.has(entry.tag)
           ? { args: [entry.tag, entry.when, match.renamed.get(entry.tag)!], sql: `UPDATE ${sqliteMigrationsTable} SET "name" = ?, "created_at" = ? WHERE "name" = ?` }
@@ -426,6 +427,42 @@ export async function adoptSqliteMigrations(
   catch (error) {
     return error
   }
+}
+
+/** Runs the SQLite migrations in process only when a pending migration needs statement splitting. */
+export async function migrateSplitSqlite(
+  database: ResolvedDrizzleDatabaseConfig,
+  options: MigrationPlanOptions,
+  check: () => Promise<boolean>,
+  onApplied: (name: string) => void,
+): Promise<number | undefined> {
+  const target = resolveTarget(database, options)
+  if (target?.kind !== "local" && target?.kind !== "libsql") return
+  const scripts = readMigrations(database.migrationsDir, database.name).map(entry => {
+    const sql = readFileSync(migrationSqlFile(database.migrationsDir, entry.tag), "utf8")
+    return { ...entry, sql, needsSplit: addStatementBreakpoints(sql) !== sql }
+  })
+  if (!scripts.some(script => script.needsSplit)) return
+
+  return await withSqliteClient(target, async (client) => {
+    const ledgers = await readSqliteLedgers(client, recordedLedgerTables(database))
+    const match = matchSqliteLedgers(ledgers, scripts, database.migrationsDir)
+    if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem })
+    const pending = scripts.filter(script => !match.applied.has(script.tag) && !match.adopted.has(script.tag))
+    if (!pending.some(script => script.needsSplit)) return
+    if (!await check()) return 1
+
+    const appliedAt = new Date().toISOString()
+    await client.migrate([
+      ...!ledgers.drizzle ? [createSqliteMigrationsTable] : ledgers.drizzle.named ? [] : ledgerUpgradeStatements(sqliteMigrationsTable, match.match),
+      ...pending.flatMap(script => [
+        ...migrationParts(script.sql, "sqlite"),
+        { args: [script.hash, script.when, script.tag, appliedAt], sql: `INSERT INTO ${sqliteMigrationsTable} ("hash", "created_at", "name", "applied_at") VALUES (?, ?, ?, ?)` },
+      ]),
+    ])
+    for (const script of pending) onApplied(script.tag)
+    return 0
+  })
 }
 
 /**
@@ -467,7 +504,7 @@ export async function migratePostgresDatabases(
       if (target?.kind !== "postgres") throw invariantError("`vitehub database migrate` passes only Postgres databases to migratePostgresDatabases()")
       const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
-      return { client, database: { migrations: readStartMigrations(database.migrationsDir), name: database.name } }
+      return { client, database: { migrations: readStartMigrations(database.migrationsDir, database.dialect), name: database.name } }
     })
     await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
   }

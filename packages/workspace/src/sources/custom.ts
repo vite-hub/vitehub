@@ -25,21 +25,26 @@ export function custom(source: WorkspaceSource | CustomWorkspaceSourceFiles): Wo
     path: normalizeSafeWorkspacePath(file.path),
   }))
 
+  async function getItem(key: string, context: SourceContext): Promise<WorkspaceSourceItem> {
+    const file = files.find(file => file.path === key)
+    if (!file) throw workspaceError(`[vitehub] Custom Workspace Source file does not exist: ${key}.`)
+    const { content, ...item } = file
+    return {
+      ...item,
+      content: typeof content === "function" ? await content(context) : content,
+      key,
+      mediaType: item.mediaType || lookup(key) || undefined,
+    }
+  }
+
   return {
     ...options,
     async getKeys() {
       return files.map(file => file.path)
     },
-    async getItem(key, context) {
-      const file = files.find(file => file.path === key)
-      if (!file) throw workspaceError(`[vitehub] Custom Workspace Source file does not exist: ${key}.`)
-      const { content, ...item } = file
-      return {
-        ...item,
-        content: typeof content === "function" ? await content(context) : content,
-        key,
-        mediaType: item.mediaType || lookup(key) || undefined,
-      }
-    },
+    getItem,
+    ...(files.every(file => typeof file.content !== "function") ? {
+      async getItems(context: SourceContext) { return await Promise.all(files.map(file => getItem(file.path, context))) },
+    } : {}),
   }
 }

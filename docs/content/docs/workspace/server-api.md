@@ -419,7 +419,7 @@ export async function testDocs() {
 - `target` defaults to `/workspace`.
 - `abortSignal` cancels setup. `onProgress` reports copy phases.
 
-Closing the Workspace Session does not close the Sandbox host. Custom hosts copy files one at a time unless they declare a positive `materializationConcurrency` they can safely handle. The local Node host declares `8`.
+Closing the Workspace Session does not close the Sandbox host. A Session can copy 32 or more files in one `tar.gz` archive on a host that declares `archiveMaxBytes`. Set it to the compressed upload size the host accepts after transport overhead. Workspace also caps the uncompressed archive at that limit or 64 MiB, whichever is smaller. If the archive is too large, the upload fails, or `tar` is unavailable, the Session copies files individually. Hosts copy one file at a time unless they declare a positive `materializationConcurrency`. The local Node host declares `8` and a 64 MiB archive limit.
 
 Control what the Session writes back:
 
