@@ -101,13 +101,13 @@ Pick the builder by the answer that you want. The answer types come from the que
 | You want | Write | You get |
 | --- | --- | --- |
 | Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
-| The probability of yes | `ask.chance(instructions, criteria?)` | `{ chance }`, from `0` to `1`. |
+| The probability of yes | `ask.chance(instructions, { true?, false? })` | `{ chance }`, from `0` to `1`. |
 | One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
 | One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
 | A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
-| The same question for each item of a list | `ask.each(items, { key, question })` | One answer for each item, under the key that `key(item)` returns. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. Pass the map to `gateway.ask()`, or spread it into your questions. |
 
-`criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
+For `ask.switch()` and `ask.choice()`, `criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
 
 ```ts [label.ts]
 import { ask, typesafe } from 'vite-hub/gateways'
