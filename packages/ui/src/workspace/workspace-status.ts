@@ -30,7 +30,8 @@ const languages: Record<string, string> = {
 export function workspaceLanguage(path: string): string {
   const name = path.slice(path.lastIndexOf("/") + 1);
   const dot = name.lastIndexOf(".");
-  return (dot > 0 && languages[name.slice(dot + 1).toLowerCase()]) || "Plain Text";
+  const type = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  return Object.hasOwn(languages, type) ? languages[type]! : "Plain Text";
 }
 
 /**
@@ -50,11 +51,19 @@ export const WorkspaceStatus = defineComponent({
     indent: { default: 2, type: [Number, String] as PropType<number | "tab"> },
   },
   setup(props, { slots }) {
-    return () => h("div", { class: "vh-ws-status-items" }, [
-      h("span", { "aria-label": `Line ${props.cursor.line}, column ${props.cursor.column}` }, `Ln ${props.cursor.line}, Col ${props.cursor.column}`),
-      h("span", props.language ?? workspaceLanguage(props.path)),
-      h("span", props.indent === "tab" ? "Tabs" : `Spaces: ${props.indent}`),
-      slots.default ? [h("span", { class: "vh-ws-status-spacer" }), slots.default()] : undefined,
-    ]);
+    return () => {
+      const language = props.language ?? workspaceLanguage(props.path);
+      const indent = props.indent === "tab" ? "Tabs" : `Spaces: ${props.indent}`;
+      return h("div", { class: "vh-ws-status-items" }, [
+        h("span", { class: "vh-ws-status-cursor" }, [
+          h("span", { "aria-hidden": "true" }, `Ln ${props.cursor.line}, Col ${props.cursor.column}`),
+          h("span", { class: "vh-ws-sr-only" }, `Line ${props.cursor.line}, column ${props.cursor.column}`),
+        ]),
+        // In a narrow pane these two shorten. The title keeps their full text.
+        h("span", { title: language }, language),
+        h("span", { title: indent }, indent),
+        slots.default ? [h("span", { class: "vh-ws-status-spacer" }), slots.default()] : undefined,
+      ]);
+    };
   },
 });

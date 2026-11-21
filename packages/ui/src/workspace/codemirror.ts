@@ -113,6 +113,15 @@ export interface CodeEditor {
   destroy: () => void
 }
 
+/**
+ * Alt+Z, as in VS Code. On a Mac, Option+Z types a character such as `Ω`, so a key that is not a letter falls back to
+ * the physical Z key.
+ */
+function isToggleWrap(event: KeyboardEvent): boolean {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+  return /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() === "z" : event.code === "KeyZ";
+}
+
 export function createCodeEditor(options: CodeEditorOptions): CodeEditor {
   const language = new Compartment();
   const editable = new Compartment();
@@ -134,7 +143,13 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditor {
     closeBrackets(),
     highlightActiveLine(),
     syntaxHighlighting(pierreHighlight),
-    keymap.of([{ key: "Alt-z", preventDefault: true, run: () => { options.onToggleWrap(); return true; } }, ...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+    EditorView.domEventHandlers({ keydown: (event) => {
+      if (!isToggleWrap(event)) return false;
+      event.preventDefault();
+      options.onToggleWrap();
+      return true;
+    } }),
+    keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
     theme,
     language.of([]),
     editable.of(editableExtension()),
