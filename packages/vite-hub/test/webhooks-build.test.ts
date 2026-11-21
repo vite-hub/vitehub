@@ -173,6 +173,11 @@ describe("Webhooks in a built Nitro 3 app", () => {
       expect(listed.exitCode).toBe(0)
       expect(JSON.parse(listed.stdout)).toEqual([expect.objectContaining({ owner: "user_ana", ownerName: "Ana Ruiz", agent: "t3", host: "203.0.113.10", mine: false, last: expect.objectContaining({ state: "sent", status: 202 }) })])
       expect(listed.stdout).not.toMatch(/token=|whsec_|\/hooks|ana@example\.com/)
+      const [first] = JSON.parse(listed.stdout) as Array<{ createdAt: number, id: string }>
+      const next = await cli("endpoints", "--after", JSON.stringify({ createdAt: first!.createdAt, id: first!.id }))
+      expect(next.stderr).toBe("")
+      expect(next.exitCode).toBe(0)
+      expect(JSON.parse(next.stdout)).toEqual([])
       // A CLI key names no person, so it never owns a member endpoint.
       const redelivered = await cli("redeliver", sent.id)
       expect(redelivered.exitCode).not.toBe(0)
@@ -272,7 +277,11 @@ describe("Webhooks in a built Nitro 3 app", () => {
       // D1 output needs the database id at build time.
       "server/databases/default.ts": "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ cloudflare: { binding: 'DB', databaseId: 'database-id', databaseName: 'app' }, schema: {} })\n",
     })
-    await build(root, { database: { driver: "cloudflare" }, host: "cloudflare", queue: true })
+    const options = { database: { driver: "cloudflare" }, host: "cloudflare", queue: true } as const
+    const generate = await runCli(root, vitehub(options), ["database", "generate"])
+    expect(generate.stderr).toBe("")
+    expect(generate.exitCode).toBe(0)
+    await build(root, options)
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8")) as { queues?: { producers?: Array<{ binding: string, queue: string }>, consumers?: Array<{ queue: string }> } }
     expect(wrangler.queues?.producers).toContainEqual({ binding: `QUEUE_${queueHex.toUpperCase()}`, queue: expect.stringContaining(queueHex) })
     expect(wrangler.queues?.consumers).toContainEqual(expect.objectContaining({ queue: expect.stringContaining(queueHex) }))

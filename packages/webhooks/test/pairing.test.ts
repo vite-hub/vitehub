@@ -43,6 +43,20 @@ async function start(owner = "user_ana") {
 }
 
 describe("member pairing", () => {
+  it("pairs and allows a receiver with the project-local development key", async () => {
+    vi.stubEnv("VITEHUB_WEBHOOKS_KEY", undefined)
+    const db = drizzle({ client })
+    const developmentKey = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    installWebhooks({ webhooks: {}, store: createDrizzleWebhookStore(db), endpoints: createDrizzleWebhookEndpointStore(db), developmentKey })
+
+    const { code } = await start()
+    expect((await pairMemberEndpoint({ code, url: relay, thread }))[1]?.status).toBe("paired")
+    expect((await allowMemberPairing("user_ana", code, { name: "T3 thread" }))[1]).toMatchObject({
+      status: "allowed",
+      endpoint: { address: thread, kind: "url" },
+    })
+  })
+
   it("pairs a T3 task, and Allow creates the endpoint with the thread as its address", async () => {
     const { code, secret, expiresAt } = await start()
     expect(code).toMatch(/^[2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4}$/)

@@ -1,4 +1,4 @@
-import type { Result } from "@vite-hub/runtime"
+import type { Duration, Result } from "@vite-hub/runtime"
 
 import type { channelDefinitionBrand } from "./brand.ts"
 
@@ -44,27 +44,29 @@ export interface ChannelWebhookRequest {
 }
 
 /**
- * A secret that verifies inbound webhooks. A function runs for each request. When it returns `false`, that request
- * is not verified. When it returns no secret, the webhook answers with an error and does not run the target.
+ * A secret that verifies inbound webhooks. A string is the name of the server variable that holds the secret, such as
+ * `"STRIPE_WEBHOOK_SECRET"`, as in Webhooks. A function returns the value and runs for each request. When it returns
+ * `false`, that request is not verified. When the variable or the function has no secret, the webhook answers with an
+ * error and does not run the target.
  */
 export type ChannelWebhookSecret =
   | string
   | { unseal: () => string }
   | (() => MaybePromise<string | { unseal: () => string } | false | undefined>)
 
-/** How an inbound webhook proves that the provider sent it. */
+/** How an inbound webhook proves that the provider sent it. The names follow `defineWebhook({ signature })`. */
 export type ChannelWebhookSignature =
   /** `Authorization: Bearer <secret>`, compared in constant time. */
   | "bearer"
   /** `header` carries the secret itself, compared in constant time. Set `header`. */
   | "token"
   /** `X-Hub-Signature-256: sha256=<HMAC-SHA256 of the body>`. */
-  | "github-sha256"
-  /** `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`, at most 300 seconds old. */
-  | "stripe-sha256"
+  | "github"
+  /** `Stripe-Signature: t=<time>,v1=<HMAC-SHA256 of "<time>.<body>">`, at most 5 minutes old. */
+  | "stripe"
   | {
     /** `header` carries `prefix` followed by the HMAC-SHA256 of the raw body. */
-    preset: "hmac-sha256"
+    type: "hmac-sha256"
     /** Digest encoding in the header. Defaults to `"hex"`. */
     encoding?: "hex" | "base64"
     /** Text before the digest, such as `"sha256="`. */
@@ -73,9 +75,9 @@ export type ChannelWebhookSignature =
     secretEncoding?: "utf8" | "base64"
   }
   | {
-    preset: "stripe-sha256"
-    /** Maximum age of the signed timestamp in seconds. Defaults to 300. */
-    toleranceSeconds?: number
+    type: "stripe"
+    /** Maximum age of the signed timestamp, such as `"10m"`. Defaults to `"5m"`. */
+    tolerance?: Duration
   }
   | {
     verify: (input: { header: string, rawBody: Uint8Array, request: Request, secret: string }) => MaybePromise<boolean>
@@ -168,7 +170,7 @@ export interface ChannelHandlerContext {
 export type ChannelHandler<TData = unknown> = (event: ChannelEvent<TData>, context: ChannelHandlerContext) => unknown
 
 /**
- * A trigger from `defineChannelTrigger()` in `vite-hub/agent/channels`. It decides the delivery ID, `serialize`,
+ * A trigger from `defineChannelTrigger()` in `vite-hub/channels`. It decides the delivery ID, `serialize`,
  * `debounce`, and the task or Agent that runs each delivery.
  */
 export interface ChannelTrigger {
@@ -187,7 +189,7 @@ type AdapterEventData<TAdapter> = TAdapter extends WebhookChannelAdapter<infer T
 export interface ChannelExtensionOptions {}
 
 export interface ChannelDefinitionOptions<TAdapter extends ChannelAdapter<never, never> = ChannelAdapter<never, never>> extends ChannelExtensionOptions {
-  /** The connection, such as `stripe()`, `webhook()`, `slack()` from `vite-hub/agent/channels`, or `{ kind, send }`. */
+  /** The connection, such as `stripe()`, `webhook()`, or `slack()` from `vite-hub/channels/adapters`, or `{ kind, send }`. */
   adapter: TAdapter
   /** Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. */
   on?: Record<string, ChannelTarget<AdapterEventData<TAdapter>>>

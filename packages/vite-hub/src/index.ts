@@ -28,8 +28,8 @@ export type {
   HealthOptions,
   I18nOptions,
   KVOptions,
+  LogsOptions,
   ObservabilityEvlogOptions,
-  ObservabilityLogsOptions,
   ObservabilityOptions,
   QueueOptions,
   RateLimitOptions,
@@ -46,6 +46,7 @@ export type {
   ViteHubNodeOptions,
   ViteHubOptions,
   ViteHubQueueOptions,
+  WebContainerOptions,
   WorkflowOptions,
   WorkspaceOptions,
 } from "./plugins.ts"

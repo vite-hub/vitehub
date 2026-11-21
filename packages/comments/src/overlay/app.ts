@@ -1,9 +1,10 @@
 import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
+import { rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
 import uiCss from "@vite-hub/ui/styles.css?inline"
-import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Teleport, toRaw, watch } from "vue"
+import { computed, createApp, defineComponent, h, nextTick, onMounted, ref, shallowRef, Teleport, toRaw, watch } from "vue"
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
@@ -134,6 +135,19 @@ function others(people: readonly RealtimePerson[], me: string | undefined): { pe
   }
   return [...byId.values()]
 }
+
+/** The open count on the Comments button. Its digits roll when it changes. */
+const OpenCount = defineComponent({
+  props: { value: { required: true, type: Number } },
+  setup(props) {
+    const element = ref<HTMLElement>()
+    // Vue renders the first count only. Later counts go through the roll, which owns the children of the element.
+    const first = String(props.value)
+    onMounted(() => element.value && rollNumber(element.value, props.value))
+    watch(() => props.value, value => element.value && rollNumber(element.value, value), { flush: "post" })
+    return () => h("span", { class: "count", ref: element }, first)
+  },
+})
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join("") || "?"
@@ -889,7 +903,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const peopleLabel = `${people.length} other ${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
-    const badge = (shown: boolean) => shown && open > 0 ? h("span", { class: "count" }, String(open)) : null
+    const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value

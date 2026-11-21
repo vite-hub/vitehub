@@ -26,6 +26,7 @@ let receiverOrigin: string
 let received: string[] = []
 let statuses: number[] = []
 let client: Client
+const verifiedUsers = new Map<string, string>()
 
 const registry = createOperationRegistry([{ operations: webhooksOperations }])
 const access = { mode: "token", sections: ["webhooks"] }
@@ -33,7 +34,7 @@ const access = { mode: "token", sections: ["webhooks"] }
 /** An admin of the hosted ViteHub Console: a Console account, not an app user. */
 const admin: OperationContext = { access: { ...access, via: "console" }, surface: "console", user: { id: "console_admin", name: "Admin", email: "admin@example.com" } }
 /** Ana in the hosted Console, with the email of her app account. */
-const anaInConsole: OperationContext = { access: { ...access, via: "console" }, surface: "console", user: { id: "console_ana", name: "Ana", email: "Ana@Example.com" } }
+const anaInConsole: OperationContext = { access: { ...access, via: "console" }, surface: "console", request: new Request("https://app.example.com/_vitehub/rpc"), user: { id: "console_ana", name: "Ana", email: "Ana@Example.com", emailVerified: true } }
 /** A Console account whose id equals Ana's app user id. Console ids are not app ids, so it is not Ana. */
 const consoleNamedLikeAna: OperationContext = { access: { ...access, via: "console" }, surface: "console", user: { id: "user_ana", email: "mallory@example.com" } }
 /** Tom as an app user, such as through the app's own MCP. */
@@ -105,6 +106,8 @@ afterAll(async () => {
 beforeEach(async () => {
   received = []
   statuses = []
+  verifiedUsers.clear()
+  verifiedUsers.set("ana@example.com", "user_ana")
   process.env.VITEHUB_WEBHOOKS_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
   client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${webhooksTables.join(";\n")};`)
@@ -115,7 +118,7 @@ beforeEach(async () => {
   })
   const db = drizzle({ client })
   // No Queue: member endpoints post in the request.
-  installWebhooks({ webhooks: {}, store: createDrizzleWebhookStore(db), endpoints: createDrizzleWebhookEndpointStore(db) })
+  installWebhooks({ webhooks: {}, store: createDrizzleWebhookStore(db), endpoints: createDrizzleWebhookEndpointStore(db), resolveVerifiedOwner: async email => verifiedUsers.get(email) })
 })
 
 afterEach(() => {
@@ -127,6 +130,62 @@ afterEach(() => {
 })
 
 describe("member endpoints in the Console operations", () => {
+  it("keeps delivery history when a member reconnects", async () => {
+    const old = await connect("user_tom", "Tom Becker")
+    const first = await send("user_tom", "first")
+    const current = await connect("user_tom", "Tom Becker")
+    const second = await send("user_tom", "second")
+    expect(current.id).not.toBe(old.id)
+
+    const history = await value<Array<{ id: string }>>(admin, "webhooks.deliveries", { owner: "user_tom" })
+    expect(history.map(row => row.id).sort()).toEqual([first.id, second.id].sort())
+    const oldHistory = await value<Array<{ id: string }>>(admin, "webhooks.deliveries", { owner: "user_tom", webhook: `@${old.id}` })
+    expect(oldHistory.map(row => row.id)).toEqual([first.id])
+    expect(await call(tomInApp, "webhooks.redeliver", { id: first.id })).toMatchObject({ ok: false, code: "WEBHOOKS_ENDPOINT_NOT_FOUND" })
+  })
+
+  it("lists and manages endpoints beyond the default page", async () => {
+    await client.execute(`WITH RECURSIVE ids(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM ids WHERE n < 500)
+      INSERT INTO vitehub_webhook_endpoints (id, owner, name, kind, created_at, updated_at)
+      SELECT 'whe_' || n, 'member_' || n, 'Inbox', 'inbox', 0, 0 FROM ids`)
+    const endpoint = await connect("user_tom", "Tom Becker")
+    const sent = await send("user_tom", "first")
+    const first = await value<Array<{ id: string, createdAt: number }>>(cli, "webhooks.endpoints")
+    expect(first).toHaveLength(500)
+    const { createdAt, id } = first.at(-1)!
+    const next = await value(cli, "webhooks.endpoints", { after: { createdAt, id } })
+    expect(next).toEqual([expect.objectContaining({ id: endpoint.id, mine: false, last: expect.objectContaining({ status: 202 }) })])
+    expect(await call(tomInApp, "webhooks.redeliver", { id: sent.id })).toMatchObject({ ok: true })
+    expect(await call(admin, "webhooks.disable-endpoint", { id: endpoint.id })).toMatchObject({ ok: true })
+  })
+
+  it("requires current verified identity on both sides without reconnecting the endpoint", async () => {
+    await connect("user_ana", "Ana Ruiz", "ana@example.com")
+    const sent = await send("user_ana", "first")
+    const unverified = { ...anaInConsole, user: { id: "console_ana", email: "ana@example.com" } }
+    const mine = async (caller: OperationContext) => (await value<Array<{ mine: boolean }>>(caller, "webhooks.endpoints"))[0]?.mine
+    expect(await mine(unverified)).toBe(false)
+    expect(await call(unverified, "webhooks.redeliver", { id: sent.id })).toMatchObject({ ok: false, code: "WEBHOOKS_DELIVERY_NOT_OWNER" })
+    expect(await mine(anaInConsole)).toBe(true)
+
+    verifiedUsers.delete("ana@example.com")
+    verifiedUsers.set("new@example.com", "user_ana")
+    expect(await mine(anaInConsole)).toBe(false)
+    verifiedUsers.set("ana@example.com", "user_someone_else")
+    expect(await mine(anaInConsole)).toBe(false)
+    for (const operation of ["webhooks.redeliver", "webhooks.flush"]) {
+      expect(await call(anaInConsole, operation, { id: sent.id })).toMatchObject({ ok: false, code: "WEBHOOKS_DELIVERY_NOT_OWNER", status: 403 })
+    }
+    expect(received).toHaveLength(1)
+    const updated = { ...anaInConsole, user: { id: "console_ana", email: "new@example.com", emailVerified: true } }
+    expect(await mine(updated)).toBe(false)
+    const anaInApp: OperationContext = { access, surface: "mcp", user: { id: "user_ana" } }
+    expect(await mine(anaInApp)).toBe(true)
+    expect(await call(anaInApp, "webhooks.redeliver", { id: sent.id })).toMatchObject({ ok: true })
+    await connect("user_ana", "Ana Ruiz", "new@example.com")
+    expect(await mine(updated)).toBe(true)
+  })
+
   it("lists each endpoint with its owner, agent, host, and newest result, and marks the caller's own", async () => {
     const ana = await connect("user_ana", "Ana Ruiz", "Ana@Example.com")
     const tom = await connect("user_tom", "Tom Becker")

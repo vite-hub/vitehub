@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { build } from "esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createOptionalPackagesPlugin } from "../src/internal/vite-build.ts"
@@ -24,16 +24,7 @@ async function writePackage(rootDir: string, name: string, source: string, metad
 async function bundleEntry(rootDir: string, source: string): Promise<string> {
   await writeFile(join(rootDir, "entry.js"), source)
   const outfile = join(rootDir, "worker.mjs")
-  await build({
-    absWorkingDir: rootDir,
-    bundle: true,
-    entryPoints: [join(rootDir, "entry.js")],
-    format: "esm",
-    logLevel: "silent",
-    outfile,
-    platform: "neutral",
-    plugins: [createOptionalPackagesPlugin(rootDir)],
-  })
+  await bundleEsmEntry(join(rootDir, "entry.js"), outfile, { platform: "neutral", plugins: [createOptionalPackagesPlugin(rootDir)], workingDir: rootDir })
   return outfile
 }
 
@@ -50,16 +41,7 @@ async function bundleAgentLikeEntry(rootDir: string): Promise<{ loadKV: () => Pr
   await writePackage(rootDir, "agent-like", `export const loadKV = () => import("@vite-hub/kv")\n`)
   await writeFile(join(rootDir, "entry.js"), `export { loadKV } from "agent-like"\n`)
   const outfile = join(rootDir, "worker.mjs")
-  await build({
-    absWorkingDir: rootDir,
-    bundle: true,
-    entryPoints: [join(rootDir, "entry.js")],
-    format: "esm",
-    logLevel: "silent",
-    outfile,
-    platform: "neutral",
-    plugins: [createOptionalPackagesPlugin(rootDir)],
-  })
+  await bundleEsmEntry(join(rootDir, "entry.js"), outfile, { platform: "neutral", plugins: [createOptionalPackagesPlugin(rootDir)], workingDir: rootDir })
   return await import(pathToFileURL(outfile).href) as { loadKV: () => Promise<{ kv: string }> }
 }
 
@@ -112,7 +94,7 @@ describe("optional packages in Workflow bundles", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-missing-package-"))
     roots.push(rootDir)
 
-    await expect(bundleEntry(rootDir, `export const load = () => import("not-installed")\n`)).rejects.toThrow(/Could not resolve "not-installed"/)
+    await expect(bundleEntry(rootDir, `export const load = () => import("not-installed")\n`)).rejects.toThrow(/Could not resolve 'not-installed'/)
   })
 
   it("bundles @vite-hub/kv when the app installed it", async () => {

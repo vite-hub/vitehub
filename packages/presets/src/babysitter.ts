@@ -57,8 +57,9 @@ export interface BabysitterPlacement {
   /**
    * Slots that hosts admit now, counting passes already running. A reconcile claims at most this
    * many PRs minus the active owners, so it never claims work that `place` must turn away.
+   * Stop the capacity check and discard a pending shared probe when the signal aborts.
    */
-  admitted?(): number | Promise<number>;
+  admitted?(signal?: AbortSignal): number | Promise<number>;
 }
 
 /** Where the Babysitter reports its state on each PR. Both need a verified GitHub App identity. */
@@ -353,10 +354,10 @@ const babysitterIntake = channelAdapter("babysitter-github", {
       webhooks: [{
         id: "github",
         provider: "github",
-        signature: "github-sha256",
+        signature: "github",
         secretHeader: "x-hub-signature-256",
         // A missing secret fails closed: unsigned deliveries must never reach the inbox.
-        secretToken: async (context) => {
+        secret: async (context) => {
           const secret = plainSecret(await channelEnvValue("github", "webhookSecret", context));
           if (!secret) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_ENV_MISSING({ variables: ["VITEHUB_GITHUB_WEBHOOK_SECRET"] });
           return secret;

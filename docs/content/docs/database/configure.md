@@ -271,7 +271,7 @@ Run `vitehub database migrate` once before a server migrates on start, because [
 
 When one change removes a column and adds another in the same table, Drizzle Kit cannot know if you renamed it. A rename keeps the data. A new column starts empty, and the migration drops the old column with its data. The same applies to tables.
 
-In a terminal, `vitehub database generate` asks. Without a terminal, with `CI` set, or with `--non-interactive`, it never waits for an answer. It writes no migration, exits with code 2, and prints `DATABASE_GENERATE_AMBIGUOUS_CHANGE` with one command per answer:
+In a terminal, `vitehub database generate` asks. Without a terminal, or with `CI` set, it never waits for an answer. It writes no migration, exits with code 2, and prints `DATABASE_GENERATE_AMBIGUOUS_CHANGE` with one command per answer:
 
 ```txt
 [DATABASE_GENERATE_AMBIGUOUS_CHANGE] The Definitions of the database "default" add a column or table and remove another one, and Drizzle Kit cannot tell whether the new one is a rename. Without a terminal, `vitehub database generate` cannot ask, so it wrote no migration.
@@ -309,6 +309,8 @@ pnpm vitehub database migrate --dry-run
 ```
 
 `vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
+
+A folder of SQLite or D1 SQL files that you wrote by hand, such as files from `wrangler d1 migrations create`, also needs `vitehub database up` once. Drizzle Kit 1.0 skips flat `.sql` files, so `vitehub database migrate` and the build with `migrateOnStart` refuse such a folder. This is also true when `meta/_journal.json` lists only some of the files. `vitehub database up` replays the SQL on a temporary database, then moves each file to a folder that keeps its name, such as `20261029101500_0000_init/migration.sql`. The newest folder records the schema that the SQL creates, so `generate` can still write changes from your Definitions. If the SQL cannot replay or the file order would change a journal timestamp, the folder stays as it was. On D1, `d1-migrations.json` keeps the file names that Wrangler applied, so Wrangler and `vitehub database migrate` do not apply them again. D1 over HTTP can still apply flat files without the conversion.
 
 On SQLite, Drizzle Kit 0.x made a unique index for a `.unique()` column, and Drizzle Kit 1.0 declares a `UNIQUE` constraint in the table. `vitehub database up` records these indexes as the constraints of your Definitions in the converted snapshots, so the next `vitehub database generate` does not rebuild the tables. The database keeps its indexes, and they reject the same duplicate rows. A folder that `drizzle-kit up` or an older ViteHub converted still lists these indexes, so `vitehub database generate` records them first. Commit the changed `snapshot.json` files.
 
@@ -527,6 +529,7 @@ npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json && 
 - **Order.** `pnpm exec nitro deploy --prebuilt`, which Workers Builds runs, and `vitehub deploy` apply the migrations first. When a migration fails, the command stops and the Worker does not deploy.
 - **Ledger.** Wrangler applies the migration files that the build copies into the server output, and records them in Wrangler's migrations table (`cloudflare.migrationsTable`, default `d1_migrations`). `vitehub database migrate` reads the same table, so you can still run it by hand.
 - **Old code.** The Worker that serves traffic runs on the new tables until the deploy finishes. Write migrations that the previous code can use, for example add a column before you drop the old one.
+- **Without `migrateOnDeploy`.** `vitehub deploy` reads the migrations table of each D1 binding and stops with [`SETUP_DEPLOY_D1_MIGRATIONS_PENDING`](/docs/cli/diagnostics/setup_deploy_d1_migrations_pending) when the build has a migration that the table does not list. `nitro deploy --prebuilt` and a plain `wrangler deploy` apply nothing and print no warning, so the new code answers with errors until you apply the migrations.
 - **Prompt.** In CI, Wrangler applies the migrations without a question. In a terminal, `nitro deploy --prebuilt` asks first. If you answer no, the deploy continues without them.
 - **Preview.** `vitehub deploy --preview` and `--temporary` do not apply migrations, so a preview version does not change the production database.
 - **Limits.** The option works only for a Cloudflare build where each Database has a D1 binding. Another host, D1 over HTTP, or Postgres fails the build with `DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED`. Your own `nitro.commands.deploy` gets the same migrate steps in front of it.
@@ -569,7 +572,7 @@ pnpm vitehub database sql --json "select count(*) as users from users"
 cat seed.sql | pnpm vitehub database sql
 pnpm vitehub database sql --remote --stage production "select count(*) from users"
 pnpm vitehub database drop
-pnpm vitehub database drop --force                          # in CI or a script
+pnpm vitehub database drop --yes                            # in CI or a script
 pnpm vitehub database reset                                 # drop, then migrate
 ```
 
@@ -577,7 +580,7 @@ Both commands use the same target as `export`. Without `--remote`, they use only
 
 `sql` reads the SQL from the argument, or from stdin when there is no argument. It runs the statements in order and stops at the first error. A statement without rows prints the number of changed rows, when the driver reports it. `--json` prints one JSON array, with `{ columns, rows, rowsAffected }` for each statement. Bytes print as hex and big integers as strings. SQLite and D1 statements are split at semicolons, so a trigger with `BEGIN ... END` does not run through `sql`. Postgres and PGlite get the script as one query.
 
-`drop` lists what it will drop and asks before it drops it. Without a terminal to ask, such as in CI, it needs `--force`, else it fails with `DATABASE_DROP_NOT_CONFIRMED`. It runs in one transaction, so a failure drops nothing:
+`drop` lists what it will drop and asks before it drops it. Without a terminal to ask, such as in CI, it needs `--yes`, else it fails with `DATABASE_DROP_NOT_CONFIRMED`. It runs in one transaction, so a failure drops nothing:
 
 | Database | Drops |
 | --- | --- |
@@ -586,7 +589,7 @@ Both commands use the same target as `export`. Without `--remote`, they use only
 
 Failures print `DATABASE_SQL_FAILED` or `DATABASE_DROP_FAILED` and exit with code 1. A local file that does not exist fails `sql`, and `drop` has nothing to drop. Neither creates the file.
 
-`reset` gives you an empty database with the current tables. It drops like `drop`, with the same question and `--force`, and then applies every migration of that database like `vitehub database migrate`. It reads the migrations folder first, so a broken folder stops it before it drops anything. It does not run the seed file: run `vitehub seed database` after it. A native D1 binding with `--remote` is refused, because `migrate` applies D1 binding migrations only to the local file. Use `drop --remote`, then `wrangler d1 migrations apply <name> --remote`.
+`reset` gives you an empty database with the current tables. It drops like `drop`, with the same question and `--yes`, and then applies every migration of that database like `vitehub database migrate`. It reads the migrations folder first, so a broken folder stops it before it drops anything. It does not run the seed file: run `vitehub seed database` after it. A native D1 binding with `--remote` is refused, because `migrate` applies D1 binding migrations only to the local file. Use `drop --remote`, then `wrangler d1 migrations apply <name> --remote`.
 
 ## Tables from Nuxt layers
 
@@ -685,6 +688,7 @@ Contributed tables go everywhere the Definition schema goes:
 - The generated Drizzle schema exports each contributed table, so `vitehub database generate` writes their migrations.
 - `useDatabase(name).schema`, `db.query`, and the generated `DatabaseRegistry` types include them, in Vite, Nuxt, and Nitro. With `relations`, `with` follows their relations too.
 - `vitehub inspect definitions` and the Console Database section list them in a `Contributed tables` field, with the plugin.
+- A production build checks generated migration history for contributed tables and columns. When a new version adds one, run `vitehub database generate` and commit the migration. If a committed migration folder lacks `migration.sql`, restore that file instead. When custom SQL leaves the schema unknown, the build skips table and column comparisons but still checks for contributed SQL files.
 
 The Definition object you import from its file has only its own `schema`. Read contributed tables from `useDatabase(name).schema` or import them from their package.
 
@@ -718,7 +722,7 @@ vitehub: {
 
 - A file named `<name>.<dialect>.sql`, such as `0001_init.postgresql.sql`, applies only to a database of that dialect.
 - ViteHub puts a `--> statement-breakpoint` between statements, at the semicolons outside quotes and comments. A file that already has breakpoints is copied as written. Use breakpoints when a statement has its own semicolons, such as a trigger.
-- `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`.
+- `vitehub inspect definitions` shows a `Contributed migrations` field with how many files are added and how many still need `vitehub database generate`. A production build fails with `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED` while a file is not added.
 
 ### Contribute a Database
 

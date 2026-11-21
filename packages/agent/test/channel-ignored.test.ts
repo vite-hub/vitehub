@@ -65,7 +65,7 @@ describe("retryLater() and rejected()", () => {
         tickets: channelAdapter("tickets", {
           messages: false,
           triggers: { webhook: defineChannelTrigger({ invoke: () => helper("ticketing_down") }) },
-          webhooks: { path: "/api/tickets/webhook", secretToken: false },
+          webhooks: { path: "/api/tickets/webhook", secret: false },
         }),
       },
       driver: { run },
@@ -116,7 +116,7 @@ describe("retryLater() and rejected()", () => {
               }),
             },
           },
-          webhooks: { secretToken: false },
+          webhooks: { secret: false },
         }),
       },
       driver: { run },

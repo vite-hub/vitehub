@@ -55,7 +55,7 @@ The adapter receives `Build finished.` and the original options object. Channels
 
 `deliveryId` is a new UUID for every send. It identifies the attempt in logs and results; it does not deduplicate sends.
 
-The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/agent/channels`. `ChannelMessage<typeof adapter>` names it.
+The message type comes from the adapter's `send`. A message is non-empty text, or an object that the adapter accepts, such as a card from the chat adapters in `vite-hub/channels/adapters`. `ChannelMessage<typeof adapter>` names it.
 
 ## Discover named Channels
 
@@ -117,7 +117,8 @@ The integration writes Channel registry types to `.vitehub/types/channels.d.ts` 
 
 ```ts
 // server/channels/stripe.ts
-import { defineChannel, stripe } from "@vite-hub/channels";
+import { defineChannel } from "@vite-hub/channels";
+import { stripe } from "@vite-hub/channels/adapters";
 
 export default defineChannel({
   adapter: stripe(),
@@ -127,7 +128,7 @@ export default defineChannel({
 });
 ```
 
-`webhook()` needs `signature` and `secret`, such as `webhook({ signature: "bearer", secret: () => process.env.HOOK_SECRET })`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. Use `webhook({ secret: false })` only for a route that anyone can call.
+`webhook()` needs `signature` and `secret`, such as `webhook({ signature: "bearer", secret: "HOOK_SECRET" })`. A string `secret` is the name of the server variable that holds the secret; a function returns the secret. The signature names follow Webhooks: `"github"`, `"stripe"`, `{ type: "hmac-sha256" }`, and `{ type: "stripe", tolerance: "5m" }`. `defineChannel()` throws `CHANNELS_C0011` when one of them is missing. Use `webhook({ secret: false })` only for a route that anyone can call.
 
 `on` maps event names to targets: a handler, or a trigger from `defineChannelTrigger()` in `@vite-hub/agent/channels`. A handler that throws or returns a failed `Result` runs again. Chat adapters, such as `slack()` and `teams()`, come from `@vite-hub/agent/channels` because they need the Chat SDK.
 

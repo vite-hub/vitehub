@@ -5,7 +5,7 @@ import { webhooksErrors } from "./errors.ts"
 
 import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { Result } from "@vite-hub/runtime"
-import type { ListWebhookDeliveriesOptions, MemberEndpoint, WebhookDelivery } from "./database.ts"
+import type { ListMemberEndpointsOptions, ListWebhookDeliveriesOptions, MemberEndpoint, WebhookDelivery } from "./database.ts"
 import type { MemberEndpointWithLastDelivery, SendToMemberEndpointResult } from "./members.ts"
 import type { MemberCaller, SendWebhookResult, WebhookInfo } from "./runtime.ts"
 
@@ -65,11 +65,14 @@ function defineWebhooksOperation<Input, Output>(definition: Omit<OperationDefini
  * The caller of a member action. A call that the ViteHub Console signs names a Console account, which is not an app
  * user, so only its email can match the owner. Any other call names an app user by id.
  */
-function memberCaller(context: OperationContext): MemberCaller | undefined {
-  const { user } = context
-  if (!user) return undefined
+async function memberCaller(context: OperationContext): Promise<MemberCaller | undefined> {
+  const { request, user } = context
+  if (!user || context.access.via === "cli" || context.surface === "cli") return undefined
   if (context.access.via !== "console") return { id: user.id }
-  return typeof user.email === "string" && user.email ? { consoleEmail: user.email } : undefined
+  const email = user.email?.trim().toLowerCase()
+  if (!request || user.emailVerified !== true || !email) return undefined
+  const id = await (await runtime()).installedWebhooks()?.resolveVerifiedOwner?.(email, request)
+  return id ? { id, verifiedConsoleEmail: email } : undefined
 }
 
 /**
@@ -114,7 +117,7 @@ const list = defineWebhooksOperation<Record<string, never>, WebhookInfo[]>({
 })
 
 const deliveries = defineWebhooksOperation<ListWebhookDeliveriesOptions, WebhookDelivery[]>({
-  description: "List webhook deliveries, newest first, with their state, attempts, last status, and last error. A member delivery names its endpoint as @<endpoint id>; owner lists the deliveries of a member's endpoints.",
+  description: "List webhook deliveries, newest first, with their state, attempts, last status, and last error. A member delivery names its endpoint as @<endpoint id>; owner lists the member's deliveries across endpoint reconnections.",
   input: v.strictObject({
     webhook: v.optional(v.pipe(v.string(), v.minLength(1), v.description("The webhook name, or @<endpoint id> for a member endpoint."))),
     owner: v.optional(v.pipe(v.string(), v.minLength(1), v.description("The member who owns the endpoint, such as the Auth user id."))),
@@ -124,7 +127,7 @@ const deliveries = defineWebhooksOperation<ListWebhookDeliveriesOptions, Webhook
   }),
   kind: "read",
   name: "webhooks.deliveries",
-  run: input => unwrap(async () => (await runtime()).listWebhookDeliveries(input)),
+  run: async input => unwrap(async () => (await runtime()).listWebhookDeliveries(input)),
 })
 
 const pending = defineWebhooksOperation<{ webhook?: string, limit?: number }, WebhookDelivery[]>({
@@ -159,7 +162,7 @@ const flush = defineWebhooksOperation<{ id: string }, WebhookDelivery>({
   input: v.strictObject({ id: deliveryId }),
   kind: "write",
   name: "webhooks.flush",
-  run: async (input, context) => unwrap(async () => (await runtime()).flushWebhookDelivery(input.id, { caller: memberCaller(context) })),
+  run: async (input, context) => unwrap(async () => (await runtime()).flushWebhookDelivery(input.id, { resolveCaller: () => memberCaller(context) })),
 }, { user: true })
 
 const cancel = defineWebhooksOperation<{ id: string }, WebhookDelivery>({
@@ -177,21 +180,24 @@ const redeliver = defineWebhooksOperation<{ id: string }, SendWebhookResult | Se
   input: v.strictObject({ id: deliveryId }),
   kind: "write",
   name: "webhooks.redeliver",
-  run: async (input, context) => unwrap(async () => (await runtime()).redeliverWebhookDelivery(input.id, { caller: memberCaller(context) })),
+  run: async (input, context) => unwrap(async () => (await runtime()).redeliverWebhookDelivery(input.id, { resolveCaller: () => memberCaller(context) })),
 }, { user: true })
 
 const endpointId = v.pipe(v.string(), v.minLength(1), v.description("The member endpoint id, such as whe_..."))
 
-const endpoints = defineWebhooksOperation<Record<string, never>, MemberEndpointRow[]>({
+const endpoints = defineWebhooksOperation<ListMemberEndpointsOptions, MemberEndpointRow[]>({
   description: "List the member endpoints, where each member's agent gets their sends: the owner, the agent, the URL host, and the newest delivery. Never the URL path, the query, the secret, or the owner's email.",
-  input: v.strictObject({}),
+  input: v.strictObject({
+    limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(500), v.description("Page size, from 1 to 500. Default: 500."))),
+    after: v.optional(v.pipe(v.strictObject({ createdAt: v.number(), id: endpointId }), v.description("The createdAt and id of the last endpoint of the previous page."))),
+  }),
   kind: "read",
   name: "webhooks.endpoints",
-  run: async (_input, context) => {
+  run: async (input, context) => {
     const { listMemberEndpoints } = await members()
     const { ownsMemberEndpoint } = await runtime()
-    const rows = await unwrap(async () => listMemberEndpoints())
-    const caller = memberCaller(context)
+    const rows = await unwrap(async () => listMemberEndpoints(input))
+    const caller = await memberCaller(context)
     return rows.map(({ ownerEmail, ...row }) => ({ ...row, mine: ownsMemberEndpoint({ owner: row.owner, ownerEmail }, caller) }))
   },
 }, { user: true })

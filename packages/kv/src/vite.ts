@@ -17,7 +17,8 @@ import {
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, markViteConfigPlugin, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -27,7 +28,7 @@ import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { inspectKVResources, inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
-import { kvRedisEnvWarning } from "./config.ts"
+import { kvRedisEnvHint } from "./config.ts"
 import { kvDeploymentEnv } from "./deployment-env.ts"
 
 import type { KVResolutionInput } from "./config.ts"
@@ -81,7 +82,7 @@ export type KVVitePlugin = Plugin & {
   api: KVVitePluginAPI
   nitro: {
     name: string
-    setup: (nitro: { options: NitroCloudflareKVTarget }) => void
+    setup: (nitro: KVNitroBuild) => void
   }
   vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
@@ -230,7 +231,7 @@ function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisi
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
-    `import { kvInvalidLimitError, kvKeyLimitCodes, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
+    `import { kvClearOptionsError, kvInvalidLimitError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes, listKVKeys } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
@@ -264,7 +265,11 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "// kvResult throws config errors, for example an unknown store, and returns the other errors.",
     "function createKVStorage(name = \"default\") {",
     "  return {",
-    "    async clear(base, options) { return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(base, options); }); },",
+    "    async clear(options) {",
+    "      const error = kvClearOptionsError(options);",
+    "      if (error) return [error, undefined];",
+    "      return kvResult(\"clear\", name, async () => { await resolveStorage(name).clear(options?.prefix); });",
+    "    },",
     "    async delete(key, options) { return kvResult(\"delete\", name, async () => { await resolveStorage(name).removeItem(key, options); }, kvKeyLimitCodes); },",
     "    async deleteIfEquals() { return unsupported(\"deleteIfEquals\", name); },",
     "    async get(key, options) { return kvResult(\"get\", name, () => resolveStorage(name).getItem(key, options), kvKeyLimitCodes); },",
@@ -272,9 +277,8 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async getMany(keys, options) { return kvResult(\"getMany\", name, () => resolveStorage(name).getMany(keys, options), kvKeyLimitCodes); },",
     "    async has(key, options) { return kvResult(\"has\", name, () => resolveStorage(name).hasItem(key, options), kvKeyLimitCodes); },",
     "    async increment() { return unsupported(\"increment\", name); },",
-    "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
     "    lock() { return { async acquire() { return unsupported(\"lock\", name); }, async run() { return unsupported(\"lock\", name); } }; },",
-    "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
+    "    async list(options = {}) { if (kvListLimitInvalid(options)) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => listKVKeys(page => resolveStorage(name).listKeys(page), options), [\"KV_INVALID_CURSOR\"]); },",
     "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }, kvWriteLimitCodes); },",
     "    async setMany(entries, options) { return kvResult(\"setMany\", name, async () => { await resolveStorage(name).setMany(entries, options); }, kvWriteLimitCodes); },",
     "    async setIfAbsent() { return unsupported(\"setIfAbsent\", name); },",
@@ -285,6 +289,17 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "export const kv = createKVStorage();",
     "",
   ].join("\n")
+}
+
+/** The part of Nitro's prerender config that KV changes. */
+interface KVPrerenderConfig {
+  virtual?: Record<string, string | (() => string)>
+}
+
+/** The parts of a Nitro build that KV changes. */
+interface KVNitroBuild {
+  hooks?: { hook: (name: "prerender:config", callback: (config: KVPrerenderConfig) => void) => unknown }
+  options: NitroCloudflareKVTarget
 }
 
 interface NitroCloudflareKVTarget {
@@ -403,8 +418,6 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
   const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting, postgresDatabase: postgresDatabase() })
   let nitroOwned = false
-  // A build runs `buildStart` once per Vite environment. The warning prints once.
-  let redisEnvWarned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
   let resolved: ResolvedConfig | undefined
@@ -413,6 +426,10 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
   let projectRoot = process.cwd()
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options, resolutionInput())
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  function reportRedisEnvHint(config: ViteHubHintsConfig): void {
+    const hint = kvRedisEnvHint(options, { ...resolutionInput(), env: { ...viteEnv, ...process.env }, hosting: getConfig().hosting })
+    if (hint) reportViteHubHint(config, hint)
+  }
 
   return {
     name: KV_VITE_PLUGIN_NAME,
@@ -427,6 +444,15 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       setup(nitro) {
         nitroOptions = nitro.options
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        // Prerender bundles the server again with Rolldown, without Vite plugins, so `resolveId` below never sees the
+        // config import there. Nitro copies its virtual modules into that build.
+        nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
+          // The prerenderer is a Node worker. Cloudflare stores use their local folders, and apps with Deno KV keep
+          // the runtime fallback. The prerenderer prints no store notice at boot.
+          const prerender = resolveKVViteConfig(options, { hosting: input.hosting, prerender: true })
+          if (prerender.kv && Object.values({ ...prerender.kv.stores, default: prerender.kv.store }).some(store => store.driver === "deno-kv")) return
+          config.virtual = { ...config.virtual, [KV_VIRTUAL_CONFIG_ID]: () => serializeVirtualConfig(prerender, databaseImport, true) }
+        })
       },
     },
     vitehub: {
@@ -450,7 +476,8 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
         return {
           definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }],
-          resources: () => inspectKVResources(options, projectRoot),
+          // The build's host decides the driver of a store without one, so use it here too.
+          resources: () => inspectKVResources(options, projectRoot, process.env, input.hosting),
         }
       },
       // The Console, `vitehub kv`, and agents run these.
@@ -466,6 +493,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
     config: {
       order: "pre",
       async handler(config, env) {
+        if (env) markViteConfigPlugin(env, KV_VITE_PLUGIN_NAME)
         command = env?.command ?? "build"
         mode = env?.mode ?? config.mode ?? (command === "serve" ? "development" : "production")
         runtimeConfig = undefined
@@ -479,6 +507,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       order: "pre",
       async handler(config) {
         resolved = config
+        startViteHubHints(config)
         // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
         if (config.command) command = config.command
         mode = config.mode ?? mode
@@ -492,6 +521,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
           nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, provisionState)
         }
+        if (!config.command && command === "build" && Reflect.get(config, VITEHUB_NUXT_HINTS)) reportRedisEnvHint({ ...config, command })
       },
     },
     configureServer(server) {
@@ -543,11 +573,10 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         // Resolve again now that the Database integration has resolved its Definitions.
         runtimeConfig = undefined
         providerOutputGenerations.capture(this, providerOutput)
-        if (command !== "build" || redisEnvWarned) return
-        redisEnvWarned = true
-        // Vite's `.env` files can hold the URL too, so the warning reads them with the process env.
-        const warning = kvRedisEnvWarning(options, { ...resolutionInput(), env: { ...viteEnv, ...process.env }, hosting: getConfig().hosting })
-        if (warning) console.warn(warning)
+        if (command !== "build" || !resolved) return
+        // Vite's `.env` files can hold the URL too, so the hint reads them with the process env. A build runs
+        // `buildStart` once per Vite environment, and the hint prints once.
+        reportRedisEnvHint(resolved)
       },
     },
     buildEnd: {

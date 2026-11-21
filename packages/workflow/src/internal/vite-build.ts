@@ -11,15 +11,16 @@ import { cloudflareRuntimeExternal, defaultCloudflareCompatibilityDate } from "@
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { readColocatedAgentFiles, resolveColocatedAgentFilesRoot } from "@vite-hub/internal/build/colocated-agent-files"
 import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, withProviderDeploymentOutputLock } from "@vite-hub/internal/build/deployment-output"
-import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsbuildEntry } from "@vite-hub/internal/build/esbuild"
+import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import type { WorkflowManifest } from "@workflow/builders"
-import { buildSync, transform } from "esbuild"
-import type { Plugin } from "esbuild"
+import { build, buildSync, transform } from "esbuild"
+import type { Plugin as EsbuildPlugin } from "esbuild"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
@@ -30,7 +31,7 @@ import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver, WorkflowStepOptions } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
-import type { Plugin as VitePlugin } from "vite"
+import type { Rolldown, Plugin as VitePlugin } from "vite"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export function resolveVercelWorkflowWorld(workflowApi: string): string {
@@ -132,8 +133,8 @@ const optionalViteDevtoolsPattern = /^@vitejs\/devtools-(?:oxc|rolldown|vite|vit
 interface VercelWorkflowBuilders {
   VercelBuildOutputAPIBuilder: typeof import("@workflow/builders").VercelBuildOutputAPIBuilder
   applySwcTransform: typeof import("@workflow/builders").applySwcTransform
-  createPseudoPackagePlugin: () => Plugin
-  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[], workflowManifest?: WorkflowManifest }) => Plugin
+  createPseudoPackagePlugin: () => EsbuildPlugin
+  createSwcPlugin: (options: { mode: "step" | "workflow", moduleSpecifierRoot?: string, projectRoot: string, sideEffectEntries?: string[], workflowManifest?: WorkflowManifest }) => EsbuildPlugin
   detectWorkflowPatterns: typeof import("@workflow/builders").detectWorkflowPatterns
   shouldTransformFile: typeof import("@workflow/builders").shouldTransformFile
 }
@@ -180,45 +181,67 @@ function packageInstalledFrom(directory: string, name: string): boolean {
  * that a package loads with `import()`, such as `@modelcontextprotocol/sdk` in `@vite-hub/source/mcp`, become a
  * module that fails on import, as the missing package would.
  */
-export function createOptionalPackagesPlugin(rootDir: string): Plugin {
-  const require = createRequire(join(rootDir, "package.json"))
+export function createOptionalPackagesPlugin(rootDir: string): Rolldown.Plugin {
+  const missing = createMissingOptionalPackageResolver(rootDir)
+  const prefix = "\0vitehub-optional-package:"
+  return {
+    name: "vitehub-optional-package",
+    async resolveId(source, importer, extra) {
+      const resolved = await missing(source, extra.kind, importer, async () => Boolean(await this.resolve(source, importer, { kind: extra.kind })))
+      return resolved ? `${prefix}${source}` : undefined
+    },
+    load(id) {
+      if (id.startsWith(prefix)) return missingOptionalPackageModule(id.slice(prefix.length))
+    },
+  }
+}
+
+/** {@link createOptionalPackagesPlugin} for the Workflow DevKit steps bundle, which Workflow DevKit builds with esbuild plugins. */
+function createOptionalPackagesEsbuildPlugin(rootDir: string): EsbuildPlugin {
+  const missing = createMissingOptionalPackageResolver(rootDir)
   const namespace = "vitehub-optional-package"
-  const optionalPeersOf = createOptionalPeerReader()
   return {
     name: namespace,
     setup(build) {
-      build.onResolve({ filter: optionalViteDevtoolsPattern }, (args) => {
-        try {
-          require.resolve(args.path)
-          return
-        }
-        catch (error) {
-          // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
-          if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
-          return { namespace, path: args.path }
-        }
-      })
-      build.onResolve({ filter: /^@vite-hub\/kv$/ }, async (args) => {
-        if (args.pluginData === namespace) return
-        const resolved = await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })
-        return resolved.errors.length ? { namespace, path: args.path } : resolved
-      })
       build.onResolve({ filter: /^[^./#]/ }, async (args) => {
-        if (args.kind !== "dynamic-import" || args.pluginData === namespace || !isAbsolute(args.importer)) return
-        const name = packageNameOf(args.path)
-        if (!optionalPeersOf(args.importer).has(name)) return
-        // An installed peer keeps esbuild's own error, such as a subpath that the peer does not export.
-        if (packageInstalledFrom(args.resolveDir, name)) return
-        return { namespace, path: args.path }
+        if (args.pluginData === namespace) return
+        const resolves = async () => !(await build.resolve(args.path, { importer: args.importer, kind: args.kind, pluginData: namespace, resolveDir: args.resolveDir })).errors.length
+        return await missing(args.path, args.kind, args.importer, resolves) ? { namespace, path: args.path } : undefined
       })
-      build.onLoad({ filter: /.*/, namespace }, args => ({
-        contents: optionalViteDevtoolsPattern.test(args.path)
-          ? "export {}"
-          : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${args.path}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`,
-        loader: "js",
-      }))
+      build.onLoad({ filter: /.*/, namespace }, args => ({ contents: missingOptionalPackageModule(args.path), loader: "js" }))
     },
   }
+}
+
+/** Tells whether an import names an optional package that the app did not install. */
+function createMissingOptionalPackageResolver(rootDir: string) {
+  const require = createRequire(join(rootDir, "package.json"))
+  const optionalPeersOf = createOptionalPeerReader()
+  return async (specifier: string, kind: string | undefined, importer: string | undefined, resolves: () => Promise<boolean>): Promise<boolean> => {
+    if (optionalViteDevtoolsPattern.test(specifier)) {
+      try {
+        require.resolve(specifier)
+        return false
+      }
+      catch (error) {
+        // SAFETY: Generated Workflow module validation establishes the asserted build record contract.
+        if ((error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") throw error
+        return true
+      }
+    }
+    if (specifier === "@vite-hub/kv") return !await resolves()
+    if (kind !== "dynamic-import" || !importer || !isAbsolute(importer) || !/^[^./#]/.test(specifier)) return false
+    const name = packageNameOf(specifier)
+    if (!optionalPeersOf(importer).has(name)) return false
+    // An installed peer keeps the bundler's own error, such as a subpath that the peer does not export.
+    return !packageInstalledFrom(dirname(importer), name)
+  }
+}
+
+function missingOptionalPackageModule(specifier: string): string {
+  return optionalViteDevtoolsPattern.test(specifier)
+    ? "export {}"
+    : `const error = new globalThis.Error(${JSON.stringify(`Cannot find package "${specifier}". Install it to use it in a Workflow.`)}); error.code = "ERR_MODULE_NOT_FOUND"; throw error`
 }
 
 /** The Workflow DevKit packages that a native Vercel Workflow needs. They are optional peers of this package. */
@@ -262,22 +285,25 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
 }
 
 /** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
-export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Plugin | undefined> {
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir): Promise<Rolldown.Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
-  const plugin = builders.createSwcPlugin({ mode: "workflow", projectRoot: rootDir })
-  // Workflow's own Rollup and Vite plugins run SWC only on files with Workflow code. The esbuild plugin runs it on every file.
+  const workingDir = idRoot.replace(/\\/g, "/").replace(/\/$/, "")
   return {
-    ...plugin,
-    setup: build => plugin.setup({
-      ...build,
-      // Workflow and step IDs are paths relative to this directory. Match the native Workflow build, not the process directory.
-      initialOptions: { ...build.initialOptions, absWorkingDir: idRoot },
-      onLoad: (options, callback) => build.onLoad(options, async (args) => {
-        const source = await readFile(args.path, "utf8")
-        return builders.shouldTransformFile(args.path, builders.detectWorkflowPatterns(source)) ? await callback(args) : undefined
-      }),
-    }),
+    name: "vitehub-vercel-workflow-transform",
+    // Workflow's own Rollup and Vite plugins run SWC only on files with Workflow code, and so does this one.
+    async load(id) {
+      if (!/\.[cm]?[jt]sx?$/.test(id) || !isAbsolute(id)) return
+      const source = await readFile(id, "utf8")
+      if (!builders.shouldTransformFile(id, builders.detectWorkflowPatterns(source))) return
+      const file = id.replace(/\\/g, "/")
+      // Workflow and step IDs are paths relative to this directory, as in the native Workflow build. Workflow DevKit
+      // drops `..` segments for a file outside it.
+      const filename = relative(workingDir, file).replace(/\\/g, "/").split("/").filter(segment => segment !== "..").join("/")
+      const code = source.replace(/require\(\s*(['"])(?:server|client)-only\1\s*\)/g, "void 0")
+      const result = await builders.applySwcTransform(filename, code, "workflow", id, rootDir)
+      return { code: result.code, moduleType: id.endsWith(".tsx") ? "tsx" : id.endsWith(".jsx") ? "jsx" : "js" }
+    },
   }
 }
 
@@ -682,7 +708,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
         const tsconfigOptions = tsconfigPath && (await lstat(tsconfigPath)).isSymbolicLink()
           ? { tsconfigRaw: await readFile(tsconfigPath, "utf8") }
           : { tsconfig: tsconfigPath }
-        await bundleEsmEntry(entryFile, options.outfile, {
+        await bundleEsbuildEntry(build, entryFile, options.outfile, {
           ...tsconfigOptions,
           define: bundleDefines,
           extensions: [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
@@ -692,7 +718,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
           platform: "node",
           plugins: [
             createPseudoPackagePlugin(),
-            createOptionalPackagesPlugin(rootDir),
+            createOptionalPackagesEsbuildPlugin(rootDir),
             {
               ...swcPlugin,
               // The SWC step transform drops the bare imports of the registration entry. Workflow DevKit passes it as stdin.
@@ -1159,7 +1185,7 @@ function renderWorkflowRegistryEntry(
     return renderAgentWorkflowRegistryEntry(registryFile, definition, retainedAgentInstructions)
   }
 
-  if (!definition.steps?.length) {
+  if (!definition.steps) {
     return `  [${JSON.stringify(definition.name)}]: async () => ${renderRegistryImport(registryFile, definition.handler)},`
   }
 
@@ -1251,7 +1277,7 @@ export function createWorkflowRegistryContents(
   vercelNativeFiles: Record<string, string> = {},
   retainedAgentInstructions?: ReadonlyMap<string, string | undefined>,
 ): string {
-  const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
+  const needsWorkflowRuntime = definitions.some(definition => definition.steps !== undefined)
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow" || definition.source === "agent-workflow-recovery")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const installAgentWorkflowRuntime = needsAgentRuntime && importBases.workflow
@@ -1599,7 +1625,7 @@ async function createCloudflareWorkflowCleanup(rootDir: string, cloudflareInNitr
 function createVercelOutput(
   rootDir: string,
   artifacts: GeneratedWorkflowArtifacts,
-  workflowTransformPlugin: Plugin | undefined,
+  workflowTransformPlugin: Rolldown.Plugin | undefined,
   frameworkImportBase?: string,
   providerImportAliases?: Record<string, string>,
   serverFunctionName?: string,

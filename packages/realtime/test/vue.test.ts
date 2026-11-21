@@ -229,6 +229,7 @@ describe("useRealtimeTiptap", () => {
     responses[1]!(new Response(JSON.stringify({ message: "publisher unavailable", statusMessage: "" }), { status: 500 }))
     await expect(second).resolves.toMatchObject([{
       code: "REALTIME_REQUEST_FAILED",
+      data: { status: 500 },
       why: "The realtime `checkpoint()` request failed with HTTP 500: publisher unavailable",
     }, undefined])
     expect(realtime.history.pending.value).toBe(false)
@@ -363,6 +364,90 @@ describe("useRealtimeTiptap", () => {
 
     await expect(realtime.history.checkpoint()).resolves.toEqual([undefined, checkpointResponse])
     expect(fetch).toHaveBeenCalledTimes(2)
+    scope.stop()
+  })
+
+  it("returns REALTIME_SYNC_PENDING when the room is still syncing after 20 retries", async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: { code: "REALTIME_SYNC_PENDING" }, message: "The realtime document is still syncing." }), { status: 409 }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    const pending = realtime.history.checkpoint()
+    await vi.advanceTimersByTimeAsync(20 * 50)
+    await expect(pending).resolves.toMatchObject([{ code: "REALTIME_SYNC_PENDING", why: expect.stringContaining("`checkpoint()`") }, undefined])
+    expect(fetch).toHaveBeenCalledTimes(21)
+    scope.stop()
+  })
+
+  it.each([
+    { code: "REALTIME_SOURCE_CHANGED", status: 409 },
+    { code: "REALTIME_READ_ONLY", status: 409 },
+    { code: "REALTIME_INVALID_DOCUMENT", status: 422 },
+  ])("returns the $code that the server names, not REALTIME_REQUEST_FAILED", async ({ code, status }) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: { code }, message: "Refused." }), { status }))
+    vi.stubGlobal("fetch", fetch)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.save()).resolves.toMatchObject([{ code, fix: expect.any(String), why: expect.stringContaining("`save()`") }, undefined])
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
+  it("returns REALTIME_REQUEST_FAILED with the status for a 409 that names no code", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ message: "The realtime room closed." }), { status: 409 })))
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+
+    await expect(realtime.save()).resolves.toMatchObject([{ code: "REALTIME_REQUEST_FAILED", why: "The realtime `save()` request failed with HTTP 409: The realtime room closed." }, undefined])
+    scope.stop()
+  })
+
+  it.each(["save", "checkpoint"] as const)("returns the source conflict when the room resets before the %s response", async (action) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md")))!
+    const first = providers[1]!
+    const fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      control(first, { type: "reset", epoch: "seed-2", reason: "source-changed" })
+      init.signal?.throwIfAborted()
+      return new Response(JSON.stringify({ data: { code: "REALTIME_SOURCE_CHANGED" } }), { status: 409 })
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    const pending = action === "save" ? realtime.save() : realtime.history.checkpoint()
+    await expect(pending).resolves.toMatchObject([{ code: "REALTIME_SOURCE_CHANGED" }, undefined])
+    expect(realtime.document.value).not.toBe(first.doc)
+    expect(fetch).toHaveBeenCalledOnce()
+    scope.stop()
+  })
+
+  it.each(["retry", "switch", "disable", "dispose"] as const)("does not continue a checkpoint after a room reset and %s", async (operation) => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const documentId = ref("page.md")
+    const enabled = ref(true)
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", documentId, { enabled }))!
+    const first = providers[1]!
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => {
+      control(first, { type: "reset", epoch: "seed-2", reason: "source-changed" })
+      if (operation === "switch") documentId.value = "other.md"
+      if (operation === "disable") enabled.value = false
+      if (operation === "dispose") scope.stop()
+      await nextTick()
+      const code = operation === "retry" ? "REALTIME_SYNC_PENDING" : "REALTIME_SOURCE_CHANGED"
+      return new Response(JSON.stringify({ data: { code } }), { status: 409 })
+    })
+    vi.stubGlobal("fetch", fetch)
+
+    await expect(realtime.history.checkpoint()).resolves.toMatchObject([{ code: "REALTIME_DISCONNECTED" }, undefined])
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(fetch.mock.calls[0]?.[1].signal?.aborted).toBe(operation !== "retry")
     scope.stop()
   })
 

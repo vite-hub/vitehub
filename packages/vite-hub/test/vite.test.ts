@@ -106,7 +106,7 @@ vi.mock("@vite-hub/blob/vite", async () => ({
   resolveBlobViteConfig: integrationMocks.resolveBlobViteConfig,
 }))
 vi.mock("@vite-hub/browser/vite", () => ({ hubBrowser: integrationMocks.hubBrowser }))
-vi.mock("@vite-hub/channels/vite", () => ({ hubChannels: integrationMocks.hubChannels }))
+vi.mock("@vite-hub/channels/vite", () => ({ findWebhookChannel: () => undefined, hubChannels: integrationMocks.hubChannels }))
 vi.mock("@vite-hub/database/vite", async importOriginal => ({
   ...await importOriginal<typeof import("@vite-hub/database/vite")>(),
   hubDatabase: integrationMocks.hubDatabase,
@@ -729,6 +729,8 @@ describe("vitehub", () => {
       "vite-hub/public-url",
       "vite-hub/standard-context",
       "vite-hub/vitest-inline",
+      "vite-hub/drizzle-build-check",
+      "vite-hub/forge-build-check",
       "vite-hub/database-disabled",
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
@@ -782,9 +784,14 @@ describe("vitehub", () => {
       "vite-hub/deployment-host",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/generated-files-watch",
       "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/vitest-inline",
+      "vite-hub/cloudflare-node-dev",
+      "vite-hub/miniflare-dev-env",
+      "vite-hub/drizzle-build-check",
+      "vite-hub/forge-build-check",
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
@@ -843,7 +850,7 @@ describe("vitehub", () => {
       workspace: true,
     })
 
-    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith({}, {
+    expect(integrationMocks.hubAuth).toHaveBeenLastCalledWith(undefined, {
       importBase: "vite-hub/auth",
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
@@ -937,6 +944,7 @@ describe("vitehub", () => {
       runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
+      assertGitHubStoreAvailable: expect.any(Function),
       hosting: "node-server",
     })
 
@@ -1742,7 +1750,7 @@ describe("vitehub", () => {
     callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
     // Nitro applies the cloudflare-module preset defaults before modules run.
     const nitro = {
-      hooks: { hook: vi.fn() },
+      hooks: { beforeEach: vi.fn(), hook: vi.fn() },
       options: {
         cloudflare: nitroConfig.cloudflare,
         commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },

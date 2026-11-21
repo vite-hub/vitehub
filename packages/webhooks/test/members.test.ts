@@ -1,17 +1,15 @@
-import { createServer } from "node:http"
-
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { verifyWebhook } from "@vite-hub/env"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../src/database.ts"
-import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
+import { checkWebhookUrl, createMemberEndpoint, disableMemberEndpoint, getMemberEndpoint, removeMemberEndpoint, sendToMemberEndpoint } from "../src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries } from "../src/runtime.ts"
 
 import type { Client } from "@libsql/client"
-import type { IncomingHttpHeaders, Server } from "node:http"
+import type { RequestOptions } from "node:https"
 import type { WebhookWake } from "../src/runtime.ts"
 
 // Names that the guard resolves. A real lookup would make the test depend on the network.
@@ -30,8 +28,14 @@ vi.mock("node:dns/promises", () => {
   return { lookup, default: { lookup } }
 })
 
+const httpsRequest = vi.hoisted(() => vi.fn())
+vi.mock("node:https", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:https")>(),
+  request: httpsRequest,
+}))
+
 interface Received {
-  headers: IncomingHttpHeaders
+  headers: Record<string, string>
   body: string
   url: string
 }
@@ -39,18 +43,16 @@ interface Received {
 const secret = "whsec_member_secret"
 // The token stands for the T3 relay token in the URL. No stored row may hold it.
 const token = "relay-token-7c1d"
-// A public address in TEST-NET-3. The stubbed fetch sends its requests to the local receiver.
+// A public address in TEST-NET-3. The receiver is stubbed.
 const publicHost = "203.0.113.10"
 const endpointUrl = `https://${publicHost}/hooks/abc?token=${token}`
 
-let server: Server
-let receiverOrigin: string
 let received: Received[] = []
 let statuses: number[] = []
 let client: Client
 let wakes: Array<{ wake: WebhookWake, delay: unknown }> = []
 
-function install(options: { queue?: boolean } = {}) {
+function install(options: { queue?: boolean, wakeError?: Error } = {}) {
   const db = drizzle({ client })
   installWebhooks({
     webhooks: {},
@@ -58,6 +60,7 @@ function install(options: { queue?: boolean } = {}) {
     endpoints: createDrizzleWebhookEndpointStore(db),
     ...options.queue
       ? { wake: async (wake: WebhookWake, wakeOptions: { delay: unknown }) => {
+          if (options.wakeError) return [options.wakeError, undefined] as const
           wakes.push({ wake, delay: wakeOptions.delay })
           return [undefined, undefined] as const
         } }
@@ -71,37 +74,69 @@ async function connect(owner = "user_ana") {
   return endpoint
 }
 
-beforeAll(async () => {
-  server = createServer((request, response) => {
-    const chunks: Buffer[] = []
-    request.on("data", chunk => chunks.push(chunk))
-    request.on("end", () => {
-      received.push({ headers: request.headers, body: Buffer.concat(chunks).toString("utf8"), url: request.url ?? "" })
-      response.statusCode = statuses.shift() ?? 202
-      response.end("ok")
-    })
-  })
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  if (!address || typeof address === "string") throw new Error("The receiver has no port.")
-  receiverOrigin = `http://127.0.0.1:${address.port}`
+it("can retry the same key after the Queue rejects a wake", async () => {
+  install({ queue: true, wakeError: new Error("Queue unavailable") })
+  await connect()
+  statuses = [503, 202]
+  const send = () => sendToMemberEndpoint("user_ana", { hello: true }, { key: "handoff", event: "comments.send" })
+  expect((await send())[0]).toMatchObject({ code: "WEBHOOKS_WAKE_FAILED" })
+  expect((await listWebhookDeliveries())[1]).toEqual([expect.objectContaining({ state: "dead", lastStatus: 503 })])
+  install({ queue: true })
+  const retried = await Promise.all([send(), send(), send()])
+  expect(new Set(retried.map(([, data]) => data?.id)).size).toBe(1)
+  expect(retried.some(([, data]) => data?.status === "sent")).toBe(true)
+  expect(received).toHaveLength(2)
 })
 
-afterAll(async () => {
-  await new Promise(resolve => server.close(resolve))
+it("uses only the checked addresses without replacing the HTTPS hostname on either attempt", async () => {
+  install({ queue: true })
+  const url = `https://relay.t3.codes/hooks/abc?token=${token}`
+  const [error] = await createMemberEndpoint({ owner: "user_ana", name: "Launch plan", kind: "url", url, secret })
+  expect(error).toBeUndefined()
+  httpsRequest.mockImplementation((target: URL, options: RequestOptions, onResponse: (response: { statusCode: number, destroy: () => void }) => void) => {
+    expect(target.href).toBe(url)
+    expect(options.agent).toBe(false)
+    const lookup = vi.fn()
+    options.lookup?.(target.hostname, { all: true }, lookup)
+    expect(lookup).toHaveBeenCalledWith(null, [
+      { address: "104.21.3.218", family: 4 },
+      { address: "2606:4700:3035::ac43:999b", family: 6 },
+    ])
+    return {
+      on: vi.fn(),
+      end: (body: string) => {
+        received.push({ headers: {}, body, url: target.pathname + target.search })
+        onResponse({ statusCode: statuses.shift() ?? 202, destroy: vi.fn() })
+      },
+    }
+  })
+  statuses = [302, 202]
+  const [sendError, delivery] = await sendToMemberEndpoint("user_ana", { hello: true }, { key: "checked", event: "comments.send" })
+  expect(sendError).toBeUndefined()
+  expect(delivery?.status).toBe("pending")
+  expect(received).toHaveLength(1)
+  await deliverWebhookWake(wakes[0]!.wake)
+  expect((await getWebhookDelivery(delivery!.id))[1]?.state).toBe("sent")
+  expect(httpsRequest).toHaveBeenCalledTimes(2)
+  expect(received).toHaveLength(2)
 })
 
 beforeEach(async () => {
   received = []
   statuses = []
   wakes = []
+  httpsRequest.mockReset()
   process.env.VITEHUB_WEBHOOKS_KEY = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
   client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${webhooksTables.join(";\n")};`)
-  const realFetch = globalThis.fetch
-  vi.stubGlobal("fetch", (input: string | URL, init?: RequestInit) => {
-    const url = new URL(input)
-    return url.hostname === publicHost ? realFetch(`${receiverOrigin}${url.pathname}${url.search}`, init) : realFetch(input, init)
+  vi.stubGlobal("fetch", async (input: string | URL, init: RequestInit) => {
+    const request = new Request(input, init)
+    const url = new URL(request.url)
+    expect(url.hostname).toBe(publicHost)
+    expect(request.redirect).toBe("manual")
+    expect(request.method).toBe("POST")
+    received.push({ headers: Object.fromEntries(request.headers), body: await request.text(), url: url.pathname + url.search })
+    return new Response("ok", { status: statuses.shift() ?? 202 })
   })
   install()
 })
@@ -221,8 +256,7 @@ describe("member endpoints", () => {
     expect(delivery!.headers).toMatchObject({ "x-vitehub-delivery": sent!.id, "x-vitehub-event": "comments.send", "x-vitehub-events": "1", "content-type": "application/json" })
     process.env.MEMBER_SECRET = secret
     try {
-      const headers = new Headers(Object.entries(delivery!.headers).flatMap(([name, value]) => typeof value === "string" ? [[name, value] as [string, string]] : []))
-      const request = new Request(`${receiverOrigin}${delivery!.url}`, { body: delivery!.body, headers, method: "POST" })
+      const request = new Request(`https://${publicHost}${delivery!.url}`, { body: delivery!.body, headers: delivery!.headers, method: "POST" })
       expect(await verifyWebhook(request, { provider: "github", secret: "MEMBER_SECRET" })).toEqual([undefined, { threads: ["thr_1", "thr_2"] }])
     }
     finally {

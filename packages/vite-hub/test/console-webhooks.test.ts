@@ -211,7 +211,11 @@ function answer(lists: { deliveries?: ConsoleWebhookDelivery[], members?: Consol
   mocks.operation.mockImplementation(async (operation: string, input: Record<string, unknown>) => {
     if (failures[operation]) throw failures[operation]
     if (operation === "webhooks.endpoints") {
-      if (lists.members) return lists.members
+      if (lists.members) {
+        const after = input.after as Pick<ConsoleMemberEndpoint, "id" | "createdAt"> | undefined
+        const start = after ? lists.members.findIndex(row => row.id === after.id && row.createdAt === after.createdAt) + 1 : 0
+        return lists.members.slice(start, start + 500)
+      }
       throw new ConsoleRequestError(409, { code: "WEBHOOKS_ENDPOINTS_OFF", message: "Member endpoints are not on in this server." })
     }
     if (operation === "webhooks.list") return lists.webhooks ?? [t3]
@@ -347,6 +351,18 @@ describe("Webhooks page", () => {
     state.chooseOwner("all")
     await vi.waitFor(() => expect(calls("webhooks.deliveries").at(-1)).toEqual({ webhook: "@whe_tom" }))
     expect(router.currentRoute.value.query.owner).toBeUndefined()
+  })
+
+  it("recognizes a delivery to an owned endpoint beyond the first page", async () => {
+    const first = Array.from({ length: 500 }, (_, i) => member({ id: `whe_${i}`, owner: `user_${i}` }))
+    const toTom = delivery({ id: "whd_tom", state: "sent", webhook: "@whe_tom" })
+    answer({ deliveries: [toTom], members: [...first, tom] })
+    const { state } = await mountWebhooks()
+    await vi.waitFor(() => expect(state.loading).toBe(false))
+    expect(state.memberEndpoints).toHaveLength(501)
+    expect(state.deliveryTarget(toTom)).toBe("Tom Becker · T3 Code")
+    expect(state.canRedeliver(toTom)).toBe(true)
+    expect(calls("webhooks.endpoints")).toEqual([{}, { after: { createdAt: 0, id: "whe_499" } }])
   })
 
   it("loads the lists again until a sending delivery settles", async () => {

@@ -60,7 +60,7 @@ describe("hubMcp", () => {
     const { config } = configure(root)
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
   })
@@ -91,7 +91,7 @@ describe("hubMcp", () => {
     const { config } = configure(root, { auth: true, route: "/api/mcp/" })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/api/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/api/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/discovery.ts"), "utf8")).toContain("serveMcpOAuthDiscovery")
@@ -121,7 +121,7 @@ describe("hubMcp", () => {
     const { config } = configure(root, { auth: true }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain('route: "/portal/mcp"')
   })
@@ -131,8 +131,8 @@ describe("hubMcp", () => {
     const { config, plugin } = configure(root, { auth: true, publicRoute: "/mcp/", route: "/mcp/account" }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
       { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
-      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp/account" },
-      { handler: join(root, ".vitehub/nitro/mcp/public.ts"), route: "/mcp" },
+      { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp/account" },
+      { handler: join(root, ".vitehub/nitro/mcp/public.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     const protectedEntry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
     expect(protectedEntry).toContain("verify: request => verifyMcpRequest(request)")

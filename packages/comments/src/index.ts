@@ -27,12 +27,10 @@ import type {
 } from "./types.ts"
 
 export { describeCommentContext } from "./context.ts"
-export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
-export { builtinCommentSubjects, commentsRoleAllows, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export { commentRoom, normalizeCommentPage } from "./page.ts"
+export { commentsRoleAllows, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
 export type { CommentsPolicyGate } from "./operations-core/define.ts"
-export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"
-export { commentsRuntimeOf, resolveCommentsRuntime } from "./installed.ts"
 
 type Codes<T extends CommentsErrorCode> = T
 

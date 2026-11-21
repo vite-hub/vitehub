@@ -13,7 +13,8 @@ import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
+import { ownModule } from "@vite-hub/internal/build/paths"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
@@ -22,12 +23,16 @@ import { inspectCollectionDefinitions } from "./inspect.ts"
 import { BUNDLED_GLOB_ID_PATTERN, findGlobCalls, loadBundledGlob, rewriteGlobCalls } from "./internal/bundle-glob.ts"
 import { collectCollectionFiles, discoverCollections, inspectCollectionSource } from "./internal/collection-discovery.ts"
 import type { DiscoveredCollection } from "./internal/collection-discovery.ts"
+import { discoverSources } from "./internal/source-discovery.ts"
+import type { DiscoveredSource } from "./internal/source-discovery.ts"
 import { collectionRoutePath } from "./internal/collection-route.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "./inspect.ts"
 
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
+const sourceTypesEntry = ".vitehub/types/source/sources.d.ts"
+const sourceRegistryEntry = ".vitehub/source/registry.mjs"
 // Earlier versions wrote this wrapper around `collections.d.ts`. Generation removes it, so an upgraded app with no
 // Collection does not keep a declaration that points at a deleted file.
 const retiredCollectionTypesWrapper = ".vitehub/types/source/vitehub-source-registry.d.ts"
@@ -68,6 +73,8 @@ export interface GeneratedSourceRoute {
    * because a lazy handler does not receive `next`. Such a handler must load heavy modules itself, on demand.
    */
   lazy?: false
+  /** The Nitro route meta, such as `ownAccessRouteMeta` for a route that checks its own access. */
+  meta?: object
   plugin?: never
   route: string
 }
@@ -168,6 +175,8 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
   const files = new Map<string, string>()
   const fixedEntries = [
     collectionTypesEntry,
+    sourceTypesEntry,
+    sourceRegistryEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -206,6 +215,8 @@ async function restoreGeneratedSourceArtifacts(
   await rm(routesDirectory, { force: true, recursive: true })
   for (const entry of [
     collectionTypesEntry,
+    sourceTypesEntry,
+    sourceRegistryEntry,
     contentRouteEntry,
     contentPreviewEntry,
     contentSitemapEntry,
@@ -383,6 +394,42 @@ async function writeCollectionArtifacts(
       route: collectionRoutePath(name),
     }
   }))
+}
+
+/**
+ * Writes the `ViteHubSourceMap` types and a Nitro plugin that registers a loader for each file in `server/sources/`
+ * by its name, so `useSource("docs")` opens the default export of `server/sources/docs.ts`.
+ */
+async function writeSourceArtifacts(options: SourceGenerationOptions, sources: DiscoveredSource[]): Promise<GeneratedSourceHandler[]> {
+  const types = resolve(options.projectRoot, sourceTypesEntry)
+  const registry = resolve(options.projectRoot, sourceRegistryEntry)
+  if (sources.length === 0) {
+    await Promise.all([types, registry].map(path => rm(path, { force: true })))
+    return []
+  }
+  await writeFileIfChanged(types, [
+    "declare global {",
+    "  interface ViteHubSourceMap {",
+    ...sources.map(({ file, name }) => `    ${JSON.stringify(name)}: typeof import(${JSON.stringify(toTypeModuleSpecifier(file))})["default"]`),
+    "  }",
+    "}",
+    "",
+    "export {}",
+    "",
+  ].join("\n"))
+  // Each Source file loads on the first read of its name, so a large bundled `glob()` costs nothing at server start.
+  await writeFileIfChanged(registry, [
+    `import { registerSourceLoaders } from ${JSON.stringify(toRuntimeModuleSpecifier(ownModule(import.meta.url, "internal/registry")))}`,
+    "",
+    "registerSourceLoaders({",
+    ...sources.map(({ file, name }) => `  [${JSON.stringify(name)}]: () => import(${JSON.stringify(toRuntimeModuleSpecifier(file))}),`),
+    "})",
+    "",
+    "export default () => {}",
+    "",
+  ].join("\n"))
+  // Register before plugin callbacks read their Sources. Creating a reader does not require registration yet.
+  return [{ handler: registry, plugin: true, position: "start" }]
 }
 
 /**
@@ -722,7 +769,8 @@ async function writeContentArtifact(
           "export default defineContentGitHubWebhookHandler(content)",
           "",
         ].join("\n"))
-    handlers.push({ handler: githubWebhook, method: "post", route: "/_vitehub/content/github" })
+    // The handler checks the GitHub signature of each delivery.
+    handlers.push({ handler: githubWebhook, meta: { ...ownAccessRouteMeta }, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
   // `vitehub.queues` writes the Queue module. It goes when the app has no Queue or no `github()` Source.
@@ -794,11 +842,13 @@ async function writeContentArtifact(
 }
 
 async function prepareSourceArtifacts(options: SourceGenerationOptions): Promise<{ content?: ContentDefinitionFile, handlers: GeneratedSourceHandler[] }> {
-  const [collections, content] = await Promise.all([
+  const [collections, content, sources] = await Promise.all([
     discoverCollections(options),
     findContentEntry(options),
+    discoverSources(options),
   ])
   const handlers = [
+    ...await writeSourceArtifacts(options, sources),
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
   // Plugins have no route and sort first.
@@ -854,7 +904,7 @@ function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: str
     if (path.startsWith("../") || isAbsolute(path)) return false
     return /^content\.(?:[cm]?[jt]s)$/.test(path)
       || /^auth\.(?:[cm]?[jt]s)$/.test(path)
-      || (/^collections\/.+\.(?:[cm]?[jt]s)$/.test(path) && !/\.d\.[cm]?ts$/.test(path))
+      || (/^(?:collections|sources)\/.+\.(?:[cm]?[jt]s)$/.test(path) && !/\.d\.[cm]?ts$/.test(path))
   })
 }
 

@@ -30,7 +30,7 @@ A Capability is an ability attached to an Agent, such as chat or a tool; only th
 | Workflow Run | Durable work that a provider stores and retries. An Agent turn that stops during its Driver fails and does not run again. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
-A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
+A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent get` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
 
 ## Run an Agent
 
@@ -66,11 +66,11 @@ The route reads the signed-in user with a helper of the app:
 
 ```ts [server/utils/auth.ts]
 import { HTTPError } from 'h3'
-import { auth } from 'vite-hub/auth/server'
+import { useAuth } from 'vite-hub/auth/server'
 import type { H3Event } from 'h3'
 
 export async function requireAuthenticatedUser(event: H3Event) {
-  const session = await auth.api.getSession({ headers: event.req.headers })
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
   if (!session) throw new HTTPError({ status: 401 })
   return session.user
 }

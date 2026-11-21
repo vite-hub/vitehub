@@ -34,17 +34,19 @@ Start the dev server, then print the resolved metadata of one Agent Definition.
 The command does not run the Agent.
 
 ```bash [Terminal]
-pnpm vitehub agent info --agent support
-pnpm vitehub agent info --agent support --json
+pnpm vitehub agent get support
+pnpm vitehub agent get support --json
 ```
 
 The output shows the Driver (the code that runs the Agent), its execution authority, tools, visible Workspace files and Sources, instructions, Invoker Profiles, warnings, and metadata status.
 Execution authority is a snapshot of what the Agent can reach: filesystem, network, environment, credentials, processes, and isolation. `unknown` means the runtime or provider cannot prove that part during inspection. It does not mean restricted or denied. The snapshot describes the inspected context. It is not an enforcement decision or proof of safety.
-`--json` gives the structured contract at `config.driver.executionAuthority`. Use `--url` when Vite is not on `http://localhost:5173`.
-With more than one Agent, `--agent` is required.
-`agent info` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`.
+`--json` gives the structured contract at `config.driver.executionAuthority`. Without `--url`, the command uses the dev server of this project. It never guesses a port. Use `--dev --url <app>` to select a specific Dev Loop, including one behind a custom hostname.
+With more than one Agent, pass the name.
+`agent get` reads from the guarded Agent Dev Loop endpoint of `hubAgent()`. With `--url <app>`, it reads the `status.get` [operation](/docs/console/operations) of that app's Console instead, and prints JSON. This includes locally served production builds, such as `--url http://localhost:3000`.
 
-`agent info`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
+With the Console on, `vitehub agent list` lists the Agents of the app, and `vitehub agent invoke <agent> --prompt <text>` starts an Invocation. Both take `--url` for a deployed app.
+
+`agent get`, `agent dev`, and `channels replay` send a private token to this endpoint. The dev server stores the token with user-only permissions outside the served project, and the CLI reads it locally. The discovery request needs no token. It returns Agent names, aliases, trigger names, the server root, and the token server ID, but not the token. Without the token, the endpoint rejects Agent inspection, messages, Capability CLI calls, Workspace commands, and Channel replay, also on a server exposed with `--host`. Run these commands on the dev server's machine.
 
 ## Cancel an Agent Invocation
 
@@ -59,7 +61,7 @@ pnpm vitehub agent invocations cancel ainv_0123 --json
 ainv_0123 cancel requested, not enforced by run
 ```
 
-`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--server`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. Use `--timeout` to change the timeout. With `--url`, the command cancels through the app's Console instead.
+`hubAgent()` adds a guarded `/__vitehub/agent/invocations/dev` endpoint to the dev server. It forwards the request into the Nitro dev environment, where the Agent Definitions and `invocations` journals are the same objects that run the app's Invocations. So the cancel reaches the running Invocation with any store, including `createMemoryAgentInvocationStore()`. The endpoint accepts only local hosts and same-origin requests. Without `--url`, the command uses the dev server of this project from `.vitehub/dev-server.json`, then `VITEHUB_DEV_SERVER_URL`, and fails with `AGENT_INVOCATIONS_NO_DEV_SERVER` when there is none. Use `--timeout` to change the timeout. An explicit `--url` that matches the discovered dev server also uses the guarded endpoint, even when Console invoke access is off.
 
 Nuxt runs Nitro outside the Vite process, and plain Vite has no Nitro. There the endpoint returns `501`, and the command prints the reason and exits with status 1.
 
@@ -79,20 +81,23 @@ Pass the app URL with `--url` to list, show, follow, or cancel Invocations throu
 
 ```bash [Terminal]
 export VITEHUB_CONSOLE_PRIVATE_KEY_CI='<private key>'
-pnpm vitehub agent invocations list --url https://app.example.com --status running
-pnpm vitehub agent invocations show ainv_0123 --url https://app.example.com
+pnpm vitehub agent invocations list --url https://app.example.com --agent support --status running
+pnpm vitehub agent invocations get ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations tail ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations cancel ainv_0123 --url https://app.example.com
 pnpm vitehub agent invocations undo ainv_0123 --change chg_… --url https://app.example.com
+pnpm vitehub agent invocations capabilities --agent support --url https://app.example.com
+pnpm vitehub agent invocations workspace ainv_0123 --path README.md --url https://app.example.com
+pnpm vitehub agent invocations delete ainv_0123 --url https://app.example.com --yes
 ```
 
-`show` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
+`get` prints the changes an Agent made on a person's page through the [page Capability](/docs/agents/capabilities/page), with `--json` in `pageChanges` and `approvals`. `undo <id> --change <change>` asks that page, while it is open, to put one change back. It sends no value: the page restores its own record and keeps a value the person changed after the Agent. It exits 1 when the page could not put the value back.
 
 Each command posts one birpc call to `/_vitehub/rpc` under the app URL, and [signs](/docs/console/signed-requests) it with the key in `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, a private key from `vitehub secret console-key`. The command signs as the key `<NAME>`. Set only one.
 
 `--url` is the app URL, as in every `vitehub` command: `https://app.example.com`, or `http://localhost:3000` for a local production build or a dev server. Remote URLs must use HTTPS, without credentials, a query, or a fragment. The command does not follow redirects. A `401` or a redirect reports a refused signature.
 
-Two old forms still work until the next minor version, and print `AGENT_R1053`: a Console URL, such as `http://localhost:3000/_vitehub`, and a localhost URL with no Console, which the command reads as a local invocation endpoint, or as the dev server for `cancel`. Pass the app URL instead, or `--server` for the dev server.
+`--url` is the app URL. A Console URL, such as `http://localhost:3000/_vitehub`, fails with the app URL to pass instead. Cancellation uses the guarded dev endpoint when the URL matches this project's dev server. A local production build still uses its Console.
 
 The Console has no status filter, so `list --status` reads pages until it has `--limit` matches (default 50). `tail` asks only for observations after the last one it printed. Cancel outcomes and exit statuses are the same as in development.
 
@@ -210,11 +215,11 @@ Telegram's `getWebhookInfo` returns the URL and delivery errors, but not the sec
 
 When the app has the Channel operations, `vitehub channels list` lists Channels and their retention, `channels threads` lists a Channel's threads, and `channels conversation` reads one thread's messages in order. `vitehub channels status <agent> <channel>` shows sync health and skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). `vitehub channels deliveries <agent> <channel>` lists the newest messages a Channel received, with the run each one reached or [why it started none](/docs/agents/channels#why-a-message-started-no-work).
 
-`conversations export` calls the `conversations.export` [operation](/docs/console/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](/docs/cli/inspect#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
+`agent conversations export` calls the `conversations.export` [operation](/docs/console/operations) on the dev server, or on the app at `--url` with the credentials of [Run any operation](/docs/cli/inspect#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 
 ```bash [Terminal]
-pnpm vitehub conversations export support telegram telegram:456 > chat.md
-pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
+pnpm vitehub agent conversations export support telegram telegram:456 > chat.md
+pnpm vitehub agent conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
 ```
 
 Without `--output`, the text goes to stdout without attachments, and a retention warning goes to stderr. With `--output`, the directory must not exist. It gets the file (`history.json` or `<thread>.md`) and attachments in `media/`. `--media` and `--no-media` override the default. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
@@ -246,4 +251,4 @@ A Chat SDK export holds only history the adapter or its State Adapter can give. 
 
 `vitehub channels replay --agent support --channel mailbox --dry-run --label round-one --query folder=inbox` records each run with `triggeredBy: 'round-one'` and `vitehub.channel.key`. Repeat `--query key=value` for several values, as with `--filter`. Labels are not part of the history query. They must be non-empty, at most 512 characters. For a query field named `label`, use `--query label=value`.
 
-Replay needs the development project token or deployed Console authentication. With `--url`, the command calls the `channels.replay` operation on the Console RPC of the deployed app, one page per call. The Agent must allow Console invocation. It checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.
+Replay uses the development project token when `--url` is omitted or matches this project's dev server. For any other app URL, including a local production build, replay calls `channels.replay` over Console RPC, one page per call. This path needs Console authentication, and the Agent must allow Console invocation. Replay checks saved items through the Channel trigger, without rechecking old provider signatures. Public webhooks still verify signatures. In `vite dev`, replay uses the host's Console journal, so local dry runs need no Invocation setup in the app.

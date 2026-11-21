@@ -34,12 +34,13 @@ export default defineAuth({
 | `basePath` | `string` | `/api/auth` | Auth Base Path. Must start with `/`. |
 | `route` | `false` | Enabled | Turns off the automatic Auth route. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes that the generated access middleware guards. A route string, or an object with `route` and optional `method` and `authorize`. |
-| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
+| `access.public` | `string[]` | `[]` | Paths that no access route guards. With `routes: ['/**']`, the only paths a signed-out visitor can open, with the Auth route `<basePath>/**`, which is always public. See [Make every route private](/docs/auth/server-api#make-every-route-private). |
 | `access.policy` | `{ allow, recheck? }` | None | Who can sign in and stay signed in, decided in code. For a list of people, set [`VITEHUB_MEMBERS`](#choose-who-can-sign-in). See [Decide who can stay signed in](/docs/auth/server-api#decide-who-can-stay-signed-in). |
-| `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Where to redirect HTML requests that `withAuth()` or `requireAuth()` rejects. Also serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
+| `access.signIn` | `string` or `{ provider, errorCallbackURL?, requestSignUp?, scopes? }` | `'/login'` | Where a signed-out visitor signs in. A path is your sign-in page, which the [Nuxt page guard](/docs/auth/protect-pages#choose-where-visitors-go) opens. A provider is also where `withAuth()` and `requireAuth()` send HTML requests, and it serves `GET /api/auth/sign-in` and `GET /api/auth/sign-out`. See [Sign in and out with a link](/docs/auth/server-api#sign-in-and-out-with-a-link). |
+| `access.afterSignIn` | `string` | `'/'` | Where a provider sign-in without `?redirect=` comes back to, and where the page guard sends signed-in users from `'guest'` pages. |
 | `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
-`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes` and `access.public` must be static so the Vite integration can register middleware.
+`baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback, never as static top-level fields. `access.routes`, `access.public`, `access.signIn`, and `access.afterSignIn` must be static so the Vite integration can register middleware and the page guard.
 
 ### Secret
 
@@ -361,7 +362,7 @@ pnpm vitehub database migrate
 
 ### Add fields and plugin tables
 
-Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` calls:
+Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` and its local imports call:
 
 ```ts [server/auth.ts]
 import { twoFactor, username } from 'better-auth/plugins'
@@ -383,8 +384,29 @@ export default defineAuth({
 
 Run `vitehub database generate` again after you change the fields or the plugins.
 
-- Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. A field is `NOT NULL` only with `required: true`.
-- Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. A plugin that comes from another file is not found: call it in `server/auth.ts`.
+Read and write the new columns through the tables of `useDatabase()`. ViteHub types them from `server/auth.ts`:
+
+```ts [server/api/settings.get.ts] fragment
+import { eq } from 'drizzle-orm'
+import { defineHandler } from 'h3'
+import { requireAuth } from 'vite-hub/auth/server'
+import { useDatabase } from 'vite-hub/database'
+
+export default defineHandler(async (event) => {
+  const { user } = await requireAuth(event)
+  const { db, schema } = useDatabase('default')
+  const [settings] = await db
+    .select({ login: schema.user.login, language: schema.user.language })
+    .from(schema.user)
+    .where(eq(schema.user.id, user.id))
+  return settings
+})
+```
+
+`authSqliteSchema` and `authPostgresSchema` from `vite-hub/auth/schema` have only the core tables. Use them for foreign keys to `user` or `organization`, not to read your fields.
+
+- Write `additionalFields` inline, with a literal `type` and literal `required`, `unique`, `index`, and `bigint`. A list of values, such as `['en', 'es']`, is a text column. Otherwise Auth fails with `AUTH_C0055`. On a new table, `required: true` makes the column `NOT NULL`. On an existing SQLite table, the generated types keep the snapshot's nullability and defaults, and a new required field without a default stays nullable so old rows still work.
+- Auth adds the tables of these plugins when `server/auth.ts` imports and calls them: `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, and `lastLoginMethod()` from `better-auth/plugins`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe`. Auth also finds them in the exports that `server/auth.ts` imports with a relative path, such as `authPlugins()` from `../src/server/auth-plugins.ts`, and in the code those exports use. It does not follow aliases such as `~/` or packages.
 - `genericOAuth()` adds no tables, so it works without a change.
 - For other plugins, add their tables to the Database Definition. When the options need a table or a column that the Database does not have, the adapter fails with `AUTH_C0056` and names it, before it opens the Database.
 
@@ -538,7 +560,7 @@ export default defineAuth({
 - Prove the header with a credential: call the provider with the token, check the signature of a JWT such as Cloudflare Access's `cf-access-jwt-assertion`, or compare a secret header that only the proxy adds.
 - Auth calls `verify` on each Better Auth request with the header, which includes every guard and `getSession()` call. Cache a slow check inside `verify`, keyed by the credential.
 - The first sign-in follows Better Auth's account linking: an existing user with the same email gets the account only when `emailVerified` is `true`.
-- `accessToken` is stored on the account, so server code can use it, for example with [`isGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
+- `accessToken` is stored on the account, so server code can use it, for example with [`checkGitHubOrgMember()`](/docs/auth/server-api#github-organization-membership).
 - Signing out ends the Better Auth session, but the proxy still sends the header, so the next request signs in again. End the proxy session too, such as oauth2-proxy's `/oauth2/sign_out`.
 - When the proxy is the only way in, turn off the other sign-in endpoints with Better Auth's `disabledPaths`.
 

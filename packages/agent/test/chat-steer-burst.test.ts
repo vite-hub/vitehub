@@ -109,10 +109,13 @@ describe("steer concurrency with debounceMs", () => {
 
     expect(model.doGenerateCalls).toHaveLength(1)
     // Since #2388 each chat message starts with a readable header that names its message ID.
-    expect(promptUserTexts(model.doGenerateCalls[0]!.prompt)).toEqual([
+    // Two webhooks sent at once reach the burst queue in whichever order their admissions finish.
+    const texts = promptUserTexts(model.doGenerateCalls[0]!.prompt)
+    expect(texts).toHaveLength(2)
+    expect(texts).toEqual(expect.arrayContaining([
       expect.stringMatching(/^\[[^\]]+ · msg 8101\]\nI had two different things$/),
       expect.stringMatching(/^\[[^\]]+ · msg 8102\]\nBoth!$/),
-    ])
+    ]))
     expect(sent).toHaveLength(1)
     expect(JSON.stringify(sent[0])).toContain("One reply")
   })
@@ -152,7 +155,7 @@ describe("steer concurrency with debounceMs", () => {
           adapter: () => createTelegramAdapter({ allowedUserIds: [123], allowUnverifiedWebhooks: true, botToken: "test-token", businessMode: field.includes("business"), mode: "webhook" }),
           messages: { concurrency: concurrency ?? "steer", debounceMs: concurrency ? undefined : 100, delivery: "manual", fallbackStreamingPlaceholderText: null, state },
           mode: "webhook",
-          webhooks: { id: "telegram", provider, secretToken: false },
+          webhooks: { id: "telegram", provider, secret: false },
         }),
       },
       driver: { model },
@@ -222,7 +225,7 @@ describe("steer concurrency with debounceMs", () => {
           adapter: () => createTelegramAdapter({ allowedUserIds: [123], allowUnverifiedWebhooks: true, botToken: "test-token", mode: "webhook" }),
           messages: { concurrency: "queue", delivery: "manual", fallbackStreamingPlaceholderText: null, state },
           mode: "webhook",
-          webhooks: { id: "telegram", secretToken: false },
+          webhooks: { id: "telegram", secret: false },
         }),
       },
       driver: { model },

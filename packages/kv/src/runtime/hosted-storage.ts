@@ -1,7 +1,7 @@
 import { destr } from "destr"
 import { normalizeKey } from "unstorage"
 
-import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
+import type { KVPageOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createLazyKVRuntimeDriver, type KVDatabasesLoader } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
@@ -19,7 +19,7 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
   getMany<T = unknown>(keys: readonly string[], options?: unknown): Promise<(T | null)[]>
   incrementItem?(key: string, ttl: number): Promise<number>
-  listKeys(options: KVListOptions): Promise<KVListPage>
+  listKeys(options: KVPageOptions): Promise<KVListPage>
   hasItem(key: string, options?: unknown): Promise<boolean>
   removeItem(key: string, options?: unknown): Promise<void>
   setItem<T = unknown>(key: string, value: T, options?: unknown): Promise<void>

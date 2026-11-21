@@ -106,6 +106,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write the Database name as a string literal, such as `defineComments({ database: \"content\" })`, and put no spread after it. Remove the option to use the default or only Database.",
     },
     // Named errors. Keep these codes in alphabetical order.
+    COMMENTS_DATABASE_TOKEN_IN_BUILD: {
+      why: "The `database` option of `comments()` has an `authToken` in its URL, so the token ends up in the build output.",
+      fix: "Put the URL with its token in a variable, and pass the variable: `comments({ database: \"env:COMMENTS_DATABASE_URL\" })`.",
+    },
     COMMENTS_GITHUB_CREDENTIALS_MISSING: {
       why: "Comments needs GitHub credentials to post to pull requests: VITEHUB_GITHUB_APP_ID with VITEHUB_GITHUB_PRIVATE_KEY, or VITEHUB_GITHUB_TOKEN.",
       fix: "Set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY` of a GitHub App that is installed on the repository, or set `VITEHUB_GITHUB_TOKEN`.",

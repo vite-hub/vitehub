@@ -1012,7 +1012,7 @@ describe("hubBlob", () => {
       await config(userConfig, { command: "build" })
       return userConfig.nitro?.handlers
     }
-    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), route: "/_vitehub/blob-signed/**" }
+    const signed = { handler: expect.stringMatching(/runtime[/\\]signed\.(?:js|ts)$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/blob-signed/**" }
 
     expect(await handlers({ driver: "fs" })).toEqual([signed])
     expect(await handlers({ stores: { default: { bucketName: "assets", driver: "cloudflare" }, local: { driver: "fs" } } })).toEqual([signed])
@@ -1792,6 +1792,13 @@ describe("hubBlob in vite dev", () => {
 
   it("gives the Cloudflare dev plugin a local fs fallback", async () => {
     const root = await resolveConfig(hubBlob(), "serve", { preset: "cloudflare_module" })
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
+  it("gives an explicit cloudflare store the local fs fallback in the dev plugin", async () => {
+    const root = await resolveConfig(hubBlob({ binding: "TASK_ASSETS", driver: "cloudflare" }), "serve", { preset: "cloudflare_module" })
 
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
     expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')

@@ -5,7 +5,8 @@ import { dirname, join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { isSerializedResponse, serializeResponse, ViteHubError } from "@vite-hub/runtime"
+import { ViteHubError } from "@vite-hub/runtime"
+import { isSerializedResponse, serializeResponse } from "@vite-hub/runtime/internal/response"
 
 import type { Result } from "@vite-hub/runtime"
 import { checkDurability } from "@vite-hub/runtime/durability"
@@ -2971,7 +2972,7 @@ describe("workflow runtime", () => {
     await expectInvalidProviderResult(resumeWorkflow("opaque", {}), "resume-signal", "run ID")
   })
 
-  it("fails unsupported inline cancellation and non-Vercel signals explicitly", async () => {
+  it("fails unsupported inline cancellation and a token that no signal made explicitly", async () => {
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => "inline" } }),
     })
@@ -2982,7 +2983,7 @@ describe("workflow runtime", () => {
 
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     expect(await resumeWorkflow("opaque", {})).toMatchObject([{
-      code: "WORKFLOW_OPERATION_UNSUPPORTED",
+      code: "WORKFLOW_SIGNAL_TOKEN_INVALID",
     }, undefined])
   })
 

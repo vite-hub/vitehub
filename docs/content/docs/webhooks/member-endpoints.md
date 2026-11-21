@@ -29,7 +29,7 @@ export async function connectAgent(user: { id: string, name: string, email: stri
   const [error, endpoint] = await createMemberEndpoint({
     owner: user.id,
     ownerName: user.name,
-    // Only a verified email. A Console account with this email acts as Ana.
+    // Only a verified email. Auth checks the current owner again on each Console call.
     ownerEmail: user.emailVerified ? user.email : undefined,
     name: 'Launch plan thread',
     agent: 't3',
@@ -42,7 +42,7 @@ export async function connectAgent(user: { id: string, name: string, email: stri
 }
 ```
 
-- `owner` is the member, such as the Auth user id. A member has one endpoint. A new one replaces the old one.
+- `owner` is the member, such as the Auth user id. A member has one endpoint per `address`; a new one replaces the endpoint at the same address. Omit `address` for a receiver that is not tied to a thread.
 - `ownerName` is the name that admins see in the Console. `ownerEmail` is the member's email, only when it is verified. See [Who owns an endpoint](#who-owns-an-endpoint).
 - `url` must be `https` on the T3 Code relay, `relay.t3.codes`. Pass `hosts` to allow other hosts. See [The URL guard](#the-url-guard).
 - `kind: 'inbox'` takes no URL. Webhooks posts nothing, and the member's agent reads the delivery, such as Claude Code or Codex through MCP.
@@ -51,7 +51,7 @@ ViteHub seals the URL and the secret with AES-GCM and the key in `VITEHUB_WEBHOO
 
 ## Send to a member
 
-`sendToMemberEndpoint(owner, body, { event, key, hosts })` posts the JSON body to the member's receiver and returns `[error, { id, status }]`:
+`sendToMemberEndpoint(owner, body, { event, key })` posts the JSON body to the member's receiver and returns `[error, { id, status }]`:
 
 ```ts [server/utils/send-comments.ts]
 import { sendToMemberEndpoint } from 'vite-hub/webhooks'
@@ -68,8 +68,7 @@ export async function sendComments(userId: string, threads: Array<{ id: string, 
 ```
 
 - The receiver gets the same headers and signature as a [webhook delivery](/docs/webhooks/server-api#the-request): `x-hub-signature-256`, `x-vitehub-delivery`, and `x-vitehub-event`.
-- `key` makes the send idempotent. A send with the key of a pending, sending, or sent delivery returns that delivery and posts nothing. After a failure, the same key posts again.
-- `hosts` is optional: the hosts that the endpoint may use now. Pass the same list as to `createMemberEndpoint()`. An endpoint on another host gets [`WEBHOOKS_URL_REFUSED`](/docs/webhooks/diagnostics/webhooks_url_refused) and no delivery, so removing a host from the list stops the endpoints that it allowed before.
+- `key` makes the send idempotent. A send with the key of a pending, sending, or sent delivery returns that delivery and posts nothing. After a delivery goes dead, the same key posts again. If the Queue rejects the retry, the call returns `WEBHOOKS_WAKE_FAILED` and marks the delivery dead.
 - `status` is `'sent'` for a 2xx answer, `'inbox'` for an inbox, `'failed'` when the post failed, and `'pending'` when the Queue tries again.
 
 The post runs in the request, so the app needs no Queue. When the app has `queue` on, a failed post goes to the `vitehub-webhooks` Queue, which tries it again as it does for a [webhook delivery](/docs/webhooks/limits-and-errors#delivery). Without Queue, a failed post is `failed` at once, and the delivery is `dead`.
@@ -93,23 +92,13 @@ It refuses a URL that:
 
 - does not use `https`, or holds a user name or a password;
 - has a host outside `hosts`. A host does not match its subdomains;
-- names a loopback, private, link-local, or cloud metadata address, such as `127.0.0.1`, `10.0.0.1`, `169.254.169.254`, or `[::1]`, also inside IPv6: IPv4-mapped and IPv4-compatible forms, 6to4 (`2002::/16`), and NAT64 (`64:ff9b::/96`, and all of the local-use `64:ff9b:1::/48`);
+- names a loopback, private, link-local, or cloud metadata address, such as `127.0.0.1`, `10.0.0.1`, `169.254.169.254`, or `[::1]`;
 - on Node, Bun, and Deno, has a name that resolves to one of these addresses, or does not resolve.
 
-Webhooks never follows a redirect, because a redirect would send the signed body to another place.
-
-The check before each post looks at the address only. A `sendToMemberEndpoint()` call with `hosts` checks the host too, but a Queue retry and a Redeliver from the Console do not, so they can still post to an endpoint whose host you removed. Disable or remove that endpoint to stop them.
-
-What the guard can see depends on the runtime:
-
-| Runtime | Names | Who stops a private address |
-| --- | --- | --- |
-| Cloudflare Workers, deployed | Not resolved: a name passes on `hosts` alone | The platform: a Worker's `fetch()` connects only to public addresses |
-| `wrangler dev` | Not resolved | Nobody: Miniflare connects to private addresses too |
-| Node, Bun, Deno | Resolved, and refused when one address is private | The guard, at the time of the check. `fetch()` resolves the name again, so a name whose DNS changes in between reaches the new address |
+When Webhooks resolves a name before delivery, it connects only to an address it checked for that attempt. TLS still checks the original hostname. Webhooks never follows a redirect, because a redirect would send the signed body to another place.
 
 > [!WARNING]
-> List in `hosts` only names whose DNS you, or a party that you trust, control, such as the default `relay.t3.codes`.
+> Cloudflare Workers cannot resolve a host name, so there a name passes on `hosts` alone. Keep `hosts` to hosts that you trust, such as the default `relay.t3.codes`.
 
 ## The key
 
@@ -125,19 +114,21 @@ openssl rand -base64 32
 
 | Function | Does |
 | --- | --- |
-| `getMemberEndpoint(owner)` | The endpoint of a member, or `null` |
-| `listMemberEndpoints()` | Every endpoint, with `last`, the newest delivery to it |
+| `getMemberEndpoint(owner, { address? })` | The member's endpoint at that address, otherwise their newest endpoint, or `null` |
+| `listMemberEndpoints({ limit?, after? })` | A page of endpoints, with `last`, the newest delivery to each |
 | `removeMemberEndpoint(owner, id)` | Removes the endpoint when the member owns it |
 | `disableMemberEndpoint(id, { by })` | Stops sends to the endpoint. `by` names who did it. Check that the caller is an admin first. |
 | `enableMemberEndpoint(id)` | Starts sends to a disabled endpoint again |
 
-Each returns `[error, endpoint]`. An endpoint has `id`, `owner`, `ownerName`, `ownerEmail`, `name`, `kind`, `agent`, `host`, `disabledAt`, `disabledBy`, `createdAt`, and `updatedAt`. It never holds the URL or the secret.
+Each returns `[error, data]`. An endpoint has `id`, `owner`, `ownerName`, `ownerEmail`, `name`, `address`, `kind`, `agent`, `host`, `disabledAt`, `disabledBy`, `createdAt`, and `updatedAt`. It never holds the receiver URL or the secret.
 
 ## In the Console
 
 The **Webhooks** section of the [Console](/docs/console) lists the member endpoints for admins, read-only: the owner, the agent, the host, and the last result, such as `202` or `401, 3 in a row`. Admins cannot create or edit an endpoint, and never see its URL or secret. They can **Disable** one, which stops its sends, and **Enable** it again. The delivery log filters by owner and by endpoint.
 
 `vitehub webhooks endpoints`, `vitehub webhooks disable-endpoint <id>`, and `vitehub webhooks enable-endpoint <id>` do the same from the CLI, and `vitehub webhooks deliveries --owner <id>` lists the deliveries of one member.
+
+The endpoint list returns up to 500 rows per page. To get the next page, pass the last row's `createdAt` and `id`, for example `vitehub webhooks endpoints --after '{"createdAt":1794400000000,"id":"whe_123"}'`. Use `--limit` for a smaller page. The owner filter includes deliveries from earlier endpoints, even after reconnecting.
 
 ## Who owns an endpoint
 
@@ -146,10 +137,10 @@ Only the member who owns an endpoint can send to it again: **Redeliver** and **S
 | Caller | Owns the endpoint when |
 | --- | --- |
 | An app user, such as through the app's MCP | Its user id is `owner` |
-| A ViteHub Console account | Its email equals the `ownerEmail` of the endpoint |
+| A ViteHub Console account | Its verified email equals `ownerEmail` and the app's Auth still verifies that email for `owner` |
 | The CLI with a key | Never: a key names no person |
 
-Console accounts are not app users, so their ids never match `owner`. The app stores `ownerEmail` only when the member verified it, and the Console signs the email of the account. An endpoint without `ownerEmail` can be redelivered only by the app user.
+Console accounts are not app users, so their ids never match `owner`. If the app cannot verify the current owner, only the app user can redeliver. After changing their email, a member can reconnect the endpoint to use Redeliver from the Console again.
 
 In server code, pass the caller: `redeliverWebhookDelivery(id, { caller: { id: user.id } })` from `vite-hub/webhooks/runtime`.
 

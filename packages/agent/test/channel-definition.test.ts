@@ -3,8 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { defineChannel, sendChannelTrigger, stripe, webhook } from "@vite-hub/channels"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { defineChannel, sendChannelTrigger } from "@vite-hub/channels"
+import { stripe, webhook } from "@vite-hub/channels/adapters"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
@@ -15,11 +16,18 @@ import type { ChannelEvent } from "@vite-hub/channels"
 
 const cleanups: Array<() => Promise<void> | void> = []
 
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+const secret = "whsec_test"
+
+// `stripe()` reads its secret from the server variable STRIPE_WEBHOOK_SECRET, and `webhook()` from the one it names.
+beforeEach(() => {
+  vi.stubEnv("STRIPE_WEBHOOK_SECRET", secret)
+  vi.stubEnv("PREFECT_WEBHOOK_SECRET", "token")
 })
 
-const secret = "whsec_test"
+afterEach(async () => {
+  vi.unstubAllEnvs()
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
 
 function stripeHeader(body: string, timestamp = Math.floor(Date.now() / 1000)): string {
   return `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`
@@ -66,7 +74,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("verifies a Stripe webhook, runs the handler once per event ID, and ignores other events", async () => {
     const handler = vi.fn((_event: ChannelEvent, _context: { channel: string }) => undefined)
     const agent = hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { "checkout.session.completed": handler },
     }))
     const { send } = await routeFor(agent)
@@ -101,7 +109,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     const handler = vi.fn()
       .mockResolvedValueOnce([failure, undefined])
       .mockResolvedValue([undefined, { messageId: "m-1" }])
-    const agent = hostAgent(defineChannel({ adapter: stripe({ secret }), on: { "checkout.session.completed": handler } }))
+    const agent = hostAgent(defineChannel({ adapter: stripe(), on: { "checkout.session.completed": handler } }))
     const { send } = await routeFor(agent)
 
     expect((await send(stripeEvent("evt_retry"))).status).toBe(200)
@@ -132,7 +140,7 @@ describe("defineChannel() on the Agent webhook route", () => {
       }),
     })
     const { send } = await routeFor(hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { [paidEvent]: target(paid), [failedEvent]: target(failed) },
     })))
 
@@ -156,7 +164,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("filters the event of a single trigger target", async () => {
     const invoke = vi.fn(() => ignored("paid"))
     const { send } = await routeFor(hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: { "invoice.paid": defineChannelTrigger({ invoke }) },
     })))
     await expect((await send(stripeEvent("evt_other", "charge.failed"))).json()).resolves.toMatchObject({ accepted: false })
@@ -168,7 +176,7 @@ describe("defineChannel() on the Agent webhook route", () => {
   it("runs the handler before the answer without webhook State", async () => {
     const handler = vi.fn(() => { throw new Error("down") })
     const agent = hostAgent(defineChannel({
-      adapter: webhook({ signature: "bearer", secret: "token" }),
+      adapter: webhook({ signature: "bearer", secret: "PREFECT_WEBHOOK_SECRET" }),
       on: { webhook: handler },
     }))
     // SAFETY: The route handler takes the Agent as the generated registry passes it.
@@ -209,7 +217,7 @@ describe("defineChannel() on the Agent webhook route", () => {
 
   it("resolves the Channels that an Agent lists by name", () => {
     const adapter = teams({ adapter: { userName: "Bot" } })
-    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe({ secret }) }) })
+    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe() }) })
     const agent = defineAgent({ name: "support", channels: ["support", "payments"], driver: { run: () => "ok" } })
     expect(agent.channels!.support).toBe(adapter)
     expect(agent.channels!.payments).toMatchObject({ kind: "stripe", messages: false })
@@ -222,7 +230,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     const handler = vi.fn()
     const run = vi.fn()
     const agent = hostAgent(defineChannel({
-      adapter: stripe({ secret }),
+      adapter: stripe(),
       on: {
         "checkout.session.completed": handler,
         record: defineChannelTrigger({

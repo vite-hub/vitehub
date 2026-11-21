@@ -93,12 +93,12 @@ function sealedFields(text: string): { secret: string, url?: string } {
  * ```
  */
 export async function startMemberPairing(owner: string): Promise<Result<{ code: string, secret: string, expiresAt: number }, MemberPairingErrorCode>> {
-  const { endpoints } = requireMemberEndpoints()
+  const { endpoints, developmentKey } = requireMemberEndpoints()
   if (typeof owner !== "string" || !owner.trim()) return [webhooksErrors.WEBHOOKS_ENDPOINT_INVALID({ problem: "`owner` must be non-empty text" }), undefined]
   const code = pairingCode()
   const id = await codeKey(code)
   const secret = `whsec_${random(32)}`
-  const [keyError, sealed] = await sealWebhooksText(label(id), JSON.stringify({ secret }))
+  const [keyError, sealed] = await sealWebhooksText(label(id), JSON.stringify({ secret }), developmentKey)
   if (keyError) return [keyError, undefined]
   const now = Date.now()
   const expiresAt = now + memberPairingLifetime
@@ -119,7 +119,7 @@ export async function startMemberPairing(owner: string): Promise<Result<{ code: 
  * too old, used, or refused is a `status`, not an error. Input that is not one of the two shapes is an error.
  */
 export async function pairMemberEndpoint(input: unknown, options: { hosts?: readonly string[] } = {}): Promise<Result<MemberPairResult, MemberPairingErrorCode>> {
-  const { endpoints } = requireMemberEndpoints()
+  const { endpoints, developmentKey } = requireMemberEndpoints()
   const field = (name: string): unknown => typeof input === "object" && input !== null ? Reflect.get(input, name) : undefined
   const code = field("code")
   const url = field("url")
@@ -144,9 +144,9 @@ export async function pairMemberEndpoint(input: unknown, options: { hosts?: read
       await endpoints.movePairing(id, "waiting", "refused", now)
       return [undefined, { status: "refused", reason: refused.why }]
     }
-    const [openError, opened] = await unsealWebhooksText(label(id), row.sealed)
+    const [openError, opened] = await unsealWebhooksText(label(id), row.sealed, developmentKey)
     if (openError) return [openError, undefined]
-    const [sealError, sealed] = await sealWebhooksText(label(id), JSON.stringify({ secret: sealedFields(opened).secret, url: checked.href }))
+    const [sealError, sealed] = await sealWebhooksText(label(id), JSON.stringify({ secret: sealedFields(opened).secret, url: checked.href }), developmentKey)
     if (sealError) return [sealError, undefined]
     const moved = await endpoints.movePairing(id, "waiting", "paired", now, { agent, host: checked.host, address: memberPairingAddress(field("thread")), sealed })
     return [undefined, moved ? { status: "paired", pairing: toPairing(moved) } : { status: "used" }]
@@ -224,7 +224,7 @@ export interface AllowMemberPairingOptions {
  * ```
  */
 export async function allowMemberPairing(owner: string, code: string, options: AllowMemberPairingOptions): Promise<Result<MemberAllowResult, MemberPairingErrorCode | CreateMemberEndpointErrorCode>> {
-  const { endpoints } = requireMemberEndpoints()
+  const { endpoints, developmentKey } = requireMemberEndpoints()
   const id = await codeKey(code)
   let used: StoredMemberPairing | undefined
   try {
@@ -243,7 +243,7 @@ export async function allowMemberPairing(owner: string, code: string, options: A
   const member = { owner, name, ...(options.ownerName ? { ownerName: options.ownerName } : {}), ...(options.ownerEmail ? { ownerEmail: options.ownerEmail } : {}) }
   let created: Awaited<ReturnType<typeof createMemberEndpoint>>
   if (used.host) {
-    const [openError, opened] = await unsealWebhooksText(label(id), used.sealed)
+    const [openError, opened] = await unsealWebhooksText(label(id), used.sealed, developmentKey)
     if (openError) return [openError, undefined]
     const target = sealedFields(opened)
     if (!target.url) throw webhooksErrors.WEBHOOKS_STORE_FAILED({ action: "read a pairing code" })

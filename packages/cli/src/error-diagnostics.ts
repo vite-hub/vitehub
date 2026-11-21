@@ -75,6 +75,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand.",
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `The vitehub() options in ${String(file)} cannot be read without running the config (${String(reason)}).`,
     },
+    SETUP_LOGS_OPTION_MOVED: {
+      why: "`observability.logs` is no longer a ViteHub option.",
+      fix: "Remove the option from the command. Configure the top-level `logs` key by hand, for example `logs: { source: './server/logs.ts' }` to set `logs.source`.",
+    },
     SETUP_NOT_A_PROJECT: {
       fix: "Run the command in the folder of your Vite or Nuxt app, where its package.json is.",
       why: ({ root }: { root?: unknown }) => `${String(root)} has no package.json, vite.config, or nuxt.config file.`,
@@ -184,6 +188,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_DEPLOY_CREDENTIALS_MISSING: {
       fix: ({ fix }: { host?: unknown, fix?: unknown }) => fix === undefined ? "Log in with the host CLI, such as `npx wrangler login`, or set the host token, such as CLOUDFLARE_API_TOKEN, VERCEL_TOKEN, NETLIFY_AUTH_TOKEN, or DENO_DEPLOY_TOKEN, then run the command again." : String(fix),
       why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
+    },
+    SETUP_DEPLOY_D1_MIGRATIONS_PENDING: {
+      fix: ({ apply }: { apply?: unknown, binding?: unknown, migrations?: unknown }) => `Set \`database.migrateOnDeploy: true\` so that \`vitehub deploy\` applies them before the Worker deploys. Or run \`${String(apply)}\` in the build output folder, then deploy again.`,
+      why: ({ binding, migrations }: { apply?: unknown, binding?: unknown, migrations?: unknown }) => `The build has D1 migrations that the remote database of the binding ${String(binding)} has not applied: ${String(migrations)}. The new code would query tables or columns that do not exist yet. Nothing was deployed.`,
     },
     SETUP_DEPLOY_TEMPORARY_UNSUPPORTED: {
       fix: "Remove --temporary and deploy with your host login.",

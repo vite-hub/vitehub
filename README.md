@@ -55,7 +55,7 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/gateways"><img src=".github/assets/primitives/gateways.svg" alt="" height="24"><br><b>AI Gateways</b></a><br>Model request routing</td>
   </tr>
   <tr>
-    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/decisions"><img src=".github/assets/primitives/decisions.svg" alt="" height="24"><br><b>Decisions</b></a><br>Text to choices</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/choices"><img src=".github/assets/primitives/choices.svg" alt="" height="24"><br><b>Choices</b></a><br>Text to choices</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="24"><br><b>Realtime</b></a><br>Live collaboration</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="24"><br><b>Browser</b></a><br>Browser operations</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="24"><br><b>Shell</b></a><br>Command execution</td>
@@ -71,6 +71,15 @@ Use each primitive alone, or use them together in one app.
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/i18n"><img src=".github/assets/primitives/i18n.svg" alt="" height="24"><br><b>i18n</b></a><br>App translation</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/comments"><img src=".github/assets/primitives/comments.svg" alt="" height="24"><br><b>Comments</b></a><br>Live page feedback</td>
     <td width="25%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="24"><br><b>UI</b></a><br>Agent interfaces</td>
+  </tr>
+  <tr>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/sync"><img src=".github/assets/primitives/sync.svg" alt="" height="24"><br><b>Sync</b></a><br>Local table sync</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/device"><img src=".github/assets/primitives/device.svg" alt="" height="24"><br><b>Device</b></a><br>Stored browser reads</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/forge"><img src=".github/assets/primitives/forge.svg" alt="" height="24"><br><b>Forge</b></a><br>Git forge identity</td>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/webhooks"><img src=".github/assets/primitives/webhooks.svg" alt="" height="24"><br><b>Webhooks</b></a><br>Signed event delivery</td>
+  </tr>
+  <tr>
+    <td width="25%" valign="top"><a href="https://vitehub.dev/docs/mcp"><img src=".github/assets/primitives/mcp.svg" alt="" height="24"><br><b>MCP server</b></a><br>App MCP server</td>
   </tr>
 </table>
 <!-- primitives:end -->
@@ -107,8 +116,6 @@ Support is different for each primitive. Read the [support matrix](https://viteh
 pnpm add vite-hub @vite-hub/kv nitro h3
 pnpm add -D vite
 ```
-
-If pnpm stops with `ERR_PNPM_IGNORED_BUILDS` and names `esbuild`, the packages from that command are installed. Run `pnpm approve-builds esbuild` one time to let esbuild run its install script. Then run `pnpm add -D vite` before you continue.
 
 ```ts
 // vite.config.ts

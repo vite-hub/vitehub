@@ -1164,6 +1164,7 @@ describe("Vite schedule integration", () => {
       await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
         build: { outDir: "dist/client" },
         command: "build",
+        logger: { warn: () => {} },
         resolve: { alias: [] },
         root,
       })
@@ -1236,8 +1237,22 @@ describe("Vite schedule integration", () => {
       )
 
       expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } } })
-      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8"))
-        .resolves.toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+      const pluginSource = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
+      expect(pluginSource).toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry, triggerCrons: {\"cleanup\":\"0 0 * * *\"} })")
+      expect(pluginSource).toContain('setHostScheduleInventory({ timings: {"cleanup":{"cron":"0 0 * * *","timeZone":"UTC"}} })')
+    })
+
+    it("writes weekday names in Nitro's Cloudflare triggers with tab-separated cron fields", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-nitro-cloudflare-weekdays-")
+      const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
+      await (hubSchedule({ cron: { cleanup: "0\t4 * * 1-5" } }).config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        userConfig,
+        { command: "build", mode: "production" },
+      )
+
+      expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 4 * * MON,TUE,WED,THU,FRI"] } } } } })
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"0 4 * * MON,TUE,WED,THU,FRI\"")
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain('triggerCrons: {"cleanup":"0 4 * * MON,TUE,WED,THU,FRI"}')
     })
 
     it("fails the build when the cron names no Schedule", async () => {
@@ -1252,6 +1267,19 @@ describe("Vite schedule integration", () => {
 
       await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, root, runtime: { driver: "process" } }))
         .rejects.toMatchObject({ code: "SCHEDULE_B0008" })
+    })
+
+    it("reports a hint when the Process Runtime claims occurrences in memory", async () => {
+      const appRoot = await temporaryDirectory("vitehub-schedule-process-memory-hint-app-")
+      const root = await createHourlyCleanup("vitehub-schedule-process-memory-hint-")
+      const warn = vi.fn()
+      const plugin = hubSchedule({ projectRoot: root, runtime: { driver: "process" } })
+      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({ build: { outDir: "dist/client" }, command: "build", logger: { warn }, resolve: { alias: [] }, root: appRoot })
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Process Runtime claims each Schedule occurrence in memory"))
+      const report = JSON.parse(await readFile(join(appRoot, ".vitehub", "hints.json"), "utf8"))
+      expect(report).toMatchObject({ command: "build", hints: [{ code: "SCHEDULE_PROCESS_CLAIMS_IN_MEMORY", docs: "https://vitehub.dev/docs/schedule/diagnostics/schedule_process_claims_in_memory" }] })
+      await expect(readFile(join(root, ".vitehub", "hints.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     })
 
     it("accepts the cron when host output wakes Static Schedules beside the Process Runtime", async () => {

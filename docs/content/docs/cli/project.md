@@ -96,7 +96,7 @@ Some host defaults build and run but keep state in one process. `nextSteps` name
 
 Observability papercut reports require Agent and Console. The command collects their provider inputs before applying these options.
 
-Console does not enable Comments or Database. `vitehub add observability` registers Evlog. `--option observability.service=<name>` adds Agent telemetry, installs `@vite-hub/agent`, and supports Agents only when Nitro hosts them. Selecting PostHog installs `posthog-node` and enables Server Env. `--option observability.logs.source=./server/logs.ts` connects an existing log source for production. A Realtime starter enables Workspace; add the Workspace Definition named in its next steps.
+Console does not enable Comments or Database. `vitehub add observability` registers Evlog. `--option observability.service=<name>` adds Agent telemetry, installs `@vite-hub/agent`, and supports Agents only when Nitro hosts them. Selecting PostHog installs `posthog-node` and enables Server Env. To read an existing log source in production, set `logs: { source: './server/logs.ts' }` in `vitehub()`. A Realtime starter enables Workspace; add the Workspace Definition named in its next steps.
 
 When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
@@ -301,12 +301,14 @@ The command runs each host CLI with an argument array and no shell. It runs only
 
 | Host | Deploy |
 | --- | --- |
-| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit, and `--secrets-file` when deploy sets env values. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. `--preview` runs `wrangler versions upload` and applies no migrations. |
+| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit, and `--secrets-file` when deploy sets env values. With `database.migrateOnDeploy`, it first runs `wrangler d1 migrations apply <binding> --remote` for each D1 binding, and stops when one fails. Without it, deploy reads the migrations table of each D1 binding with `wrangler d1 execute --remote`, and stops with [`SETUP_DEPLOY_D1_MIGRATIONS_PENDING`](/docs/cli/diagnostics/setup_deploy_d1_migrations_pending) when the build has a migration that the table does not list. `--preview` runs `wrangler versions upload` and applies no migrations. |
 | Vercel | `vercel deploy --prebuilt --prod --project <name>`, with `--meta vitehubCommit=<sha>` |
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` |
 
 The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+
+For Cloudflare's read-only migration check, the API token needs at least the account's **D1 Read** permission (**D1 Write** also works). This applies even with `--no-provision` and an existing D1 database ID.
 
 A temporary deploy has no account. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
 

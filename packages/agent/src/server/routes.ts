@@ -31,6 +31,7 @@ import {
   resolveChatSessionId,
   resolveChatTriggerHistory,
   uiMessagesToAgentMessages,
+  withDriverTriggerHistoryDefaults,
 } from "../chat-message-input.ts"
 import { channelDeliveryFinishEffectsContextKey, normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
@@ -65,6 +66,7 @@ import {
   withRehydratedBodyDeliveryId,
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
+import { serverVariable } from "../internal/server-variable.ts"
 import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
 import {
   acquireChannelStateLock,
@@ -593,6 +595,8 @@ async function resolveWebhookSecret(
   context: AgentRuntimeContext,
 ): Promise<unknown> {
   if (value === undefined) return undefined
+  // A string names the server variable that holds the secret.
+  if (typeof value === "string") return serverVariable(value)
   if (typeof value === "function") {
     return await value(context)
   }
@@ -610,6 +614,9 @@ function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   return normalizeCapabilities(Array.isArray(capabilities) ? capabilities : undefined)
 }
 
+// The Driver kind that defineAgent() stores on each Agent Definition.
+const baseAgentDriverKind = Symbol.for("vitehub.baseAgentDriverKind")
+
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   if (!isRecord(agent)) return undefined
   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -619,12 +626,16 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
 }
 
 function getChannelChatOptions(agent: unknown, channelId: string | undefined, options: AgentChatOptions | undefined): AgentChatOptions | undefined {
-  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
+  const driverKind = isRecord(agent) ? Reflect.get(agent, baseAgentDriverKind) : undefined
+  if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const channel = agent.channels[channelId]
-  if (!isRecord(channel)) return options
+  if (!isRecord(channel)) return withDriverTriggerHistoryDefaults(options, driverKind)
   const merged = isRecord(channel.messages) ? { ...options, ...channel.messages } : options
   // `channels.<name>.transcripts` sets the transcripts of this Channel only.
-  return channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] }
+  return withDriverTriggerHistoryDefaults(
+    channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] },
+    driverKind,
+  )
 }
 
 /**
@@ -690,13 +701,13 @@ async function matchedWebhookRegistrationRequiresVerification(
   context: ViteAgentRouteRuntimeContext,
   requireConfiguredSecret: boolean,
 ): Promise<boolean> {
-  const secret = registration.secretToken === undefined ? undefined : await resolveWebhookSecret(registration.secretToken, context)
+  const secret = registration.secret === undefined ? undefined : await resolveWebhookSecret(registration.secret, context)
   if (registration.signature && typeof registration.signature === "object" && "verify" in registration.signature) return true
-  if (registration.secretToken !== undefined) return secret !== false
+  if (registration.secret !== undefined) return secret !== false
   // A bearer registration always verifies, so a missing secret is reported instead of skipping the check.
   if (registration.signature === "bearer") return true
   // A Chat SDK adapter verifies chat messages itself. Every other registration verifies unless it opts out with
-  // `secretToken: false`, so a registration that declares nothing answers 401 instead of running its trigger.
+  // `secret: false`, so a registration that declares nothing answers 401 instead of running its trigger.
   return requireConfiguredSecret
 }
 
@@ -2075,6 +2086,9 @@ async function executeQueuedWebhookDelivery(
       }
       else {
         invocation = { input: prepared.input, run: prepared.run }
+        // A GitHub pull request trigger sent from server code tracks its run in `prepare`. Releasing any other signal
+        // does nothing.
+        reconcileSignal ??= prepared.input.abortSignal
         if (prepared.agent) executionAgent = prepared.agent
       }
     }
@@ -3349,6 +3363,16 @@ function withChatStateScope(state: StateAdapter, channelPrefix: string, agentPre
   if (typeof leaseState.mutateWithLock === "function") {
     Object.assign(scoped, {
       mutateWithLock: (held: Lock, mutations: readonly AgentStateCacheMutation[]) => leaseState.mutateWithLock!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) }))),
+      ...(typeof leaseState.acquireLockWith === "function" ? {
+        acquireLockWith: async (threadId: string, ttlMs: number, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) => {
+          const result = await leaseState.acquireLockWith!.call(state, key(threadId), ttlMs, mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key))
+          return { ...result, lock: result.lock ? { ...result.lock, threadId } : null }
+        },
+      } : {}),
+      ...(typeof leaseState.releaseLockWith === "function" ? {
+        releaseLockWith: (held: Lock, mutations: readonly AgentStateCacheMutation[], keys: readonly string[]) =>
+          leaseState.releaseLockWith!.call(state, lock(held), mutations.map(mutation => ({ ...mutation, key: key(mutation.key) })), keys.map(key)),
+      } : {}),
       ...(typeof leaseState.forCacheLocks === "function" ? {
         forCacheLocks: () => requireAtomicAgentStateLock(withChatStateScope(leaseState.forCacheLocks!.call(state), channelPrefix, agentPrefix)),
       } : {}),
@@ -6746,7 +6770,7 @@ async function handleChatSdkMessage(
       let workflowRunContext = runContext
       let workflowSettlementError: DurableSteerQueueMessage["settlementError"]
       let workflowSettlementStatus: DurableSteerQueueMessage["settlementStatus"]
-      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput)
+      if (steerKey) workflowInput = await portableAgentWorkflowInput(workflowInput, run?.messageId)
       const currentErrorDelivery: DurableSteerErrorDelivery = {
         capabilities: workflowCapabilities,
         input: workflowInput,
@@ -9847,7 +9871,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         })
       }
       if (request.headers.get(agentChannelHistoryHeader) === "1") {
-        const secret = await resolveWebhookSecret(registration.secretToken, context)
+        const secret = await resolveWebhookSecret(registration.secret, context)
         const secretHeader = webhookSecretHeader(registration)
         if (!secretHeader || secret === false || (!secret && registration.signature !== "bearer")) {
           return createJsonErrorResponse(403, "Channel history export requires a configured webhook secret.")

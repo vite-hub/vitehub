@@ -8,8 +8,6 @@
 @import "./theme-focus-ring.css";
 /* Comment pins, areas, and highlights. The ViteHub pill and Drop's page frame load the same file without a framework. */
 @import "./comment-marks.css" layer(components);
-/* The cross-fade of CopyButton's icons. Drop's page frame loads the same file without a framework. */
-@import "./icon-swap.css" layer(components);
 /* CommentSend, the Send segment of a comment pill. The ViteHub pill loads the same file in its toolbar. */
 @import "./comment-send.css" layer(components);
 
@@ -481,7 +479,7 @@
   --vh-primitive-icon-motion: translateY(-1.5px);
 }
 
-.vh-primitive-icon[data-icon="decisions"] {
+.vh-primitive-icon[data-icon="choices"] {
   --vh-primitive-icon-motion: translate(1px, -1px);
 }
 

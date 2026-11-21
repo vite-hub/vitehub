@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
-import { fetch, useWorkspace } from "../src/index.ts"
+import { url as urlSource, useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { getWorkspaceDependencyRuntimeLoaders, setWorkspaceDependencyRuntimeLoaders } from "../src/runtime/dependency-loaders.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
@@ -14,7 +14,7 @@ import { createWorkspace } from "../src/core/workspace.ts"
 
 import type { WorkspaceSession } from "../src/core/types.ts"
 import type { ShellDriver } from "@vite-hub/shell"
-import { createExecutionBudget } from "@vite-hub/runtime"
+import { createExecutionBudget } from "@vite-hub/runtime/internal/execution-budget"
 
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
@@ -452,7 +452,7 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           cookies: { auth_token: "secret" },
           querySchema,
           url: "https://portal.example.com/runtime/inventory-health",
@@ -529,7 +529,7 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-post-source",
       sources: {
-        inventoryHealthSummary: fetch({
+        inventoryHealthSummary: urlSource({
           bodySchema,
           method: "POST",
           url: "https://portal.example.com/runtime/inventory-health",
@@ -553,8 +553,8 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source-query-shape",
       sources: {
-        pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
-        pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
+        pageTwo: urlSource({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
+        pageThree: urlSource({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
       store: { driver: "memory" },
     })

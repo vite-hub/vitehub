@@ -42,9 +42,9 @@ const kv = vi.hoisted(() => {
         entries.delete(key)
         return [undefined, value] as const
       },
-      async keys(base: string) {
+      async list({ prefix }: { prefix: string }) {
         // Redis lists keys with `:`; some drivers use `/`.
-        return [undefined, [...entries.keys()].filter(key => key.startsWith(base) && live(key) !== null).map(key => key.replaceAll(":", "/"))] as const
+        return [undefined, { keys: [...entries.keys()].filter(key => key.startsWith(prefix) && live(key) !== null).map(key => key.replaceAll(":", "/")) }] as const
       },
       async delete(key: string) {
         entries.delete(key)
@@ -84,7 +84,7 @@ async function open(url: string): Promise<{ response: Response, cookie: string }
 
 /** The page tools that the session route gives this browser. */
 async function tools(cookie: string): Promise<string[]> {
-  const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/session?page=%2Fguide`, { headers: { cookie } }))
+  const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools?page=%2Fguide`, { headers: { cookie } }))
   const body: unknown = await response.json()
   return (Reflect.get(Object(body), "tools") as Array<{ id: string }>).map(tool => tool.id)
 }

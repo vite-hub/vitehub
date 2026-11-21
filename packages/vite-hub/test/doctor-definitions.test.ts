@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  checkResponseResults,
   definitionDefaultExport,
   definitionLocation,
   knownDefinitionNames,
@@ -163,61 +162,50 @@ describe("vitehub/no-module-scope-dispatch", () => {
 })
 
 describe("vitehub/no-destructure-non-tuples", () => {
-  it("reports tuple destructuring of values and Responses", async () => {
+  it("reports tuple destructuring of values", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
         'import { deferWorkflow } from "vite-hub/workflow"',
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
+        'import { useQueue } from "vite-hub/queue"',
         "export async function run() {",
-        '  const [failure, output] = await runSandboxTask("resize", {})',
+        '  const [error, queue] = await useQueue("welcome-email")',
         '  const [deferred] = await deferWorkflow("onboard", {})',
-        "  return { failure, output }",
+        "  return { error, queue }",
         "}",
       ].join("\n"),
     })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
-  it("accepts the tuple form of startWorkflow and runAgent", async () => {
+  it("accepts the tuple form of the calls that returned their value before", async () => {
     expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
-        'import { startWorkflow } from "vite-hub/workflow"',
-        'import { runAgent } from "vite-hub/agent"',
-        "export async function run(agent, options) {",
-        '  const [startError, run] = await startWorkflow("onboard", {})',
-        '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
-        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
-        '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
-        "  return { startError, run, error, answer, failure, result, unknown, value }",
+        'import { listAuthEvents } from "vite-hub/auth/server"',
+        'import { runBrowser, runBrowserContent } from "vite-hub/browser"',
+        'import { typesafe } from "vite-hub/gateways"',
+        "export async function run() {",
+        "  const [eventsError, events] = await listAuthEvents({})",
+        '  const [browserError, page] = await runBrowser("page-html", {})',
+        '  const [contentError, html] = await runBrowserContent("https://example.com")',
+        '  const [askError, answers] = await typesafe().ask("text", {})',
+        "  return { eventsError, events, browserError, page, contentError, html, askError, answers }",
         "}",
       ].join("\n"),
     })).toEqual([])
   })
-})
 
-describe("vitehub/check-response-results", () => {
-  it("reports data read from a Response", async () => {
-    expect(await codes(checkResponseResults, {
+  it("accepts the tuple form of startWorkflow, runSandboxTask, and runAgent", async () => {
+    expect(await codes(noDestructureNonTuples, {
       "server/api/a.ts": [
+        'import { startWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        'import { runBrowser } from "vite-hub/browser"',
-        "export async function run() {",
-        '  const { width } = await runSandboxTask("resize", {})',
-        '  const page = await runBrowser("screenshot", {})',
-        '  return { width, title: page.title, size: (await runSandboxTask("resize", {})).size }',
-        "}",
-      ].join("\n"),
-    })).toEqual(["VHUB0019", "VHUB0019", "VHUB0019"])
-  })
-
-  it("accepts Response members", async () => {
-    expect(await codes(checkResponseResults, {
-      "server/api/a.ts": [
-        'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        "export async function run() {",
-        '  const response = await runSandboxTask("resize", {})',
-        "  if (!response.ok) throw new Error(await response.text())",
-        "  const { width } = await response.json()",
-        "  return { width, status: response.status }",
+        'import { runAgent } from "vite-hub/agent"',
+        "export async function run(agent, options) {",
+        '  const [startError, run] = await startWorkflow("onboard", {})',
+        '  const [taskError, output] = await runSandboxTask("resize", {})',
+        '  const [error, answer] = await runAgent(agent, { prompt: "hi" })',
+        '  const [failure, result] = await runAgent(agent, { prompt: "hi" }, { runtimeContext: options.runtimeContext })',
+        '  const [unknown, value] = await runAgent(agent, { prompt: "hi" }, options)',
+        "  return { startError, run, taskError, output, error, answer, failure, result, unknown, value }",
         "}",
       ].join("\n"),
     })).toEqual([])
@@ -299,14 +287,14 @@ describe("vitehub/valid-channel", () => {
     expect(await codes(validChannel, {
       "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ on: {} })\n',
       "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { send: async () => ({}) }, on: { webhook: event => event } })\n',
-      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
+      "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { slack } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: slack(), on: { message: () => undefined } })\n',
     })).toEqual(["VHUB0023", "VHUB0023", "VHUB0023", "VHUB0023"])
   })
 
   it("accepts webhook adapters with handlers and chat adapters with triggers", async () => {
     expect(await codes(validChannel, {
-      "server/channels/a.ts": 'import { defineChannel, stripe } from "vite-hub/channels"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
-      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { defineChannelTrigger, teams } from "vite-hub/agent/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
+      "server/channels/a.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { stripe } from "vite-hub/channels/adapters"\nexport default defineChannel({ adapter: stripe(), on: { "invoice.paid": event => event } })\n',
+      "server/channels/b.ts": 'import { defineChannel } from "vite-hub/channels"\nimport { teams } from "vite-hub/channels/adapters"\nimport { defineChannelTrigger } from "vite-hub/channels"\nexport default defineChannel({ adapter: teams(), on: { digest: defineChannelTrigger({ invoke: () => new Response(null) }) } })\n',
       "server/channels/c.ts": 'import { defineChannel } from "vite-hub/channels"\nexport default defineChannel({ adapter: { kind: "log", send: async () => ({}) } })\n',
     })).toEqual([])
   })

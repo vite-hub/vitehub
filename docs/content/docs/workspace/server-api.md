@@ -12,7 +12,8 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineWorkspace` from `vite-hub/workspace` | Declare a Workspace Definition. |
 | `useWorkspace` from `vite-hub/workspace` | Read, write, diff, snapshot, sync, or start sessions. |
-| `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
+| `isWorkspaceName` from `vite-hub/workspace` | [Check a Workspace name](#check-a-workspace-name) that comes from a request or a database. |
+| `file`, `glob`, `github`, `markdown`, `mcpResources`, `url`, `custom` from `vite-hub/workspace` | Declare Source Bindings. MCP Resources needs `@modelcontextprotocol/sdk`; see [Source Binding options](/docs/workspace/configure#source-binding-options). |
 | `createWorkspaceTools` from `vite-hub/workspace` | Build AI SDK tools for a Workspace. |
 | Source resolution, request, and preparation helpers from `vite-hub/workspace/runtime` | Connect resolved Sources and process readiness to runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `vite-hub/workspace/server` | Serve Workspace files from a route. `defineWorkspaceFileHandler({ base, workspace, baseURL? })` returns a Fetchable route, `{ fetch(request) }`. For a retained application prefix, pass Nitro's `baseURL`; `base` is the route path within it. The file path is the URL path after this combined prefix. A missing or unsafe path gets a `404` Response. |
@@ -35,6 +36,21 @@ const workspace = useWorkspace('docs', { refresh: false })
 ```
 
 This reuses the saved snapshots of Sources with `materialize: 'startup'` when they are ready and match the current Source config, even if the upstream content changed. Missing or outdated snapshots still materialize. Without `refresh`, or with `true`, startup Sources refresh as normal. Custom Stores without `getMeta` or `setMeta` keep ownership and Source snapshots only while the Store instance lives.
+
+### Check a Workspace name
+
+When a name comes from a request or a database row, check it with `isWorkspaceName()` first. It narrows a `string` to `ValidatedWorkspaceName`, which `useWorkspace()` and `useWorkspaceFiles()` accept alongside generated names. The check confirms runtime registration, not membership in the generated `WorkspaceName` union:
+
+```ts [server/api/projects/[project]/files.get.ts]
+import { defineHandler, getRouterParam, HTTPError } from 'h3'
+import { isWorkspaceName, useWorkspace } from 'vite-hub/workspace'
+
+export default defineHandler(async (event) => {
+  const project = getRouterParam(event, 'project') ?? ''
+  if (!isWorkspaceName(project)) throw new HTTPError({ status: 404, message: `No project ${project}.` })
+  return await useWorkspace(project).fs.list('', { recursive: true })
+})
+```
 
 Before build and startup overwrite existing files, they save a pending checkpoint. Cleanup accepts the new owner only after the checkpoint completes, so failed rollback metadata cannot give ownership of restored files after the Store reopens. If completion fails after the file and owner were committed, the operation reports the error and keeps the output. Cleanup keeps that output unless completion was saved. Retry the Source operation to set ownership again.
 
@@ -169,10 +185,11 @@ In both forms, rules, validators, hooks, `maxBytes`, and Source write grants run
 | `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the cursor back unchanged with the same ref. A cursor from another ref throws `WORKSPACE_R0070`. With `path`, only revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
 | `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. UTF-8 by default. `'binary'` returns `Uint8Array`. On the GitHub Store, `preload(paths)` reads many files in one request first. `lastChanged(paths)` returns a map with `{ id, createdAt }` for confirmed changes on the first-parent history, including deletions. A `null` value means no change. A missing key means the Store could not confirm an answer. |
+| `history.diff({ from?, to })` | `{ from, to, entries }` with each file that was `added`, `modified`, or `removed` from revision `from` to revision `to`, sorted by path. The revisions can be on different refs. A file is modified when its bytes, media type, or retained metadata change. The `before` and `after` entries include `size`, `digest`, `mediaType`, and `metadata` when available. Without `from`, every file of `to` is `added`. |
 | `history.digest(bytes)` | The Store's digest for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` of unique file content in committed revisions on every ref. Excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
-- Read mode has `head`, `list`, `refs`, `open`, and `usage`. `commit` needs write mode.
+- Read mode has `head`, `list`, `refs`, `open`, `diff`, and `usage`. `commit` needs write mode.
 - `capabilities().retainedHistory` on the writable facade tells you if the Store supports history. Stores without it throw `WORKSPACE_R0069`.
 - `history.checkpoint()` and `history.rebase()` work as before and use `main`. A checkpoint does not prove that every Store kept the file bytes.
 - History covers the Store file tree, not live Source responses or a running Session. Empty directories are not part of it.

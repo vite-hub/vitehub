@@ -14,9 +14,10 @@ import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, Rate
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, githubWorkspaceInstallError, isGitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
-import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
-import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
+import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace/runtime";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/internal/node";
 import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
@@ -51,7 +52,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead, runsOnPush } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -61,6 +62,7 @@ import { providerSessionDecision, workspaceDecision, type PullRequestWorkspaceEn
 import type { BabysitterRepositories } from "./repositories.ts";
 import { createBabysitterCheckRuns } from "./check-run.ts";
 import { isTransientNetworkError, retryTransient } from "./transient.ts";
+import { babysitterQueueHealth } from "./queue-health.ts";
 import { isFailedBaseRun, mainRepairWorkerContext, repairBaseBranch, type MainRepairGitHub } from "./main-repair.ts";
 
 export type { PullRequestInboxStorage } from "./inbox/storage.ts";
@@ -117,7 +119,7 @@ export interface BabysitterRuntimeOptions {
   providerRetryDelayMs?: number;
   /** Delay between live reads while GitHub computes mergeability before a direct merge. Defaults to 3 seconds. */
   mergeabilityRetryDelayMs?: number;
-  admission?: () => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
+  admission?: (signal?: AbortSignal) => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
   /**
    * Samples memory and pressure for work that runs like a worker before the model starts, such as the
    * merge and install of a conflicting PR. `active` counts the worker passes and preparations already
@@ -126,6 +128,11 @@ export interface BabysitterRuntimeOptions {
   hostCapacity?: (context: { active: number; signal: AbortSignal }) => Promise<{ concurrency: number; reason?: string }>;
   /** One kept workspace per open PR. Without it, each pass clones and installs into temporary directories. */
   workspaces?: PullRequestWorkspaces;
+  /**
+   * How long one reconcile may wait before the runtime reports `babysitter.reconcile.stalled` and stops
+   * it, so the next reconcile can claim work. Defaults to 15 minutes.
+   */
+  stallMs?: number;
 }
 
 /** Inbox meta key of the review threads a worker declined while their reviewer labeled them P0 or P1. */
@@ -201,6 +208,10 @@ export interface BabysitterRuntime {
 export function createBabysitterRuntime(options: BabysitterRuntimeOptions): BabysitterRuntime {
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
     throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "concurrency", expected: "a positive integer" });
+  }
+  const stallMs = options.stallMs ?? 15 * 60_000;
+  if (!Number.isFinite(stallMs) || stallMs < 1 || stallMs > 2_147_483_647) {
+    throw presetsErrorDiagnostics.PRESETS_BABYSITTER_OPTION_INVALID({ option: "stallMs", expected: "milliseconds from 1 to 2147483647" });
   }
   const baseAgent = options.agent;
   assertBabysitterAgent(baseAgent);
@@ -410,12 +421,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       },
     };
   }
-  async function checkMainRepairs(repositories: readonly string[], track: ProcessReconcilerRunContext["track"]) {
+  async function checkMainRepairs(repositories: readonly string[], track: ProcessReconcilerRunContext["track"], signal: AbortSignal) {
     if (!mainRepair || !mainRepairPrefix) return;
     for (const repository of repositories) {
+      signal.throwIfAborted();
       if (!mainRepairWatches(repository) || mainRepairRunning.has(repository)) continue;
       if ((await pullRequestInbox.metaNumber(mainRepairKey(repository)) ?? 0) > Date.now()) continue;
-      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs);
+      signal.throwIfAborted();
+      await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs, signal);
+      signal.throwIfAborted();
       mainRepairRunning.add(repository);
       void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
         .catch(async (error: unknown) => {
@@ -475,7 +489,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * Merges the base into the PR branch through GitHub, without a model pass. False when GitHub refuses.
    * `pr` is the live or snapshot PR; its branches allow the merges API fallback.
    */
-  async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal, pr: unknown): Promise<boolean> {
+  async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal, pr: unknown, { reopenFork = true } = {}): Promise<boolean> {
+    // GitHub refuses App pushes to a fork, so a fork head gets its fresh CI run from a reopen.
+    if (reopenFork && isForkHead(pr, repository)) return await reopenForkPullRequest(owner, repository, number, head, signal);
     try {
       // forges has no branch update, so this uses the provider request escape hatch.
       const { provider } = await forge(repository, signal);
@@ -505,6 +521,87 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         await noteForgeQuota(fallback, "merge-base-into-head");
         schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: `merges API fallback: ${(fallback instanceof Error ? fallback.message : String(fallback)).slice(0, 180)}` });
         return false;
+      }
+    }
+  }
+
+  /**
+   * Closes and reopens a fork PR, so its `pull_request` workflows run again on the merge with the current
+   * base. The host cannot update a fork branch: GitHub refuses App pushes to forks. At most hourly per PR.
+   * The host records the close before it sends it, so `recoverForkReopens` reopens a PR that a restart
+   * or a GitHub error left closed.
+   */
+  async function reopenForkPullRequest(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal): Promise<boolean> {
+    if (!hostIdentity) return false;
+    const key = forkReopenKey(repository, number);
+    const previous = await pullRequestInbox.meta(key);
+    if (isRuntimeRecord(previous) && (previous.closing === true || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
+    const { provider } = await forge(repository, signal);
+    try {
+      const live = (await provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal })).data;
+      if (!isRuntimeRecord(live) || live.state !== "open" || !isRuntimeRecord(live.head) || live.head.sha !== head) {
+        schedulerEvent("babysitter.fork_checks.reopen_skipped", { ...owner, reason: "head changed" });
+        return false;
+      }
+    } catch (error) {
+      await noteForgeQuota(error, "fork-reopen");
+      return false;
+    }
+    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: true, login: hostIdentity.toLowerCase() });
+    try {
+      await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "closed" }, signal });
+      // The PR is closed now. Reopen it even when the run is aborting.
+      await reopenPullRequest(repository, number);
+    } catch (error) {
+      await noteForgeQuota(error, "fork-reopen");
+      schedulerEvent("babysitter.fork_checks.reopen_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    await pullRequestInbox.setMeta(key, { at: Date.now(), head, closing: false });
+    schedulerEvent("babysitter.fork_checks.reopened", { ...owner, head_sha: head });
+    return true;
+  }
+
+  async function reopenPullRequest(repository: string, number: number): Promise<void> {
+    const { provider } = await forge(repository, new AbortController().signal);
+    await provider.request("PATCH", `/repos/${repository}/pulls/${number}`, { body: { state: "open" } });
+  }
+
+  // GitHub stamps the close with its own clock, which can run behind the host's. The login check
+  // already tells our close from a person's, so the margin only absorbs clock skew.
+  const closeClockMarginMs = 60_000;
+  const forkReopenKey = (repository: string, number: number) => `fork-reopen:${repository}#${number}`;
+
+  /**
+   * Finishes a close and reopen that a restart or a GitHub error interrupted. A PR that is still closed
+   * is reopened only when this host's identity closed it while the close was in flight.
+   */
+  async function recoverForkReopens(signal: AbortSignal): Promise<void> {
+    for (const [key, value] of await pullRequestInbox.metaEntries("fork-reopen:")) {
+      signal.throwIfAborted();
+      const match = /^fork-reopen:(.+)#(\d+)$/.exec(key);
+      if (!match || !isRuntimeRecord(value) || value.closing !== true || Number(value.at) > Date.now() - 2 * 60_000) continue;
+      const [, repository, number] = match;
+      const owner = { repository, pullRequest: Number(number) };
+      try {
+        const { provider } = await forge(repository, signal);
+        const issue = (await provider.request<unknown>("GET", `/repos/${repository}/issues/${number}`, { signal })).data;
+        if (!isRuntimeRecord(issue)) continue;
+        const closedBy = isRuntimeRecord(issue.closed_by) ? issue.closed_by : undefined;
+        const ours = issue.state === "closed" && typeof value.login === "string" && String(closedBy?.login).toLowerCase() === value.login
+          && Date.parse(String(issue.closed_at)) >= Number(value.at) - closeClockMarginMs;
+        const merged = isRuntimeRecord(issue.pull_request) && issue.pull_request.merged_at != null;
+        if (ours && !merged) {
+          await reopenPullRequest(repository, Number(number));
+          schedulerEvent("babysitter.fork_checks.reopen_recovered", owner);
+        } else if (issue.state === "closed") {
+          schedulerEvent("babysitter.fork_checks.reopen_abandoned", { ...owner, reason: merged ? "merged" : "closed by someone else" });
+        }
+        await pullRequestInbox.setMeta(key, { ...value, closing: false }, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        await noteForgeQuota(error, "fork-reopen-recover");
+        schedulerEvent("babysitter.fork_checks.reopen_failed", { ...owner, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
       }
     }
   }
@@ -551,8 +648,157 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /**
-   * A required check that never reported gets a fresh run: a branch behind its base is updated, and a
-   * current one has its head's Actions runs rerun. Once per head every six hours.
+   * Pushes a fork PR's head to its `merge.forkHeadBranches` branch, so required checks that run only on
+   * pushes to the repository report on it. A push runs the workflow files of the pushed commit with the
+   * repository's permissions, so the host pushes only a head that GitHub reports, now, as:
+   * - approved at that exact SHA by a reviewer with write access, with no change request standing;
+   * - carrying no local action and no workflow that a push to that branch starts, unless the base branch has
+   *   the same file now.
+   * It moves only a branch it created itself. Once per head; a refused or failed push is tried again after an hour.
+   */
+  async function pushForkHead(snapshot: Snapshot, owner: Record<string, unknown>, missing: string[], signal: AbortSignal): Promise<boolean> {
+    const { repository, number } = snapshot;
+    const head = snapshot.pr?.head?.sha;
+    const baseRef = snapshot.pr?.base?.ref;
+    const template = merge.mode === "direct" ? merge.forkHeadBranches?.get(repository.toLowerCase()) : undefined;
+    if (!template || !head || !baseRef || !isForkHead(snapshot.pr, repository)) return false;
+    const key = forkHeadKey(repository, number);
+    const previous = await pullRequestInbox.meta(key);
+    const record = isRuntimeRecord(previous) ? previous : {};
+    if (record.head === head && (record.pushed === true || Number(record.at) > Date.now() - 60 * 60_000)) return false;
+    const branch = template.replaceAll("{number}", String(number));
+    const settle = async (pushed: boolean, fields: Record<string, unknown>) => {
+      await pullRequestInbox.setMeta(key, { ...record, head, at: Date.now(), pushed, ...fields });
+    };
+    try {
+      const { provider } = await forge(repository, signal);
+      const read = async (path: string) => (await retryTransient(() => provider.request<unknown>("GET", path, { signal }), signal)).data;
+      const refusal = await forkHeadRefusal(repository, number, head, baseRef, branch, read);
+      if (refusal) {
+        await settle(false, {});
+        schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, branch, reason: refusal });
+        return false;
+      }
+      const ref = await read(`/repos/${repository}/git/ref/heads/${branch}`).catch((error: unknown) => {
+        if (forgeErrorStatus(error) === 404) return undefined;
+        throw error;
+      });
+      const tip = isRuntimeRecord(ref) && isRuntimeRecord(ref.object) ? ref.object.sha : undefined;
+      if (tip === head) {
+        await settle(true, { branch, sha: head });
+        return false;
+      }
+      if (ref !== undefined && !(record.branch === branch && tip === record.sha)) {
+        await settle(false, {});
+        schedulerEvent("babysitter.fork_head.skipped", { ...owner, missing, branch, reason: "branch exists and the host did not create it" });
+        return false;
+      }
+      if (ref !== undefined) await provider.request("PATCH", `/repos/${repository}/git/refs/heads/${branch}`, { body: { sha: head, force: true }, signal });
+      else await provider.request("POST", `/repos/${repository}/git/refs`, { body: { ref: `refs/heads/${branch}`, sha: head }, signal });
+    } catch (error) {
+      await noteForgeQuota(error, "fork-head-push");
+      await settle(false, {});
+      schedulerEvent("babysitter.fork_head.push_failed", { ...owner, missing, branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      return false;
+    }
+    await settle(true, { branch, sha: head });
+    schedulerEvent("babysitter.fork_head.pushed", { ...owner, missing, branch, head_sha: head });
+    return true;
+  }
+
+  /** Why GitHub's current state does not allow pushing a fork head, or undefined when it does. */
+  async function forkHeadRefusal(repository: string, number: number, head: string, baseRef: string, branch: string, read: (path: string) => Promise<unknown>): Promise<string | undefined> {
+    const pr = await read(`/repos/${repository}/pulls/${number}`);
+    if (!isRuntimeRecord(pr) || pr.state !== "open" || !isRuntimeRecord(pr.head) || pr.head.sha !== head) return "head changed";
+    const latest = new Map<string, { state: string; commit: unknown }>();
+    const reviews = await readRest(`repos/${repository}/pulls/${number}/reviews?per_page=100`, ".[]");
+    for (const review of reviews) {
+      if (!isRuntimeRecord(review) || !isRuntimeRecord(review.user) || !hasRuntimeType(review.user.login, "string")) continue;
+      const state = String(review.state ?? "").toUpperCase();
+      if (state === "APPROVED" || state === "CHANGES_REQUESTED" || state === "DISMISSED") latest.set(review.user.login.toLowerCase(), { state, commit: review.commit_id });
+    }
+    if ([...latest.values()].some(review => review.state === "CHANGES_REQUESTED")) return "changes requested";
+    let approved = false;
+    for (const [login, review] of latest) {
+      if (review.state !== "APPROVED" || review.commit !== head) continue;
+      const permission = await read(`/repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`);
+      if (isRuntimeRecord(permission) && ["admin", "maintain", "write"].includes(String(permission.permission))) approved = true;
+    }
+    if (!approved) return `no approval of ${head.slice(0, 7)} by a reviewer with write access`;
+    // A push runs the pushed commit's own workflows. Each one a push or a branch creation starts must be
+    // the base's current file, and local actions must match, so a retired workflow never runs again.
+    const entries = async (treeish: string) => {
+      const tree = await read(`/repos/${repository}/git/trees/${encodeURIComponent(treeish)}`);
+      const list = isRuntimeRecord(tree) && Array.isArray(tree.tree) ? tree.tree : [];
+      return new Map(list.flatMap(item => isRuntimeRecord(item) && hasRuntimeType(item.path, "string") && hasRuntimeType(item.sha, "string") ? [[item.path, { sha: item.sha, type: item.type }]] : []));
+    };
+    const child = async (tree: Map<string, { sha: string; type: unknown }>, name: string) => {
+      const entry = tree.get(name);
+      return entry?.type === "tree" ? { sha: entry.sha, entries: await entries(entry.sha) } : undefined;
+    };
+    const [headRoot, baseRoot] = await Promise.all([entries(head), entries(baseRef)]);
+    if (headRoot.get(".github")?.sha === baseRoot.get(".github")?.sha) return undefined;
+    const [headGithub, baseGithub] = await Promise.all([child(headRoot, ".github"), child(baseRoot, ".github")]);
+    if (!headGithub) return undefined;
+    if (headGithub.entries.has("actions") && headGithub.entries.get("actions")?.sha !== baseGithub?.entries.get("actions")?.sha) return `the PR's .github/actions differs from ${baseRef}`;
+    const [headFlows, baseFlows] = await Promise.all([child(headGithub.entries, "workflows"), baseGithub && child(baseGithub.entries, "workflows")]);
+    if (!headFlows || headFlows.sha === baseFlows?.sha) return undefined;
+    for (const [name, entry] of headFlows.entries) {
+      if (baseFlows?.entries.get(name)?.sha === entry.sha) continue;
+      const blob = await read(`/repos/${repository}/git/blobs/${entry.sha}`);
+      const text = isRuntimeRecord(blob) && hasRuntimeType(blob.content, "string") ? Buffer.from(blob.content, "base64").toString("utf8") : undefined;
+      if (text === undefined || runsOnPush(text, branch)) return `.github/workflows/${name} can run on push and differs from ${baseRef}`;
+    }
+    return undefined;
+  }
+
+  const forkHeadKey = (repository: string, number: number) => `fork-head-push:${repository}#${number}`;
+
+  /**
+   * Deletes the `merge.forkHeadBranches` branches of PRs that are no longer open, at most every ten minutes.
+   * A branch is deleted only while it still points at the SHA the host pushed.
+   */
+  async function sweepForkHeadBranches(signal: AbortSignal): Promise<void> {
+    if (merge.mode !== "direct" || !merge.forkHeadBranches?.size) return;
+    if ((await pullRequestInbox.metaNumber("fork-head-sweep-next") ?? 0) > Date.now()) return;
+    signal.throwIfAborted();
+    await pullRequestInbox.setMeta("fork-head-sweep-next", Date.now() + 10 * 60_000, signal);
+    signal.throwIfAborted();
+    for (const [key, value] of await pullRequestInbox.metaEntries("fork-head-push:")) {
+      signal.throwIfAborted();
+      const match = /^fork-head-push:(.+)#(\d+)$/.exec(key);
+      if (!match || !isRuntimeRecord(value) || !hasRuntimeType(value.branch, "string") || !hasRuntimeType(value.sha, "string")) continue;
+      const [, repository, number] = match;
+      if ((await pullRequestInbox.get(repository, Number(number)))?.status !== "terminal") continue;
+      const reopen = await pullRequestInbox.meta(forkReopenKey(repository, Number(number)));
+      if (isRuntimeRecord(reopen) && reopen.closing === true) continue;
+      try {
+        signal.throwIfAborted();
+        const { provider } = await forge(repository, signal);
+        signal.throwIfAborted();
+        const ref = await provider.request<unknown>("GET", `/repos/${repository}/git/ref/heads/${value.branch}`, { signal }).then(response => response.data, (error: unknown) => {
+          if (forgeErrorStatus(error) === 404) return undefined;
+          throw error;
+        });
+        signal.throwIfAborted();
+        if (isRuntimeRecord(ref) && isRuntimeRecord(ref.object) && ref.object.sha === value.sha) {
+          await provider.request("DELETE", `/repos/${repository}/git/refs/heads/${value.branch}`, { signal });
+          signal.throwIfAborted();
+          schedulerEvent("babysitter.fork_head.deleted", { repository, pullRequest: Number(number), branch: value.branch });
+        }
+        await pullRequestInbox.deleteMeta(key, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        await noteForgeQuota(error, "fork-head-delete");
+        schedulerEvent("babysitter.fork_head.delete_failed", { repository, pullRequest: Number(number), branch: value.branch, reason: (error instanceof Error ? error.message : String(error)).slice(0, 200) });
+      }
+    }
+  }
+
+  /**
+   * A required check that never reported gets a fresh run: an approved fork head is pushed to its
+   * `merge.forkHeadBranches` branch, a branch behind its base is updated, and a current one has its
+   * head's Actions runs rerun. Once per head every six hours.
    */
   async function retestMissingRequiredChecks(snapshot: Snapshot, owner: Record<string, unknown>, signal: AbortSignal): Promise<boolean> {
     const { repository, number } = snapshot;
@@ -562,12 +808,13 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!head || !baseRef || pr.draft || conflicted(snapshot)) return false;
     const missing = missingRequiredChecks(snapshot, await requiredCheckEvaluation(snapshot, signal));
     if (!missing.length) return false;
+    if (await pushForkHead(snapshot, owner, missing, signal)) return true;
     const key = `missing-check-retest:${repository}#${number}`;
     const previous = await pullRequestInbox.meta(key);
     if (isRuntimeRecord(previous) && previous.head === head && Number(previous.at) > Date.now() - 6 * 60 * 60_000) return false;
     await pullRequestInbox.setMeta(key, { head, at: Date.now() });
     const compare = await readOnePage(`repos/${repository}/compare/${head}...${encodeURIComponent(baseRef)}?per_page=1`, signal).catch(() => undefined);
-    if (isRuntimeRecord(compare) && Number(compare.ahead_by) > 0 && await updateBranch(owner, repository, number, head, signal, pr)) {
+    if (isRuntimeRecord(compare) && Number(compare.ahead_by) > 0 && await updateBranch(owner, repository, number, head, signal, pr, { reopenFork: false })) {
       schedulerEvent("babysitter.required_check.retest", { ...owner, missing, via: "update-branch", base_ahead: compare.ahead_by });
       return true;
     }
@@ -914,7 +1161,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: current.reason });
         // A base that requires up-to-date branches never merges a PR that is only behind it.
         if (!pending && current.reason === "mergeable_state behind") {
-          if (!await updateBranch(owner, repository, number, decision.head, signal, live)) return "not-ready";
+          if (!await updateBranch(owner, repository, number, decision.head, signal, live, { reopenFork: false })) return "not-ready";
           schedulerEvent("babysitter.branch.updated", { ...owner, reason: "behind" });
           return await parkMerge(`Updated the branch with ${base} because ${base} requires up-to-date branches; waiting for checks on the new head.`);
         }
@@ -1327,15 +1574,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-  async function dependencyEvidence(wake: PullRequestWake): Promise<string> {
+  async function dependencyEvidence(wake: PullRequestWake, signal?: AbortSignal): Promise<string> {
     // Dependency reads are host-owned. A parked model never polls unchanged checks.
     if (wake.kind === "pull-request") {
-      const pr = await readPull(wake.repository, wake.number);
+      const pr = await readPull(wake.repository, wake.number, signal);
       if (!isRuntimeRecord(pr)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_EXTERNAL_STATE_MISSING();
       return digest({ state: pr.state, mergedAt: pr.merged_at, head: isRuntimeRecord(pr.head) ? pr.head.sha : undefined });
     }
-    const { provider, repo } = await forge(wake.repository);
-    return checksDependencyEvidence(await provider.checks.list(repo, wake.headSha));
+    const { provider, repo } = await forge(wake.repository, signal);
+    signal?.throwIfAborted();
+    return checksDependencyEvidence(await provider.checks.list(repo, wake.headSha, { signal }));
   }
   /**
    * Only a wait for another pull request ends by itself, when it merges or closes. Every other external
@@ -1358,8 +1606,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     return { ...createCheckWait(observed, waitPolicy), kind: "external" as const, reason, wake, ...otherPullRequest ? {} : { retryAt } };
   }
 
-  async function recoverFailedCiWaits() {
+  async function recoverFailedCiWaits(step: (name: string, subject?: string) => void, signal: AbortSignal) {
     for (const snapshot of await pullRequestInbox.waitsToEvaluate(false, true)) {
+      step("ci-recovery", `${snapshot.repository}#${snapshot.number}`);
       if (snapshot.generation > snapshot.handled || isWorkerBlocker(snapshot) || !hasFailedActions(snapshot)) continue;
       const head = snapshot.pr?.head?.sha;
       if (!head) continue;
@@ -1368,8 +1617,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       if (snapshot.progressBudget?.exhausted && snapshot.progressBudget.head === head && (snapshot.wait?.retryAt ?? 0) > Date.now()) continue;
       const recoveryKey = `ci-recovery-next:${snapshot.repository}#${snapshot.number}:${head}`;
       if ((await pullRequestInbox.metaNumber(recoveryKey) ?? 0) > Date.now()) continue;
-      await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000);
-      if (await pullRequestInbox.wake(snapshot, `ci-recovery:${head}`, { recovery: true })) {
+      signal.throwIfAborted();
+      await pullRequestInbox.setMeta(recoveryKey, Date.now() + 10 * 60_000, signal);
+      signal.throwIfAborted();
+      if (await pullRequestInbox.wake(snapshot, `ci-recovery:${head}`, { recovery: true, signal })) {
         schedulerEvent("babysitter.ci.recovery.woken", { repository: snapshot.repository, pull_request: snapshot.number, head_sha: head });
       }
     }
@@ -1379,16 +1630,18 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * A parked PR on another PR's branch gets no event when that parent merges, so read its parents every
    * ten minutes. Otherwise a child stays parked on its parent's branch after the parent merged.
    */
-  async function stackParentMerged(snapshot: Snapshot): Promise<boolean> {
+  async function stackParentMerged(snapshot: Snapshot, signal: AbortSignal): Promise<boolean> {
     const target = snapshot.pr && !snapshot.wait?.wake ? nonDefaultBase(snapshot.pr) : undefined;
     if (!snapshot.pr || !target) return false;
     const nextReadKey = `stack-parent-next:${snapshot.repository}#${snapshot.number}`;
     if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) > Date.now()) return false;
-    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000);
+    signal.throwIfAborted();
+    await pullRequestInbox.setMeta(nextReadKey, Date.now() + 10 * 60_000, signal);
     try {
-      const parents = await readPulls(snapshot.repository, { state: "all", head: `${target.owner}:${target.base}`, limit: 10 });
+      const parents = await readPulls(snapshot.repository, { state: "all", head: `${target.owner}:${target.base}`, limit: 10 }, signal);
       return stackRetargetBase(snapshot.pr, parents) !== undefined;
     } catch (error) {
+      signal.throwIfAborted();
       await noteForgeQuota(error, "stack-parent");
       return false;
     }
@@ -1402,38 +1655,50 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   }
 
   /** Wakes a parked PR only when its new events need a model pass or a direct merge. */
-  async function evaluateWaits() {
+  async function evaluateWaits(step: (name: string, subject?: string) => void, signal: AbortSignal) {
+    signal.throwIfAborted();
     // Idle waits too: a parked stack child has no event, wake or retryAt that would list it.
     for (const snapshot of await pullRequestInbox.waitsToEvaluate(true, true)) {
-      const parentMerged = await stackParentMerged(snapshot);
+      step("waits", `${snapshot.repository}#${snapshot.number}`);
+      const parentMerged = await stackParentMerged(snapshot, signal);
+      signal.throwIfAborted();
       if (!parentMerged && snapshot.generation <= snapshot.handled && (snapshot.wait?.retryAt ?? Infinity) > Date.now() && !snapshot.wait?.wake) continue;
-      const checks = await requiredCheckState(snapshot);
+      const checkSignal = AbortSignal.any([signal, AbortSignal.timeout(120_000)]);
+      const checks = await requiredCheckState(snapshot, checkSignal);
+      signal.throwIfAborted();
       let reasons = wakeReasons(snapshot, checks, { ...waitPolicy, heldThreads: await heldOpenThreads(snapshot) });
+      signal.throwIfAborted();
       if (parentMerged) reasons.push("stack-parent-merged");
       if (snapshot.wait?.reason === "non-default-base" && snapshot.pr && !nonDefaultBase(snapshot.pr)) reasons.push("base-retargeted");
       // A stack child parked on its parent wakes when the default branch's required checks pass on its
       // head, so it can fold into the parent's branch.
       const foldWake = foldStacks && snapshot.wait?.reason === "stack-parent" && snapshot.generation > snapshot.handled && !reasons.includes("ready-to-merge")
-        && await requiredCheckState(snapshot, undefined, true) === "passed";
+        && await requiredCheckState(snapshot, checkSignal, true) === "passed";
+      signal.throwIfAborted();
       if (foldWake) reasons.push("ready-to-merge");
       if (reasons.includes("ready-to-merge") && !(await directMergeWakeAllowed(snapshot, foldWake ? "passed" : checks))) {
         reasons = reasons.filter(reason => reason !== "ready-to-merge");
       }
+      signal.throwIfAborted();
       if (snapshot.wait?.retryAt !== undefined && snapshot.wait.retryAt <= Date.now()) reasons.push("merge-retry");
       if (snapshot.wait?.wake) {
         const dependencyKey = `dependency:${snapshot.repository}#${snapshot.number}`;
         const nextReadKey = `dependency-next:${snapshot.repository}#${snapshot.number}`;
         if (((await pullRequestInbox.metaNumber(nextReadKey)) ?? 0) <= Date.now()) {
-          await pullRequestInbox.setMeta(nextReadKey, Date.now() + 60_000);
-          const next = await dependencyEvidence(snapshot.wait.wake);
+          signal.throwIfAborted();
+          await pullRequestInbox.setMeta(nextReadKey, Date.now() + 60_000, signal);
+          signal.throwIfAborted();
+          const next = await dependencyEvidence(snapshot.wait.wake, signal);
+          signal.throwIfAborted();
           if (next !== await pullRequestInbox.meta(dependencyKey)) reasons.push("external-dependency-changed");
         }
       }
+      signal.throwIfAborted();
       const owner = { pullRequest: snapshot.number, repository: snapshot.repository };
       if (!reasons.length) {
-        await pullRequestInbox.acknowledgeWait(snapshot);
+        await pullRequestInbox.acknowledgeWait(snapshot, signal);
         schedulerEvent("babysitter.wait.kept", { ...owner, head_sha: snapshot.pr?.head?.sha, avoided_invocation: true });
-      } else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`)) {
+      } else if (await pullRequestInbox.wake(snapshot, `evaluated:${snapshot.generation}:${snapshot.revision ?? 0}`, { signal })) {
         schedulerEvent("babysitter.wait.woken", { ...owner, head_sha: snapshot.pr?.head?.sha, reasons });
       }
     }
@@ -1501,10 +1766,82 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const hostOnlyChecked = new Map<string, string>();
   const hostOnlyStamp = (s: Snapshot) => `${s.generation}:${s.revision ?? 0}`;
 
+  /**
+   * What the running reconcile waits on: its step, the PR of that step, and since when. The process host runs
+   * one reconcile at a time, so one await that never settles stops every later claim.
+   */
+  interface ReconcileTick { reason: string; startedAt: number; step: string; subject?: string; stepAt: number }
+
+  async function stallSnapshot(tick: ReconcileTick) {
+    const now = Date.now();
+    const snapshot = {
+      reason: tick.reason,
+      step: tick.step,
+      ...tick.subject ? { subject: tick.subject } : {},
+      step_ms: now - tick.stepAt,
+      tick_ms: now - tick.startedAt,
+      active_owners: [...active],
+      model_passes: activeModelPasses,
+      executing_model_passes: executingModelPasses,
+      waiting_model_owners: [...waitingModelOwners],
+      host_preparations: activeHostPreparations,
+      main_repairs: [...mainRepairRunning],
+    };
+    // The inbox can be the part that hangs, so its queue counts get 5 seconds.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const queue = await Promise.race([
+      Promise.resolve().then(() => pullRequestInbox.summary()).then(items => babysitterQueueHealth(items, now)),
+      new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 5_000); timer.unref?.(); }),
+    ]).catch(() => undefined).finally(() => clearTimeout(timer));
+    return {
+      ...snapshot,
+      ...queue ? { ready: queue.ready, working: queue.working, waiting: queue.waiting } : { queue: "unreadable" },
+    };
+  }
+
+  /**
+   * Runs one reconcile, and stops it when it waits longer than `stallMs`. The stall event names the step
+   * that did not settle. A stopped reconcile ends at its next step, so it never claims next to the one
+   * that replaced it.
+   */
   async function reconcile(
     reason: string,
-    { track }: ProcessReconcilerRunContext,
+    context: ProcessReconcilerRunContext,
     isAccepting: () => boolean = () => true,
+  ) {
+    const startedAt = Date.now();
+    const tick: ReconcileTick = { reason, startedAt, step: "start", stepAt: startedAt };
+    const controller = new AbortController();
+    const { signal } = controller;
+    const step = (name: string, subject?: string) => {
+      signal.throwIfAborted();
+      tick.step = name;
+      tick.subject = subject;
+      tick.stepAt = Date.now();
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stalled = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = presetsErrorDiagnostics.PRESETS_BABYSITTER_RECONCILE_STALLED({ step: tick.subject ? `${tick.step} (${tick.subject})` : tick.step, minutes: Math.round((Date.now() - startedAt) / 60_000) });
+        reject(error);
+        controller.abort(error);
+        void stallSnapshot(tick).then(snapshot => schedulerEvent("babysitter.reconcile.stalled", snapshot)).catch(() => {});
+      }, stallMs);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([reconcileTick(reason, context, isAccepting, step, signal), stalled]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function reconcileTick(
+    reason: string,
+    { track }: ProcessReconcilerRunContext,
+    isAccepting: () => boolean,
+    step: (name: string, subject?: string) => void,
+    signal: AbortSignal,
   ) {
     const startedAt = new Date();
     const schedule = {
@@ -1516,28 +1853,36 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!isAccepting()) return;
     // A GitHub rate limit stops every forge request until it resets. The breaker is durable inbox
     // metadata and the forge error paths below renew it.
+    step("forge-quota");
     const forgeBlockedUntil = await forgeQuota.blockedUntil();
+    signal.throwIfAborted();
     if (forgeBlockedUntil > Date.now()) {
       schedulerEvent("babysitter.forge.quota.waiting", { reason, blocked_until: new Date(forgeBlockedUntil).toISOString() });
       return;
     }
-    await statusRecovery.recover();
+    step("status-recovery");
+    await statusRecovery.recover(signal);
+    signal.throwIfAborted();
     void track(statusRecovery.flush().catch(failure => schedulerError("babysitter.status.flush.failed", failure)));
     let modelAdmission = true;
     // Token budgets limit only the model. Other closed admission, such as memory or tmp pressure, holds host work too.
     let hostAdmission = true;
     let modelRetryAt: number | undefined;
     if (options.admission) {
-      const admission = await options.admission();
+      step("admission");
+      const admission = await options.admission(signal);
+      signal.throwIfAborted();
       if (!admission.accepting) {
         modelAdmission = false;
         hostAdmission = admission.reason === "token-budget-hourly" || admission.reason === "token-budget-daily";
         modelRetryAt = admission.retryAt ?? Date.now() + 60_000;
         // SAFETY: This metadata key is only written by this admission branch with the fields below; absent or unrelated values are ignored.
         const previous = await pullRequestInbox.meta("admission-skipped") as { reason?: string; at?: number } | undefined;
+        signal.throwIfAborted();
         if (previous?.reason !== admission.reason || Date.now() - (previous?.at ?? 0) >= 900_000) {
           const skipped = { at: Date.now(), reason: admission.reason, detail: admission.detail, retryAt: admission.retryAt, active_owners: active.size };
-          await pullRequestInbox.setMeta("admission-skipped", skipped);
+          await pullRequestInbox.setMeta("admission-skipped", skipped, signal);
+          signal.throwIfAborted();
           schedulerEvent("babysitter.admission.skipped", { trigger: reason, ...skipped });
         }
         if (!admission.hostOnly) return;
@@ -1545,7 +1890,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     const ownerLimit = options.concurrency;
     // An installation list that cannot be read keeps the last one; work in known repositories continues.
-    const repositories = await repositorySource.current().catch(async (error: unknown) => {
+    step("repositories");
+    const repositories = await repositorySource.current(signal).catch(async (error: unknown) => {
+      signal.throwIfAborted();
       await noteForgeQuota(error, "repositories");
       schedulerError("babysitter.repositories.failed", error, { source: repositorySource.source });
       return repositorySource.known();
@@ -1558,74 +1905,110 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Failed reads stay retryable; they must never masquerade as empty success.
     for (const repository of repositories) {
       if (eventScopedBootstrap) continue;
+      step("bootstrap", repository);
       const key = `bootstrap-rest-v1:${repository}`;
       // SAFETY: This versioned key is written below only with an ISO timestamp object; absent keys return undefined.
       const previous = (await pullRequestInbox.meta(key)) as { at: string } | undefined;
+      signal.throwIfAborted();
       if (previous && Date.now() - Date.parse(previous.at) < 30 * 60_000) continue;
       // Failed bootstraps retry on the repair timer, not on every owner wake.
       const nextKey = `${key}:next`;
       // SAFETY: This bootstrap retry key is written below only with a numeric epoch timestamp; absent keys return undefined.
       if ((((await pullRequestInbox.meta(nextKey)) as number | undefined) ?? 0) > Date.now()) continue;
-      await pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000);
+      signal.throwIfAborted();
+      await pullRequestInbox.setMeta(nextKey, Date.now() + 2 * 60_000, signal);
       try {
         // forges `threads.list()` also reads the checks of every listed pull request.
-        const prs = await readPulls(repository, { state: "open", limit: 10_000 });
-        for (const pr of prs) await pullRequestInbox.seed(repository, normalizePullRequest(pr));
-        await pullRequestInbox.setMeta(key, { at: new Date().toISOString() });
+        const prs = await readPulls(repository, { state: "open", limit: 10_000 }, signal);
+        for (const pr of prs) {
+          signal.throwIfAborted();
+          await pullRequestInbox.seed(repository, normalizePullRequest(pr), signal);
+        }
+        signal.throwIfAborted();
+        await pullRequestInbox.setMeta(key, { at: new Date().toISOString() }, signal);
       } catch (error) {
+        signal.throwIfAborted();
         await noteForgeQuota(error, "bootstrap");
         schedulerError("babysitter.bootstrap.failed", error, { repository });
       }
     }
-    await checkMainRepairs(repositories, track);
+    step("main-repair");
+    await checkMainRepairs(repositories, track, signal);
+    step("fork-head-sweep");
+    await sweepForkHeadBranches(signal).catch(error => {
+      signal.throwIfAborted();
+      schedulerError("babysitter.fork_head.sweep_failed", error);
+    });
+    await recoverForkReopens(signal).catch(error => {
+      signal.throwIfAborted();
+      schedulerError("babysitter.fork_checks.recover_failed", error);
+    });
+    step("snapshot-detect");
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
-      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {
+      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository, signal), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {
         void noteForgeQuota(error, "snapshot-detect");
         // An event, not an error: the next minute retries the repository.
         schedulerEvent("babysitter.snapshot.detect.failed", { repository, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) });
-      });
+      }, signal);
     } catch (error) {
+      signal.throwIfAborted();
       await noteForgeQuota(error, "snapshot-detect");
       schedulerError("babysitter.snapshot.detect.failed", error);
     }
+    step("snapshot-probe");
     try {
-      await probeChangedSnapshots(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
+      await probeChangedSnapshots(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors, undefined, undefined, signal);
       // The slow sweep remains for changes the fingerprint cannot see, such as edited comments.
-      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors);
+      step("snapshot-sweep");
+      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors, signal);
     } catch (error) {
+      signal.throwIfAborted();
       await noteForgeQuota(error, "snapshot-reconcile");
       schedulerError("babysitter.snapshot.reconcile.failed", error);
     }
     // Recover leases that expired while the host was stopped before claiming work.
-    await pullRequestInbox.recoverLeases();
+    step("lease-recovery");
+    await pullRequestInbox.recoverLeases(signal);
+    step("waits");
     try {
       if ((await pullRequestInbox.metaNumber("idle-wait-sweep-next") ?? 0) <= Date.now()) {
-        await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000);
-        await recoverFailedCiWaits();
+        signal.throwIfAborted();
+        await pullRequestInbox.setMeta("idle-wait-sweep-next", Date.now() + 10 * 60_000, signal);
+        signal.throwIfAborted();
+        await recoverFailedCiWaits(step, signal);
       }
-      await evaluateWaits();
+      await evaluateWaits(step, signal);
     } catch (error) {
+      // The reconcile that stopped ends here; its replacement evaluates the waits again.
+      signal.throwIfAborted();
       await noteForgeQuota(error, "wait-evaluate");
       schedulerError("babysitter.wait.evaluate.failed", error);
     }
     // Delivery IDs deduplicate redeliveries; their payloads only help inspection.
+    step("delivery-prune");
     if (((await pullRequestInbox.metaNumber("deliveries-prune-next")) ?? 0) <= Date.now()) {
-      await pullRequestInbox.setMeta("deliveries-prune-next", Date.now() + 60 * 60_000);
-      await pullRequestInbox.pruneDeliveries();
+      signal.throwIfAborted();
+      await pullRequestInbox.setMeta("deliveries-prune-next", Date.now() + 60 * 60_000, signal);
+      signal.throwIfAborted();
+      await pullRequestInbox.pruneDeliveries({ signal });
     }
     if (!isAccepting()) return;
     // The durable inbox is the sole eligibility checkpoint. A second work
     // tracker checkpoint used to swallow new webhook generations and leak
     // their leases for two hours.
+    step("forge-quota");
     const forgeBlockedAfterReconcile = await forgeQuota.blockedUntil();
+    signal.throwIfAborted();
     if (forgeBlockedAfterReconcile > Date.now()) {
       schedulerEvent("babysitter.forge.quota.waiting", { reason, blocked_until: new Date(forgeBlockedAfterReconcile).toISOString() });
       return;
     }
     // A model cooldown pauses model passes only. Host work still merges ready PRs and retargets
     // stacks; PRs that need a model pass are released unchanged until their evidence changes.
+    step("provider-quota");
     const providerBlockedUntil = await providerQuota.blockedUntil();
+    signal.throwIfAborted();
     if (providerBlockedUntil > Date.now() && modelAdmission) {
       modelAdmission = false;
       modelRetryAt = providerBlockedUntil;
@@ -1638,27 +2021,34 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     // Every claimed owner occupies a host slot while it performs checkout,
     // placement, installation, or waits for model admission. Keep waiters in
     // this count so concurrent reconciles cannot claim past the owner limit.
+    step("placement");
     const hostActive = active.size;
-    const placementAdmitted = presetOptions.placement?.admitted ? await presetOptions.placement.admitted() : Number.POSITIVE_INFINITY;
+    const placementAdmitted = presetOptions.placement?.admitted ? await presetOptions.placement.admitted(signal) : Number.POSITIVE_INFINITY;
     // An invalid count claims nothing: claiming past the hosts only turns each PR away at placement.
     const placementLimit = typeof placementAdmitted === "number" && placementAdmitted >= 0 ? placementAdmitted : 0;
     const remainingCapacity = Math.max(0, Math.min(claimLimit, placementLimit) - hostActive);
-    const lane = await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
-      only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
-      includeBlocked: true,
-      skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot),
-    });
-    // Admission limits model dispatch. Merges and stack retargets remain host work,
-    // also on a head whose no-progress budget is exhausted: the claim parks before
-    // any model work, so new evidence can still merge the PR.
-    const regularCapacity = Math.max(0, remainingCapacity - lane.length);
-    const regular = await pullRequestInbox.claim(regularCapacity, { skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot) });
-    const exhausted = await pullRequestInbox.claim(Math.max(0, regularCapacity - regular.length), {
-      includeBlocked: true,
-      only: snapshot => snapshot.progressBudget?.exhausted === true && snapshot.progressBudget.head === snapshot.pr?.head?.sha,
-      skip: snapshot => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot),
-    });
-    const jobs = [...lane, ...regular, ...exhausted];
+    step("claim");
+    const jobs: Claim[] = [];
+    const skip = (snapshot: Snapshot) => !modelAdmission && hostOnlyChecked.get(`${snapshot.repository}#${snapshot.number}`) === hostOnlyStamp(snapshot);
+    try {
+      jobs.push(...await pullRequestInbox.claim(Math.min(5, remainingCapacity), {
+        only: snapshot => Boolean(snapshot.recoveryHead && snapshot.recoveryHead === snapshot.pr?.head?.sha),
+        includeBlocked: true, skip, signal,
+      }));
+      signal.throwIfAborted();
+      // Admission limits model dispatch, not host work, even after a head exhausts its budget.
+      jobs.push(...await pullRequestInbox.claim(remainingCapacity - jobs.length, { skip, signal }));
+      signal.throwIfAborted();
+      jobs.push(...await pullRequestInbox.claim(remainingCapacity - jobs.length, {
+        includeBlocked: true, skip, signal,
+        only: snapshot => snapshot.progressBudget?.exhausted === true && snapshot.progressBudget.head === snapshot.pr?.head?.sha,
+      }));
+      signal.throwIfAborted();
+    } catch (error) {
+      const releases = await Promise.allSettled(jobs.map(claim => pullRequestInbox.release(claim)));
+      for (const release of releases) if (release.status === "rejected") schedulerError("babysitter.claim.release.failed", release.reason);
+      throw error;
+    }
     if (!jobs.length) return; // tracking an already-resolved batch creates wake loops
     for (const claim of jobs) active.add(`${claim.snapshot.repository}#${claim.snapshot.number}`);
     schedulerEvent("babysitter.queue.selected", {

@@ -40,7 +40,7 @@ describe("documentation tutorials", () => {
       ["agents", ["@vite-hub/agent", "@vite-hub/workflow"]],
       ["first-agent", ["@vite-hub/agent"]],
       ["server-primitives", ["@vite-hub/kv"]],
-      ["decisions", ["@vite-hub/decisions", "@vite-hub/gateways"]],
+      ["choices", ["@vite-hub/choices", "@vite-hub/gateways"]],
       ["playground-blob", ["@vite-hub/blob"]],
       ["playground-cache", []],
       ["playground-queue", ["@vite-hub/queue"]],
@@ -151,8 +151,8 @@ describe("documentation tutorials", () => {
     ]);
   });
 
-  it("keeps the Decisions tutorial on its fixture", async () => {
-    await expectPageToUseFixture("content/docs/decisions/get-started.md", "decisions", [
+  it("keeps the Choices tutorial on its fixture", async () => {
+    await expectPageToUseFixture("content/docs/choices/get-started.md", "choices", [
       "server/utils/word-gateway.ts",
       "server/utils/forecast-choices.ts",
       "server/api/choices.post.ts",
@@ -264,7 +264,7 @@ describe("runnable tutorials", () => {
   });
 
   it("restarts the dev server when a step adds or removes the page, not for config edits", async () => {
-    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "decisions"));
+    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "choices"));
     const pageStep = tutorial.steps.findIndex(step => "index.html" in step.files);
     const before = tutorialStepFiles(tutorial, pageStep, "start");
     const after = tutorialStepFiles(tutorial, pageStep, "solution");
@@ -310,10 +310,8 @@ describe("runnable tutorials", () => {
   });
 
   it("isolates only the tutorial pages and the playground", async () => {
-    const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
-    expect(module).toContain(`"/learn": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/learn/**": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/playground": { headers: { ...webContainerHeaders } }`);
-    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(3);
+    const config = await readFile(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    expect(config).toContain(`webContainer: { routes: ["/learn/**", "/playground"] }`);
+    expect(await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8")).not.toContain("webContainerHeaders");
   });
 });

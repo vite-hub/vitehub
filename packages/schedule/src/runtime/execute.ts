@@ -1,6 +1,6 @@
 import { randomId } from "@vite-hub/internal/runtime/random"
 import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
-import { serializeResponse, toResponse } from "@vite-hub/runtime"
+import { serializeResponse, toResponse } from "@vite-hub/runtime/internal/response"
 import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { runInRunScopes } from "@vite-hub/runtime/internal/run-scope"
 
@@ -259,7 +259,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && Object.hasOwn(value, "cron")
 }
 
-async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
+export async function loadStaticScheduleDefinition(name: string, registry: ScheduleDefinitionRegistry): Promise<ScheduleDefinition | undefined> {
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
   const loaded: unknown = typeof entry === "function" ? await entry() : undefined
   const record = isObjectRecord(loaded) ? loaded : undefined

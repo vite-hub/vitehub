@@ -48,6 +48,7 @@ describe("member endpoints at build time", () => {
     expect(registry).toContain("endpoints: createDrizzleWebhookEndpointStore(db),")
     expect(registry).not.toContain("dynamicQueue")
     expect(registry).not.toContain("wake:")
+    expect(registry).not.toContain("resolveVerifiedOwner")
     await expect(readFile(files.queue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     expect(JSON.stringify(Reflect.get(config, "nitro"))).toContain(files.plugin)
     const context = { root, projectRoot: root, rootDir: root, plugins: [plugin, sendPlugin] }
@@ -57,6 +58,14 @@ describe("member endpoints at build time", () => {
       expect.objectContaining({ name: "webhook-endpoints", definition: { export: "webhookEndpointsSchema", module: "@vite-hub/webhooks/database" }, tables: { webhookEndpoints: "vitehub_webhook_endpoints", webhookPairings: "vitehub_webhook_pairings" } }),
     ])
     expect(plugin.api.deploymentEnv({ host: "node" })).toEqual([{ names: ["VITEHUB_WEBHOOKS_KEY"], required: true, secret: true, hasDefault: false, owners: ["webhooks"] }])
+  })
+
+  it("uses the Auth resolver when the app has Auth and member endpoints", async () => {
+    const root = await project()
+    await configure(root, { database: true, queue: false, imports: { auth: "#vitehub/auth/server" } }, [sendPlugin])
+    const registry = await readFile(webhooksGeneratedFiles(root).registry, "utf8")
+    expect(registry).toContain('import { findVerifiedAuthUserId } from "#vitehub/auth/server"')
+    expect(registry).toContain("resolveVerifiedOwner: findVerifiedAuthUserId,")
   })
 
   it("retries member deliveries through the Queue when the app has one", async () => {
@@ -90,17 +99,42 @@ describe("member endpoints at build time", () => {
   })
 
   it("generates a development key in vite dev and keeps it across restarts", async () => {
+    const first = await project()
     const root = await project()
+    await configure(first, { database: true }, [sendPlugin], "serve")
     await configure(root, { database: true }, [sendPlugin], "serve")
-    const key = process.env.VITEHUB_WEBHOOKS_KEY
-    expect(atob(key ?? "")).toHaveLength(32)
-    expect((await readFile(webhooksDevelopmentKeyFile(root), "utf8")).trim()).toBe(key)
-    delete process.env.VITEHUB_WEBHOOKS_KEY
-    await configure(root, { database: true }, [sendPlugin], "serve")
-    expect(process.env.VITEHUB_WEBHOOKS_KEY).toBe(key)
-    // A build never generates a key.
-    delete process.env.VITEHUB_WEBHOOKS_KEY
-    await configure(await project(), { database: true }, [sendPlugin])
+    const file = webhooksDevelopmentKeyFile(root)
+    const key = (await readFile(file, "utf8")).trim()
+    expect(atob(key)).toHaveLength(32)
+    expect((await readFile(webhooksDevelopmentKeyFile(first), "utf8")).trim()).not.toBe(key)
     expect(process.env.VITEHUB_WEBHOOKS_KEY).toBeUndefined()
+    await configure(root, { database: true }, [sendPlugin], "serve")
+    expect((await readFile(file, "utf8")).trim()).toBe(key)
+    const registry = webhooksGeneratedFiles(root).registry
+    expect(await readFile(registry, "utf8")).toContain(JSON.stringify(file))
+    expect(await readFile(registry, "utf8")).not.toContain(key)
+    await configure(root, { database: true }, [sendPlugin])
+    expect(await readFile(registry, "utf8")).not.toContain(JSON.stringify(file))
+  })
+
+  it("keeps the development key file in the registry when Queue collects contributions", async () => {
+    const root = await project()
+    const options = { database: true, queue: true }
+    const early = hubWebhooks(options)
+    const files = webhooksGeneratedFiles(root)
+    const contribution = [{ name: "vitehub-webhooks", definition: { module: files.queue }, reason: expect.any(String) }]
+    expect(await early.vitehub.queues({ root, projectRoot: root, plugins: [early, sendPlugin] })).toEqual(contribution)
+    expect(await readFile(files.queue, "utf8")).toContain("./registry.mjs")
+
+    const { plugin } = await configure(root, options, [sendPlugin], "serve")
+    expect(await plugin.vitehub.queues({ root, projectRoot: root, plugins: [plugin, sendPlugin] })).toEqual(contribution)
+    expect(await readFile(files.registry, "utf8")).toContain(JSON.stringify(webhooksDevelopmentKeyFile(root)))
+  })
+
+  it("does not generate a development key when an explicit key is configured", async () => {
+    const root = await project({ ".env.development": "VITEHUB_WEBHOOKS_KEY=explicit-key\n" })
+    await configure(root, { database: true }, [sendPlugin], "serve")
+    await expect(readFile(webhooksDevelopmentKeyFile(root), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(webhooksGeneratedFiles(root).registry, "utf8")).not.toContain("explicit-key")
   })
 })

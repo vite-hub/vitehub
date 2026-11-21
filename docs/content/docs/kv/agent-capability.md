@@ -49,7 +49,7 @@ The docs build reads these definitions from the real Capability.
 When an Agent run loads its tools, the Capability reads the `kv` runtime handle, or `store(name)` of it with `store`.
 
 - `kv_read` takes exactly one of `key` or `prefix`. It fails with both or neither.
-- With `key`, it returns `get(key)`. With `prefix`, it returns key names from `keys(prefix)`, without values or a count limit.
+- With `key`, it returns `get(key)`. With `prefix`, it returns key names from the page returned by `list({ prefix })`, without values or a count limit.
 - `kv_edit` calls `set(key, value)` for `operation: 'put'` and `delete(key)` for `operation: 'delete'`.
 
 With `prefix`, every key must be under the prefix. The Capability normalizes keys as the KV primitive does: `/` and `\` become `:`. It also removes the query suffix starting with `?`, collapses repeated separators, and removes leading and trailing separators, for both keys and configured prefixes. Then it checks the prefix at a `:` boundary. With `prefix: 'support:'`, `support:1` and `support/1` are inside, but `support`, `support-private:1`, and `support:..:secret` are not. A key outside the prefix fails with `AGENT_STORAGE_PREFIX_OUTSIDE` and the store is not called. A `kv_read` list of `support` lists `support:`. A list prefix outside the prefix fails, and the list result keeps only keys inside the prefix.
@@ -83,7 +83,7 @@ When the handle returns `[error, value]`, the tool throws the error or returns t
 ## Verify KV access
 
 1. Start the Vite dev server.
-2. Run `vitehub agent info --agent support --json`. Check that `tools` has an entry with `name: "kv"`. It lists one entry per Capability, not per tool.
+2. Run `vitehub agent get support --json`. Check that `tools` has an entry with `name: "kv"`. It lists one entry per Capability, not per tool.
 3. Run `vitehub agent dev "Read the key app:1" --agent support`. Check that the output shows a `[tool] kv_read` call.
 4. In read mode, ask the Agent to change a key. It must have no `kv_edit` tool.
 

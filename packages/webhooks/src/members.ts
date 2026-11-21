@@ -4,7 +4,7 @@ import { checkWebhookUrl, outsideHosts } from "./url-guard.ts"
 import { createDeliveryId, deliverMemberClaim, inspectDelivery, memberWebhookPrefix, requireMemberEndpoints } from "./runtime.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
-import type { ListWebhookDeliveriesOptions, MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDelivery, WebhookDeliveryState } from "./database.ts"
+import type { ListMemberEndpointsOptions, ListWebhookDeliveriesOptions, MemberEndpoint, MemberLastDelivery, StoredMemberEndpoint, WebhookDelivery, WebhookDeliveryState } from "./database.ts"
 import type { CreateMemberEndpointErrorCode, MemberEndpointErrorCode, SendToMemberEndpointErrorCode } from "./errors.ts"
 
 /** The hosts that a member endpoint URL may use when `createMemberEndpoint()` gets no `hosts`: the T3 Code relay. */
@@ -23,7 +23,7 @@ export type CreateMemberEndpointOptions = {
   ownerName?: string
   /**
    * The email of the member, only when it is verified. The ViteHub Console signs in with its own accounts, so a Console
-   * account acts as the owner, such as for Redeliver, when its email equals this one.
+   * account acts as the owner only when its verified email equals this one and Auth still resolves it to `owner`.
    */
   ownerEmail?: string
   /** A name that people read, such as `"Launch plan thread"`. */
@@ -119,7 +119,7 @@ function invalid(problem: string): [ResultError<"WEBHOOKS_ENDPOINT_INVALID">, un
  * ```
  */
 export async function createMemberEndpoint(options: CreateMemberEndpointOptions): Promise<Result<MemberEndpoint, CreateMemberEndpointErrorCode>> {
-  const { endpoints } = requireMemberEndpoints()
+  const { endpoints, developmentKey } = requireMemberEndpoints()
   const problem = text(options?.owner, "owner", limits.owner) ?? text(options.name, "name", limits.name)
     ?? (options.agent === undefined ? undefined : text(options.agent, "agent", limits.agent))
     ?? (options.ownerName === undefined ? undefined : text(options.ownerName, "ownerName", limits.name))
@@ -199,13 +199,14 @@ export interface MemberEndpointWithLastDelivery extends MemberEndpoint {
 }
 
 /**
- * Every member endpoint, the oldest first, with the newest delivery to each, as `[error, endpoints]`. The rows never
+ * A page of member endpoints, the oldest first, with the newest delivery to each, as `[error, endpoints]`. The rows never
  * hold the URL or the secret. Check that the caller may read them, such as an admin, before you call it.
  */
-export async function listMemberEndpoints(options: { limit?: number } = {}): Promise<Result<MemberEndpointWithLastDelivery[], MemberEndpointErrorCode>> {
+export async function listMemberEndpoints(options: ListMemberEndpointsOptions = {}): Promise<Result<MemberEndpointWithLastDelivery[], MemberEndpointErrorCode>> {
   const { endpoints, store } = requireMemberEndpoints()
   try {
-    const [rows, results] = await Promise.all([endpoints.list(options), store.memberResults()])
+    const rows = await endpoints.list(options)
+    const results = await store.memberResults(rows.map(row => `${memberWebhookPrefix}${row.id}`))
     return [undefined, rows.map(row => ({ ...toMemberEndpoint(row), last: results.get(`${memberWebhookPrefix}${row.id}`) ?? null }))]
   }
   catch (error) {
@@ -274,7 +275,7 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     if (endpoint.disabledAt !== null) return [webhooksErrors.WEBHOOKS_ENDPOINT_DISABLED({ id: endpoint.id }), undefined]
     let target: { url: string, secret: string } | undefined
     if (endpoint.sealed !== null) {
-      const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed })
+      const [keyError, opened] = await unsealEndpoint({ ...endpoint, sealed: endpoint.sealed }, installed.developmentKey)
       if (keyError) return [keyError, undefined]
       const outside = options.hosts && outsideHosts(new URL(opened.url), options.hosts)
       if (outside) return [webhooksErrors.WEBHOOKS_URL_REFUSED({ reason: outside }), undefined]
@@ -282,12 +283,12 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     }
     const webhook = `${memberWebhookPrefix}${endpoint.id}`
     if (options.sealBody) {
-      const [error, sealed] = await sealWebhooksText(memberBodyLabel(webhook, options.event), json)
+      const [error, sealed] = await sealWebhooksText(memberBodyLabel(webhook, options.event), json, installed.developmentKey)
       if (error) return [error, undefined]
       json = JSON.stringify(`${sealedMemberBodyPrefix}${sealed}`)
     }
     const now = Date.now()
-    const recorded = await store.recordOnce({ id: options.deliveryId ?? createDeliveryId(), webhook, key: options.key, event: options.event, body: json, dueAt: now, now })
+    const recorded = await store.recordOnce({ id: options.deliveryId ?? createDeliveryId(), webhook, owner: endpoint.owner, key: options.key, event: options.event, body: json, dueAt: now, now })
     const done = target ? "sent" : "inbox"
     if (!recorded.created) return [undefined, { id: recorded.id, status: recorded.state === "sent" ? done : "pending" }]
     // `0` claims only a pending delivery, never one that another server is sending.

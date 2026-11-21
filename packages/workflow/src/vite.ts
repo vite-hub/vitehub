@@ -19,7 +19,7 @@ import { workflowDeploymentEnv } from "./deployment-env.ts"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
-import { inspectWorkflowDefinitions } from "./inspect.ts"
+import { inspectWorkflowDefinitions, inspectWorkflowResources } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
 import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
@@ -28,15 +28,14 @@ import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
 import type { ResolvedWorkflowOptions, WorkflowOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { Plugin, ResolvedConfig, Rolldown, UserConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
 export { createWorkflowTypes } from "./internal/registry-types.ts"
-export { inspectWorkflowDefinitions, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
+export { inspectWorkflowDefinitions, inspectWorkflowResources, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
 
 interface WorkflowNitroConfigOptions {
   nitro: Record<string, unknown>
@@ -58,7 +57,7 @@ export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironment
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
       prepareScheduleRuntime?: (artifactDir?: string, config?: ResolvedConfig) => Promise<{
         bundleAlias: Record<string, string>
-        bundlePlugins?: EsbuildPlugin[]
+        bundlePlugins?: Rolldown.Plugin[]
         native: boolean
         registryFile: string
         runtimeModules: { state: string, vercelVite: string }
@@ -304,7 +303,7 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
       bundlePlugins: [
         createOptionalPackagesPlugin(rootDir),
         ...(native ? [await createVercelWorkflowTransformPlugin(rootDir, artifactDir)] : []),
-      ].filter((plugin): plugin is EsbuildPlugin => Boolean(plugin)),
+      ].filter((plugin): plugin is Rolldown.Plugin => Boolean(plugin)),
       native,
       registryFile: artifacts.registryFile,
       runtimeModules: { state: workflowRuntimeModule("state"), vercelVite: workflowRuntimeModule("vercel-vite") },
@@ -602,6 +601,18 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
           if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "index.mjs") }]
           return []
           })(),
+          // The build binds each Workflow on Cloudflare. It makes the same output decision, and it scans the project root
+          // when Nitro writes the bindings or the Vite root when the standalone Cloudflare output does.
+          resources: () => {
+            const cloudflare = resolveOutputs(workflow).cloudflare
+            if (!cloudflare) return []
+            const viteRoot = resolved?.root ?? process.cwd()
+            const projectRoot = resolveViteHubProjectRoot(viteRoot)
+            const nitro = Reflect.get(resolved ?? {}, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+            const inNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
+            const resources = inspectWorkflowResources({ binding: cloudflare.binding, name: cloudflare.name, projectRoot, rootDir: inNitro ? projectRoot : viteRoot, serverDirs })
+            return inNitro ? resources : resources.map(resource => ({ ...resource, standalone: true }))
+          },
         }
       },
       workflow: {

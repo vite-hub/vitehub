@@ -1,6 +1,5 @@
 import { defineConfig } from "vite-plus";
 import { isBuiltin } from "node:module";
-import { fileURLToPath } from "node:url";
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports";
 
 // These entries resolve only through the "#vitehub/agent/*" package imports, or generated code imports them by path
@@ -38,7 +37,6 @@ export default defineConfig({
       alwaysBundle,
       neverBundle: [
         "vite",
-        "esbuild",
         "#vitehub/agent/registry",
         "#vitehub/agent/provider-agent",
         "#vitehub/env/server",
@@ -54,6 +52,7 @@ export default defineConfig({
         /^evlog(?:\/|$)/,
         /^posthog-node$/,
         /^evalite/,
+        /^@emulators\//,
         /^vitest/,
       ],
       onlyBundle: false,
@@ -62,6 +61,7 @@ export default defineConfig({
       "src/capabilities.ts",
       "src/channels.ts",
       "src/durability.ts",
+      "src/test/emulate-models.ts",
       "src/index.ts",
       "src/messages.ts",
       "src/internal/workspace/internal/runtime/hosted.ts",

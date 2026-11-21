@@ -360,7 +360,7 @@ describe("docs import contracts", () => {
     const documented = new Set([...reference.matchAll(/`(vite-hub(?:\/[^`]+)?)`/g)].map(match => match[1]))
 
     for (const subpath of Object.keys(manifest.exports || {})) {
-      if (subpath === "./package.json" || subpath.startsWith("./_internal/")) continue
+      if (subpath === "./package.json") continue
       const specifier = subpath === "." ? "vite-hub" : `vite-hub/${subpath.slice(2)}`
       expect(documented, `Missing framework import reference: ${specifier}`).toContain(specifier)
     }
@@ -375,7 +375,7 @@ describe("docs import contracts", () => {
     const importPattern = /(?:from\s+|import\s+)['"]((?:@vite-hub\/[^'"]+)|(?:vite-hub(?:\/[^'"]+)?))['"]/g
 
     for (const file of markdownFiles) {
-      const source = readFileSync(file, "utf8")
+      const source = readFileSync(file, "utf8").replace(/^```diff\b[^\n]*\n[\s\S]*?^```/gm, diff => diff.replace(/^-.*$/gm, ""))
       for (const match of source.matchAll(importPattern)) {
         const specifier = match[1]
         if (specifier) {

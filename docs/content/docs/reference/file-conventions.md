@@ -26,6 +26,7 @@ A file in the directory convention also turns its feature on, so the app needs n
 | Realtime | `server/realtime/<path>.ts` | None | Normalized relative path. |
 | Workflow | `server/workflows/<path>.ts`, or a folder with `index.ts` or numbered step files | `<path>.workflow.ts` | Relative file or folder path. Agent Definitions use their Agent name by default. `agentWorkflow(...)` overrides it, and `runtime: false` opts out. |
 | Schedule | `server/schedules/<path>.ts` | `<path>.schedule.ts` | Relative path. |
+| Source | `server/sources/<path>.ts` | None | Relative path, so `server/sources/docs.ts` is `useSource('docs')`. The file default-exports a Source, such as `glob()` or `github()`. Source is always on, so the file needs no key. |
 | Task | `server/tasks/<path>.ts` | None | Nitro task name: the relative path with `/` changed to `:`, so `server/tasks/db/seed.ts` is `db:seed`. An `index` file uses its folder name. Only `vitehub()` on a Vite + Nitro host registers these files. |
 | Sandbox Task | `server/sandbox-tasks/<path>/{package.json,index.ts}` | `<path>.sandbox-task.ts` outside `server/sandbox-tasks/` | Folder or suffix path, without the trailing `.sandbox-task`. |
 | Workspace | `server/workspaces/<path>.ts`, `server/workspaces/<name>/config.ts`, or `server/agents/<name>/agent.ts` when the Agent declares a Workspace | `<path>.workspace.ts` | Relative path, or the name of the Agent in the same folder. |
@@ -119,6 +120,10 @@ A `templates/` folder can group files, but ViteHub does not discover or import i
 Each Markdown file in `server/emails` becomes a typed email renderer. ViteHub drops the folder prefix and `.md`, so `server/emails/welcome.md` becomes `#vitehub/emails/welcome` and `server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
 
 Names need non-empty path segments, and no `.` or `..` segments, query strings, fragments, backslashes, or trailing `.md`. Names must be unique across all server directories.
+
+## Cloudflare Worker exports
+
+On Cloudflare, the named exports of `server/cloudflare.ts` become exports of the Worker entry, so a Durable Object, Workflow, or `WorkerEntrypoint` class in your app can run. Bindings and migrations stay in your project Wrangler config. Other hosts ignore the file. Read [Your own Worker classes](/docs/frameworks-hosts/cloudflare#your-own-worker-classes).
 
 ## Generated files
 

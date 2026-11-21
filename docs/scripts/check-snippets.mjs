@@ -114,6 +114,18 @@ const appDeclarations = [
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
   },
   {
+    // `@cloudflare/workers-types` declares this module in a Cloudflare app. This is the part that the pages use.
+    code: [
+      `declare module "cloudflare:workers" {`,
+      `  export abstract class DurableObject<Env = unknown> {`,
+      `    protected ctx: { storage: { get<T>(key: string): Promise<T | undefined>, put(key: string, value: unknown): Promise<void> } }`,
+      `    protected env: Env`,
+      `  }`,
+      `}`,
+    ].join("\n"),
+    file: join(docsRoot, ".snippets/cloudflare-workers.d.ts"),
+  },
+  {
     // `hubAuth()` writes this declaration for the stable Auth alias that manual hosts mount.
     code: [
       `declare module "#vitehub/auth/server" {`,
@@ -287,6 +299,12 @@ const registries = [
     definitions: label => /^(?:server\/auth(?:\/index)?|server\.auth)\.[cm]?ts$/.test(label) ? ["definition"] : [],
     render: entries => ["declare global {", "  namespace ViteHub {", "    interface AuthRegistry {", ...entries.map(([key, path]) => `      ${key}: typeof import(${path}).default`), "    }", "  }", "}", "export {}"],
     type: "auth",
+  },
+  {
+    // @vite-hub/source: `writeSourceArtifacts()` names each file under server/sources by its relative path.
+    definitions: label => [/^server\/sources\/(.+)\.[cm]?ts$/.exec(label)?.[1]].filter(Boolean),
+    render: entries => ["declare global {", "  interface ViteHubSourceMap {", ...entries.map(([key, path]) => `    ${key}: typeof import(${path}).default`), "  }", "}", "export {}"],
+    type: "source",
   },
   {
     // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.

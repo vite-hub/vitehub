@@ -187,6 +187,8 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   // The OS timer tests check the generated files with the OS tools, when the machine has them.
   schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
   ui: {
+    // `MOTION_RECORD=<dir>` in the motion browser tests encodes the ¼× recordings with the host's ffmpeg and ffprobe.
+    ignoreBinaries: ["ffmpeg", "ffprobe"],
     ignoreDependencies: [
       // `#app` resolves to the Nuxt nightly package installed under the declared `nuxt` alias.
       "nuxt-nightly",
@@ -304,8 +306,6 @@ const config: KnipConfiguration = {
         // Code blocks of the docs import these, and `scripts/check-snippets.mjs` typechecks them.
         "@better-auth/cimd",
         "@chat-adapter/slack",
-        // nuxt-og-image of `@vite-hub/docs` renders the `*.takumi.vue` share images with it.
-        "@takumi-rs/core",
         // Nuxt UI installs `@nuxt/icon` by name, and Nuxt resolves it from the app first, so this pins the copy that loads.
         "@nuxt/icon",
         // On Cloudflare, the MCP endpoint of `@nuxtjs/mcp-toolkit` imports `agents/mcp`.
