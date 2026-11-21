@@ -58,6 +58,7 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
+          expect.objectContaining({ name: "state" }),
         ],
         name: "agent",
       }, {
@@ -81,6 +82,7 @@ describe("agent CLI", () => {
           expect.objectContaining({ name: "get" }),
           expect.objectContaining({ name: "dev" }),
           expect.objectContaining({ name: "invocations" }),
+          expect.objectContaining({ name: "state" }),
         ],
         name: "agent",
       }, {

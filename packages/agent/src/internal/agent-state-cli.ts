@@ -114,9 +114,12 @@ function localFilePath(url: string): string | undefined {
 }
 
 function keyAdapter(key: string, channels: ReadonlyMap<string, string>): string | undefined {
-  // The default transcript identity is `<adapter>:<user>`. A custom `identity` names no adapter, so its keys stay.
+  // The default transcript identity is `<adapter>:<user>`.
   if (key.startsWith("transcripts:user:")) {
-    const adapter = key.slice("transcripts:user:".length).split(":", 1)[0]!
+    const identity = key.slice("transcripts:user:".length)
+    const separator = identity.indexOf(":")
+    if (separator < 0) return
+    const adapter = identity.slice(0, separator)
     return channels.has(adapter) ? adapter : undefined
   }
   // Chat SDK concurrency keys are `concurrency:["<adapter>",<scope>,<key>]`.

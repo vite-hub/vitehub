@@ -62,7 +62,8 @@ async function seedUnscopedState(url: string) {
   await state.set("webhook:bot:teams:teams:cursor", 1)
   await state.appendToList("msg-history:teams:conv-1", { text: "one" })
   await state.appendToList("msg-history:teams:conv-1", { text: "two" })
-  await state.appendToList("transcripts:user:teams:u1", { text: "hi" })
+  await state.appendToList("transcripts:user:productlane:u1", { text: "hi" })
+  await state.appendToList("transcripts:user:teams", { text: "custom identity" })
   // Another Agent's transcript in the same database.
   await state.appendToList("transcripts:user:telegram:u2", { text: "other" })
   await state.subscribe("teams:conv-1")
@@ -87,8 +88,8 @@ describe("vitehub agent state migrate", () => {
     expect(dryRun.stdout).toContain("6 keys move to their Channel scope.")
     expect(dryRun.stdout).toContain("thread-state:teams:conv-1 -> chat:bot:teams:thread-state:teams:conv-1")
     expect(dryRun.stdout).toContain("channel-state:productlane:card-1 -> chat:bot:support:channel-state:productlane:card-1")
-    expect(dryRun.stdout).toContain("transcripts:user:teams:u1 -> chat:bot:transcripts:user:teams:u1")
-    expect(dryRun.stdout).toContain("3 keys name no listed adapter and stay:\n  chat:callback:token-1\n  thread-state:slack:C1\n  transcripts:user:telegram:u2")
+    expect(dryRun.stdout).toContain("transcripts:user:productlane:u1 -> chat:bot:transcripts:user:productlane:u1")
+    expect(dryRun.stdout).toContain("4 keys name no listed adapter and stay:\n  chat:callback:token-1\n  thread-state:slack:C1\n  transcripts:user:teams\n  transcripts:user:telegram:u2")
     expect(dryRun.stdout).toContain("1 lock stays.")
     expect(dryRun.stdout).toContain("Dry run: nothing changed.")
 
@@ -107,7 +108,7 @@ describe("vitehub agent state migrate", () => {
     await expect(state.get("thread-state:teams:conv-1")).resolves.toBeNull()
     await expect(state.get("chat:bot:support:channel-state:productlane:card-1")).resolves.toEqual({ open: true })
     await expect(state.getList("chat:bot:teams:msg-history:teams:conv-1")).resolves.toEqual([{ text: "one" }, { text: "two" }])
-    await expect(state.getList("chat:bot:transcripts:user:teams:u1")).resolves.toEqual([{ text: "hi" }])
+    await expect(state.getList("chat:bot:transcripts:user:productlane:u1")).resolves.toEqual([{ text: "hi" }])
     await expect(state.isSubscribed("chat:bot:teams:teams:conv-1")).resolves.toBe(true)
     await expect(state.isSubscribed("teams:conv-1")).resolves.toBe(false)
     await expect(state.queueDepth("chat:bot:teams:teams:conv-1")).resolves.toBe(1)
@@ -117,6 +118,7 @@ describe("vitehub agent state migrate", () => {
     await expect(state.get("chat:bot:teams:interrupted")).resolves.toEqual({ ok: true })
     await expect(state.get("webhook:bot:teams:teams:cursor")).resolves.toBe(1)
     await expect(state.getList("transcripts:user:telegram:u2")).resolves.toEqual([{ text: "other" }])
+    await expect(state.getList("transcripts:user:teams")).resolves.toEqual([{ text: "custom identity" }])
     await state.disconnect()
 
     const again = await run([...args, "--url", url, "--apply"])
@@ -149,7 +151,7 @@ describe("vitehub agent state migrate", () => {
     const missingUrl = await run(["migrate", "--agent", "bot", "--channel", "teams"])
     expect(missingUrl.stderr).toContain("VITEHUB_AGENT_STATE_URL")
 
-    const twoChannels = await run(["migrate", "--agent", "bot", "--channel", "telegram=support", "--channel", "telegram=private", "--url", "file:/tmp/state.db"])
+    const twoChannels = await run(["migrate", "--agent", "bot", "--channel", "telegram=support", "--channel", "telegram=private", "--url", "file:/tmp/state.db", "--apply"])
     expect(twoChannels.code).toBe(1)
     expect(twoChannels.stderr).toContain("--channel telegram names the Channels support and private")
 

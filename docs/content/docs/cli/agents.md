@@ -117,7 +117,7 @@ Dry run: nothing changed. Run the command again with --apply to move the keys.
 ```
 
 - `--channel <adapter>` picks keys by the adapter name at their start, such as `teams:` or `thread-state:teams:`. When the Channel key in `channels` differs from the adapter name, pass both: `--channel discord=support`. Repeat the flag for each Channel. The keys name only the adapter, so the command stops when one adapter names two Channels.
-- User transcripts of a listed adapter (`transcripts:user:<adapter>:`) move to the Agent scope, `chat:<agent>:`, as the provider default stores them. Transcripts of a custom `identity` name no adapter and stay.
+- User transcripts of a listed adapter (`transcripts:user:<adapter>:<user>`) move to the Agent scope, `chat:<agent>:`, as the provider default stores them. Other identities stay. If a custom `identity` uses the same format, the command cannot tell it apart from a default identity; check the planned moves before applying them.
 - Keys of other adapters, keys without an adapter, and keys that ViteHub already scoped stay. Locks stay too, because they expire.
 - A key whose scoped copy already exists stays, so the command never replaces newer data. Running it again is safe.
 - `--url` defaults to `VITEHUB_AGENT_STATE_URL`, and `VITEHUB_AGENT_STATE_AUTH_TOKEN` authenticates a libSQL server. `--table-prefix` matches a custom `tablePrefix`. The command reads only libSQL and SQLite State, not the Cloudflare Durable Object State.
