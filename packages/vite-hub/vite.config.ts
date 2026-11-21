@@ -1,5 +1,5 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 
 import { defineConfig } from "vite-plus";
 import * as v from "valibot";
@@ -551,11 +551,8 @@ export default defineConfig({
               for (const file of files) {
                 const source = readFileSync(resolve(root, file));
                 this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
-                // Also publish it at `node_modules/vite-hub/skills/<name>/`, where agents look for a package's skills. Write
-                // without reading the old copy: a task that reads a file it writes is not cached.
-                const target = resolve(import.meta.dirname, "skills", name, file);
-                mkdirSync(dirname(target), { recursive: true });
-                writeFileSync(target, source);
+                // Also publish it at `node_modules/vite-hub/dist/skills/<name>/`, where `npx skills add` and agents find it.
+                this.emitFile({ type: "asset", fileName: `skills/${name}/${file}`, source });
               }
               return { name, description, files };
             });

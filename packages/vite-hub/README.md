@@ -13,7 +13,15 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 
 ## Agent skill
 
-The package ships the `vitehub` agent skill at `node_modules/vite-hub/skills/vitehub/SKILL.md`. Point your coding agent at it before it changes an app that uses ViteHub. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
+The package ships the `vitehub` agent skill at `node_modules/vite-hub/dist/skills/vitehub/`, written for the installed version. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
+
+Coding agents don't load skills from `node_modules`. Install it into the project once, and again after `vitehub update`:
+
+```sh
+npx skills add ./node_modules/vite-hub/dist/skills/vitehub --agent claude-code codex
+```
+
+The CLI copies it to `.agents/skills/vitehub/`, where Codex loads it, and links it from `.claude/skills/vitehub/` for Claude Code. For a single task without installing it, tell the agent to read `node_modules/vite-hub/dist/skills/vitehub/SKILL.md` first.
 
 ## Install
 
