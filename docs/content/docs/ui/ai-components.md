@@ -49,7 +49,7 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or from `
 | `vite-hub/ui`             | Styled components, composables, and display and Pierre diff helpers. |
 | `vite-hub/ui/headless`   | Message scroller and Choices input parts, without styles or Nuxt UI. |
 | `vite-hub/ui/markdown-editor` | `MarkdownEditor`. It has its own entry, so pages without it never load Tiptap. |
-| `vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. It has its own entry, so pages without it never load CodeMirror or xterm. |
+| `vite-hub/ui/workspace` | The live app parts and `PlaygroundContainer` for tutorials and playgrounds. `WorkspaceShell` puts the output at the side of the code (`side`), the guide over the code (`guide-top`), or the guide in a column on the left (`guide-side`). It has its own entry, so pages without it never load CodeMirror or xterm. |
 | `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
 | `vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |

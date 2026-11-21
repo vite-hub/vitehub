@@ -1398,6 +1398,44 @@ History export archives inline data, sized adapter-owned `fetchData`, and Blob d
 - Attachments over budget, malformed, failing rehydration, unsized for a lazy read, or otherwise unreadable stay in `history.json` as unavailable references.
 - The export fails rather than exceed its total limit.
 
+## Ask a person to fill in a form
+
+Some answers have a shape, such as an expense with an email, an amount, and a reason. Give the Agent the form with `forms()`. Each form adds one tool, `ask_<name>`, that the Agent calls when it needs the answer:
+
+```ts [server/agents/expenses.ts]
+import * as v from 'valibot'
+import { defineAgent } from 'vite-hub/agent'
+import { forms } from 'vite-hub/agent/capabilities'
+
+const expense = v.object({
+  email: v.pipe(v.string(), v.email('Enter a valid email.')),
+  amount: v.pipe(v.number(), v.minValue(1, 'Enter 1 or more.')),
+  reason: v.picklist(['travel', 'food']),
+})
+
+export default defineAgent({
+  channels: ['slack'],
+  capabilities: [forms({ expense })],
+  driver: { model: 'openai/gpt-5.1-mini' },
+})
+```
+
+A Slack modal opens only after a person clicks or types a command, so the Agent cannot open it alone. The flow has four steps:
+
+1. The Agent calls `ask_expense` with one sentence on why it asks. Its reply comes with a card that has a **Fill in Expense** button.
+2. A click on the button opens a Slack modal, with one input for each field of the form.
+3. ViteHub checks the values with the form schema. A bad value shows its error under its input, and the Agent does not run.
+4. Good values close the modal. If the Channel accepts the answer, ViteHub marks the card "filled in by" and starts the next turn. The person's message has the checked values as JSON.
+
+A form is a `defineForm()` result from `vite-hub/forms`, or a flat Standard Schema object, such as a Valibot or Zod object. Pass `{ form, title }` to set the title of the button and the modal. The default title is the name in words. Each field must be text, a number, true or false, or a choice. See [one schema on every surface](/docs/forms/server-api).
+
+| Where the tool runs | What happens |
+| --- | --- |
+| Inline Slack turn | The button opens the form. |
+| Other Channels (including Teams, Telegram, Discord, and web chat), durable Workflow turns, `runAgent()`, or Schedules | The tool returns `status: "unavailable"` and the fields, so the Agent asks for them in its reply. ViteHub does not validate the reply against the form schema. |
+
+Anyone in the thread can fill in the form within 24 hours. The answer goes through `access()` and `messages.filter` as a message from that person. A rejected answer leaves the button available. Chat State stores the modal context and ensures that only the first accepted answer reaches the Agent. When you run more than one server process, use shared Chat State: in-memory State cannot accept a submission on a different process from the one that opened the modal. The tool calls show in the Invocation trace as `ask_<name>`.
+
 ## Separate responsibilities
 
 | Concern | Owner |

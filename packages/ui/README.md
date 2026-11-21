@@ -77,9 +77,9 @@ The menus run each item's `kind`, such as `{ kind: "heading", level: 2 }`, throu
 
 ## Run an app in the browser
 
-The workspace parts render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
+The workspace parts render a live app next to a docs page: a tutorial with the lesson in a column on the left, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
-`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "tutorial" | "playground"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "side" | "guide-top" | "guide-side"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
 
 `PlaygroundRender`, a playground that renders files in the page, is in the root `@vite-hub/ui`. See [Render files in the page](#render-files-in-the-page). `@vite-hub/ui/playground` has the share links and zips: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, and `downloadZip()`.
 
@@ -127,11 +127,11 @@ const templates = [
 </template>
 ```
 
-- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"playground"` or `"tutorial"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
+- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"side"`, the default, or `"guide-side"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
 - Templates with the same `snapshot` function switch in place. Another snapshot, or an edited `package.json`, boots a new workspace.
 - Slots: `#toolbar` adds buttons before Download, `#banner` shows under the toolbar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ workspace, template, edited, show, showTab, guard }`, and `@context` gives the same object to code outside the container. `#intro` and `#fallback` show around the card when the workspace does not show.
 - It emits `update:template` when the reader opens a template or discards the changes to one.
-- A tutorial gives one template with the files of its step, sets `layout="tutorial"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
+- A tutorial gives one template with the files of its step, sets `layout="guide-side"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
 
 ```vue
 <script setup lang="ts">
@@ -148,7 +148,7 @@ const source = computed({
 </script>
 
 <template>
-  <WorkspaceShell v-model:tab="tab" layout="tutorial">
+  <WorkspaceShell v-model:tab="tab" layout="side">
     <template #editor><WorkspaceEditor v-model="source" path="server.js" /></template>
     <template #preview><WorkspacePreview :url="workspace.previewUrl.value" /></template>
     <template #terminal><WorkspaceTerminal :output="workspace.logs.value" /></template>
@@ -169,12 +169,19 @@ const source = computed({
 ```
 
 - `useWebContainer()` returns the state that the parts take: `status`, `steps`, `failure`, `files`, `modified`, `previewUrl`, `logs`, and `online`. Its [README](../web-container/README.md#run-it-from-vue) lists the options. Pass `env: useConnectStore().env(connect)` to give the dev server the reader's tokens.
-- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the preview at the side and the other tabs under the editor. `tabs` sets the tabs and their order, with a label and an optional `badge` each, and each tab shows the slot with its `value`. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `WorkspaceShell` has the slots `#bar`, `#files`, `#editor-head`, `#editor`, `#status`, `#guide`, `#terminal`, `#preview`, `#connect`, and `#overlay`. Preview, Terminal, and Connect are tabs in the output pane. The layout puts the panes in place:
+  - `side` (default): the code on the left and the output at the side, with a draggable line between them.
+  - `guide-top`: the `#guide` pane over the code, with a draggable line between them, and the output at the side.
+  - `guide-side`: the `#guide` pane on the left is up to 360px wide and takes at most half the available width. On the right, the output takes 40% at the top and the code sits under it.
+- The `#bar` slot is 44px high. The `#editor-head` row and the output tab bar are 32px high, so their bottom lines align. The `#status` line is 24px high. The draggable lines also move with the arrow keys, Home, and End. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `tabs` sets the tabs and their order, with a label and an optional `badge` each. For custom tabs, use `#tab-<value>` (for example, `#tab-status`). A slot named by the value alone still works if it is not a layout slot and does not start with `tab-`.
 - The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe. The page cannot read the address or the history of that cross-origin frame either, so pass `previewScript: workspacePreviewScript` to `useWebContainer()`. The script reports the address of each preview page, and Back and Forward work. Without it, the bar shows the path that it opened, and Back and Forward stay disabled. `PlaygroundContainer` passes it.
 - The width switch of `WorkspacePreview` shows the page at 768 (Tablet) or 390 (Phone) CSS pixels in a `DeviceFrame`, scaled down to fit the pane. Desktop fills the pane. Use `v-model:device`, or let it keep the last width in localStorage.
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
 
-The demo page in `test/browser/page` shows every part in the tutorial layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+The demo page in `test/browser/page` shows every part in the `guide-side` layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+
+`pnpm --filter @vite-hub/ui test:workspace-parts` mounts the parts on a fake WebContainer in headless Chromium at 1280x760 and checks their sizes against the design. Each part is a file in `test/browser/workspace-parts/fixtures` and its checks are a file in `test/browser/workspace-parts/checks`. Set `WORKSPACE_PARTS_SCREENSHOTS=<dir>` to save a screenshot of each part.
 
 ## Render files in the page
 

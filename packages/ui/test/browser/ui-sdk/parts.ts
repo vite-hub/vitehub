@@ -111,7 +111,7 @@ export const Parts: Component = defineComponent({
       section("Chat", () => h("div", { style: "height: 320px; display: flex; flex-direction: column" }, h(Chat, { messages }))),
       section("ConnectPanel", () => h(ConnectPanel, { connect })),
       section("WorkspaceShell", () => h("div", { style: "height: 320px" }, h(WorkspaceShell, {
-        layout: "tutorial",
+        layout: "side",
         storageKey: false,
         tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }],
       }, { editor: () => h("p", "editor"), messages: () => h("p", "messages panel"), terminal: () => h("p", "terminal panel") }))),

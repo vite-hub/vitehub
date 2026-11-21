@@ -7,13 +7,22 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/inter
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
+import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { readViteHubVersion } from "./version.ts"
 
 import type { Plugin } from "vite"
 
+/** A primitive that the health route can check. */
+export type HealthCheck = "database" | "kv" | "blob"
+
 export interface HealthOptions {
   /** The route that answers the health check. Default: `/_vitehub/health`. */
   route?: string
+  /**
+   * The primitives that the route checks. Default: each of `database`, `kv`, and `blob` that the app turns on. `[]`
+   * checks nothing and answers with the version and commit only.
+   */
+  checks?: readonly HealthCheck[]
 }
 
 export const defaultHealthRoute = "/_vitehub/health"
@@ -26,6 +35,20 @@ export interface HealthTargets {
   database: boolean
   kv: readonly string[]
   blob: readonly string[]
+}
+
+/** The targets that `checks` keeps. A listed primitive that the app does not turn on fails the build. */
+export function selectHealthTargets(checks: readonly unknown[] | undefined, targets: HealthTargets): HealthTargets {
+  if (!checks) return targets
+  for (const check of checks) {
+    if (check !== "database" && check !== "kv" && check !== "blob") throw viteHubErrorDiagnostics.VITE_HUB_HEALTH_CHECK_INVALID({ check: String(check) })
+    if (check === "database" ? !targets.database : !targets[check].length) throw viteHubErrorDiagnostics.VITE_HUB_HEALTH_CHECK_DISABLED({ check })
+  }
+  return {
+    database: checks.includes("database") && targets.database,
+    kv: checks.includes("kv") ? targets.kv : [],
+    blob: checks.includes("blob") ? targets.blob : [],
+  }
 }
 
 /** A key that no app writes. KV reads it to prove that the store answers, which costs one read. */
@@ -102,10 +125,11 @@ async function readAppVersion(projectRoot: string): Promise<string | undefined> 
 }
 
 /** Registers the health route, with the app version and commit of the build, and the primitives to check. */
-export function healthVitePlugin(options: HealthOptions, targets: HealthTargets): Plugin {
+export function healthVitePlugin(options: HealthOptions, available: HealthTargets): Plugin {
   return {
     name: "vite-hub/health",
     async config(config) {
+      const targets = selectHealthTargets(options.checks, available)
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, nitro?: Record<string, unknown> }
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
