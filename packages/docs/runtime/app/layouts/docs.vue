@@ -6,6 +6,10 @@ const hasCodePanel = computed(() => found.value?.page.codePanel === true)
 // Pages show the sidebar unless they set `sidebar: false`. A page with `sidebar: "collapsed"`, and a code panel tutorial,
 // shows a narrow strip until the reader opens the sidebar.
 const sidebar = useDocsSidebar()
+// An app page that sets `sidebar: "collapsed"` in its page meta, such as a playground, fills the viewport under the header.
+// Markdown pages with a collapsed sidebar, and code panel tutorials, keep the window scroll.
+const route = useRoute()
+const fills = computed(() => sidebar.value.collapsible && route.meta.sidebar === "collapsed")
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -37,7 +41,11 @@ const docsShellUi = {
             <span class="text-muted">{{ banner }}</span>
           </div>
         </div>
-        <slot />
+        <!-- The window does not scroll. A page that is taller than the viewport, such as the playground intro on a phone, scrolls in here. -->
+        <div v-if="fills" class="vh-docs-fill">
+          <slot />
+        </div>
+        <slot v-else />
       </UPage>
     </UMain>
   </DocsAppShell>
@@ -61,6 +69,16 @@ const docsShellUi = {
 
 .vh-skip-link:focus {
   transform: none;
+}
+
+/* One cell as tall as the viewport under the header. The root of the page is exactly that size, so `height: 100%` inside it
+   fills the viewport. Content that is taller scrolls in here. */
+.vh-docs-fill {
+  display: grid;
+  height: calc(100dvh - var(--ui-header-height));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: auto;
 }
 
 @media (min-width: 64rem) {
@@ -101,4 +119,11 @@ const docsShellUi = {
 
 }
 
+</style>
+
+<style>
+/* The fill column scrolls instead of the window. */
+:root:has(.vh-docs-fill) {
+  overflow: hidden;
+}
 </style>
