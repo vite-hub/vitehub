@@ -11,7 +11,6 @@ const bindings = { STANDARD_CONTEXT_TOKEN: "request-token", VITEHUB_SECRET: "req
 function requestEvent(): ViteHubContext {
   const context = { cloudflare: { env: bindings } }
   const event = { context, req: new Request("https://example.test/"), res: { headers: new Headers() } }
-  // H3's event type is augmented, but a standalone app has not installed the property yet.
   return event as never
 }
 
@@ -43,7 +42,6 @@ describe("Server Env Standard Context", () => {
     runWithCloudflareEnv(bindings, () => {
       const request = new Request("https://example.test/")
       expect(resolveServerEnv(registry(), request as never)).toEqual({ token: "request-token" })
-      // A Request without host data gets a `fetch` Standard Context without bindings, so Env reads the active bindings.
       expect((request as Request & ViteHubContext)["~standard"]).toMatchObject({ runtime: {}, vendor: "fetch" })
       expect(resolveServerEnv(registry())).toEqual({ token: "request-token" })
     })

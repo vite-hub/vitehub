@@ -9,11 +9,9 @@ import type { ListMemberEndpointsOptions, ListWebhookDeliveriesOptions, MemberEn
 import type { MemberEndpointWithLastDelivery, SendToMemberEndpointResult } from "./members.ts"
 import type { MemberCaller, SendWebhookResult, WebhookInfo } from "./runtime.ts"
 
-// The webhooks live in the Nitro runtime. The operations load it when they run, so the CLI can list them without it.
 const runtime = () => import("./runtime.ts")
 const members = () => import("./members.ts")
 
-/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const statuses: Readonly<Record<string, number>> = {
   WEBHOOKS_BODY_INVALID: 400,
   WEBHOOKS_DATABASE_MISSING: 409,
@@ -35,12 +33,10 @@ const statuses: Readonly<Record<string, number>> = {
   WEBHOOKS_WAKE_FAILED: 502,
 }
 
-/** Gives a Webhooks error the status that the surfaces report. Other errors pass unchanged. */
 function failure(error: unknown): unknown {
   return webhooksErrors.is(error) ? Object.assign(error, { status: statuses[error.code] ?? 500 }) : error
 }
 
-/** Runs a runtime function and throws its error, so the operation fails with the code, `why`, and `fix`. */
 async function unwrap<T>(run: () => Promise<Result<T, string>>): Promise<T> {
   let result: Result<T, string>
   try {

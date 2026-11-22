@@ -63,7 +63,6 @@ describe("reading the cms preset from server/content.ts", () => {
     const source = (module: string) => `import { defineContent } from 'vite-hub/content'\nimport cms from '${module}'\nexport default defineContent({ extends: cms })\n`
     expect(read(source("vite-hub/cms"))).toEqual({ file, options: {} })
     expect(read(source("@vite-hub/cms"))).toEqual({ file, options: {} })
-    // The preset left Content, so the old paths select nothing.
     expect(read(source("vite-hub/content/presets/cms"))).toBeUndefined()
     expect(read(source("@vite-hub/content/presets/cms"))).toBeUndefined()
   })
@@ -83,7 +82,6 @@ describe("reading the cms preset from server/content.ts", () => {
       .toThrow('cms preset option "roles" must be a `true` literal')
     expect(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport default defineContent({ extends: [cms, { access: 'roles' }] })"))
       .toThrow("Replace `access: \"roles\"` with `roles: true`.")
-    // The app's own policy replaces the CMS roles, and inspection says so.
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
       "import cms from 'vite-hub/cms'",
@@ -348,7 +346,6 @@ describe("hubCms()", () => {
     expect(spreadPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "Indeterminate (object spread may supply authorize)" })
     const overriddenSpread = await inspect(spread.replace("extends: cms", "extends: [cms, { roles: true }], ...shared, authorize: undefined"))
     expect(overriddenSpread.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
-    // Without the preset there is nothing to inspect, but the roles still serve cmsContentAuthorize.
     const plain = await inspect("import { defineContent } from 'vite-hub/content'\nexport default defineContent({ workspace: 'site' })\n")
     expect(plain.fields).toEqual([])
     expect(plain.cli?.namespaces[0]?.name).toBe("cms")
@@ -360,8 +357,6 @@ describe("hubCms()", () => {
   it("skips its own plugin when vitehub() nests it in context.plugins", async () => {
     const root = await project("export default {}\n")
     const plugin = hubCms()
-    // vitehub() returns an array, so the CMS plugin sits one level down in the app's plugin list. Collecting the
-    // Database contributions of that list must not call this plugin's hooks again.
     const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
     expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, root })).toEqual([])
     expect(await plugin.vitehub.databases({ plugins, projectRoot: root, root, rootDir: root })).toEqual([])
@@ -395,7 +390,6 @@ describe("the cms preset on the GitHub store", () => {
   it("reads the GitHub options as string literals", () => {
     expect(readCmsPresetUsage(githubSource("store: 'github', repo: 'onmax/docs', branch: 'main', draftBranch: 'cms/drafts', root: 'content', publish: 'commit', database: 'default'"), file, "/app", parseAst))
       .toEqual({ file, options: { store: "github", repo: "onmax/docs", branch: "main", draftBranch: "cms/drafts", root: "content", publish: "commit", database: "default" } })
-    // The empty string is the repository root.
     expect(readCmsPresetUsage(githubSource("store: 'github', root: ''"), file, "/app", parseAst)).toEqual({ file, options: { store: "github", root: "" } })
   })
 
@@ -447,7 +441,6 @@ describe("the cms preset on the GitHub store", () => {
     expect(module).toContain("root: \"\",")
     expect(module).toContain("refs: { published: \"main\", draft: \"cms/drafts\" },")
     expect(module).toContain("rules: { \"**\": { write: false } },")
-    // No token is read while the module loads.
     expect(module).not.toContain("token")
     expect(module).not.toContain("blob")
     const folder = renderCmsWorkspaceModule(resolveCmsPresetPlan({ file, options: { store: "github", root: "content" } }, choices([]), "/app"), imports)
@@ -489,7 +482,6 @@ describe("the cms preset on the GitHub store", () => {
     expect(workspaces).toMatchObject([{ name: "content", definition: { export: "contentWorkspace" } }])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("driver: \"github\"")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
-    // Workspace and Database are on, Blob is not.
     const configResolved = plugin.configResolved as (config: ResolvedConfig) => Promise<void>
     // SAFETY: configResolved reads only the root and plugin names.
     await expect(configResolved({ root, plugins: [{ name: "@vite-hub/workspace/vite" }, { name: "@vite-hub/database/vite" }] } as unknown as ResolvedConfig)).resolves.toBeUndefined()

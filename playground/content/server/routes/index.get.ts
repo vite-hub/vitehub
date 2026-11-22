@@ -3,7 +3,6 @@ import { contentField } from "vite-hub/content/client"
 
 import content from "../content"
 
-// The public site lists published posts only. It has no edit button: editors open /_vitehub.
 export default defineHandler(async () => {
   const [settings, { items }] = await Promise.all([
     content.collection("settings").get(),
@@ -18,7 +17,6 @@ export default defineHandler(async () => {
 <p><a href="/login">Sign in</a> · <a href="/_vitehub/content">Console</a> · <a href="/?vitehub=comments">Comment on this site</a></p></body>`, { headers: { "content-type": "text/html; charset=utf-8" } })
 })
 
-/** `contentField()` marks the element that renders a Content field, so comment mode can edit its text in place. */
 function attributes(record: Record<string, string>): string {
   return Object.entries(record).map(([name, value]) => `${name}="${escape(value)}"`).join(" ")
 }

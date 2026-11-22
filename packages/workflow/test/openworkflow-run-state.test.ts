@@ -13,7 +13,6 @@ beforeEach(() => {
   resetWorkflowRuntime()
   failCreateUser = false
   setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
-  // The same shape that the generated registry gives a folder Workflow with two step files.
   setWorkflowRuntimeRegistry({
     "onboard-user": async () => ({
       handler: async (context: Parameters<typeof createWorkflowSteps>[0] & { payload: unknown }) => {
@@ -63,7 +62,6 @@ it("reports the payload, times, and steps that OpenWorkflow stores", async () =>
   expect(run.createdAt?.getTime()).toBeGreaterThanOrEqual(startedAt - 1000)
   expect(run.startedAt).toBeInstanceOf(Date)
   expect(run.completedAt).toBeInstanceOf(Date)
-  // OpenWorkflow lists attempts by creation time in milliseconds, so two fast steps can come in either order.
   expect(run.steps).toHaveLength(2)
   expect(run.steps).toEqual(expect.arrayContaining([
     expect.objectContaining({ attempt: 1, name: "onboard-user/01.create-user.ts", status: "completed" }),

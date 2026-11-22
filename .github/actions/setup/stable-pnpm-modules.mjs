@@ -1,10 +1,3 @@
-// Vite reads node_modules/.modules.yaml while it resolves a config, so the Vite+
-// task cache fingerprints it. pnpm writes the install time into prunedAt, and
-// when a package is installed in several versions it does not always hoist the
-// same one, so two fresh installs of one lockfile write different files and a
-// restored task cache never replays a build. Vite only needs virtualStoreDir.
-// pnpm only reads hoistedDependencies to unlink old hoisted packages on the next
-// install, which a CI job never runs.
 import { readFileSync, writeFileSync } from "node:fs"
 
 const file = process.argv[2] ?? "node_modules/.modules.yaml"

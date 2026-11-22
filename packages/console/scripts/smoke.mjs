@@ -1,9 +1,3 @@
-// Checks a running Console build through its public routes. Every host runs the same checks: the page is the real
-// Console page, the database runs the latest migration and keeps a write, and the MCP answers.
-//
-//   node scripts/smoke.mjs http://127.0.0.1:3000
-//
-// It writes one CLI sign-in code, which expires after 15 minutes. scripts/host-smoke.mjs starts a host build and runs it.
 import { pathToFileURL } from "node:url"
 
 export class SmokeError extends Error {}
@@ -61,7 +55,6 @@ const checks = [
     check(methods.response.status === 200, `GET /api/sign-in-methods answered ${methods.response.status}`)
     check(typeof json(methods.text, "/api/sign-in-methods").github === "boolean", "GET /api/sign-in-methods has no github flag")
   }],
-  // device_code comes from the latest migration (cli_auth), so this write fails when the host skipped a migration.
   ["writes and reads a CLI sign-in code in the database", async (base) => {
     const started = await post(base, "/api/auth/device/code", { client_id: "vitehub-cli", client_name: "host smoke" })
     check(started.response.status === 200, `POST /api/auth/device/code answered ${started.response.status}: ${started.text.slice(0, 300)}`)
@@ -82,12 +75,10 @@ const checks = [
   }],
 ]
 
-/** Runs every check against `base` and returns the failures. Prints one line for each check. */
 export function smoke(base, log = console.log) {
   return runChecks(checks, [base], log)
 }
 
-/** Runs each `[name, check]` with `args` in order and returns the names that failed. Prints one line for each check. */
 export async function runChecks(list, args, log = console.log) {
   const failures = []
   for (const [name, run] of list) {

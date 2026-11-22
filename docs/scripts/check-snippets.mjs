@@ -114,7 +114,6 @@ const appDeclarations = [
     file: join(docsRoot, ".snippets/vue-shim.d.ts"),
   },
   {
-    // `@cloudflare/workers-types` declares this module in a Cloudflare app. This is the part that the pages use.
     code: [
       `declare module "cloudflare:workers" {`,
       `  export abstract class DurableObject<Env = unknown> {`,

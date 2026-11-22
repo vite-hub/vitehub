@@ -14,13 +14,11 @@ export interface CollectionInspectionOptions {
   serverDirs?: string[]
 }
 
-/** A property read from an object literal. `method` is true for `name() {}` members and accessors. */
 interface Member {
   method: boolean
   value: Expression
 }
 
-// Inspection reads source only. A value that is not a literal shows as `Dynamic`.
 const dynamic = "Dynamic"
 
 function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
@@ -33,7 +31,6 @@ function readMember(object: ObjectExpression | undefined, name: string): Member 
   return { method: property.node.method || property.node.kind !== "init", value: property.value }
 }
 
-/** An identifier path such as `schema` or `tables.articles`, as written without whitespace. */
 function identifierPath(value: Expression, optional: boolean): string | undefined {
   if (value.type === "Identifier") return value.name
   if (value.type !== "MemberExpression" || value.computed || value.property.type !== "Identifier" || (value.optional && !optional)) return
@@ -67,7 +64,6 @@ function describeStringList(member: Member): string {
   return values.length ? values.join(", ") : "None"
 }
 
-/** Shows an identifier path as written and a call as `callee(...)`. Other expressions show as `Inline`. */
 function describeExpression(member: Member): string {
   if (member.method) return "Inline"
   const path = identifierPath(member.value, true)
@@ -83,7 +79,6 @@ function isFunction(member: Member): boolean {
 function pushSchema(fields: ViteHubDefinitionField[], label: string, member: Member | undefined): void {
   if (!member) return
   fields.push({ label, value: describeExpression(member) })
-  // Only an inline `object({ ... })` schema, for example `v.object()` or `z.object()`, has statically known fields.
   const call = member.method ? undefined : readCall(member.value)
   const shape = call && /(?:^|\.)(?:object|strictObject|looseObject)$/.test(call.callee) ? objectLiteral(call.arguments[0]) : undefined
   if (!shape) return
@@ -149,7 +144,6 @@ function tableFields(options: ObjectExpression): ViteHubDefinitionField[] {
   return fields
 }
 
-/** Fields of a custom source object and of the options in `defineCollection(load, options)`. */
 function loaderFields(options: ObjectExpression): ViteHubDefinitionField[] {
   const pagination = readMember(options, "pagination")
   const fields: ViteHubDefinitionField[] = [{
@@ -181,7 +175,6 @@ function definitionFields(collection: DiscoveredCollection): ViteHubDefinitionFi
   const call = collection.definition
   if (!call) return [{ label: "Source", value: "unknown" }]
   const [first, second] = callArguments(call.arguments)
-  // `defineCollection({ source, ... })` keeps its options in the first argument; `defineCollection(load, options)` in the second.
   const loaderForm = second !== undefined
   const options = objectLiteral(loaderForm ? second : first)
   const fields = loaderForm

@@ -47,7 +47,6 @@ async function configFiles(cwd: string): Promise<string[]> {
   return (await glob(configPatterns, { cwd, ignore: ignored })).sort()
 }
 
-/** Each config file, then each file that a config file imports, with the migration of its vite-hub options. */
 async function migrations(cwd: string) {
   const files = await configFiles(cwd)
   const imported = importedConfigOptions(cwd, files, (program, file) => findConfigRoot(program, [], file))

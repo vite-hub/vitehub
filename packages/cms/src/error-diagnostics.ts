@@ -1,6 +1,5 @@
 import { defineDiagnostics } from "nostics"
 
-// The CMS keeps the Content codes of the `cms` preset, so its errors open the same docs.
 export const cmsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/content/diagnostics",
   codes: {
@@ -12,7 +11,7 @@ export const cmsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Set the `vitehub()` setting or the `cms` preset option that the message names, such as `vitehub({ database: true })` or `extends: [cms, { database: \"default\" }]`.",
     },
-    // Named errors. Each names what failed. Keep them in alphabetical order.
+    // Named errors.
     CONTENT_CMS_OPTION_INVALID: {
       docs: "https://vitehub.dev/docs/cms/diagnostics/content_cms_option_invalid",
       why: ({ problem }: { problem: string }) => `[vitehub] Content cms preset ${problem}`,

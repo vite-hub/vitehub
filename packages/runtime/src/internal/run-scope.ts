@@ -1,7 +1,6 @@
 /** Wraps one unit of work, such as a Schedule run or a Queue job. It calls `run` once and passes on its error. */
 export type RunScope = (run: () => Promise<void>) => Promise<unknown>
 
-// Every copy of this package in one process shares the scopes, so a primitive bundled twice still sees them.
 const scopesKey = Symbol.for("vitehub.runtime.runScopes")
 
 function scopes(): Set<RunScope> {

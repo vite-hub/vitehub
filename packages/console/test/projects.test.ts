@@ -9,7 +9,6 @@ import { renameProject } from "../server/utils/console.ts"
 
 import type { ConsoleTeamCaller } from "../server/utils/console.ts"
 
-// The route helpers import the app's Database. These tests give each helper its store directly.
 vi.mock("vite-hub/database", () => ({ useDatabase: () => ({}) }))
 
 const secret = "s".repeat(64)
@@ -33,7 +32,6 @@ describe("project store", () => {
     expect(target?.key.name).toBe(project!.keyVariable.slice("VITEHUB_CONSOLE_KEY_".length))
     const { rows } = await client.execute("SELECT key_sealed FROM console_projects")
     expect(String(rows[0]?.key_sealed)).not.toContain(target!.key.privateKey)
-    // The private key of the row signs requests that the public key on the setup page verifies.
     const url = "https://app.example.com/_vitehub/rpc"
     const headers = new Headers(await signConsoleRequest({ body: "{}", caller: { via: "cli" }, key: target!.key, method: "POST", url }))
     const keys = readConsolePublicKeys({ [project!.keyVariable]: project!.publicKey })
@@ -48,7 +46,6 @@ describe("project store", () => {
     const first = createConsoleProjectStore(db, secret, "team-1")
     const second = createConsoleProjectStore(db, secret, "team-2")
     const project = await first.create({ createdBy: "u", url: "https://app.example.com" })
-    // Another team can link the same URL with its own key pair.
     const other = await second.create({ createdBy: "v", url: "https://app.example.com" })
     expect(other?.publicKey).not.toBe(project?.publicKey)
     expect(other?.keyVariable).not.toBe(project?.keyVariable)
@@ -92,7 +89,6 @@ describe("project store", () => {
     const scoped = scopeConsoleProjectStore(store, [project!.id])
     await expect(scoped.rename(project!.id, "Scoped")).resolves.toMatchObject({ label: "Scoped" })
     await expect(scopeConsoleProjectStore(store, []).rename(project!.id, "Hidden")).resolves.toBeUndefined()
-    // Another team cannot rename it.
     await expect(createConsoleProjectStore(db, secret, "team-2").rename(project!.id, "Mine")).resolves.toBeUndefined()
     await expect(store.get(project!.id)).resolves.toMatchObject({ label: "Scoped" })
   })

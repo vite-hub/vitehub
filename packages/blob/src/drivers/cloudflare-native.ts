@@ -137,8 +137,6 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   const disposition = signOptions.method === "GET" ? downloadDisposition(pathname, signOptions.download) : undefined
   if (disposition) url.searchParams.set("response-content-disposition", disposition)
   const client = new AwsClient({ accessKeyId, region: "auto", secretAccessKey, service: "s3" })
-  // A signed `Content-Length` makes R2 reject a body of another size. The client sends the header with the body, and
-  // browsers refuse to set it by hand, so it is signed but not returned.
   const signed = await client.sign(url, {
     headers: signOptions.method === "PUT" && signOptions.contentLength !== undefined
       ? { ...headers, "Content-Length": String(signOptions.contentLength) }

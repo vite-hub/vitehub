@@ -106,7 +106,6 @@ describe("Env Bridge storage and request isolation", () => {
       sql`SELECT payload FROM vitehub_env_secrets WHERE namespace = 'first' AND key = 'token'`,
     );
     expect(after!.payload).not.toBe(before!.payload);
-    // The IV is the third field of `v2:<keyId>:<iv>:<ciphertext>`.
     expect(after!.payload.split(":")[2]).not.toBe(before!.payload.split(":")[2]);
     const wrongKey = namespace("first", new Uint8Array(32).fill(9)).bridge;
     await expect(wrongKey.read({ env: {}, keys: ["token"], access: admin })).rejects.toMatchObject({

@@ -271,7 +271,6 @@ export async function createSandboxTaskFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxTaskProviderLoaderTarget(defaultProviderName, deps)
-  // Reject a size that the driver cannot give at build time, not at the first run.
   if (defaultProvider?.driver === 'cloudflare')
     resolveCloudflareSandboxTaskInstanceType(defaultProvider)
   else if (defaultProvider?.driver === 'vercel')
@@ -317,7 +316,6 @@ export async function createSandboxTaskFeaturePlan(
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-task-provider-loader',
-            // Nitro resolves its aliases to real paths once at startup, so this file stays outside the runtime generations.
             filename: 'sandbox-task-provider-loader.mjs',
             contents: createSandboxTaskProviderLoaderContents(providerLoaderTarget),
           }]

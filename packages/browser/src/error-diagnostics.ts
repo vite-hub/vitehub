@@ -4,7 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
 export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/browser/diagnostics",
   codes: {
@@ -21,7 +20,7 @@ export const browserErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     BROWSER_R0011: { ...dynamicError, fix: "In Workers, connect through a Cloudflare Browser binding. Run CDP providers, such as `localBrowser()`, on a Node.js host." },
     BROWSER_B0001: { ...dynamicError, fix: "Set `browser: { binding }` in `vitehub()` to letters, digits, and `_` that do not start with a digit, such as `\"BROWSER\"`, or remove `binding`." },
     BROWSER_B0002: { ...dynamicError, fix: "Set `browser: { engine }` in `vitehub()` to `\"kitesurf\"` or `\"chromium\"`, or remove `engine` to use Kitesurf." },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     BROWSER_RENAMED_PROVIDER_KEY: {
       why: "`createBrowser()` got a `provider` option. ViteHub renamed this option to `driver`, and it does not read `provider`.",
       fix: "Pass the driver as `createBrowser({ driver: localBrowser() })`, or run `npx @vite-hub/codemods driver-key` to rename it in every file.",

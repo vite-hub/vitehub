@@ -71,7 +71,6 @@ async function setup(headMoves?: "notify" | "cancel", events: readonly string[] 
           ...(config.actorFilter ? { filter: { actor: { allow: ["onmax"] } } } : {}),
           reply: false,
         },
-        // `sendChannelTrigger()` starts it. No webhook in these tests is a review, so it matches none.
         ...(config.trigger ? { triggers: { wake: githubPullRequestTrigger({ events: ["pull_request_review"], invoke: () => ({ input: { prompt: "Rebase on main." } }) }) } } : {}),
         webhooks: { secret: false },
       }),

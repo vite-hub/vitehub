@@ -38,27 +38,21 @@ export function toBrowserError(error: unknown): ViteHubError<`BROWSER_${string}`
     try {
       message = String(error.message)
     }
-    catch {
-      // Fall through to the safe string conversion below.
-    }
+    catch {}
   }
   else {
     let isError = false
     try {
       isError = Object.prototype.toString.call(error) === "[object Error]"
     }
-    catch {
-      // A hostile Symbol.toStringTag must not escape error normalization.
-    }
+    catch {}
     if (isError) {
       try {
         // SAFETY: The Error tag permits probing an optional message as unknown; the catch guards hostile access.
         const value = (error as { message?: unknown }).message
         if (value != null) message = String(value)
       }
-      catch {
-        // Fall through to the safe string conversion below.
-      }
+      catch {}
     }
   }
   if (message === undefined) {

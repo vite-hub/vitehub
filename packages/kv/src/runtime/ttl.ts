@@ -11,8 +11,6 @@ export function ttlSeconds(ttl: unknown): number | undefined {
   if (typeof ttl === "number") seconds = ttl
   else if (typeof ttl !== "string") return
   else {
-    // KV reports every bad `ttl` as `KV_INVALID_TTL` in its `[error, data]` result, so a string that is not a duration
-    // becomes that code.
     try {
       // SAFETY: parseDuration() checks the text at runtime.
       seconds = parseDuration(ttl as Duration) / 1000

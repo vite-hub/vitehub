@@ -11,15 +11,10 @@ import type { EmailClient, EmailEnvelope, EmailMessage, EmailSendMessage, EmailT
 const runtimeDefinition = Symbol.for("vitehub.email.definition")
 let client = definition ? createEmail(definition) : undefined
 
-// Without templates, `EmailTemplateMessage` is `never`, so a guard narrows where a check of `template` cannot.
 function isTemplateMessage(message: EmailSendMessage): message is EmailTemplateMessage {
   return message.template !== undefined
 }
 
-/**
- * Renders the template of a message to `html` and `text`. The generated definition loads the renderer on the first
- * template send, and only an app with templates bundles it. An unknown name throws, because the code must change.
- */
 async function renderTemplate(message: EmailEnvelope & { data?: Record<string, unknown>, template: string }): Promise<Result<EmailMessage, "EMAIL_TEMPLATE_RENDER_FAILED">> {
   const { data, template, ...envelope } = message
   const { emailPreview, renderEmailTemplate } = await import("#vitehub/email/definition")
@@ -43,11 +38,6 @@ const generatedDefinition = () => (globalThis as typeof globalThis & { [runtimeD
 
 /** Sends messages through the provider of `vitehub({ email })`. `template` sends render a Markdown file of `server/emails`. */
 export const email: EmailClient<EmailSendMessage> & { readonly canSend: boolean } = {
-  /**
-   * `true` when `email.send()` hands messages to a provider. It is `false` without `vitehub({ email })`, where
-   * `send()` throws, and with `driver: 'log'`, where `send()` only prints the message. Show the link on the page
-   * when it is `false`.
-   */
   get canSend() {
     const current = definition ?? generatedDefinition()
     return current !== undefined && current.canSend !== false
@@ -55,7 +45,6 @@ export const email: EmailClient<EmailSendMessage> & { readonly canSend: boolean 
   async send(input) {
     const generated = generatedDefinition()
     client ??= generated ? createEmail(generated) : undefined
-    // A missing provider is a config error, so it throws.
     if (!client) throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({})
     let message: EmailMessage
     if (isTemplateMessage(input)) {
@@ -64,7 +53,6 @@ export const email: EmailClient<EmailSendMessage> & { readonly canSend: boolean 
       message = rendered
     }
     else message = input
-    // In app tests, the outbox of `vite-hub/test` receives every message, and no provider runs.
     const test = getViteHubTestMode()
     if (test) return await test.backend("email", createTestEmail).send(message)
     return await client.send(message)

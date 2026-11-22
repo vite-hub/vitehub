@@ -44,9 +44,6 @@ type RuntimeErrorCode =
   | "RUNTIME_HIDDEN_ERROR"
   | "RUNTIME_SERIALIZED_RESPONSE_INVALID"
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: RUNTIME_R0008.
-// The closed record also supports isolated declaration output.
 const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_R0001: { ...dynamicError, fix: "Pass `maxDepth` to `normalizeRuntimeDiagnosticError()` as an integer of 0 or more, or remove it to use the default." },
   RUNTIME_R0002: { ...dynamicError, fix: "Pass `maxErrors` to `normalizeRuntimeDiagnosticError()` as an integer of 1 or more, or remove it to use the default." },
@@ -62,7 +59,7 @@ const codes: Record<RuntimeErrorCode, RuntimeCodeDefinition> = {
   RUNTIME_R0016: { ...dynamicError, fix: "Return the body or a `Response` from the handler, in place of setting `~standard.res.body`." },
   RUNTIME_R0017: dynamicError,
   RUNTIME_R0018: dynamicError,
-  // Named errors. Keep these codes in alphabetical order.
+  // Named errors.
   RUNTIME_CONSOLE_PATH_INVALID: {
     why: ({ value }) => `${value} is not a Console path. Use a path that starts with one /, such as /agents/<agent>.`,
     fix: "Pass `hostedConsoleUrl()` a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`.",

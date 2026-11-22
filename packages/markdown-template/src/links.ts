@@ -6,9 +6,6 @@ import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 const legacyHtmlReferences = new Set(characterEntitiesLegacy)
 
 export async function safeLinkDestination(value: string, path: string, options: { decodeHtmlEntities?: boolean } = {}): Promise<string> {
-  // Authored HTML attributes are entity-decoded by browsers before navigation.
-  // Validate the decoded value so encoded schemes cannot bypass the URL policy,
-  // while encoding the result later lets the HTML renderer restore safe entities.
   const decodedValue = options.decodeHtmlEntities ? decodeHTMLAttribute(value) : value
   const suffixIndex = decodedValue.search(/[?#]/)
   const scheme = decodedValue.match(/^([a-z][a-z\d+.-]*):/i)

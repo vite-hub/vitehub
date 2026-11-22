@@ -73,11 +73,8 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   const now = options.now ?? (() => new Date(Date.now()))
 
   let schedules = new Map<string, ProcessScheduleEntry>()
-  /** Occurrences waiting for a worker, in delivery order. */
   const queued = new Map<string, ProcessScheduleWake>()
-  /** Occurrences that a worker is waking now. */
   const active = new Set<string>()
-  /** Schedules already queued for `occurrenceMinute`, so a Schedule wakes once per current minute. */
   let dispatched = new Set<string>()
   let occurrenceMinute: number | undefined
   let scannedThrough: number | undefined
@@ -89,7 +86,6 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   let onIdle: (() => void) | undefined
   let closePromise: Promise<void> | undefined
 
-  // Reconcile, scans and the start of close run one at a time. Only the first reconcile awaits, during catch-up.
   let lock: Promise<unknown> = Promise.resolve()
   function exclusive<T>(operation: () => T | Promise<T>): Promise<T> {
     const result = lock.then(operation)
@@ -107,7 +103,6 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   function take(): ProcessScheduleWake | undefined {
     for (const [key, input] of queued) {
       queued.delete(key)
-      // Completion markers outlast this window. Old queued work must not run after its marker can expire.
       if (floorUTCMinute(now()) > (input.startBy ?? input.scheduledAt.getTime() + catchUpMs)) continue
       return input
     }
@@ -136,7 +131,6 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     }
   }
 
-  /** Starts workers up to `concurrency`. A free worker starts its wake before this returns. */
   function startWorkers(): void {
     while (workers < concurrency && queued.size > 0) {
       workers += 1
@@ -144,7 +138,6 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     }
   }
 
-  /** Due occurrences of `entries` from `first` through `last`, oldest first. */
   function dueOccurrences(entries: Iterable<ProcessScheduleEntry>, first: number, last: number): ProcessScheduleWake[] {
     const due: ProcessScheduleWake[] = []
     for (const schedule of entries) {
@@ -164,12 +157,8 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     return due.sort(byScheduledAt)
   }
 
-  /** Queues occurrences that are not queued or running yet, then starts free workers. The current minute dispatches each Schedule once. */
   function enqueue(due: readonly ProcessScheduleWake[], currentMinute: number, retries: readonly ProcessScheduleWake[] = []): void {
     if (closing) return
-    // A wall-clock correction can move the process into an earlier minute. Do not
-    // reset the per-minute deduplication state, or that minute may run twice when
-    // the clock moves forward again.
     if (occurrenceMinute !== undefined && currentMinute < occurrenceMinute) return
     if (occurrenceMinute !== currentMinute) dispatched = new Set()
     for (const input of due) {
@@ -194,16 +183,12 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
 
   function scan(): void {
     const currentMinute = floorUTCMinute(now())
-    // A late timer can skip a minute. Check every minute after the previous scan.
     const first = scannedThrough === undefined
       ? currentMinute
       : Math.min(currentMinute, Math.max(scannedThrough + minuteMs, currentMinute - catchUpMs))
-    // Claims can be held, or the store unavailable, after the scan advances. Retry those occurrences on later scans.
     enqueue(dueOccurrences(schedules.values(), first, currentMinute), currentMinute, context.retries?.() ?? [])
   }
 
-  // After a restart, dispatch the minutes that no process checked: those after each Schedule's
-  // latest run, within `catchUpMs`. Run ids are deterministic, so a minute that already ran does not run again.
   async function catchUp(entries: readonly ProcessScheduleEntry[]): Promise<void> {
     if (!context.latestScheduledAt || catchUpMs <= 0) return
     const currentMinute = floorUTCMinute(now())
@@ -226,7 +211,6 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
   }
 
   async function reconcile(records: readonly ProcessScheduleEntry[]): Promise<void> {
-    // Validate every cron before the checked Schedules change.
     const scheduledAt = new Date(floorUTCMinute(now()))
     for (const record of records) isScheduleDue(record, scheduledAt)
 

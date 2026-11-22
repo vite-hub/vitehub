@@ -59,12 +59,10 @@ describe("snapshots", () => {
   })
 
   it("packs a snapshot into parts that fetchSnapshot joins and inflates", async () => {
-    // Random bytes do not compress, so the parts stay many.
     const data = new Uint8Array(randomBytes(300_000))
     const parts = packSnapshot(data, { partBytes: 50_000 })
     expect(parts.length).toBeGreaterThan(1)
     expect(parts.every(part => part.byteLength <= 50_000)).toBe(true)
-    // Parts arrive out of order. The order of the URLs decides.
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       const index = Number(url.split("/").at(-1))
       await new Promise(resolve => setTimeout(resolve, (parts.length - index) * 5))
@@ -136,7 +134,6 @@ describe("snapshots", () => {
     const other = packSnapshot(new Uint8Array(randomBytes(1000)))
     vi.stubGlobal("fetch", vi.fn(async () => new Response(other[0])))
     const damaged = await fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 }).catch((error: unknown) => error)
-    // The SHA-256 diagnostic is thrown as it is, not wrapped as the cause of a second one.
     expect(damaged).toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_DAMAGED", cause: undefined, message: expect.stringContaining(`not ${sha256}`) })
     expect(stored.size).toBe(0)
     vi.stubGlobal("fetch", vi.fn(async () => new Response(parts[0])))

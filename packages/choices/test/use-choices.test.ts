@@ -21,7 +21,6 @@ function setup(options: UseChoicesOptions<Selection>) {
   return { choices, scope }
 }
 
-/** A request that you finish by hand, optionally ignoring cancellation like some transports do. */
 function pending({ ignoreAbort = false } = {}) {
   const requests: { reject: (cause: unknown) => void, resolve: (value: Selection) => void, signal: AbortSignal, text: string }[] = []
   const resolve: UseChoicesOptions<Selection>["resolve"] = (text, { signal }) => new Promise((done, fail) => {

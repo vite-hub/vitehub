@@ -2,11 +2,10 @@ import { defineErrors } from "./result.ts"
 
 import type { Result } from "./result.ts"
 
-// Keep published codes stable. Each code has a heading on the diagnostics page.
 const leaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/runtime/diagnostics",
   codes: {
-    // Runtime errors. Lease operations return them as `[error, undefined]`.
+    // Runtime errors.
     RUNTIME_LEASE_INVALID_TTL: {
       why: "`ttl` must be a positive number of seconds.",
       fix: "Pass the TTL in seconds, for example `leases.acquire('report:daily', { ttl: 30 })`.",
@@ -66,18 +65,13 @@ export interface LeaseStore {
   get(key: string): Promise<Result<LeaseRecord | null, "RUNTIME_LEASE_FAILED">>
 }
 
-/** The storage operations behind a `LeaseStore`. Each one must be atomic. Times are milliseconds since the epoch. */
 interface LeaseBackend {
-  /** Writes the lease when the key is free or expired, and returns its end. Returns `undefined` when the key is held. */
   acquire(key: string, id: string, owner: string | undefined, ttlMs: number): Promise<number | undefined>
-  /** Moves the end of the lease when the stored ID matches, and returns the new end. */
   renew(key: string, id: string, ttlMs: number): Promise<number | undefined>
-  /** Deletes the lease when the stored ID matches. */
   release(key: string, id: string): Promise<boolean>
   get(key: string): Promise<{ id: string, owner?: string, expiresAt: number } | undefined>
 }
 
-/** Expired leases mean nothing, so stores delete them at most once per this interval. */
 const sweepIntervalMs = 60_000
 
 function toTtlMs(ttl: unknown): number | undefined {
@@ -187,13 +181,8 @@ export interface LeaseSqlClient {
   query(sql: string, params: LeaseSqlParam[]): Promise<readonly Record<string, unknown>[]>
 }
 
-/** How long a SQLite statement retries while another connection holds the write lock. */
 const busyRetryMs = 5_000
 
-/**
- * Runs a SQLite statement again while it fails with `SQLITE_BUSY`, which SQLite allows for a statement outside a
- * transaction. It waits without blocking the event loop, unlike `PRAGMA busy_timeout` on a synchronous client.
- */
 async function retryBusy<T>(run: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + busyRetryMs
   for (let delay = 2; ; delay = Math.min(delay * 2, 50)) {
@@ -207,10 +196,6 @@ async function retryBusy<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * libSQL and better-sqlite3 set `code` to `SQLITE_BUSY`. Other drivers only say so in the message. Drizzle puts the
- * driver error in `cause`.
- */
 function isBusy(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   const code: unknown = Reflect.get(error, "code")
@@ -232,7 +217,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
   const now = client.dialect === "postgresql"
     ? "(extract(epoch from clock_timestamp()) * 1000)::bigint"
     : "cast((julianday('now') - 2440587.5) * 86400000 as integer)"
-  /** Runs SQL written with `?` placeholders, which become `$1`, `$2`, ... on Postgres. */
   const query = (sql: string, params: LeaseSqlParam[]) => {
     if (client.dialect === "sqlite") return retryBusy(() => client.query(sql, params))
     let index = 0
@@ -241,8 +225,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
   const table = leaseTable
   const columns = `("key" text primary key, id text not null, owner text, expires_at bigint not null)`
   const index = `create index if not exists ${table}_expires_at on ${table} (expires_at)`
-  // Postgres sessions that create the same missing table or index at once can fail on its catalog, so one statement
-  // takes a transaction lock first. SQLite runs DDL under its write lock already.
   const create = client.dialect === "postgresql"
     ? [`do $$ begin perform pg_advisory_xact_lock(hashtext('${table}')); create table if not exists ${table} ${columns}; ${index}; end $$`]
     : [`create table if not exists ${table} ${columns}`, index]
@@ -252,7 +234,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
   const tableExists = () => query(`select 1 from ${table} limit 0`, []).then(() => true, () => false)
   function ensureTable(): Promise<void> {
     ready ??= (async () => {
-      // A table that exists needs no DDL. Postgres prints a notice for each `if not exists` that skips.
       if (await tableExists()) return
       for (const statement of create) await query(statement, [])
     })()
@@ -261,10 +242,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
     })
     return ready
   }
-  /**
-   * Runs one lease statement. A test reset can give the same client an empty database, so a statement that fails
-   * because the table is gone creates it again and runs once more. Every other failure throws.
-   */
   async function run<T>(statement: () => Promise<T>): Promise<T> {
     await ensureTable()
     try {
@@ -287,9 +264,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
         sweptAt = Date.now()
         await run(() => query(`delete from ${table} where expires_at <= ${now}`, []))
       }
-      // One statement: a free key inserts, an expired lease is replaced, and a live lease returns no row. A run again
-      // after SQLITE_BUSY finds its own ID when the first run committed, and gets its lease back.
-      // Compute the conflict expiry after locking the row: Postgres evaluates the proposed insert before the wait.
       const [row] = await run(() => query(
         `insert into ${table} ("key", id, owner, expires_at) values (?, ?, ?, ${now} + cast(? as bigint))
          on conflict ("key") do update set id = excluded.id, owner = excluded.owner, expires_at = ${now} + cast(? as bigint)
@@ -300,8 +274,6 @@ export function createSqlLeaseStore(client: LeaseSqlClient): LeaseStore {
       return row?.id === id ? end(row.expires_at) : undefined
     },
     async renew(key, id, ttlMs) {
-      // Postgres can project an UPDATE's expiry before waiting on its row lock. FOR UPDATE keeps the CTE from
-      // being inlined and locks the matching holder before the outer UPDATE evaluates the Database clock.
       const [row] = await run(() => client.dialect === "postgresql"
         ? query(
             `with held as (select "key", id from ${table} where "key" = ? and id = ? for update)

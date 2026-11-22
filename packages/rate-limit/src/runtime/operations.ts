@@ -5,7 +5,6 @@ import { rateLimitErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "../counters.ts"
 
-/** Removes credentials from the echoed key and from driver error text before the result leaves the runtime. */
 function redact<T extends RateLimitPeekInspection | RateLimitResetInspection>(result: T): T {
   return {
     ...result,
@@ -20,7 +19,6 @@ async function guarded<T extends RateLimitPeekInspection | RateLimitResetInspect
   }
   catch (error) {
     const failure = rateLimitErrorDiagnostics.RATE_LIMIT_OPERATION_FAILED({ cause: error })
-    // The CLI and the Console show `statusMessage`: the driver error, without credentials.
     throw Object.assign(failure, { status: 500, statusMessage: redactInspectionText(error instanceof Error ? error.message : failure.message) })
   }
 }

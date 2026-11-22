@@ -1,15 +1,3 @@
-// zizmor and actionlint check the GitHub workflows in CI (see the
-// workflow-lint job in .github/workflows/ci.yml). This script keeps only the
-// two input rules that neither tool covers:
-//
-// 1. A transient package executor (npx, pnpm dlx, vp dlx, and so on) must name
-//    an exact version. Without it, CI runs whatever version the registry
-//    serves that day. zizmor's adhoc-packages audit does not read executors.
-// 2. A `docker://` action must use a sha256 digest. zizmor's unpinned-uses
-//    audit skips Docker references, and its regular persona accepts a tag.
-//
-// The scan reads plain command text. It does not model shell semantics, so it
-// catches an accidental unpinned call, not a call that someone hides on purpose.
 import { globSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"

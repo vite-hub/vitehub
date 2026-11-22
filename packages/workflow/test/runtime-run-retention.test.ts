@@ -84,7 +84,6 @@ describe("inline Workflow run retention", () => {
       active.resolve()
       await expect(state.promise).resolves.toMatchObject({ status: "completed", result: "done" })
       expect(getWorkflowRunState("fallback", "active")?.result).toBe("done")
-      // Completed history must not consume the fallback active-run budget.
       await setWorkflowRun("fallback", "done", Promise.resolve({ status: "completed" })).promise
       expect(getWorkflowRunState("fallback", "1")?.status).toBe("running")
     } finally {

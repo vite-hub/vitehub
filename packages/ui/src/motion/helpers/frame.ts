@@ -3,7 +3,6 @@ import { prefersReducedMotion } from "../reduced-motion.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
-// The nodes that the helpers add, so the label effect of the layer can tell its own changes from a change of the app.
 const ownNodes = new WeakSet<Node>();
 
 export function own<T extends Node>(node: T): T {
@@ -15,8 +14,6 @@ export function isOwnNode(node: Node): boolean {
   return ownNodes.has(node);
 }
 
-// A moving letter draws its character with `::before`, so the letters add nothing to `textContent`: the element's text
-// is the hidden copy, the final text, at all times. One rule per document or shadow root.
 const glyphRule = "[data-motion-glyph]::before{content:attr(data-motion-glyph)}";
 const glyphStyles = new WeakMap<Node, HTMLStyleElement>();
 
@@ -55,10 +52,8 @@ export function reduced(): boolean {
   return prefersReducedMotion();
 }
 
-// The width spring of the prototype's label: it follows each typed letter and passes its target a little.
 const widthSpring = { stiffness: 380, damping: 34 };
 
-// What the frame sets inline while it runs. It puts the values of the app back at the end.
 const framed = ["display", "position", "width", "white-space", "box-sizing", "overflow", "justify-content", "vertical-align"] as const;
 
 /**
@@ -101,7 +96,6 @@ export function openFrame(element: HTMLElement, layout: "inline" | "end", onWidt
   if (computed.position === "static") element.style.position = "relative";
   element.style.whiteSpace = "nowrap";
   element.style.boxSizing = "border-box";
-  // A label that truncates clips its blur. The letters fit when the morph ends.
   element.style.overflow = "visible";
   const copy = own(document.createElement("span"));
   copy.dataset.motionCopy = "";
@@ -112,7 +106,6 @@ export function openFrame(element: HTMLElement, layout: "inline" | "end", onWidt
   holder.style.display = "contents";
   element.replaceChildren(copy, holder);
 
-  // The caller adds the old letters, then sets the width to where it starts with `width.set(frame.natural())`.
   const width = createSpring(0, (value, velocity) => {
     element.style.width = `${value}px`;
     if (velocity === 0 && value === width.target) onWidthSettle();

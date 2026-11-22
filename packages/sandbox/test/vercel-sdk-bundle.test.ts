@@ -3,8 +3,6 @@ import { resolve } from "node:path";
 
 import { expect, it } from "vitest";
 
-// Nitro output has no `node_modules`. The server bundler must see the SDK import, or the low-level Vercel runtime
-// cannot load `@vercel/sandbox` after the build.
 it("lets the server bundler see @vercel/sandbox from the low-level Vercel runtime", async () => {
   const result = await build({
     bundle: true,

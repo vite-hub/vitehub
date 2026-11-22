@@ -669,7 +669,6 @@ describe("docs Nuxt setup", () => {
       sources: [{ source: files({ "catalog.md": () => "---\ntitle: All skills\n---\n:icon{name=\"i-lucide-library\"} Every skill" }), mount: "/skills" }],
     });
     expect(findDocsPage(manifestTemplate() as never, "/skills/catalog")?.page).toMatchObject({ title: "All skills" });
-    // `nuxi build` empties the build folder after the modules load, and generates the templates before `build:before`.
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
     const icons = new Set<string>();
     await callHook("icon:clientBundleIcons", icons);

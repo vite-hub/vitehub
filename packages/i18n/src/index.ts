@@ -20,7 +20,6 @@ export interface PluralForms {
   [exact: `${number}`]: string
 }
 
-// The ViteHub build replaces each macro call with a message ID, so these bodies run only without the build.
 function notCompiled(name: string): never {
   throw i18nErrorDiagnostics.I18N_MACRO_NOT_COMPILED({ name })
 }

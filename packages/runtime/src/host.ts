@@ -8,7 +8,6 @@ import type { ErrorCatalog, Result } from "./result.ts"
 import type { ViteHubContext } from "./standard-context.ts"
 
 declare global {
-  /** `wrangler types` adds the app's bindings to `Cloudflare.Env`. ViteHub reads it to type `getHostBinding()`. */
   namespace Cloudflare {
     interface Env {}
   }
@@ -86,6 +85,5 @@ export function getHostBinding(name: string, event?: object): Result<unknown, Ho
 }
 
 function hostBindingsOf(event: object): Record<string, unknown> | undefined {
-  // A Nitro plugin sets Standard Context for each request. Events without it keep the bindings where the host put them.
   return (event as Partial<ViteHubContext>)["~standard"]?.runtime?.cloudflare?.env ?? getCloudflareEnv(event, { fallback: false })
 }

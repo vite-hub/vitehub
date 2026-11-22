@@ -16,7 +16,6 @@ export function managementErrorBody(code: string, message: string, requestId?: s
   if (details) body.details = details;
   const guidance = connectionsErrorGuidance(code);
   if (guidance) {
-    // The thrown error has the fix with its parameters, such as the Connection name.
     const repair = fix ?? guidance.fix;
     if (repair) body.fix = repair;
     body.docs = guidance.docs;

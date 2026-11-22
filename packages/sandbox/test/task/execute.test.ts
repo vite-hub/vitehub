@@ -104,7 +104,6 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxTaskOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
-/** The error the Cloudflare transport throws when the `exec` request fails. */
 function cloudflareExecError(cause: Error) {
   return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox exec failed: ${cause.message}`, cause, retryable: undefined })
 }
@@ -1270,7 +1269,6 @@ describe("executeSandboxTaskDefinition", () => {
 
     expect(startedBefore.find(call => call.cmd === "pnpm")?.calls).toBe(1)
     expect(execCalls.some(call => call.cmd === "pnpm")).toBe(true)
-    // The install, the project publish, and the handler.
     expect(onCommandStart).toHaveBeenCalledTimes(3)
   })
 

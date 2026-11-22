@@ -27,7 +27,6 @@ const listers: Record<SetupLinkHost, ListDeployments> = {
   vercel: listVercelDeployments,
 }
 
-/** How long `vitehub deployments` waits for the host. */
 const DEPLOYMENTS_TIMEOUT_MS = 30_000
 
 /** How long `vitehub status` waits for the host before it reports `liveReason: "timeout"`. */
@@ -61,7 +60,6 @@ export interface SetupLiveStatus {
   liveReason: SetupLiveReason | null
 }
 
-/** A fetch that gives up after `ms`, so a slow host cannot hold the command. */
 function fetchWithTimeout(fetchImpl: typeof fetch, ms: number, signal?: AbortSignal): typeof fetch {
   return async (input, init) => {
     signal?.throwIfAborted()
@@ -155,10 +153,6 @@ export const deploymentsCommand: ViteHubCliCommand = {
   usage,
 }
 
-/**
- * Compares the live commit with HEAD: `git rev-list --left-right --count <sha>...HEAD` prints the commits that only
- * the deployment has, then the commits that only HEAD has.
- */
 async function compareWithHead(run: DeployRun, root: string, env: NodeJS.ProcessEnv, sha: string): Promise<Pick<SetupLive, "ahead" | "behind" | "unknownReason">> {
   const git = async (args: readonly string[]) => {
     try {
@@ -209,7 +203,6 @@ export async function readSetupLive(root: string, link: SetupLink | undefined, c
   }
 }
 
-/** How long `vitehub deploy` waits for the host when it reads the deployment that a failed check rolls back to. */
 const DEPLOY_PREVIOUS_TIMEOUT_MS = 10_000
 
 /**

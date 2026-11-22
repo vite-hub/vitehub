@@ -30,7 +30,6 @@ describe("a second start with the id of an existing run", () => {
 
   it("returns the state of the existing Cloudflare instance, not the new payload", async () => {
     setWorkflowRuntimeConfig({ binding: "WORKFLOW_CHECKOUT", driver: "cloudflare" })
-    // Miniflare 5.20261104: `createBatch` returns no instance for an id that exists.
     const instances = new Map<string, { status: string }>([["checkout-1", { status: "running" }]])
     enterWorkflowRuntimeEvent({
       req: { runtime: { cloudflare: { env: { WORKFLOW_CHECKOUT: {

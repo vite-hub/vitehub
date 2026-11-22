@@ -57,7 +57,6 @@ export type WorkflowProviderFailure = {
 }
 type WorkflowProviderOperationDetails = WorkflowOperationDetails & {
   acknowledgement?: WorkflowProviderAcknowledgement
-  /** The provider error name and the first line of its message, without URLs, file paths, or credentials. */
   reason?: string
   status?: number
 }
@@ -83,11 +82,6 @@ export function createWorkflowError<TCode extends WorkflowErrorCode>(
   return new ViteHubError(options.code, workflowErrorMessages[options.code], options)
 }
 
-/**
- * Throw it from a step or a handler to fail the run at once, with no more attempts, on every provider. Cloudflare reads
- * `isRetryable`, Workflow DevKit reads `fatal`, and ViteHub stops OpenWorkflow retries itself.
- */
-// Internal invariant: the developer throws this class with their own message. ViteHub never throws it, and providers read its fields.
 export class NonRetryableError extends Error {
   override name = "NonRetryableError"
   readonly isRetryable = false

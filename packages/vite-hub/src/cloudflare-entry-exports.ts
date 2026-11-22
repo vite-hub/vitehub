@@ -26,7 +26,6 @@ function exportName(node: ModuleExportName): string {
   return node.type === "Literal" ? String(node.value) : node.name
 }
 
-/** Every name that the final entry code exports, including the exports that other plugins append as text. */
 function entryExportNames(program: Program): Set<string> {
   const names = new Set<string>()
   for (const node of program.body) {
@@ -50,22 +49,15 @@ function exportSpecifier(name: string): string {
   return /^[A-Z_$][\w$]*$/i.test(name) ? name : JSON.stringify(name)
 }
 
-/**
- * Adds the named exports of `server/cloudflare.ts` to the Worker entry. Cloudflare finds Durable Object, Workflow, and
- * `WorkerEntrypoint` classes only among the exports of the entry module.
- */
 function cloudflareEntryExportsPlugin(serverDirs: () => readonly string[]): Plugin {
   let file: string | undefined
   let reference: string | undefined
   return {
     name: pluginName,
-    // ViteHub and Nuxt set Nitro's server directories after the modules run, so the lookup waits for the build.
     buildStart() {
       file = findCloudflareEntryExportsFile(serverDirs())
       reference = file ? this.emitFile({ fileName: chunkFileName, id: file, preserveSignature: "strict", type: "chunk" }) : undefined
     },
-    // Runs after every renderChunk hook, so the entry already has the exports that other plugins append, and the emitted
-    // chunk lists its final export names, also for `export *`.
     generateBundle(_options, bundle) {
       const exportsChunk = reference ? bundle[this.getFileName(reference)] : undefined
       const entry = Object.values(bundle).find(output => output.type === "chunk" && output.isEntry && /^index\.m?js$/.test(output.fileName))

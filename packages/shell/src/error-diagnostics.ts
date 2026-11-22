@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SHELL_R0005 and SHELL_R0006.
 export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/shell/diagnostics",
   codes: {
@@ -34,7 +32,7 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       ...dynamicError,
       fix: "Make the driver return its process handle within the Shell timeout, or raise the Shell policy timeout if longer startup is expected.",
     },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     SHELL_SH_SYNTAX_WASM_UNAVAILABLE: {
       why: "[vitehub] sh-syntax cannot load its WebAssembly parser on this host.",
       fix: "Build the server with `vitehub()`, which bundles the sh-syntax WebAssembly parser, or run it on Node, where sh-syntax reads `main.wasm` from its own package.",

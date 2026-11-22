@@ -49,7 +49,6 @@ export const RealtimeCaret = Extension.create<RealtimeCaretOptions>({
   addProseMirrorPlugins() {
     const { awareness, render, selectionRender } = this.options
     if (!awareness) return []
-    // Colors are `#RRGGBB`: y-tiptap appends an alpha to tint selections.
     const person = (user: { color?: unknown, name?: unknown }): RealtimeCaretUser => ({
       ...user,
       color: typeof user.color === "string" && validColor.test(user.color) ? user.color : "transparent",

@@ -7,10 +7,6 @@ export interface AiGatewayEnvField {
   secret?: true
 }
 
-/**
- * The variables that each preset reads, keyed by preset and then by field. ViteHub declares the presets that Agent files
- * use in Server Env as `env.server.<preset>.<field>`.
- */
 /** The presets that read the environment. */
 export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "emulate" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
 

@@ -13,7 +13,6 @@ const consoleUrl = "https://console.example.com"
 const token = `vhk_${"S".repeat(43)}`
 const canary = "canary-value-7f3a9c"
 
-/** A Console with env values, or one that keeps them off. It records each request. */
 function fakeConsole(options: { keyMissing?: boolean, off?: boolean, projects?: { id: string, url: string }[] } = {}) {
   const requests: { method: string, path: string, authorization: string | null }[] = []
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -122,7 +121,6 @@ describe("vitehub env pull --from console", () => {
     expect(off.stderr).toContain("does not store env values")
     await expect(stat(join(root, ".env.production"))).rejects.toThrow()
 
-    // A coded answer of the Console carries its fix, which the CLI prints too.
     const keyMissing = await pull(["--from", "console", "--project", "p1"], root, fakeConsole({ keyMissing: true }).fetch)
     expect(keyMissing.exitCode).not.toBe(0)
     expect(keyMissing.stderr).toContain("CONSOLE_ENV_KEY_MISSING")

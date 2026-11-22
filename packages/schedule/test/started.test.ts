@@ -168,7 +168,6 @@ describe("startSchedule()", () => {
     const [, schedule] = await startSchedule("reminder", { cron: "0 9 * * *", timeZone: "Europe/Madrid" })
     vi.useRealTimers()
 
-    // 09:00 in Madrid is 07:00 UTC in summer.
     await tick(new Date("2026-07-15T06:00:00Z"))
     await tick(new Date("2026-07-15T07:00:00Z"))
     expect(calls.map(call => call.scheduledAt.toISOString())).toEqual(["2026-07-15T07:00:00.000Z"])
@@ -197,8 +196,6 @@ const execFileAsync = promisify(execFile)
 const runtimeEntry = fileURLToPath(new URL("../dist/runtime.js", import.meta.url))
 const rootEntry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
 
-// One process starts the Schedules and exits. A second process, a new Node.js process with the same store directory,
-// runs them. The store is a directory of JSON files, as a file-backed KV driver keeps it.
 const restartScript = `
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -241,13 +238,11 @@ describe("started Schedules across a process restart", () => {
 
     const now = new Date(Math.floor(Date.now() / 60_000) * 60_000)
     await node("start", now.toISOString())
-    // The first process exits. The next one starts two minutes later.
     const later = new Date(now.getTime() + 2 * 60_000)
     const { stdout } = await node("tick", later.toISOString())
     const result = JSON.parse(stdout) as { left: unknown[], ran: Array<{ payload: unknown, scheduledAt: string }> }
 
     expect(result.ran.filter(run => run.payload === "once")).toHaveLength(1)
-    // The cron Schedule runs the minute after it started and the current minute: the first of them no process checked.
     expect(result.ran.filter(run => run.payload === "every minute").map(run => run.scheduledAt).sort()).toEqual([
       new Date(now.getTime() + 60_000).toISOString(),
       later.toISOString(),
