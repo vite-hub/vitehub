@@ -53,6 +53,7 @@ async function app() {
   await write("fixtures/kv/package.json", JSON.stringify({ name: "kv", dependencies: { "vite-hub": "^1.0.0" } }))
   await write("fixtures/kv/server/api/kv.get.ts", "export default () => 1\n")
 }
+const lessonPage = (fixture: string) => `---\ntitle: Lesson\nlayout: learn\nfixture: ${fixture}\n---\n::tutorial-step{title="Add the route"}\n${fence}ts [server/api/kv.get.ts]\nexport default () => 1\n${fence}\n::\n`
 const runnable = {
   lessons: [{ slug: "first-kv", page: "/docs/kv", fixture: "kv" }],
   examples: [{ id: "kv", label: "KV", description: "Store a value.", fixture: "kv", open: "server/api/kv.get.ts", preview: "/api/kv" }],
@@ -201,6 +202,44 @@ describe("docs.runnable", () => {
       expect(module).not.toContain("private-value")
       expect(module).toContain(`".env.example":"TOKEN=\\n"`)
     }
+  })
+
+  it("fails the build when a page id matches a configured lesson, example, or snapshot", async () => {
+    await app()
+    await write("content/learn/first-kv.md", lessonPage("kv"))
+    const read = (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8")
+    const setup = (options: typeof runnable, extra: WorkspaceContentPage[]) => setupDocsRunnable(options, { nuxt: fakeNuxt().nuxt, content: { pages: () => [...pages, ...extra], read } })
+    const learn: WorkspaceContentPage = { path: "/learn/first-kv", layout: "learn", workspace: { fixture: "kv" } }
+    const playground: WorkspaceContentPage = { path: "/playground", layout: "playground", workspace: { examples: [{ id: "kv", label: "KV", dir: "fixtures/kv" }] } }
+    const collisions: Array<[typeof runnable, WorkspaceContentPage[]]> = [
+      [{ ...runnable, lessons: [{ slug: "learn-first-kv", page: "/docs/kv", fixture: "kv" }] }, [learn]],
+      [runnable, [{ ...learn, path: "/playground/kv" }]],
+      [{ ...runnable, examples: [{ ...runnable.examples[0]!, id: "playground--kv" }] }, [playground]],
+    ]
+    for (const [options, extra] of collisions) await expect(setup(options, extra)).rejects.toMatchObject({ code: "DOCS_WORKSPACE_ID_COLLISION" })
+    await expect(setup(runnable, [learn, playground])).resolves.toBeDefined()
+  })
+
+  it("gives a lesson at /constructor no snapshot when it has no dependencies", async () => {
+    await write("content/constructor.md", lessonPage("plain"))
+    await write("content/docs/try/lesson.md", lessonPage("kv"))
+    for (const fixture of ["plain", "kv"]) {
+      await write(`fixtures/${fixture}/package.json`, JSON.stringify({ name: fixture, ...fixture === "kv" ? { dependencies: { "vite-hub": "^1.0.0" } } : {} }))
+      await write(`fixtures/${fixture}/server/api/kv.get.ts`, "export default () => 1\n")
+    }
+    const sitePages: WorkspaceContentPage[] = [
+      { path: "/constructor", layout: "learn", workspace: { fixture: "plain" } },
+      { path: "/docs/try/lesson", layout: "learn", workspace: { fixture: "kv" } },
+    ]
+    buildTutorialSnapshots.mockResolvedValue({ [workspacePageSlug("/docs/try/lesson")]: snapshot })
+    const { nuxt, hooks } = fakeNuxt()
+    await setupDocsRunnable({}, { nuxt, content: { pages: () => sitePages, read: (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8") } })
+    await hooks.get("app:templates")!()
+    expect(workspacePageSlug("/constructor")).toBe("constructor")
+    const module = await templates.get("docs/workspaces/constructor.mjs")!()
+    expect(module).toContain(`"slug":"constructor"`)
+    expect(module).not.toContain(`"snapshot"`)
+    expect(await templates.get(`docs/workspaces/${workspacePageSlug("/docs/try/lesson")}.mjs`)!()).toContain(JSON.stringify(served))
   })
 
   it("asks for a pnpm workspace when a fixture uses one", async () => {

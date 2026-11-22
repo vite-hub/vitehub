@@ -47,8 +47,28 @@ export function checkWorkspacePageIds(pages: readonly WorkspacePage[]): void {
   for (const page of pages) {
     const id = workspacePageSlug(page.path)
     const other = seen.get(id)
-    if (other !== undefined) throw docsErrorDiagnostics.DOCS_WORKSPACE_ID_COLLISION({ id, pages: [other, page.path] })
+    if (other !== undefined) throw docsErrorDiagnostics.DOCS_WORKSPACE_ID_COLLISION({ id, owners: [`the page ${other}`, `the page ${page.path}`] })
     seen.set(id, page.path)
+  }
+}
+
+/**
+ * Fails the build when two lessons, two examples, or two snapshots get one id, configured or from a page. A configured
+ * lesson `learn-first-kv` and the page `/learn/first-kv` collide, and so do the lesson of `/playground/kv` and the
+ * snapshot `playground-kv` of an example `kv`.
+ */
+export function checkRunnableIds(lessons: readonly RunnableTutorialSource[], examples: readonly PlaygroundTemplateSource[]): void {
+  const seen = new Map<string, string>()
+  const claim = (kind: string, id: string, owner: string) => {
+    const key = `${kind} ${id.toLowerCase()}`
+    const other = seen.get(key)
+    if (other !== undefined) throw docsErrorDiagnostics.DOCS_WORKSPACE_ID_COLLISION({ id, owners: [other, owner] })
+    seen.set(key, owner)
+  }
+  for (const lesson of lessons) claim("snapshot", lesson.slug, `the lesson ${lesson.slug} of ${lesson.page}`)
+  for (const example of examples) {
+    claim("example", example.id, `the example ${example.id}`)
+    claim("snapshot", `playground-${example.id}`, `the example ${example.id}`)
   }
 }
 
@@ -133,7 +153,7 @@ export function pageExamples(page: WorkspacePage, templates: readonly Playground
 const decodeAssets = [
   `const bytes = text => Uint8Array.from(atob(text), char => char.charCodeAt(0))`,
   `for (const example of data.examples) {`,
-  `  const encoded = assets[example.id]`,
+  `  const encoded = Object.hasOwn(assets, example.id) ? assets[example.id] : undefined`,
   `  if (encoded) example.assets = Object.fromEntries(Object.entries(encoded).map(([path, text]) => [path, bytes(text)]))`,
   `}`,
 ]

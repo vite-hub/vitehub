@@ -51,6 +51,7 @@ describe("workspace frontmatter", () => {
   it("accepts the accounts of a Connect tab only on a playground that runs an app", () => {
     expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["github", "vercel"] })).toEqual([])
     expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["gitlab"] })).toHaveLength(1)
+    expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["cloudflare"] })).toHaveLength(1)
     expect(issues({ title: "Try", layout: "playground", render: "app/render.ts", examples: [hello], connect: ["github"] })).toEqual(["connect: A `render` page runs no app, so it has no accounts to connect"])
     expect(issues({ title: "Learn", layout: "learn", fixture: "kv", connect: ["github"] })).toEqual(["connect: Only a page with `layout: playground` reads `connect`"])
   })

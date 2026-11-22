@@ -41,7 +41,10 @@ export interface DocsPlaygroundTab {
   label: string
 }
 
-const connectProviders = ["anthropic", "cloudflare", "github", "netlify", "openai", "vercel"] as const satisfies readonly ConnectProviderName[]
+/** An account that a playground page can connect: each one takes a token in its Connect tab. */
+export type DocsConnectProvider = Exclude<ConnectProviderName, "cloudflare">
+
+const connectProviders = ["anthropic", "github", "netlify", "openai", "vercel"] as const satisfies readonly DocsConnectProvider[]
 
 /** Navigation fields of a page. `false` keeps the page out of the sidebar. */
 export type DocsPageNavigation = false | {
@@ -99,7 +102,7 @@ export interface DocsPageFrontmatter {
    * `layout: playground` without `render`. The accounts that the reader can connect in a Connect tab, such as
    * `[github, vercel]`. A credential stays in the browser tab and reaches the app as an environment variable.
    */
-  connect?: ConnectProviderName[]
+  connect?: DocsConnectProvider[]
   /** `playground` and `learn` without `render`. The port of the dev server of the app. Defaults to `3000`. */
   port?: number
   /** `layout: learn` only. The folder of the app after the last step, in the `docs.runnable.fixtures` folder. */

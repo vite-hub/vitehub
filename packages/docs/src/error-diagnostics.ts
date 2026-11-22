@@ -130,8 +130,8 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `dir` of each example in `examples` to a folder of the app relative to the app root, or set `fixture` of a learn page to a folder in the `docs.runnable.fixtures` folder (`fixtures` by default).",
     },
     DOCS_WORKSPACE_ID_COLLISION: {
-      why: ({ id, pages }: { id: string, pages: readonly string[] }) => `The docs pages ${pages.join(" and ")} get the same workspace id ${id}, so their lessons, examples, and snapshots would overwrite each other.`,
-      fix: "Rename one of the pages. The id is the page path in lower case with each run of other characters as `-`, so `/docs/a/b` and `/docs/a-b` are both `docs-a-b`.",
+      why: ({ id, owners }: { id: string, owners: readonly string[] }) => `${owners.join(" and ")} get the same workspace id ${id}, so their lessons, examples, or snapshots would overwrite each other.`,
+      fix: "Rename a page, or change the `slug` of a lesson or the `id` of an example in `docs.runnable`. A page's id is its path in lower case with each run of other characters as `-`, so `/docs/a/b` and `/docs/a-b` are both `docs-a-b`, and its examples are `<page id>--<example id>`. An example `kv` also takes the snapshot id `playground-kv`.",
     },
     DOCS_WORKSPACE_READONLY_MISSING: {
       why: ({ dir, example, page, path }: { dir: string, example: string, page: string, path: string }) => `The example ${example} of the docs page ${page} marks ${path} read-only, but ${dir} has no text file at that path.`,

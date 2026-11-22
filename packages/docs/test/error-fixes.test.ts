@@ -10,7 +10,7 @@ import { resolveDocsSources } from "../src/manifest.ts"
 
 it("gives each Docs code a fix and its own docs page", () => {
   for (const [code, create] of Object.entries(docsErrorDiagnostics)) {
-    const error = (create as (params: { agent: string, details: string, file: string, mount: string, name: string, pages: string[], problems: string[], root: string }) => Error & { docs?: string, fix?: string })({ agent: "docs", details: "title: missing", file: "a.md", mount: "/a", name: "demo", pages: ["/a"], problems: ["/a"], root: "/out" })
+    const error = (create as (params: { agent: string, details: string, file: string, mount: string, name: string, owners: string[], pages: string[], problems: string[], root: string }) => Error & { docs?: string, fix?: string })({ agent: "docs", details: "title: missing", file: "a.md", mount: "/a", name: "demo", owners: ["the page /a"], pages: ["/a"], problems: ["/a"], root: "/out" })
     expect(error.fix, code).toMatch(/\S/)
     expect(error.docs, code).toBe(`https://vitehub.dev/docs/docs-site/diagnostics/${code.toLowerCase()}`)
   }

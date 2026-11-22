@@ -18,7 +18,7 @@ const pages = (workspaces.value ?? []).map(response => response.page);
 const lessons = pages.flatMap(page => page.layout === "learn" ? [{ path: page.path, lesson: page.workspace?.lesson ?? page.path }] : []);
 const playground = pages.find(page => page.layout === "playground");
 const examples = playground?.workspace?.examples ?? [];
-const exampleLink = (id: string) => playground && (id === examples[0]?.id ? playground.path : `${playground.path}?example=${id}`);
+const exampleLink = (id: string) => playground && `${playground.path}?example=${encodeURIComponent(id)}`;
 
 const catalog = buildLearnCatalog({ sections: manifest.sections, runnable: lessons, facts: learnFacts });
 const first = catalog.browser[0];

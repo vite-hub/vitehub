@@ -25,10 +25,7 @@ const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebui
   return example
 })
 const connectConfig: ConnectConfig = {}
-for (const name of props.data.connect ?? []) {
-  if (name === "cloudflare") connectConfig.cloudflare = { relay: "reader" }
-  else connectConfig[name] = true
-}
+for (const name of props.data.connect ?? []) connectConfig[name] = true
 const connect = props.data.connect?.length ? defineConnect(connectConfig) : undefined
 const load = props.data.render
 const runner: WorkspaceRunner = load
@@ -38,8 +35,7 @@ const zipPrefix = site.name.toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))
 const tabItems = tabs.map(({ value, label }) => ({ value, label }))
 
-const queried = [route.query.example, route.query.template].find(value => typeof value === "string" && examples.some(example => example.id === value))
-const example = typeof queried === "string" ? queried : undefined
+const example = computed(() => [route.query.example, route.query.template].find((value): value is string => typeof value === "string" && examples.some(example => example.id === value)))
 const open = ref(false)
 
 function keep(id: string) {
