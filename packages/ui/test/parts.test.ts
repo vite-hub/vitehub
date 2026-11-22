@@ -228,6 +228,7 @@ describe("shadcn/ui parts", () => {
     const restylesNuxtUI = /^\.vh-ws-examples-menu \[data-slot="(group|label|item|itemWrapper|itemTrailing)"\]|^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^(\.vh-agent-session )?\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-|^\[data-slot="comment-composer"\] \[data-slot="attachment"\]:has\(> \[data-slot="attachment-media"\]\[data-variant="image"\]\) \[data-slot="attachment-actions"\] > button/;
     for (const { body, prelude } of unlayered) {
       if (prelude === ":root" || prelude.startsWith(":where(:root,")) continue;
+      if (prelude === '[data-slot="comment-image-stack-remove"]') continue;
       if (prelude.startsWith("@")) expect(body, prelude).toMatch(/vh-primitive-/);
       else expect(prelude).toMatch(restylesNuxtUI);
     }

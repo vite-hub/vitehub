@@ -1,9 +1,7 @@
 // The libSQL driver of the default Agent Invocation journal: a local SQLite file or a remote libSQL URL.
 // Hosts pass it to `createDefaultAgentInvocations()` from `default-core` only when a build can select libSQL,
 // so a Cloudflare Worker that stores the journal in D1 or memory does not ship the libSQL client.
-import { createClient } from "@libsql/client"
-
-import { createLibsqlAgentInvocationStore } from "./sqlite.ts"
+import { createLibsqlAgentInvocationStore, createOwnedLibsqlClient } from "./sqlite.ts"
 
 import type { Client } from "@libsql/client"
 import type { AgentInvocationStore } from "../invocations.ts"
@@ -20,7 +18,7 @@ export interface DefaultAgentInvocationsLibsqlLocation {
 export async function openDefaultLibsqlJournal(location: DefaultAgentInvocationsLibsqlLocation, retention: AgentRetentionPolicy | undefined): Promise<{ client: Client, store: Required<AgentInvocationStore> }> {
   const { file, ...config } = location
   if (file) (await import("./default-file.ts")).createJournalDirectory(file)
-  const client = createClient(config)
+  const client = createOwnedLibsqlClient(config)
   try {
     return {
       client,

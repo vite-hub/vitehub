@@ -817,6 +817,11 @@
       "import": "./dist/ui/motion.js",
       "default": "./dist/ui/motion.js"
     },
+    "./ui/motion/core": {
+      "types": "./dist/ui/motion/core.d.ts",
+      "import": "./dist/ui/motion/core.js",
+      "default": "./dist/ui/motion/core.js"
+    },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",
       "import": "./dist/ui/vite.js",
