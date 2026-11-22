@@ -45,6 +45,12 @@ export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WebContainerFiles;
   /**
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. Text files at an asset path,
+   * or at a path that would replace one with a folder or a file, are dropped, so edits, `modified`, `setFiles()`
+   * and `reset()` never touch them.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /**
    * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
    * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
    */
@@ -138,7 +144,10 @@ function parentDirectory(path: string): string | undefined {
  * or your own. Only one WebContainer runs per page.
  */
 export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
-  const initial: WebContainerFiles = { ...options.files };
+  const assetPaths = Object.keys(options.assets ?? {});
+  const textFiles = (next: Readonly<WebContainerFiles>): WebContainerFiles => Object.fromEntries(Object.entries(next).filter(([path]) =>
+    !assetPaths.some(asset => asset === path || asset.startsWith(`${path}/`) || path.startsWith(`${asset}/`))));
+  const initial: WebContainerFiles = textFiles(options.files);
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";
 
@@ -317,7 +326,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       written = { ...files.value };
       try {
         const target = await bootWebContainer({
-          files: written,
+          files: { ...options.assets, ...written },
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
           previewScript: options.previewScript,
@@ -393,7 +402,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   }
 
   async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
-    files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
+    files.value = setOptions.mode === "replace" ? textFiles(next) : { ...files.value, ...textFiles(next) };
     await sync();
   }
 

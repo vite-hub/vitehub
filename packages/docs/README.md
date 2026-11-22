@@ -229,7 +229,7 @@ The text of the page shows when the workspace cannot run.
 
 | Field | Default | Use |
 | --- | --- | --- |
-| `examples` | Required | `{ id, label, group, description, dir, open, preview }`, in menu order. `id` is the `?example=` value. `group` is the heading in the examples menu. `open` is the file that the editor opens first. `preview` is the path that the preview opens. With more than one example and no `?example=`, the page opens on a start screen. |
+| `examples` | Required | `{ id, label, group, description, dir, open, preview, readonly }`, in menu order. `id` is the `?example=` value. `group` is the heading in the examples menu. `open` is the file that the editor opens first. `preview` is the path that the preview opens. `readonly` lists text files of `dir` that the reader cannot edit. With more than one example and no `?example=`, the page opens on a start screen. |
 | `tabs` | None | `{ value, label }`: more output tabs. The tab `messages` renders `app/components/playground/PlaygroundTabMessages.vue`, which reads the workspace with `useWorkspace()` from `@vite-hub/ui/workspace`. A missing component fails the build with `DOCS_WORKSPACE_TAB_MISSING`. |
 | `render` | None | A module relative to the app root, such as `app/playground/render.ts`. The page runs its default export on the files 200 ms after each edit, and shows the HTML in an Output tab. No WebContainer starts, so the page works on every device. |
 | `port` | `3000` | The port of the dev server. Not with `render`. |
@@ -245,6 +245,36 @@ const render: DocsRenderFunction = (files) => {
 
 export default render
 ```
+
+#### Read-only files, binary files, and issues
+
+`readonly` marks files of an example that the reader can read but not edit, such as a model that a build trained. The editor refuses typing in them and shows "Read-only". `useWorkspace().setFile` in a tab component can still change them. A path that is not a text file of `dir` fails the build with `DOCS_WORKSPACE_READONLY_MISSING`.
+
+```md [content/docs/try/models.md]
+---
+title: Models
+layout: playground
+render: app/playground/render.ts
+examples:
+  - { id: recipes, label: Recipes, dir: examples/recipes, open: input.txt, readonly: [recipes.model.ts] }
+---
+```
+
+A file of `dir` that is not valid UTF-8, such as `weights.bin`, is a binary asset. It needs no frontmatter. The tree and the editor never show it. The page module carries it as base64 and turns it back into bytes when it loads. A `render` function reads it from `example.assets`, and a WebContainer example mounts it next to the files. An issue with `file` shows `file:line`, and a click opens that file.
+
+```ts [app/playground/render.ts]
+import type { DocsRenderFunction } from "@vite-hub/docs/runnable"
+
+const render: DocsRenderFunction = (files, { example }) => {
+  const weights = example.assets?.["weights.bin"]
+  if (!weights) return { html: "", issues: [{ message: "Train the model first.", file: "recipes.model.ts", line: 1 }] }
+  return { html: `<p>${files["input.txt"] ?? ""}: ${weights.byteLength} bytes of weights</p>` }
+}
+
+export default render
+```
+
+`layout: learn` and `#build/playground-templates.mjs` read the text files of a fixture only.
 
 `layout: learn` is a lesson. Its `::tutorial-step` blocks become the steps of the workspace, and the guide shows the text of the current step. `fixture` is a folder in the `runnable.fixtures` folder (`fixtures` by default) with the app after the last step, as for [runnable lessons](#runnable-lessons-and-examples). Each step loads the files of the fixture that its code blocks name. A file name in inline code, such as `` `greeting.mjs` ``, opens the file. A file code block gets "Show in editor", and a `curl` block gets "Run in workspace". `?step=2` opens step 2, and Solve writes the files of the step.
 
@@ -272,7 +302,7 @@ export default () => "Hello."
 | `preview` | `/` | The path that the preview opens. |
 | `port` | `3000` | The port of the dev server. |
 
-A WebContainer runs only in a cross-origin isolated page. The module lists every `learn` page and every `playground` page without `render`, and passes them to `vite-hub/nuxt` as `webContainer.routes`, in either module order. The app needs `vite-hub/nuxt` and `@vite-hub/web-container`; without them, the build fails with `DOCS_WORKSPACE_VITEHUB_MISSING`. A `render` page stays a plain page. A missing `dir`, `fixture`, or `render` file fails the build with `DOCS_WORKSPACE_DIR_MISSING` or `DOCS_WORKSPACE_RENDER_MISSING`.
+A WebContainer runs only in a cross-origin isolated page. The module lists every `learn` page and every `playground` page without `render`, and passes them to `vite-hub/nuxt` as `webContainer.routes`, in either module order. The app needs `vite-hub/nuxt` and `@vite-hub/web-container`; without them, the build fails with `DOCS_WORKSPACE_VITEHUB_MISSING`. A `render` page stays a plain page. A missing `dir`, `fixture`, or `render` file fails the build with `DOCS_WORKSPACE_DIR_MISSING` or `DOCS_WORKSPACE_RENDER_MISSING`, and a `readonly` path that is not a text file of its `dir` with `DOCS_WORKSPACE_READONLY_MISSING`.
 
 The frontmatter is the one source of truth for workspace pages. `runnable.lessons` and `runnable.examples` stay for app pages that read `#build/runnable-tutorials.mjs` and `#build/playground-templates.mjs`, such as a custom `/learn/[slug]` page. Both use one snapshot build: an example with the dependencies of a lesson mounts the snapshot of that lesson, and `nuxt build` writes the snapshots of workspace pages as it does for `runnable`. A `layout: tutorial` page with `codePanel` works as before.
 

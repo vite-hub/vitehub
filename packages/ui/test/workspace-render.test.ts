@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, type PropType } from "vue";
 import { render } from "../src/workspace/runners/render.ts";
 import type { WorkspaceExample } from "../src/workspace/workspace-examples.ts";
+import { WorkspaceEditorHead } from "../src/workspace/workspace-editor-head.ts";
 import { Workspace, type WorkspaceSlotProps } from "../src/workspace/workspace.ts";
 
 const UButton = defineComponent({
@@ -65,7 +66,7 @@ describe("Workspace with render()", () => {
     }));
     const wrapper = mount(Workspace, { global, props: { examples: [plurals, fallbacks], runner: render(fn, { document: html => `<main>${html}</main>` }) } });
     await flushPromises();
-    expect(fn).toHaveBeenCalledWith(plurals.files);
+    expect(fn).toHaveBeenCalledWith(plurals.files, { example: plurals });
     const frame = wrapper.get("iframe.vh-workspace-frame");
     expect(frame.attributes("sandbox")).toBe("allow-scripts allow-popups");
     expect(frame.attributes("srcdoc")).toContain("<main><p>{\"one\":\"1 item\"}</p>");
@@ -93,7 +94,7 @@ describe("Workspace with render()", () => {
     expect(fn).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     expect(fn).toHaveBeenCalledTimes(2);
-    expect(fn).toHaveBeenLastCalledWith({ "messages.json": "ab" });
+    expect(fn).toHaveBeenLastCalledWith({ "messages.json": "ab" }, { example: plurals });
     resolvers[1]!("new");
     await flushPromises();
     resolvers[0]!("old");
@@ -119,9 +120,50 @@ describe("Workspace with render()", () => {
     expect(wrapper.find(".vh-workspace-gate").exists()).toBe(false);
     await wrapper.get("[data-item='Fallbacks']").trigger("click");
     await flushPromises();
-    expect(fn).toHaveBeenLastCalledWith(fallbacks.files);
+    expect(fn).toHaveBeenLastCalledWith(fallbacks.files, { example: fallbacks });
     expect(wrapper.emitted("update:example")).toEqual([["fallbacks"]]);
     expect(wrapper.get("iframe").attributes("srcdoc")).toContain("fallback");
+    wrapper.unmount();
+  });
+
+  it("locks read-only files, gives the assets to the function, and opens the file of an issue", async () => {
+    const pixel = new Uint8Array([0x89, 0x50, 0x00, 0xff]);
+    const page: WorkspaceExample = {
+      id: "page",
+      label: "Page",
+      files: { "index.html": "<p>Hi</p>", "footer.html": "<footer>Fixed</footer>" },
+      open: "index.html",
+      readonly: ["footer.html"],
+      assets: { "pixel.bin": pixel },
+    };
+    const seen: Uint8Array[] = [];
+    const fn = vi.fn(async (files: Record<string, string>, { example }: { example: WorkspaceExample }) => {
+      seen.push(example.assets!["pixel.bin"]!);
+      return { html: files["index.html"]!, issues: [{ message: "Fix the footer.", file: "footer.html", line: 1 }, { message: "Gone.", file: "missing.html" }] };
+    });
+    const { box, slot } = spy();
+    const wrapper = mount(Workspace, { global, props: { examples: [page], runner: render(fn) }, slots: { "bar-lead": slot } });
+    await flushPromises();
+    expect(seen[0]).toBe(pixel);
+    expect([...seen[0]!]).toEqual([0x89, 0x50, 0x00, 0xff]);
+    expect(Object.keys(box.context!.files)).toEqual(["index.html", "footer.html"]);
+    const editor = () => wrapper.findComponent({ name: "WorkspaceEditor" });
+    const head = () => wrapper.findComponent(WorkspaceEditorHead);
+    expect(head().props("path")).toBe("index.html");
+    expect(editor().props("readonly")).toBe(false);
+
+    const [footer, missing] = wrapper.get("[data-tab='issues']").findAll("button.vh-ws-issue-file");
+    expect(footer!.text()).toBe("footer.html:1");
+    await missing!.trigger("click");
+    expect(head().props("path")).toBe("index.html");
+    await footer!.trigger("click");
+    expect(head().props("path")).toBe("footer.html");
+    expect(head().props("readonly")).toBe(true);
+    expect(editor().props("readonly")).toBe(true);
+
+    await box.context!.setFile("footer.html", "<footer>Changed</footer>");
+    expect(box.context!.files["footer.html"]).toBe("<footer>Changed</footer>");
+    expect(box.context!.edited).toEqual(["footer.html"]);
     wrapper.unmount();
   });
 });

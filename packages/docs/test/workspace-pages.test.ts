@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { docsPageOf } from "../src/page.ts"
-import { checkWorkspacePage, learnLessonSource, pageExamples, webContainerRoutes, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "../src/runnable/workspaces.ts"
+import { checkWorkspacePage, learnLessonSource, pageExamples, renderExamples, webContainerRoutes, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "../src/runnable/workspaces.ts"
 import { docsPageSchema } from "../src/schema.ts"
 import { docsLearnGuideNodes, docsLearnStepNodes } from "../runtime/app/utils/docs-learn.ts"
 import { docsPlaygroundExampleQuery } from "../runtime/app/utils/docs-playground.ts"
@@ -19,12 +20,19 @@ const issues = (frontmatter: Record<string, unknown>) => {
   return result.success ? [] : result.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`)
 }
 const hello = { id: "hello", label: "Hello", dir: "examples/hello" }
+const wasm = new Uint8Array([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
 
 describe("workspace frontmatter", () => {
   it("accepts a playground page and a learn page", () => {
     expect(issues({ title: "Try", layout: "playground", examples: [hello], tabs: [{ value: "messages", label: "Messages" }], port: 4000 })).toEqual([])
     expect(issues({ title: "Try", layout: "playground", render: "app/playground/render.ts", examples: [hello] })).toEqual([])
     expect(issues({ title: "Learn", layout: "learn", fixture: "kv", guide: "top", lesson: "/docs/kv/get-started", preview: "/api/kv" })).toEqual([])
+  })
+
+  it("accepts read-only paths on an example, and no assets key", () => {
+    expect(issues({ title: "Try", layout: "playground", examples: [{ ...hello, readonly: ["footer.html"] }] })).toEqual([])
+    expect(issues({ title: "Try", layout: "playground", examples: [{ ...hello, readonly: "footer.html" }] })).toHaveLength(1)
+    expect(issues({ title: "Try", layout: "playground", examples: [{ ...hello, assets: { "a.bin": "AA==" } }] })).toHaveLength(1)
   })
 
   it("rejects a workspace field on a layout that does not read it", () => {
@@ -118,9 +126,9 @@ describe("checkWorkspacePage", () => {
   let dir: string
   beforeEach(async () => { dir = await mkdtemp(resolve(tmpdir(), "workspace-pages-")) })
   afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
-  const write = async (path: string) => {
+  const write = async (path: string, contents: string | Uint8Array = "") => {
     await mkdir(dirname(resolve(dir, path)), { recursive: true })
-    await writeFile(resolve(dir, path), "")
+    await writeFile(resolve(dir, path), contents)
   }
   const check = (page: WorkspacePage) => checkWorkspacePage(page, { rootDir: dir, srcDir: resolve(dir, "app"), fixturesDir: resolve(dir, "fixtures") })
   const code = (run: () => void) => {
@@ -146,6 +154,55 @@ describe("checkWorkspacePage", () => {
     expect(code(() => check(learn))).toBe("DOCS_WORKSPACE_DIR_MISSING")
     await write("fixtures/kv/package.json")
     expect(code(() => check(learn))).toBeUndefined()
+  })
+
+  it("fails the build for a read-only path that is not a text file of the example", async () => {
+    await write("examples/hello/index.html", "<h1>Hi</h1>")
+    await write("examples/hello/pixel.bin", new Uint8Array([0x89, 0x50, 0xff, 0xfe]))
+    await write("examples/hello/node_modules/a.js", "")
+    await write("examples/outside.html", "")
+    await write("examples/hello/module.wasm", wasm)
+    await write("examples/hello/weights.safetensors", new Uint8Array(16))
+    await symlink(resolve(dir, "examples/hello/index.html"), resolve(dir, "examples/hello/alias.html"))
+    await symlink(resolve(dir, "examples/hello"), resolve(dir, "examples/hello/linked"))
+    const page = (readonly: string[]): WorkspacePage => ({ path: "/docs/try", layout: "playground", workspace: { examples: [{ ...hello, readonly }] } })
+    expect(code(() => check(page(["index.html"])))).toBeUndefined()
+    for (const path of ["module.wasm", "weights.safetensors", "alias.html", "linked/index.html", "missing.html", "pixel.bin", "../outside.html", "./index.html", "node_modules/a.js", "/index.html", ""]) {
+      expect(code(() => check(page([path]))), path).toBe("DOCS_WORKSPACE_READONLY_MISSING")
+    }
+  })
+})
+
+describe("render examples with binary files", () => {
+  let dir: string
+  beforeEach(async () => { dir = await mkdtemp(resolve(tmpdir(), "workspace-assets-")) })
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }) })
+
+  it("splits binary files into assets, and the page module gives back the same bytes", async () => {
+    const pixel = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0xFF, 0x00, 0x80, 0xFE])
+    await mkdir(resolve(dir, "examples/hello/data"), { recursive: true })
+    await writeFile(resolve(dir, "examples/hello/index.html"), "<h1>Hi</h1>\n")
+    await writeFile(resolve(dir, "examples/hello/data/pixel.bin"), pixel)
+    await writeFile(resolve(dir, "examples/hello/data/module.wasm"), wasm)
+    await writeFile(resolve(dir, "examples/hello/data/weights.safetensors"), new Uint8Array(16))
+    const page: WorkspacePage = { path: "/docs/try", layout: "playground", workspace: { examples: [{ ...hello, readonly: ["index.html"] }], render: "app/render.ts" } }
+    const examples = await renderExamples(page, dir)
+    expect(examples[0]).toMatchObject({ id: "hello", readonly: ["index.html"], files: { "index.html": "<h1>Hi</h1>\n" } })
+    expect(Object.keys(examples[0]!.files)).toEqual(["index.html"])
+    expect(examples[0]!.assets).toEqual({ "data/pixel.bin": pixel, "data/module.wasm": wasm, "data/weights.safetensors": new Uint8Array(16) })
+
+    const file = resolve(dir, "page.mjs")
+    await writeFile(file, workspacePageModule({ layout: "playground", examples, port: 3000 }))
+    const { default: data } = await import(pathToFileURL(file).href) as { default: { examples: Array<{ files: Record<string, string>, assets?: Record<string, Uint8Array> }> } }
+    const loaded = data.examples[0]!
+    expect(loaded.assets!["data/pixel.bin"]).toBeInstanceOf(Uint8Array)
+    expect([...loaded.assets!["data/pixel.bin"]!]).toEqual([...pixel])
+    expect(loaded.files).toEqual({ "index.html": "<h1>Hi</h1>\n" })
+  })
+
+  it("leaves the module without a decoder when no example has assets", () => {
+    const module = workspacePageModule({ layout: "playground", examples: [{ id: "a", label: "A", files: { "a.txt": "a" } }], port: 3000 })
+    expect(module).not.toContain("atob")
   })
 })
 

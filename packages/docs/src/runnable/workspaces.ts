@@ -1,14 +1,15 @@
+import { Buffer } from "node:buffer"
 import { createHash } from "node:crypto"
-import { existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, lstatSync, readFileSync } from "node:fs"
+import { isAbsolute, resolve } from "node:path"
 
 import { docsErrorDiagnostics } from "../error-diagnostics.ts"
-import { readTree } from "./build.ts"
+import { decodeText, isIgnoredEntry, isPrivateFile, readTree } from "./build.ts"
 
 import type { DocsLayout, DocsPageWorkspace } from "../types.ts"
 import type { RunnableTutorialSource } from "./build.ts"
 import type { PlaygroundTemplateSource } from "./playground.ts"
-import type { DocsLearnData, DocsPlaygroundData, PlaygroundTemplate, TutorialFiles } from "./steps.ts"
+import type { DocsLearnData, DocsPlaygroundData, PlaygroundTemplate } from "./steps.ts"
 
 /** A page of the docs site, with the fields that set up a workspace. */
 export interface WorkspaceContentPage {
@@ -58,15 +59,33 @@ export function playgroundExampleSources(page: WorkspacePage, rootDir: string): 
     fixture: resolve(rootDir, example.dir),
     open: example.open,
     preview: example.preview,
+    readonly: example.readonly,
   }))
 }
 
-/** Fails the build for a folder, a `render` module, or a tab component that a page names and that does not exist. */
+function isTextFileOf(dir: string, path: string): boolean {
+  const parts = path.split("/")
+  if (isAbsolute(path) || path.includes("\\") || parts.some(part => part === "" || part === "." || part === ".." || isIgnoredEntry(part)) || isPrivateFile(parts.at(-1)!)) return false
+  const stats = parts.map((_, index) => lstatSync(resolve(dir, ...parts.slice(0, index + 1)), { throwIfNoEntry: false }))
+  if (stats.some((stat, index) => !(index === parts.length - 1 ? stat?.isFile() : stat?.isDirectory()))) return false
+  return decodeText(readFileSync(resolve(dir, path))) !== undefined
+}
+
+/**
+ * Fails the build for a folder, a `render` module, or a tab component that a page names and that does not exist, and
+ * for a `readonly` path that is not a text file of its example.
+ */
 export function checkWorkspacePage(page: WorkspacePage, input: { rootDir: string, srcDir: string, fixturesDir: string }): void {
   const { workspace } = page
   const dirs = page.layout === "learn" ? [resolve(input.fixturesDir, workspace.fixture ?? "")] : (workspace.examples ?? []).map(example => resolve(input.rootDir, example.dir))
   for (const dir of dirs) {
     if (!existsSync(dir)) throw docsErrorDiagnostics.DOCS_WORKSPACE_DIR_MISSING({ page: page.path, dir })
+  }
+  for (const example of workspace.examples ?? []) {
+    const dir = resolve(input.rootDir, example.dir)
+    for (const path of example.readonly ?? []) {
+      if (!isTextFileOf(dir, path)) throw docsErrorDiagnostics.DOCS_WORKSPACE_READONLY_MISSING({ page: page.path, example: example.id, path, dir: example.dir })
+    }
   }
   if (workspace.render && !existsSync(resolve(input.rootDir, workspace.render))) {
     throw docsErrorDiagnostics.DOCS_WORKSPACE_RENDER_MISSING({ page: page.path, file: workspace.render })
@@ -83,12 +102,12 @@ export function workspaceTabComponent(srcDir: string, value: string): string {
   return resolve(srcDir, "components/playground", `PlaygroundTab${name}.vue`)
 }
 
-/** The examples of a `render` page, with their files. They need no snapshot. */
+/** The examples of a `render` page, with their files and binary files. They need no snapshot. */
 export async function renderExamples(page: WorkspacePage, rootDir: string): Promise<DocsPlaygroundData["examples"]> {
   return Promise.all((page.workspace.examples ?? []).map(async (example) => {
-    const files: TutorialFiles = await readTree(resolve(rootDir, example.dir))
-    const { id, label, description, group, open, preview } = example
-    return { id, label, description, group, open, preview, files }
+    const { files, assets } = await readTree(resolve(rootDir, example.dir))
+    const { id, label, description, group, open, preview, readonly } = example
+    return { id, label, description, group, open, preview, readonly, files, ...Object.keys(assets).length ? { assets } : {} }
   }))
 }
 
@@ -98,12 +117,31 @@ export function pageExamples(page: WorkspacePage, templates: readonly Playground
   return templates.filter(template => template.id.startsWith(prefix)).map(template => ({ ...template, id: template.id.slice(prefix.length) }))
 }
 
+const decodeAssets = [
+  `const bytes = text => Uint8Array.from(atob(text), char => char.charCodeAt(0))`,
+  `for (const example of data.examples) {`,
+  `  const encoded = assets[example.id]`,
+  `  if (encoded) example.assets = Object.fromEntries(Object.entries(encoded).map(([path, text]) => [path, bytes(text)]))`,
+  `}`,
+]
+
 /**
  * The JavaScript of a page module. `render` and the tab components are imports, so the page loads them with its data
- * and Vite bundles them with the app.
+ * and Vite bundles them with the app. JSON has no bytes, so the binary files of the examples are base64 in the module,
+ * and the module decodes them when it loads.
  */
 export function workspacePageModule(data: DocsPlaygroundData | DocsLearnData, loaders: { render?: string, tabs?: ReadonlyArray<{ value: string, label: string, file: string }> } = {}): string {
-  const lines = [`const data = ${JSON.stringify(data)}`]
+  if (data.layout === "learn") return pageModule(data, loaders)
+  const assets: Record<string, Record<string, string>> = {}
+  const examples = data.examples.map(({ assets: bytes, ...example }) => {
+    if (bytes) assets[example.id] = Object.fromEntries(Object.entries(bytes).map(([path, contents]) => [path, Buffer.from(contents).toString("base64")]))
+    return example
+  })
+  return pageModule({ ...data, examples }, loaders, Object.keys(assets).length ? [`const assets = ${JSON.stringify(assets)}`, ...decodeAssets] : [])
+}
+
+function pageModule(data: DocsPlaygroundData | DocsLearnData, loaders: { render?: string, tabs?: ReadonlyArray<{ value: string, label: string, file: string }> }, decode: string[] = []): string {
+  const lines = [`const data = ${JSON.stringify(data)}`, ...decode]
   if (loaders.render) lines.push(`data.render = () => import(${JSON.stringify(loaders.render)})`)
   if (loaders.tabs?.length) {
     lines.push(`data.tabs = [`, ...loaders.tabs.map(tab => `  { value: ${JSON.stringify(tab.value)}, label: ${JSON.stringify(tab.label)}, component: () => import(${JSON.stringify(tab.file)}) },`), `]`)

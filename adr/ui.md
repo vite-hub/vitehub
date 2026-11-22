@@ -60,6 +60,16 @@
 
 **Consequences:** Server rendering must not start a run, and older `?template=` and `#code=` links must keep opening.
 
+## Binary files of an example are read-only assets outside the editor
+
+`webContainer` in `packages/ui/src/workspace/runners/web-container.ts`, and `Workspace` in `packages/ui/src/workspace/workspace.ts`.
+
+**Context:** The editor and the share link hold text. An example can also need binary files, and a lesson can give new files for its next step.
+
+**Decision:** Binary files mount with each boot and never reach the file tree, the editor, or a share link. An example with other assets opens in a new run. A read-only file shows in the editor but the reader cannot edit it, while `useWorkspace().setFile` can still write it. The run opens files through a function, since it starts before the editor state exists, and a path that the run does not have keeps the open file. The open example decides which files are read-only.
+
+**Consequences:** A replace removes only the files it tracks, so assets stay on disk across edits.
+
 ## Bundled Nuxt UI parts do not suspend
 
 `lazy` in `packages/ui/src/internal/nuxt-ui.ts`.
