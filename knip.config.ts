@@ -243,7 +243,8 @@ const config: KnipConfiguration = {
   include: ["files", "dependencies", "unlisted", "unresolved", "binaries", "catalog"],
   exclude: ["optionalPeerDependencies"],
   // Test fixtures are sample apps and inputs. `playground/chatgpt` is not a pnpm workspace, so its dependencies are not installed.
-  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
+  // The examples and lesson fixtures of the docs demo run in a WebContainer, not in the app.
+  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**", "packages/docs/playground/examples/**", "packages/docs/playground/fixtures/**"],
   // CSS reaches local stylesheets and packages through `@import` and `url()`, such as the Console fonts.
   compilers: {
     css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
@@ -342,6 +343,8 @@ const config: KnipConfiguration = {
         // Markdown and Nuxt auto-import these components and their helpers.
         "app/components/**/*.vue",
         "app/utils/*.ts",
+        // A `layout: playground` page loads its `render` module from frontmatter.
+        "app/playground/*.ts",
         // Maintainers run these content and illustration tools directly.
         "scripts/*.mjs",
         "illustrations/*.mjs",
