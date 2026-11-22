@@ -84,7 +84,7 @@ export default function ({ test, open, rects, near }) {
     wrapIcon: ".vh-ws-wrap-button svg",
     breadcrumbIcon: ".vh-ws-breadcrumb .vh-ws-file-icon",
     breadcrumbName: ".vh-ws-breadcrumb b",
-    breadcrumbSeparator: ".vh-ws-breadcrumb-separator:last-of-type",
+    breadcrumbSeparator: ".vh-ws-breadcrumb-separator:has(+ .vh-ws-file-icon)",
     gutter: ".cm-gutters",
     line: ".cm-line",
     status: ".vh-ws-status",
@@ -100,7 +100,10 @@ export default function ({ test, open, rects, near }) {
       }
       // Folder names take the width of the font, which differs between machines. So the icon is checked against the
       // end of the last folder separator, and the name against the icon.
-      if (got.breadcrumbSeparator) near(got.breadcrumbIcon.x - got.breadcrumbSeparator.x - got.breadcrumbSeparator.w, 2, "breadcrumb icon after the separator")
+      if (expected.open.includes("/")) {
+        if (!got.breadcrumbSeparator) throw new Error("Missing separator before the breadcrumb file icon.")
+        near(got.breadcrumbIcon.x - got.breadcrumbSeparator.x - got.breadcrumbSeparator.w, 2, "breadcrumb icon after the separator")
+      }
       else near(got.breadcrumbIcon.x, expected.breadcrumbIconX, "breadcrumb icon x", 2)
       near(got.breadcrumbName.x - got.breadcrumbIcon.x, expected.breadcrumbNameX - expected.breadcrumbIconX, "breadcrumb name after the icon")
       near(got.gutter.w, both.gutterW, "gutter width")
