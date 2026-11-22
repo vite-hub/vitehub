@@ -374,7 +374,7 @@ export function createDevice(options: DeviceOptions): Device {
   function claim(key: string, value: unknown, maxAge: number, since: number, account: string | null): boolean {
     checkAccount(account)
     if (!opening) warnOnce("open", deviceErrors.DEVICE_NOT_OPEN())
-    if (since !== epoch || (opening && !opened)) return false
+    if (since !== epoch) return false
     const naming = account !== named
     if (naming) {
       requested = account
