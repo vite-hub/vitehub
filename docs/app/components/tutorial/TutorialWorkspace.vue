@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PlaygroundContainer, type PlaygroundContainerTemplate, type PlaygroundContext } from "@vite-hub/ui/workspace";
+import { webContainer, Workspace, type WorkspaceExample, type WorkspaceSlotProps } from "@vite-hub/ui/workspace";
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import { parseCurl, requestScript } from "~/utils/runnable-tutorial";
@@ -10,7 +10,6 @@ import type { TutorialActions } from "~/utils/tutorial-actions";
 type Files = Record<string, string>;
 type Tutorial = (typeof runnableTutorials)[number];
 
-// The steps of a lesson on top of PlaygroundContainer: Solve, Reset step, and the files of each step.
 const props = defineProps<{
   tutorial: Tutorial
   /** The current step, from 0. */
@@ -28,15 +27,23 @@ const stepFiles = (index: number, state: "start" | "solution"): Files => tutoria
 const prebuilt = props.tutorial.snapshot;
 const snapshot = prebuilt && (() => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${props.tutorial.slug}`, sha256: prebuilt.sha256 }));
 
-// The files that the lesson last loaded. The container marks a path whose contents differ from them as an edit.
 const baseline = shallowRef<Files>(stepFiles(props.step, "start"));
-const templates = computed<PlaygroundContainerTemplate[]>(() => [
-  { id: props.tutorial.slug, label: props.tutorial.title, files: baseline.value, preview: "/api/health", snapshot },
+const examples = computed<WorkspaceExample[]>(() => [
+  { id: props.tutorial.slug, label: props.tutorial.title, files: stepFiles(props.step, "start"), preview: "/api/health" },
 ]);
-const context = shallowRef<PlaygroundContext>();
+const resetStep = (files: Files) => tutorialWorkspaceFiles(props.tutorial, files, stepFiles(props.step, "start"));
+const runner = webContainer({ port: 3000, snapshot: () => snapshot || undefined });
+type Container = NonNullable<typeof runner.workspace.value>;
+
+const edited = computed(() => {
+  const files = runner.workspace.value?.files.value;
+  if (!files) return [];
+  const paths = new Set([...Object.keys(baseline.value), ...Object.keys(files)]);
+  return [...paths].filter(path => baseline.value[path] !== files[path]);
+});
 
 /** Writes `next` and restarts a running dev server when it must start again to see the change. */
-async function write(workspace: PlaygroundContext["workspace"], next: Files) {
+async function write(workspace: Container, next: Files) {
   const restart = restartsDevServer(workspace.files.value, next) && ["starting", "ready"].includes(workspace.status.value);
   await workspace.setFiles(next, { mode: "replace" });
   if (restart) await workspace.restart();
@@ -45,7 +52,7 @@ async function write(workspace: PlaygroundContext["workspace"], next: Files) {
 /** Restores the tutorial-owned files to `target`, and keeps unrelated files that the reader added. */
 async function load(target: Files) {
   pendingStep.value = undefined;
-  const workspace = context.value?.workspace;
+  const workspace = runner.workspace.value;
   const next = workspace && tutorialWorkspaceFiles(props.tutorial, workspace.files.value, target);
   baseline.value = target;
   if (workspace && next) await write(workspace, next);
@@ -54,7 +61,7 @@ async function load(target: Files) {
 // Changing steps loads the files of the new step, unless the reader edited files. Then the bar asks first.
 const pendingStep = ref<number>();
 watch(() => props.step, (step) => {
-  if (!context.value || context.value.edited.length === 0) void load(stepFiles(step, "start"));
+  if (!runner.workspace.value || edited.value.length === 0) void load(stepFiles(step, "start"));
   else pendingStep.value = step;
 });
 function loadPending() {
@@ -67,18 +74,15 @@ function keepMine() {
   pendingStep.value = undefined;
 }
 
-function solve(guard: PlaygroundContext["guard"]) {
+function solve(guard: WorkspaceSlotProps["guard"]) {
   guard(`Replace your changes with the solution of step ${props.step + 1}?`, "Replace files", () => void load(stepFiles(props.step, "solution")));
-}
-function reset(guard: PlaygroundContext["guard"]) {
-  guard(`Discard your changes and go back to the start of step ${props.step + 1}?`, "Replace files", () => void load(stepFiles(props.step, "start")));
 }
 
 // The request script lives in node_modules, so the file tree and the zip never list it.
 const requestPath = "node_modules/.vitehub-tutorial-request.mjs";
 async function run(command: string): Promise<string> {
   const request = parseCurl(command);
-  const container = context.value?.workspace.container.value;
+  const container = runner.workspace.value?.container.value;
   if (!request || !container) return "The workspace is not running.";
   await container.fs.writeFile(requestPath, requestScript(request));
   const process = await container.run(["node", requestPath]);
@@ -89,7 +93,7 @@ async function run(command: string): Promise<string> {
 }
 
 watchEffect(() => {
-  const workspace = context.value?.workspace;
+  const workspace = runner.workspace.value;
   Object.assign(props.actions, {
     available: !!workspace,
     running: workspace?.status.value === "ready" && !!workspace.previewUrl.value,
@@ -106,29 +110,27 @@ onBeforeUnmount(() => { props.actions.available = false; });
 </script>
 
 <template>
-  <!-- The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app. -->
-  <PlaygroundContainer
+  <Workspace
     v-model:open="open"
     v-model:selected="selected"
-    layout="guide-side"
-    :templates="templates"
+    guide="side"
+    :examples="examples"
+    :runner="runner"
+    :reset="resetStep"
     :share="false"
-    :port="3000"
-    @context="value => context = value"
   >
-    <template #toolbar="{ guard }">
-      <UButton variant="ghost" label="Reset step" icon="i-lucide-rotate-ccw" @click="reset(guard)" />
+    <template #bar-actions="{ guard }">
       <UButton variant="outline" label="Solve" icon="i-lucide-wand-sparkles" @click="solve(guard)" />
     </template>
 
-    <template v-if="pendingStep !== undefined" #banner="{ edited }">
+    <template v-if="pendingStep !== undefined" #banner>
       <div class="vh-tutorial-bar" role="status">
         <span class="min-w-0 flex-1">You changed {{ edited.length === 1 ? "1 file" : `${edited.length} files` }}. Step {{ pendingStep + 1 }} has its own version.</span>
         <UButton size="xs" variant="outline" :label="`Load step ${pendingStep + 1}`" @click="loadPending" />
         <UButton size="xs" variant="ghost" label="Keep mine" @click="keepMine" />
       </div>
     </template>
-  </PlaygroundContainer>
+  </Workspace>
 </template>
 
 <style scoped>
