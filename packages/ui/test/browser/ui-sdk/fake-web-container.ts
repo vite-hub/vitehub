@@ -1,4 +1,4 @@
-// A WebContainer that boots at once and serves a blank preview, so PlaygroundContainer renders its toolbar, tabs and
+// A WebContainer that boots at once and serves a blank preview, so Workspace with webContainer() renders its bar, tabs and
 // dialogs without StackBlitz. `ui-sdk.browser.mjs` resolves `@vite-hub/web-container` to this file.
 export function checkWebContainerSupport() {
   return { supported: true as const };

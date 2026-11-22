@@ -148,4 +148,4 @@ A template ref exposes `focus()` and `toggleWrap()`.
 
 - [File tree](/docs/ui/file-tree) is the tree without the workspace look.
 - [Code view](/docs/ui/code-view) shows a file that the reader does not edit.
-- [Playground render](/docs/ui/playground-render) renders the files in the page.
+- [Workspace](/docs/ui/workspace) puts these parts together with a runner.

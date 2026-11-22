@@ -44,6 +44,10 @@ export interface SshLaunchContext {
 const environmentName = /^[A-Z_][A-Z0-9_]*$/
 const commandEnvironmentKey = "VITEHUB_SSH_COMMAND"
 
+function isClosedPipeError(error: NodeJS.ErrnoException) {
+  return error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED"
+}
+
 /** Launch a command on a trusted SSH host with the same working-directory path. */
 export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext) => { command: string; args: string[]; prepare: (context: { abortSignal?: AbortSignal }) => Promise<void> } {
   if (!options.host || options.host.startsWith("-") || /[\s\0]/.test(options.host)) throw sandboxErrorDiagnostics.SANDBOX_SSH_LAUNCH_INVALID({ problem: "host" })
@@ -167,10 +171,12 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         children.add(child)
         markers.set(child, marker)
         stream.pipe(child.stdin)
-        child.stdin.on("error", () => {})
         child.stdout.pipe(stream, { end: false })
         child.stderr.pipe(stream.stderr, { end: false })
         const terminate = () => { void stop(child).catch(() => client.end()) }
+        child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+          if (!isClosedPipeError(error)) terminate()
+        })
         stream.once("close", terminate)
         stream.on("error", terminate)
         child.once("exit", terminate)

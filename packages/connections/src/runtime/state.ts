@@ -3,13 +3,13 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import * as v from "valibot"
 
 import { connectionsErrorDiagnostics } from "../error-diagnostics.ts"
-import { connectionResult } from "../errors.ts"
+import { connectionResult, isConnectionError } from "../errors.ts"
 import { createConnectionsRuntime } from "../runtime.ts"
 
 import type { ConnectionDefinitionName, ConnectionRegistryClient } from "../registry-types.ts"
 import type { ConnectionRuntimeClient, ConnectionsRuntime, ConnectionsRuntimeOptions } from "../runtime.ts"
 import type { ConnectionStore } from "../store.ts"
-import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts"
+import { connectionNameSchema } from "../types.ts"
 import type { ConnectionClient, ConnectionFetchInit, ConnectionStatus, UseConnectionOptions } from "../types.ts"
 
 let discoveredRegistry = generatedRegistry
@@ -93,8 +93,9 @@ async function connectionStatus(name: string): Promise<ConnectionStatus> {
   try {
     return (await getConnectionsRuntime().inspect(name)).status
   }
-  catch {
-    return "disconnected"
+  catch (error) {
+    if (isConnectionError(error, ["CONNECTIONS_NOT_CONFIGURED", "CONNECTIONS_NOT_FOUND"])) return "disconnected"
+    throw error
   }
 }
 
@@ -106,7 +107,7 @@ async function connectionStatus(name: string): Promise<ConnectionStatus> {
 export function useConnection<const TName extends ConnectionDefinitionName, const TDryRun extends boolean = false>(name: TName, options?: Omit<UseConnectionOptions, "dryRun"> & { dryRun?: TDryRun }): ConnectionRegistryClient<TName, TDryRun>
 export function useConnection<TName extends string>(name: string extends TName ? TName : never, options?: UseConnectionOptions): ConnectionClient
 export function useConnection(name: string, options: UseConnectionOptions = {}): ConnectionClient {
-  const parsedName = v.safeParse(v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace.")), name)
+  const parsedName = v.safeParse(connectionNameSchema, name)
   if (!parsedName.success) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_NAME({ problem: "use-connection" })
   name = parsedName.output
   let client: ConnectionRuntimeClient | undefined

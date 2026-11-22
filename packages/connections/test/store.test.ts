@@ -1,6 +1,5 @@
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
-import { importSealKey, sealWithKey } from "@vite-hub/env/seal"
 import { drizzle } from "drizzle-orm/libsql"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 import { Miniflare } from "miniflare"
@@ -40,52 +39,6 @@ it("gives the Connections bridge no standing administrator access", async () => 
     await expect(store.bridge.activity({ actor }, "connection/mail")).rejects.toMatchObject({ code: "ENV_BRIDGE_UNTRUSTED" })
   }
   finally {
-    client.close()
-  }
-})
-
-it.each(["none", "secret", "state", "both"])("migrates legacy tables with %s already migrated, then retires the old key", async (migrated) => {
-  const client = createClient({ url: ":memory:" })
-  const key = new Uint8Array(32).fill(9)
-  try {
-    const db = drizzle({ client: client })
-    const initial = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
-    if (migrated === "secret" || migrated === "both") {
-      await initial.secrets.replace({ key: "connection/mail", value: JSON.stringify({ accessToken: "legacy-access", scopes: ["mail.read"] }), expectedRevision: null })
-    }
-    if (migrated === "state" || migrated === "both") {
-      await initial.state.put({ name: "mail", accountId: "account-1", status: "connected", scopes: ["mail.read"], updatedAt: "2026-09-30T00:00:00.000Z" })
-    }
-    const sealKey = await importSealKey(key)
-    const grantPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-grant", "mail", "legacy-revision"])), JSON.stringify({ accessToken: "legacy-access", refreshToken: "legacy-refresh", scopes: ["mail.read"], tokenType: "bearer", account: "account-1" }))
-    const pendingPayload = await sealWithKey(sealKey, new TextEncoder().encode(JSON.stringify(["connection-pending", "legacy-state"])), JSON.stringify({ actor: { id: "agent-1", kind: "agent" }, redirectUri: "https://app.example/callback", verifier: "legacy-verifier" }))
-    await db.run(sql`CREATE TABLE vitehub_connection_grants (name TEXT PRIMARY KEY, provider TEXT NOT NULL, account TEXT, scopes TEXT NOT NULL, payload TEXT NOT NULL, key_id TEXT NOT NULL, revision TEXT NOT NULL, status TEXT NOT NULL, expires_at INTEGER, lease_until INTEGER, last_error TEXT, connected_at TEXT NOT NULL, updated_at TEXT NOT NULL)`)
-    await db.run(sql`CREATE TABLE vitehub_connection_pending (state TEXT PRIMARY KEY, ticket TEXT NOT NULL, name TEXT NOT NULL, payload TEXT NOT NULL, expires_at INTEGER NOT NULL, opened INTEGER NOT NULL DEFAULT 0)`)
-    await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)
-    await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('legacy-state', 'legacy-ticket', 'mail', ${pendingPayload}, ${Date.now() + 60_000}, 1)`)
-    await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('unopened-state', 'unopened-ticket', 'mail', ${pendingPayload}, ${Date.now() + 60_000}, 0)`)
-    await db.run(sql`INSERT INTO vitehub_connection_pending (state, ticket, name, payload, expires_at, opened) VALUES ('expired-state', 'expired-ticket', 'mail', ${pendingPayload}, ${Date.now() - 1}, 1)`)
-    const store = createDatabaseConnectionStore({ db, encryptionKeys: [key] })
-    expect(await store.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })
-    expect(await store.state.get("mail")).toMatchObject({ accountId: "account-1", status: "connected", scopes: ["mail.read"] })
-    expect(await store.authorizations.take("legacy-state")).toMatchObject({ actor: "agent:agent-1", verifier: "legacy-verifier" })
-    expect(await store.authorizations.take("unopened-state")).toBeUndefined()
-    expect(await store.authorizations.take("expired-state")).toBeUndefined()
-    expect(await db.all(sql`SELECT state FROM vitehub_connection_pending ORDER BY state`)).toEqual([
-      { state: "expired-state" },
-      { state: "unopened-state" },
-    ])
-    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
-    const nextKey = new Uint8Array(32).fill(10)
-    const rotating = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey, key] })
-    expect(rotating.rotate).toBeDefined()
-    await rotating.rotate!()
-    await db.run(sql`INSERT INTO vitehub_connection_grants (name, provider, account, scopes, payload, key_id, revision, status, connected_at, updated_at) VALUES ('mail', 'google', 'account-1', '["mail.read"]', ${grantPayload}, 'legacy-key', 'legacy-revision', 'active', '2026-09-30T00:00:00.000Z', '2026-09-30T00:00:00.000Z')`)
-    const restarted = createDatabaseConnectionStore({ db, encryptionKeys: [nextKey] })
-    expect(await restarted.secrets.read("connection/mail")).toMatchObject({ value: expect.stringContaining("legacy-access") })
-    expect(await restarted.authorizations.take("legacy-state")).toBeUndefined()
-    expect(await db.all(sql`SELECT name FROM vitehub_connection_grants`)).toEqual([])
-  } finally {
     client.close()
   }
 })

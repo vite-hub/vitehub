@@ -100,7 +100,6 @@ async function execWithRuntimeTimeout(
     ...options,
     signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
   })
-  running.catch(() => {})
   let timer: ReturnType<typeof setTimeout> | undefined
   const timedOut = new Promise<ShellObservation>((resolve) => {
     timer = setTimeout(() => {

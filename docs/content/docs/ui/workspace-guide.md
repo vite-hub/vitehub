@@ -70,7 +70,7 @@ const step = ref(0);
 
 ### Issues
 
-`WorkspaceIssues` lists the issues of the last render, each with its line when it has one. `PlaygroundRender` shows its issues with it. Without issues it hides, or shows the `empty` text.
+`WorkspaceIssues` lists the issues of the last render, each with its line when it has one. The Issues tab of `render()` shows it. Without issues it hides, or shows the `empty` text.
 
 ::example{name="WorkspaceIssuesExample" height=12}
 ::
@@ -167,5 +167,5 @@ The guide is an `article`, and its title is an `h2`. A new step starts at the to
 
 ## Related
 
-- [Playground render](/docs/ui/playground-render)
+- [Workspace](/docs/ui/workspace)
 - [File tree](/docs/ui/file-tree)
