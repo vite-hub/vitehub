@@ -88,11 +88,12 @@ function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType,
 
 function flagsOf(operation: AnyOperation): Flag[] {
   const schema = operationInputJsonSchema(operation)
-  const properties = isObject(schema.properties) ? Object.entries(schema.properties) : []
-  const required = Array.isArray(schema.required) ? schema.required.map(String) : []
-  return properties.map(([key, property]): Flag => {
+  const shapes = (Array.isArray(schema.anyOf) ? schema.anyOf : [schema]).filter(isObject)
+  const properties = new Map(shapes.flatMap(shape => isObject(shape.properties) ? Object.entries(shape.properties) : []))
+  return [...properties].map(([key, property]): Flag => {
     const description = isObject(property) ? property.description : undefined
-    return { ...readType(property), key, required: required.includes(key), ...(typeof description === "string" ? { description } : {}) }
+    const required = shapes.every(shape => Array.isArray(shape.required) && shape.required.includes(key))
+    return { ...readType(property), key, required, ...(typeof description === "string" ? { description } : {}) }
   })
 }
 

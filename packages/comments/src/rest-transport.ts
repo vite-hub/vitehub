@@ -160,7 +160,7 @@ export function createRestTransport(options: RestTransportOptions = {}): RestTra
       return (await request<RestCommentThread[]>(`/threads?${listSearch(query)}`)).data
     },
     async get(input: CommentGetInput) {
-      const path = "id" in input ? thread(input.id) : `/scopes/${encodeURIComponent(input.scope)}/threads/${input.n}`
+      const path = "threadId" in input ? thread(input.threadId) : `/scopes/${encodeURIComponent(input.scope)}/threads/${input.n}`
       return (await request<RestCommentThread | null>(path)).data
     },
     async create({ files, outbox, ...input }: CommentCreateInput & CommentFiles) {
