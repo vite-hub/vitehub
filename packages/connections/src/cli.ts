@@ -138,6 +138,7 @@ const inspectionSchema = v.object({
   actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
   keySource: v.optional(v.picklist(["fallback", "stored"])),
+  keyError: v.optional(v.string()),
   name: v.string(),
   provider: v.string(),
   scopes: v.looseObject({ declared: v.array(v.string()), granted: v.array(v.string()), missing: v.array(v.string()) }),
@@ -210,7 +211,7 @@ function describeConnection(connection: ConnectionInspection): string {
     `${connection.name}  ${connection.provider}  ${connection.status}${connection.account?.email ? `  ${connection.account.email}` : ""}`,
   ]
   if (connection.chatgpt) lines.push(`  plan: ${connection.chatgpt.plan}`, `  expires: ${connection.expiresAt ?? "none"}`, `  host: ${connection.chatgpt.hostId}`, `  client: ${connection.chatgpt.clientId ?? "not registered"}`)
-  if (connection.keySource === "fallback") lines.push("  key: provider fallback")
+  if (connection.keySource === "fallback") lines.push(connection.keyError ? `  key: provider fallback failed (${connection.keyError})` : "  key: provider fallback")
   if (connection.scopes.missing.length) lines.push(`  missing scopes: ${connection.scopes.missing.join(" ")}`)
   return lines.join("\n")
 }
