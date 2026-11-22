@@ -932,11 +932,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const apiKeyProvider = isApiKeyProvider(provider)
     const hasFallback = isApiKeyProvider(provider) && provider.fallback !== undefined
     let connections: ConnectionStore | undefined
+    let storeFailure: { error: unknown } | undefined
     try {
       connections = await getStore()
     }
     catch (error) {
       if (!hasFallback) throw error
+      if (!isConnectionError(error, ["CONNECTIONS_NOT_CONFIGURED"])) storeFailure = { error }
     }
     const state = await connections?.state.get(name)
     const declared = isChatGPTProvider(provider) ? [...chatgptScopes] : [...(loaded.scopes ?? [])]
@@ -945,6 +947,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       ? await readFallbackKey(name, loaded).then(key => ({ key }), (error: unknown) => ({ keyError: errorCode(error) ?? "Error" }))
       : undefined
     const fallback = fallbackRead?.key !== undefined
+    if (!fallback && storeFailure) throw storeFailure.error
     const keyError = fallbackRead?.keyError
     const keySource = fallback || keyError ? "fallback" : apiKeyProvider && state?.status === "connected" ? "stored" : undefined
     return {

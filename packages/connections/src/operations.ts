@@ -18,6 +18,7 @@ export interface ConnectionsConsoleItem {
   connectedAt?: number
   credential: ConnectionInspection["credential"]
   expiresAt?: number
+  keyError?: ConnectionInspection["keyError"]
   /** Declared scopes that the grant lacks. */
   missingScopes: string[]
   name: string
@@ -58,6 +59,7 @@ function item(connection: ConnectionInspection): ConnectionsConsoleItem {
     ...(connection.connectedAt ? { connectedAt: time(connection.connectedAt) } : {}),
     credential: connection.credential,
     ...(connection.expiresAt ? { expiresAt: time(connection.expiresAt) } : {}),
+    ...(connection.keyError ? { keyError: connection.keyError } : {}),
     missingScopes: connection.scopes.missing,
     name: connection.name,
     provider: connection.provider,
