@@ -12,7 +12,6 @@ export type BundleWhyResult =
   /** One entry for each side that contains the target. Empty when the last build does not contain it. */
   | { target: string, explanations: BundleExplanation[] }
 
-/** Why `bundle.report` and `bundle.why` cannot answer. The checks of a report are in `bundleDiagnostics`. */
 const bundleOperationDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/bundle/diagnostics",
   codes: {
@@ -27,10 +26,8 @@ const bundleOperationDiagnostics = /*#__PURE__*/ defineDiagnostics({
   },
 })
 
-// The readers load when an operation runs, so a server that only lists the operations does not load them.
 const reader = () => import("./index.ts")
 
-/** The environment reports of the project that the dev server runs. A deployed server has no project files. */
 async function reportsOf(context: OperationContext): Promise<BundleEnvironmentReport[]> {
   if (context.development !== true || !context.projectRoot) throw Object.assign(bundleOperationDiagnostics.BUNDLE_DEV_SERVER_REQUIRED(), { status: 409 })
   const reports = (await reader()).readEnvironmentReports(context.projectRoot)
@@ -39,12 +36,10 @@ async function reportsOf(context: OperationContext): Promise<BundleEnvironmentRe
 }
 
 function defineBundleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">): OperationDefinition<Input, Output> {
-  // The operations only read build files. They never read the signed-in user.
   return defineOperation({ ...definition, kind: "read", section: "bundle", user: false })
 }
 
 const report = defineBundleOperation<Record<string, never>, BundleReport>({
-  // `vitehub bundle` reads the files without a dev server, so the written command wins over the generated one.
   cli: { command: "report", default: true, namespace: "bundle" },
   description: "Read the bundle report of the last production build: client and server bytes, startup bytes, the largest groups, and the checks.",
   input: v.strictObject({}),

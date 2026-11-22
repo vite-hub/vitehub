@@ -22,9 +22,6 @@ type StoredScheduleRunAttemptRecord = Omit<ScheduleRunAttemptRecord, "completedA
   updatedAt: string
 }
 
-// Index publication is best effort for stores that do not support the derived
-// metadata keys. Keep fallback inspection bounded when retained history has no
-// usable index, while indexed records continue to support complete queries.
 const maxLegacyHistoryRecords = 1000
 
 function trimPrefix(prefix: string): string {
@@ -203,7 +200,6 @@ function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions =
   return options.limit === undefined ? selected : selected.slice(0, options.limit)
 }
 
-/** Index keys carry metadata from the stored record, independent of caller-selected run IDs. */
 function runIndexMetadata(key: string): { id: string, scheduleId: string, scheduledAt: number } | undefined {
   try {
     const parts = keySegments(key, 3)
@@ -224,18 +220,14 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     try {
       await store.set(joinKey(prefix, "schedule-run-index", run.id, run.scheduleId, run.scheduledAt.toISOString()), true)
     }
-    catch {
-      // The run remains authoritative when its derived metadata index is unavailable.
-    }
+    catch {}
   }
 
   async function indexAttempt(attempt: ScheduleRunAttemptRecord): Promise<void> {
     try {
       await store.set(joinKey(prefix, "schedule-run-attempt-index", attempt.runId, attempt.id), true)
     }
-    catch {
-      // Attempt records remain authoritative if their derived index is unavailable.
-    }
+    catch {}
   }
 
   async function readSnapshot() {
@@ -273,15 +265,9 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       }
       groupRun(key, metadata)
     }
-    // Refuse an over-cap legacy namespace before reading an arbitrary provider-
-    // ordered prefix. Callers receive an explicit incomplete-history result,
-    // so no partial set can be mistaken for the newest or complete history.
     if (unknown.length > maxLegacyHistoryRecords) {
       return { keys, known, bySchedule, recordsByKey, unknown }
     }
-    // Group legacy records once per snapshot, even when their index cannot be published.
-    // The over-cap case returned above, so every remaining legacy key is read.
-    // This keeps the fallback complete without depending on provider key order.
     const legacyKeys = unknown
     for (let offset = 0; offset < legacyKeys.length; offset += 16) {
       const batch = await Promise.all(legacyKeys.slice(offset, offset + 16).map(async key => {
@@ -303,19 +289,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
 
   async function listRuns(options: ScheduleRunListOptions, snapshot: Awaited<ReturnType<typeof readSnapshot>>) {
     if (snapshot.unknown.length > maxLegacyHistoryRecords) {
-      // KV key order is not an ordering contract. Once the bounded fallback is
-      // exceeded, any filtered or limit-only result could silently omit a
-      // matching record, so fail explicitly instead of returning partial data.
-      // The metadata index cannot give the complete history safely.
       throw scheduleErrorDiagnostics.SCHEDULE_HISTORY_INCOMPLETE({ maxRecords: maxLegacyHistoryRecords, recordCount: snapshot.unknown.length })
     }
     const { keys, recordsByKey } = snapshot
     const known = options.scheduleId === undefined
       ? snapshot.known
       : snapshot.bySchedule.get(options.scheduleId) ?? []
-    // The index already carries IDs, so filter cron/manual runs before reading any selected bodies.
     const matching = options.idPrefix === undefined ? known : known.filter(entry => entry.id.startsWith(options.idPrefix!))
-    // Read selected indexed records with bounded concurrency; legacy records are already cached.
     const records: ScheduleRunRecord[] = []
     const selectedKeys = options.scheduleId === undefined && options.idPrefix === undefined && options.limit === undefined
       ? keys
@@ -388,7 +368,6 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
         }
       })
       const attempts: ScheduleRunAttemptRecord[] = []
-      // Backfill legacy or missing indexes with bounded reads, without hiding retained attempts.
       for (let offset = 0; offset < selectedKeys.length; offset += 16) {
         const batch = await Promise.all(selectedKeys.slice(offset, offset + 16).map(async (key) => {
           const stored = await store.get<StoredScheduleRunAttemptRecord>(key)

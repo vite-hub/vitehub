@@ -187,8 +187,16 @@ describe("member endpoints in the Console operations", () => {
   })
 
   it("lists each endpoint with its owner, agent, host, and newest result, and marks the caller's own", async () => {
-    const ana = await connect("user_ana", "Ana Ruiz", "Ana@Example.com")
-    const tom = await connect("user_tom", "Tom Becker")
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now - 1)
+    let ana, tom
+    try {
+      ana = await connect("user_ana", "Ana Ruiz", "Ana@Example.com")
+      clock.mockReturnValue(now)
+      tom = await connect("user_tom", "Tom Becker")
+    } finally {
+      clock.mockRestore()
+    }
     expect((await send("user_ana", "thr_1")).status).toBe("sent")
     statuses.push(401)
     expect((await send("user_tom", "thr_2")).status).toBe("failed")

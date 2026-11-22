@@ -64,12 +64,10 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     expect((await workspace.history.refs()).map(ref => ref.name)).toEqual(["main", "run-43"])
     expect(await workspace.history.head({ ref: "run-42" })).toBeNull()
     await expect(workspace.history.open(run.id)).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
-    // Only the bytes of `server/api/rsvp.post.ts` go: `main` has `app.vue`, and `run-43` has `shared.ts`.
     expect(await objectCount(blob)).toBe(3)
     expect(await workspace.history.usage()).toEqual({ bytes: 28, objects: 3 })
     expect(await workspace.history.deleteRef({ ref: "run-42" })).toBe(false)
 
-    // A later commit with the same bytes uploads them again.
     const again = await workspace.history.commit({ ref: "run-44", ifHead: null, files: { "server/api/rsvp.post.ts": "export default {}" } })
     expect(await (await workspace.history.open(again.id)).readFile("server/api/rsvp.post.ts")).toBe("export default {}")
   })
@@ -87,7 +85,6 @@ describe("history.deleteRef() on the Blob + Database Store", () => {
     const writer = createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" })
     await writer.history.commit({ ref: "run-42", ifHead: null, files: { "rsvp.ts": { path: "rsvp.ts", content: "export default {}" } } })
 
-    // The commit on `run-43` sees the object of `run-42` and skips the upload. Then another process deletes `run-42`.
     let interrupt: (() => Promise<void>) | undefined = async () => {
       await createBlobDatabaseWorkspaceStore({ blob, database, workspace: "meetups" }).history.deleteRef!({ ref: "run-42" })
     }

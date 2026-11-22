@@ -20,6 +20,9 @@ import { PromptInput } from "../../../src/components/prompt-input.ts";
 import { TraceRun } from "../../../src/components/trace-run.ts";
 import { ConnectPanel } from "../../../src/workspace/connect-panel.ts";
 import { PlaygroundContainer } from "../../../src/workspace/playground-container.ts";
+import { WorkspaceBar } from "../../../src/workspace/workspace-bar.ts";
+import { WorkspaceExamples } from "../../../src/workspace/workspace-examples.ts";
+import { WorkspaceSidebar } from "../../../src/workspace/workspace-sidebar.ts";
 import { WorkspacePreview } from "../../../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../../../src/workspace/workspace-shell.ts";
 
@@ -59,6 +62,29 @@ const template = (id: string, label: string) => ({
   label,
   open: "server/api/health.get.ts",
   snapshot: async () => new Uint8Array([1]),
+});
+
+const examples = [
+  { description: "A greeting in two languages.", group: "Source language", id: "vue", label: "Vue" },
+  { description: "The same app, in JSX.", group: "Source language", id: "react", label: "React" },
+  { description: "Counts in every locale.", group: "Recipes", id: "plurals", label: "Plurals" },
+];
+
+const Bar = defineComponent({
+  setup() {
+    const open = ref(false);
+    const example = ref("vue");
+    return () => h("div", { style: "height: 280px; position: relative; overflow: hidden; border: 1px solid" }, [
+      h(WorkspaceBar, { sidebar: open.value, sidebarId: "ui-sdk-sidebar", "onUpdate:sidebar": (value: boolean) => { open.value = value; } }, {
+        examples: () => h(WorkspaceExamples, { examples, modelValue: example.value, "onUpdate:modelValue": (id: string) => { example.value = id; record(`examples:${id}`); } }),
+      }),
+      h(WorkspaceSidebar, { id: "ui-sdk-sidebar", open: open.value, "onUpdate:open": (value: boolean) => { open.value = value; }, onReset: () => record("sidebar:reset") }, () => [
+        h("a", { class: "vh-ws-sidebar-link", href: "#intro" }, "Introduction"),
+        h("a", { class: "vh-ws-sidebar-link", href: "#install" }, "Install"),
+      ]),
+      h("p", { "data-outside": "", style: "margin: 60px 0 0 300px" }, `Open: ${example.value}`),
+    ]);
+  },
 });
 
 const section = (name: string, content: () => unknown) => h("section", { "aria-label": name, "data-part-name": name }, [h("h2", name), content()]);
@@ -111,11 +137,12 @@ export const Parts: Component = defineComponent({
       section("Chat", () => h("div", { style: "height: 320px; display: flex; flex-direction: column" }, h(Chat, { messages }))),
       section("ConnectPanel", () => h(ConnectPanel, { connect })),
       section("WorkspaceShell", () => h("div", { style: "height: 320px" }, h(WorkspaceShell, {
-        layout: "tutorial",
+        layout: "side",
         storageKey: false,
         tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }],
       }, { editor: () => h("p", "editor"), messages: () => h("p", "messages panel"), terminal: () => h("p", "terminal panel") }))),
       section("WorkspacePreview", () => h("div", { style: "height: 240px" }, h(WorkspacePreview, { url: "about:blank" }))),
+      section("WorkspaceBar", () => h(Bar)),
       section("PlaygroundContainer", () => h("div", { style: "height: 480px" }, h(PlaygroundContainer, { name: "demo", templates: [template("kv", "KV"), template("blob", "Blob")] }))),
     ]);
   },

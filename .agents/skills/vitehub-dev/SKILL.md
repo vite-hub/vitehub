@@ -172,6 +172,8 @@ Apply this section when you open, update, or review a pull request, or when a co
 
 The fix is done when the consumer works without the patch. Report every paper cut you hit in ViteHub along the way, and give each one a pull request.
 
+**Replace consumer code.** A new built-in often does a job that a consumer already does in its own code, such as Drop's own migrator, backup, or proxy sign-in. Before you open the pull request, search the known consumers for that code: the projects in `~/.config/vitehub/consumer-roots`, such as Drop. Add a `Replaces in apps` section to the body that lists each consumer file. Remove that code in a consumer pull request in the same stack. Add the problem and the built-in to the table in step 2 of `docs/skills/vitehub/SKILL.md`, so the next Agent finds the built-in before it writes the code. The feature is done when no known consumer keeps its own version.
+
 **Pull request shape.**
 
 - One concern per pull request. Independent bugs get independent pull requests. A fix to CI gets its own pull request.

@@ -21,7 +21,6 @@ interface NitroAppStub {
 
 const roots: string[] = []
 const runtimeGlobal = globalThis as typeof globalThis & { __vitehubTestRuntimeConfig?: Record<string, unknown> }
-// Inside the package, so that the plugin's `import("evlog")` loads the real evlog of this workspace.
 const pluginDir = fileURLToPath(new URL("../.vitest-tmp/evlog-bridge/", import.meta.url))
 
 afterEach(async () => {
@@ -32,7 +31,6 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-/** Runs the generated plugin with the real evlog and a stub of Nitro's runtime config. Returns the Nitro hooks. */
 async function runBridge(runtimeConfig: Record<string, unknown>) {
   runtimeGlobal.__vitehubTestRuntimeConfig = runtimeConfig
   const source = renderEvlogBridgeNitroPlugin()
@@ -91,7 +89,6 @@ describe("generated evlog bridge Nitro plugin", () => {
 })
 
 describe("ViteHub failures with the real evlog", () => {
-  // A failure whose message names a user's file, as an `fs` error does.
   const failure = () => Object.assign(new Error("EACCES: permission denied, open '/srv/data/.vitehub/blob-hashes/users/42/passport.jpg.json'"), { code: "EACCES" })
 
   it("keeps the reason when a Schedule throws a string", async () => {
@@ -168,7 +165,6 @@ describe("ViteHub failures with the real evlog", () => {
   it("prints to the console when the app turns evlog off, also for a request", async () => {
     initLogger({ enabled: true, silent: true, drain: () => {} })
     await runBridge({ evlog: {} })
-    // evlog's Nitro plugin calls `initLogger({ enabled: false })` when the app sets `evlog({ enabled: false })`.
     initLogger({ enabled: false })
     const log = createRequestLogger({ method: "GET", path: "/photos" })
     const request = Object.assign(new Request("https://photos.example/x"), { context: { log } })

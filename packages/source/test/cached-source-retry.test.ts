@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { cachedSource } from "../src/server.ts"
 
-// Nitro cache fails to load once, as an import can fail during a development rebuild.
 const nitroCache = vi.hoisted(() => ({ failures: 1 }))
 
 vi.mock("nitro/cache", () => {

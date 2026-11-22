@@ -49,7 +49,6 @@ export interface TableSourceOptions<
 
 type KeysetCursor = readonly (boolean | null | number | string)[]
 
-// The part of the Drizzle select builder that table() calls.
 interface TableSelectDatabase {
   select(): {
     from(table: SQLiteTable): {
@@ -87,7 +86,6 @@ function isCursorScalar(value: unknown): value is boolean | null | number | stri
 }
 
 function driverType(column: AnySQLiteColumn): "number" | "string" {
-  // Drizzle 1.0 writes the data type as `<type> <constraint>`, such as `number int53` or `object date`.
   const [type, constraint] = column.dataType.split(" ")
   if (type === "boolean" || type === "number" || (type === "object" && constraint === "date")) return "number"
   if (type === "string") return "string"
@@ -232,7 +230,6 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     maxLimit: options.maxLimit,
     // SAFETY: Public overloads preserve the concrete schema input/output types.
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
-    // It selects every column, so a public Collection over it needs transform.
     rawRows: true,
   }
 }

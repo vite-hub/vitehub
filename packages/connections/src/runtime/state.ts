@@ -54,10 +54,6 @@ function readVariable(name: "VITEHUB_CONNECTIONS_KEY" | "VITEHUB_CONNECTIONS_KEY
   return (processEnv.success ? processEnv.output.process?.env?.[name] : undefined) ?? (cloudflareValue.success ? cloudflareValue.output : undefined)
 }
 
-/**
- * The keyring: `VITEHUB_CONNECTIONS_KEYS`, a comma list with the current key first, then `VITEHUB_CONNECTIONS_KEY`
- * when the list does not already have it. New writes use the first key. The others only decrypt older values.
- */
 function readEncryptionKeys(): Uint8Array[] {
   const values = [...(readVariable("VITEHUB_CONNECTIONS_KEYS")?.split(",") ?? []), readVariable("VITEHUB_CONNECTIONS_KEY") ?? ""]
     .map(value => value.trim())
@@ -93,7 +89,6 @@ function methodProxy(client: Pick<ConnectionRuntimeClient, "call">, path: string
   })
 }
 
-/** The status of a Connection. A Connection that cannot be inspected, for example because its store cannot open, is disconnected. */
 async function connectionStatus(name: string): Promise<ConnectionStatus> {
   try {
     return (await getConnectionsRuntime().inspect(name)).status

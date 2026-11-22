@@ -12,7 +12,6 @@ export type SandboxTaskPayload<TDefinition>
 export type SandboxTaskResult<TDefinition>
   = TDefinition extends { result: infer TResult } ? DecodedSandboxValue<TResult> : unknown
 
-/** Model the result walk in entry-script.injected.ts, not the handler's remote object. */
 type DecodedSandboxValue<TValue, TApplyToJSON extends boolean = true> =
   TValue extends Response ? Response
   : TValue extends Blob ? Blob

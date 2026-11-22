@@ -35,7 +35,6 @@ describe("remote Sandbox providers", () => {
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
-  // A login shell reads the profiles. Debian's /etc/profile, as in a custom Sandbox image, sets PATH again and drops env.PATH.
   it("runs Vercel commands without a login shell, so a profile keeps the PATH", async () => {
     const home = await mkdtemp(join(tmpdir(), "vitehub-vercel-profile-"));
     try {
@@ -117,7 +116,6 @@ describe("remote Sandbox providers", () => {
     const { child, session } = await spawnVercelCommand({
       ...vercelCommand(""),
       async *logs() {
-        // Eight MiB of UTF-8 output must not remain queued in the unread channel.
         for (let index = 0; index < 128; index++) {
           yield { data: "é".repeat(32 * 1024), stream: unread };
         }
@@ -405,7 +403,6 @@ describe("remote Sandbox providers", () => {
         let index = 0;
         return new ReadableStream<Uint8Array>({
           pull(controller) {
-            // Eight MiB of UTF-8 output must not remain queued in the unread channel.
             if (index < 128) controller.enqueue(event({ data: "é".repeat(32 * 1024), type: unread }));
             else if (index === 128) controller.enqueue(event({ data: "still live\n", type: consumed }));
             else {

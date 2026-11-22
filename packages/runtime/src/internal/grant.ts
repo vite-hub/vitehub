@@ -41,7 +41,6 @@ export function defineGrant<const Kind extends string, Input, Value>(
   kind: Kind,
   bind: (input: Input) => Value,
 ): GrantDefinition<Kind, Input, Value> {
-  // Boxed, so a bound `undefined` still counts as issued.
   const issued = new WeakMap<object, { readonly value: Value }>()
   const owners = new WeakMap<WeakKey, Grant<Kind>>()
 

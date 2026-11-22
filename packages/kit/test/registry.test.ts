@@ -27,13 +27,11 @@ describe("@vitehub registry", () => {
 
   it("validates the index against the shadcn-vue registry schema", () => {
     const validator = new Validator(schema("registry.json"), "7", false);
-    // The registry schema points its items at the shadcn URL of the same item schema.
     validator.addSchema(schema("registry-item.json"), "https://ui.shadcn.com/schema/registry-item.json");
     expect(validator.validate(JSON.parse(built["registry.json"] ?? "")).errors).toEqual([]);
   });
 
   it("references only @vitehub items and URLs, and never Reka UI", () => {
-    // A stock shadcn-vue item such as `button` or `utils` installs reka-ui.
     for (const item of items) {
       for (const dependency of item.registryDependencies ?? []) {
         expect(dependency, item.name).toMatch(/^(?:@vitehub\/|https:\/\/)/);
@@ -44,7 +42,6 @@ describe("@vitehub registry", () => {
   });
 
   it("matches the files in docs/public/r", () => {
-    // Run `pnpm --filter @vite-hub/kit build:registry` after a change to the registry, the tokens, or the family.
     const files = Object.fromEntries(readdirSync(published).map((name) => [name, readFileSync(new URL(name, published), "utf8")]));
     expect(files).toEqual(built);
   });

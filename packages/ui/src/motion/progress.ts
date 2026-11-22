@@ -4,9 +4,6 @@ import { prefersReducedMotion } from "./reduced-motion.ts";
 import { createSpring, onEachFrame, springs } from "./spring.ts";
 
 const svgNs = "http://www.w3.org/2000/svg";
-// The numbers of the prototype's upload: a 2px rail, a 4px bar, and a head 4px thicker over 10px at its end. The wave of
-// the processing phase is 4px over 36px and runs at 260px a second. It flattens in a third of a second when the work is
-// done. Then a dot grows to 3.5, settles at 2 in 320ms, and shrinks in 120ms while the check draws in 320ms.
 const height = 8;
 const rail = 2;
 const bar = 4;
@@ -46,10 +43,6 @@ function svg<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Record<st
   return element;
 }
 
-/**
- * A line from `x0` to `x1` with round ends, `thickness(x)` thick at each x: the prototype's canvas line as SVG path
- * data, so the bar keeps its shape at any width.
- */
 function line(x0: number, x1: number, thickness: (x: number) => number): string {
   const y = height / 2;
   const top: string[] = [];
@@ -180,7 +173,6 @@ export function createProgress(host: HTMLElement, options: ProgressOptions = {})
     });
   }
 
-  // The bar fills to its end, its head flattens, then the check draws.
   function settleFill(): void {
     if (still()) {
       flat = 1;

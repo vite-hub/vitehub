@@ -402,7 +402,6 @@ describe("vitehub-options codemod", () => {
   })
 
   it("migrates the vite-hub options of a file that nuxt.config.ts imports", async () => {
-    // strata builds its options in `build/host-profile.ts` and passes them as `vitehub: hostProfile.vitehub`.
     await mkdir(scratch, { recursive: true })
     const cwd = await mkdtemp(join(scratch, "app-"))
     await writeFile(join(cwd, "nuxt.config.ts"), lines(

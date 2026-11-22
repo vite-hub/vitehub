@@ -11,7 +11,7 @@ import type { RequestEvent } from "./internal/runtime-env.ts"
 const serviceTokenErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
-    // Runtime errors. `checkServiceToken()` returns them as `[error, undefined]`.
+    // Runtime errors.
     ENV_SERVICE_TOKEN_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_service_token_invalid",
       why: ({ name }: { name: string }) => `The request has no \`Authorization: Bearer\` token that matches a token in \`${name}\`.`,
@@ -59,7 +59,6 @@ export function checkServiceToken(event: ServiceTokenEvent, name: string): Resul
   const tokens = readTokens(runtimeEnv(source)[name])
   if (!tokens.length) return [serviceTokenErrors.ENV_SERVICE_TOKEN_UNSET({ name }), undefined]
   const authorization = getStandardContext(source).req.headers.get("authorization")
-  // Compare with every token, so the time does not show which token matched.
   let valid = false
   for (const token of tokens) valid = isViteHubBearerSecretEqual(authorization, token) || valid
   return valid ? [undefined, undefined] : [serviceTokenErrors.ENV_SERVICE_TOKEN_INVALID({ name }), undefined]

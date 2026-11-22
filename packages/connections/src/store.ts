@@ -161,7 +161,6 @@ function toApproval(row: unknown): ConnectionApproval {
  */
 export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKeys: readonly Uint8Array[] }): ConnectionStore {
   const envStore = createDatabaseEnvStore({ db: options.db, encryptionKeys: options.encryptionKeys, namespace: "connections" })
-  // The original tables sealed values without a key id. Try the current key, then each previous key.
   async function unsealLegacy(additionalData: unknown[], payload: string): Promise<string> {
     const data = new TextEncoder().encode(JSON.stringify(additionalData))
     let failure: unknown
@@ -172,8 +171,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
     throw failure
   }
   const retention = resolveActivityRetention(options.activityRetention)
-  // One DELETE drops events past the newest `maxRecords` and events older than `maxAgeMs`.
-  // Events store `timestamp` as an ISO string, so text order is time order.
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
     const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
     await options.db.run(
@@ -186,7 +183,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         ...envStore.access,
         async append(event) {
           await envStore.access.append(event)
-          // Pruning is housekeeping. It never fails the provider request that wrote the event.
           await pruneActivity(retention).catch((error: unknown) => {
             console.warn("[vitehub] Connections could not prune old activity. The next prune retries.", error)
           })
@@ -195,7 +191,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
   const bridge = createEnvBridge({
     ...envStore,
     access,
-    // Connections never resolves tokens as an Env provider. Each call gets a narrow context from Env.
     runtimeActor: { id: "connections", kind: "service" },
   })
   const db = options.db
@@ -220,7 +215,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
           catch (error) { if (!await hasMetadata()) throw error }
         }
       }
-      // Move data from the original sealed-grant/pending tables before serving reads.
       const legacyTables = await db.all(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('vitehub_connection_grants', 'vitehub_connection_pending')`)
       const legacyNames = new Set(legacyTables.map(row => v.parse(v.object({ name: v.string() }), row).name))
       if (legacyNames.has("vitehub_connection_grants")) {
@@ -240,7 +234,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
             await envStore.secrets.replace({ key: secretKey, value: JSON.stringify(token), expectedRevision: null })
           }
           await db.run(sql`INSERT INTO vitehub_connection_state (name, status, account_id, account_email, scopes, connected_at, refreshed_at, updated_at) VALUES (${grant.name}, ${grant.status === "active" ? "connected" : grant.status === "needs-reconnect" ? "reauth_required" : "revoked"}, ${token.accountId ?? null}, ${grant.account ?? null}, ${JSON.stringify(token.scopes)}, ${grant.connected_at}, ${grant.updated_at}, ${grant.updated_at}) ON CONFLICT (name) DO NOTHING`)
-          // Retire ciphertext only after both migration writes succeed, so interrupted migrations retry safely.
           await db.run(sql`DELETE FROM vitehub_connection_grants WHERE name = ${grant.name} AND revision = ${grant.revision} AND payload = ${grant.payload}`)
         }
       }
@@ -251,7 +244,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
           const pending = v.parse(legacyPendingRow, row)
           const value = v.parse(v.object({ actor: v.object({ id: v.string(), kind: v.string() }), redirectUri: v.string(), verifier: v.string() }), JSON.parse(await unsealLegacy(["connection-pending", pending.state], pending.payload)))
           await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${pending.state}, ${pending.name}, ${`${value.actor.kind}:${value.actor.id}`}, ${value.verifier}, ${value.redirectUri}, ${pending.expires_at}) ON CONFLICT (state) DO NOTHING`)
-          // Remove migrated rows so a consumed authorization cannot be restored on restart.
           await db.run(sql`DELETE FROM vitehub_connection_pending WHERE state = ${pending.state}`)
         }
       }

@@ -430,7 +430,6 @@ describe("env declarations", () => {
     })
     expect(await github.git.commit()).toBe("github-sha")
     expect(await github.git.tag()).toBe("v1.2.3")
-    // A tag push sets GITHUB_REF_NAME to the tag, so the branch comes from Git.
     await expect(github.git.branch()).rejects.toThrow()
 
     const githubBranch = createSourceContext({
@@ -440,7 +439,6 @@ describe("env declarations", () => {
     })
     expect(await githubBranch.git.branch()).toBe("main")
 
-    // A pull request sets GITHUB_REF_NAME to "<number>/merge" and GITHUB_HEAD_REF to the source branch.
     const githubPullRequest = createSourceContext({
       env: { GITHUB_HEAD_REF: "feature", GITHUB_REF_NAME: "12/merge", GITHUB_REF_TYPE: "branch" },
       mode: "build",

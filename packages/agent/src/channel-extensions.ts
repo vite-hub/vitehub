@@ -20,7 +20,6 @@ declare module "@vite-hub/channels" {
     history?: AgentChannelHistory
   }
 
-  /** The Agent webhook host runs triggers, so it types them. With `durableState: true`, `invoke` gets the durable context. */
   interface ChannelTriggerDefiner {
     <TInput, TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
       definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true },

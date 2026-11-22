@@ -214,6 +214,15 @@ HEALTHCHECK --interval=30s --timeout=5s \
   CMD node -e "fetch('http://127.0.0.1:3000/_vitehub/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ```
 
+To check only some primitives, list them in `checks`. For example, if the app
+already enables Database and KV, but its S3 credential cannot list the bucket,
+add this option to `vitehub` in `nuxt.config.ts` or to the `vitehub()` options
+in `vite.config.ts` for Nitro and Vite:
+
+```ts fragment
+health: { checks: ['database', 'kv'] },
+```
+
 A Docker build context often has no `.git`. Pass the commit as
 `VITEHUB_BUILD_COMMIT` at build time, or `commit` is `null`. See
 [`health` options](/docs/reference/config-options#vite-integration-options).

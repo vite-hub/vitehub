@@ -6,8 +6,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_C0018, WORKFLOW_C0019, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
@@ -15,7 +13,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
       fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
     },
-    // Runtime errors. `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return them as `[error, undefined]`, with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, `WORKFLOW_OPERATION_UNSUPPORTED`, `WORKFLOW_START_DELAY_INVALID`, and `WORKFLOW_R0014`.
+    // Runtime errors.
     WORKFLOW_PROVIDER_OPERATION_FAILED: {
       why: ({ operation, provider, reason }: WorkflowProviderFailure): string => `The ${provider} Workflow provider failed during ${operation}.${reason ? ` ${reason}` : ""}`,
       fix: ({ acknowledgement }: WorkflowProviderFailure): string => acknowledgement === "unknown"
@@ -28,7 +26,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `id` from the options of `startWorkflow()`. Store the `id` of the run that it returns.",
     },
 
-    // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    // Operation errors.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
       fix: "Pass the name of a Workflow Definition, the file name in `server/workflows/` without the extension.",

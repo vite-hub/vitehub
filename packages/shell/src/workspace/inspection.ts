@@ -38,7 +38,6 @@ export async function runWorkspaceInspectionCommand(
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
-  // Only controlled curl commands may replace the injected Shell driver.
   const driver = options.driver && options.networkGrants && await usesWorkspaceNetworkGrant(command)
     ? undefined
     : options.driver
@@ -140,7 +139,6 @@ async function withInspectionTimeout(timeout: number, callerSignal: AbortSignal 
       new Promise<ShellObservation>((resolve) => {
         timer = setTimeout(() => {
           resolve({ command, cwd, event: "command_timed_out", exitCode: null, stderr: `[vitehub] Workspace shell command timed out after ${timeout}ms.`, stdout: "", timedOut: true, workspaceGuardrail: { kind: "timeout" } })
-          // Resolve before aborting so a preflight that rejects on abort cannot replace the timeout observation.
           controller.abort(new Error("Workspace inspection preflight timed out."))
         }, timeout)
       }),
@@ -191,7 +189,6 @@ function preflightPipedSearchWithoutPath(segments: WorkspaceInspectionCommandSeg
 async function usesWorkspaceNetworkGrant(command: string) {
   try {
     const { Bash } = await import("just-bash/browser")
-    // The browser entry point exposes its parser through transform(), without executing the command.
     return containsCurlCommand(new Bash({ commands: [] }).transform(command).ast)
   }
   catch {
@@ -399,7 +396,6 @@ function searchNoMatchFeedback(segments: WorkspaceInspectionCommandSegment[], re
 function preflightUnsupportedWorkspaceCommand(command: string, segments: WorkspaceInspectionCommandSegment[], commands?: string[], strictDriver = false): ShellObservation | undefined {
   const syntax = preflightUnsupportedWorkspaceSyntax(command, segments, commands, strictDriver)
   if (syntax) return syntax
-  // Just Bash enforces its command registry inside substitutions and compound commands.
   if (!strictDriver && (usesShellSubstitution(command) || usesCompoundShellSyntax(segments))) return undefined
   if (!commands) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])

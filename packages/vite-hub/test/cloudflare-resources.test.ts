@@ -62,7 +62,6 @@ afterEach(async () => {
 
 type TestNitro = { hooks: { hook: (name: string, fn: () => unknown) => void }, options: { cloudflare?: { wrangler?: Record<string, unknown> }, output: { serverDir: string } } }
 
-// Nitro modules that break the Schedule cron, as a broken upgrade or project hook could. A project module runs after ViteHub's.
 const dropTriggers = (nitro: TestNitro) => {
   nitro.hooks.hook("build:before", () => {
     delete nitro.options.cloudflare?.wrangler?.triggers

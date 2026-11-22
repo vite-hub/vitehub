@@ -7,11 +7,6 @@ vi.mock("#vitehub-sandbox-task-provider-loader", async () => {
   return { loadSandboxTaskRuntimeProvider: async () => ({ resolveTaskSandbox: resolveCloudflareTaskSandbox }) }
 })
 
-/**
- * One Cloudflare Container behind every Durable Object name, with an in-memory file system.
- * A Task handler is the source text of its module: `hang` runs until it is cancelled or times out,
- * `gate` writes a file in HOME, then waits for `release()` and checks that the file is still there.
- */
 function fakeContainer(cancellationGate?: Promise<void>) {
   const files = new Map<string, string>()
   const directories = new Set<string>(["/"])
@@ -116,7 +111,6 @@ const task = (source: string, timeout?: number) => ({
   ...(timeout ? { options: { timeout } } : {}),
 })
 
-/** Loads the runtime in a new module graph, like a second Worker isolate with its own run queue. */
 async function isolate(namespace: unknown, config: Record<string, unknown>) {
   vi.resetModules()
   const { resolveSandboxTaskRunner } = await import("../../src/task/runtime/runtime.ts")
@@ -147,12 +141,10 @@ describe("Cloudflare Sandbox Task lifecycle on a shared Sandbox", () => {
     await expect(running).rejects.toBe(controller.signal.reason)
 
     const next = run("gate")
-    // Give the next run enough turns to reach its handler if the queue was released.
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(container.state.handlers).toBe(1)
     expect([...container.files.keys()].some(path => path.endsWith("entry.mjs"))).toBe(true)
 
-    // A cancellation RPC returning is not an exit acknowledgement either.
     finishCancellation()
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(container.state.handlers).toBe(1)

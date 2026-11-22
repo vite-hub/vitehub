@@ -89,15 +89,15 @@ Object.assign(window, { workspace });
       />
       <p>Open <code>lib/greeting.js</code> and change the greeting. The dev server picks up the change when you reload the preview.</p>
     </article>
-    <WorkspaceShell v-model:tab="tab" layout="tutorial">
-      <template #toolbar>
+    <WorkspaceShell v-model:tab="tab" layout="guide-side">
+      <template #bar>
         <span class="demo-toolbar-title">hello</span>
         <span class="demo-toolbar-spacer" />
         <button class="vh-ws-button" type="button" @click="workspace.reset()">Reset</button>
         <button class="vh-ws-button" type="button" :disabled="!workspace.container.value" @click="workspace.restart()">Restart server</button>
       </template>
       <template #files>
-        <WorkspaceFileTree v-model:selected="selected" :paths="paths" :modified="workspace.modified.value" />
+        <WorkspaceFileTree v-model:selected="selected" :paths="paths" :edited="workspace.modified.value" />
       </template>
       <template #editor>
         <WorkspaceEditor v-model="source" :path="selected" />

@@ -45,7 +45,6 @@ export type McpVitePlugin = Plugin & {
 export const MCP_VITE_PLUGIN_NAME = "@vite-hub/mcp/vite"
 
 const generatedDir = ".vitehub/nitro/mcp"
-// MCP 2025-11-25 tool names: 1 to 128 characters of letters, digits, `_`, `-`, and `.`.
 const toolName = /^[\w.-]{1,128}$/
 
 /** Lists the tool files in `mcp/tools/` of each server directory. */
@@ -60,7 +59,6 @@ export function discoverMcpTools(options: { rootDir: string, serverDirs?: readon
   return tools
 }
 
-/** Lists the prompt files in `mcp/prompts/` or the resource files in `mcp/resources/` of each server directory. */
 function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: string, serverDirs?: readonly string[] }): DiscoveredMcpTool[] {
   const serverDirs = options.serverDirs ? [...options.serverDirs] : [resolve(options.rootDir, "server")]
   return discoverDefinitions<DiscoveredMcpTool>(kind === "prompts" ? "MCP prompt" : "MCP resource", [createDirectoryDefinitionSource(`server-mcp-${kind}`, serverDirs, `mcp/${kind}`)])
@@ -68,7 +66,6 @@ function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: str
 
 const hooksExtensions = [".ts", ".mts", ".js", ".mjs"]
 
-/** The `mcp.ts` hooks module of the server directories, if there is one. */
 function discoverMcpHooks(options: { rootDir: string, serverDirs: readonly string[] }): string | undefined {
   const files = options.serverDirs.flatMap(directory => hooksExtensions.map(extension => resolve(directory, `mcp${extension}`))).filter(file => existsSync(file))
   if (files.length > 1) {
@@ -89,13 +86,11 @@ function discoverAll(options: { rootDir: string, serverDirs: readonly string[] }
   return { tools: discoverMcpTools(options), prompts: discoverMcpFiles("prompts", options), resources: discoverMcpFiles("resources", options), ...(hooks ? { hooks } : {}) }
 }
 
-/** A relative `import()` type specifier that resolves under NodeNext and bundler resolution: `mcp.ts` becomes `mcp.js`. */
 function typeImportSpecifier(from: string, file: string): string {
   const path = relative(from, file).replace(/\.([cm]?)ts$/, ".$1js")
   return path.startsWith(".") ? path : `./${path}`
 }
 
-/** Gives handlers the type of the value that `resolveCaller` of `server/mcp.ts` returns. */
 function renderTypes(typesFile: string, hooks: string | undefined): string {
   if (!hooks) return "export {}\n"
   return [
@@ -120,11 +115,8 @@ function packageName(projectRoot: string): string | undefined {
   return typeof name === "string" && name ? name : undefined
 }
 
-// A tool call that elicits waits in the memory of one process, and the answer of the client comes in another request.
-// These presets serve every request from one process. Other hosts can send the answer to another instance.
 const oneProcessPresets = new Set(["bun", "deno-server", "node", "node-middleware", "node-server"])
 
-/** The preset of a build where `elicit()` cannot work, or `undefined` when it can. Dev runs in one process. */
 function elicitationUnsupportedHost({ dev, preset }: { dev: boolean, preset: string }): string | undefined {
   if (dev) return undefined
   const normalized = normalizeNitroPreset(preset)
@@ -275,7 +267,6 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       serverDirs = configured ?? [resolve(projectRoot, "server")]
       const kit = createNitroServerKit((config as { nitro?: unknown }).nitro)
       base = typeof kit.config.baseURL === "string" ? kit.config.baseURL.replace(/\/+$/, "") : ""
-      // Nitro reads the generated files when it starts, so they exist before its config hook runs.
       write(writeFileIfChangedSync)
       // With `auth: true`, the route checks the access token of each request. `auth: false` and `"optional"` serve tools
       // without a token, so the app's Auth access routes still guard the route.
@@ -285,13 +276,11 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))
-        // Route-less Nitro 3 middleware also runs outside baseURL, where OAuth discovery must be served.
         kit.addHandler({ handler: discoveryFile, middleware: true }, "start")
       }
       ;(config as { nitro?: unknown }).nitro = kit.config
     },
     configureServer(server) {
-      // A new or removed tool, prompt, or resource file changes the imports of the server entry. Nitro reloads it from disk.
       const refresh = (file: string) => {
         if (!isDefinitionFile(file, serverDirs)) return
         Promise.all(write(writeFileIfChanged)).catch(error => server.config.logger.error(String(error)))

@@ -11,7 +11,6 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-// The array-form createBatch accepts the same ids as create(), including reserved ids.
 function isValidInstanceId(id: string) {
   return id.length <= 100 && /^[a-zA-Z0-9_][a-zA-Z0-9-_]*$/.test(id)
 }

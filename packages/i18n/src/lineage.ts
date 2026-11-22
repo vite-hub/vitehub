@@ -13,7 +13,6 @@ export interface PreviousTranslation {
   similarity: number
 }
 
-/** Below this, two texts say different things, and the old translation would mislead a translator. */
 const threshold = 0.6
 
 function bigrams(text: string): Map<string, number> {
@@ -41,13 +40,11 @@ export function similarity(left: string, right: string): number {
   return total === 0 ? 0 : 2 * shared / total
 }
 
-/** Placeholders such as `{name}` and tags such as `<0>`. A translation with other placeholders does not fit. */
 function placeholders(text: string): string | undefined {
   try {
     return messagePlaceholders(text).join()
   }
   catch {
-    // An invalid ICU message cannot establish compatible placeholders.
     return undefined
   }
 }
@@ -82,7 +79,6 @@ export function findPreviousTranslations(messages: SourceMessages, records: Tran
     result.set(candidate.next, { id: candidate.id, record: candidate.record, similarity: candidate.similarity })
   }
 
-  // Keep the closest matches unless moving one makes room for an unmatched message.
   function match(next: string, visited: Set<string>): boolean {
     for (const candidate of choices.get(next) ?? []) {
       if (visited.has(candidate.id)) continue

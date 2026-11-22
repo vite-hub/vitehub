@@ -42,7 +42,6 @@ export function cmsOptionProblem(key: string, value: unknown): string | undefine
     return text !== undefined && text.length <= 128 && branchPattern.test(text) ? undefined : "must be a branch name of letters, numbers, underscores, and dashes, separated by single dots or slashes."
   }
   if (key === "root") {
-    // The empty string is the repository root.
     return text !== undefined && (text === "" || (rootPattern.test(text) && !text.split("/").some(part => part === "." || part === ".."))) ? undefined : "must be a folder inside the repository, such as \"content\", or \"\" for the repository root."
   }
   if (key === "publish") {

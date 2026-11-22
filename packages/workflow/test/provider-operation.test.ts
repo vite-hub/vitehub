@@ -19,7 +19,6 @@ describe("Workflow provider operation errors", () => {
     }).catch(error => error)
 
     expect(error).toBeInstanceOf(ViteHubError)
-    // The contract includes a redacted reason, so a client sees what the provider reported without raw data.
     expect(error).toMatchObject({
       cause,
       code: "WORKFLOW_PROVIDER_OPERATION_FAILED",

@@ -30,14 +30,12 @@ export function matchesCondition(
       throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Unsupported Markdown template condition prop "${key}". Use Comark-bound condition or value props.` })
     }
     if (key === "condition" || key === "value") {
-      // Without `:`, the prop is a plain string, so the branch would always match.
       throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Markdown template ${key} prop must be bound. Write :${key}="data.path" instead of ${key}="${String(value)}".` })
     }
     if (validatePath && key.startsWith(":") && typeof value === "string") {
-      // Comark owns literal parsing and binding resolution; the consumer owns allowed data paths.
       let literal = false
       try { JSON.parse(value); literal = true }
-      catch { /* A non-JSON binding is a Comark data path. */ }
+      catch { }
       if (!literal && (!value.startsWith("data.") || !validatePath(value.slice(5)))) {
         throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0002({ message: `[vitehub] Unsafe Markdown template condition "${value}".` })
       }

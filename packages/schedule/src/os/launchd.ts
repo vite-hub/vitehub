@@ -116,7 +116,6 @@ export function parseLaunchdPlist(plist: string): { intervals: CalendarInterval[
   return { intervals, ...(logFile === undefined ? {} : { logFile: unxml(logFile) }) }
 }
 
-/** Reads `launchctl print` output: the `state` and `last exit code` lines of the service, one tab deep. */
 function parseLaunchctlPrint(output: string): { running: boolean, lastExitCode?: number } {
   const state = output.match(/^\tstate = (.+)$/m)?.[1]?.trim()
   const lastExit = output.match(/^\tlast exit code = (-?\d+)/m)?.[1]
@@ -125,7 +124,6 @@ function parseLaunchctlPrint(output: string): { running: boolean, lastExitCode?:
 
 const dayMs = 24 * 60 * 60_000
 
-/** UTC instant of a wall-clock time in `timeZone`. A time in a daylight saving gap moves forward by the gap. */
 function zonedInstant(year: number, month: number, day: number, minuteOfDay: number, timeZone: string): Date {
   const local = Date.UTC(year, month - 1, day, 0, minuteOfDay)
   const guess = local - timeZoneOffsetMinutes(new Date(local), timeZone) * 60_000
@@ -139,7 +137,6 @@ function matchesInterval(interval: CalendarInterval, month: number, day: number,
 /** The next time after `now` that one of `intervals` matches in `timeZone`, the machine zone that launchd uses. */
 export function nextLaunchdRun(intervals: readonly CalendarInterval[], timeZone: string, now: Date): Date | undefined {
   const today = new Date(now.getTime() + timeZoneOffsetMinutes(now, timeZone) * 60_000)
-  // Four years and a day reach every date, including 29 February.
   for (let offset = 0; offset <= 4 * 366; offset++) {
     const date = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()) + offset * dayMs)
     const [year, month, day, weekday] = [date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate(), date.getUTCDay()]
@@ -169,14 +166,12 @@ interface LoadedJob {
 /** launchd jobs: a LaunchAgent in the user's `gui` domain, or a LaunchDaemon in the `system` domain. */
 export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
   const plistPath = (name: string) => scope === "user" ? join(host.homedir, "Library/LaunchAgents", `${name}.plist`) : join("/Library/LaunchDaemons", `${name}.plist`)
-  // Over SSH, a user has no `gui` domain. The `user` domain runs the agent there instead.
   const domains = scope === "user" ? [`gui/${host.uid}`, `user/${host.uid}`] : ["system"]
 
   function failed(args: readonly string[], result: ExecResult): Result<never, OsScheduleErrorCode> {
     return [osScheduleErrors.SCHEDULE_OS_COMMAND_FAILED({ command: ["launchctl", ...args].join(" "), exitCode: result.code, output: commandOutput(result) }), undefined]
   }
 
-  /** The domain that has the job loaded, and its `launchctl print` output. */
   async function loaded(name: string): Promise<LoadedJob | undefined> {
     for (const domain of domains) {
       const result = await host.exec("launchctl", ["print", `${domain}/${name}`])
@@ -185,10 +180,6 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     return undefined
   }
 
-  /**
-   * The plist and the loaded job of `name`, and the resource that holds the name when ViteHub did not install it: a
-   * plist at our path without our header, or a job with this label that launchd loaded from another plist.
-   */
   async function owner(name: string): Promise<{ plist?: string, job?: LoadedJob, foreign?: string }> {
     const path = plistPath(name)
     const plist = await host.fs.readFile(path)
@@ -196,7 +187,6 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     const loadedFrom = job?.output.match(/^\tpath = (.+)$/m)?.[1]?.trim()
     let foreign: string | undefined
     if (plist !== undefined && !plist.includes(marker)) foreign = path
-    // launchd prints the real path of the plist: /private/var/... for a home folder under /var, which links there.
     else if (job && (loadedFrom === undefined || (loadedFrom !== path && await host.fs.realpath(loadedFrom) !== await host.fs.realpath(path)))) foreign = loadedFrom ?? `${job.domain}/${name}`
     return { ...(plist === undefined ? {} : { plist }), ...(job ? { job } : {}), ...(foreign ? { foreign } : {}) }
   }
@@ -209,7 +199,6 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
   }
 
   async function bootstrapIn(domain: string, plist: string): Promise<ExecResult> {
-    // launchd finishes a bootout in the background, so a bootstrap right after it can fail with error 5 for a moment.
     for (let attempt = 1; ; attempt++) {
       const result = await host.exec("launchctl", ["bootstrap", domain, plist])
       if (result.code === 0 || attempt === 10 || !/\b5: Input\/output error/.test(commandOutput(result))) return result
@@ -222,7 +211,6 @@ export function createLaunchdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const domain = domains[index]!
       const result = await bootstrapIn(domain, plist)
       if (result.code === 0) return [undefined, domain]
-      // 125: "Domain does not support specified action", as for `gui/<uid>` without a login session.
       const noSession = result.code === 125 || /domain does not support/i.test(commandOutput(result))
       if (!noSession || index === domains.length - 1) return failed(["bootstrap", domain, plist], result)
     }

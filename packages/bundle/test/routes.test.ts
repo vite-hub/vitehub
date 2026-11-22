@@ -44,7 +44,6 @@ function chunk(fileName: string, code: string, modules: string[], options: { ent
 
 const noGraph = (entry: string) => (id: string): ModuleInfoLike => ({ importedIds: [], dynamicallyImportedIds: [], isEntry: id === entry })
 
-/** A Nuxt client build: one entry, a default layout, a docs parent page, and pages that share a chunk. */
 function clientReport() {
   const entry = `${root}/node_modules/nuxt/dist/app/entry.js`
   return collectEnvironmentReport({
@@ -172,7 +171,6 @@ describe("route report", () => {
       "entry.js": chunk("entry.js", "entry", [entry], { entry: true, imports: usesLayout ? ["renderer.js"] : [] }),
       "page.js": chunk("page.js", "page", [page]),
       "layout.js": chunk("layout.js", "layout", [layout]),
-      // An emitted renderer that the route never imports must not imply a rendered layout.
       "renderer.js": chunk("renderer.js", "renderer", [renderer]),
     }, {
       build: "test", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: noGraph(entry),
@@ -326,7 +324,6 @@ describe("real Vite build", () => {
 
     const out = join(dir, "dist")
     const manifest = JSON.parse(readFileSync(join(out, ".vite/manifest.json"), "utf8")) as Record<string, { file: string, imports?: string[], css?: string[] }>
-    // What Vite's preload helper and an SSR renderer load: the entry and the page, each with its static imports.
     const loads = (keys: string[]) => {
       const files = new Set<string>()
       const pending = [...keys]

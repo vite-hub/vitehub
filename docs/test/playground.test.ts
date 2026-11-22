@@ -4,10 +4,9 @@ import { resolve } from "node:path";
 import { decodePlaygroundLink, encodePlaygroundLink } from "@vite-hub/ui/playground";
 import { describe, expect, it } from "vitest";
 
-import { readWorkspaceVersions } from "../modules/tutorials/build";
-import { runnableTutorials } from "../modules/tutorials/list";
-import { buildPlaygroundTemplates, playgroundTemplates, snapshotSources } from "../modules/tutorials/playground";
-import { dependencyKey } from "../modules/tutorials/steps";
+import { readWorkspaceVersions } from "../../packages/docs/src/runnable/build";
+import { buildPlaygroundTemplates, snapshotSources } from "../../packages/docs/src/runnable/playground";
+import { playgroundTemplates, runnableTutorials } from "../runnable";
 import { isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
@@ -15,7 +14,7 @@ const repoRoot = resolve(docsRoot, "..");
 const fixturesDir = resolve(repoRoot, "fixtures/tutorials");
 
 async function templates() {
-  return buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: runnableTutorials });
+  return buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: runnableTutorials, examples: playgroundTemplates });
 }
 
 describe("playground", () => {
@@ -57,7 +56,7 @@ describe("playground", () => {
       "ui": "playground-ui",
     });
     // Each distinct feature install needs its own snapshot.
-    expect(snapshotSources(runnableTutorials, built)).toEqual([
+    expect(snapshotSources(runnableTutorials, playgroundTemplates, built)).toEqual([
       ...runnableTutorials,
       { slug: "playground-blob", page: "/playground", fixture: "playground-blob" },
       { slug: "playground-queue", page: "/playground", fixture: "playground-queue" },
@@ -65,14 +64,7 @@ describe("playground", () => {
       { slug: "playground-rate-limit", page: "/playground", fixture: "playground-rate-limit" },
       { slug: "playground-ui", page: "/playground", fixture: "playground-ui" },
     ]);
-    expect(snapshotSources(runnableTutorials, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
-  });
-
-  it("compares installs by dependencies only", () => {
-    const manifest = (dependencies: Record<string, string>, extra = {}) => JSON.stringify({ name: "app", dependencies, ...extra });
-    expect(dependencyKey(manifest({ b: "1", a: "2" }))).toBe(dependencyKey(manifest({ a: "2", b: "1" }, { scripts: { dev: "vite" } })));
-    expect(dependencyKey(manifest({ a: "2" }))).not.toBe(dependencyKey(manifest({ a: "3" })));
-    expect(dependencyKey("{")).toBe("invalid");
+    expect(snapshotSources(runnableTutorials, playgroundTemplates, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
   });
 
   it("shows the \"Run this tutorial\" link only on tutorials", () => {

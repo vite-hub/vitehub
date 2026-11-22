@@ -16,10 +16,8 @@ type PermissionRequired = { scope: OsScheduleScope }
 type PlatformUnsupported = { platform: string }
 type TimeZoneUnsupported = { platform: OsSchedulePlatform, timeZone: string, machineTimeZone: string }
 
-/** A code whose `error.data` holds the values of its message. */
 type Code<TData> = { fix: string, why: (data: TData) => string, data: (data: TData) => TData }
 
-// A type alias, not an interface, so it fits the index signature of `defineErrors()`.
 type OsScheduleErrorCodes = {
   SCHEDULE_OS_COMMAND_FAILED: Code<CommandFailed>
   SCHEDULE_OS_CRON_UNSUPPORTED: Code<CronUnsupported>
@@ -33,8 +31,6 @@ type OsScheduleErrorCodes = {
 
 const platformNames: Record<OsSchedulePlatform, string> = { darwin: "launchd", linux: "systemd", win32: "Task Scheduler" }
 
-// Errors that `installOsSchedule()`, `osScheduleStatus()`, and `uninstallOsSchedule()` return as `[error, undefined]`.
-// Keep published codes stable.
 export const osScheduleErrors: ErrorCatalog<OsScheduleErrorCodes> = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {

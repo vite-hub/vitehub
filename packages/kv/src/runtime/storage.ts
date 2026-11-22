@@ -24,7 +24,6 @@ export function disposeKVStores(): Promise<void> {
   const stores = [...storagePromises.values()]
   storagePromises.clear()
   const pending = Promise.allSettled(stores.map(async (promise) => {
-    // Initialization failures already reach the operation caller and own no storage.
     const storage = await promise.catch(() => undefined)
     await storage?.dispose()
   })).then((results) => {
@@ -64,7 +63,6 @@ function shouldFallbackHostedConfigImport(error: unknown) {
 
 interface HostedConfig {
   kv: false | ResolvedKVModuleOptions | undefined
-  /** Present when a store uses the `database` driver. */
   loadDatabases?: KVDatabasesLoader
 }
 
@@ -72,7 +70,6 @@ async function resolveHostedConfig(): Promise<HostedConfig> {
   try {
     // SAFETY: ViteHub generates this private module from validated KV configuration.
     const module = await import("#vitehub/kv/config") as HostedConfig
-    // Config modules from other integrations can omit `loadDatabases`.
     const loadDatabases = "loadDatabases" in module ? module.loadDatabases : undefined
     return { kv: module.kv, ...(loadDatabases ? { loadDatabases } : {}) }
   }
@@ -86,7 +83,6 @@ async function resolveHostedConfig(): Promise<HostedConfig> {
 }
 
 async function resolveStorage(name = "default") {
-  // In app tests, each store is a fresh fs-lite folder that the next reset deletes.
   const test = getViteHubTestMode()
   if (test) {
     resolveHostedKVStore((await resolveHostedConfig()).kv, name)
@@ -122,12 +118,10 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   run: (storage: RuntimeStorage) => Promise<TResult>,
   codes: readonly TCode[] = [],
 ): Promise<Result<TResult, TCode | "KV_OPERATION_FAILED">> {
-  // Config errors, for example an unknown store, throw from `resolveStorage()`.
   const storage = await resolveStorage(name)
   return kvResult(operation, name, () => run(storage), codes)
 }
 
-// JavaScript callers can pass any object, so the runtime checks what the `KVSetOptions` type allows.
 function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSetOptions | undefined): number | undefined {
   if (options === undefined) return
   for (const option of Object.keys(options)) {

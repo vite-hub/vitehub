@@ -69,7 +69,6 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   }
   expect(sent.map(call => call.payload)).toEqual(payloads)
   for (const call of sent) {
-    // The provider gets the delay in seconds.
     expect(call.options).toMatchObject({ delaySeconds: 5 })
     expect(call.options).not.toMatchObject({ region: "business-region" })
   }

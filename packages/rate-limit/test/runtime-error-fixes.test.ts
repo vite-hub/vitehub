@@ -6,7 +6,6 @@ import { createRateLimiter } from "../src/index.ts"
 
 import type { RateLimitDriver } from "../src/index.ts"
 
-/** The runtime codes that a Rate Limit guard, a direct Rate Limiter, a driver, or `vitehub rate-limit` can raise. */
 const runtimeCodes = [
   "RATE_LIMIT_R0001", "RATE_LIMIT_R0002", "RATE_LIMIT_R0003", "RATE_LIMIT_R0004", "RATE_LIMIT_R0005",
   "RATE_LIMIT_R0006", "RATE_LIMIT_R0007", "RATE_LIMIT_R0008", "RATE_LIMIT_R0009", "RATE_LIMIT_R0010",

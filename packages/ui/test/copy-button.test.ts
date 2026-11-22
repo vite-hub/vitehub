@@ -113,7 +113,6 @@ describe("CopyButton", () => {
     let resolve: (text: string) => void = () => {};
     const wrapper = mountButton({ value: () => new Promise<string>((done) => (resolve = done)) });
     await wrapper.get("button").trigger("click");
-    // The text loads first, so the button waits, disabled, until it is ready.
     expect(wrapper.get("button").attributes("disabled")).toBe("");
     resolve("from a promise");
     await flushPromises();
@@ -192,7 +191,6 @@ describe("CopyButton", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     useClipboard(() => Promise.resolve());
     const wrapper = mount(() => h(CopyButton, { value: "x", duration: 500 }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
-    // The icon that shows is the last one. An old one stays until its exit ends.
     const shown = () => {
       const icon = wrapper.findAll("[data-slot=swap-icon] > [data-icon-key] > svg").at(-1)!;
       return [icon.attributes("data-name"), icon.classes().join(" ")];

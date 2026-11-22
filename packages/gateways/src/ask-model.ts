@@ -20,7 +20,6 @@ export type AskModel = string | {
   doStream: (...args: never[]) => PromiseLike<unknown>
 }
 
-/** One answer as the model writes it. `level` is a score level, `chance` the probability of yes. */
 interface ModelReply {
   chance?: number
   choice?: string
@@ -98,7 +97,6 @@ function describeQuestion(name: string, question: AskQuestion): string {
   return lines.join("\n")
 }
 
-/** The model names one option and how sure it is. The other options share the rest of the probability. */
 function spread(labels: readonly string[], chosen: string, sure: number): { confidence: number, probabilities: Record<string, number> } {
   const top = Math.max(sure, 1 / labels.length)
   const rest = labels.length > 1 ? (1 - top) / (labels.length - 1) : 0
@@ -159,7 +157,6 @@ export function askWithModel(model: AskModel): { ask: AiGatewayAsk } {
       })
     }
     catch (error) {
-      // A missing key or provider package is a setup error, and a cancelled request keeps its reason.
       if (gatewayDiagnostics.is(error) || LoadAPIKeyError.isInstance(error) || options.signal?.aborted) throw error
       return [gatewayDiagnostics.GATEWAYS_ASK_MODEL_FAILED({ status: statusOf(error), cause: error }), undefined]
     }
@@ -230,7 +227,6 @@ function checkSchema(schema: unknown): void {
   }
 }
 
-/** The first problem that the schema found in the answer, as `path: message`. */
 function firstIssue(error: unknown): string | undefined {
   const cause = readKey(readKey(error, "cause"), "cause")
   const issues = Array.isArray(cause) ? cause : readKey(cause, "issues")
@@ -264,13 +260,11 @@ export async function askOnce(prompt: string, options: AskOptions<AskSchema | un
       // SAFETY: `checkSchema()` proved a Standard Schema with JSON Schema conversion, which the AI SDK reads itself.
       ...(schema === undefined ? {} : { output: Output.object({ schema: schema as never }) }),
       prompt,
-      // `system` works on AI SDK 6 and 7. AI SDK 7 reads `instructions ?? system`, and AI SDK 6 has no `instructions`.
       ...(options.instructions ? { system: options.instructions } : {}),
     })
     data = schema === undefined ? result.text : result.output
   }
   catch (error) {
-    // A missing key or provider package is a setup error, so it throws like at define time.
     if (gatewayDiagnostics.is(error)) throw error
     if (["AI_NoObjectGeneratedError", "AI_NoOutputGeneratedError"].includes(String(readKey(error, "name")))) {
       return [gatewayDiagnostics.GATEWAYS_ASK_OUTPUT_INVALID({ issue: firstIssue(error), cause: error }), undefined]
@@ -282,7 +276,6 @@ export async function askOnce(prompt: string, options: AskOptions<AskSchema | un
     provider: typeof model === "string" ? "gateway" : model.provider,
     usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, totalTokens: result.usage.totalTokens },
   })
-  // A content filter or an output limit can end a text answer before it has text. With `schema`, the AI SDK validated the output.
   if (schema === undefined && !data) return [gatewayDiagnostics.GATEWAYS_ASK_OUTPUT_INVALID({ finishReason: result.finishReason }), undefined]
   return [undefined, data]
 }

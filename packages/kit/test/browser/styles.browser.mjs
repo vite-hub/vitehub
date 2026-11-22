@@ -1,12 +1,3 @@
-// Renders every ui-sdk part and the kit parts under the default style family (ui-sdk's web.css and the kit's own rules)
-// in headless Chromium, closed and open, light and dark, at a desktop and a phone width. The check fails when a page throws, when a part renders with a `data-slot` that the family
-// does not style, or when `[data-theme="dark"]` and `.dark` give different tokens.
-//
-// It renders each page a second time with `default.scoped.css` and the parts in a `.ui-sdk` root, and fails when a pixel
-// changes, when a part renders outside the root, or when a scoped rule reaches an element outside the root.
-//
-// Run: pnpm --filter @vite-hub/kit test:styles
-// Set STYLES_SCREENSHOTS=<dir> to save a screenshot of each page, and STYLES_TEST_PORT to pick the port.
 import assert from "node:assert/strict"
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -23,12 +14,9 @@ const styles = fileURLToPath(new URL("../../src/styles/", import.meta.url))
 const src = fileURLToPath(new URL("../../src/", import.meta.url))
 const screenshots = process.env.STYLES_SCREENSHOTS
 if (screenshots) mkdirSync(screenshots, { recursive: true })
-// Both screenshots of a page whose scoped render differs go here.
 const differences = join(tmpdir(), "vitehub-kit-scoped-differences")
 
-// Elements of the ui-sdk examples, not kit parts: the layout helpers of the ui-sdk docs.
 const exampleSlots = new Set(["card", "files", "grid", "grip", "hint", "initials", "row", "stack", "tile"])
-// Visible parts that need no rule: groups and list wrappers, whose items carry the look.
 const unstyledSlots = new Set([
   "autocomplete-list",
   "collapsible",
@@ -37,28 +25,21 @@ const unstyledSlots = new Set([
   "menu-group",
   "menu-radio-group",
   "navigation-menu-item",
-  // The real input of the code field. ui-sdk lays it over the slots, transparent, with inline styles.
   "otp-input-control",
   "pagination",
   "pagination-item",
-  // The text of a tag. The tag carries the look.
   "tags-input-item-text",
-  // A link: web.css styles it through its rule on plain `a`.
   "hover-card-trigger",
 ])
 
-// Each file in `page/open/` renders one popup open: menus, selects, popovers, tooltips, dialogs, and the drawer.
 const openViews = readdirSync(join(root, "open")).map(file => file.replace(/\.vue$/, "")).sort()
 
-// The family is ui-sdk's web.css with the workspace patch, which default.css imports, and the rules in default.css itself.
 const webCss = fileURLToPath(import.meta.resolve("@ui-sdk/core/web.css"))
 const family = [webCss, join(styles, "default.css")].map(file => readFileSync(file, "utf8")).join("\n")
 const familySlots = new Set([...family.matchAll(/data-slot="([a-z-]+)"/g)].map(match => match[1]))
-// Rules such as `[data-slot$="-icon"]` style every slot with that ending.
 const familyEndings = [...family.matchAll(/data-slot\$="([a-z-]+)"/g)].map(match => match[1])
 const styled = slot => familySlots.has(slot) || familyEndings.some(ending => slot.endsWith(ending))
 
-// `@vite-hub/kit/styles/default.scoped.css` is built from the source here, with the build's own functions.
 const scopedFile = fileURLToPath(new URL("../../node_modules/.cache/kit-styles/default.scoped.css", import.meta.url))
 mkdirSync(dirname(scopedFile), { recursive: true })
 writeFileSync(scopedFile, scopeStyles(inlineWebCss(readFileSync(join(styles, "default.css"), "utf8"), readFileSync(webCss, "utf8"))))
@@ -98,7 +79,6 @@ async function open(query, { width, theme, styles = "" }) {
   return { context, errors, page }
 }
 
-// The slots of the parts a user can see. Native inputs that ui-sdk keeps for forms and screen readers are hidden.
 async function renderedSlots(page) {
   return page.evaluate(() => [...new Set([...document.querySelectorAll("[data-slot]")]
     .filter((element) => {
@@ -108,19 +88,14 @@ async function renderedSlots(page) {
     .map(element => element.dataset.slot))])
 }
 
-// The slots that render outside every `.ui-sdk` root, such as a part that a portal moves to `<body>`.
 async function slotsOutsideScope(page) {
   return page.evaluate(() => [...new Set([...document.querySelectorAll("[data-slot]")]
     .filter(element => !element.closest(".ui-sdk") && element.checkVisibility())
     .map(element => element.dataset.slot))])
 }
 
-// Chromium on CI draws the anti-aliased edge of a rounded corner up to three levels lighter or darker from one page load
-// to the next, with the same CSS. A changed rule moves a color by much more than that.
 const rasterNoise = 3
 
-// The number of pixels that differ by more than raster noise in a channel between two screenshots of the same size,
-// counted in the browser.
 async function changedPixels(a, b) {
   const context = await browser.newContext()
   const page = await context.newPage()
@@ -148,7 +123,6 @@ async function changedPixels(a, b) {
   return count
 }
 
-// Opens a view with `default.css`, then with `default.scoped.css` in a `.ui-sdk` root, and checks that both render the same pixels.
 async function render(name, query, options, { fullPage = true, ready = async () => {} } = {}) {
   const shots = []
   for (const styles of ["", "scoped"]) {
@@ -221,7 +195,6 @@ test("switches the tokens with .dark and with [data-theme=dark]", async () => {
 })
 
 test("switches the scoped tokens with .dark and [data-theme=dark] on the page or on the scope root", async () => {
-  // The values that the parts read, on a part inside the root.
   const tokens = ["--ui-background", "--ui-foreground", "--ui-border", "--ui-primary", "--ui-ring", "--ui-radius", "--ui-shadow", "color-scheme"]
   const read = async (theme, styles) => {
     const { context, page } = await open("view=button", { width: 800, theme, styles })
@@ -242,7 +215,6 @@ test("switches the scoped tokens with .dark and [data-theme=dark] on the page or
 })
 
 test("no scoped rule reaches an element outside the scope root", async () => {
-  // Every computed property, and the variables that Nuxt UI and web.css share, of each element and its pseudo-elements.
   const read = async (styles, focus) => {
     const { context, page } = await open("view=button&outside", { width: 800, theme: "light", styles })
     if (focus) await page.keyboard.press("Tab")
@@ -261,7 +233,6 @@ test("no scoped rule reaches an element outside the scope root", async () => {
   for (const focus of [false, true]) {
     const none = await read("none", focus)
     const scoped = await read("scoped", focus)
-    // The scoped family styles the part inside the root, so the two pages do load different styles.
     assert.notEqual(scoped.inside, none.inside)
     if (focus) assert.ok(scoped.values.some(value => value.focused), "Tab focuses the button outside the root")
     assert.deepEqual(scoped.values, none.values)

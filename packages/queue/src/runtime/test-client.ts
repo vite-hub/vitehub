@@ -18,7 +18,6 @@ export function queueTestMessages(test: ViteHubTestMode): QueueTestMessage[] {
   return test.backend("queue", () => [] as QueueTestMessage[])
 }
 
-/** Records the job and does not run it, so a test asserts what the app sent. */
 function recordQueueTestMessage(test: ViteHubTestMode, queue: string, input: NormalizedQueueEnqueueInput): { messageId: string, status: "queued" } {
   const messages = queueTestMessages(test)
   const duplicate = input.options.idempotencyKey === undefined
@@ -48,7 +47,6 @@ export function createTestQueueClient(test: ViteHubTestMode, queue: string, prov
         ...options,
         ...Object.fromEntries(Object.entries(itemOptions).filter(([, value]) => value !== undefined)),
       }))
-      // Reject the whole batch before recording any jobs.
       for (const input of inputs) {
         const error = queueUnsupportedOptionsError(input.options, provider) ?? readQueueTimes(input.options)[0]
         if (error) return [error, undefined]

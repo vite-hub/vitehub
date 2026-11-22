@@ -23,8 +23,6 @@ export type { GitHubAppCredentials, GitHubAppDelivery, GitHubAppInput, GitHubApp
 export { BranchMovedError } from "forges"
 export { abortError, forgeErrorStatus, forgeProvider, forgeResponseError, isForgeResponseError, withSignal } from "./provider.ts"
 export type { ForgeConnection, ForgeKind } from "./provider.ts"
-// Import `forges` classes from here. `forgeProvider()` throws these bundled classes, and a second copy of
-// `forges` has its own, so `instanceof` would not match.
 export { ForgeApiError, ForgeTimeoutError, MergeBlockedError, NotFoundError, RateLimitedError, repoRef } from "forges"
 export type { BaseOptions, BranchRules, Check, CiRun, CiRunRef, Commit, ForgeProvider, MergeMethod, MergeOptions, MergeResult, Page, RepoRef, RequiredCheck, Thread, ThreadRef, TreeEntry } from "forges"
 export type { GitHubProvider } from "forges/github"

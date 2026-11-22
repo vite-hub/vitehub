@@ -40,7 +40,6 @@ async function project() {
 
 const parse = (code: string) => parseAst(code) as unknown as Parameters<typeof findGlobCalls>[0]
 
-/** Every item a Source serves, as glob() and the bundle should agree on them. */
 async function served(source: FileSource<string>, rootDir: string) {
   const ctx = { rootDir }
   const items = []
@@ -94,7 +93,6 @@ describe("glob() bundled by the build", () => {
     const id = BUNDLED_GLOB_ID + encodeURIComponent(JSON.stringify({ filesModule: "vite-hub/source", input: "content/docs/**/*" }))
     const { code, watched } = await loadBundledGlob(id, root)
     expect(code.split("\n")[0]).toBe(`import { files } from "vite-hub/source"`)
-    // The files load from one gzip blob, so the module holds no Markdown as JavaScript.
     expect(code).toMatch(/"index\.md": file\(\d+, \d+\)/)
     expect(code).toMatch(/"logo\.png": file\(\d+, \d+\)/)
     expect(code).not.toContain("# Home")
@@ -104,7 +102,6 @@ describe("glob() bundled by the build", () => {
     const fromDisk = await served(glob("content/docs/**/*"), root)
     const source = new Function("files", body)(files) as FileSource<string>
     expect(await served(source, "/no-file-system")).toEqual(fromDisk)
-    // Hosts without node:zlib, such as Workers without nodejs_compat, inflate with DecompressionStream.
     const getBuiltinModule = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined)
     const withoutZlib = new Function("files", body)(files) as FileSource<string>
     expect(await served(withoutZlib, "/no-file-system")).toEqual(fromDisk)

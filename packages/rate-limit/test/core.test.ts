@@ -404,7 +404,6 @@ describe("Rate Limit core", () => {
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false })
     await expect(limiter.refund({ key: "user" })).resolves.toEqual({ status: "refunded" })
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, remaining: 0, used: 2 })
-    // A refund in a new window has no request to give back.
     now = 120_001
     await limiter.refund({ key: "user" })
     await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })

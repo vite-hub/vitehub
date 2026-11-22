@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
 
-/** A Durable Object stub like the built-in one: every command succeeds, and a spawned process runs until killed. */
 function sandboxObject() {
   const kills: Array<string | undefined> = [];
   const object = {

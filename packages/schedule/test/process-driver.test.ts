@@ -70,7 +70,6 @@ describe("Process Schedule Runtime", () => {
 
   it("evaluates a Static Schedule cron in its declared time zone", async () => {
     const handlers = { madrid: vi.fn(), utc: vi.fn() }
-    // 08:00 in Madrid is 06:00Z in summer (CEST) and 07:00Z in winter (CET).
     for (const now of ["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z", "2026-07-15T08:00:00.000Z"]) {
       const scheduleRunStore = createMemoryScheduleRunStore()
       const controller = await installProcessScheduleRuntime({
@@ -91,7 +90,6 @@ describe("Process Schedule Runtime", () => {
   })
 
   it.each([60 * 60_000, 90_000, 90_000.5])("catches up a Static Schedule minute after a restart with catchUpMs=%s", async (catchUpMs) => {
-    // The previous process stopped before its 15:00 scan, and this process starts at 15:01.
     const scheduleRunStore = createMemoryScheduleRunStore()
     const previous = new Date("2026-10-16T14:50:00.000Z")
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
@@ -141,7 +139,6 @@ describe("Process Schedule Runtime", () => {
 
   it.each([1, 101])("catches up with a legacy custom store behind %s future manual runs", async (manualCount) => {
     const backingStore = createMemoryScheduleRunStore()
-    // Existing custom stores support scheduleId and limit, but ignore the new idPrefix option.
     const listRuns = vi.fn((options: ScheduleRunListOptions = {}) => backingStore.listRuns({ scheduleId: options.scheduleId, limit: options.limit }))
     const scheduleRunStore = { ...backingStore, listRuns }
     const previous = new Date("2026-10-16T14:50:00.000Z")
@@ -166,10 +163,8 @@ describe("Process Schedule Runtime", () => {
     finally {
       await controller.close()
     }
-    // The bounded fallback must not repeat the existing 14:50 occurrence.
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
     expect(listRuns.mock.calls.map(([options]) => options)).toEqual([
-      // Recovery of unfinished runs reads the two occurrences of the window, 14:50 and 15:00.
       { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 2 },
       { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 },
       { scheduleId: "reconcile", limit: 100 },
@@ -218,12 +213,10 @@ describe("Process Schedule Runtime", () => {
 
     expect(due).not.toHaveBeenCalled()
     expect(later).not.toHaveBeenCalled()
-    // The Console reads the timing without loading the module.
     expect(await readScheduleConsoleRecords()).toEqual([
       expect.objectContaining({ fields: [{ label: "Cron", value: "*/5 * * * *" }, { label: "Time zone", value: "UTC" }], id: "definition:due" }),
       expect.objectContaining({ fields: [{ label: "Cron", value: "0 3 * * *" }, { label: "Time zone", value: "Europe/Madrid" }], id: "definition:later" }),
     ])
-    // 09:05 and 09:10 are due.
     await vi.advanceTimersByTimeAsync(4 * 60_000)
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
     await vi.advanceTimersByTimeAsync(5 * 60_000)

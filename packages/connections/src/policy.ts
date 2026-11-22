@@ -55,7 +55,6 @@ export function callerInheritedActors(options: Pick<UseConnectionOptions, "acces
   return options.access ? envAccessAgentParents(options.access).map(name => `agent:${name}`) : []
 }
 
-/** The rule of an actor. An `agent:` actor without its own rule uses the rule of the nearest Agent it extends. */
 function accessRule(access: Readonly<Record<string, ConnectionAccessRule | ConnectionAccessPreset>>, actor: string, inherited: readonly string[] = []): ConnectionAccessRule | ConnectionAccessPreset | undefined {
   const candidates = actor.startsWith("agent:") ? [actor, ...inherited.filter(parent => parent.startsWith("agent:"))] : [actor]
   const match = candidates.find(candidate => Object.hasOwn(access, candidate))
@@ -94,7 +93,6 @@ export function decide(input: {
   }
   const rule = accessRule(access, input.actor, input.inherited)
   if (!rule) return "deny"
-  // MCP posts every protocol message and cannot wait for an approval, so the preset never asks for one.
   if (rule === "mcp") return input.mcp ? "allow" : "deny"
   if (!input.write) return rule.read ? "allow" : "deny"
   if (!allowsWrite(rule, input.action, input.highRisk)) return "deny"

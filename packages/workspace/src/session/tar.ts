@@ -31,7 +31,6 @@ function tarHeader(name: string, type: string, size: number, mode: number, mtime
   return header
 }
 
-// A PAX record is "<length> <key>=<value>\n", where the length counts the whole record, its own digits included.
 function paxRecord(key: string, value: string) {
   const body = ` ${key}=${value}\n`
   const size = encoder.encode(body).byteLength

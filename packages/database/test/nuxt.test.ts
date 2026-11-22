@@ -1346,7 +1346,6 @@ describe("Database Nuxt integration", () => {
       await writeFile(join(rootDir, "package.json"), "{}\n")
       await writeFile(tables, "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'\nexport const historySchema = { historyRefs: sqliteTable('history_refs', { id: text('id') }) }\n")
       await writeFile(definition, "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ connection: { url: 'libsql://db.example.com' }, schema: {} })\n")
-      // The build checks that a migration creates the contributed table.
       const migration = join(rootDir, "server/databases/default/migrations/20260101000000_history")
       await mkdir(migration, { recursive: true })
       await writeFile(join(migration, "migration.sql"), "CREATE TABLE `history_refs` (`id` text);\n")

@@ -51,7 +51,6 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
     await Promise.all(entries.map(async (entry) => {
       const path = entry.type === "file" ? parseRecordPath(entry.path) : undefined
       if (!path || path.locale !== locale) return
-      // Store failures reject the revision; malformed record contents only skip this entry.
       const contents = await view.readFile(entry.path, { encoding: "utf8" })
       const record = parseRecordFile(contents, path.hash)
       if (record && recordSegment(record).hash === path.hash) records[generateMessageId(record.source, record.salt)] = record
@@ -113,7 +112,6 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
     try {
       const workspace = await options.workspace()
       const head = await workspace.history.head({ ref: publishedRef })
-      // Before the first publish, the build snapshot stays.
       if (!head || head.id === revision) return
       const records = await readRevisionRecords(await workspace.history.open(head.id), translated)
       server = Object.fromEntries(translated.map(locale => [locale, { ...options.snapshot[locale], ...compile(records[locale] ?? {}) }]))
@@ -142,7 +140,6 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
     },
     async refresh(refreshOptions) {
       if (pending && refreshOptions?.force) await pending
-      // Forced calls waiting on the same read can share the next read.
       if (pending) return pending
       const now = Date.now()
       if (!refreshOptions?.force && now - checkedAt < interval) return Promise.resolve()

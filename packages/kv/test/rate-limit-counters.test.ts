@@ -18,10 +18,6 @@ import type { RateLimitKVStorage } from "../../rate-limit/src/drivers/kv.ts"
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
 import type { ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../src/types.ts"
 
-// The Rate Limit `kv` driver on the real KV drivers. Each store has its own connection, as separate server processes
-// have. Postgres and Redis run when VITEHUB_TEST_POSTGRES_URL and VITEHUB_TEST_REDIS_URL are set.
-
-// Run the source driver, not the package build.
 vi.mock("@vite-hub/kv/runtime/redis-driver", async () => await import("../src/runtime/redis-driver.ts"))
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -42,7 +38,6 @@ function track(storage: RuntimeStorage): RuntimeStorage {
   return storage
 }
 
-/** The `[error, data]` API of `kv`, on one store connection. */
 function counterStorage(storage: RuntimeStorage): RateLimitKVStorage {
   return {
     delete: key => kvResult("delete", "default", () => storage.removeItem(key)),
@@ -109,7 +104,6 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
       name,
       window: "1m",
     }))
-    // Two batches of 30 at the same time, spread over the three clients.
     const batch = () => Promise.all(Array.from({ length: 30 }, (_, index) => limiters[index % 3]!.consume({ key: "198.51.100.7" })))
     const decisions = (await Promise.all([batch(), batch()])).flat()
 
@@ -121,7 +115,6 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
   })
 
   it("expires a window with its TTL, so the next request starts a new window", async () => {
-    // The clock stays in one window, so only the TTL can remove the counter.
     const now = Date.now()
     const name = `ttl-${randomUUID()}`
     const [first, second] = target.stores(2).map(storage => createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage) }), limit: 2, name, window: "1s" }))
@@ -129,7 +122,6 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
     await expect(second!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 2 })
     await expect(first!.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, used: 3 })
 
-    // Redis rounds the TTL up to whole seconds.
     await sleep(1_300)
     await expect(second!.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
     await expect(second!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
@@ -143,7 +135,6 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
   })
 
   it("keeps a 1m and a 1h counter of one name apart when their windows start together", async () => {
-    // 12:00:00 starts a minute window and an hour window.
     const now = Date.UTC(2026, 10, 9, 12, 0, 0)
     const [storage] = target.stores(1)
     const minute = createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage!) }), limit: 1, window: "1m" })
@@ -203,7 +194,6 @@ describe("Rate Limit kv driver on the database KV driver", () => {
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ now: () => window, storage: counterStorage(storage) }), limit: 5, name: "sweep", window: "1s" })
     const start = Date.now()
     for (let round = 0; round < 3; round++) {
-      // The database sweeps expired rows at most once a minute, so each round moves that clock past the next sweep.
       const clock = vi.spyOn(Date, "now").mockReturnValue(start + round * 61_000)
       try {
         for (const client of ["a", "b", "c"]) await expect(limiter.consume({ key: client })).resolves.toMatchObject({ allowed: true, used: 1 })
@@ -211,9 +201,7 @@ describe("Rate Limit kv driver on the database KV driver", () => {
       finally {
         clock.mockRestore()
       }
-      // Only the counters of the current window stay: one for each client.
       expect(await rows()).toBe(3)
-      // The TTL is the window, so the Database clock expires these counters before the next round.
       await sleep(1_300)
       window += 1_000
     }
@@ -222,7 +210,6 @@ describe("Rate Limit kv driver on the database KV driver", () => {
 
 describe("Rate Limit kv driver when Redis is down", () => {
   it.each([["deny", false], ["allow", true]] as const)("follows failure: %s", async (failure, allowed) => {
-    // Nothing listens on port 1, so every command fails after the reconnect attempts.
     const storage = track(createHostedKVStorage({ store: { driver: "redis", base: "down", url: "redis://127.0.0.1:1" } }))
     const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: counterStorage(storage) }), failure, limit: 1, window: "1m" })
     await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed, reason: "unavailable" })
@@ -231,7 +218,6 @@ describe("Rate Limit kv driver when Redis is down", () => {
 
 describe("getKVStoreDriver", () => {
   it("accepts `kv` and `kv.store(name)` as Rate Limit storage", () => {
-    // The generated Nitro plugin passes `kv`. The driver calls the store only when a request comes in.
     expect(kvRateLimitDriver({ storage: kv }).name).toBe("kv")
     expect(kvRateLimitDriver({ storage: kv.store("limits") }).name).toBe("kv")
   })
@@ -248,7 +234,6 @@ describe("getKVStoreDriver", () => {
     vi.stubEnv("REDIS_URL", "")
     await expect(getKVStoreDriver()).resolves.toBe("fs-lite")
     await expect(getKVStoreDriver("limits")).resolves.toBe("database")
-    // An unrelated URL cannot change the driver selected at build time.
     vi.stubEnv("REDIS_URL", "redis://127.0.0.1:6379")
     await expect(getKVStoreDriver()).resolves.toBe("fs-lite")
     await expect(getKVStoreDriver("limits")).resolves.toBe("database")

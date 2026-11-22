@@ -1,4 +1,3 @@
-// @dotenvx/primitives ships no types. These are the functions the CLI and its tests use.
 declare module "@dotenvx/primitives" {
   /** Decrypts an `encrypted:` value with a hex private key. Throws an error with a dotenvx `code`, such as `WRONG_PRIVATE_KEY`. */
   export function decrypt(privateKey: string, value: string): string

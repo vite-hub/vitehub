@@ -1,10 +1,3 @@
-/**
- * The page where the sign-in of an MCP client lands. Better Auth's OAuth provider sends both its login step and its
- * consent step to `/oauth` with a signed query. Signed out, the person signs in with GitHub or a passkey, and the
- * provider resumes the authorization. Signed in, the person sees the account, where the answer goes, and allows or
- * denies the client.
- */
-
 import { oauthPageScript as script } from "./oauth-page.injected.ts"
 export { passkeyHelpers } from "./oauth-page.injected.ts"
 

@@ -20,7 +20,6 @@ async function createTempDir(prefix: string) {
   return dir
 }
 
-/** Hides `packageName` from every resolution in this process, as in an app that did not install it. */
 function hidePackage(packageName: string) {
   const hooks = registerHooks({
     resolve(specifier, context, nextResolve) {
@@ -36,7 +35,6 @@ async function folderWorkflow() {
   const workflowDir = join(rootDir, "server", "workflows", "recap")
   await mkdir(workflowDir, { recursive: true })
   await writeFile(join(workflowDir, "01-collect.ts"), "export default async (input: { month: string }) => input\n")
-  // A folder Workflow builds as the native entry that `writeProviderEntries()` generates for it.
   const nativeFile = join(rootDir, ".vitehub", "workflow", "vercel-native", "recap.mjs")
   await mkdir(join(nativeFile, ".."), { recursive: true })
   await writeFile(nativeFile, `export async function RecapNative(context) {\n  "use workflow"\n  return context.payload\n}\n`)

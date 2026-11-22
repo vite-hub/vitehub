@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Runs one built Nuxt 5 app as three Node instances against one Postgres and one Redis,
-// then checks that each primitive behaves as one application across the instances.
-// Read README.md in this folder before you change it.
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
 import { createWriteStream, existsSync, readFileSync, writeFileSync } from "node:fs"
@@ -23,16 +20,13 @@ const { values: options } = parseArgs({
   options: {
     app: { type: "string" },
     keep: { type: "boolean", default: false },
-    // Without Redis, the build and the instances see only DATABASE_URL, so Postgres must carry every shared store.
     "no-redis": { type: "boolean", default: false },
     only: { type: "string" },
   },
 })
 
-// The feature packages that the fixture enables. Packing follows their workspace dependencies.
 const fixturePackages = ["vite-hub", "blob", "cli", "database", "kv", "queue", "rate-limit", "realtime", "schedule", "workflow"]
 
-// Framework pins match the packed Nuxt 5 consumer tests. Drizzle matches the Database package.
 const appDependencies = {
   "drizzle-kit": "1.0.0-rc.5",
   "drizzle-orm": "1.0.0-rc.5",
@@ -44,9 +38,7 @@ const appDependencies = {
   rolldown: "1.1.5",
   unplugin: "3.3.0",
   vite: "8.0.8",
-  // The vite override points at vite-plus-core, which loads its native binding from vite-plus.
   "vite-plus": "0.1.24",
-  // The Realtime check connects Yjs peers from the harness with these packages.
   ws: "8.22.0",
   "y-websocket": "3.1.0",
   yjs: "13.6.33",
@@ -69,11 +61,8 @@ const appOverrides = {
 const mode = options["no-redis"] ? "without-redis" : "with-redis"
 const knownChecks = JSON.parse(readFileSync(join(here, "known-failing.json"), "utf8"))
 const knownFailing = knownChecks[mode]
-// A flaky check may pass or fail. It never changes the exit code.
 const flaky = knownChecks.flaky
 
-// Every child process starts from this environment. Without Redis, a REDIS_URL from the shell must not reach
-// the build or the instances, so drop it here once.
 const baseEnv = { ...process.env }
 if (mode === "without-redis") delete baseEnv.REDIS_URL
 const instanceNames = ["a", "b", "c"]
@@ -115,7 +104,6 @@ async function startBackends(project) {
   run("docker", [...compose, "up", "-d", "--wait", "postgres", ...(mode === "with-redis" ? ["redis"] : [])], { env })
   return {
     databaseUrl: `postgres://vitehub:vitehub@127.0.0.1:${env.MULTI_INSTANCE_POSTGRES_PORT}/vitehub`,
-    // Only set REDIS_URL when Redis runs. The build and the instances must not see it in the other mode.
     redisEnv: mode === "with-redis" ? { REDIS_URL: `redis://127.0.0.1:${env.MULTI_INSTANCE_REDIS_PORT}` } : {},
   }
 }
@@ -163,7 +151,6 @@ async function buildApp(workDir, backends) {
     "",
   ].join("\n"))
   run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], { cwd: appDir, logFile: join(workDir, "install.log") })
-  // The build reads the same backend URLs as the instances, as a deployment does.
   run("pnpm", ["exec", "nuxt", "build"], {
     cwd: appDir,
     env: {
@@ -177,10 +164,8 @@ async function buildApp(workDir, backends) {
   return appDir
 }
 
-/** Starts one instance. Each instance has its own working directory, as on its own host. */
 async function startInstance(name, appDir, workDir, backends) {
   const port = await freePort()
-  // Start from an empty directory, so a rerun with --app does not see the stores of an earlier run.
   const cwd = join(workDir, `instance-${name}`)
   await rm(cwd, { force: true, recursive: true })
   await mkdir(cwd, { recursive: true })
@@ -282,12 +267,10 @@ async function main() {
   const appDir = options.app ? resolve(options.app) : await buildApp(workDir, backends)
   const appRequire = createRequire(join(appDir, "package.json"))
 
-  // The oracle table records what the fixture did. The fixture writes to it with its own client.
   const sql = appRequire("postgres")(backends.databaseUrl, { max: 2, onnotice: () => {} })
   cleanups.push(() => sql.end({ timeout: 5 }))
   await sql`create table oracle_events (id serial primary key, kind text not null, key text not null, instance text not null, at timestamptz not null default now())`
 
-  // Start the three instances together, so their cold starts race as in a rolling deploy.
   const startedAt = Date.now()
   const instances = await Promise.all(instanceNames.map(name => startInstance(name, appDir, workDir, backends)))
   const boot = await Promise.all(instances.map(instance => waitForInstance(instance)))
@@ -322,7 +305,6 @@ async function main() {
 
   printTable(results)
   const unexpected = results.filter(result => result.status !== "pass" && !knownFailing[result.id] && !flaky[result.id])
-  // A listed check that passes also fails the run, so the list stays exact.
   const fixed = results.filter(result => result.status === "pass" && knownFailing[result.id])
   if (unexpected.length) log(`unexpected failures: ${unexpected.map(result => result.id).join(", ")}`)
   if (fixed.length) log(`listed in known-failing.json "${mode}" but pass now, remove them: ${fixed.map(result => result.id).join(", ")}`)

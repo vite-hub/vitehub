@@ -24,7 +24,6 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise(resolve => server.close(resolve))))
 })
 
-/** A local HTTP server that answers with `handler` and records each request. */
 async function localSite(handler: (request: IncomingMessage, response: ServerResponse, body: string) => void): Promise<{ origin: string, requests: Recorded[] }> {
   const requests: Recorded[] = []
   const server = createServer((request, response) => {
@@ -41,7 +40,6 @@ async function localSite(handler: (request: IncomingMessage, response: ServerRes
   return { origin: `http://127.0.0.1:${address.port}`, requests }
 }
 
-/** A fetch that sends every request for `origins` to the local server, and answers Cloudflare API requests from the recorded fixtures. */
 function routedFetch(local: string, origins: readonly string[]): typeof fetch {
   return async (input, init) => {
     const url = new URL(String(input instanceof Request ? input.url : input))
@@ -190,7 +188,6 @@ describe("vitehub deploy with deploy.check", () => {
       previous: { deploymentId: "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", version: "bcf48806-b317-4351-9ee7-36e7d557d4de" },
     })
     expect(result.json.url).toBe("https://my-app.example.workers.dev")
-    // A failed check sends nothing to IndexNow.
     expect(result.json.indexNow).toBeUndefined()
     expect((await hosts.calls()).filter(call => call.argv[0] === "deploy")).toHaveLength(1)
 

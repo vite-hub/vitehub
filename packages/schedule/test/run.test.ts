@@ -5,7 +5,6 @@ import { getScheduleRunStore, resetScheduleRuntime } from "../src/runtime/state.
 
 const handler = vi.hoisted(() => vi.fn())
 
-// The Schedule Vite plugin generates this registry from `server/schedules/`.
 vi.mock("#vitehub/schedule/registry", async () => {
   const { defineSchedule } = await import("../src/definition.ts")
   return {

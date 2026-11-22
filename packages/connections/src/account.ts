@@ -4,7 +4,6 @@ import type { ConnectionAccount, ConnectionProvider, ConnectionTokenResponse } f
 
 const idTokenClaims = v.object({ sub: v.string(), email: v.optional(v.unknown()) })
 
-/** Decode one base64url segment with `atob`, which Node, Deno, and Workerd all provide. */
 function decodeBase64Url(segment: string): string {
   const base64 = segment.replace(/-/g, "+").replace(/_/g, "/")
   const binary = atob(base64.padEnd(base64.length + (4 - base64.length % 4) % 4, "="))

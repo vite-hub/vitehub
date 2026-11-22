@@ -15,17 +15,10 @@ import { runWithScheduleWaitUntil } from "./wait-until.ts"
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunContext, ScheduleRunError, ScheduleRunRecord, ScheduleRunStore } from "../types.ts"
 
 interface ExecuteScheduleOptions {
-  /** Return the persisted failed run when the handler throws. Guards still throw. */
   captureHandlerFailure?: boolean
-  /**
-   * The caller holds the claim on this occurrence, so a run that is still pending or running belongs to a process that
-   * stopped. Such a run gets a new attempt, and its unfinished attempts are marked as failed.
-   */
   claimed?: boolean
   definition: ScheduleDefinition
-  /** Signals that the handler can start, or an existing run already consumed this occurrence. */
   onExecution?: () => void
-  /** Called when an evlog event has the run's failure, so the caller does not log it again. */
   onRunLogged?: () => void
   runStore?: ScheduleRunStore
   runIdSuffix?: string
@@ -78,7 +71,6 @@ function toRunError(error: unknown): ScheduleRunError {
     return { message: String(error) }
   }
   catch {
-    // Error reporting must not prevent the run and attempt from reaching failed.
     return { message: "[unprintable thrown value]" }
   }
 }
@@ -220,8 +212,6 @@ export async function executeSchedule(options: ExecuteScheduleOptions): Promise<
   const scheduledAt = validateScheduledAt(options.scheduledAt ?? new Date())
   const { created, run } = await createOrGetRun({ ...options, scheduledAt })
 
-  // The deterministic run id dedupes repeated delivery for one scheduled occurrence. A finished run never runs again.
-  // A claimed run that did not finish lost its process, so it runs again.
   const runStore = options.runStore ?? getScheduleRunStore()
   if (!created) {
     if (!options.claimed || run.status === "succeeded" || run.status === "failed") {

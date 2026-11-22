@@ -29,7 +29,6 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
   const error = ref<FormSubmitError>()
   let pending = false
   async function send(extra: Record<string, unknown> = {}) {
-    // A second click on a slow network would store the message twice.
     if (pending) return
     pending = true
     sent.value = undefined
@@ -48,10 +47,7 @@ export function useFormSubmit<TSchema extends FormSchema>(name: string, form: Fo
     for (const issue of failure.issues) {
       if (issue.path.length) setFieldErrors(form, { path: issue.path, errors: [issue.message] })
     }
-    // Move focus to the first field with a server issue, as Formisch does for its own validation.
     const first = failure.issues.find(issue => issue.path.length)
-    // After the render, so the field already points to its error through `aria-describedby` when focus reads it.
-    // Formisch's own focus in Vue runs before that render (https://github.com/open-circle/formisch/issues/271).
     if (first) {
       await nextTick()
       ;(focus as (form: FormStore<TSchema>, config: { path: (string | number)[] }) => void)(form, { path: first.path })

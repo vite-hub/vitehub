@@ -224,7 +224,6 @@ async function createSession(
         },
       });
     }
-    // Project files exist only after checkout. The toolchain must precede requirement checks.
     const toolchain = input.toolchain
       ? await provisionTrustedHostToolchain(input.toolchain, checkout ?? input.cwd ?? root, options.stateRoot, env, createOptions.abortSignal)
       : undefined;
@@ -232,8 +231,6 @@ async function createSession(
       env,
       home,
       async release() {
-        // Roll back only after destroy has confirmed process teardown,
-        // while the state lease is still held, including on background retries.
         if (initializationFailed) {
           await Promise.all(initializedState.map(path => rm(path, { force: true, recursive: true }).catch(() => undefined)));
         }
@@ -264,8 +261,6 @@ async function createSession(
       try {
         await session.destroy?.();
       } catch {
-        // Keep the session, state and lease owned across cleanup retries. This
-        // covers teardown failures during failed initialization.
         void retrySessionDestroy(session);
       }
     }
@@ -286,16 +281,12 @@ async function retrySessionDestroy(session: TrustedHostSession): Promise<void> {
   while (true) {
     await new Promise<void>((resolvePromise) => {
       const timer = setTimeout(resolvePromise, 250);
-      // Cleanup is best-effort after initialization failed. Do not let an
-      // unbounded retry loop keep an otherwise idle process alive forever.
       timer.unref?.();
     });
     try {
       await session.destroy?.();
       return;
-    } catch {
-      // Keep the lease until cleanup succeeds.
-    }
+    } catch {}
   }
 }
 
@@ -494,8 +485,6 @@ async function createTrustedHostSession(options: {
       try {
         await attempt;
       } catch (error) {
-        // A rejected attempt must never poison future retries. Keep an
-        // in-flight attempt shared, but allow the next call to rebuild it.
         if (destroyPromise === attempt) destroyPromise = undefined;
         throw error;
       }
@@ -591,13 +580,10 @@ async function createTrustedHostSession(options: {
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
       runOptions.abortSignal?.throwIfAborted();
-      // No await may separate this fence from launch and process registration.
-      // Teardown either owns the registered child or prevents its launch.
       if (closing) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_CLOSING();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
-        // The marker finds commands that leave their process group, for example with setsid.
         env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, [sessionEnvironmentKey]: options.root },
         shell: true,
       });
@@ -904,9 +890,6 @@ function processHandle(
       else resolvePromise({ exitCode: code ?? 1 });
     });
   });
-  // A background caller may not await immediately. Observe rejection now so
-  // cancellation and spawn failures cannot become process-level unhandled
-  // rejections before the caller reaches wait().
   void wait.catch(() => undefined);
   if (abortSignal?.aborted) abort();
   let stdin: WritableStream<Uint8Array> | undefined;
@@ -933,7 +916,6 @@ function processHandle(
         await Promise.race([
           gracePeriod,
           settled.then(() => {
-            // The leader can exit while descendants still need termination.
             if (child.pid && process.platform !== "win32" && processGroupExists(child.pid))
               return gracePeriod;
           }),
