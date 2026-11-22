@@ -118,7 +118,6 @@ interface RuntimeCommandOptions {
   command: string;
   env?: Record<string, string>;
   timeout?: number;
-  /** Spawn only: keep process input open for runtimes that forward it on request. */
   stdin?: boolean;
   workingDirectory?: string;
 }

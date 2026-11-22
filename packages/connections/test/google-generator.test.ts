@@ -67,11 +67,9 @@ it("generates required document fields, nested fields, and method parameters of 
     expect(output).toContain("body: GmailRequest")
     expect(output).toContain('"users.messages.get": {\n    method: "GET"')
     expect(output).toContain('"users.messages.send": {\n    method: "POST"')
-    // Gmail types only the allowed resources and the schemas they reach. `fetch()` reaches the rest.
     expect(output).not.toContain("users.settings.getImap")
     expect(output).not.toContain("GmailImapSettings")
     expect(output).not.toContain("GmailUnused")
-    // Discovery returns properties in any order. The output sorts them.
     expect(output.indexOf("explicitOptional?: string")).toBeLessThan(output.indexOf("fieldId: string"))
   }
   finally {

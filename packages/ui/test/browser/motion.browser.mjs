@@ -120,7 +120,6 @@ async function sample(page, testId) {
   return { stop: () => page.evaluate(() => window.stopSample()) }
 }
 
-/** The box of an element after it is scrolled into view, so the mouse can reach it on a page that grows with each unit. */
 async function boxInView(locator) {
   await locator.scrollIntoViewIfNeeded()
   return locator.boundingBox()

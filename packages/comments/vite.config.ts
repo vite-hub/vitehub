@@ -2,6 +2,8 @@ import { defineConfig } from "vite-plus"
 
 import { browserTarget, normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
+import { motionCore } from "./overlay.aliases.ts"
+
 export default defineConfig({
   pack: [
     {
@@ -38,6 +40,7 @@ export default defineConfig({
     },
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`. It has its own build, so it shares no chunk with the overlay.
+      alias: { "@vite-hub/ui/motion/core": motionCore },
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "page/loader": "src/overlay/loader.ts" },

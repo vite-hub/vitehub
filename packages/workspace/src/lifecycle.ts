@@ -253,7 +253,6 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
           }
         })
       })
-      // Build output must take the checkpointed writes above, one file at a time.
       if (property === "writeFiles") return undefined
       return Reflect.get(target, property, target)?.bind(target)
     },

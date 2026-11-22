@@ -1,24 +1,13 @@
-// Checks the env values of a running Console build through HTTP, on the database of its host. scripts/host-smoke.mjs
-// runs them on each host in three starts: values off (the config of console.vitehub.dev), values on, and values on with
-// another key.
-//
-// A smoke cannot sign in with a passkey, so `seedOwner()` writes a person, a team, a member, and two API keys straight
-// into the Console database. Only the SQL runner differs between hosts. The keys and the env keys are new on each run.
 import { createHash, randomBytes, randomUUID } from "node:crypto"
 
 import { check, json, request } from "./smoke.mjs"
 
-/** A new env key for one run: 32 random bytes as 64 hex digits. */
 export const envKey = () => randomBytes(32).toString("hex")
 
 const apiKey = () => `vhk_${randomBytes(32).toString("base64url")}`
 const literal = value => value === null ? "NULL" : typeof value === "number" ? String(value) : `'${String(value).replaceAll("'", "''")}'`
 const insert = (table, row) => `INSERT INTO "${table}" (${Object.keys(row).map(name => `"${name}"`).join(", ")}) VALUES (${Object.values(row).map(literal).join(", ")});`
 
-/**
- * Write an owner and a member of a new team, and one API key for each, with `sql(text)`. Run it after the migrations.
- * Returns what the checks need: the keys, and a context that the checks fill in, such as the linked project.
- */
 export async function seedOwner(sql) {
   const run = randomUUID().slice(0, 8)
   const now = Date.now()
@@ -63,7 +52,6 @@ function problem(result, status, code, what) {
   check(json(result.text, what).code === code, `${what} answered ${result.text.slice(0, 300)}, not ${code}`)
 }
 
-/** With values off, which is the config of console.vitehub.dev. */
 export const envOffChecks = [
   ["links a project with an owner API key", async (base, ctx) => {
     const linked = await call(base, ctx.ownerKey, "POST", "/api/projects", { label: "Host smoke", url: "https://host-smoke.example.com" })
@@ -80,13 +68,11 @@ export const envOffChecks = [
     ]) {
       const result = await call(base, ctx.ownerKey, method, path, body)
       problem(result, 404, "CONSOLE_ENV_VALUES_OFF", `${method} ${path}`)
-      // Every Console runs this code, so the message speaks about this Console only.
       check(!result.text.includes("console.vitehub.dev"), `${method} ${path} speaks about console.vitehub.dev: ${result.text}`)
     }
   }],
 ]
 
-/** With values on. `sql(text)` reads the host database, to check what it holds. */
 export const envOnChecks = [
   ["lists the stages, and no value that was sent while values were off", async (base, ctx) => {
     const stages = await call(base, ctx.ownerKey, "GET", env(ctx))
@@ -132,7 +118,6 @@ export const envOnChecks = [
     const activity = await call(base, ctx.ownerKey, "GET", env(ctx, "production", "SMOKE_TOKEN", "activity"))
     check(activity.response.status === 200, `GET activity answered ${activity.response.status}: ${activity.text.slice(0, 300)}`)
     const events = json(activity.text, "GET activity").events ?? []
-    // Newest first: the reveal writes `started` before the read and `succeeded` before the value leaves.
     const rows = events.map(event => `${event.action}:${event.outcome}`)
     check(JSON.stringify(rows) === JSON.stringify(["resolve:succeeded", "resolve:started", "replace:succeeded"]), `the activity of SMOKE_TOKEN has ${JSON.stringify(rows)}`)
     check(events[0].operationId === events[1].operationId, "the started and succeeded rows of the reveal have different operation ids")
@@ -158,7 +143,6 @@ export const envOnChecks = [
   }],
 ]
 
-/** With values on and only another key: the names still list, and no value opens. */
 export const envOtherKeyChecks = [
   ["lists the names, and answers CONSOLE_ENV_KEY_MISSING for a value that another key sealed", async (base, ctx) => {
     const listed = await call(base, ctx.ownerKey, "GET", env(ctx, "preview"))

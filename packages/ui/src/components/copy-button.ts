@@ -122,7 +122,6 @@ export const CopyButton = defineComponent({
     // SAFETY: Vue's runtime constructors cannot express the function's return type.
     value: { required: true, type: [String, Function] as PropType<CopyValue> },
     label: { default: undefined, type: String },
-    /** The label for `duration` ms after a copy, when the button has a label. */
     copiedLabel: { default: "Copied", type: String },
     /** The icon before a copy, such as `i-lucide-link` for a link. Defaults to the theme's `copy` icon. */
     icon: { default: undefined, type: String },
@@ -188,8 +187,6 @@ export const CopyButton = defineComponent({
       else emit("error");
     }
 
-    // One icon slot for every state: the copy icon, the spinner while a text loads, and the check. The swap blurs the
-    // old icon out, and the spinner and the check draw their stroke in.
     const leading = ({ ui }: ButtonLeadingSlotProps) => {
       const iconClass = ui?.leadingIcon?.({ class: leadingIconClass(attrs.ui) });
       const [name, enter] = loading.value
@@ -206,7 +203,6 @@ export const CopyButton = defineComponent({
         "data-slot": attrs["data-slot"] ?? "copy-button",
         // The slot draws the icons. The button still needs `icon` to lay out the leading icon and its loading icon.
         icon: copied.value ? icons.value.copyCheck : props.icon ?? icons.value.copy,
-        // The layer's label effect morphs the label of the button letter by letter.
         label: props.label && copied.value ? props.copiedLabel : props.label,
         disabled: loading.value || attrs.disabled,
         size: props.size,

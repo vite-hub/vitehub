@@ -149,7 +149,6 @@ describe("package task runner", { timeout: 60_000 }, () => {
       name: "@fixture/shared",
       scripts: { build: "vp pack shared" },
     }))
-    // Not a dependency of compound, so only a leading build task selects it.
     const toolDir = join(workspace, "packages/tool")
     await mkdir(toolDir, { recursive: true })
     await writeFile(join(toolDir, "package.json"), JSON.stringify({

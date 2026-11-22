@@ -73,8 +73,6 @@ const availableSections = computed(() =>
     return details ? [{ id: section, ...details }] : [];
   }),
 );
-// One card per section, in the order of the sidebar groups. A card shows a number only when the app reported one:
-// today that is the open threads of Comments, from `project.get`.
 const sectionCards = computed(() =>
   groupConsoleSections(availableSections.value).flat().map((section) => {
     const metric = section.id === "comments" && projects.info.value?.comments
@@ -98,7 +96,6 @@ const sessionItems = computed(() =>
     time: recentTimestamp(item.updatedAt, sessionsLoadedAt.value),
   })),
 );
-/** The primitives that the Add a primitive dialog offers. With none left, the Overview hides its button. */
 const addablePrimitives = computed(() => consoleAddablePrimitives(sections.value));
 
 async function loadRecentSessions(): Promise<void> {

@@ -22,17 +22,11 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
-// The drag handle ships on its own release line, so it gets its own installed version.
 const markdownEditorDragHandlePeers = ["@tiptap/extension-drag-handle", "@tiptap/extension-drag-handle-vue-3"]
 const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/schema", "@nuxt/ui", ...markdownEditorTiptapPeers, ...markdownEditorDragHandlePeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "nuxt", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-// ProseMirror's package has no root export; probe the entry used by the editor.
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
-// Every fixture and export runs in its own child process. Independent fixtures
-// run side by side, bounded by the CPU count so CI runners are not overloaded.
 const parallelism = availableParallelism()
 const processSlots = createLimit(parallelism)
-// Start the packages with the most exports first, so the largest package does
-// not run alone at the end.
 const packagesByExportCount = [...packageInfos].sort((left, right) =>
   exportCount(right.packageName) - exportCount(left.packageName),
 )
@@ -58,8 +52,6 @@ function createLimit(limit: number) {
   }
 }
 
-// Wait for every task before reporting a failure, so cleanup never removes a
-// fixture that a sibling task still uses.
 async function settled<T>(tasks: Iterable<Promise<T>>) {
   const results = await Promise.allSettled(tasks)
   return results.map((result) => {
@@ -68,7 +60,6 @@ async function settled<T>(tasks: Iterable<Promise<T>>) {
   })
 }
 
-// A `.iife.js` target is a classic script that pages embed as text, checked with the static assets.
 function isJavaScriptModule(target: string) {
   return (target.endsWith(".js") && !target.endsWith(".iife.js")) || target.endsWith(".mjs")
 }
@@ -109,16 +100,11 @@ async function run(command: string, args: string[], cwd: string) {
 
 async function workspaceConfig(specs: Record<string, string>) {
   const nuxtUi = createRequire(await realpath(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")))
-  // Keep Nuxt UI and Reka UI on the tested virtualizer: a fresh resolution can
-  // select a Vue adapter before its exact virtual-core dependency is published.
   const overrides = Object.entries({
     ...specs,
-    // Keep Nuxt UI on its tested Tailwind adapter; new releases can precede their exact Oxide dependency.
     "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
-    // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
     "mdast-util-gfm-table": "2.0.0",
-    // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
     "msgpackr@^2": "2.1.0",
     "msgpackr-extract": "3.0.4",
   })
@@ -150,7 +136,6 @@ async function requiredPeerSpecs() {
     ...browserCatalog,
     ...chatCatalog,
     ...await catalogDependencySpecs("nuxt", ["nuxt"]),
-    // Content and Realtime take the app's Tiptap and Yjs as peers, so the app has one copy of each.
     ...await catalogDependencySpecs("realtime", ["@tiptap/core", "@tiptap/extension-blockquote", "@tiptap/extension-code", "@tiptap/extension-document", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/markdown", "@tiptap/pm", "@tiptap/starter-kit", "yjs"]),
     ...await catalogDependencySpecs("runtime", ["zod"]),
     ...vercelCatalog,
@@ -211,8 +196,6 @@ async function packPublicPackages(packDir: string) {
   const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
   const specs = await settled(packageInfos.map(async (info) => {
     const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
-      // Each package packs into its own directory, so concurrent packs cannot
-      // claim each other's tarball.
       const destination = join(packDir, info.name)
       await mkdir(destination)
       await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", destination], repoRoot)
@@ -314,8 +297,6 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   await settled(specifiers.map(async (specifier) => {
-    // Vite provides this side-effect module when it compiles the Vue entry. The
-    // package's Vue app test exercises the generated config and catalog loaders.
     const withI18nClient = specifier === "@vite-hub/i18n/vue" || specifier === "vite-hub/i18n/vue"
     const script = [
       ...(withCloudflareHost || withI18nClient
@@ -334,8 +315,6 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[], w
   }))
 }
 
-// Each consumer hides root dependencies for one package at a time, so the
-// packages are spread over several identical consumers.
 async function importPackagesWithoutRootFallback(appDirs: readonly string[], includeOptionalPeers: boolean) {
   const pending = [...packagesByExportCount]
   await settled(appDirs.map(async (appDir) => {
@@ -355,10 +334,6 @@ async function importPackageWithoutRootFallback(
   const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
     !manifest.peerDependenciesMeta?.[name]?.optional,
   )
-  // Keep the package's published runtime closure available while root
-  // dependencies are hidden. Isolated package links resolve dependencies
-  // through the consumer root, so removing these entries makes pnpm fetch
-  // first-party packages from the registry instead of the packed tarballs.
   const runtimeDependencies = [
     ...Object.keys(manifest.dependencies || {}),
     ...Object.keys(manifest.optionalDependencies || {}),
@@ -413,7 +388,6 @@ function optionalContractPeers(packageName: string) {
   return [...new Set(publicPackageExportContracts
     .filter(contract => contract.packageName === packageName)
     .flatMap((contract) => {
-      // Facade pass-through exports also need the optional peers of their owner.
       const owner = packageName === "vite-hub"
         ? publicPackageExportContracts.find(candidate => candidate.specifier === contract.specifier.replace(/^vite-hub\//, "@vite-hub/"))
         : undefined
@@ -512,7 +486,6 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
 
 type PackedManifests = Map<string, InferOutput<typeof packageManifestSchema>>
 
-// Read each packed manifest once, before the fixtures queue their installs.
 async function readPackedManifests(specs: Record<string, string>): Promise<PackedManifests> {
   return new Map(await settled(Object.entries(specs).map(async ([packageName, spec]) => {
     const { stdout } = await run("tar", ["-xOf", spec.slice("file:".length), "package/package.json"], repoRoot)
@@ -520,12 +493,6 @@ async function readPackedManifests(specs: Record<string, string>): Promise<Packe
   })))
 }
 
-// Walk only the package under test and its reachable first-party edges.
-// Packed manifests can gain runtime edges during the build (for example,
-// Agent's Forge adapter), so the closure must follow every source edge
-// while keeping unrelated tarballs out of the isolated fixture. A required
-// first-party peer of a dependency (Comments needs Database) must be in the
-// fixture too, or pnpm looks for an unpublished version on the registry.
 async function workspaceDependencyClosure(packageName: string, specs: Record<string, string>, packedManifests: PackedManifests) {
   const workspaceDependencies = new Set<string>()
   const pending = [packageName]
@@ -600,7 +567,6 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
   }))
 }
 
-// The copy installs from the consumer's lockfile, so it has the same layout.
 async function cloneConsumer(appDir: string, cloneDir: string) {
   await mkdir(cloneDir)
   await Promise.all([".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"].map(file =>
@@ -691,11 +657,7 @@ async function typecheckPackageExports(packageName: string, runnerDir: string, i
       && (includeOptionalPeers || contract.optionalDeclarationPeers.length === 0),
     )
     .map((contract, index) => ({ contract, index }))
-  // Every export of a package shares one declaration closure. One program per
-  // compiler configuration checks that closure once instead of once per export.
   const groups = Map.groupBy(modules, ({ contract }) => {
-    // Virtual exports load ambient module declarations. Keep them isolated so
-    // a sibling export cannot make a missing declaration appear available.
     const isolation = contract.specifier.endsWith("/virtual") ? contract.specifier : "shared"
     return `${usesNodeDeclarationTypes(contract)}:${usesCloudflareHost(contract)}:${isolation}`
   })

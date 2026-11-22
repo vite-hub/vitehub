@@ -357,7 +357,6 @@ const envGet = defineConsoleOperation({
 })
 
 const invocationsList = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "List Agent Invocations, newest first.",
   input: v.strictObject({ agent: optionalText, capability: optionalText, cursor: optionalText, id: v.optional(v.array(text)), limit: optionalCount, triggeredBy: optionalText }),
@@ -368,7 +367,6 @@ const invocationsList = defineConsoleOperation({
 })
 
 const invocationsGet = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "Read one Agent Invocation with its observations.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)), observationCount: optionalCount, observationCursor: optionalText }),
@@ -379,7 +377,6 @@ const invocationsGet = defineConsoleOperation({
 })
 
 const invocationsCancel = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "Ask a running Agent Invocation to stop.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
@@ -390,7 +387,6 @@ const invocationsCancel = defineConsoleOperation({
 })
 
 const invocationsUndo = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "Ask the person's open page to put back one change an Agent made there. The page restores it only while the field still shows the Agent's value.",
   input: v.strictObject({ change: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)) }),
@@ -401,7 +397,6 @@ const invocationsUndo = defineConsoleOperation({
 })
 
 const invocationsDelete = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "Delete one finished Agent Invocation.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
@@ -412,7 +407,6 @@ const invocationsDelete = defineConsoleOperation({
 })
 
 const invocationsCapabilities = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "List the capabilities of an Agent Invocation setup.",
   input: v.strictObject({ agent: optionalText }),
@@ -423,7 +417,6 @@ const invocationsCapabilities = defineConsoleOperation({
 })
 
 const invocationsWorkspace = defineConsoleOperation({
-  // `vitehub agent invocations` calls it.
   cli: false,
   description: "Read the Workspace files and history of one Agent Invocation.",
   input: v.strictObject({ cursor: optionalText, history: v.optional(v.boolean()), id: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
@@ -534,7 +527,6 @@ const skillsInspect = defineConsoleOperation({
 })
 
 const statusGet = defineConsoleOperation({
-  // `vitehub agent get <name>` reads it with --url.
   cli: false,
   description: "Read the status of an Agent: its setup and what it can do.",
   input: v.strictObject({ agent: optionalText }),

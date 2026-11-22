@@ -1,5 +1,3 @@
-// Generate a typed Google API catalog from a Discovery document.
-// Usage: node scripts/generate-google.ts gmail v1
 import { writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import * as v from "valibot"
@@ -112,13 +110,11 @@ function type(schema: DiscoverySchema, indent: string): string {
 }
 
 function isRequiredProperty(schema: DiscoverySchema): boolean {
-  // Gmail marks required body fields with "Required." when the Discovery flag is absent.
   return schema.required ?? schema.description?.startsWith("Required.") ?? false
 }
 
 function objectType(properties: Record<string, DiscoverySchema>, indent: string, required: readonly string[] = []): string {
   const inner = `${indent}  `
-  // Discovery returns properties in a different order on each request. Sort them so the output is stable.
   const lines = Object.entries(properties).sort(([left], [right]) => left.localeCompare(right)).flatMap(([name, schema]) => [
     ...summary(schema.description, inner),
     `${inner}${/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name)}${required.includes(name) || isRequiredProperty(schema) ? "" : "?"}: ${schema.repeated ? `Array<${type(schema, inner)}>` : type(schema, inner)}`,
@@ -126,10 +122,6 @@ function objectType(properties: Record<string, DiscoverySchema>, indent: string,
   return lines.length ? `{\n${lines.join("\n")}\n${indent}}` : "Record<string, never>"
 }
 
-/**
- * The methods to type, as method ids or resource paths. A Connection still reaches every other endpoint of the API
- * with `fetch()`. An API without an entry gets every method.
- */
 const typedResources: Record<string, readonly string[]> = {
   gmail: ["users.drafts", "users.getProfile", "users.history", "users.labels", "users.messages", "users.settings.filters", "users.threads"],
 }
@@ -147,7 +139,6 @@ const methods = typed
   : discovered
 methods.sort((left, right) => left.id.localeCompare(right.id))
 
-/** The schemas that the typed methods reach. The output leaves out the others. */
 const schemas = new Set<string>()
 function reach(schema: DiscoverySchema | undefined): void {
   if (!schema) return

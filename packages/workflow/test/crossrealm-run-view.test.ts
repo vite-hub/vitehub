@@ -15,7 +15,6 @@ describe("workflow run view cross realm response probe", () => {
     `,
       { NativeResponse },
     )
-    // Inject the platform implementation into the VM and use a distinct local constructor.
     class LocalResponse extends NativeResponse {}
     Object.defineProperties(LocalResponse.prototype, Object.getOwnPropertyDescriptors(NativeResponse.prototype))
     vi.stubGlobal("Response", LocalResponse)

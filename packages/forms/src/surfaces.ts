@@ -34,7 +34,6 @@ function elicitationProperty(field: FormField): ElicitationProperty {
   const base = { title: field.label, ...(field.description ? { description: field.description } : {}) }
   if (field.options) {
     const options = field.options
-    // MCP enums hold text only. A choice of numbers would come back as text that the schema refuses.
     if (!options.every((option): option is string => typeof option === "string")) throw unsupportedField({ field: field.name, found: "a choice of numbers" }, "An MCP elicitation", elicitationTakes)
     return { type: "string", ...base, enum: [...options] }
   }
@@ -167,7 +166,6 @@ export function toChatModal(source: FormSource, options: ChatModalOptions): Form
 export async function readChatModal<TSchema extends StandardSchemaV1>(source: FormSource<TSchema>, values: Record<string, string | undefined>): Promise<[FormSubmitError, undefined] | [undefined, StandardSchemaV1.InferOutput<TSchema>]> {
   const data: Record<string, unknown> = {}
   for (const field of formFields(source)) {
-    // Text keeps an empty answer, as a web form sends it. An empty number or choice is a field that the person left out.
     const value = decodeFieldValue(field, values[field.name])
     if (value !== undefined) data[field.name] = value
   }

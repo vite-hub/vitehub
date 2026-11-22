@@ -1,6 +1,4 @@
 // @vitest-environment happy-dom
-// The N4 check: one schema renders as a web form, an MCP elicitation, a Slack modal, and a Teams dialog, and the
-// same values give the same errors on every surface.
 import { createHmac } from "node:crypto"
 
 import { createSlackAdapter } from "@chat-adapter/slack"
@@ -26,7 +24,6 @@ const ValibotFeedback = v.object({
   followUp: v.optional(v.boolean()),
 })
 
-// An Agent tool input is a plain Standard Schema with a Standard JSON Schema, such as a Zod object.
 const ZodFeedback = z.object({
   email: z.email("Enter a valid email."),
   topic: z.enum(["bug", "idea"]),
@@ -44,7 +41,6 @@ const cases: [string, Values, Record<string, string>][] = [
   ["two bad fields", { ...valid, email: "ada", rating: 9 }, { email: "Enter a valid email.", rating: "Pick 1 to 5." }],
 ]
 
-/** A surface takes values the way a person enters them there, and returns the error of each field, or the stored data. */
 type Surface = (form: FormDefinition, values: Values) => Promise<{ errors: Record<string, string>, data?: unknown, payload: unknown }>
 
 let cleanup: (() => void) | undefined
@@ -60,7 +56,6 @@ async function settle() {
   await nextTick()
 }
 
-// A native <form> drawn from the same fields, sent with useFormAction() to handleFormRequest().
 const web: Surface = async (form, values) => {
   const store = createMemoryFormsStore()
   const bodies: string[] = []
@@ -109,7 +104,6 @@ const web: Surface = async (form, values) => {
   return { errors, data: (await store.list())[0]?.data, payload: bodies[0] }
 }
 
-// The MCP client shows `requestedSchema`, and answers `{ action: "accept", content }`.
 const mcp: Surface = async (form, values) => {
   const request = toElicitation(form, { message: "Tell us how it went." })
   const [error, result] = await readElicitation(form, { action: "accept", content: values })
@@ -122,13 +116,11 @@ function slackSignature(secret: string, timestamp: string, body: string): string
 
 type SlackBlock = { type: string, block_id?: string, element?: { type: string, action_id: string } }
 
-/** A ChatInstance that hands a modal submission to the app's `onModalSubmit()` handler, as `new Chat()` does. */
 function chatWith(handler: (event: ModalSubmitEvent) => Promise<ModalResponse | undefined>): ChatInstance {
   // SAFETY: the Slack adapter calls only `processModalSubmit()` for a view submission.
   return { processModalSubmit: (event: ModalSubmitEvent) => handler(event) } as unknown as ChatInstance
 }
 
-// The Chat SDK Slack adapter: `views.open` with the modal, then a signed `view_submission` webhook.
 const slack: Surface = async (form, values) => {
   const signingSecret = "test-secret"
   const adapter = createSlackAdapter({ botToken: "xoxb-test", signingSecret })
@@ -164,7 +156,6 @@ const slack: Surface = async (form, values) => {
   return { errors: answer.errors ?? {}, data, payload: view }
 }
 
-// The Chat SDK Teams adapter draws the same modal as an Adaptive Card dialog, and parses its submit data.
 const teams: Surface = async (form, values) => {
   const card = modalToAdaptiveCard(toChatModal(form, { callbackId: "feedback", title: "Feedback" }))
   const submitted = parseTeamsDialogSubmitValues({ __callbackId: "feedback", ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, String(value)])) })

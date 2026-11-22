@@ -79,6 +79,15 @@ The same rules apply during discovery and to `opened`, `labeled`, and
 resume work. Use `lifecycle.labels` for lifecycle control and `filter.labels`
 for selection, rather than configuring both on one Babysitter.
 
+`lifecycle.approval: true` also selects a pull request that the author allow
+lists leave out, such as an outside contributor's, once a reviewer with write
+access approves its current head. Approving is then the only step: the
+Babysitter repairs the PR and merges it. The approval carries over to heads the
+Babysitter builds on the approved commit, so its own repairs need no new
+review. A push by anyone else drops the PR until the next approval. The
+Babysitter pushes to a fork's branch with its base repository's App
+installation, which GitHub allows when the author lets maintainers edit the PR.
+
 With only `filter.repository.allow`, the Babysitter serves pull requests whose
 author is an owner, member, or collaborator, skips those labelled
 `babysitter:skip`, and merges ready ones directly. A direct merge holds a pull
@@ -149,7 +158,8 @@ reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can
 add a policy, such as a required approval check; return `true` or a reason. Any
 other result runs a normal repair pass. `ready: "approved-if-outside"` merges a
 PR from an author without write access only after a reviewer with write access
-approves its current head and no such reviewer's latest review requests changes.
+approves its current head, or a head that the Babysitter built on the approved
+commit, and no such reviewer's latest review requests changes.
 `trustedAuthors`, such as `["renovate[bot]"]`, lets those authors through that
 gate without an approval. A bot entry needs its `[bot]` suffix and matches only a
 bot account.

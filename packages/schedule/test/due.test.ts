@@ -10,7 +10,6 @@ function schedule(cron: string, timeZone?: string): ScheduleCronRecord {
   return { cron, id: "madrid", ...(timeZone ? { timeZone } : {}) }
 }
 
-/** Every due minute from `from` (inclusive) to `to` (exclusive), as ISO strings. */
 function dueMinutes(record: ScheduleCronRecord, from: string, to: string): string[] {
   const due: string[] = []
   for (let time = Date.parse(from); time < Date.parse(to); time += minuteMs) {
@@ -19,7 +18,6 @@ function dueMinutes(record: ScheduleCronRecord, from: string, to: string): strin
   return due
 }
 
-/** The first due minute after `after`, within three days. */
 function nextDueMinute(record: ScheduleCronRecord, after: string): Date | undefined {
   for (let time = Date.parse(after) + minuteMs; time <= Date.parse(after) + 3 * 24 * 60 * minuteMs; time += minuteMs) {
     if (isScheduleDue(record, new Date(time))) return new Date(time)
@@ -71,7 +69,6 @@ describe("cron evaluation in a time zone", () => {
   })
 
   it("runs a local time that the spring-forward day skips once, shifted by the gap", () => {
-    // Madrid moves from 02:00 CET to 03:00 CEST at 01:00Z, so 02:30 does not occur on 2026-03-29. It runs at 03:30 CEST.
     const missing = schedule("30 2 * * *", "Europe/Madrid")
     expect(dueMinutes(missing, "2026-03-28T23:00:00Z", "2026-03-29T22:00:00Z")).toEqual(["2026-03-29T01:30:00.000Z"])
     expect(nextDueMinute(missing, "2026-03-28T02:00:00Z")).toEqual(new Date("2026-03-29T01:30:00Z"))
@@ -89,7 +86,6 @@ describe("cron evaluation in a time zone", () => {
   })
 
   it("follows both transitions in New York", () => {
-    // New York moves from 02:00 EST to 03:00 EDT at 07:00Z on 2026-03-08, and from 02:00 EDT to 01:00 EST at 06:00Z on 2026-11-01.
     const skipped = schedule("30 2 * * *", "America/New_York")
     expect(dueMinutes(skipped, "2026-03-08T00:00:00Z", "2026-03-09T00:00:00Z")).toEqual(["2026-03-08T07:30:00.000Z"])
     const repeated = schedule("30 1 * * *", "America/New_York")
@@ -99,8 +95,6 @@ describe("cron evaluation in a time zone", () => {
   })
 
   it("follows a 30-minute daylight saving time shift in Lord Howe", () => {
-    // Lord Howe moves from 02:00 +10:30 to 02:30 +11:00 at 15:30Z on 2026-10-03, and from 02:00 +11:00 back to
-    // 01:30 +10:30 at 15:00Z on 2026-04-04, so 01:45 occurs at 14:45Z and again at 15:15Z.
     const skipped = schedule("15 2 * * *", "Australia/Lord_Howe")
     expect(dueMinutes(skipped, "2026-10-03T12:00:00Z", "2026-10-04T12:00:00Z")).toEqual(["2026-10-03T15:45:00.000Z"])
     const repeated = schedule("45 1 * * *", "Australia/Lord_Howe")
@@ -108,7 +102,6 @@ describe("cron evaluation in a time zone", () => {
   })
 
   it("runs a fixed local time once when the fall-back day repeats it", () => {
-    // Madrid moves from 03:00 CEST to 02:00 CET at 01:00Z, so 02:30 occurs at 00:30Z and again at 01:30Z.
     const repeated = schedule("30 2 * * *", "Europe/Madrid")
     expect(dueMinutes(repeated, "2026-10-24T22:00:00Z", "2026-10-25T23:00:00Z")).toEqual(["2026-10-25T00:30:00.000Z"])
     expect(nextDueMinute(repeated, "2026-10-25T00:30:00Z")).toEqual(new Date("2026-10-26T01:30:00Z"))

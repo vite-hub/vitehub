@@ -35,7 +35,6 @@ export const CommentFilters = defineComponent({
             size: "xs",
             variant: comments.filters[key] ? "soft" : "ghost",
           },
-          // A count rolls its digits when it changes.
           count === undefined ? undefined : { default: () => [`${label} `, h(RollNumber, { value: count })] },
         );
       return h("div", { "aria-label": "Filter comments", "data-slot": "comment-filters", role: "group" }, [

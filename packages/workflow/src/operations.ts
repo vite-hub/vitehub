@@ -5,17 +5,13 @@ import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/opera
 import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunView, WorkflowSignalResult } from "./results.ts"
 import type { WorkflowRunStatus } from "./types.ts"
 
-// The runtime module reads the Workflow state of the app, which only exists in the Nitro runtime. The operations load it
-// when they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const name = v.pipe(v.string(), v.check(value => value.trim() !== "", "Name a Workflow."))
 const runId = v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the id of a run."))
-// A payload can be larger than the default request limit of a call.
 const maxRequestBytes = 1024 * 1024
 
 function defineWorkflowOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The Console section is `workflows`. The commands are `vitehub workflow <verb>`. The runtime never reads the user.
   return defineOperation({ ...definition, cli: { namespace: "workflow", ...definition.cli }, section: "workflows", user: false })
 }
 

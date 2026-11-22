@@ -29,7 +29,6 @@ describe("hubSource app base", () => {
   })
 
   it.each([
-    // Nuxt serves Vite assets from /_nuxt/ and passes the app base separately.
     [{ base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" }, "/"],
     [{ base: "/portal/" }, "/portal/"],
   ])("defines the app base URL from %j", async (options, expected) => {

@@ -21,8 +21,6 @@ export function diffText(from: string, to: string): TextDiff {
   return { kept: a.slice(0, index).join(""), gone: a.slice(index).join(""), typed: b.slice(index).join("") };
 }
 
-// The numbers of the prototype's `retype()`: a letter blurs 6px, leaves in 200ms 30ms after the one before it, and
-// types in over 240ms, 55ms after the one before it. A label crossfades in 150ms under reduced motion.
 const blur = 6;
 const leave = { duration: 200, stagger: 30 };
 const type = { duration: 240, lead: 30, stagger: 55 };
@@ -31,10 +29,8 @@ const crossfade = 150;
 interface Letter {
   node: HTMLSpanElement;
   char: string;
-  /** 1 when the letter shows, 0 when it is gone. */
   shown: number;
   fade?: Tween;
-  /** The letter waits for its turn to type in. */
   waiting: boolean;
 }
 
@@ -93,12 +89,23 @@ export function discardMorph(element: HTMLElement): void {
  *
  * Call it again at any time: a new text continues from the letters on screen. The element keeps the final text for
  * screen readers during the morph, and holds plain text again when it ends. Under reduced motion the two texts
- * crossfade in 150ms. Inside `data-motion="none"`, or before the element is on the page, it sets the text at once.
+ * crossfade in 150ms. Inside `data-motion="none"`, or when the element has no layout, it sets the text at once.
  *
  * Give it an element of its own with no padding, such as the label `<span>` of a button.
  */
 export function morphText(element: HTMLElement, text: string): void {
   morph(element, text, undefined);
+}
+
+function hasLayout(element: Element): boolean {
+  let node: Element | null = element;
+  while (node) {
+    if (node.getClientRects().length) return true;
+    if (getComputedStyle(node).display !== "contents") return false;
+    const root = node.getRootNode();
+    node = node.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+  }
+  return false;
 }
 
 /**
@@ -108,7 +115,7 @@ export function morphText(element: HTMLElement, text: string): void {
 export function morph(element: HTMLElement, text: string, from: string | undefined): void {
   let current = morphs.get(element);
   const before = current?.text ?? from ?? element.textContent ?? "";
-  if ((!current && before === text) || glyphMotionSkipped(element)) {
+  if ((!current && before === text) || glyphMotionSkipped(element) || !hasLayout(element)) {
     if (current) {
       stopAll(current);
       morphs.delete(element);
@@ -137,7 +144,6 @@ export function morph(element: HTMLElement, text: string, from: string | undefin
   state.frame.name(text);
 
   if (reducedMotion) {
-    // A crossfade: every old letter fades where it is, and the new text fades in as one word.
     leaveLetters(state, state.letters, true);
     state.letters = [...text].map((char): Letter => {
       const letter: Letter = { node: letterNode(char), char, shown: 0, waiting: false };
@@ -150,14 +156,12 @@ export function morph(element: HTMLElement, text: string, from: string | undefin
     return;
   }
 
-  // The letters on screen, in order. A letter that waits to type in counts as typed, so a shared start keeps it.
   const shownText = state.letters.map(letter => letter.char).join("");
   const diff = diffText(shownText, text);
   const keptCount = [...diff.kept].length;
   const kept = state.letters.slice(0, keptCount);
   leaveLetters(state, state.letters.slice(keptCount), false);
 
-  // Letters that still wait type in again with the new ones, so the typing continues from where it is.
   const typing = [...kept.filter(letter => letter.waiting), ...[...diff.typed].map((char): Letter => {
     const letter: Letter = { node: letterNode(char), char, shown: 0, waiting: true };
     paint(letter, 0, false);
@@ -170,8 +174,6 @@ export function morph(element: HTMLElement, text: string, from: string | undefin
     width.to(end);
     return;
   }
-  // The width grows letter by letter. The first step does not shrink the element below where it is, unless it ends
-  // smaller, so a label that loses letters and gains others does not pinch in between.
   const start = width.value;
   let step = end - typing.reduce((sum, letter) => sum + letter.node.offsetWidth, 0);
   const slow = getMotionSlowFactor();
@@ -199,7 +201,6 @@ function fadeIn(element: HTMLElement, state: Morph, letter: Letter, from: number
 
 function leaveLetters(state: Morph, letters: Letter[], reducedMotion: boolean): void {
   const element = state.frame.element;
-  // Read every position before the first letter leaves the flow.
   const placed = letters.map(letter => ({ letter, left: letter.node.offsetLeft, top: letter.node.offsetTop }));
   let order = 0;
   for (const { letter, left, top } of placed) {

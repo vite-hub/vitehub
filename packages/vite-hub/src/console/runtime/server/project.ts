@@ -83,9 +83,6 @@ export async function readConsoleProject(context: OperationContext & { access: C
   return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }
 
-/**
- * Use the same list operation and caller as the inbox. If the list fails, the answer still describes the project.
- */
 async function countOpenComments(registry: ReturnType<typeof consoleOperationRegistry>, context: OperationContext & { access: ConsoleAccess }): Promise<{ open: number } | undefined> {
   const user = context.user ?? await readConsoleOperationUser(context.access) ?? null
   const result = await runOperation(registry, "comments.list", { limit: 500 }, { ...context, user })

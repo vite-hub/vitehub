@@ -14,11 +14,8 @@ export function defineRealtime(definition: RealtimeDefinition): RealtimeDefiniti
 
 /** Rejects a definition that reaches the server without an access rule, such as a plain object in a JavaScript file. */
 export function assertRealtimeAccess(definition: RealtimeDefinition): void {
-  // Read through `unknown`: JavaScript definitions reach this check without the types.
   const access: unknown = definition.access
   const authorize: unknown = definition.authorize
-  // `auth` was the old spelling of `authorize: true`. Next to an `authorize()` callback it required a signed-in user, so
-  // a definition that still sets it must not load as one that lets signed-out callers reach the callback.
   if ("auth" in definition) throw realtimeErrorDiagnostics.REALTIME_INVALID_ACCESS({ reason: "auth" })
   if (access !== undefined) {
     if (access !== "public") throw realtimeErrorDiagnostics.REALTIME_INVALID_ACCESS({ reason: "not-public" })

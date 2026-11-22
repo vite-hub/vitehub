@@ -1,4 +1,3 @@
-// Lucide icons that the ui-sdk examples import, drawn here so the fixture needs no icon package.
 import { defineComponent, h } from "vue";
 import type { Component } from "vue";
 

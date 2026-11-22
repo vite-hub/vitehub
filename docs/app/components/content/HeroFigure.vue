@@ -52,14 +52,18 @@ function toggle() {
         <span class="vh-hero-figure-steps" aria-hidden="true">
           <i v-for="index in caption.steps" :key="index" :class="{ 'is-on': index - 1 <= caption.step }" />
         </span>
+        <!-- With CSS icons a UButton icon changes at once, so the play and pause icons swap through SwapIcon. -->
         <UButton
           variant="ghost"
           size="xs"
           color="neutral"
-          :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
           :aria-label="paused ? 'Play the animation' : 'Pause the animation'"
           @click="toggle"
-        />
+        >
+          <template #leading>
+            <SwapIcon :name="paused ? 'i-lucide-play' : 'i-lucide-pause'" class="size-4" />
+          </template>
+        </UButton>
       </div>
     </figcaption>
   </figure>
@@ -87,9 +91,11 @@ function toggle() {
   line-height: 1.5;
 }
 
+/* A new caption crossfades in 150ms. It is a sentence that the person reads, not a label, so it does not morph letter
+   by letter. */
 .vh-hero-figure-text {
   text-wrap: pretty;
-  animation: vh-hero-figure-in 250ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: vh-hero-figure-in 150ms ease-out;
 }
 
 .vh-hero-figure-progress {
@@ -119,13 +125,6 @@ function toggle() {
 @keyframes vh-hero-figure-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-hero-figure-text {
-    animation: none;
   }
 }
 </style>

@@ -33,6 +33,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
+import { setupDocsRunnable, type DocsRunnableOptions } from "./runnable/nuxt.ts"
 import { checkDocsLinks, docsLinkError, docsLinkExclusion, docsOutputFile, type DocsLinkCheckOptions } from "./check-links.ts"
 import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoLocation } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
@@ -56,6 +57,7 @@ import type { DocsManifest, DocsPage } from "./types.ts"
 
 export type { DocsThemeScope } from "./theme.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
+export type { DocsRunnableExample, DocsRunnableLesson, DocsRunnableOptions } from "./runnable/nuxt.ts"
 
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
@@ -190,6 +192,13 @@ export interface DocsModuleOptions {
    * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
    */
   examples?: string
+  /**
+   * Lessons and playground examples that run in the reader's browser, in a WebContainer. Each one runs an app from the
+   * fixtures folder. The build writes `#build/runnable-tutorials.mjs`, `#build/playground-templates.mjs`,
+   * `#build/learn-facts.mjs`, and a `node_modules` snapshot of each app at `/_tutorials/snapshots/` under the app base.
+   * Each lesson names its page by URL, so the page can come from `dir` or from `sources`.
+   */
+  runnable?: DocsRunnableOptions
 }
 
 /** `llms` of the docs module options. */
@@ -443,8 +452,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     let read = await readDocsContent(manifestOptions)
     let manifest = read.manifest
     if (sources && options.base === undefined) {
-      // `sources` defaults to `/docs`. A site that moves from `dir` to `sources` without a `docs/` folder would move from
-      // `/` to `/docs` and lose its rail.
       const pages = docsManifestPages(manifest)
       const firstPage = pages[0]
       if (firstPage && !pages.some(page => isDocsPath(page.path, base))) {
@@ -465,12 +472,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       contentReadDone = undefined
     }
     const afterContentRead = (source: () => string): string | Promise<string> => contentReadDone ? contentRead.then(source) : source()
-    /**
-     * The Markdown of each Content Source page, by `<source>/<file>`. `nuxi build` empties the build folder after the
-     * modules load and generates the templates before `build:before` copies the pages again, so the module reads them here.
-     */
     let sourcePages = new Map<string, string>()
-    /** Copies the pages of each Content Source into the build, where the server reads them. */
     function writeSources(files: DocsContentSnapshot["files"]) {
       sourcePages = new Map(files.map(file => [`${file.source}/${file.file}`, file.markdown]))
       rmSync(sourcesDir, { force: true, recursive: true })
@@ -484,6 +486,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
     const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
     const readPage = (page: DocsPage): string => sourcePages.get(`${page.source}/${page.file}`) ?? readFileSync(pageFile(page), "utf8")
+    if (options.runnable) {
+      // Lessons read their pages by URL, from `dir` or `sources`, so a lesson can live in any Content Source.
+      await setupDocsRunnable(options.runnable, {
+        nuxt,
+        content: {
+          pages: () => docsManifestPages(manifest),
+          read: (path) => {
+            const page = docsManifestPages(manifest).find(page => page.path === normalizeDocsPath(path))
+            return page && readPage(page)
+          },
+        },
+      })
+    }
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the

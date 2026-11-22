@@ -30,7 +30,6 @@ function emailMessage<TSchema extends StandardSchemaV1>(name: string, definition
   }
 }
 
-/** The `Idempotency-Key` that `submitForm()` sends: a UUID, which becomes the id of the submission. */
 const uuid = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
 /**
@@ -49,7 +48,6 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
     ...(options.honeypot !== undefined ? { honeypot: options.honeypot } : {}),
     ...(options.maxBytes ? { maxBytes: options.maxBytes } : {}),
     ...(options.rateLimit !== undefined ? { rateLimit: options.rateLimit } : {}),
-    // Before the rate limit and body parsing: a refused sender uses no budget, and `authorize` can read the bounded body.
     check: async (incoming) => {
       caller.user = services.identify ? await services.identify(incoming) : null
       if (!options.authorize || await options.authorize({ request: incoming, user: caller.user })) return undefined
@@ -59,7 +57,6 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   if (stopped) return stopped
   const { body: fields, page, anchor, html } = guarded
   const { user } = caller
-  // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string) => html ? back(request, page, "error", name) : fail(status, message)
   const key = request.headers.get("idempotency-key")
   if (key !== null && !uuid.test(key)) return stop(400, "The Idempotency-Key header must be a UUID.")
@@ -75,11 +72,9 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   if (options.store !== false && !store) return stop(503, "This form cannot store messages now.")
   const storeFailed = (error: unknown): Response => {
     if (!isFormsDiagnostic(error)) throw error
-    // A host answers a thrown error with a bare 500, so the code and the fix would stay in the server log.
     services.log?.(`[vitehub] The ${name} form could not store a submission.`, error)
     return html ? back(request, page, "error", name) : json(500, { code: error.code, message: error.why, fix: error.fix })
   }
-  // A retry gets the answer of the stored message. A key of another message must not drop this one.
   const repeated = (earlier: FormSubmission): Response => {
     if (earlier.form !== name || JSON.stringify(earlier.data) !== JSON.stringify(output)) return stop(422, "This Idempotency-Key belongs to another message.")
     return html ? back(request, page, "sent", name) : json(201, { id: earlier.id })
@@ -139,7 +134,6 @@ export async function handleFormRequest<TSchema extends StandardSchemaV1>(name: 
   }
   const { message } = prepared
   if (message && store) {
-    // The submission is safe in the inbox, so a notification failure does not fail the request.
     if (services.email) {
       const email = services.email
       const notified = Promise.resolve().then(() => email(message)).catch(error => services.log?.(`[vitehub] The ${name} form stored a submission but could not send its email.`, error))

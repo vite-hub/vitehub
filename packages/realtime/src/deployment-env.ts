@@ -23,6 +23,5 @@ export function realtimeDeploymentEnv(
   const namespace = entry([realtimeNamespaceVariable], false, false, true)
   if (input.driver === "redis") return [entry(["REDIS_URL"], true, true), namespace]
   const postgres = entry([realtimePostgresUrlVariable], input.driver === "postgres" && !input.postgresDatabase, true, input.postgresDatabase)
-  // An explicit `postgres` driver never reads `REDIS_URL`.
   return input.driver === "postgres" ? [postgres, namespace] : [entry(["REDIS_URL"], false, true), postgres, namespace]
 }

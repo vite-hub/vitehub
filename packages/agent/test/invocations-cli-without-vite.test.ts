@@ -29,7 +29,6 @@ async function staticPackageImports(entry: string): Promise<Set<string>> {
 
 // `vite` is an optional peer. A server that installed only production dependencies has no `vite`, and
 // `vitehub agent invocations` must still read and prune the journal there.
-// `vitehub agent state migrate` runs on the server that holds the State database, for the same reason.
 it.each(["agent-invocations-cli", "agent-state-cli"])("loads the %s entry without the optional vite peer", async (entry) => {
   const imports = await staticPackageImports(resolve(agentDir, `dist/internal/${entry}.js`))
   expect(imports.size).toBeGreaterThan(0)

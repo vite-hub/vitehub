@@ -14,16 +14,11 @@ import { readTree } from "./tree.ts"
 const run = promisify(execFile)
 const npmFlags = ["--ignore-scripts", "--no-audit", "--no-fund", "--no-progress"]
 
-/**
- * Packages that npm in a WebContainer replaces with their wasm build of the same version.
- * A probe of `npm install` in a WebContainer shows the swap: `node_modules/esbuild` holds `esbuild-wasm`.
- */
 const wasmBuilds: Record<string, string> = {
   "esbuild": "esbuild-wasm",
   "lightningcss": "lightningcss-wasm",
   "@libsql/client": "@libsql/client-wasm",
 }
-/** rolldown is not swapped. In a WebContainer it installs this binding into `/tmp` on first use, which takes seconds. */
 const wasmBindings: Record<string, string> = {
   rolldown: "@rolldown/binding-wasm32-wasi",
 }
@@ -74,8 +69,6 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
   const frozen = options.lockfile !== undefined && options.frozenLockfile !== false
   let aliases = options.lockfile === undefined ? {} : lockedAliases(options.lockfile)
   if (frozen && options.lockfile !== undefined) {
-    // A `file:` package that the app no longer has, such as a workspace package that became an optional peer, fails
-    // `npm ci` with ENOENT. The app changed since the lockfile, so update the lockfile as for other changes.
     for (const file of lockedFiles(options.lockfile)) {
       const found = await access(join(dir, file)).then(() => true, () => false)
       if (!found) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH({ file, wasm: false })
@@ -85,19 +78,13 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
     if (options.lockfile !== undefined) await writeFile(lockPath, frozen ? options.lockfile : withoutFilePackages(options.lockfile))
     else await rm(lockPath, { force: true })
 
-    // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
-    // versions than the aliases have, install again with the new aliases. A second round always agrees.
     for (let round = 0; ; round++) {
-      // The aliases are optional dependencies: npm checks the `cpu` of a required dependency against this machine even
-      // with `--cpu=wasm32`, and refuses `@rolldown/binding-wasm32-wasi` when an app has two rolldown versions.
       await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: withoutAliases(manifest.dependencies), optionalDependencies: { ...withoutAliases(manifest.optionalDependencies), ...aliases } }, null, 2)}\n`)
       await rm(modules, { recursive: true, force: true })
       try {
-        // The snapshot needs these aliases even when the app's npm configuration omits optional dependencies.
         await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", "--include=optional", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
       }
       catch (error) {
-        // EUSAGE alone also covers unrelated npm usage errors. Only its explicit sync diagnostic permits an update.
         if (frozen && error instanceof Error && "stderr" in error && typeof error.stderr === "string"
           && error.stderr.includes("code EUSAGE")
           && error.stderr.includes("`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync.")) {
@@ -117,7 +104,6 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
       const target = wasm ?? wasmBindings[name]
       if (!target) continue
       const alias = join(modules, aliasName(target, await packageVersion(path)))
-      // A wasm build takes the place of the package. A binding goes into the package's own node_modules.
       const destination = wasm ? path : join(path, "node_modules", target)
       if (wasm) await rm(path, { recursive: true, force: true })
       await cp(alias, destination, { recursive: true, verbatimSymlinks: true })
@@ -142,7 +128,6 @@ interface Manifest {
 
 
 
-/** An alias for each wasm build or binding that the installed packages need, such as `npm:esbuild-wasm@0.28.2`. */
 async function neededAliases(modules: string): Promise<Record<string, string>> {
   const needed: Record<string, string> = {}
   for (const { name, path } of await packageDirs(modules)) {
@@ -175,7 +160,6 @@ async function packageVersion(path: string): Promise<string> {
   return version
 }
 
-/** Every package folder below `modules`, with its name. `nested` also walks the node_modules of each package. */
 async function packageDirs(modules: string, nested = true): Promise<{ name: string, path: string }[]> {
   const found: { name: string, path: string }[] = []
   const entries = await readdir(modules, { withFileTypes: true }).catch((error) => {

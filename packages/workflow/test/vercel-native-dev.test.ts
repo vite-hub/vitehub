@@ -12,7 +12,6 @@ afterEach(() => {
   resetWorkflowRuntime()
 })
 
-// `vite dev` does not run the Workflow DevKit transform, so a native entry there has no `workflowId`.
 function registerNativeWorkflow() {
   const handler = vi.fn(async ({ payload }: { payload: { email: string } }) => ({ inline: payload.email }))
   const native = vi.fn(async () => ({ durable: true }))
@@ -57,7 +56,6 @@ it("keeps the native run id rule on a development server", async () => {
   enableWorkflowDevRuns()
   const { handler } = registerNativeWorkflow()
 
-  // A deployed native entry rejects caller run ids, so the dev server does too.
   expect(await startWorkflow("onboard", { email: "ada@example.com" }, { id: "run-1" })).toMatchObject([{ code: "WORKFLOW_RUN_ID_UNSUPPORTED" }, undefined])
   expect(handler).not.toHaveBeenCalled()
 })

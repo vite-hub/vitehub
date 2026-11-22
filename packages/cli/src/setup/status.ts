@@ -112,7 +112,6 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, witho
   const host = readHost(project, env)
   const enabled = new Map(featureIds.map(id => [id, readEnabled(project, id, withoutDefinitions)]))
   const on = featureIds.filter(id => enabled.get(id)!.enabled === "on")
-  // An implication never overrides a key that the config sets to `false` or to an expression.
   const keep = featureIds.filter(id => enabled.get(id)!.enabled !== "on" && enabled.get(id)!.reason === "config")
   const maybeOn = featureIds.filter(id => enabled.get(id)!.enabled !== "off")
   const disabled = keep.filter(id => enabled.get(id)!.enabled === "off")
@@ -143,7 +142,6 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, witho
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
-      // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
       const providerChosen = id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }

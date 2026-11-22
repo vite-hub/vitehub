@@ -72,7 +72,6 @@ function parseArgs(args: readonly string[], seeds: readonly ViteHubCliSeed[]): P
   return parsed
 }
 
-/** Runs the selected seeds in order and stops at the first failure. */
 async function runSeeds(seeds: readonly ViteHubCliSeed[], parsed: ParsedSeedArgs, context: ViteHubCliContext): Promise<number> {
   const selected = parsed.names.length || parsed.database
     ? seeds.filter(seed => parsed.names.includes(seed.name) || (parsed.database && seed.name === "database"))
@@ -101,7 +100,6 @@ async function runSeeds(seeds: readonly ViteHubCliSeed[], parsed: ParsedSeedArgs
       if (code === undefined) empty.push(seed)
       else if (code !== 0) return code
     }
-    // A primitive that the command names must have seed files. Without names, only a run that seeds nothing fails.
     const missing = parsed.names.length ? empty : empty.length === selected.length ? empty : []
     if (!missing.length) return 0
     context.stderr.write([

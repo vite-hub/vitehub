@@ -81,7 +81,6 @@ describe("Workflow dev registry", () => {
     const projectRoot = await createApp()
     await configHook(workflow)({ root: projectRoot }, { command: "serve", mode: "development" })
 
-    // Execute the generated plugin with Nitro and the worker stubbed. It imports the real Workflow runtime state by file path.
     const nitroDir = join(projectRoot, "node_modules/nitro")
     await mkdir(nitroDir, { recursive: true })
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
@@ -243,7 +242,6 @@ describe("Workflow dev registry", () => {
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     expect(generated).toContain(`"driver":"${provider}"`)
-    // A build never records runs, so the bootstrap does not import the history.
     expect(generated).not.toContain("runtime/dev-runs")
     expect(generated).not.toContain("enableWorkflowDevRuns")
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
@@ -258,7 +256,6 @@ describe("Workflow dev registry", () => {
     await (hook.handler as unknown as ConfigHook)(config, { command, mode: command === "build" ? "production" : "development" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
     const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
-    // A build reads its storage at runtime. `vite dev` keeps runs in the local SQLite file.
     expect(generated).toContain(command === "build"
       ? 'setWorkflowRuntimeConfig({"driver":"openworkflow"})'
       : 'setWorkflowRuntimeConfig({"driver":"openworkflow","sqlite":{"path":".vitehub/data/openworkflow.sqlite.db"}})')
@@ -271,7 +268,6 @@ describe("Workflow dev registry", () => {
     const hook = plugin.config
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
-    // The Database plugin resolves its Definitions, contributions, and layers. Workflow reads that result.
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [[{ api: { getConfig }, name: "@vite-hub/database/vite" }]], root: projectRoot })
     const generated = () => readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
     return { generated, plugin }
@@ -322,20 +318,16 @@ describe("Workflow dev registry", () => {
   it.each<[ResolvedWorkflowOptions, ResolvedWorkflowOptions]>([
     [{ driver: "openworkflow" }, { driver: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
     [{ postgres: { schema: "jobs" }, driver: "openworkflow" }, { postgres: { schema: "jobs" }, driver: "openworkflow", sqlite: { path: ".vitehub/data/openworkflow.sqlite.db" } }],
-    // `remote: true` lets `vite dev` use DATABASE_URL or OPENWORKFLOW_POSTGRES_URL.
     [{ driver: "openworkflow", remote: true }, { driver: "openworkflow", remote: true }],
-    // Configured storage is used as configured.
     [{ postgres: { url: "postgres://localhost/dev" }, driver: "openworkflow" }, { postgres: { url: "postgres://localhost/dev" }, driver: "openworkflow" }],
     [{ driver: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }, { driver: "openworkflow", sqlite: { path: ".data/dev.sqlite" } }],
   ])("keeps OpenWorkflow in vite dev on local storage unless remote is set: %j", (workflow, installed) => {
     const code = createWorkflowDevPluginModule(workflow, true)
     expect(code).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(installed)})`)
-    // A build uses the configuration as it is.
     expect(createWorkflowDevPluginModule(workflow)).toContain(`setWorkflowRuntimeConfig(${JSON.stringify(workflow)})`)
   })
 
   it("keeps the run history out of the import graph of every published runtime entry", async () => {
-    // Bundle each entry that a build can import. Only the dev bootstrap imports `runtime/dev-runs`.
     const packageRoot = fileURLToPath(new URL("..", import.meta.url))
     const entries = ["index.ts", "operations.ts", "runtime/execute.ts", "runtime/state.ts", "runtime/cloudflare-runner.ts", "runtime/cloudflare-vite.ts", "runtime/vercel-vite.ts", "runtime/openworkflow-worker.ts"]
     const { metafile } = await build({
@@ -558,7 +550,6 @@ describe("Workflow dev registry", () => {
     expect(await readFile(registryFile, "utf8")).toContain("\"report\"")
     expect(invalidated).toEqual([registryModule])
 
-    // Changes outside Workflow files and to generated files do not rewrite the registry.
     watcher.emit("change", join(projectRoot, "server/routes/index.ts"))
     watcher.emit("change", registryFile)
     await rm(report)

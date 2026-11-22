@@ -7,7 +7,6 @@ import { parseCollectionSchema } from "./schema.ts"
 export { CollectionCursorError } from "./collection-cursor.ts"
 export type { CollectionCursorErrorOptions, CollectionCursorErrorReason } from "./collection-cursor.ts"
 
-// Keep the guard on the reader so object spreads retain it, including across package entry points.
 const untransformedTableRows = Symbol.for("@vite-hub/source/untransformed-table-rows")
 
 const defaultPageLimit = 50
@@ -90,8 +89,6 @@ export type CollectionItem<TCollection extends AnyCollection> =
 
 type JSONOmitted = undefined | ((...args: any[]) => any) | symbol
 
-// TypeScript cannot structurally distinguish every class instance from a POJO interface. The handler rejects
-// non-plain prototypes at runtime; these built-ins are the unsupported object shapes it can also identify statically.
 type JSONUnsupportedObject =
   | ArrayBuffer
   | ArrayBufferView
@@ -113,8 +110,6 @@ type JSONOmittedBranch<T> = T extends { toJSON(): infer TJSON }
     ? T
     : never
 
-// This projection describes decoded successful response bodies. Unsupported active values fail serialization,
-// so distributive union members that cannot occur in a successful body project to never.
 type JSONSerializedValue<T> = T extends { toJSON(): infer TJSON }
   ? JSONSerializedPostToJSON<TJSON>
   : JSONSerializedPostToJSON<T>
@@ -195,15 +190,10 @@ export type CollectionAccess =
   | { access: "public"; authorize?: undefined; route?: undefined }
   | { access?: undefined; authorize?: AccessAuthorizeOption<Request & ViteHubContext>; route: false }
 
-/** The access of a source that returns whole table rows without `transform`. The route cannot be public. */
 type RawRowsAccess =
   | { access?: undefined; authorize: AccessAuthorizeOption<Request & ViteHubContext>; route?: undefined }
   | { access?: undefined; authorize?: AccessAuthorizeOption<Request & ViteHubContext>; route: false }
 
-/**
- * A cursor the loader must not mutate. Only object cursors become readonly, so `AnyCollectionSource` keeps `any`
- * instead of `Readonly<any>`, an index-signature object that rejects string and number cursors.
- */
 type ReadonlyCursor<TCursorInput> = TCursorInput extends object ? Readonly<TCursorInput> : TCursorInput
 
 interface CollectionLoaderOptions<
@@ -245,10 +235,6 @@ interface CollectionSourceBase<TSourceItem, TQueryInput extends object, TQuery e
   defaultLimit?: number
   maxLimit?: number
   querySchema?: StandardSchemaV1<TQueryInput, TQuery>
-  /**
-   * `true` when the source returns whole rows, such as every column of a database table. A Collection over it needs
-   * `transform` to pick the public fields before it can set `access: "public"`.
-   */
   rawRows?: boolean
 }
 
@@ -305,10 +291,6 @@ type LoadedItemOf<TSource> = TSource extends { load: (...args: any[]) => infer T
 
 type LoadOptionsOf<TSource> = TSource extends { load: (options: infer TOptions) => unknown } ? TOptions : never
 
-/**
- * Ties a source's own parts to its loader. `AnyCollectionSource` only bounds each part, so without this a cursor,
- * `get`, or query schema written for other rows or another query would pass.
- */
 type SourceContract<TSource> =
   & (TSource extends { cursor: (item: never) => unknown } ? { cursor: (item: LoadedItemOf<TSource>) => unknown } : unknown)
   & (TSource extends { get: (key: string, options: never) => unknown }
@@ -322,7 +304,6 @@ type SourceContract<TSource> =
 
 export type SourceCollectionOptions<TSource extends AnyCollectionSource> = { source: TSource & SourceContract<TSource> } & CollectionAccess
 
-/** A source with `rawRows: true` and no `transform` cannot have a public route. */
 type SourceAccessWithoutTransform<TSource> = TSource extends { rawRows: true } ? RawRowsAccess : unknown
 
 type CollectionDefinition<TSourceItem, TQuery extends object, TCursorInput extends CollectionCursorValue> = Omit<
@@ -342,7 +323,6 @@ type CursorOutput<TSchema extends StandardSchemaV1> = [StandardSchemaV1.InferOut
   ? StandardSchemaV1.InferOutput<TSchema>
   : never
 
-// H3 represents no value as undefined, one value as a string, and repeated values as an array of two or more strings.
 type RepeatedQueryValues = [string, string, ...string[]]
 
 type AmbiguousArrayQueryKey<TInput extends object> = {
@@ -656,11 +636,7 @@ export function assertCollectionAccess(definition: { access?: unknown; authorize
   authorize?: AccessAuthorizeOption<Request & ViteHubContext>
 } {
   const { access, authorize } = definition
-  // `false` reads as "deny" to most readers, so it is not a public opt-in.
   if (authorize === false) throw sourceErrorDiagnostics.SOURCE_COLLECTION_AUTHORIZE_FALSE()
-  // Cross-realm functions do not pass an `instanceof Function` check.
-  // `typeof` accepts callbacks created by another JavaScript realm while
-  // still rejecting non-callable values at runtime.
   if (authorize !== undefined && authorize !== true && typeof authorize !== "function") {
     throw sourceErrorDiagnostics.SOURCE_R0024({ message: "[vitehub] Collection authorize must be true or a function." })
   }

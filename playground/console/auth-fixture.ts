@@ -115,7 +115,6 @@ const description: AuthConsoleDescription = {
     },
   ],
 };
-// The playground root redirects to the Console, so a started impersonation shows the Console banner.
 let impersonating: { userId: string; expiresAt: string } | undefined;
 function impersonation(): AuthConsoleDescription["impersonation"] {
   const user = users.find((user) => user.id === impersonating?.userId);
@@ -277,7 +276,6 @@ function overview(enabled: boolean): AuthConsoleOverview {
   };
 }
 
-/** Synthetic data only. Real Better Auth proof lives in packages/auth/test/console.test.ts. */
 export function authFixture(input: unknown, eventsEnabled = true): unknown {
   const command = input as {
     operation?: string;

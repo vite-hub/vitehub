@@ -24,7 +24,6 @@ export interface AiGatewayLanguageModelOptions<TApi extends AiGatewayModelApi = 
   fetch?: typeof globalThis.fetch
 }
 
-/** Rejects a gateway that serves no model API, such as `typesafe()`, with a readable type error. */
 type ServesModels<TRoutes extends AiGatewayRoute> = [AiGatewayModelApi<TRoutes>] extends [never]
   ? { readonly "This gateway serves no model API. Use a gateway with an openai-compatible, claude-code, or codex baseURL.": never }
   : unknown
@@ -92,9 +91,7 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
     return createOpenAICompatible({
       ...shared,
       baseURL: route.baseURL,
-      // Without it, streamed responses carry no token counts.
       includeUsage: true,
-      // Without it, the provider sends `json_object` without the output schema.
       ...(structuredOutputs ? { supportsStructuredOutputs: true } : {}),
       ...(route.apiKey && route.auth === "bearer" ? { apiKey: route.apiKey } : {}),
     }).chatModel(modelId)
@@ -109,7 +106,6 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
       ...shared,
       apiKey,
       baseURL: route.baseURL,
-      // Apply the gateway credential after the provider merges call-level headers.
       fetch: route.auth === "x-api-key" ? async (input, init) => {
         const headers = new Headers(init?.headers)
         headers.delete("authorization")
@@ -176,7 +172,6 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     specificationVersion: "v4",
     provider: `${gateway.name}.${api}`,
     modelId: id,
-    // URL capabilities belong to the provider, so metadata reads need no gateway credentials or resolvers.
     get supportedUrls() {
       return createModel(gateway.name, id, api, provider, { apiKey: "unused", auth: "bearer", baseURL: "https://gateway.invalid", headers: [] }, undefined, structuredOutputs).then(resolved => resolved.supportedUrls)
     },

@@ -53,7 +53,6 @@ const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? 
 // Only owners and admins link apps, so only they see the controls for it.
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
-// What each app answered in its check, such as its build and open comments, for the rows of Home.
 const checks = reactive<Record<string, ConsoleAccountCheck>>({});
 const busy = ref(false);
 const unlinking = ref(false);

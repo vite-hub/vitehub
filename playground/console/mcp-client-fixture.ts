@@ -3,11 +3,6 @@ import type { ConsoleDiagnosticCode } from "../../packages/vite-hub/src/console/
 import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpListKind, ConsoleMcpServerInfo } from "../../packages/vite-hub/src/console/runtime/mcp-client.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
-/**
- * The MCP client section without MCP servers. The app's own `/mcp` (Northwind Ledger) has Maxi and Lucía through
- * OAuth, Lucía's API key, and Sam, who is signed out. A remote docs server needs no sign-in. Connect, sign-in, Run as, and disconnect change this state until the playground restarts.
- */
-
 type Person = "lucia" | "maxi" | "sam"
 
 const people: Record<Person, { email: string, name: string }> = {
@@ -118,7 +113,6 @@ function connections(origin: string): FixtureConnection[] {
   return all
 }
 
-/** Restore the starting connections. Tests use it. */
 export function resetMcpClientFixture(): void {
   state.clear()
   nextId = 1
@@ -141,7 +135,6 @@ function answer(connection: FixtureConnection, request: { arguments?: Record<str
     return { content: [{ text: visible.map(account => `${account.name}: ${account.balance}`).join("\n") || "No accounts.", type: "text" }], structuredContent: { accounts: visible } }
   }
   if (request.name === "add_transaction") {
-    // An API key of this server only reads, so the tool reports the error as its result.
     if (connection.auth === "bearer") return { content: [{ text: "This API key can only read. Connect with OAuth to add transactions.", type: "text" }], isError: true }
     if (typeof request.arguments?.amount !== "number") return { error: { code: -32602, message: "Invalid arguments for add_transaction: amount must be a number." } }
     return { content: [{ text: `Added ${request.arguments.amount} EUR to ${String(request.arguments.account)}.`, type: "text" }] }
@@ -152,9 +145,7 @@ function answer(connection: FixtureConnection, request: { arguments?: Record<str
   return { error: { code: -32602, message: `Unknown tool: ${String(request.name)}.` } }
 }
 
-/** Answer one `mcp-client.*` operation. */
 export function mcpClientFixture(serverUrl: string, payload: { input?: Record<string, unknown>, operation: string }): ConsoleRpcResult {
-  // The MCP URLs start at the browser-visible origin, without the playground's base path.
   const origin = new URL(serverUrl).origin
   const input = payload.input ?? {}
   const all = connections(origin)
@@ -181,7 +172,6 @@ export function mcpClientFixture(serverUrl: string, payload: { input?: Record<st
       all.push(connection)
       return { ok: true, value: { connection: describe(connection) } }
     }
-    // The authorization server of the playground signs in at once and sends the browser to the callback page.
     const signInState = `state_${nextId}`
     const connection: FixtureConnection = { ...base, auth: "oauth", label: String(input.label ?? `${new URL(url).host}/mcp`), person: input.prompt === "login" ? "sam" : "maxi", state: signInState, status: "authorizing" }
     all.push(connection)

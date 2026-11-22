@@ -3,10 +3,6 @@ import { expectTypeOf, it } from "vitest"
 import { createEmail, email } from "../src/index.ts"
 import type { EmailDefinition, EmailTemplateName } from "../src/index.ts"
 
-// The same augmentation that `.vitehub/types/email-templates.d.ts` holds for these two templates:
-// `server/emails/welcome.md` reads `{{ data.user.name }}` and `::if{:condition="data.trial"}`,
-// `server/emails/monthly/recap.md` reads no data, and `server/emails/top-repository.md` reads
-// `::if{:condition="data.topRepository"}` and then `{{ data.topRepository.name }}` inside the branch.
 declare module "../src/index.ts" {
   interface EmailTemplateRegistry {
     "welcome": {
@@ -35,7 +31,6 @@ it("types data from the template", () => {
   void email.send({ ...envelope, template: "welcome", data: { user: { name: "Maxi" } } })
   void email.send({ ...envelope, template: "welcome", data: { trial: true, user: { name: 42 } } })
   void email.send({ ...envelope, template: "monthly/recap" })
-  // A database row gives `null` for a missing value. The `::if` branch does not render, as for `undefined`.
   const row: { topRepository: { name: string } | null } = { topRepository: null }
   void email.send({ ...envelope, template: "top-repository", data: row })
 

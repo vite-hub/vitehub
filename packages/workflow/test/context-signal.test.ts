@@ -19,12 +19,10 @@ interface Transcript { text: string }
 const calls: string[] = []
 const tokens: string[] = []
 
-/** A folder Workflow orchestrator: the generated registry entry sets `rootStep: false`. */
 function folderWorkflow<TPayload>(handler: (context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
   return { rootStep: false, handler }
 }
 
-/** Waits for a transcript, as the summary Workflow of a call app waits for a speech-to-text webhook. */
 const summary = folderWorkflow<undefined>(async (context) => {
   calls.push("request")
   const signal = context.createSignal<Transcript>()
@@ -34,7 +32,6 @@ const summary = folderWorkflow<undefined>(async (context) => {
   return transcript.text.toUpperCase()
 })
 
-/** A single-file Workflow: the handler runs in the root step. */
 const summaryInRootStep = defineWorkflow<undefined>({ handler: async ({ payload: _payload, ...context }) => {
   calls.push("request")
   const transcript = await context.createSignal<Transcript>().wait()
@@ -94,7 +91,6 @@ describe("Cloudflare", () => {
     let recorded: unknown
     await expect(run({ do: async (_name, _options, step) => recorded = await step(), waitForEvent }, summaryInRootStep)).rejects.toMatchObject(rootStepSignal)
 
-    // Cloudflare replays a finished step from its stored result, as structured clone.
     await expect(run({ do: async <T>() => structuredClone(recorded) as T, waitForEvent }, summaryInRootStep)).rejects.toMatchObject(rootStepSignal)
     expect(waitForEvent).not.toHaveBeenCalled()
     expect(calls).toEqual(["request"])
@@ -249,7 +245,6 @@ describe("OpenWorkflow (SQLite)", () => {
     await tick()
 
     await expect(unwrap(getWorkflowRun("summary", started.id))).resolves.toMatchObject({ status: "completed", result: "HELLO" })
-    // OpenWorkflow runs the orchestrator again from the start after the wait, and the token stays the same.
     expect(calls).toEqual(["request", "request", "summarize hello"])
     expect(tokens[1]).toBe(tokens[0])
     const [finished] = await resumeWorkflow(tokens[0]!, { text: "again" })

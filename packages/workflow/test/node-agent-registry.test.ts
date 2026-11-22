@@ -27,10 +27,6 @@ afterEach(async () => {
 
 type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 
-/**
- * An app with one discovered Agent. The Agent runtime files are small doubles: the test checks that the Node registry
- * gives OpenWorkflow the Agent Workflow, not how the Agent package runs a turn.
- */
 async function createAgentApp() {
   root = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-agent-"))
   await writeFile(join(root, "package.json"), "{\"type\":\"module\"}\n")
@@ -76,7 +72,6 @@ it.each(["build", "serve"] as const)("puts discovered Agent Workflows in the Nod
   const registryFile = join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs")
   const { default: registry } = await import(/* @vite-ignore */ `${pathToFileURL(registryFile).href}?t=${command}`) as { default: WorkflowDefinitionRegistry }
   expect(await readFile(registryFile, "utf8")).toContain("// Agent runtime setup installed")
-  // The turn and its recovery run are both OpenWorkflow runs, so a worker must know both definitions.
   expect(Object.keys(registry).sort(), await readFile(registryFile, "utf8")).toEqual(["helper", "vitehub-agent-invocation-recovery-helper"])
 
   setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })

@@ -27,7 +27,6 @@ interface EngineState {
   workers: boolean
 }
 
-// Clients with the same configuration share delivery. Direct producers with other configurations only send.
 const engines = new Map<string, EngineState>()
 const retiring = new Set<Promise<void>>()
 type EngineConfig = { database?: string, development?: boolean }
@@ -57,7 +56,6 @@ function startWorkers(state: EngineState, engine: PostgresQueueEngine) {
 
 interface ResolvedConnection {
   connection: PostgresQueueConnection
-  /** The URL, or the client of the Database. A Database can replace its client when its environment changes. */
   key: object | string
 }
 
@@ -91,7 +89,6 @@ export async function resolvePostgresQueueConnection(
 function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngine> {
   assertOpen()
   const state = engineState(config)
-  // Serialize resolution too: concurrent sends must not replace each other's engine.
   const pending = (state.pending?.catch(() => {}) ?? Promise.resolve()).then(async () => {
     assertOpen()
     const { connection, key } = await resolvePostgresQueueConnection(config)
@@ -107,7 +104,6 @@ function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngi
       load: loadQueueDefinition,
       missing: missingQueueDefinitionError,
       queues: listQueueDefinitionNames,
-      // Workers must follow Database replacement even without a local send or job operation.
       refreshConnection: async () => { await usePostgresQueueEngine(config) },
     })
     state.current = { engine, key }
@@ -155,7 +151,6 @@ export function closePostgresQueues(): Promise<void> {
     const states = [...engines.values()]
     for (const state of states) state.workers = false
     setQueueRuntimeJobStore(undefined)
-    // Admission is closed before queued resolutions resume, so these sets cannot acquire new engines or retirements.
     await Promise.all(states.map(state => state.pending?.catch(() => {})))
     await Promise.all([...states.map(state => state.current?.engine.close()), ...retiring])
     engines.clear()

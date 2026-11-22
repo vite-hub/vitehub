@@ -19,7 +19,6 @@ type Hooks = {
   upgrade?(request: Request): unknown
 }
 
-/** A WebSocket class that sends each socket of y-websocket to the Realtime handler through its crossws hooks. */
 function socketsTo(definition: RealtimeDefinition) {
   const handler = createRealtimeHandler(registryOf(definition) as never)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
@@ -88,7 +87,6 @@ function socketsTo(definition: RealtimeDefinition) {
   }
 }
 
-/** The modules that `src/client.ts` imports, followed through relative imports. */
 async function importsOf(entry: string): Promise<string[]> {
   const seen = new Set<string>()
   const packages = new Set<string>()
@@ -96,7 +94,6 @@ async function importsOf(entry: string): Promise<string[]> {
     if (seen.has(file)) return
     seen.add(file)
     const code = await readFile(file, "utf8")
-    // Type-only imports do not reach the bundle.
     for (const [, specifier] of code.matchAll(/^import (?!type )[^"]*"([^"]+)"/gm)) {
       if (specifier!.startsWith(".")) await visit(resolve(dirname(file), specifier!))
       else packages.add(specifier!)

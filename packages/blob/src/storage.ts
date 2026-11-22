@@ -225,10 +225,6 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   warnRemoteStore(hostDriver.options, store)
   const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
-  /**
-   * Logs a cache failure that the operation survives. `request` is the request that waits for the operation. Blob
-   * operations get no `waitUntil()`, so an event of its own drains on its own.
-   */
   function logCacheFailure(op: string, message: string, error: unknown, fallback: () => void, request?: Request) {
     logFailure({ field: "blob", fields: { op, store, driver: hostDriver.name }, message, error, ...(request ? { request } : {}) }, fallback)
   }

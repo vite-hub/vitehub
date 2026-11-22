@@ -62,7 +62,6 @@ function isNode(value: unknown): value is AstNode {
   return value !== null && Object(value) === value && String(Reflect.get(Object(value), "type")) === Reflect.get(Object(value), "type")
 }
 
-/** Drop type-only and grouping wrappers such as `x satisfies T`, `x as T`, and `(x)`. */
 function unwrap(node: unknown): unknown {
   let current = node
   while (isNode(current) && ["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion"].includes(current.type)) {
@@ -79,7 +78,6 @@ function propertyName(node: AstNode): string | undefined {
   if (key.type === "Literal" && String(key.value) === key.value) return key.value
 }
 
-/** A string or `true` literal: the values that the cms preset options take. */
 function literalValue(node: unknown): string | true | undefined {
   const value = unwrap(node)
   if (isNode(value) && value.type === "Literal" && value.value === true) return true
@@ -101,7 +99,6 @@ function displayPath(file: string, projectRoot: string): string {
   return JSON.stringify(relative(projectRoot, file).replaceAll("\\", "/"))
 }
 
-/** The build cannot read how the Definition selects the preset. */
 function presetError(file: string, projectRoot: string, message: string): Error {
   return cmsErrorDiagnostics.CONTENT_B0001({ message: `[vitehub] ${displayPath(file, projectRoot)}: ${message}` })
 }
@@ -120,7 +117,6 @@ export function readCmsPresetUsage(source: string, file: string, projectRoot: st
   return readCmsPresetUsageInternal(source, file, projectRoot, parseAst, new Set(), "default")
 }
 
-/** `exportName` is the export that holds the Content Definition: `default` in `server/content.ts`, or the name that it re-exports. */
 function readCmsPresetUsageInternal(source: string, file: string, projectRoot: string, parseAst: ParseAst, seen: Set<string>, exportName: string): CmsPresetUsage | undefined {
   const resolvedFile = resolve(file)
   if (seen.has(resolvedFile)) return
@@ -128,8 +124,6 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   const lang = /\.[cm]?tsx$/.test(file) ? "tsx" : /\.[cm]?jsx$/.test(file) ? "jsx" : /\.[cm]?ts$/.test(file) ? "ts" : "js"
   const program = parseAst(source, { lang })
   if (!isNode(program)) return
-  // Content discovery accepts relative re-exports. Follow one statically resolvable
-  // target so CMS selection is read from the module that defines the Content Definition.
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement) || statement.type !== "ExportNamedDeclaration" || !isNode(statement.source)) continue
     let targetExport: string | undefined
@@ -149,7 +143,6 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     }
   }
   for (const statement of Array.isArray(program.body) ? program.body : []) {
-    // `export *` never re-exports `default`.
     if (exportName === "default") break
     if (!isNode(statement) || statement.type !== "ExportAllDeclaration" || !isNode(statement.source)) continue
     const specifier = statement.source.value
@@ -203,10 +196,6 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       && (value.property.name === "cms" || value.property.name === "default")
   }
 
-  // Only inspect the options object passed to the exported Content Definition. Other
-  // objects in this module may use an `extends` property for unrelated purposes. The
-  // source discovery accepts `export default defineContent(...)`, `export default content`,
-  // and `export { content as default }`, so follow each form here.
   const exportedContentBindings = new Set<string>()
   for (const statement of Array.isArray(program.body) ? program.body : []) {
     if (!isNode(statement)) continue
@@ -297,7 +286,6 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
       throw presetError(file, projectRoot, `unknown cms preset option ${JSON.stringify(key)}. Use ${cmsOptionKeys.join(", ")}.`)
     }
     const valueNode = unwrap(property.value)
-    // `database: undefined` keeps the default, like omitting the key.
     if (isNode(valueNode) && valueNode.type === "Identifier" && valueNode.name === "undefined") continue
     const value = literalValue(valueNode)
     if (value === undefined) {
@@ -322,7 +310,6 @@ export interface CmsDatabaseChoices {
 /** Pick the Database, Blob store, and Workspace name that the preset uses. Fails with the option to set. */
 export function resolveCmsPresetPlan(usage: CmsPresetUsage, databases: CmsDatabaseChoices, projectRoot: string): CmsPresetPlan {
   const store = cmsStoreOf(usage.options)
-  // The GitHub store keeps files in Git. It still needs the Database, for editor sessions.
   const stored = store === "github"
     ? { store, github: githubPlan(usage.options) } satisfies Pick<CmsPresetPlan, "github" | "store">
     : { store, blob: usage.options.blob ?? "default" } satisfies Pick<CmsPresetPlan, "blob" | "store">
@@ -335,7 +322,6 @@ export function resolveCmsPresetPlan(usage: CmsPresetUsage, databases: CmsDataba
     return { ...usage, ...stored, database: usage.options.database, databaseReason: "option", workspace }
   }
   const resolution = databases.resolveDefault(databases.names)
-  // Without a Database Definition, the Database primitive adds the implicit `default` Database for the preset's tables.
   if (resolution.status === "none") return { ...usage, ...stored, database: "default", databaseReason: "implicit", workspace }
   if (resolution.status === "ambiguous") {
     throw cmsRequirementError(usage.file, projectRoot, `it needs one Database, but the app has several and none is named "default": ${choices}. Choose one with extends: [cms, { database: ${JSON.stringify(resolution.names[0])} }].`)
@@ -386,7 +372,6 @@ export function cmsPresetStoreSync(input: { projectRoot: string, serverDirs?: re
   if (files.length !== 1) return undefined
   const file = files[0]!
   const source = readFileSync(file, "utf8")
-  // Vite asks once per plugin while it filters them, so parse each version of the file once.
   if (lastPresetCheck?.file !== file || lastPresetCheck.source !== source) {
     const usage = readCmsPresetUsage(source, file, root, parseAst)
     lastPresetCheck = { file, source, store: usage ? cmsStoreOf(usage.options) : undefined }
@@ -457,7 +442,6 @@ function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan,
     `    refs: { published: ${JSON.stringify(github.branch)}, draft: ${JSON.stringify(github.draftBranch)} },`,
     "    database,",
     "  },",
-    // The Workspace can reach the whole folder, and at the repository root the whole repository. Content allows its collection globs on top of this rule.
     '  rules: { "**": { write: false } },',
     "})",
     "",

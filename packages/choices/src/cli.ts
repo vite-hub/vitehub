@@ -14,7 +14,6 @@ const runUsage = "vitehub choices run <file> <text> [--export <name>] [--context
 
 type CliContext = Pick<ViteHubCliContext, "env" | "rootDir"> & ViteHubCliStreams
 
-/** The part of `defineChoices()` that the CLI calls. */
 interface LoadedChoices {
   inspect: (text: string, request?: { context?: unknown }) => Promise<ChoicesResult<ChoicesPlan>>
   name: string | undefined
@@ -27,9 +26,7 @@ interface FoundChoices {
 }
 
 interface ListedFile {
-  /** The exports of the file that `defineChoices()` returned. Empty when the file failed to load. */
   choices: FoundChoices[]
-  /** Why the file did not load. */
   error?: string
   file: string
 }
@@ -49,15 +46,12 @@ function choicesOf(module: Record<string, unknown>): Array<FoundChoices & { choi
   return Object.entries(module).flatMap(([key, value]) => isChoices(value) ? [{ choices: value, export: key, name: value.name }] : [])
 }
 
-/** Loads one file the way Vite loads server code, so TypeScript and extensionless imports work. */
 async function loadModule(file: string, rootDir: string): Promise<Record<string, unknown>> {
   const { runnerImport } = await import("vite")
-  // The project config would run every plugin of the app. A Choices file needs only its own imports.
   const { module } = await runnerImport<Record<string, unknown>>(file, { configFile: false, logLevel: "silent", root: rootDir })
   return module
 }
 
-/** Gateways read their keys from the environment. Add the project `.env` files without replacing set values. */
 async function loadProjectEnv(context: CliContext): Promise<void> {
   const { loadEnv } = await import("vite")
   const mode = context.env.NODE_ENV === "production" ? "production" : "development"
@@ -84,7 +78,6 @@ export async function listChoices(rootDir: string): Promise<ListedFile[]> {
     const file = relative(rootDir, path)
     try {
       const choices = choicesOf(await loadModule(path, rootDir)).map(({ export: name, name: label }) => ({ export: name, name: label }))
-      // A file can name defineChoices() in a comment or keep its definition private. Only exports can run.
       if (choices.length) listed.push({ choices, file })
     }
     catch (error) {
@@ -168,7 +161,6 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   return 0
 }
 
-/** The fix of a usage error of these commands, or `undefined` for another error. */
 function cliFix(error: unknown): string | undefined {
   return choicesDiagnostics.is(error) && error.code.startsWith("DECISIONS_CLI_") ? error.fix : undefined
 }
@@ -183,7 +175,6 @@ function guard(usage: string, run: (args: string[], context: CliContext) => Prom
       return await run(args, context)
     }
     catch (error) {
-      // `parseArgs` throws a TypeError for unknown or malformed options.
       const fix = cliFix(error)
       if (fix === undefined && !(error instanceof TypeError && "code" in error)) throw error
       context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${fix ? `Fix: ${fix}\n` : `Usage: ${usage}\n`}`)

@@ -15,10 +15,6 @@ function parserPlugins(id: string): ("typescript" | "jsx")[] {
   return ["jsx"]
 }
 
-/**
- * Lingui removes every import from a macro package. `vite-hub/i18n` also exports runtime functions such as
- * `getLocale`, so this moves them to `<importBase>/runtime` before Lingui runs.
- */
 function splitRuntimeImports(packages: readonly string[], importBase: string, tNames: Set<string>) {
   return ({ types: t }: { types: typeof BabelTypes }): PluginObj => ({
     name: "vite-hub-i18n-split-imports",
@@ -44,17 +40,11 @@ function importedName(node: BabelTypes.Identifier | BabelTypes.StringLiteral): s
   return node.type === "Identifier" ? node.name : node.value
 }
 
-/**
- * Bind component macros to their app during setup. Restore the template `t` binding that Lingui removes
- * with the macro import, so compiled templates can still call `t(descriptor)`.
- */
 function bindVueMessages(importBase: string, tNames: ReadonlySet<string>) {
   return ({ types: t }: { types: typeof BabelTypes }): PluginObj => ({
     name: "vite-hub-i18n-vue-messages",
     visitor: {
       Program(path) {
-        // Vue has compiled the SFC before this pass. Bind runtime calls inside setup once, so nested
-        // computed values and event handlers keep the app instance even when no injection context is active.
         const useI18n = path.scope.generateUidIdentifier("useI18n")
         let bound = false
         for (const statement of path.get("body")) {

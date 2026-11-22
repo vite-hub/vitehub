@@ -17,13 +17,11 @@ export function resolveRedisUrl(url: string, env: Record<string, string | undefi
   return value
 }
 
-/** Milliseconds for `SET PX`, which keeps fractional TTLs, as the other drivers do. */
 function ttlMilliseconds(ttl: number): number {
   redisTTLSeconds(ttl)
   return Math.ceil(ttl * 1000)
 }
 
-/** The `PX` milliseconds of a write. Like other unstorage drivers, no TTL or 0 keeps the key. */
 function writeTTL(options: { ttl?: unknown } | undefined): number | undefined {
   const ttl = options?.ttl
   if (ttl === undefined || ttl === null || ttl === 0) return
@@ -31,7 +29,6 @@ function writeTTL(options: { ttl?: unknown } | undefined): number | undefined {
   throw kvErrorDiagnostics.KV_INVALID_TTL()
 }
 
-/** Keys per `MGET`, so one reply stays a moderate size. */
 const mgetBatchSize = 1000
 
 /**
@@ -41,8 +38,6 @@ const mgetBatchSize = 1000
 export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig): KVRuntimeDriver {
   const base = normalizeKey(options.base)
   invariant(base, "resolveRedisStore() gives a Redis KV store a non-empty `base`, which keeps clear() inside the store")
-  // `maxRetriesPerRequest` fails a command after a few reconnect attempts, so a lost server returns an error.
-  // `lazyConnect` opens the connection on the first command.
   const client = new Redis(resolveRedisUrl(options.url), { lazyConnect: true, maxRetriesPerRequest: 3 })
   const prefixed = (key: string) => `${base}:${key}`
   const unprefixed = (key: string) => key.startsWith(`${base}:`) ? key.slice(base.length + 1) : key
@@ -79,7 +74,6 @@ export default function createRedisKVDriver(options: ResolvedRedisKVStoreConfig)
       if (ttl === undefined) await client.set(prefixed(key), value)
       else await client.set(prefixed(key), value, "PX", ttl)
     },
-    // One pipeline, so the writes cost one round trip. It is not a transaction.
     async setItems(items, setOptions?: { ttl?: unknown }) {
       const pipeline = client.pipeline()
       for (const item of items) {

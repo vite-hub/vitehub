@@ -25,12 +25,10 @@ function evlogStub() {
   return { createLogger, events }
 }
 
-/** Everything that a logger got, as evlog would serialize it. An Error keeps its message and stack. */
 function serialized(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => item instanceof Error ? { message: item.message, stack: item.stack } : item)
 }
 
-// A pathname that names a person, and a provider error whose message repeats it.
 const pathname = "users/42/passport.jpg"
 const leakyError = (code: string) => Object.assign(new Error(`${code}: open '/srv/data/${pathname}'`), { code })
 
@@ -97,7 +95,6 @@ describe("Blob failures in logs", () => {
     const evlog = evlogStub()
     setEvlogBridge(evlog)
     const console = vi.spyOn(globalThis.console, "error").mockImplementation(() => {})
-    // A file where the hash cache folder goes makes every hash cache write fail.
     await rm(join(directory, ".vitehub", "blob-hashes"), { recursive: true, force: true })
     await mkdir(join(directory, ".vitehub"), { recursive: true })
     await writeFile(join(directory, ".vitehub", "blob-hashes"), "")

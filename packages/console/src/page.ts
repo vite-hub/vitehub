@@ -21,7 +21,6 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
   if (!sessionCookie.test(cookies)) return "sign-in"
   if (/^\/(?:home|team|team-settings|env|settings)\/?$/.test(pathname)) return "shell"
   if (pathname === "/") return appView.test(cookies) ? "app" : "shell"
-  // Other paths, such as /logs, are pages of an open app.
   return "app"
 }
 

@@ -53,12 +53,10 @@ export async function resolveGitHubToken(repository: string, options: { root: st
     const token = options.env[name]?.trim()
     if (token) return token
   }
-  // No shell: `gh` gets an argument array. A machine without gh rejects with ENOENT.
   const gh = await options.run("gh", ["auth", "token", "--hostname", "github.com"], { cwd: options.root, env: options.env }).catch(() => undefined)
   const ghToken = gh?.exitCode === 0 ? gh.stdout.trim() : ""
   if (ghToken) return ghToken
   if (options.env.VITEHUB_GITHUB_APP_ID?.trim()) {
-    // An optional peer: apps with a GitHub App have it through `vite-hub`.
     const forge = await import("@vite-hub/forge").catch(() => undefined)
     if (!forge) {
       throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CREDENTIALS_MISSING({ fix: "Install @vite-hub/forge to use the GitHub App of VITEHUB_GITHUB_APP_ID, or set GITHUB_TOKEN.", host: "GitHub" }), setupExitCodes.inputNeeded, { missing: [{ field: "GITHUB_TOKEN" }] })
@@ -83,7 +81,6 @@ function concat(...parts: Uint8Array[]): Uint8Array {
   return out
 }
 
-/** "expand 32-byte k" as little-endian words. */
 const sigma = new Uint32Array([0x61707865, 0x3320646E, 0x79622D32, 0x6B206574])
 
 function words(bytes: Uint8Array): Uint32Array {
@@ -98,7 +95,6 @@ function wordBytes(input: Uint32Array): Uint8Array {
   return out
 }
 
-/** `crypto_box_beforenm`: HSalsa20 of the X25519 shared secret with a zero input. */
 function boxKey(shared: Uint8Array): Uint8Array {
   const out = new Uint32Array(8)
   hsalsa(sigma, words(shared), new Uint32Array(4), out)
@@ -124,7 +120,6 @@ export function sealSecret(value: string, recipientPublicKey: Uint8Array): Uint8
 interface GitHubEnvContext extends GitHubEnvDestination {
   token: string
   fetch: typeof fetch
-  /** Values that no error may show. */
   secrets: readonly string[]
 }
 

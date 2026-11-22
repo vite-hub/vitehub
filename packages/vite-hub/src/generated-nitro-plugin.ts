@@ -17,7 +17,6 @@ interface GeneratedNitroPluginOptions {
   /** Declarations to write next to the plugin. `.vitehub/types.d.ts` references them. */
   types?: string
   configure?: (nitro: Record<string, unknown>, env: ConfigEnv) => void
-  /** Registers the plugin only when it returns true for the project root. */
   when?: (projectRoot: string) => boolean
 }
 

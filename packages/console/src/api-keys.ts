@@ -18,7 +18,6 @@ export const consoleApiKeys = sqliteTable("console_api_keys", {
   name: text("name").notNull(),
   start: text("start").notNull(),
   keyHash: text("key_hash").notNull(),
-  /** A JSON array of project ids, or `null` for every project of the team. */
   projectIds: text("project_ids", { mode: "json" }).$type<string[]>(),
   createdAt: integer("created_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
@@ -179,7 +178,6 @@ export async function verifyConsoleApiKey(db: ConsoleDatabase, key: string, now 
     .where(eq(consoleApiKeys.keyHash, await hashConsoleApiKey(key)))
     .limit(1)
   if (!found || found.key.expiresAt <= now) return undefined
-  // One write per minute at most, so a busy CLI does not write on each call.
   if (!found.key.lastUsedAt || now - found.key.lastUsedAt > 60_000) await db.update(consoleApiKeys).set({ lastUsedAt: now }).where(eq(consoleApiKeys.id, found.key.id))
   return {
     keyId: found.key.id,

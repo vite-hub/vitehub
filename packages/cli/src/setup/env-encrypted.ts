@@ -10,7 +10,6 @@ import { join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupFailure, setupExitCodes } from "./envelope.ts"
 
-/** dotenvx marks an encrypted value with this prefix. */
 const prefix = "encrypted:"
 
 /** The file where dotenvx writes private keys. It must never be in git. */

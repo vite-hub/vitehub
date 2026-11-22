@@ -16,7 +16,6 @@ const RealtimeDocument = Document.extend({
   content: "frontmatter? block+",
   renderMarkdown(node, helpers, context) {
     const [frontmatter, paragraph] = node.content ?? []
-    // The schema keeps an editable paragraph after frontmatter, even when the file has no body.
     const content = node.content?.length === 2 && frontmatter?.type === "frontmatter"
       && paragraph?.type === "paragraph" && !paragraph.content?.length
       ? [frontmatter]
@@ -24,13 +23,10 @@ const RealtimeDocument = Document.extend({
     return this.parent?.({ ...node, content }, helpers, context) ?? ""
   },
 })
-// Markdown permits links and emphasis around inline code, and its parser preserves those marks.
 const RealtimeCode = Code.extend({ excludes: "" })
 
-// @tiptap/markdown escapes every bracket in text, so it writes `> [!NOTE]` as `> \[!NOTE\]`, which is a plain quote.
 const escapedAlertMarker = /^> \\\[!(note|tip|important|warning|caution)\\\](?=\n|$)/i
 
-/** A blockquote that writes a GitHub alert's first line (`> [!NOTE]`) as it read it, so the alert stays an alert. */
 const RealtimeBlockquote = Blockquote.extend({
   renderMarkdown(node, helpers, context) {
     return (this.parent?.(node, helpers, context) ?? "").replace(escapedAlertMarker, "> [!$1]")
@@ -48,7 +44,6 @@ function createMarked(): typeof import("marked").marked {
 
 export function createRealtimeEditorExtensions(options: { collaborative?: boolean } = {}) {
   return [
-    // Each collaborator's trailing node appends its own empty paragraph to the shared document, and the room keeps them all.
     StarterKit.configure({ blockquote: false, code: false, document: false, trailingNode: options.collaborative === true ? false : undefined, undoRedo: false }),
     RealtimeBlockquote,
     RealtimeCode,

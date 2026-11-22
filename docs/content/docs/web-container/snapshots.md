@@ -69,4 +69,4 @@ A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootW
 
 `container.export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. Mount it later with `bootWebContainer({ snapshot })`.
 
-The vitehub.dev docs build writes its tutorial snapshots with `createNodeModulesSnapshot()`, in `docs/modules/tutorials/snapshots.ts`.
+The vitehub.dev docs build writes its tutorial snapshots with `createNodeModulesSnapshot()`, through the `runnable` option of `@vite-hub/docs` (`packages/docs/src/runnable/snapshots.ts`).

@@ -62,7 +62,7 @@ export const TraceCollapsibleTrigger = defineComponent({
 
 export const TraceCollapsibleContent = defineComponent({
   name: "TraceCollapsibleContent",
-  // Classes go to the inner element, as in shadcn/ui, so padding and borders do not break the height animation.
+  // Classes go to the inner element, as in shadcn/ui. The panel opens at once: a person reads it.
   inheritAttrs: false,
   setup(_props, { attrs, slots }) {
     return () =>

@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Reads a dotenv file and writes the value of a single key to stdout.
-// Handles double/single quoted values. Used by manual-live-e2e workflow.
 
 import { readFileSync } from "node:fs"
 
