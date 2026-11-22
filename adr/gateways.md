@@ -22,6 +22,14 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Consequences:** Keep the placeholder route out of `doGenerate` and `doStream`. It can go when the AI SDK providers export their supported URLs without a model instance.
 
+## `askOnce` forwards instructions through `system`
+
+**Context:** `ask()` can use a model supplied by an app on AI SDK 6. Jev-only apps need not load the AI SDK at all.
+
+**Decision:** Keep the optional AI SDK peer compatible with versions 6 and 7. Pass instructions to `generateText` as `system`, which both versions accept.
+
+**Consequences:** Narrowing the peer would reject working installs, and passing `instructions` instead would silently drop the system message on SDK 6.
+
 ## Jev response metadata is parsed at the boundary
 
 `jevResponseMetadata` in `packages/gateways/src/jev.ts`.

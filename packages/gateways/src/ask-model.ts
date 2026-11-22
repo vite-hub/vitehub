@@ -260,7 +260,7 @@ export async function askOnce(prompt: string, options: AskOptions<AskSchema | un
       // SAFETY: `checkSchema()` proved a Standard Schema with JSON Schema conversion, which the AI SDK reads itself.
       ...(schema === undefined ? {} : { output: Output.object({ schema: schema as never }) }),
       prompt,
-      ...(options.instructions ? { instructions: options.instructions } : {}),
+      ...(options.instructions ? { system: options.instructions } : {}),
     })
     data = schema === undefined ? result.text : result.output
   }
