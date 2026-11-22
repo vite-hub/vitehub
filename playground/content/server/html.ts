@@ -1,6 +1,5 @@
 import type { ContentHead } from "vite-hub/content"
 
-/** Without a framework, render the tags that useHead() would add. */
 export function renderHead(head: ContentHead): string {
   const tag = (entry: Record<string, string | undefined>) => Object.entries(entry).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}="${escape(value!)}"`).join(" ")
   return [
@@ -11,7 +10,6 @@ export function renderHead(head: ContentHead): string {
   ].join("\n")
 }
 
-/** `contentField()` marks the element that renders a Content field. */
 export function attributes(record: Record<string, string>): string {
   return Object.entries(record).map(([name, value]) => `${name}="${escape(value)}"`).join(" ")
 }

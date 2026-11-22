@@ -61,7 +61,6 @@ it("makes values of a condition and of its branches optional", async () => {
 })
 
 it("accepts null for an object that a condition checks before its branch reads it", async () => {
-  // A missing path and `null` render the same: the condition is false and the branch does not read the fields.
   const template = [
     "Hi {{ data.recap.label }}",
     "",
@@ -113,7 +112,6 @@ it.each(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])("k
   })
 })
 
-// Strata's notification templates before `data.` paths: `{{ repoPath }}` in inline code and `{{ errorMessage }}` in a fence.
 const strataTemplate = [
   "Strata could not complete the archaeology run for `{{ repoPath }}`.",
   "",
@@ -135,7 +133,6 @@ it("names the migration for a binding that does not start with data.", async () 
     code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA",
     message: expect.stringContaining("\"resultUrl\""),
   })
-  // Comark's own names and JSON literals stay valid.
   await expect(inferMarkdownTemplateDataType("::if{:condition=\"true\"}\n{{ frontmatter.title }}\n::")).resolves.toEqual({ required: false, type: "Record<string, never>" })
 })
 
@@ -161,6 +158,5 @@ it("rejects a binding inside inline code or a code block, which would stay unfil
     })
   }
   await expect(assertNoBindingsInCode("Strata finished mapping **{{ data.repoPath }}**. Run `pnpm build`.")).resolves.toBeUndefined()
-  // The renderer itself still keeps such a binding as text, for pages that document the syntax.
   await expect(renderMarkdownTemplate("Write `{{ data.name }}`.", { data: {} })).resolves.toBe("Write `{{ data.name }}`.")
 })

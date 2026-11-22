@@ -104,8 +104,6 @@ class ShadowButton extends HTMLElement {
 }
 customElements.define("motion-shadow-button", ShadowButton);
 
-// Drag a value: sliders and dividers. The plain ones follow the prototype: a slider whose thumb has the role, and a
-// panel edge that resizes a 120px to 220px panel.
 const volume = ref(40);
 const interval = ref([20, 80]);
 const sdkVolume = ref(40);
@@ -185,7 +183,6 @@ function plainPanels(): VNode {
 }
 
 function dragRows(): VNode[] {
-  // A handle with a line of its own, as the Console session trace draws in its `USplitter`.
   const line = () => h("span", { class: "pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-(--ui-border) group-hover:bg-(--ui-border-accented)" });
   return [
     row("USlider, ui-sdk slider, plain slider", [

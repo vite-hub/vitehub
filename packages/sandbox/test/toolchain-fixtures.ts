@@ -13,7 +13,6 @@ export const fixtureNodeVersion = "22.1.0";
 export const fixturePnpmVersion = "10.2.0";
 export const fixtureYarnVersion = "4.1.0";
 
-/** The platform suffix that the Sandbox toolchain detects on this test host. */
 export function hostPlatformSuffix() {
   const os = process.platform === "darwin" ? "darwin" : "linux";
   return `${os}-${process.arch}`;
@@ -23,10 +22,6 @@ export function hostIndexFile() {
   return process.platform === "darwin" ? `osx-${process.arch}-tar` : `linux-${process.arch}`;
 }
 
-/**
- * Serve a Node.js distribution and an npm registry from local fixtures.
- * Fake `node` prints its version and runs other scripts with `sh`.
- */
 export async function startToolchainFixture(options: {
   nodeChecksum?: string;
   pnpmIntegrity?: string;
@@ -128,7 +123,6 @@ export async function writeExecutable(path: string, lines: readonly string[]) {
   await chmod(path, 0o755);
 }
 
-/** A project directory with the given files. */
 export async function writeProject(directory: string, files: Readonly<Record<string, string | object>>) {
   await mkdir(directory, { recursive: true });
   for (const [path, contents] of Object.entries(files)) {

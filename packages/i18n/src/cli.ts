@@ -61,10 +61,6 @@ function formatStatus(status: I18nStatus): string {
   ].join("\n")
 }
 
-/**
- * How the records folder relates to the `i18n.workspace` Workspace: `vitehub pull` merges the published translations
- * of that Workspace into the folder when `vitehub.lock` checks it out there.
- */
 async function workspaceNote(rootDir: string, folder: string, workspace: string | undefined): Promise<string[]> {
   if (!workspace) return []
   const dir = relative(rootDir, folder).split(sep).join("/") || "."
@@ -105,7 +101,6 @@ const expectedComment = "vitehub-i18n-expected: "
 
 function importBaseline(comments: string[] = []): string | null | undefined {
   const baselines = comments.filter(comment => comment.startsWith(expectedComment))
-  // A PO file without an export baseline can add records, but cannot replace an existing translation.
   if (!baselines.length) return null
   if (baselines.length !== 1) return undefined
   try {
@@ -155,8 +150,6 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
             if (!locale) return usage(context, `${usages.export}\nThe locale must be one of: ${config.locales.filter(entry => entry !== config.sourceLocale).join(", ")}.`, 1)
             const status = await inspectI18n(config)
             const records = status.records[locale] ?? {}
-            // A message whose source changed a little gets its old translation, marked fuzzy as gettext does, so a
-            // translator edits it instead of starting again. `import` skips fuzzy entries.
             const previous = findPreviousTranslations(status.messages, records)
             const catalog: CatalogType = {}
             for (const [id, message] of Object.entries(status.messages)) {

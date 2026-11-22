@@ -30,7 +30,6 @@ export function discoverAgentChannelModules(serverDirs: string[]): Array<{ handl
   return discoverChannelDefinitions({ mode: "server-channels", scanDirs: serverDirs }).map(({ handler, name }) => ({ handler, name }))
 }
 
-// `defineChannel()` comes from `vite-hub/channels`, and `webhook()` and `stripe()` from its adapters entry.
 const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels", "vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 const webhookAdapterFactories = new Set(["stripe", "webhook"])
 

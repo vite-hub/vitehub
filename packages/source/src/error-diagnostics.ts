@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: SOURCE_R0007, SOURCE_R0010, SOURCE_R0019, and SOURCE_R0020.
 export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/source/diagnostics",
   codes: {
@@ -185,7 +183,7 @@ export const sourceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ route, other }: { route: string, other: string }) => `[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at ${JSON.stringify(route)}, and ${other} answers there too.`,
       fix: "One route serves one MCP server. Give the app MCP server another route, such as `vitehub({ mcp: { route: '/mcp/app' } })`, or another `publicRoute`. Or set `seo: { mcp: false }` in server/content.ts.",
     },
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     SOURCE_FILE_DEFAULT_EXPORT_MISSING: {
       why: ({ path }: { path: string }) => `[vitehub] ${path} has no default export. Each file in server/sources/ defines one Source as its default export.`,
       fix: "Write `export default glob({ ... })`, or another Source such as `github({ ... })`, in the file. Move helper code that is not a Source out of server/sources/.",

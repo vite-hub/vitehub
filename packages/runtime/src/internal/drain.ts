@@ -53,7 +53,6 @@ export async function runDrain(args: readonly string[], output: DrainOutput): Pr
       if (status === "failed" || status === "invalid") throw runtimeErrorDiagnostics.RUNTIME_R0004({ message: `Process drain reported ${status}.` })
       if (status === "drained") return 0
       if (status === "accepting" && !signalAttempted) {
-        // A denied signal still leaves the status endpoint as the source of truth.
         signalAttempted = signalProcess(pid) === "signaled"
       }
       await new Promise(resolve => setTimeout(resolve, 1_000))

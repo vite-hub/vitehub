@@ -12,7 +12,6 @@ import type { FormsStore, FormSubmission } from "../src/index.ts"
 async function drizzleStore(): Promise<FormsStore> {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${formsTables.join(";\n")};`)
-  // The Database of a ViteHub app has the Forms schema, so the store takes a Drizzle Database with any schema.
   return createDrizzleFormsStore(drizzle({ client }))
 }
 

@@ -46,13 +46,11 @@ afterEach(async () => {
 const cleared = Array.from({ length: 1200 }, (_, index) => `a:${index}`).concat("a:nested:key")
 const kept = ["a", "ab", "ab:key", "abc:key", "b:a:key"]
 
-/** A store and the number of provider calls that delete keys. */
 interface Target {
   storage: RuntimeStorage
   deletes: () => number
 }
 
-/** Upstash REST commands, answered from a Map with Upstash's base64 response encoding. */
 function stubUpstashRest(commands: string[]) {
   const values = new Map<string, string>()
   const encode = (value: unknown): unknown => typeof value === "string" ? Buffer.from(value).toString("base64") : Array.isArray(value) ? value.map(encode) : value
@@ -133,14 +131,11 @@ const targets: Record<string, () => Promise<Target>> = {
   },
 }
 
-/** The most delete calls each driver may make for 1201 keys. */
 const deleteBudget: Record<string, number> = {
   "redis": 2,
   "upstash": 2,
   "database": 1,
-  // fs-lite deletes local files; the check is that clear() keeps keys outside the base.
   "fs-lite": 0,
-  // Workers KV bindings have no batch delete, so each key is one call.
   "cloudflare": cleared.length,
 }
 

@@ -446,7 +446,6 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const source of await getLazySourcesForPath(normalized)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
         await ensurePrepared(source.key, { directory: normalized })
-        // Check only the Source files below the listed folder. A walk that lists each folder checks each file a few times, not once per folder.
         if (!usesLiveProvider(source)) await ensureMaterialized(source.key, true, { directory: normalized })
       }
     }

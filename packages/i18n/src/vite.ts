@@ -30,7 +30,6 @@ const clientModule = "virtual:vite-hub/i18n/client"
 const resolvedClientModule = `\0${clientModule}`
 const catalogModule = "virtual:vite-hub/i18n/catalog/"
 const resolvedCatalogModule = `\0${catalogModule}`
-/** A production catalog holds this string until the chunk renders. Then every message of the bundle is known. */
 const catalogMarker = (locale: string) => `__VITEHUB_I18N_CATALOG_${locale}__`
 const catalogMarkerRe = /"__VITEHUB_I18N_CATALOG_([\w-]+)__"/g
 const buildMessagesModule = "virtual:vite-hub/i18n/build-messages"
@@ -39,7 +38,6 @@ const clientIdsMarker = "__VITEHUB_I18N_CLIENT_IDS__"
 const sourcesMarker = "__VITEHUB_I18N_SOURCES__"
 const generatedPlugin = ".vitehub/nitro/i18n/plugin.mjs"
 const generatedRoute = ".vitehub/nitro/i18n/catalog.mjs"
-/** The browser reads live catalogs from `<liveRoute>/<locale>.json`. */
 const liveRoute = "/_vitehub/i18n"
 const generatedMessages = ".vitehub/i18n/messages.mjs"
 const mergeNoExternal = createNoExternalAddition(packageName)
@@ -63,7 +61,6 @@ export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & Vite
 type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown }
 
 function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
-  // `vite-hub/i18n` gets the Workspace from `vite-hub/workspace/files`, and `@vite-hub/i18n` from `@vite-hub/workspace/files`.
   const workspaceImport = importBase.replace(/i18n$/, "workspace/files")
   return [
     `import { definePlugin } from "nitro"`,
@@ -121,13 +118,7 @@ function renderClientModule(importBase: string, locale: I18nLocaleConfig, live: 
   ].join("\n")
 }
 
-/**
- * Fails the build when `i18n.workspace` names no Workspace of the app. A wrong name would otherwise only log an error on
- * each read of the published translations. The Workspace plugin runs first and lists its Workspaces in `buildStart`,
- * after other plugins, such as Content, contribute theirs, so this check sees every definition.
- */
 function assertWorkspaceDefined(workspace: string, plugins: readonly Plugin[]): void {
-  // `@vite-hub/workspace/vite` lists its Workspaces in `api.getWorkspaces()`. i18n does not depend on that package.
   const api: { getWorkspaces?: () => Array<{ name: string }> } | undefined = plugins.find(entry => entry.name === "@vite-hub/workspace/vite")?.api
   const workspaces = api?.getWorkspaces?.().map(entry => entry.name)
   if (workspaces?.includes(workspace)) return
@@ -144,13 +135,11 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let isProduction = false
   let isBuild = false
   let plugins: readonly Plugin[] = []
-  /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
   const moduleMessages = new Map<string, Map<string, SourceMessages>>()
   let manifestWrite = Promise.resolve()
   let serverWrite = Promise.resolve()
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
-  /** Environments whose code runs in the browser. */
   const browserEnvironments = new Set<string>()
 
   const setup = (config: ViteHubConfig): void => {
@@ -168,9 +157,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     return Object.fromEntries(entries)
   }
 
-  // Server code keeps the source text of each message, so the server needs only the translations.
   const writeServerFiles = (): Promise<void> => {
-    // Watcher callbacks overlap. Read each snapshot inside the queue so an older read cannot overwrite a new one.
     serverWrite = serverWrite.catch(() => {}).then(async () => {
       if (!projectRoot || !locale || !lingui) return
       const messagesFile = resolve(projectRoot, generatedMessages)
@@ -187,7 +174,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     return serverWrite
   }
 
-  // The CLI can run before Vite resolves the config, so it builds the config from the plugin options.
   const resolveLingui = (rootDir: string): LinguiConfigNormalized => lingui ?? createLinguiConfig({
     rootDir: resolveViteHubProjectRoot(rootDir, { projectRoot: configured.projectRoot }),
     locale: resolveI18nLocaleConfig({ locales: configured.locales ?? [], cookie: configured.cookie }),
@@ -249,7 +235,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         const kit = createNitroServerKit(viteHubConfig.nitro)
         kit.addPlugin(resolve(projectRoot!, generatedPlugin), "start")
         if (configured.workspace) kit.addHandler({ route: `${liveRoute}/:file`, method: "GET", handler: resolve(projectRoot!, generatedRoute) })
-        // Nitro runs each request in an async context, so `t` in server code finds the locale of its request.
         const nitro = kit.config as Record<string, unknown> & { experimental?: Record<string, unknown> }
         nitro.experimental = { ...nitro.experimental, asyncContext: true }
         viteHubConfig.nitro = nitro
@@ -262,7 +247,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       isProduction = config.isProduction
       plugins = config.plugins
       const vue = config.plugins.find(plugin => plugin.name === "vite:vue") as (Plugin & { api?: { options?: VueOptions } }) | undefined
-      // Without Vue, messages still work in scripts and server code.
       if (vue?.api?.options) installTemplateTransform(vue.api.options, isProduction)
     },
     configEnvironment(name, config) {
@@ -282,16 +266,12 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!projectRoot || !locale) return
       if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
       if (id === resolvedBuildMessagesModule) {
-        // The server sends the browser only the translations of browser messages, and lists the messages that a
-        // locale does not translate. A build fills both when the server chunk renders. Development sends every
-        // translation and reads the messages of the code when the server starts.
         if (isBuild) return `export const clientIds = ${JSON.stringify(clientIdsMarker)}\nexport const sources = ${JSON.stringify(sourcesMarker)}\n`
         return `export const clientIds = null\nexport const sources = ${JSON.stringify(lingui ? await scanMessages(lingui) : {})}\n`
       }
       if (!id.startsWith(resolvedCatalogModule)) return
       const entry = locale.locales.find(candidate => candidate === id.slice(resolvedCatalogModule.length))
       if (!entry) return
-      // A production build fills the catalog when the chunk renders, after every module has given its messages.
       if (isBuild) return `export const messages = ${JSON.stringify(catalogMarker(entry))}\n`
       const records = entry === locale.sourceLocale ? {} : (await readRecords(recordsRoot(projectRoot), entry)).records
       return `export const messages = ${JSON.stringify(compileMessages(records))}\n`
@@ -302,7 +282,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id) || !sourceRe.test(id)) return
         const server = this.environment.config.consumer === "server"
         if (isBuild) {
-          // The build reads each message from the file on disk, so origins point at the lines that you wrote.
           const file = id.split("?")[0]!
           const source = await readFile(file, "utf8").catch(() => undefined)
           if (!server) browserEnvironments.add(this.environment.name)
@@ -312,14 +291,10 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
           if (!modules) moduleMessages.set(this.environment.name, modules = new Map())
           modules.set(id, messages)
         }
-        // Browser code ships only message IDs. Server code keeps the source text, so a message without a
-        // translation falls back to it.
         return transformMacros(code, id, lingui, importBase, isProduction && !server ? "id-only" : "all")
       },
     },
     renderStart() {
-      // Cached modules may skip transform on a watch rebuild. Keep their contributions, but only for modules
-      // that are still in the current graph, and replace each changed module's previous contribution.
       const modules = moduleMessages.get(this.environment.name)
       const active = new Set(this.getModuleIds())
       const sources: SourceMessages[] = []
@@ -334,7 +309,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async renderChunk(code) {
       if (code.includes(clientIdsMarker) || code.includes(sourcesMarker)) {
-        // The server builds after the browser, so every browser message is known here.
         const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
         const values: Record<string, string> = {
           [clientIdsMarker]: JSON.stringify([...new Set(ids)].sort()),
@@ -347,8 +321,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       }
       if (!code.includes("__VITEHUB_I18N_CATALOG_")) return
-      // The catalog of an environment holds only the messages of its code. Translations of server-only messages
-      // stay out of the browser.
       const sources = manifest.environments[this.environment.name] ?? {}
       const records = await (buildRecords ??= readAllRecords())
       const output = new MagicString(code)
@@ -361,8 +333,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     async writeBundle() {
       if (!projectRoot) return
       const file = resolve(projectRoot, manifestFile)
-      // Environments can finish concurrently. Serialize snapshots so an older write cannot finish after the
-      // final one, and rename a complete file so readers never see a partially written snapshot.
       manifestWrite = manifestWrite.catch(() => {}).then(async () => {
         const temporary = `${file}.${randomUUID()}.tmp`
         try {
@@ -378,8 +348,6 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     configureServer(server) {
       if (!projectRoot) return
-      // The records folder can sit outside the Vite root, as in Nuxt. Watch it, and reload the server and the page
-      // after a record changes.
       server.watcher.add(recordsRoot(projectRoot))
       server.watcher.on("all", async (_event, file) => {
         if (!recordRe.test(file)) return
@@ -416,7 +384,6 @@ const templateTransformKey = Symbol.for("vite-hub.i18n.template-transform")
 
 type NodeTransform = (node: unknown, context: { ssr?: boolean, inSSR?: boolean }) => unknown
 
-/** Browser templates get message IDs only in production. Server templates keep the source text as a fallback. */
 function installTemplateTransform(vueOptions: VueOptions, isProduction: boolean): void {
   const template = vueOptions.template ??= {}
   const compilerOptions = template.compilerOptions ??= {}

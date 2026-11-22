@@ -64,7 +64,6 @@ describe("Workflow registry", () => {
     expect(Object.hasOwn(generated.default, "__proto__")).toBe(true)
   }, 15_000)
 
-  // A Workflow-only app does not install `@vite-hub/workspace`, so an import with no loaders breaks its build.
   it("imports the Workspace runtime only for the Shell loader", () => {
     const definitions = [{ handler: "/app/server/workflows/hello.ts", name: "hello", source: "server-workflows" as const }]
     const workspaceRuntime = "vite-hub/workspace/runtime"
@@ -77,7 +76,6 @@ describe("Workflow registry", () => {
       workspaceDependencies: { shellWorkspace: "vite-hub/shell/workspace" },
       workspaceRuntime,
     })
-    // `vitehub()` hands the Workflow the same loader object as the Agent, which can name Sandbox Task modules.
     const frameworkLoaders: { sandboxTask: string, sandboxTaskRuntimeState: string, shellWorkspace?: string } = {
       sandboxTask: "vite-hub/sandbox/task",
       sandboxTaskRuntimeState: "/sandbox/dist/task/runtime/state.js",

@@ -19,7 +19,6 @@ const zod = `${root}/node_modules/.pnpm/zod@4.1.0/node_modules/zod/index.js`
 const h3 = `${root}/node_modules/h3/dist/index.mjs`
 const route = `${root}/server/routes/report.ts`
 
-/** A server build. `modules` maps a module to its bytes in the entry file; `lazy` goes to a file that loads on demand. */
 function serverBuild(build: string, modules: Record<string, number>, lazy: Record<string, number> = {}): BundleEnvironmentReport {
   const size = (values: Record<string, number>) => Object.values(values).reduce((sum, bytes) => sum + bytes, 0)
   const chunks = {
@@ -35,7 +34,6 @@ function serverBuild(build: string, modules: Record<string, number>, lazy: Recor
 }
 
 const before = serverBuild("2026-11-07T10:00:00.000Z", { [entry]: 100, [h3]: 400, [route]: 200 })
-// The change: the route moves behind `import()` and starts to import zod. h3 does not change.
 const after = serverBuild("2026-11-07T11:00:00.000Z", { [entry]: 120, [h3]: 400 }, { [route]: 200, [zod]: 300 })
 
 describe("compareBundleReports", () => {

@@ -15,7 +15,6 @@ import type { SetupDeployOutput, SetupError, SetupMissing } from "../src/setup/i
 type DeployJson = SetupDeployOutput & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
 type Host = "cloudflare" | "vercel"
 
-/** A value that must reach the host only on stdin or in the secrets file, never in argv or output. */
 const canary = "canary-5e1d9b7c3a"
 const previewCanary = "preview-canary-8b2f4d"
 const tokens = ["cf-token-1", "vercel-token-1"]
@@ -33,7 +32,6 @@ const apiKey = { path: "env.server.apiKey", names: ["API_KEY"], required: true, 
 const sentry = { path: "env.server.sentryDsn", names: ["SENTRY_DSN"], required: false, secret: false, hasDefault: false }
 const appSecret = { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["vite-hub"] }
 
-/** A built project whose `deployment.json` lists `env`. `linked` writes a link target for the host. */
 async function project(host: Host, env: readonly object[], options: { linked?: boolean, deployCommand?: string, files?: Record<string, string> } = {}): Promise<string> {
   return await builtProject(host, {
     ...(options.deployCommand ? buildOutput(host, options.deployCommand) : {}),
@@ -44,7 +42,6 @@ async function project(host: Host, env: readonly object[], options: { linked?: b
   })
 }
 
-/** Seeds the fake host state, as if the dashboard or an earlier push set the values. */
 async function seed(env: NodeJS.ProcessEnv, state: object): Promise<void> {
   await writeFile(env.FAKE_HOST_STATE!, JSON.stringify({ deploys: 0, secrets: {}, ...state }))
 }
@@ -65,7 +62,6 @@ describe("vitehub deploy checks Server Env", () => {
     expect(result.json.error).toMatchObject({ code: "SETUP_DEPLOY_ENV_MISSING", fix: expect.stringContaining("vitehub env push --host cloudflare") })
     expect(result.json.error?.why).toContain("API_KEY (env.server.apiKey)")
     expect(result.json.missing).toEqual([{ field: "API_KEY" }])
-    // Only the read of the host names ran: no D1 migration, no deploy, no secret.
     expect((await hosts.calls()).map(call => call.argv.slice(0, 2))).toEqual([["secret", "list"]])
     expect(await hosts.state()).toMatchObject({ deploys: 0, secrets: {} })
 
@@ -132,7 +128,6 @@ describe("vitehub deploy checks Server Env", () => {
     expect(file.endsWith(".json")).toBe(true)
     expect(existsSync(file)).toBe(false)
     expect(existsSync(dirname(file))).toBe(false)
-    // No `secret put`: the values arrive with the new version only.
     expect(calls.some(item => item.argv[1] === "put")).toBe(false)
     expect(result.json.env).toMatchObject({ missing: [], pushed: ["API_KEY", "SENTRY_DSN"], stage: "production" })
     expectNoLeak(calls, result.stdout + result.stderr, [...tokens, canary, previewCanary])
@@ -158,12 +153,10 @@ describe("vitehub deploy checks Server Env", () => {
       expect(exited.code, exited.stderr).toBe(128 + constants.signals[signal])
       expect(existsSync(call!.secretsFile!.path)).toBe(false)
       expect(existsSync(dirname(call!.secretsFile!.path))).toBe(false)
-      // Wrangler was stopped before the cleanup, so it cannot read the file later.
       expect(() => process.kill(call!.pid, 0)).toThrow()
       expectNoLeak(await hosts.calls(), exited.stdout + exited.stderr, [canary])
     }
     finally {
-      // A failed run must not leave the CLI or the fake Wrangler running.
       for (const pid of [cli.pid, call?.pid]) {
         try {
           if (pid) process.kill(pid, "SIGKILL")
@@ -196,7 +189,6 @@ describe("vitehub deploy checks Server Env", () => {
     const result = await deploy([], root, hosts.env)
 
     expect(result.exitCode, result.stderr).toBe(0)
-    // API_KEY is on the host, so only the missing SENTRY_DSN is set.
     expect((await hosts.calls()).map(call => call.argv.slice(0, 3))).toEqual([["env", "ls", "--environment"], ["env", "add", "SENTRY_DSN"], ["deploy", "--prebuilt", "--yes"]])
     expect(result.json.env.pushed).toEqual(["SENTRY_DSN"])
 
@@ -233,7 +225,6 @@ describe("vitehub deploy checks Server Env", () => {
   })
 
   it("decrypts a tracked dotenvx value before the upload, and fails before any host write without the key", async () => {
-    // `dotenvx encrypt -f .env.production` (dotenvx 2.38.2) wrote these lines and the key below. The key is for tests only.
     const encrypted = `DOTENV_PUBLIC_KEY_PRODUCTION="03c7b1a9970356dfd0c1fa6d34b3d05c06e26f636fc6f6855bce6144c44f06f55e"
 VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jguUWOaFZottMvcB7tajL79HiGXWwwgSxVino5Hdjy3hfeOT20gycBhZwSFlTHKdeeELYQl69v3rx1lLBfjyjn/hirIORxpH+olOqg=
 `
@@ -308,7 +299,6 @@ VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jg
     expect(JSON.stringify(result.json)).not.toContain(value)
     expect((await hosts.state()).secrets.VITEHUB_SECRET).toBe(value)
 
-    // An existing Cloudflare secret needs a local stage value to avoid unsafe inheritance.
     const kept = await fakeHosts(hostEnv.cloudflare)
     await seed(kept.env, { secrets: { VITEHUB_SECRET: "x" } })
     const second = await deploy([], root, kept.env)
@@ -339,7 +329,6 @@ VITEHUB_SECRET=encrypted:BMVu6gxTAq7ZigF6OBa/OVUquNfCeDVa3DMuUeuiX8lhpJrI2+Bm+jg
     ])
     expect(result.json.env.pushed).toEqual(["CFG_B"])
 
-    // An alias on the host keeps its precedence: the deploy does not add the other alias.
     const aliased = { path: "env.server.github.token", names: ["VITEHUB_GITHUB_TOKEN", "GITHUB_TOKEN"], required: true, secret: true, hasDefault: false }
     const aliasRoot = await project("vercel", [aliased], { files: { ".env.production": `VITEHUB_GITHUB_TOKEN=${canary}\n` } })
     const alias = await fakeHosts(hostEnv.vercel)

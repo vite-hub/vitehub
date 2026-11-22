@@ -85,7 +85,6 @@ export function getOrCreateQueueClient(name: string, createClient: () => Promise
   if (existing) return existing
 
   const pending = createClient().catch((error) => {
-    // Runtime replacement can install a newer client while this creation is pending.
     if (queueClientCache.get(name) === pending) queueClientCache.delete(name)
     throw error
   })

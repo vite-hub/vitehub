@@ -24,7 +24,6 @@ afterEach(async () => {
 
 const envelope = { from: "hello@example.com", subject: "Welcome", to: "ada@example.com" }
 
-/** Runs `vite dev` setup of `hubEmail()` for an app with `server/emails/welcome.md`, then loads the `email` helper. */
 async function loadDevEmail(): Promise<{ email: EmailClient<EmailSendMessage>, emailOutboxRuntimeId: string }> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-email-template-send-"))
   tempDirs.push(root)

@@ -59,10 +59,6 @@ export interface SetupAddPlan {
 
 const usage = "vitehub add <feature...> [--name <definition>] [--option <key=value>]... [--dry-run] [--yes] [--no-install] [--json]"
 
-/**
- * Values that `--option` can choose for an `explicit` host, first the one that `rerun` uses, and the feature that the
- * value needs. Options without an entry, such as `database.connection`, need a value that only the developer knows.
- */
 const optionChoices: Partial<Record<string, { values: readonly [string, ...string[]], requires?: FeatureId }>> = {
   "cache.driver": { requires: "kv", values: ["kv"] },
   "email.driver": { values: ["resend", "log"] },
@@ -72,7 +68,6 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "workflow.driver": { values: ["openworkflow"] },
 }
 
-/** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
 const providerKeys = ["driver", "store"]
 
 function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: ViteHubHost): boolean {
@@ -84,17 +79,14 @@ function selectsProvider(id: FeatureId, value: JsonValue | undefined, host?: Vit
   return providerKeys.some(key => value[key] !== undefined)
 }
 
-/** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
 function hostSupport(id: FeatureId, host: ViteHubHost, env: NodeJS.ProcessEnv): HostSupport {
   const support = featureSupport(id, host)
   if (support.level !== "native") return support
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
 }
 
-/** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 
-/** Keep owner packages on the running CLI's pkg.pr.new preview. */
 function installSpecifiers(packages: readonly string[]): string[] {
   const manifest: JsonValue = JSON.parse(readFileSync(new URL(import.meta.resolve("@vite-hub/cli/package.json")), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
@@ -195,7 +187,6 @@ export type SetupOptions = Partial<Record<FeatureId, Record<string, JsonValue>>>
 /** Builds the command that `rerun` reports: the request with `extra` options and `extraFeatures` added. */
 export type SetupRerun = (args: SetupAddArgs, extra?: SetupOptions, extraFeatures?: readonly FeatureId[]) => string
 
-/** The `vitehub add` command for `args`, with `extra` options and `--yes` unless it is a dry run. */
 function rerunCommand(args: SetupAddArgs, extra: SetupOptions = {}, extraFeatures: readonly FeatureId[] = []): string {
   const ids = [...args.features, ...extraFeatures.filter(id => !args.features.includes(id))]
   const optionIds = [...new Set([...ids, ...Object.keys(args.options), ...Object.keys(extra)])] as FeatureId[]
@@ -246,10 +237,6 @@ export function setupDiff(path: string, before: string, after: string): string {
     .replace(/^=+\n/u, "")
 }
 
-/**
- * The config value that `add` writes for `id`, `undefined` when the config already turns it on, or `expression` when
- * the key is an expression that only a person can edit.
- */
 function nextValue(id: FeatureId, status: SetupStatus, project: SetupProject, options: Record<string, JsonValue> | undefined): { value: JsonValue } | "expression" | undefined {
   const current = project.config?.ok ? project.config.site.keys[id] : undefined
   if (current?.kind === "expression") return "expression"
@@ -306,8 +293,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
-  // Implications and provider prerequisites need their inputs before any file can be written.
-  // Database is mandatory for Comments and Connections.
   const inputFeatures = [...args.features, ...impliedFeatures(args.features, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   const requireFeature = (required: FeatureId) => {
@@ -353,7 +338,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       requireFeature("database")
     }
-    // Outside Netlify, Workflow storage options select OpenWorkflow without `workflow.driver`.
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
     if (support.level === "explicit" && !storageSelected) {
       const key = support.option.slice(id.length + 1)
@@ -376,7 +360,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      // `schedule: true` on Node uses the Process Runtime. Only a `runtime` without its driver needs a choice.
       if (isRecord(value) && value.runtime !== undefined && (!isRecord(value.runtime) || value.runtime.driver !== "process")) {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
@@ -386,7 +369,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
   const agent = valueFor("agent")
   const observabilityValue = valueFor("observability")
-  // Only `observability.service` installs Agent telemetry, which needs Nitro-hosted Agents.
   const telemetry = isRecord(observabilityValue) && typeof observabilityValue.service === "string"
   if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && telemetry && enabledAfter("agent")
     && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
@@ -410,7 +392,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
     expression ||= next === "expression"
-    // The starter Definition turns the feature on, so `<feature>: true` would only repeat it.
     if (next !== "expression" && next?.value === true && site && !site.spread && !site.keys[id] && args.name !== undefined && args.features.includes(id) && features[id].definition && features[id].enabledByDiscovery) continue
     if (next !== undefined) edits.push({ key: id, op: "set", value: next === "expression" ? mergeValue(true, args.options[id])! : next.value })
   }
@@ -423,7 +404,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
   const definitionRoot = nuxtRoot?.kind === "literal" && typeof nuxtRoot.value === "string" ? resolve(project.root, nuxtRoot.value) : project.root
 
-  // Starter Definition files.
   if (args.name !== undefined) {
     const withStarter = args.features.filter(id => features[id].definition)
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
@@ -464,7 +444,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     changes.push({ after: result.code, before, diff: setupDiff(project.configFile, before, result.code), kind: "patch", path: project.configFile })
   }
 
-  // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
@@ -486,7 +465,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
-  // Host defaults that build and run, but keep state in one process.
   for (const id of [...addedFeatures, ...implied]) {
     if (selectsProvider(id, valueFor(id))) continue
     const support = hostSupport(id, host, env)
@@ -519,7 +497,6 @@ export async function applySetupAdd(project: SetupProject, planned: SetupAddPlan
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
       if (!packages.length) continue
       const commandArgs = installArgs(project.packageManager, packages, isDev)
-      // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
         throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
@@ -531,7 +508,6 @@ export async function applySetupAdd(project: SetupProject, planned: SetupAddPlan
   }
   for (const file of planned.files) {
     await mkdir(dirname(join(project.root, file.path)), { recursive: true })
-    // `wx` fails when the file appeared after the plan, so a file is never overwritten.
     try {
       await writeFile(join(project.root, file.path), file.content, { flag: "wx" })
     }

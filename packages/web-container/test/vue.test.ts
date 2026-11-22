@@ -7,7 +7,6 @@ import { createSSRApp, defineComponent, h, nextTick } from "vue";
 import { renderToString } from "vue/server-renderer";
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
-// A fake container: the tests control when each process exits.
 const fake = vi.hoisted(() => {
   const state = {
     disk: new Map<string, string>(),
@@ -174,7 +173,6 @@ describe("useWebContainer", () => {
     expect(workspace.failure.value).toBeUndefined();
     expect(fake.exits.map(run => run.command)).toEqual(["dev", "dev"]);
 
-    // A restart that the app asks for is not a failure.
     await workspace.restart();
     await flushPromises();
     expect(workspace.failure.value).toBeUndefined();
@@ -280,7 +278,6 @@ describe("useWebContainer", () => {
     await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
     await expect(workspace.reset()).resolves.toBeUndefined();
     await expect(workspace.setFiles({ "b.txt": "b" })).rejects.toThrow("EISDIR");
-    // Logs flush on a 32 ms timer.
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(workspace.logs.value.join("")).toContain("Could not write the files: EISDIR");
     fake.directories.delete("b.txt");
@@ -420,7 +417,6 @@ describe("useWebContainer", () => {
     fake.releaseBoot?.();
     await flushPromises();
     const output = fake.output[0]!;
-    // A terminal remembers where its last write ended, as `WorkspaceTerminal` of @vite-hub/ui does.
     let cursor = 0;
     function unwritten() {
       const logs = workspace.logs.value;

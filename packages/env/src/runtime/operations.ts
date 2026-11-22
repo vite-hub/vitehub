@@ -1,4 +1,3 @@
-// The package import resolves to the Server Env module that the Env plugin generates for the app.
 import { inspectServerEnv } from "#vitehub/env/server"
 
 import { detectHost } from "@vite-hub/runtime"
@@ -55,7 +54,6 @@ function entryOf(entry: ServerEnvInspectionEntry): EnvInspectEntry {
 
 /** Runs `env.inspect`: the Server Env status of the app, with the Worker bindings of the call on Cloudflare. */
 export async function inspectEnvOperation(context: Pick<OperationContext, "env">): Promise<EnvInspectResult> {
-  // Without bindings in the call, Server Env reads the active bindings of the request.
   const inspection = await (context.env ? runWithCloudflareEnv(context.env, () => inspectServerEnv()) : inspectServerEnv())
   const entries = inspection.entries.map(entryOf)
   const host = detectHost()

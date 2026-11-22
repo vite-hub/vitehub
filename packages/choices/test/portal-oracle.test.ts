@@ -4,8 +4,6 @@ import { defineChoices } from "../src/index.ts"
 
 import type { AiGatewayAsk } from "@vite-hub/gateways"
 
-// The portal filter search (quiverdk/portal PR 1470) is the oracle. It reads the same Jev answers with these rules.
-// `portalResolve` is its `resolveFilterSearchResponse`, reduced to the part that maps answers to filters.
 type Answer = { choice: "exclude" | "include" | "none", probabilities: Record<"exclude" | "include" | "none", number>, type: "choice" }
 type Group = { attributes: { code: string }[], code: string }
 
@@ -41,7 +39,6 @@ const groups: Group[] = [
   { attributes: [{ code: "MTO" }, { code: "MTS" }], code: "plc" },
 ]
 
-// "vak" matches S1 and S3 (included), the text excludes S2, PLC says MTO at a low probability, and MTS is excluded.
 const jevAnswers: Record<string, Answer> = {
   "0_0": answer("include", 0.9),
   "0_1": answer("exclude", 0.8),
@@ -53,7 +50,6 @@ const jevAnswers: Record<string, Answer> = {
 describe("portal filter search parity", () => {
   it("selects the same values as the portal for the same Jev answers", async () => {
     const gateway: { ask: AiGatewayAsk } = {
-      // Our keys are `g<group>_o<option>`. The portal keys are `<group>_<option>`.
       ask: async () => [undefined, { supported: { chance: 0.9, type: "chance" }, ...Object.fromEntries(Object.entries(jevAnswers).map(([key, value]) => [`g${key.replace("_", "_o")}`, value])) } as never],
     }
     const choices = defineChoices({
@@ -71,7 +67,6 @@ describe("portal filter search parity", () => {
       { code: "supplier", exclude: false, values: ["S1", "S3"] },
       { code: "plc", exclude: true, values: ["MTS"] },
     ])
-    // The portal drops excludes when a group also includes. We return both, so the portal rule is one line for you.
     expect(selection?.supplier.include).toEqual(portal[0]?.values)
     expect(selection?.supplier.exclude).toEqual(["S2"])
     expect(selection?.plc).toEqual({ exclude: portal[1]?.values, include: [] })

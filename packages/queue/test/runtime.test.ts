@@ -1241,7 +1241,6 @@ describe("vercel provider", () => {
       callbackOptions: { retry },
     }
     const metadata = { deliveryCount: 1, messageId: "message-1" }
-    // The Vercel SDK acknowledges resolved handlers and retries only rejections.
     vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
       try {
         await (handler as (payload: unknown, metadata: unknown) => Promise<unknown>)({}, metadata)
@@ -1440,7 +1439,6 @@ it("does not cache regions inferred from Vercel requests", async () => {
       }),
     })
 
-    // The Nitro queue middleware gives each Vercel request the same `waitUntil`.
     runWithQueueRuntimeEvent({ waitUntil: hostedVercelWaitUntil }, () => deferQueue("welcome-email", { email: "ava@example.com" }))
 
     expect(vercelFunctionsMock.waitUntil).toHaveBeenCalledTimes(1)

@@ -231,6 +231,14 @@ export function createOwnedLibsqlClient(config: Config): Client {
 }
 
 export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): Required<AgentInvocationStore> {
+  return createSqliteJournalStore(options)
+}
+
+export function createFileBackedWasmJournalStore(options: LibsqlAgentInvocationStoreOptions & { client: Client }, backingFile: string): Required<AgentInvocationStore> {
+  return createSqliteJournalStore(options, backingFile)
+}
+
+function createSqliteJournalStore(options: LibsqlAgentInvocationStoreOptions, backingFile?: string): Required<AgentInvocationStore> {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
   }
@@ -517,16 +525,16 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
         synchronousNormal = mode?.rows[0]?.journal_mode === "wal"
       }
       const checkpoints = synchronousNormal && ownedClients.has(client)
-      const file = checkpoints || maxSize !== false
+      const file = checkpoints || (maxSize !== false && !backingFile)
         ? (await client.execute("PRAGMA database_list")).rows.find(row => row.name === "main")?.file
         : undefined
       // The store has no close, so the worker runs for the life of the process.
       if (checkpoints && typeof file === "string" && file) startWalCheckpointer(file)
       if (maxSize !== false) {
-        if (typeof file !== "string" || !file) {
+        storePath = backingFile ?? (typeof file === "string" ? file : undefined)
+        if (!storePath) {
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }
-        storePath = file
       }
       const executeSchema = async (sql: string) => {
         if (synchronousNormal) {

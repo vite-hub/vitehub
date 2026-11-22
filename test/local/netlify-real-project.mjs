@@ -42,8 +42,6 @@ async function readPackageJson(file) {
   return JSON.parse(await readFile(file, "utf8"))
 }
 
-// The app imports `@vite-hub/agent` and turns on the `blob` feature of `vite-hub`. Pack only these packages and the
-// packages that they require. An override for an optional peer installs it, and `@vite-hub/docs` needs Nuxt.
 const fixturePackages = ["agent", "blob", "vite-hub"]
 
 function packageName(name) {
@@ -207,8 +205,6 @@ async function createProject({ packageSource, preview }) {
   const overrides = packageSource === "local"
     ? await createLocalPackageSpecs(join(baseDir, "vitehub-packs"))
     : { "vite-hub": previewSpec("vite-hub", preview) }
-  // Transitive Nuxt peers need the same nightly alias as the workspace;
-  // the stable `nuxt` package does not yet publish Nuxt 5.
   const workspace = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
   overrides.nuxt = workspace.catalogs.nuxt.nuxt
   await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)

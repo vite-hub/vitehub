@@ -81,7 +81,6 @@ export function conditionalFetch(fetcher: typeof fetch, options: ForgeConditiona
     const headers = new Headers(request?.headers)
     for (const [name, value] of new Headers(init?.headers)) headers.set(name, value)
     const authorization = headers.get("authorization")
-    // Callers that send their own validator handle the 304 themselves. Without credentials GitHub charges the 304.
     if (method !== "GET" || !authorization || headers.has("if-none-match") || headers.has("if-modified-since")) return await fetcher(input, init)
     const url = request?.url ?? String(input)
     const key = createHash("sha256").update(`${options.identity ?? authorization}\0${url}\0${headers.get("accept") ?? ""}`).digest("base64url")

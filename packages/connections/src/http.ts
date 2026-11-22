@@ -66,7 +66,6 @@ export function createConnectionsHandler(options: ConnectionsHandlerOptions): Co
     async fetch(request) {
       const path = new URL(request.url).pathname.replace(/\/+$/, "");
       try {
-        // A flow that the Console started comes back without an app session, so it skips the access policy.
         if (path === `${base}/callback`) {
           const completed = await completeConsoleCallback(request, runtime);
           if (completed) return completed;

@@ -87,7 +87,6 @@ describe("execution authority", () => {
     expect(reads).toBe(1)
     expect(normalizeExecutionAuthority(authority)).toBe(authority)
     expect(reads).toBe(1)
-    // Check identity after read counts because assertion formatting inspects accessors.
     expect(authority).not.toBe(declaration)
   })
 

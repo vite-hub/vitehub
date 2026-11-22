@@ -131,7 +131,6 @@ export function localBrowser(options: LocalBrowserOptions): BrowserDriver<CDPBro
     isolation: "trusted-host",
     name: "local",
     async open(openOptions = {}) {
-      // Nothing closes an idle local Chromium, so a timeout would only look applied.
       if (openOptions.idleTimeoutMs !== undefined) {
         throw browserProviderError("local", "configure an idle timeout for a local Chromium")
       }

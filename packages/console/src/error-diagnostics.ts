@@ -1,6 +1,5 @@
 import { defineDiagnostics } from "nostics"
 
-// Each code identifies one failure site of the Console app. Keep published codes stable.
 export const consoleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/development/diagnostics",
   codes: {

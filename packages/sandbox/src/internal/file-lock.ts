@@ -28,8 +28,6 @@ export async function acquireFileLock(
             () => true,
             () => false,
           );
-          // Keep the non-empty tombstone so another stale waiter cannot rename a
-          // freshly acquired lock using the same observed owner token.
           return false;
         }
         return false;

@@ -53,7 +53,6 @@ function withoutTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "")
 }
 
-/** The `resource_metadata` URL in the `WWW-Authenticate` challenge of an MCP endpoint (RFC 9728, section 5.1). */
 async function challengeMetadataUrl(mcp: string, request: typeof fetch): Promise<string | undefined> {
   try {
     const response = await request(mcp, { headers: { accept: "application/json, text/event-stream" }, redirect: "manual", signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) })
@@ -67,17 +66,12 @@ async function challengeMetadataUrl(mcp: string, request: typeof fetch): Promise
   }
 }
 
-/** Protected resource metadata URLs of a resource: the path inserted, then the root (RFC 9728, section 3.1). */
 function resourceMetadataUrls(resource: string): string[] {
   const url = new URL(resource)
   const path = withoutTrailingSlash(url.pathname)
   return [...new Set([`${url.origin}/.well-known/oauth-protected-resource${path}`, `${url.origin}/.well-known/oauth-protected-resource`])]
 }
 
-/**
- * Authorization server metadata URLs of an issuer, in the order of the MCP authorization spec: RFC 8414 with the path
- * inserted, OpenID Connect discovery with the path inserted, then OpenID Connect discovery appended.
- */
 function serverMetadataUrls(issuer: string): string[] {
   const url = new URL(issuer)
   const path = withoutTrailingSlash(url.pathname)
@@ -112,14 +106,12 @@ async function readJson(request: typeof fetch, url: string, init: RequestInit = 
 export async function discoverAuthorizationServer(mcp: string, request: typeof fetch, connection: string): Promise<AuthorizationServer> {
   let issuer: string | undefined
   let resource = mcp
-  // The `resource_metadata` of the `401` challenge comes first, then the well-known URLs (MCP authorization spec).
   const advertised = await challengeMetadataUrl(mcp, request)
   for (const url of [...(advertised ? [advertised] : []), ...resourceMetadataUrls(mcp)]) {
     const response = await readJson(request, url)
     const metadata = response && response.status < 300 ? v.safeParse(resourceMetadataSchema, response.body) : undefined
     if (!metadata?.success) continue
     issuer = metadata.output.authorization_servers?.[0]
-    // RFC 9728, section 3.3: the metadata describes the resource it was fetched for.
     const named = metadata.output.resource
     if (named && URL.canParse(named) && new URL(named).origin === new URL(mcp).origin) resource = named
     break
@@ -131,7 +123,6 @@ export async function discoverAuthorizationServer(mcp: string, request: typeof f
   for (const url of serverMetadataUrls(issuer)) {
     const response = await readJson(request, url)
     const metadata = response && response.status < 300 ? v.safeParse(serverMetadataSchema, response.body) : undefined
-    // RFC 8414, section 3.3: the metadata must name the issuer that it was fetched for.
     if (!metadata?.success || withoutTrailingSlash(metadata.output.issuer) !== withoutTrailingSlash(issuer)) continue
     const server = metadata.output
     return {
@@ -146,7 +137,6 @@ export async function discoverAuthorizationServer(mcp: string, request: typeof f
   throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: `authorization server metadata at ${issuer}`, problem: "discovery", provider: connection })
 }
 
-/** The secret key of the client registered at one issuer for one callback URL. */
 async function clientKey(issuer: string, redirectUri: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${withoutTrailingSlash(issuer)}\n${redirectUri}`)))
   return `connections-client/${Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("")}`
@@ -211,7 +201,6 @@ export function clientRegistrations(options: { now: () => number, request: typeo
       const client: RegisteredClient = {
         clientId: registration.output.client_id,
         ...(registration.output.client_secret ? { clientSecret: registration.output.client_secret } : {}),
-        // RFC 7591, section 3.2.1: `0` means that the secret does not expire.
         ...(expiresAt ? { secretExpiresAt: expiresAt * 1000 } : {}),
       }
       const secrets = await options.secrets()
@@ -220,7 +209,6 @@ export function clientRegistrations(options: { now: () => number, request: typeo
         return { ...client, key }
       }
       catch (error) {
-        // Another request stored a client first. Use it, so every grant shares one client.
         const winner = await read(key)
         if (!usable(winner.client)) throw error
         return { ...winner.client, key }

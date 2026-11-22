@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Deletes the Cloudflare resources that one live-smoke run created.
-// It deletes only names equal to the run prefix or that start with "<prefix>-".
-// A resource that does not exist is not an error.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -93,7 +90,6 @@ async function emptyR2Bucket(request, bucket) {
     if (!objects) throw new Error(`GET ${path} returned an invalid list.`);
     if (!objects.length) return;
     for (const object of objects) {
-      // R2 requires literal separators while other characters stay percent-encoded.
       const key = object.key.split("/").map(segment => encodeURIComponent(segment)).join("/");
       await deleteOne(request, `${path}/${key}`);
     }
@@ -116,10 +112,6 @@ function createWranglerImages(wrangler) {
   };
 }
 
-/**
- * Deletes the scratch resources in dependency order. Each resource kind runs even when an
- * earlier kind fails, so one failure does not leave the rest behind.
- */
 export async function teardownCloudflare({ accountId, apiToken, prefix, fetch = globalThis.fetch, images, log = console.log }) {
   assertScratchPrefix(prefix);
   const request = createCloudflareClient({ accountId, apiToken, fetch });
@@ -146,8 +138,6 @@ export async function teardownCloudflare({ accountId, apiToken, prefix, fetch = 
     }
   });
 
-  // Cloudflare refuses to delete a Worker that consumes a Queue (10064), and a Queue that a Worker still binds (11005).
-  // Remove the consumers of this run's Queues first; the Queues go after the Worker.
   await step("queue consumer", async () => {
     for (const queue of await listAll(request, "/queues")) {
       if (!isScratchName(queue?.queue_name, prefix)) continue;
@@ -219,7 +209,6 @@ export async function teardownCloudflare({ accountId, apiToken, prefix, fetch = 
         record("r2 bucket", bucket.name, first.ok ? "deleted" : "absent");
         continue;
       }
-      // R2 deletes only empty buckets. Delete the objects that a failed test left, then retry.
       await emptyR2Bucket(request, bucket.name);
       record("r2 bucket", bucket.name, await deleteOne(request, path));
     }
@@ -241,7 +230,6 @@ async function runFromCommandLine(argv) {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   if (!accountId || !apiToken) {
-    // Without credentials no earlier step could create a resource.
     console.log("::warning::Skipping Cloudflare teardown: CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN is missing.");
     return 0;
   }

@@ -20,12 +20,10 @@ export function renderEvlogBridgeNitroPlugin(): string {
     "  delete globalThis[key]",
     "  const config = useRuntimeConfig().evlog",
     "  if (!config || config.enabled === false) return",
-    // Until this import resolves, ViteHub packages print to the console. evlog's own plugin is set up by then.
     "  const { createLogger, isEnabled } = await import(\"evlog\")",
     "  const bridge = {",
     "    createLogger,",
     "    isEnabled,",
-    // evlog sends a standalone event to its global drains only. Request events also reach the `evlog:drain` hooks.
     "    drain: event => nitroApp.hooks.callHook(\"evlog:drain\", { event }),",
     "  }",
     "  globalThis[key] = bridge",

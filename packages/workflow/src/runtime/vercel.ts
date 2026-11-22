@@ -65,10 +65,6 @@ async function loadVercelWorkflowRuntime(): Promise<VercelWorkflowRuntime> {
   return createVercelWorkflowRuntime(api as VercelWorkflowApiModule, runtime as VercelWorkflowRuntimeModule)
 }
 
-/**
- * The largest step page that Vercel's step listing accepts. A larger page fails with HTTP 400. Workflow DevKit's own
- * CLI uses the same bound (`packages/cli/src/lib/inspect/flag-bounds.ts` in vercel/workflow).
- */
 const vercelStepPageLimit = 100
 
 function createVercelWorkflowRuntime(api: VercelWorkflowApiModule, runtime: VercelWorkflowRuntimeModule): VercelWorkflowRuntime {
@@ -232,10 +228,6 @@ async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { ex
   return { exists, workflowName }
 }
 
-/**
- * The error of a failed native run. Workflow DevKit rejects `returnValue` of a failed run with
- * `WorkflowRunFailedError`, which keeps the thrown value in `cause`.
- */
 async function readVercelRunError(run: VercelRun): Promise<WorkflowRunError> {
   try {
     await run.returnValue
@@ -321,8 +313,6 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
-  // Workflow DevKit `start()` has no delay. The native entry that ViteHub generates for a folder Workflow calls
-  // `sleep()` until the start time first. A native entry that the developer wrote cannot do that.
   if (startAt !== undefined && Reflect.get(native, generatedNativeEntryKey) !== true) {
     throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "vercel" } })
   }

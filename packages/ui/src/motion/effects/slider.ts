@@ -5,28 +5,19 @@ import { prefersReducedMotion } from "../reduced-motion.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
-// The slider of the prototype. The thumb follows its value with a spring, a tail of ink trails it with its speed and
-// stays inside the track, and the thumb grows by 12% while it is held. The filled range ends under the thumb. The
-// stretch with speed is the switch knob's of the prototype, by track lengths per second, as its slider thumb stays round.
 const followSpring = { stiffness: 520, damping: 38 };
 const trail = { stiffness: 260, damping: 30 };
 const heldScale = 1.12;
-/** The longest tail, in pixels. */
 const tailMax = 150;
-/** Pixels of tail for each pixel per second of thumb speed. */
 const tailPerSpeed = 0.13;
-/** The tail turns when the thumb moves faster than this many track lengths per second. */
 const turnSpeed = 0.05;
-/** The tail tapers from 95% of the thumb radius to nothing over this many points. */
 const tailPoints = 28;
 const stretchPerSpeed = 0.09;
 const stretchMax = 0.55;
 
 const svgNamespace = "http://www.w3.org/2000/svg";
-/** The value of a slider: `[role=slider]` (Nuxt UI, Reka, plain), or the range input inside a ui-sdk and kit thumb. */
 const valueSelector = "[role=slider], input[type=range]";
 const nativeThumb = "[data-slot=slider-thumb]";
-/** The filled part of the track: Nuxt UI and Reka, ui-sdk and kit. */
 const rangeSelector = "[data-slot=range], [data-slot=slider-indicator]";
 const trackSelector = "[data-slot=track], [data-slot=slider-track], :has(> [data-slot=range])";
 
@@ -37,19 +28,13 @@ interface ThumbMotion {
   track: HTMLElement;
   range: HTMLElement | null;
   axis: Axis;
-  /** The center of the thumb in the layout, along the axis, from the start of the track. */
   layout: number;
   length: number;
-  /** Client pixels for each CSS pixel of the track. */
   zoom: number;
-  /** The direction of the last fast move. The tail points the other way. */
   direction: 1 | -1;
   held: boolean;
-  /** The center of the thumb that people see, from the start of the track. */
   position: Spring;
-  /** The length of the tail in pixels. */
   tail: Spring;
-  /** The inline `translate` of the component, such as ui-sdk's `0 -50%`, which the effect adds to. */
   ownTranslate: { raw: string; x: string; y: string };
   lane?: SVGPathElement;
 }
@@ -57,10 +42,6 @@ interface ThumbMotion {
 const motions = new WeakMap<HTMLElement, ThumbMotion>();
 const fills = new WeakMap<HTMLElement, { minSize: string; translate: string; scale: string; shift: number }>();
 
-/**
- * The element that people see as the thumb. A ui-sdk thumb holds a transparent range input that fills it, so its
- * thumb is the parent. A range input of its own draws its thumb in a pseudo-element, which no effect can move.
- */
 function thumbOf(element: HTMLElement): HTMLElement | undefined {
   if (!(element instanceof HTMLInputElement)) return element;
   const parent = element.parentElement;
@@ -82,10 +63,6 @@ interface Rect {
   height: number;
 }
 
-/**
- * The box of an element in CSS pixels of the track, where the effect draws. A page with CSS `zoom` or a scaled parent
- * makes client pixels larger, so the client box is divided by the scale of the track.
- */
 function rectOf(element: Element, motion: { zoom: number }): Rect {
   const { left, top, width, height } = element.getBoundingClientRect();
   return { left: left / motion.zoom, top: top / motion.zoom, width: width / motion.zoom, height: height / motion.zoom };
@@ -99,7 +76,6 @@ function along(rect: Rect, axis: Axis): { start: number; size: number } {
   return axis === "x" ? { start: rect.left, size: rect.width } : { start: rect.top, size: rect.height };
 }
 
-/** The center of the thumb in the layout, without the `translate` and `scale` that this effect writes. */
 function measure(motion: ThumbMotion): number {
   const { thumb, track, axis } = motion;
   motion.zoom = zoomOf(track);
@@ -122,11 +98,6 @@ function directionOf({ thumb, axis }: ThumbMotion): number {
   return axis === "y" || getComputedStyle(thumb).direction === "rtl" ? -1 : 1;
 }
 
-/**
- * Where the thumb was before its first change, from the old and the new value. The thumb moves `travel` pixels from
- * its minimum to its maximum: the track less the thumb (Reka's default), or the full track (ui-sdk). The minimum is
- * at the start of the track, or at the end for a vertical or right-to-left slider.
- */
 function previousCenter(motion: ThumbMotion, value: HTMLElement, from: number, to: number): number | undefined {
   const min = number(value.getAttribute("aria-valuemin") ?? value.getAttribute("min"));
   const max = number(value.getAttribute("aria-valuemax") ?? value.getAttribute("max"));
@@ -190,7 +161,6 @@ function finish(motion: ThumbMotion): void {
   motion.lane?.ownerSVGElement?.remove();
 }
 
-/** Draws one fill from the displayed endpoints, even while both thumbs are moving. */
 function drawRange(motion: ThumbMotion): void {
   const { range, axis, track } = motion;
   if (!range) return;
@@ -236,7 +206,6 @@ function drawRange(motion: ThumbMotion): void {
   });
 }
 
-/** The tail of the prototype: from the thumb back along the track, tapering, cut where the track ends. */
 function drawTail(motion: ThumbMotion): void {
   const { thumb, track, axis, direction, length, range } = motion;
   const tail = Math.min(tailMax, motion.tail.value);
@@ -259,14 +228,11 @@ function drawTail(motion: ThumbMotion): void {
   const origin = rectOf(svg, motion);
   const trackRect = rectOf(track, motion);
   const thumbRect = rectOf(thumb, motion);
-  // The thumb's radius across the track, without the scale of a held thumb.
   const radius = (axis === "x" ? thumbRect.height : thumbRect.width) / 2 / (motion.held ? heldScale : 1);
   const cross = axis === "x" ? thumbRect.top + thumbRect.height / 2 - origin.top : thumbRect.left + thumbRect.width / 2 - origin.left;
   const trackStart = (axis === "x" ? trackRect.left - origin.left : trackRect.top - origin.top);
   const at = Math.max(0, Math.min(length, motion.position.value));
   const reach = Math.min(tail, direction > 0 ? at : length - at);
-  // Behind a thumb that moves toward the end of the range, the tail keeps the thickness of the range, as the
-  // prototype's keeps the thickness of its ink.
   const thinnest = direction > 0 && range ? (axis === "x" ? range.offsetHeight : range.offsetWidth) / 2 : 0;
   const one: string[] = [];
   const other: string[] = [];
@@ -292,7 +258,6 @@ function draw(motion: ThumbMotion): void {
   const shift = motion.position.value - motion.layout;
   const { x, y } = motion.ownTranslate;
   const translate = axis === "x" ? `calc(${x} + ${shift.toFixed(2)}px) ${y}` : `${x} calc(${y} + ${shift.toFixed(2)}px)`;
-  // The thumb stretches along the track with its speed and grows while it is held, as rule 3 says.
   const speed = Math.abs(motion.position.velocity) / Math.max(1, motion.length);
   const stretch = Math.min(stretchMax, speed * stretchPerSpeed);
   const base = motion.held ? heldScale : 1;
@@ -303,7 +268,6 @@ function draw(motion: ThumbMotion): void {
   drawTail(motion);
 }
 
-/** Moves the thumb that people see toward where its component put it. */
 function follow(thumb: HTMLElement, value: HTMLElement, from?: number, to?: number): void {
   if (prefersReducedMotion()) {
     const existing = motions.get(thumb);
@@ -315,11 +279,9 @@ function follow(thumb: HTMLElement, value: HTMLElement, from?: number, to?: numb
   if (!motion) return;
   const next = measure(motion);
   if (!existing) {
-    // A new motion measured the thumb where its new value put it. It starts where the old value put it.
     const was = from === undefined || to === undefined ? undefined : previousCenter(motion, value, from, to);
     motion.position.set(was ?? next);
   }
-  // The layout moved under the thumb that people see: keep it where it is, and spring it to the new place.
   if (Math.abs(next - motion.layout) < 0.01 && existing) return;
   motion.layout = next;
   motion.position.to(next);
@@ -338,7 +300,6 @@ function disabled(value: Element): boolean {
  */
 export const slider: MotionEffect = {
   name: "slider",
-  // The value, and the track or root around it, so that a press on the track holds the thumb too.
   selector: `${valueSelector}, ${trackSelector}, [data-slot=slider-control]`,
   press(element, event) {
     if (!(event instanceof PointerEvent)) return;
@@ -367,7 +328,6 @@ export const slider: MotionEffect = {
     draw(motion);
     let frame = 0;
     return {
-      // ui-sdk moves its thumb on a pointer drag without a change of attribute, so read the thumb after each move.
       move() {
         if (!frame) {
           frame = requestAnimationFrame(() => {

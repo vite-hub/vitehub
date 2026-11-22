@@ -138,7 +138,6 @@ describe("OpenWorkflow", () => {
     expect(seen).toEqual([])
     await expect(unwrap(getWorkflowRun("remind", "remind-ada"))).resolves.toMatchObject({ status: "queued" })
 
-    // Move the start time to the past, as if the hour had passed.
     const db: { prepare(sql: string): { run(...values: unknown[]): unknown } } = Reflect.get(runtime.backend, "db")
     db.prepare(`UPDATE "workflow_runs" SET "available_at" = ?`).run(new Date(Date.now() - 1_000).toISOString())
     await worker.tick()

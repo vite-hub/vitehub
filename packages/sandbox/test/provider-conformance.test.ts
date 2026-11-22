@@ -149,7 +149,6 @@ function cloudflareFixture() {
       return { success: true };
     },
     async destroy() {
-      // A destroyed Container loses its file system. The next session starts a new one.
       machine.stops++;
       machine.files.clear();
       machine.directories.clear();

@@ -28,7 +28,6 @@ function sameParams(a: Record<string, unknown>, b: Record<string, unknown>): boo
   const values = (value: unknown) => JSON.stringify(value === undefined || value === "" ? [] : [value].flat())
   return [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => values(a[key]) === values(b[key]))
 }
-/** The H3 event of a page request on the server. */
 type PageEvent = {
   url: URL
   req: Request & { ip?: string, runtime?: unknown, waitUntil?: unknown }
@@ -63,22 +62,15 @@ function appendSetCookies(event: PageEvent, response: Response): void {
   for (const cookie of response.headers.getSetCookie()) event.res.headers.append("set-cookie", cookie)
 }
 
-// Headers of the page request that do not apply to the in-process request, as in Nuxt's `useRequestFetch()`.
 const unforwardedHeaders = /^(?:accept|accept-encoding|connection|content-.+|expect|if-.+|keep-alive|proxy-.+|te|trailer|transfer-encoding|upgrade)$/
 
-/**
- * Calls the app in-process at the origin of the page request, with its headers, so Auth resolves the same origin and
- * Better Auth reads the same cookie names, such as `__Secure-better-auth.session_token` on https.
- */
 async function pageFetch(event: PageEvent, path: string, init?: RequestInit): Promise<Response> {
   if ((import.meta as ImportMeta & { client?: boolean }).client) throw invariantError("Auth page fetch runs only on the Nuxt server")
   const { serverFetch } = await import("nitro")
-  // Concatenate: a path such as `//host/x` must stay a path of the page's origin.
   const request = new Request(`${event.url.origin}${path}`, init)
   for (const [name, value] of event.req.headers) {
     if (!unforwardedHeaders.test(name) && !request.headers.has(name)) request.headers.set(name, value)
   }
-  // As H3's `fetchWithEvent()`: keep the client address for the rate limit and the Cloudflare bindings.
   Object.assign(request, { ip: event.req.ip, runtime: event.req.runtime, waitUntil: event.req.waitUntil })
   return serverFetch(request)
 }
@@ -92,7 +84,6 @@ function pathOf(input: string | URL | Request): string {
   return url.pathname + url.search
 }
 
-/** The fetch of the current page request for Better Auth's client, or `undefined` outside a request. */
 function currentRequestFetch(): RequestFetch | undefined {
   const nuxtApp = tryUseNuxtApp() as object | undefined
   const event = nuxtApp ? useRequestEvent() as PageEvent | undefined : undefined
@@ -118,11 +109,8 @@ function readServerSession(basePath: string): unknown {
   return fetchServerSession(event, basePath)
 }
 
-/** Asks Better Auth for the session of the page request. */
 async function fetchServerSession(event: PageEvent, basePath: string): Promise<unknown> {
   try {
-    // Nitro serves Auth below the base path of the build, which `basePath` has. A runtime `app.baseURL`, such as one
-    // from `NUXT_APP_BASE_URL`, must not be added: the request would render a page that reads the session again.
     const response = await pageFetch(event, `${basePath}/get-session`)
     appendSetCookies(event, response)
     if (!response.ok) return undefined

@@ -1,7 +1,3 @@
-// The motion page of the list, progress, drop, and delete helpers of `@vite-hub/ui/motion`, through their Vue parts:
-// `MotionList`, `Progress`, `DropField`, and `HoldToDelete`. `test/browser/motion-lists.browser.mjs` drives it. The bar on
-// top sets the speed (1×, ¼×) and reduced motion. `?uploads=today` renders the Console upload queue of before the
-// helpers, from git, next to nothing else, to record both.
 import { addCollection } from "@iconify/vue";
 import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
@@ -23,7 +19,6 @@ const query = new URLSearchParams(location.search);
 const slow = ref(getMotionSlowFactor());
 const reduced = ref(prefersReducedMotion());
 
-// MotionList: rows that a person adds, removes, shuffles, and duplicates.
 let nextRow = 4;
 const rows = ref([{ id: 0, name: "brand-guide.pdf" }, { id: 1, name: "cover.png" }, { id: 2, name: "notes.md" }, { id: 3, name: "launch-film.mp4" }]);
 const offRows = ref([{ id: 0, name: "One" }, { id: 1, name: "Two" }]);
@@ -46,11 +41,9 @@ function duplicateRow(id: number): void {
   rows.value = [...rows.value.slice(0, index + 1), { id: nextRow++, name: `${source.name.replace(/\.(\w+)$/, "")} copy.${source.name.split(".").pop()}` }, ...rows.value.slice(index + 1)];
 }
 
-// Progress: a value, the wave, and done, from the buttons or from `window.progress` in the test.
 const progressValue = ref<number | null | undefined>(undefined);
 const progressDone = ref(false);
 let runTimer = 0;
-// The prototype's upload: 2.4s to fill, 2.2s of processing, then done. It runs on motion time, so ¼× slows it too.
 function runUpload(): void {
   cancelAnimationFrame(runTimer);
   progressDone.value = false;
@@ -71,15 +64,12 @@ function runUpload(): void {
   runTimer = requestAnimationFrame(step);
 }
 
-// DropField
 const dropped = ref<string[]>([]);
 
-// HoldToDelete: a file card that leaves toward the trash, and Undo.
 const cardGone = ref(false);
 const commits = ref(0);
 const card = ref<HTMLElement>();
 
-// The Console upload queue, with a fake queue that uploads like the prototype.
 interface Entry { id: number; file: File; folder: string; progress: number; state: "queued" | "uploading" | "done" | "failed"; error?: string; result?: undefined }
 const entries = ref<Entry[]>([]);
 const uploads = {

@@ -14,7 +14,6 @@ export interface LinguiSetup {
   importBase: string
 }
 
-/** Folders that never hold app messages. */
 const excluded = ["**/node_modules/**", "**/.output/**", "**/.nuxt/**", "**/.vitehub/**", "**/.data/**", "**/dist/**", "**/.git/**"]
 
 /** The folder of the translation records: `locales/<locale>/segments/<hh>/<hash>.json` in the project, as in a Diglot repository. */
@@ -30,7 +29,6 @@ export function createLinguiConfig(setup: LinguiSetup, extractors: LinguiConfigN
     locales: [...setup.locale.locales],
     sourceLocale: setup.locale.sourceLocale,
     fallbackLocales: { default: setup.locale.sourceLocale },
-    // Lingui only reads the code with this catalog. ViteHub keeps translations as records, never in this path.
     catalogs: [{ path: "<rootDir>/.vitehub/i18n/lingui/{locale}", include: ["<rootDir>"], exclude: excluded }],
     format: poFormatter({ lineNumbers: true }),
     orderBy: "message",

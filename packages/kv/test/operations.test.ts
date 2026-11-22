@@ -28,7 +28,6 @@ vi.mock("#vitehub/kv/config", () => ({
   },
 }))
 
-// The runtime handler imports the package entry, so the test runs the real KV storage on fs-lite.
 vi.mock("@vite-hub/kv", async () => await import("../src/index.ts"))
 
 afterAll(async () => {
@@ -38,7 +37,6 @@ afterAll(async () => {
 const registry = createOperationRegistry([{ operations: kvOperations }])
 const access = { mode: "local", sections: "all" } as const
 
-/** Run `kv.<operation>` as the RPC does. With `stores`, run the runtime function with exactly those stores. */
 async function handle(body: Record<string, unknown>, stores?: readonly KVDevStore[]): Promise<{ json(): Promise<Record<string, unknown>>, status: number }> {
   const { operation, ...input } = body
   if (stores) {
@@ -162,7 +160,6 @@ describe("kv operations", () => {
     await run({ key: "users:2", operation: "set", value: "Grace" })
     const first = await run({ limit: 1, operation: "list", prefix: "users" })
     expect(first.body).toMatchObject({ limit: 1, prefix: "users", store: "default", stores: ["default", "archive", "cache"] })
-    // fs-lite counts scanned entries, so a page can hold fewer keys than the limit. The cursor reads the rest.
     const keys = [...first.body.keys as string[]]
     let cursor = first.body.cursor
     for (let page = 0; cursor && page < 10; page += 1) {
@@ -262,7 +259,6 @@ describe("kv operations", () => {
       body: { error: { code: "KV_STORE_NOT_FOUND", message: "KV store \"missing\" was not found. Stores: default, archive, cache." } },
       status: 404,
     })
-    // There is no operation that clears a store.
     expect((await run({ operation: "clear" })).body).toMatchObject({ error: { code: "INTERNAL_R0021" } })
     expect(await run({ operation: "get" })).toMatchObject({ body: { error: { code: "INTERNAL_R0022" } }, status: 400 })
     expect((await run({ key: "a", operation: "set" })).status).toBe(400)

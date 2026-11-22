@@ -1,6 +1,3 @@
-// WorkspaceBar, WorkspaceExamples and WorkspaceSidebar against section 1 of the prototype, `v-playground-examples-menu`.
-// The rects are from the prototype at 1280x760, measured with its menu and its sidebar open. Rects that depend on the
-// width of text are not checked, as the prototype and this page do not load the same font.
 import { sizes } from "../prototype.mjs"
 
 const section1 = {

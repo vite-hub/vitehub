@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Builds playground/vite for one provider with offline-safe placeholder env.
-// Real env vars always win - placeholders only fill gaps so PR CI needs no cloud account.
 import { spawnSync } from "node:child_process"
 import { parseArgs } from "node:util"
 import { resolve } from "node:path"

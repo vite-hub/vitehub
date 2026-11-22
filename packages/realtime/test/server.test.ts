@@ -86,7 +86,6 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue(undefined),
     }))
     const handler = createRealtimeHandler(realtimeRegistry())
-    // A document can itself contain the reserved route's segments; only the first prefix identifies the route.
     for (const room of ["page.md", "%40workspace?workspace=events", "docs/_vitehub/realtime/page.md"]) {
       const response = await handler.fetch(new Request(`https://example.com${base}/_vitehub/realtime/docs/${room}`, {
         headers: { upgrade: "websocket" },
@@ -301,7 +300,6 @@ describe("realtime server handler", () => {
     expect((await refresh()).status).toBe(200)
     expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ user: { id: "ana" } }))
 
-    // Server code sends no Origin, so it is signed out instead of failing the Auth origin check.
     serverMocks.assertAuthOrigin.mockClear()
     const server = await handler.fetch(new Request("https://example.com/_vitehub/realtime/docs/page.md?document=refresh", { method: "POST" }))
     expect(server.status).toBe(401)
@@ -408,7 +406,6 @@ describe("realtime server handler", () => {
     expect(origins).toHaveBeenCalledWith(expect.objectContaining({ definition: "docs", origin: "https://preview.example" }))
     expect((await connect("https://evil.example")).status).toBe(403)
     expect(identify).toHaveBeenCalledOnce()
-    // The app's own origin never asks.
     origins.mockClear()
     expect((await connect("https://app.example")).crossws).toBeDefined()
     expect(origins).not.toHaveBeenCalled()
@@ -422,7 +419,6 @@ describe("realtime server handler", () => {
       stat: vi.fn().mockResolvedValue({ digest: "v1" }),
       writeFile: save,
     }))
-    // A JavaScript definition reaches the server without the types, so the server checks it again.
     const handler = createRealtimeHandler({
       docs: async () => ({ default: { document: { workspace: "test" }, origins: () => false } }),
     } as never)
@@ -764,7 +760,6 @@ describe("realtime server handler", () => {
     expect(() => response.crossws.message(peer, { uint8Array: () => new Uint8Array() })).not.toThrow()
     expect(peer.close).toHaveBeenLastCalledWith(4400, "Invalid realtime message.")
 
-    // The server drops the frames of a peer that it closed, so the next case needs its own peer.
     const awarenessPeer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
     response.crossws.open(awarenessPeer)
     expect(() => response.crossws.message(awarenessPeer, { uint8Array: () => new Uint8Array([messageAwareness]) })).not.toThrow()
@@ -792,11 +787,9 @@ describe("realtime server handler", () => {
         client.getMap("edits").set(key, true)
         response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client, before)) })
       }
-      // A burst of 40 updates, such as fast typing, is applied at once.
       for (let index = 0; index < 40; index++) edit(`key-${index}`)
       const applied = peer.publish.mock.calls.length
       expect(applied).toBeGreaterThan(0)
-      // Holding a key keeps sending: the next ones wait instead of closing the peer.
       for (let index = 0; index < 5; index++) edit(`held-${index}`)
       expect(peer.publish.mock.calls.length).toBe(applied)
       now.mockRestore()
@@ -804,7 +797,6 @@ describe("realtime server handler", () => {
       await new Promise(resolve => setTimeout(resolve, 80))
 
       expect(peer.close).not.toHaveBeenCalled()
-      // The five held updates reach the room as one.
       expect(peer.publish.mock.calls.length).toBe(applied + 1)
     }
     finally {
@@ -828,8 +820,6 @@ describe("realtime server handler", () => {
     response.crossws.open(peer)
 
     const text = "x".repeat(64 * 1024)
-    // The rate limit refills with wall time. A slow runner spent long enough on each 64 KiB update to refill it,
-    // so nothing was held back. One frozen instant makes the burst arrive at once.
     const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
     try {
       for (let index = 0; index < 60 && !peer.close.mock.calls.length; index++) {
@@ -867,7 +857,6 @@ describe("realtime server handler", () => {
     response.crossws.message(peer, { uint8Array: () => encodeSyncUpdate(Y.encodeStateAsUpdate(client)) })
 
     expect(peer.close).not.toHaveBeenCalled()
-    // Later sync responses count against the update burst like any update, and wait past it.
     for (let index = 0; index < 40; index++) response.crossws.message(peer, { uint8Array: () => syncStep2 })
     expect(peer.close).not.toHaveBeenCalled()
     server.destroy()
@@ -1554,7 +1543,6 @@ describe("tiptap-markdown documents", () => {
     expect(Y.encodeStateVector(server)).toEqual(Y.encodeStateVector(client))
     expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(false)
 
-    // A room that moved ahead of the client still contains everything the client sent.
     Y.applyUpdate(server, Y.encodeStateAsUpdate(client))
     server.getMap("later").set("edit", true)
     expect(containsRealtimeState(server, Y.encodeStateAsUpdate(client))).toBe(true)

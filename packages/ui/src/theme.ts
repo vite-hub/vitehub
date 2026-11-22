@@ -117,9 +117,6 @@ export const vitehubTheme = {
       footer: "px-4 py-3 sm:px-4",
     },
   },
-  // Menus, popovers, and dialogs are read, so they open and close at once (docs/design/motion.md, rule 9): the theme turns
-  // off every enter and leave animation of Nuxt UI on them, and only their trigger moves, with the press of the motion
-  // layer. Floating surfaces use the 12px Geist radius and its layered shadow.
   dropdownMenu: {
     slots: {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
@@ -205,7 +202,6 @@ export const vitehubTheme = {
     },
   },
   // Dialogs: 12px radius and a layered shadow. The top stays in place, so content that grows below a field moves
-  // nothing above it. A dialog and its backdrop open and close at once.
   modal: {
     variants: {
       // Nuxt UI sets the backdrop color in this variant, so it goes here to win over Nuxt UI's gray wash.
@@ -279,8 +275,6 @@ export const vitehubTheme = {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
-  // A side panel and its backdrop open and close at once, as a dialog does. Nuxt UI slides it in a compound variant of
-  // each side, so the override is a compound variant too.
   slideover: {
     variants: {
       transition: {
@@ -339,15 +333,11 @@ export const vitehubTheme = {
       root: "rounded-xl ring-0 shadow-(--vh-shadow-floating)",
     },
   },
-  // The appear effect of the motion layer moves toasts: a toast comes in from its edge, and the others make room with a
-  // spring. So the theme turns off Nuxt UI's slide, pulse, and swipe animations and the transition of the stack.
   toaster: {
     slots: {
       base: "animate-none! transition-none",
     },
   },
-  // The appear effect of the motion layer moves tooltips: a tooltip rises from behind its trigger and slides between
-  // triggers. So the theme turns off Nuxt UI's scale in and out.
   tooltip: {
     slots: {
       content: "rounded-md ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=delayed-open]:animate-none data-[state=instant-open]:animate-none data-[state=closed]:animate-none",

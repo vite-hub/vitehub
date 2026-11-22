@@ -11,11 +11,8 @@ interface CloudflareKVTarget {
   }
 }
 
-// Provision State category for Cloudflare KV namespace ids, keyed by KV Store name.
 export const KV_CLOUDFLARE_PROVISION_CATEGORY = "kv"
 
-// A configured namespaceId wins. Otherwise the id recorded by `vitehub provision run` for the store is used.
-// Only `vite dev` resolves a store with `remote: true`, so only the dev binding asks Wrangler for the real namespace.
 export function configureCloudflareKV(
   target: CloudflareKVTarget,
   config: ResolvedKVModuleOptions,
@@ -34,7 +31,6 @@ export function configureCloudflareKV(
     const namespaces = target.cloudflare.wrangler.kv_namespaces
     const existing = namespaces.find(entry => entry.binding === binding)
     if (existing) {
-      // Reconcile both Wrangler spellings as one development policy; builds preserve user fields.
       if (store.remote || store.localBase) {
         delete existing.experimental_remote
         if (store.remote) existing.remote = true

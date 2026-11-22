@@ -6,7 +6,6 @@ import { packDefaults } from "@vite-hub/internal/package-exports";
 
 import { inlineWebCss, scopeStyles } from "./scripts/styles.ts";
 
-// One entry for each `src/<name>.ts`: a part that ui-sdk does not have, or the Nuxt module. An app loads only the parts it imports.
 const entries = readdirSync(new URL("src/", import.meta.url))
   .filter((file) => file.endsWith(".ts"))
   .map((file) => `src/${file}`);
@@ -14,7 +13,6 @@ const entries = readdirSync(new URL("src/", import.meta.url))
 export default defineConfig({
   pack: {
     ...packDefaults,
-    // Emit the style family before publint validates the package exports.
     plugins: [{
       name: "kit-styles",
       generateBundle() {

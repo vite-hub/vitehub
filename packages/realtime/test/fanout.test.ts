@@ -16,13 +16,10 @@ vi.mock("@vite-hub/auth/server", () => ({
   }),
 }))
 
-// One fake clock for the whole file, installed before lib0 loads: lib0 keeps the `Date.now` it finds, and Yjs
-// awareness reads it to expire clients.
 vi.hoisted(() => {
   vi.useFakeTimers()
 })
 
-/** Lets bus messages, adapter calls, and paced client updates run. */
 async function flush(ms = 60): Promise<void> {
   for (let round = 0; round < 5; round++) {
     await settle()
@@ -34,7 +31,6 @@ function definition(adapter: RealtimeDocumentDefinition["document"]): RealtimeDo
   return { access: "public", document: adapter, editor: createStubEditor().editor }
 }
 
-/** Two server instances of one app that share rooms over an in-memory bus. */
 function twoInstances(initial: Record<string, { body: string }> = { page: { body: "Start" } }) {
   const network = createMemoryBusNetwork()
   const memory = createMemoryAdapter(initial)
@@ -109,7 +105,6 @@ describe("rooms shared across instances", () => {
     await flush()
     expect(paragraphs(onA.doc)).toEqual(["Start", "From A", "From B"])
     expect([...onA.controls, ...onB.controls].filter(control => control.type === "reset")).toEqual([])
-    // Both instances agree on one epoch, so a client can reconnect to either one.
     expect(onA.controls[0]).toMatchObject({ type: "session" })
     expect(onB.controls[0]).toMatchObject({ type: "session", epoch: onA.controls[0]!.type === "session" ? onA.controls[0]!.epoch : undefined })
   })
@@ -197,12 +192,10 @@ describe("rooms shared across instances", () => {
     appendParagraph(onB.doc, "B")
     await flush()
 
-    // Both rooms are dirty: each saves after the 2 s debounce, one at a time under the room lock.
     await flush(3_000)
     const stored = memory.store.get("page")!
     expect(stored.body.split("\n\n").sort()).toEqual(["A", "B", "Start"])
     expect([...onA.controls, ...onB.controls].filter(control => control.type === "reset")).toEqual([])
-    // The second instance took in the first save and found nothing left to write.
     expect(memory.adapter.save).toHaveBeenCalledTimes(1)
 
     appendParagraph(onB.doc, "After the save")
@@ -240,7 +233,6 @@ describe("rooms shared across instances", () => {
     await flush()
     expect(presence(onB).get(onA.doc.clientID)).toEqual({ user: { name: "Ada" } })
 
-    // A client on B that opens later sees A's client too.
     const late = await b.connect("page")
     await flush()
     expect(presence(late).get(onA.doc.clientID)).toEqual({ user: { name: "Ada" } })
@@ -260,7 +252,6 @@ describe("rooms shared across instances", () => {
     expect(presence(onB).has(onA.doc.clientID)).toBe(true)
 
     busA.crash()
-    // Yjs awareness drops a client 30 s after its last update.
     await flush(35_000)
     expect(presence(onB).has(onA.doc.clientID)).toBe(false)
   })
@@ -285,7 +276,6 @@ describe("rooms shared across instances", () => {
     createClientAwareness(onA).set({ user: { name: "Ada" } })
     await flush()
 
-    // The same Yjs client reconnects to B while A still lists it.
     const moved = await b.connect("page", { doc: onA.doc, clientId: true })
     await flush()
     const awareness = new awarenessProtocol.Awareness(onA.doc)
@@ -342,10 +332,6 @@ describe("rooms shared across instances", () => {
   })
 })
 
-/**
- * An adapter of one instance over a shared store, which a test can hold: a save waits before it writes, a load reads the
- * store at once and returns when released, and a crashed instance can no longer save.
- */
 function controllable(adapter: RealtimeDocumentAdapter) {
   let saveGate: Promise<void> | undefined
   let loadGate: Promise<void> | undefined
@@ -506,7 +492,6 @@ describe("saves across instances", () => {
       }
       return await write(room, record, ifEpoch)
     })
-    // B's own save must give A time to retry the final record, rather than re-seeding immediately.
     appendParagraph(onA.doc, "saved by A")
     await flush(2_100)
     expect(failures).toBe(3)
@@ -549,7 +534,6 @@ describe("saves across instances", () => {
 
     expect(onB.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
     expect(onB.closed).toMatchObject({ code: 4409 })
-    // The reset lets a client keep its old document for manual recovery; it must not silently overwrite the store.
     expect(paragraphs(onB.doc)).toContain("Typed on B")
     const fresh = await b.connect("page")
     await flush()
@@ -567,7 +551,6 @@ describe("saves across instances", () => {
     const releaseSave = controlA.holdSave()
     appendParagraph(onA.doc, "Edit 1")
     await flush()
-    // A's idle save takes the lock and waits in `save()`. B's save waits for the lock.
     await flush(2_000)
     appendParagraph(onA.doc, "Edit 2")
     await flush()
@@ -575,7 +558,6 @@ describe("saves across instances", () => {
 
     releaseSave()
     await settle()
-    // A stored edit 1 only, published the record, and stops before it saves edit 2.
     busA.crash()
     controlA.crash()
     await flush(10_000)
@@ -654,7 +636,6 @@ describe("saves across instances", () => {
     const releaseSave = controlA.holdSave()
     appendParagraph(onA.doc, "Edit")
     await flush(2_100)
-    // B starts to open the room while A's save holds the lock. Its load waits until the test releases it.
     const releaseLoad = controlB.holdLoad()
     const opening = b.connect("page")
     await flush()
@@ -682,11 +663,9 @@ describe("refresh across instances", () => {
     await flush()
 
     memory.write("page", "Written by an Agent")
-    // B's refresh loads the outside version, and waits before it uses it.
     const releaseLoad = controlB.holdLoad()
     const refreshingB = b.post("page", "refresh")
     await flush()
-    // Meanwhile A re-seeds from that version, and a client saves a new edit on A.
     const refreshingA = a.post("page", "refresh")
     await flush()
     const writer = await a.connect("page")
@@ -698,7 +677,6 @@ describe("refresh across instances", () => {
     await Promise.all([refreshingA, refreshingB])
     await flush(5_000)
 
-    // The shared record never went back to an older stored version, and it describes what the adapter stored.
     const digests = network.writes.map(write => write.digest).filter((digest, index, all) => digest !== all[index - 1])
     expect(digests).toEqual([...new Set(digests)])
     expect(network.records.get(realtimeRoomKey("docs", "page"))!.digest).toBe(memory.store.get("page")!.digest)
@@ -713,7 +691,6 @@ describe("awareness clocks", () => {
     const other = await server.connect("page")
     await flush()
 
-    // A new y-websocket client sends its initial `{}` state with clock 0, which Yjs does not apply.
     const awareness = new awarenessProtocol.Awareness(client.doc)
     const encoder = encoding.createEncoder()
     encoding.writeVarUint(encoder, messageAwareness)

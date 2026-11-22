@@ -7,7 +7,6 @@ export default defineConfig({
     {
       ...packDefaults,
       deps: {
-        // Editor dependencies must share their ProseMirror and Yjs constructors.
         alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
         neverBundle: [/^#vitehub\/realtime\//, "vite", /^prosemirror-(?:model|state|transform|view)$/],
         onlyBundle: false,
@@ -28,13 +27,11 @@ export default defineConfig({
         ...packDefaults.exports,
         customExports: exports => ({
           ...normalizePackageExports(exports),
-          // The prebuilt client below. Same API as `./client`, so it shares its types.
           "./client/browser.js": { types: "./dist/client.d.ts", default: "./dist/client/browser.js" },
         }),
       },
     },
     {
-      // `connectRealtimeRoom()` with Yjs bundled in, as one ES module with no imports, for pages without a bundler.
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "client/browser": "src/client.ts" },

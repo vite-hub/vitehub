@@ -10,11 +10,6 @@ import {
   type SlotDefinition,
 } from "@ui-sdk/core";
 
-// Tags Input turns free text into tags. Enter or the delimiter adds the text
-// as a tag, Backspace in an empty input removes the last tag, and the arrow
-// keys move a highlight between tags while focus stays in the input, as in
-// Reka UI. Backspace or Delete removes the highlighted tag.
-
 /**
  * Why the tags changed, as `reason` in their change details: `"input-commit"`
  * for Enter, Tab, or leaving the input, `"input-change"` for a typed or pasted
@@ -68,9 +63,7 @@ export type TagsInputItemProps = {
 };
 
 type PartProps = {
-  /** @internal The tag, from the item it sits in. */
   value?: string;
-  /** @internal Whether the tag can't be removed, from the item it sits in. */
   disabled?: boolean;
 };
 
@@ -219,7 +212,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
     const locked = (tag: string) =>
       !!context.props<{ disabled?: boolean }>("item", tag)?.disabled;
 
-    // Adds every text at once, so a paste of several tags makes one change.
     function addAll(texts: string[], details: ChangeOptions<TagsInputValueChangeReason>) {
       const { value, disabled } = store.get();
       if (disabled) return { accepted: false, remaining: texts };
@@ -264,7 +256,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
             case "Enter":
             case "Tab": {
               if (!input.value.trim() || (event.key === "Tab" && !options().addOnTab)) return;
-              // Enter adds the tag instead of submitting the form.
               if (event.key === "Enter") event.preventDefault();
               if (api.add(input.value, { reason: "input-commit", event })) input.value = "";
               return;
@@ -274,7 +265,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
               if (!atStart(input)) return;
               if (highlighted !== null) {
                 event.preventDefault();
-                // The highlight moves to the tag that takes the removed one's place.
                 const next = value[index + 1] ?? value[index - 1] ?? null;
                 if (api.remove(highlighted, { reason: "remove-key", event })) highlight(next);
                 return;
@@ -325,7 +315,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
           event.preventDefault();
           const delimiter = options().delimiter ?? ",";
           const { remaining } = addAll(delimiter ? text.split(delimiter) : [text], { reason: "input-change", event });
-          // Preserve the draft and insert refused text at the paste selection.
           input.setRangeText(remaining.join(delimiter), input.selectionStart ?? input.value.length,
             input.selectionEnd ?? input.value.length, "end");
         },
@@ -361,8 +350,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
         ...itemAttrs(state, props),
       }),
     }),
-    // Out of the tab order: Backspace and Delete remove tags from the keyboard.
-    // Its name is its own content, like "Remove", and the tag's text.
     "item-delete": slot<PartProps, TagsInputItemState>({
       props: itemProps,
       state: (state, { props }) => itemState(state, props),
@@ -407,7 +394,6 @@ export const tagsInputPrimitive: TagsInputPrimitive = definePrimitive({
       }),
       press: ({ api }, event) => api.clear({ reason: "clear-press", event }),
     }),
-    // One per tag, while the root has a `name`.
     "hidden-input": slot<{ value?: string }>({
       props: { value: "string" },
       present: (state) => state.name !== undefined,

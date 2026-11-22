@@ -5,7 +5,6 @@ import { createHoldToDelete, type HoldToDeleteOptions } from "../src/motion/hold
 import { createMotionList } from "../src/motion/list.ts";
 import { forceReducedMotion } from "../src/motion/reduced-motion.ts";
 
-// A frame clock that the test advances by hand, 60 frames per second.
 let queue: FrameRequestCallback[] = [];
 let now = 0;
 
@@ -27,7 +26,6 @@ function framesUntilIdle(limit = 2000): number {
   return frames;
 }
 
-/** Gives `element` a layout box. The box moves with the `translate` that the list writes, as a browser's does. */
 function place(element: HTMLElement, box: { x: number; y: number; width?: number; height?: number }): void {
   element.getBoundingClientRect = () => {
     const [dx = 0, dy = 0] = (element.style.translate || "0px 0px").split(" ").map(part => Number.parseFloat(part));
@@ -90,7 +88,6 @@ describe("createMotionList", () => {
     const { container, items } = list(3);
     const motion = createMotionList(container);
     motion.measure();
-    // A new first item pushes each item down by 40px.
     place(items[0]!, { x: 0, y: 40 });
     place(items[1]!, { x: 0, y: 80 });
     place(items[2]!, { x: 0, y: 120 });
@@ -113,7 +110,6 @@ describe("createMotionList", () => {
     motion.play();
     tick(5);
     const [, before] = translateOf(items[1]!);
-    // The item is seen at 80 + before. It moves back to 40 before it settles.
     motion.measure();
     place(items[1]!, { x: 0, y: 40 });
     motion.play();
@@ -191,7 +187,6 @@ describe("createMotionList", () => {
     place(copy, { x: 0, y: 80 });
     container.append(copy);
     motion.play({ origin: () => items[0] });
-    // It starts on the item it copies: 80px higher.
     expect(translateOf(copy)).toEqual([0, -80]);
     tick(6);
     const [, moving] = translateOf(copy);
@@ -409,7 +404,6 @@ describe("createHoldToDelete", () => {
     const { button, commit, events, hold, press, release } = setup();
     press();
     framesUntilIdle();
-    // The click that ends the hold does not undo it.
     release();
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     await vi.advanceTimersByTimeAsync(0);
@@ -466,7 +460,6 @@ describe("createHoldToDelete", () => {
     expect(hold.state).toBe("idle");
     expect(confirm).not.toHaveBeenCalled();
 
-    // A screen reader activates the button with a click and no pointer or key press.
     button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
     await vi.advanceTimersByTimeAsync(0);
     expect(confirm).toHaveBeenCalledTimes(1);

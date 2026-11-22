@@ -27,7 +27,6 @@ async function fixture(name: string): Promise<string> {
   return await readFile(join(import.meta.dirname, "fixtures/host-api", name), "utf8")
 }
 
-/** A fetch that answers `METHOD url` (without the query) from a recorded response, and records each request. */
 function hostApi(routes: Record<string, Route>): { fetch: typeof fetch, requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = []
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -57,11 +56,9 @@ async function readLink(root: string): Promise<SetupLinkFile> {
   return JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8")) as SetupLinkFile
 }
 
-/** A `wrangler` login that answers `auth token --json` and `whoami --json`, and records each call. */
 function wranglerLogin(accounts: readonly { id: string, name: string }[]): { run: HostCliRun, calls: string[] } {
   const calls: string[] = []
   const run: HostCliRun = async (command, args) => {
-    // A project-local Wrangler runs through Node with its entry point before the CLI arguments.
     if (command === process.execPath) expect(args[0]).toMatch(/[/\\]wrangler[/\\]/u)
     else expect(command).toBe("wrangler")
     const cliArgs = command === process.execPath ? args.slice(1) : args
@@ -110,7 +107,6 @@ describe("vitehub link", () => {
     const { exitCode, json, stdout } = await runSetup<SetupLinkResult>(["link", "--json"], root, {}, { fetch: api.fetch, runHostCli: wrangler.run })
 
     expect(exitCode).toBe(0)
-    // The package.json name, normalized as the build does: `@acme/My App` deploys as `acme-my-app`.
     expect(api.requests.map(request => request.url)).toEqual([`https://api.cloudflare.com/client/v4/accounts/${cloudflareAccount}/workers/workers/acme-my-app`])
     expect(json).toMatchObject({ credentials: { source: "host-cli" } })
     expect(wrangler.calls).toEqual(["wrangler auth token --json --env-file .env --config wrangler.json", "wrangler whoami --json --env-file .env --config wrangler.json"])
@@ -348,7 +344,6 @@ describe("vitehub link with several hosts", () => {
       },
     })
 
-    // Linking Vercel again replaces its target, keeps Cloudflare, and says nothing about resources.
     const again = await runSetup<SetupLinkResult>(["link", "--host", "vercel", "--default", "--json"], root, env, { fetch: api().fetch })
     expect(again.stderr).toBe("")
     expect(again.json).toMatchObject({ default: "vercel", hosts: ["cloudflare", "vercel"] })
@@ -358,7 +353,6 @@ describe("vitehub link with several hosts", () => {
     expect(status.json).toMatchObject({ default: "vercel", link: { host: "vercel" }, targets: [{ host: "cloudflare" }, { host: "vercel" }] })
     expect((await runSetup(["status", "--offline"], root, env)).stdout).toContain("my-app on cloudflare in 023e105f4ecef8ad9ca31a8372d0c353; my-app on vercel in team_a1b2c3d4e5f6g7h8i9j0 (default)")
 
-    // Removing the default target leaves the one other target as the default.
     expect((await runSetup(["unlink", "--host", "vercel", "--json"], root)).json).toMatchObject({ host: "vercel", removed: true })
     expect(await readLink(root)).toMatchObject({ default: "cloudflare", targets: { cloudflare: { project: { name: "my-app" } } } })
     expect(Object.keys((await readLink(root)).targets)).toEqual(["cloudflare"])

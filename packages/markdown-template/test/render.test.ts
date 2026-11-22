@@ -462,7 +462,6 @@ Unavailable
       .resolves.toContain("https://example.com/?x=1&copy=2")
     await expect(renderMarkdownTemplate('<policy note="x=1&copy=2">Use it.</policy>'))
       .resolves.toBe('<policy note="x=1&amp;copy=2">Use it.</policy>')
-    // Attribute entities are decoded once, so a double-encoded reference stays a reference.
     await expect(renderMarkdownTemplate('<a href="https://example.com/?q=&amp;lt;">Open</a>'))
       .rejects.toThrow("must resolve to a safe destination")
     await expect(renderMarkdownTemplate('<a href="javascript:alert(1)">Open</a>'))

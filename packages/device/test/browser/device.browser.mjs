@@ -1,7 +1,3 @@
-// Runs stored reads in a headless browser with the real IndexedDB and BroadcastChannel: Chromium, or the engine that
-// `DEVICE_BROWSER` names (`firefox`, `webkit`). Pages load from a routed localhost origin, so no server listens, and the
-// test answers `/api/projects` when it wants.
-// Run: pnpm --filter @vite-hub/device test:browser, or DEVICE_BROWSER=firefox pnpm --filter @vite-hub/device test:browser
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
@@ -25,7 +21,6 @@ const output = await build({
 })
 const app = (Array.isArray(output) ? output[0] : output).output.find(chunk => chunk.type === "chunk" && chunk.isEntry).code
 
-/** Resolves once `check` passes. */
 async function until(check, timeout = 10_000) {
   const start = Date.now()
   while (!await check()) {
@@ -34,10 +29,6 @@ async function until(check, timeout = 10_000) {
   }
 }
 
-/**
- * One browser profile. `answer(projects)` lets the held `/api/projects` requests answer, and the next ones answer at
- * once. `hold()` makes the next requests wait again.
- */
 async function openBrowser(t, { initScript } = {}) {
   const browser = await engine.launch()
   t.after(() => browser.close())
@@ -92,7 +83,6 @@ const storedKeys = page => page.evaluate(() => window.deviceTest.storedKeys())
 const storedPrefix = (page, key) => page.evaluate(key => window.deviceTest.storedPrefix(key), key)
 const store = (page, key, value) => page.evaluate(([key, value]) => window.deviceTest.store(key, value), [key, value])
 
-/** Delivers no sign-out message to this tab, as a suspended tab misses it. */
 function missSignOut() {
   const add = BroadcastChannel.prototype.addEventListener
   BroadcastChannel.prototype.addEventListener = function (type, listener, options) {
@@ -103,7 +93,6 @@ function missSignOut() {
   }
 }
 
-/** A first visit as `account` that stores the projects, then a reload with `/api/projects` held. */
 async function visitAndReload(profile, { account = "ada", projects = ["p1"], reload = {} } = {}) {
   const page = await profile.open()
   await profile.answer(projects)
@@ -148,7 +137,6 @@ test("a null account and a page that names no account write nothing", { timeout:
   await profile.answer(["p1"])
   await mount(page, {})
   await until(async () => (await text(page)) === "p1 success")
-  // The answer shows, and the device keeps nothing of it: the loader call started before the page named an account.
   assert.deepEqual(await inspect(page), { account: null, persisted: false, storage: "indexeddb", entries: [] })
   assert.deepEqual(await storedKeys(page), [])
   await page.evaluate(() => window.deviceTest.setDeviceAccount(null))
@@ -210,9 +198,7 @@ test("the device keeps at most 5 MB, deletes the oldest copies first, and opens 
   const page = await profile.open()
   await profile.answer(["p1"])
   await mount(page, { account: "ada" })
-  // The loader call after the naming stores `projects`, so it is the oldest copy.
   await until(async () => (await text(page)) === "p1 success" && (await storedKeys(page)).includes("projects"))
-  // Six answers of 1,000,002 bytes each as JSON. 5 MB holds five of them.
   for (const key of ["a", "b", "c", "d", "e", "f"]) {
     await page.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
   }
@@ -225,7 +211,6 @@ test("the device keeps at most 5 MB, deletes the oldest copies first, and opens 
   await page.waitForFunction(() => window.deviceTest)
   await mount(page, {})
   const opened = await page.evaluate(() => window.deviceTest.openMs)
-  // The answer of `/api/projects` can join them: it has 6 bytes.
   assert.deepEqual((await inspect(page)).entries.map(entry => entry.key).filter(key => key !== "projects"), ["b", "c", "d", "e", "f"])
   t.diagnostic(`openDevice() with 5 MB of copies took ${opened.toFixed(1)} ms`)
 })
@@ -238,17 +223,14 @@ test("tabs share the 5 MB cap: the oldest copies go, also copies of another tab"
   const second = await profile.open()
   await mount(second, { account: "ada" })
   await until(async () => (await text(first)) === "p1 success" && (await text(second)) === "p1 success")
-  // Each tab holds 3 MB, under the cap. Together they would put 6 MB on the disk.
   for (const key of ["a", "b", "c"]) await first.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
   for (const key of ["d", "e", "f"]) await second.evaluate(key => window.deviceTest.store(key, key.repeat(1_000_000)), key)
-  // `projects` and `a` are the oldest copies.
   await until(async () => (await storedKeys(first)).join() === "b,c,d,e,f")
 })
 
 test("a tab that missed a clear does not fill the device again", { timeout: 120_000 }, async (t) => {
   const profile = await openBrowser(t)
   await profile.answer(["p1"])
-  // This tab hears no other tab, as a suspended tab that missed the message.
   const deaf = await profile.open("/", { pageScript: () => delete globalThis.BroadcastChannel })
   await mount(deaf, { account: "ada" })
   await until(async () => (await text(deaf)) === "p1 success" && (await storedKeys(deaf)).includes("projects"))
@@ -259,10 +241,8 @@ test("a tab that missed a clear does not fill the device again", { timeout: 120_
   const [error] = await other.evaluate(() => window.deviceTest.clearDevice())
   assert.equal(error, undefined)
   assert.deepEqual(await storedKeys(other), [])
-  // The deaf tab still shows its answer and stores another one.
   assert.equal(await text(deaf), "p1 success")
   await deaf.evaluate(() => window.deviceTest.store("settings", { theme: "dark" }))
-  // Its write finds a new generation on the disk: the tab drops what it had and reads again.
   await until(async () => (await text(deaf)) === "empty pending")
   assert.deepEqual(await storedKeys(deaf), [])
   assert.deepEqual((await inspect(deaf)).entries, [])
@@ -277,18 +257,14 @@ test("the disk picks the oldest copies over the 5 MB cap, not the memory of a ta
   await mount(writer, { account: "ada" })
   for (const key of ["a", "b", "c", "d"]) await store(writer, key, key.repeat(1_000_000))
   await until(async () => (await storedKeys(writer)).join() === "a,b,c,d,projects")
-  // This tab reads a, b, c, and d from the disk into its memory.
   const reader = await profile.open()
   await mount(reader, { account: "ada" })
   await until(async () => (await text(reader)) === "p1 success")
   assert.equal((await inspect(reader)).entries.length, 5)
-  // The first tab stores a newer `a`. The memory of the second tab still has the older one.
   await store(writer, "a", "A".repeat(1_000_000))
   await until(async () => (await storedPrefix(writer, "a")) === "\"AAA")
-  // `e` and `f` take the disk and the memory of the second tab over 5 MB.
   for (const key of ["e", "f"]) await store(reader, key, key.repeat(1_000_000))
   await until(async () => (await storedKeys(reader)).includes("f"))
-  // `b` is the oldest copy on the disk. The newer `a` stays.
   assert.deepEqual(await storedKeys(reader), ["a", "c", "d", "e", "f", "projects"])
   assert.equal(await storedPrefix(reader, "a"), "\"AAA")
 })
@@ -305,7 +281,6 @@ test("a tab that missed a sign-out and then got a sign-in as the same account dr
   profile.hold()
   await second.evaluate(() => window.deviceTest.setDeviceAccount(null))
   await second.evaluate(() => window.deviceTest.setDeviceAccount("ada"))
-  // The first tab got only the sign-in. Its answer is from before the sign-out, so it goes, and nothing goes back to the disk.
   await until(async () => (await text(first)) === "empty pending")
   assert.deepEqual(await storedKeys(first), [])
   await profile.answer(["p2"])
@@ -322,7 +297,6 @@ test("a clear and another account at the same time leave the device on the new a
   assert.deepEqual(errors, [null, null])
   const { account, persisted } = await inspect(page)
   assert.deepEqual({ account, persisted }, { account: "grace", persisted: true })
-  // The read calls its loader again, and its answer is stored for `grace`.
   await until(async () => (await text(page)) === "p1 success" && (await storedKeys(page)).join() === "projects")
 })
 

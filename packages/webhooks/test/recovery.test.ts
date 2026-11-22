@@ -33,7 +33,6 @@ it("reschedules an early recovery wake until the interrupted claim expires", asy
     )
     expect(await store.get(recorded.id)).toMatchObject({ state: "sending", attempts: 1 })
     expect(request).not.toHaveBeenCalled()
-    // A failed replacement wake must leave the original Queue job eligible for retry.
     wake.mockResolvedValueOnce([new Error("queue unavailable"), undefined])
     await expect(deliverWebhookWake(recorded)).rejects.toMatchObject({ code: "WEBHOOKS_WAKE_FAILED" })
     clock.mockReturnValue(now + 71_000)
