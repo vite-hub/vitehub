@@ -321,7 +321,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
 })
 
 describe("env CLI with Vite stage files", () => {
-  it.each([false, true])("closes an unsupported SSR environment (initialization failure: %s)", async (failInit) => {
+  it.each([false, true])("closes an unsupported SSR environment only after it initializes (initialization failure: %s)", async (failInit) => {
     const root = await createStageFixture()
     const events = join(root, "runtime.log")
     await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
@@ -342,7 +342,31 @@ describe("env CLI with Vite stage files", () => {
     ].join("\n"))
     const { context } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
     await expect(realFeature("check").run(["--json"], context)).rejects.toThrow(failInit ? "Runtime initialization failed" : "The SSR environment does not support runnable imports.")
-    expect(await readFile(events, "utf8")).toBe("close\n")
+    expect(await readFile(events, "utf8").then(String, () => "")).toBe(failInit ? "" : "close\n")
+  }, 60_000)
+
+  it("keeps the load error when closing the SSR environment also fails", async () => {
+    const root = await createStageFixture()
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await writeFile(join(root, "vite.config.mjs"), [
+      'import { DevEnvironment } from "vite"',
+      'import { env, hubEnv } from "@vite-hub/env/vite"',
+      'export default {',
+      '  plugins: [hubEnv({ diagnostics: "off", server: { apiToken: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })],',
+      '  environments: { ssr: { dev: { createEnvironment(name, config) {',
+      '    const environment = new DevEnvironment(name, config, { hot: false })',
+      '    environment.close = async () => { throw new Error("Runtime close failed") }',
+      '    return environment',
+      '  } } } },',
+      '}',
+    ].join("\n"))
+    const { context } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    const error: unknown = await Promise.resolve(realFeature("check").run(["--json"], context)).then(() => undefined, (error: unknown) => error)
+    expect(error).toBeInstanceOf(AggregateError)
+    expect(error).toMatchObject({
+      cause: { message: "The SSR environment does not support runnable imports." },
+      errors: [{ message: "The SSR environment does not support runnable imports." }, { message: "Runtime close failed" }],
+    })
   }, 60_000)
 
   it.each(["check", "list"] as const)("uses the configured SSR runtime for %s without starting other environments", async (command) => {

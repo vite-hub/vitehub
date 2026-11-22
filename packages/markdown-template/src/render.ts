@@ -200,7 +200,7 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
         && (svgUrlAttributes.has(tag.toLowerCase()) || tag.toLowerCase() === "img" && svgContext)
     if (typeof value !== "string" || !isUrl) continue
     const binding = source[`:${key}`]
-    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })
+    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decoded: binding === undefined })
   }
   return sanitized
 }

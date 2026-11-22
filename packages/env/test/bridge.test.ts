@@ -127,6 +127,7 @@ describe("Env Bridge", () => {
     await bridge.replace(admin, { key: "github", value: "never-log-this", expectedRevision: null });
     await bridge.grant(admin, { actor: agent.actor, key: "github", permissions: ["use"] });
     emit.mockRejectedValue(new Error("Exporter offline"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       bridge.use(agent, "github", "github.issues.list", (secret) => {
         expect(secret.unseal()).toBe("never-log-this");
@@ -146,6 +147,9 @@ describe("Env Bridge", () => {
       "started",
     ]);
     expect(JSON.stringify(events)).not.toContain("never-log-this");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Env activity export failed"), expect.objectContaining({ message: "Exporter offline" }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("never-log-this");
+    warn.mockRestore();
   });
   it("enforces grants, revocation and the authenticated token's permission ceiling", async () => {
     const { bridge } = setup();

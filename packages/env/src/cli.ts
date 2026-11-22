@@ -125,15 +125,17 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     // The discovery flag tells plugins that a CLI loads the project, so dev-server work, such as an AI emulator, stays off.
     const inlineConfig: import("vite").InlineConfig & { vitehubCliDiscovery: true } = { ...config, plugins: [...config.plugins ?? [], nitro.plugin], vitehubCliDiscovery: true }
     const resolved = await vite.resolveConfig(inlineConfig, "serve")
-    environment = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
-    await environment.init()
+    const created = await resolved.environments.ssr!.dev.createEnvironment("ssr", resolved, { ws })
+    await created.init()
+    environment = created
     let runnable: import("vite").RunnableDevEnvironment
-    if (vite.isRunnableDevEnvironment(environment)) runnable = environment
+    if (vite.isRunnableDevEnvironment(created)) runnable = created
     else {
       if (!allowNuxtFallback) throw envErrorDiagnostics.ENV_R0030({ message: "The SSR environment does not support runnable imports." })
-      fallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
-      await fallback.init()
-      runnable = fallback
+      const runnableFallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
+      await runnableFallback.init()
+      fallback = runnableFallback
+      runnable = runnableFallback
     }
     return {
       close,
@@ -142,7 +144,10 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     }
   }
   catch (error) {
-    await close().catch(() => {})
+    try { await close() }
+    catch (closeError) {
+      throw new AggregateError([error, closeError], "[vitehub] Env could not load the stage, and then could not close it.", { cause: error })
+    }
     throw error
   }
 }

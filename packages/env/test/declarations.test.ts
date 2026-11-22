@@ -258,7 +258,8 @@ describe("env declarations", () => {
   it("reports the declaration diagnostic when any option read throws", () => {
     for (const property of ["optional", "required", "schema", "default", "source", "mode", "secret", "type"]) {
       const options = new Proxy({}, {
-        ownKeys: () => [],
+        ownKeys: () => [property],
+        getOwnPropertyDescriptor: () => ({ configurable: true, enumerable: true }),
         get: (_, key) => {
           if (key === property) throw new Error("boom")
           return undefined
@@ -303,6 +304,11 @@ describe("env declarations", () => {
     expect(() => env({ required: true } as never)).toThrow("does not accept required")
     expect(() => env({ optional: true, required: true } as never)).toThrow("does not accept required")
     expect(() => env.boolean({ default: false, optional: true } as never)).toThrow("cannot use both optional and default")
+  })
+
+  it("rejects options that env() does not know", () => {
+    expect(() => env({ secret: true, description: "API token" } as never)).toThrow("env() does not accept description.")
+    expect(() => env.number({ min: 1 } as never)).toThrow("env() does not accept min.")
   })
 
   it("reads the canonical name before the inferred path name", () => {

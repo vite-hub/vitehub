@@ -252,6 +252,14 @@ describe("WebContainer lifecycle", () => {
     expect(container.teardown).toHaveBeenCalledOnce()
   })
 
+  it("rejects readiness that is first read after teardown", async () => {
+    fixture()
+    const app = await bootWebContainer()
+    app.teardown()
+    await expect(app.preview.ready).rejects.toThrow(/torn down/)
+    expect(app.preview.ready).toBe(app.preview.ready)
+  })
+
   it("keeps first readiness resolved across later lifecycle events", async () => {
     const { events, exited } = fixture()
     const app = await bootWebContainer()

@@ -151,7 +151,7 @@ await container.run("dev", { env: { OPENAI_API_KEY: key } })
 
 ## Describe connectable accounts
 
-`@vite-hub/web-container/connect` describes the accounts that a page offers. It runs no OAuth flow yet.
+`@vite-hub/web-container/connect` describes the accounts that a page offers. It runs no OAuth flow: for a provider with `auth: "oauth"`, `ConnectPanel` from `@vite-hub/ui/workspace` emits `oauth`, and the page signs the reader in through its own server, which holds the client secret.
 
 ```ts fragment
 import { connectEnv, defineConnect } from "@vite-hub/web-container/connect"

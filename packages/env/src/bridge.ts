@@ -128,7 +128,9 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     }
     try {
       await options.emit?.(structuredClone(event));
-    } catch {}
+    } catch (error) {
+      console.warn(`[vitehub] Env activity export failed for event ${event.id}. The activity store keeps the event.`, error);
+    }
   }
   async function allowed(
     context: EnvAccessContext,
