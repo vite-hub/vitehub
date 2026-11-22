@@ -6,6 +6,7 @@ import {
   defineComponent,
   h,
   markRaw,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   type PropType,
@@ -151,12 +152,9 @@ const PlaygroundSession = defineComponent({
     template: { required: true, type: Object as PropType<PlaygroundContainerTemplate> },
     /** The files to boot with: the files of the template, or of a share link. */
     files: { required: true, type: Object as PropType<PlaygroundFiles> },
-    /** Shows the start screen over the workspace. */
-    start: { default: false, type: Boolean },
   },
   emits: {
     "update:selected": (path: string) => typeof path === "string",
-    started: () => true,
     change: (template: PlaygroundContainerTemplate) => !!template,
     remount: (template: PlaygroundContainerTemplate) => !!template,
     context: (context: PlaygroundContext) => !!context,
@@ -387,16 +385,6 @@ const PlaygroundSession = defineComponent({
           tabs: tabItems.value,
           "onUpdate:tab": (next: WorkspaceTab) => { tab.value = next; },
         }, shellSlots),
-        props.start
-          ? h(WorkspaceStart, {
-              examples: props.templates,
-              onPick: (id: string) => {
-                emit("started");
-                const next = props.templates.find(item => item.id === id);
-                if (next) pick(next);
-              },
-            })
-          : undefined,
         h(UModal, {
           description: props.share
             ? "Your edits to the current files are lost. Copy a link or download them first to keep them."
@@ -445,7 +433,7 @@ export const PlaygroundContainer = defineComponent({
     selected: sessionProps.selected,
     /** Whether the workspace shows. Desktops show it on their own. Set it to `true` to show it on a tablet. Use `v-model:open`. */
     open: { default: false, type: Boolean },
-    /** Shows the examples as cards over the workspace on a first visit. A share link skips them and opens its files. */
+    /** Shows example cards before starting the workspace. A restored share link skips them and opens its files. */
     start: { default: false, type: Boolean },
   },
   emits: {
@@ -466,6 +454,7 @@ export const PlaygroundContainer = defineComponent({
     const session = shallowRef<{ id: number, template: PlaygroundContainerTemplate, files?: PlaygroundFiles }>();
     const active = computed(() => props.templates.find(item => item.id === session.value?.template.id) ?? session.value?.template ?? first());
     const link = ref<"restored" | "invalid">();
+    const root = ref<HTMLElement>();
     // The start screen shows until the reader picks an example. A share link never shows it.
     const starting = ref(props.start);
     function boot(template: PlaygroundContainerTemplate, files?: PlaygroundFiles) {
@@ -499,6 +488,29 @@ export const PlaygroundContainer = defineComponent({
       emit("update:template", template.id);
     }
 
+    async function startExample(id: string) {
+      const template = props.templates.find(item => item.id === id);
+      if (!starting.value || !template) return;
+      starting.value = false;
+      opened(template);
+      boot(template);
+      await nextTick();
+      root.value?.querySelector<HTMLButtonElement>('.vh-pc-toolbar .vh-ws-examples-button, .vh-pc-toolbar button[aria-label="More actions"]')?.focus();
+    }
+
+    function chooser(): VNode {
+      return h("div", { class: "vh-pc-session" }, [
+        h(WorkspaceBar, { class: "vh-pc-toolbar" }, {
+          examples: props.templates.length > 1 ? () => h(WorkspaceExamples, {
+            examples: props.templates,
+            modelValue: null,
+            "onUpdate:modelValue": startExample,
+          }) : undefined,
+        }),
+        h(WorkspaceStart, { examples: props.templates, onPick: startExample }),
+      ]);
+    }
+
     const requested = ref(props.open);
     watch(() => props.open, (open) => { requested.value = open; });
     // Only desktops boot the workspace on their own. Tablets boot it on a tap. Phones never boot it.
@@ -516,7 +528,7 @@ export const PlaygroundContainer = defineComponent({
       const label = session.value.template.label;
       const many = props.templates.length > 1;
       return h("div", { class: "vh-pc-bar", role: "status" }, link.value === "invalid"
-        ? `This link has no files that the ${props.label} can read.${many ? ` It opened the ${label} example.` : ""}`
+        ? `This link has no files that the ${props.label} can read.${many && !starting.value ? ` It opened the ${label} example.` : ""}`
         : `You opened shared files${many ? ` on the ${label} example` : ""}.`);
     }
 
@@ -563,10 +575,10 @@ export const PlaygroundContainer = defineComponent({
 
     return () => {
       const current = session.value;
-      return h("div", { class: "vh-pc", "data-layout": props.layout }, [
+      return h("div", { class: "vh-pc", "data-layout": props.layout, ref: root }, [
         linkBar(),
         shown.value && current
-          ? h(PlaygroundSession, {
+          ? starting.value ? chooser() : h(PlaygroundSession, {
               key: current.id,
               connect: props.connect,
               files: current.files ?? active.value.files,
@@ -576,13 +588,11 @@ export const PlaygroundContainer = defineComponent({
               port: props.port,
               selected: props.selected,
               share: props.share,
-              start: starting.value && link.value !== "restored",
               tabs: props.tabs,
               template: active.value,
               templates: props.templates,
               onChange: opened,
               onContext: (context: PlaygroundContext) => emit("context", context),
-              onStarted: () => { starting.value = false; },
               onRemount: (template: PlaygroundContainerTemplate) => {
                 opened(template);
                 boot(template);

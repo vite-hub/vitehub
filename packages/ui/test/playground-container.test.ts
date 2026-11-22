@@ -22,12 +22,15 @@ vi.mock("@xterm/xterm", () => ({
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 vi.mock("../src/playground/zip.ts", () => ({ downloadZip: vi.fn() }));
 
-// A container that boots at once, writes to a map, and is ready when the dev server starts.
-const fake = vi.hoisted(() => ({ boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
+// A single container that writes to a map and is ready when the dev server starts.
+const fake = vi.hoisted(() => ({ active: false, boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
 vi.mock("@vite-hub/web-container", () => ({
   checkWebContainerSupport: () => ({ supported: fake.supported }),
-  async bootWebContainer(options: { files: Record<string, string>, snapshot?: unknown, onStatus: (status: unknown) => void }) {
+  async bootWebContainer(options: { files: Record<string, string>, snapshot?: Promise<Uint8Array | ArrayBuffer>, onStatus: (status: unknown) => void }) {
     fake.boots.push({ files: { ...options.files }, snapshot: options.snapshot !== undefined });
+    if (fake.active) throw new Error("Only a single WebContainer instance can be booted");
+    fake.active = true;
+    await options.snapshot;
     for (const [path, contents] of Object.entries(options.files)) fake.disk.set(path, contents);
     options.onStatus({ stage: "mounting", steps: [] });
     let ready: (server: { url: string, port: number }) => void = () => {};
@@ -55,7 +58,7 @@ vi.mock("@vite-hub/web-container", () => ({
         }
         return { exit: new Promise<number>(() => {}), kill: () => {}, output: new ReadableStream<string>() };
       },
-      teardown: () => {},
+      teardown: () => { fake.active = false; },
     };
   },
 }));
@@ -115,6 +118,7 @@ const agent: PlaygroundContainerTemplate = { id: "agent", label: "Agent", files:
 
 beforeEach(() => {
   vi.mocked(downloadZip).mockClear();
+  fake.active = false;
   fake.boots.length = 0;
   fake.runs.length = 0;
   fake.disk.clear();
@@ -305,6 +309,36 @@ describe("PlaygroundContainer", () => {
     expect(shared.find(".vh-ws-start").exists()).toBe(false);
     expect(fake.boots.at(-1)).toEqual({ files: blob.files, snapshot: true });
     shared.unmount();
+  });
+
+  it("boots only the picked example when the default snapshot would still be downloading", async () => {
+    const delayedSnapshot = vi.fn(() => new Promise<Uint8Array>(() => {}));
+    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [{ ...kv, snapshot: delayedSnapshot }, agent], start: true } });
+    await flushPromises();
+
+    await wrapper.findAll(".vh-ws-start-card")[1]!.trigger("click");
+    await flushPromises();
+
+    expect(fake.boots).toEqual([{ files: agent.files, snapshot: true }]);
+    expect(delayedSnapshot).not.toHaveBeenCalled();
+    expect(wrapper.findComponent({ name: "WorkspacePreview" }).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it.each(["card", "menu"])("keeps the panes out of the chooser and hands off focus after a %s pick", async (picker) => {
+    const wrapper = mount(PlaygroundContainer, { attachTo: document.body, global, props: { templates: [kv, blob], start: true } });
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-shell").exists()).toBe(false);
+
+    const choice = wrapper.get(picker === "card" ? ".vh-ws-start-card" : '[data-item="KV"]');
+    (choice.element as HTMLButtonElement).focus();
+    await choice.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
+    expect(wrapper.emitted("update:template")).toEqual([["kv"]]);
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Example: KV"]').element);
+    wrapper.unmount();
   });
 
   it("boots on a tablet only after a tap, never on a phone, and shows a notice where WebContainers do not run", async () => {

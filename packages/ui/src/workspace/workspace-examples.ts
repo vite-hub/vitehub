@@ -33,8 +33,8 @@ export const WorkspaceExamples = defineComponent({
   name: "WorkspaceExamples",
   props: {
     examples: { required: true, type: Array as PropType<readonly WorkspaceExample[]> },
-    /** The id of the open example. Use `v-model`. */
-    modelValue: { default: undefined, type: String },
+    /** The id of the open example, or `null` before the first pick. Use `v-model`. */
+    modelValue: { default: undefined, type: [String, null] as PropType<string | null> },
     /** The word before the name of the open example on the button. */
     label: { default: "Example", type: String },
   },
@@ -44,7 +44,7 @@ export const WorkspaceExamples = defineComponent({
   setup(props, { emit }) {
     const UButton = useUIComponent("UButton");
     const UDropdownMenu = useUIComponent("UDropdownMenu");
-    const current = computed(() => props.examples.find(example => example.id === props.modelValue) ?? props.examples[0]);
+    const current = computed(() => props.modelValue === null ? undefined : props.examples.find(example => example.id === props.modelValue) ?? props.examples[0]);
     const items = computed(() => groupExamples(props.examples).map(({ examples, group }) => [
       ...group ? [{ label: group, type: "label" as const }] : [],
       ...examples.map(example => ({
@@ -60,7 +60,7 @@ export const WorkspaceExamples = defineComponent({
       items: items.value,
       ui: { content: "vh-ws-examples-menu" },
     }, () => h(UButton, {
-      "aria-label": `${props.label}: ${current.value?.label ?? "none"}`,
+      "aria-label": props.modelValue === null ? `Choose ${props.label.toLowerCase()}` : `${props.label}: ${current.value?.label ?? "none"}`,
       class: "vh-ws-bar-button vh-ws-examples-button",
       color: "neutral",
       trailingIcon: "i-lucide-chevron-down",
