@@ -132,6 +132,26 @@ describe("WorkspaceSidebar", () => {
     sidebar.unmount();
   });
 
+  it("moves focus to its button when it mounts open with nothing focused, then closes", async () => {
+    const toggle = document.createElement("button");
+    toggle.setAttribute("aria-controls", "side");
+    document.body.append(toggle);
+    (document.activeElement as HTMLElement | null)?.blur();
+    const sidebar = mount(WorkspaceSidebar, {
+      attachTo: document.body,
+      global,
+      props: { id: "side", open: true },
+      slots: { default: () => h("a", { href: "#intro" }, "Introduction") },
+    });
+    await nextTick();
+    expect(document.activeElement?.textContent).toBe("Introduction");
+    await sidebar.get("aside").trigger("keydown", { key: "Escape" });
+    await sidebar.setProps({ open: false });
+    expect(document.activeElement).toBe(toggle);
+    sidebar.unmount();
+    toggle.remove();
+  });
+
   it("closes on a pointer down outside, but not on the panel or its button", async () => {
     const { outside, sidebar, toggle } = setup();
     await sidebar.setProps({ open: true });
