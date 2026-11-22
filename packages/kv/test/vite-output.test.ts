@@ -101,7 +101,7 @@ describe("KV Vite output", () => {
       await driver.setItem("proof", "bundled")
       assert.equal(data.get("vitehub:kv:default:proof"), "bundled")
       assert.equal(await driver.getItem("proof"), "bundled")
-      await driver.dispose()
+      assert.equal(driver.dispose, undefined)
     `], { cwd: rootDir, env: { ...process.env, NODE_PATH: "" } })
   })
 
@@ -914,10 +914,9 @@ describe("KV source type visibility", () => {
     await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({
       extends: join(repoRoot, "tsconfig.json"),
       compilerOptions: {
-        baseUrl: repoRoot,
         paths: {
-          "@vite-hub/internal/*": ["packages/internal/src/*.ts"],
-          "@vite-hub/kv": ["packages/kv/src/index.ts"],
+          "@vite-hub/internal/*": [join(repoRoot, "packages/internal/src/*.ts")],
+          "@vite-hub/kv": [join(repoRoot, "packages/kv/src/index.ts")],
         },
         typeRoots: [join(repoRoot, "node_modules", "@types")],
       },
@@ -925,7 +924,7 @@ describe("KV source type visibility", () => {
     }, null, 2))
 
     try {
-      await execFileAsync(process.execPath, [join(repoRoot, "node_modules/typescript/bin/tsc"), "--noEmit", "-p", join(rootDir, "tsconfig.json")])
+      await execFileAsync(process.execPath, [join(repoRoot, "test/package-typecheck.mjs"), "--noEmit", "-p", join(rootDir, "tsconfig.json")])
     }
     catch (error) {
       // SAFETY: execFileAsync rejects with the child process stdout and stderr fields used for diagnostics here.

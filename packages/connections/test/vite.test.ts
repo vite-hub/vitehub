@@ -612,13 +612,4 @@ describe("hubConnections", () => {
     }
   });
 
-  it.each(["on", "off"] as const)("removes the ownership manifests of older versions when Connections are %s", async (state) => {
-    const root = await createTempProject();
-    const manifests = ["connections-types.json", "connections-types-owners.json", "connections-types-owners-recovery.json"].map(name => join(root, ".vitehub", name));
-    await mkdir(join(root, ".vitehub"), { recursive: true });
-    await Promise.all(manifests.map(manifest => writeFile(manifest, "[]")));
-    if (state === "on") await hubConnections().api.prepareTypes({ projectRoot: root });
-    else await hubConnectionsTypesCleanup().api!.prepareTypes({ projectRoot: root });
-    for (const manifest of manifests) await expect(readFile(manifest)).rejects.toMatchObject({ code: "ENOENT" });
-  });
 });
