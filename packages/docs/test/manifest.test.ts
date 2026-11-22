@@ -247,6 +247,17 @@ describe("createDocsManifest", () => {
     })
   })
 
+  it("stops on a playground that connects Cloudflare, which needs a relay", async () => {
+    const page = "---\ntitle: Try\nlayout: playground\nexamples:\n  - { id: hello, label: Hello, dir: examples/hello }\nconnect: [cloudflare]\n---\n"
+    await withContent({ "docs/try.md": page }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toMatchObject({ code: "DOCS_CONTENT_INVALID" })
+      await expect(createDocsManifest({ dir, base: "/docs" })).rejects.toThrow("connect")
+    })
+    await withContent({ "docs/try.md": page.replace("cloudflare", "github") }, async (dir) => {
+      await expect(createDocsManifest({ dir, base: "/docs" })).resolves.toBeDefined()
+    })
+  })
+
   it.each([
     ["layuot: landing", "layuot"],
     ["navigation:\n  titel: Guide", "titel"],

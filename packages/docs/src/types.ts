@@ -1,6 +1,9 @@
-import type { DocsLayout } from "./schema.ts"
+import type { DocsLayout, DocsPageFrontmatter } from "./schema.ts"
 
 export type { DocsLayout }
+
+/** The workspace fields of a `layout: playground` or `layout: learn` page, as its frontmatter sets them. */
+export type DocsPageWorkspace = Pick<DocsPageFrontmatter, "examples" | "tabs" | "render" | "connect" | "port" | "fixture" | "guide" | "lesson" | "preview">
 
 /**
  * The fields of a page that the app reads. `useDocsManifest()` returns pages with only these fields, so every page of
@@ -54,6 +57,8 @@ export interface DocsPage extends DocsAppPage {
   keywords: string[]
   /** Search result title and description, when they differ from the page heading. */
   seo?: { title?: string, description?: string, image?: string | false, index?: boolean }
+  /** On a `playground` or `learn` page: the fields that set up its workspace. */
+  workspace?: DocsPageWorkspace
 }
 
 /** A folder under the docs base: one rail entry with its own page list. */

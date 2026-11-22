@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { isDocsWorkspaceLayout } from "#docs/navigation"
+
 const { banner } = useDocsConfig()
 const found = useDocsPage()
 // A tutorial with a code panel uses the whole page column, half for prose and half for files.
@@ -6,10 +8,10 @@ const hasCodePanel = computed(() => found.value?.page.codePanel === true)
 // Pages show the sidebar unless they set `sidebar: false`. A page with `sidebar: "collapsed"`, and a code panel tutorial,
 // shows a narrow strip until the reader opens the sidebar.
 const sidebar = useDocsSidebar()
-// An app page that sets `sidebar: "collapsed"` in its page meta, such as a playground, fills the viewport under the header.
-// Markdown pages with a collapsed sidebar, and code panel tutorials, keep the window scroll.
+// A `playground` or `learn` page, and an app page that sets `sidebar: "collapsed"` in its page meta, fill the viewport
+// under the header. Markdown pages with a collapsed sidebar, and code panel tutorials, keep the window scroll.
 const route = useRoute()
-const fills = computed(() => sidebar.value.collapsible && route.meta.sidebar === "collapsed")
+const fills = computed(() => isDocsWorkspaceLayout(found.value?.page.layout) || (sidebar.value.collapsible && route.meta.sidebar === "collapsed"))
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {

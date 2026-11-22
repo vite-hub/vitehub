@@ -85,6 +85,19 @@ describe("module ids and groups", () => {
     }
   })
 
+  it("fails on an unreadable manifest instead of treating its folder as a plain directory", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vitehub-bundle-workspace-"))
+    try {
+      const packageDir = join(workspace, "packages", "shared")
+      mkdirSync(packageDir, { recursive: true })
+      writeFileSync(join(packageDir, "package.json"), "{ \"name\": ")
+      expect(() => moduleId(join(packageDir, "dist", "index.js"), join(workspace, "apps", "site"))).toThrow(SyntaxError)
+    }
+    finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
   it("normalizes Windows app, dependency, workspace, and Nuxt template paths", () => {
     const windowsRoot = "C:\\repo\\app\\"
     expect(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot)).toBe("server/api/hello.ts")

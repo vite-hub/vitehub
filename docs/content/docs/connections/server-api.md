@@ -63,7 +63,7 @@ Behind a proxy that ends TLS, the server can see `http://` while the browser sen
 | --- | --- |
 | `call(operation, input)` | Runs a typed Operation: an `id`, an `effect` (`read` or `write`), and a `request(input)` builder. |
 | `fetch(url, init)` | Sends a request with the access token. `GET` and `HEAD` are reads with the id `fetch.get` or `fetch.head`. Other methods are writes. |
-| `status()` | Resolves the status, such as `'connected'`. It never rejects. If it cannot inspect the Connection, for example when the store cannot open, it returns `'disconnected'`. |
+| `status()` | Resolves the status, such as `'connected'`. An unknown name, or a store without `VITEHUB_CONNECTIONS_KEY` or the ViteHub Database, returns `'disconnected'`. Other failures, such as a database that cannot open, reject. |
 
 Each call checks access, gets a valid token, and sends the request. ViteHub refreshes the token 60 seconds before it expires. On a `401`, it refreshes and retries once. If the provider rejects the refresh token, the status becomes `needs-reconnect`.
 

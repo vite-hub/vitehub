@@ -435,13 +435,16 @@ function streamLogs(command: VercelSandboxCommand) {
   const iterator = command.logs({ signal: abort.signal })[Symbol.asyncIterator]();
   const open = new Map<"stderr" | "stdout", ReadableStreamDefaultController<Uint8Array>>();
   let stopped = false;
+  const isAbortReason = (error: unknown) => error === abort.signal.reason || (error instanceof Error && error.name === "AbortError");
   const stop = async () => {
     if (stopped) return;
     stopped = true;
     abort.abort();
     try {
       await iterator.return?.();
-    } catch {}
+    } catch (error) {
+      if (!isAbortReason(error)) throw error;
+    }
   };
   const stream = (name: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
     cancel() {
@@ -455,27 +458,34 @@ function streamLogs(command: VercelSandboxCommand) {
   const output = { stderr: stream("stderr"), stdout: stream("stdout") };
   void (async () => {
     try {
-      while (open.size > 0) {
-        const entry = await iterator.next();
-        if (entry.done) break;
-        const line = entry.value;
-        const controller = open.get(line.stream);
-        if (!controller || line.data.length === 0) continue;
-        const chunk = new Uint8Array(Math.min(line.data.length * 3, controller.desiredSize ?? 0));
-        const { read, written } = encoder.encodeInto(line.data, chunk);
-        if (read < line.data.length) {
-          controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
-          open.delete(line.stream);
-        } else {
-          controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
+      try {
+        while (open.size > 0) {
+          const entry = await iterator.next();
+          if (entry.done) break;
+          const line = entry.value;
+          const controller = open.get(line.stream);
+          if (!controller || line.data.length === 0) continue;
+          const chunk = new Uint8Array(Math.min(line.data.length * 3, controller.desiredSize ?? 0));
+          const { read, written } = encoder.encodeInto(line.data, chunk);
+          if (read < line.data.length) {
+            controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
+            open.delete(line.stream);
+          } else {
+            controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
+          }
         }
+      } catch (readError) {
+        await stop().catch(closeError => {
+          throw new AggregateError([readError, closeError], "Vercel logs failed to read and close", { cause: readError });
+        });
+        throw readError;
       }
+      await stop();
       for (const controller of open.values()) controller.close();
     } catch (error) {
       for (const controller of open.values()) controller.error(error);
     } finally {
       open.clear();
-      await stop();
     }
   })();
   return output;

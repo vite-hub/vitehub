@@ -235,6 +235,26 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
   })
 
+  it.each([
+    { operator: "<<", indent: "" },
+    { operator: "<<-", indent: "\t" },
+  ])("requires a closing delimiter for $operator heredocs", async ({ operator, indent }) => {
+    const workspace = new MemoryWorkspace({})
+    const options = {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    }
+
+    for (const body of ["", "body\n"]) {
+      const command = `cat ${operator}EOF\n${body ? indent + body : ""}`
+      await expect(runWorkspaceInspectionCommand(workspace, `${command}${indent}EOF`, options))
+        .resolves.toMatchObject({ exitCode: 0, stdout: body })
+      await expect(runWorkspaceInspectionCommand(workspace, command, options))
+        .resolves.toMatchObject({ event: "policy_denied", exitCode: 126 })
+    }
+  })
+
   it("removes backslash escapes from unquoted words before path checks", async () => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
 

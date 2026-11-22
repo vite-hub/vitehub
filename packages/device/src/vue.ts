@@ -145,23 +145,19 @@ async function load(read: SharedRead, loader: Loader, device: Device): Promise<v
       return device.write(read.key, value, read.maxAge, since)
     }
     checkAccount(account)
-    for (;;) {
-      while (device.loading()) {
-        await device.whenOpen()
-        if (controller.signal.aborted || device.epoch() !== since) return
-      }
-      claiming = { read, epoch: since + 1 }
-      let claimed: boolean
-      try {
-        claimed = device.claim(read.key, value, read.maxAge, since, account)
-      }
-      finally {
-        claiming = undefined
-      }
-      if (claimed) break
-      if (controller.signal.aborted || device.epoch() !== since || !device.loading()) return
+    if (device.loading()) {
+      await device.whenOpen()
+      if (controller.signal.aborted || device.epoch() !== since) return
     }
-    if (controller.signal.aborted) return
+    claiming = { read, epoch: since + 1 }
+    let claimed: boolean
+    try {
+      claimed = device.claim(read.key, value, read.maxAge, since, account)
+    }
+    finally {
+      claiming = undefined
+    }
+    if (!claimed || controller.signal.aborted) return
     publish(read, value)
   }
   catch (error) {

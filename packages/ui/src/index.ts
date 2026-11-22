@@ -31,16 +31,6 @@ export * from "./components/relative-time.ts";
 export * from "./components/status.ts";
 export * from "./components/sync-status.ts";
 export * from "./components/trace.ts";
-export {
-  PlaygroundRender,
-  type PlaygroundIssue,
-  type PlaygroundOpenEvent,
-  type PlaygroundPane,
-  type PlaygroundPaneSlotProps,
-  type PlaygroundPreset,
-  type PlaygroundRenderer,
-  type PlaygroundResult,
-} from "./playground/playground-render.ts";
 export type { PlaygroundFiles } from "./playground/share.ts";
 export * from "./composables/attachments.ts";
 export * from "./composables/highlighted-code.ts";
