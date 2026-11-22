@@ -527,6 +527,39 @@ describe("createTrustedHostRuntime", () => {
     }
   });
 
+  it("recovers a Home state lease after reporting failed initialization cleanup", async () => {
+    const root = await temporaryRoot();
+    const stateRoot = join(root, "state");
+    const key = "portable-sandbox-test/recover-initialization-lease";
+    const lock = `${join(stateRoot, createHash("sha256").update(key).digest("hex"))}.lock`;
+    const sandbox = await resolveSandbox({
+      home: { state: { ".acme": { key } } },
+      runtime: createTrustedHostRuntime({ stateRoot }),
+    }, {});
+    const remove = vi.mocked(rm);
+    const originalRemove = remove.getMockImplementation()!;
+    const initError = new Error("initialization failed");
+    const leaseError = Object.assign(new Error("lock removal busy"), { code: "EBUSY" });
+    let busy = true;
+    remove.mockImplementation(async (path, options) => {
+      if (path === lock && busy) throw leaseError;
+      return originalRemove(path, options);
+    });
+    try {
+      const failure = await sandbox.open({
+        async initialize() { throw initError; },
+      }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([initError, leaseError]);
+      await expect(stat(lock)).resolves.toBeDefined();
+      busy = false;
+      const next = await sandbox.open({ signal: AbortSignal.timeout(2_000) });
+      await next.close();
+    } finally {
+      remove.mockImplementation(originalRemove);
+    }
+  });
+
   it("does not start commands with an already-aborted signal", async () => {
     const root = await temporaryRoot();
     const marker = join(root, "started");

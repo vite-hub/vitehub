@@ -474,9 +474,13 @@ function streamLogs(command: VercelSandboxCommand) {
             controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
           }
         }
-      } finally {
-        await stop();
+      } catch (readError) {
+        await stop().catch(closeError => {
+          throw new AggregateError([readError, closeError], "Vercel logs failed to read and close", { cause: readError });
+        });
+        throw readError;
       }
+      await stop();
       for (const controller of open.values()) controller.close();
     } catch (error) {
       for (const controller of open.values()) controller.error(error);

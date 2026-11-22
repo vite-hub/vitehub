@@ -258,9 +258,9 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** Live processes could write state after the rollback.
 
-**Decision:** Order: destroy, then rollback, then release the lease. When initialization fails, `destroyFailedSession` tries the teardown 3 times, 250 ms apart, and throws an `AggregateError` with the initialization error and the last teardown error if all 3 fail.
+**Decision:** Stop processes, roll back initialized state, then release the lease. When initialization fails, `destroyFailedSession` tries cleanup three times, 250 ms apart. If all three fail, `open()` throws an `AggregateError` with the initialization error and the last cleanup error, and an unref'ed timer continues retrying cleanup until it succeeds.
 
-**Consequences:** State corruption from processes that outlive the rollback. An unbounded background retry hid the teardown failure and could keep the process alive, so a failed teardown is reported to the caller instead.
+**Consequences:** A later open can acquire the lease after a transient cleanup failure clears. Failed rollback keeps the lease; once rollback succeeds, release retries do not repeat it. The retry timer does not keep the host process alive.
 
 ## Spawn fence with no await before launch
 

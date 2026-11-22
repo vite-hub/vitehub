@@ -58,6 +58,7 @@ export interface TrustedHostOptions {
 }
 
 interface TrustedHostSession extends RuntimeSession {
+  destroy(): Promise<void>;
   readonly env: Record<string, string>;
   readonly home: string;
   readonly processes: Set<ChildProcessWithoutNullStreams>;
@@ -233,7 +234,8 @@ async function createSession(
       home,
       async release() {
         if (initializationFailed) {
-          await Promise.all(initializedState.map(path => rm(path, { force: true, recursive: true }).catch(() => undefined)));
+          for (const path of initializedState) await rm(path, { force: true, recursive: true });
+          initializedState.length = 0;
         }
         await releases();
       },
@@ -261,6 +263,7 @@ async function createSession(
       initializationFailed = true;
       const cleanup = await destroyFailedSession(session);
       if (cleanup) {
+        scheduleFailedSessionDestroy(session);
         throw new AggregateError(
           [error, cleanup.error],
           `[vitehub] Trusted-host Sandbox initialization failed: ${failureMessage(error)} Cleanup failed: ${failureMessage(cleanup.error)}`,
@@ -281,19 +284,26 @@ async function createSession(
 }
 
 const failedSessionDestroyAttempts = 3;
+const failedSessionDestroyDelayMs = 250;
 
 async function destroyFailedSession(session: TrustedHostSession): Promise<{ error: unknown } | undefined> {
   let failure: { error: unknown } | undefined;
   for (let attempt = 0; attempt < failedSessionDestroyAttempts; attempt++) {
-    if (failure) await delay(250);
+    if (failure) await delay(failedSessionDestroyDelayMs);
     try {
-      await session.destroy?.();
+      await session.destroy();
       return undefined;
     } catch (error) {
       failure = { error };
     }
   }
   return failure;
+}
+
+function scheduleFailedSessionDestroy(session: TrustedHostSession) {
+  setTimeout(() => {
+    void session.destroy().catch(() => scheduleFailedSessionDestroy(session));
+  }, failedSessionDestroyDelayMs).unref();
 }
 
 function failureMessage(error: unknown) {

@@ -271,6 +271,34 @@ describe("remote Sandbox providers", () => {
     }
   });
 
+  it.each([false, true])("reports Vercel log close failures without masking read failures (read failed: %s)", async (readFailed) => {
+    const readError = new Error("log transport read failed");
+    const closeError = new Error("log transport close failed");
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs() {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            async next() {
+              if (readFailed) throw readError;
+              return { done: true as const, value: undefined };
+            },
+            return: () => Promise.reject(closeError),
+          }),
+        };
+      },
+    });
+    try {
+      await Promise.all([child.stdout, child.stderr].map((stream) => readFailed
+        ? expect(stream.getReader().read()).rejects.toMatchObject({
+            name: "AggregateError", errors: [readError, closeError],
+          })
+        : expect(stream.getReader().read()).rejects.toBe(closeError)));
+    } finally {
+      await session.close();
+    }
+  });
+
   it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
     const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
     const stub = cloudflareStub(async command => ({

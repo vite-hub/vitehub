@@ -36,7 +36,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 `bundledWasmModule` in `packages/shell/src/command/sh-syntax.ts`.
 
-**Context:** The `?module` import resolves only in a bundled Cloudflare build. Plain Node cannot import it, and there sh-syntax reads `main.wasm` from its own package through `parse`. sh-syntax 0.8.4 adds a `workerd` build (un-ts/sh-syntax#164), but the Workflow esbuild bundle cannot load it yet, so the package stays on 0.8.3.
+**Context:** The Cloudflare Worker builds for Vite and Nuxt still use the `?module` import to load the parser's WASM explicitly rather than depend on the bundler selecting the `workerd` export added in sh-syntax 0.8.4. Plain Node cannot resolve `?module`; there, sh-syntax reads `main.wasm` from its own package through `parse`.
 
 **Decision:** Only a failed import falls back to sh-syntax's `parse`. When `parse` is missing too, `SHELL_SH_SYNTAX_WASM_UNAVAILABLE` carries the import error as `cause`. A failed `WebAssembly.compile` throws.
 
