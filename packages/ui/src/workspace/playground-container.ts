@@ -6,6 +6,7 @@ import {
   defineComponent,
   h,
   markRaw,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   type PropType,
@@ -24,21 +25,26 @@ import { downloadZip } from "../playground/zip.ts";
 import { BrowserSupportNotice } from "./browser-support-notice.ts";
 import { ConnectPanel, type ConnectProviderState } from "./connect-panel.ts";
 import { useConnectStore } from "./connect-store.ts";
+import { WorkspaceBar } from "./workspace-bar.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
 import { WorkspaceEditorHead } from "./workspace-editor-head.ts";
+import { WorkspaceExamples } from "./workspace-examples.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
 import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
+import { WorkspaceStart } from "./workspace-start.ts";
 import { type WorkspaceCursor, WorkspaceStatus } from "./workspace-status.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
-/** An app that the container can open. A playground has a menu of them. A tutorial has one, with the files of its step. */
+/** An app that the container can open. A playground has an examples menu of them. A tutorial has one, with the files of its step. */
 export interface PlaygroundContainerTemplate {
   /** The id in share links and in `update:template`. */
   id: string;
   label: string;
   description?: string;
+  /** The heading that the example sits under in the examples menu. */
+  group?: string;
   files: PlaygroundFiles;
   /** The file that the editor opens first. Defaults to the first file. */
   open?: string;
@@ -229,10 +235,10 @@ const PlaygroundSession = defineComponent({
     }
     function pick(next: PlaygroundContainerTemplate) {
       if (next.id === template.value.id && edited.value.length === 0) return;
-      guard(`Open the ${next.label} template?`, "Replace files", () => void load(next));
+      guard(`Open the ${next.label} example?`, "Replace files", () => void load(next));
     }
     function discard() {
-      const title = props.templates.length > 1 ? `Discard your changes to the ${template.value.label} template?` : "Discard your changes?";
+      const title = props.templates.length > 1 ? `Discard your changes to the ${template.value.label} example?` : "Discard your changes?";
       guard(title, "Discard changes", () => void load(template.value));
     }
 
@@ -279,27 +285,15 @@ const PlaygroundSession = defineComponent({
 
     function toolbar(): VNode {
       const state = runState(workspace);
-      const templateMenu = props.templates.length > 1
-        ? h(UDropdownMenu, {
-            content: { align: "start" },
-            items: [
-              [{ label: "Templates", type: "label" }],
-              props.templates.map(item => ({
-                description: item.description,
-                icon: item.id === template.value.id ? "i-lucide-check" : "i-lucide-box",
-                label: item.label,
-                onSelect: () => pick(item),
-              })),
-            ],
-            ui: { content: "w-64" },
-          }, () => h(UButton, {
-            "aria-label": `Template: ${template.value.label}`,
-            color: "neutral",
-            icon: "i-lucide-layout-template",
-            size: "sm",
-            trailingIcon: "i-lucide-chevron-down",
-            variant: "ghost",
-          }, () => [h("span", { class: "vh-pc-muted" }, "Template"), h("span", { class: "vh-pc-strong" }, template.value.label)]))
+      const examples = props.templates.length > 1
+        ? () => h(WorkspaceExamples, {
+            examples: props.templates,
+            modelValue: template.value.id,
+            "onUpdate:modelValue": (id: string) => {
+              const next = props.templates.find(item => item.id === id);
+              if (next) pick(next);
+            },
+          })
         : undefined;
       const more = h(UDropdownMenu, {
         content: { align: "end" },
@@ -308,19 +302,20 @@ const PlaygroundSession = defineComponent({
           { disabled: edited.value.length === 0, icon: "i-lucide-rotate-ccw", label: "Discard changes", onSelect: discard },
         ]],
       }, () => h(UButton, { "aria-label": "More actions", color: "neutral", icon: "i-lucide-ellipsis", size: "sm", variant: "ghost" }));
-      return h("header", { class: "vh-pc-toolbar" }, [
-        templateMenu,
-        h("span", { class: "vh-pc-run-state", role: "status" }, h(Status, { colored: state.tone === "error", label: state.label, pulse: state.tone === "busy", tone: statusTones[state.tone] })),
-        h("span", { class: "vh-pc-spacer" }),
-        slots.toolbar?.(context),
-        ...props.share
-          ? [
-              h(UButton, { color: "neutral", icon: "i-lucide-download", label: "Download", size: "sm", variant: "ghost", onClick: () => downloadZip(workspace.files.value, zipName(props.name, template.value)) }),
-              h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Link copied" : "Copy link", size: "sm", variant: "outline", onClick: (event: MouseEvent) => void copyLink(event.currentTarget) }),
-            ]
-          : [],
-        more,
-      ]);
+      return h(WorkspaceBar, { class: "vh-pc-toolbar" }, {
+        examples,
+        default: () => [h("span", { class: "vh-pc-run-state", role: "status" }, h(Status, { colored: state.tone === "error", label: state.label, pulse: state.tone === "busy", tone: statusTones[state.tone] }))],
+        actions: () => [
+          slots.toolbar?.(context),
+          ...props.share
+            ? [
+                h(UButton, { color: "neutral", icon: "i-lucide-download", label: "Download", size: "sm", variant: "ghost", onClick: () => downloadZip(workspace.files.value, zipName(props.name, template.value)) }),
+                h(UButton, { color: "neutral", icon: copied.value ? "i-lucide-check" : "i-lucide-link", label: copied.value ? "Link copied" : "Copy link", size: "sm", variant: "outline", onClick: (event: MouseEvent) => void copyLink(event.currentTarget) }),
+              ]
+            : [],
+          more,
+        ],
+      });
     }
 
     function pane(label: string, header: (VNode | undefined)[] | undefined, body: VNode | VNode[], className?: string): VNode {
@@ -416,7 +411,7 @@ const PlaygroundSession = defineComponent({
 export const PlaygroundContainer = defineComponent({
   name: "PlaygroundContainer",
   props: {
-    /** The apps to open. More than one shows a template menu. */
+    /** The apps to open. More than one shows an examples menu. */
     templates: sessionProps.templates,
     /** The id of the template to open first, such as from `?template=`. Defaults to the first template. */
     template: { default: undefined, type: String },
@@ -438,6 +433,7 @@ export const PlaygroundContainer = defineComponent({
     selected: sessionProps.selected,
     /** Whether the workspace shows. Desktops show it on their own. Set it to `true` to show it on a tablet. Use `v-model:open`. */
     open: { default: false, type: Boolean },
+    start: { default: false, type: Boolean },
   },
   emits: {
     /** The reader opened a template, or discarded the changes to one. */
@@ -457,6 +453,8 @@ export const PlaygroundContainer = defineComponent({
     const session = shallowRef<{ id: number, template: PlaygroundContainerTemplate, files?: PlaygroundFiles }>();
     const active = computed(() => props.templates.find(item => item.id === session.value?.template.id) ?? session.value?.template ?? first());
     const link = ref<"restored" | "invalid">();
+    const root = ref<HTMLElement>();
+    const starting = ref(props.start);
     function boot(template: PlaygroundContainerTemplate, files?: PlaygroundFiles) {
       session.value = { files, id: (session.value?.id ?? 0) + 1, template };
     }
@@ -470,7 +468,10 @@ export const PlaygroundContainer = defineComponent({
       if (request !== restoration) return;
       const shared = decoded?.template === undefined ? undefined : props.templates.find(item => item.id === decoded.template);
       link.value = shared ? "restored" : code ? "invalid" : undefined;
-      if (shared && decoded) return boot(shared, decoded.files);
+      if (shared && decoded) {
+        starting.value = false;
+        return boot(shared, decoded.files);
+      }
       boot(first());
     }
     onMounted(() => {
@@ -483,6 +484,29 @@ export const PlaygroundContainer = defineComponent({
       // The share link no longer matches the files.
       link.value = undefined;
       emit("update:template", template.id);
+    }
+
+    async function startExample(id: string) {
+      const template = props.templates.find(item => item.id === id);
+      if (!starting.value || !template) return;
+      starting.value = false;
+      opened(template);
+      boot(template);
+      await nextTick();
+      root.value?.querySelector<HTMLButtonElement>('.vh-pc-toolbar .vh-ws-examples-button, .vh-pc-toolbar button[aria-label="More actions"]')?.focus();
+    }
+
+    function chooser(): VNode {
+      return h("div", { class: "vh-pc-session" }, [
+        h(WorkspaceBar, { class: "vh-pc-toolbar" }, {
+          examples: props.templates.length > 1 ? () => h(WorkspaceExamples, {
+            examples: props.templates,
+            modelValue: null,
+            "onUpdate:modelValue": startExample,
+          }) : undefined,
+        }),
+        h(WorkspaceStart, { examples: props.templates, onPick: startExample }),
+      ]);
     }
 
     const requested = ref(props.open);
@@ -502,8 +526,8 @@ export const PlaygroundContainer = defineComponent({
       const label = session.value.template.label;
       const many = props.templates.length > 1;
       return h("div", { class: "vh-pc-bar", role: "status" }, link.value === "invalid"
-        ? `This link has no files that the ${props.label} can read.${many ? ` It opened the ${label} template.` : ""}`
-        : `You opened shared files${many ? ` on the ${label} template` : ""}.`);
+        ? `This link has no files that the ${props.label} can read.${many && !starting.value ? ` It opened the ${label} example.` : ""}`
+        : `You opened shared files${many ? ` on the ${label} example` : ""}.`);
     }
 
     function gate(): VNode {
@@ -549,10 +573,10 @@ export const PlaygroundContainer = defineComponent({
 
     return () => {
       const current = session.value;
-      return h("div", { class: "vh-pc", "data-layout": props.layout }, [
+      return h("div", { class: "vh-pc", "data-layout": props.layout, ref: root }, [
         linkBar(),
         shown.value && current
-          ? h(PlaygroundSession, {
+          ? starting.value ? chooser() : h(PlaygroundSession, {
               key: current.id,
               connect: props.connect,
               files: current.files ?? active.value.files,

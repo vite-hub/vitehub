@@ -144,7 +144,7 @@
   "packages/ui/test/browser/tailwind-bridge.browser.mjs": 14,
   "packages/ui/test/browser/tailwind-bridge/main.ts": 2,
   "packages/ui/test/browser/ui-sdk-keyboard.browser.mjs": 2,
-  "packages/ui/test/browser/ui-sdk.browser.mjs": 14,
+  "packages/ui/test/browser/ui-sdk.browser.mjs": 12,
   "packages/ui/test/browser/ui-sdk/fake-web-container.ts": 2,
   "packages/ui/test/browser/ui-sdk/parts.ts": 4,
   "packages/ui/test/browser/workspace-parts.browser.mjs": 10,
