@@ -309,12 +309,7 @@ async function confirm(operation: AnyOperation, target: string): Promise<boolean
 }
 
 function acceptedRoots(rootDir: string): string[] {
-  const roots = new Set([rootDir])
-  try {
-    roots.add(resolveViteHubProjectRoot(rootDir))
-  }
-  catch {}
-  return [...roots]
+  return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {

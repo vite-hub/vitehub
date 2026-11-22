@@ -102,13 +102,6 @@ describe("built-in deployment plans", () => {
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
       expect(manifest).toMatchObject({ host: preset, output: plan.output, runtime: plan.runtime, services: plan.services })
-      if (preset === "netlify") {
-        const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
-        expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
-        const target = wrapper.match(/from "([^"]+)"/)?.[1]
-        expect(target).toBeDefined()
-        expect(resolve(rootDir, ".netlify", "functions", target!)).toBe(entry)
-      }
     }
   })
   it("validates and records a resolved custom output directory", async () => {
@@ -236,50 +229,16 @@ describe("built-in deployment plans", () => {
     expect(text).not.toContain("canary")
   })
   it("uses Netlify's deployment root above its Nitro output directory", async () => {
-    const rootDir = await temporaryDirectory("vitehub-plan-netlify-output-")
-    const outputDir = resolve(rootDir, "custom-netlify", "functions-internal")
+    const rootDir = await temporaryDirectory("vitehub-plan-netlify-v1-")
+    const outputDir = resolve(rootDir, "custom-netlify", "v1", "functions")
     const plan = resolveDeploymentPlan("netlify")
-    const entry = resolve(rootDir, "custom-netlify", plan.output.entry!)
-    await mkdir(dirname(entry), { recursive: true })
-    await writeFile(entry, "export {}\n", "utf8")
+    await mkdir(resolve(outputDir, "server"), { recursive: true })
+    await writeFile(resolve(outputDir, "server", "server.mjs"), "export {}\n", "utf8")
 
     await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
 
     const manifest = JSON.parse(await readFile(resolve(rootDir, "custom-netlify", "deployment.json"), "utf8"))
-    expect(manifest.output.directory).toBe("custom-netlify")
-    const wrapper = await readFile(resolve(rootDir, "custom-netlify", "functions", "server.mjs"), "utf8")
-    expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')
-    const target = wrapper.match(/from "([^"]+)"/)?.[1]
-    expect(target).toBeDefined()
-    expect(resolve(rootDir, "custom-netlify", "functions", target!)).toBe(resolve(rootDir, "custom-netlify", plan.output.entry!))
-  })
-  it("follows Nitro's Netlify Frameworks API output without a wrapper", async () => {
-    const rootDir = await temporaryDirectory("vitehub-plan-netlify-v1-")
-    const outputDir = resolve(rootDir, ".netlify", "v1", "functions")
-    const plan = resolveDeploymentPlan("netlify")
-    await mkdir(resolve(outputDir, "server"), { recursive: true })
-    await writeFile(resolve(outputDir, "server", "server.mjs"), "export {}\n", "utf8")
-    const staleWrapper = resolve(rootDir, ".netlify", "functions", "server.mjs")
-    await mkdir(dirname(staleWrapper), { recursive: true })
-    await writeFile(staleWrapper, 'export { default } from "../functions-internal/server/server.mjs"\n', "utf8")
-
-    await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
-
-    const manifest = JSON.parse(await readFile(resolve(rootDir, ".netlify", "deployment.json"), "utf8"))
-    expect(manifest.output).toEqual({ ...plan.output, directory: ".netlify", entry: "v1/functions/server/server.mjs" })
-    expect(existsSync(staleWrapper)).toBe(false)
-  })
-  it("keeps a Netlify function that ViteHub did not write", async () => {
-    const rootDir = await temporaryDirectory("vitehub-plan-netlify-v1-own-")
-    const outputDir = resolve(rootDir, ".netlify", "v1", "functions")
-    await mkdir(resolve(outputDir, "server"), { recursive: true })
-    await writeFile(resolve(outputDir, "server", "server.mjs"), "export {}\n", "utf8")
-    const userFunction = resolve(rootDir, ".netlify", "functions", "server.mjs")
-    await mkdir(dirname(userFunction), { recursive: true })
-    await writeFile(userFunction, "export default () => new Response()\n", "utf8")
-
-    await finalizeDeploymentPlanOutput({ outputDir, plan: resolveDeploymentPlan("netlify"), rootDir })
-
-    expect(await readFile(userFunction, "utf8")).toBe("export default () => new Response()\n")
+    expect(manifest.output).toEqual({ ...plan.output, directory: "custom-netlify", entry: "v1/functions/server/server.mjs" })
+    expect(existsSync(resolve(rootDir, "custom-netlify", "functions"))).toBe(false)
   })
 })

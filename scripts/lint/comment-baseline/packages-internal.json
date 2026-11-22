@@ -9,7 +9,7 @@
   "packages/internal/src/build/deno-deploy-runner.injected.ts": 1,
   "packages/internal/src/build/deno-runtime-packages.ts": 29,
   "packages/internal/src/build/deployment-output.ts": 2,
-  "packages/internal/src/build/deployment-plan-output.ts": 11,
+  "packages/internal/src/build/deployment-plan-output.ts": 8,
   "packages/internal/src/build/esbuild.ts": 1,
   "packages/internal/src/build/included-nitro.ts": 1,
   "packages/internal/src/build/nitro-cache-bypass.ts": 5,

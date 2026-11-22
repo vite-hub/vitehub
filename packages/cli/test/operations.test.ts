@@ -8,7 +8,7 @@ import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyC
 import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
-import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const cliPrivateKey = (await createConsoleKeyPair()).privateKey
 

@@ -95,6 +95,14 @@ it.skipIf(process.platform === "win32")("lets file-reading CLIs reopen stdin wit
   expect(result.stdout).toBe("transport-proof")
 })
 
+it("treats a CLI that exits before it reads stdin as a normal exit", async () => {
+  const root = await createProject()
+  const result = await createDeployRun({ write() {} }, [])(process.execPath, ["-e", "process.exit(3)"], {
+    cwd: root, env: {}, stdin: "x".repeat(4 * 1024 * 1024),
+  })
+  expect(result.exitCode).toBe(3)
+})
+
 it.each([false, true])("keeps a shorter secret pending when it can become a longer secret (reverse: %s)", async (reverse) => {
   const root = await createProject()
   let shown = ""

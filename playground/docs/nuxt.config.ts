@@ -1,6 +1,5 @@
 export default defineNuxtConfig({
   modules: [
-    "@nuxt/ui",
     ["vite-hub/nuxt", { host: "node", agent: true, connections: true, database: true, console: { auth: false } }],
     "@vite-hub/docs/nuxt",
   ],

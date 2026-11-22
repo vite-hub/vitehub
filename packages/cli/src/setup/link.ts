@@ -16,6 +16,7 @@ import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, setupFailure, type SetupFailure } from "./envelope.ts"
+import { hostCli, hostCliFailed } from "./deploy/host.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -274,6 +275,16 @@ async function linkNetlify(name: string, options: SetupLinkOptions, token: strin
   return { ...(site.account ? { account: site.account } : {}), created, project: { id: site.id, name: site.name }, verified: true }
 }
 
+async function linkDeno(name: string, options: SetupLinkOptions, hasCredentials: boolean, root: string, context: ViteHubCliContext): Promise<HostProject> {
+  const linked = { ...(options.account ? { account: { id: options.account } } : {}), created: false, project: { name } }
+  const organization = options.account ?? context.env.DENO_DEPLOY_ORG?.trim()
+  if (!hasCredentials || !organization) return { ...linked, verified: false }
+  const deno = hostCli("deno", "deno", root, context.env)
+  const result = await (context.runHostCli ?? runHostCli)(deno[0], [...deno.slice(1), "deploy", "apps", "get", "--json", "--non-interactive", "--org", organization, "--app", name], { cwd: root, env: context.env })
+  if (result.exitCode !== 0) throw hostCliFailed("deno deploy apps get", { ...result, stderr: "" }, [])
+  return { ...linked, verified: true }
+}
+
 /** `content` of a `.gitignore` with a `.vitehub` line, or undefined when it already ignores `.vitehub`. */
 export function gitignoreWithViteHub(content: string): string | undefined {
   const ignored = content.split(/\r?\n/u).some(line => /^\/?(?:\*\*\/)?\.vitehub\/?$/u.test(line.trim()))
@@ -300,9 +311,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   const fetchImpl = context.fetch ?? globalThis.fetch
 
   let linked: HostProject
-  if (host === "deno") {
-    linked = { ...(options.account ? { account: { id: options.account } } : {}), created: false, project: { name }, verified: false }
-  }
+  if (host === "deno") linked = await linkDeno(name, options, credentials.ok, project.root, context)
   else if (!credentials.ok) {
     throw setupFailure(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: credentials.fix, host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),

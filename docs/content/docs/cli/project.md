@@ -212,13 +212,13 @@ pnpm vitehub unlink
 
 - `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. The default is the host that `vitehub status` reports.
 - `--project`: the project name on the host. The default is the `name` of `vitehub({ name })`, else the package.json name, in the same form that the build uses.
-- `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
+- `--account`: the Cloudflare account id, the Vercel team id, the Netlify team slug, or the Deno Deploy organization.
 - `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
 - `--default`: make this host the target that `vitehub deploy` uses without `--host`. The first linked host is the default.
 
 The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
-The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
+The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. On Deno, the command runs `deno deploy apps get` when `DENO_DEPLOY_TOKEN` and the organization (`--account` or `DENO_DEPLOY_ORG`) are set. Without them, the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
 
 ```json [.vitehub/link.json]
 {
