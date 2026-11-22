@@ -118,6 +118,19 @@ describe("Agent Invocation store open", () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it("fails a run with a code when the store cannot open, instead of retrying the record", async () => {
+    const cause = new Error("SQLITE_CANTOPEN: unable to open database file")
+    const invocations = defineAgentInvocations({ store: lazyStore(() => Promise.reject(cause)) })
+    const run = vi.fn(() => "done")
+
+    const started = Date.now()
+    const [error] = await runAgent(defineAgent({ driver: { run }, invocations, runtime: false }), {})
+
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(error).toMatchObject({ code: "AGENT_RUN_FAILED", cause: { code: "AGENT_INVOCATION_STORE_OPEN_FAILED", cause } })
+    expect(run).not.toHaveBeenCalled()
+  }, 10_000)
+
   it("shares a slow open between recovery and journal reads", async () => {
     const store = createMemoryAgentInvocationStore()
     await store.create({ id: "interrupted", traceId: "interrupted", status: "running", observations: [], createdAt: "2020-01-01T00:00:00Z", updatedAt: "2020-01-01T00:00:00Z" })

@@ -2534,6 +2534,13 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         createInput.cancelWarningPending = true
         createInput.cancelWarningOwnerId = cancellationOwnerId
       }
+      // Each store operation of a run swallows a failed open, so a store that cannot open would keep the terminal write
+      // retrying until its deadline. Fail the run before it starts instead.
+      if (openStore) {
+        await openStore().catch((error: unknown) => {
+          throw agentDiagnostics.is(error) && error.code === "AGENT_INVOCATION_STORE_TIMEOUT" ? error : agentDiagnostics.AGENT_INVOCATION_STORE_OPEN_FAILED({ cause: error })
+        })
+      }
       await ensureCreated()
       if (!bindOptions.deferClaim) await renew()
       const baseTraceLog = context.traceLog || createTraceEventLog()
