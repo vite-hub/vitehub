@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer"
+import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 
@@ -33,9 +34,9 @@ export function webContainerRoutes(pages: readonly WorkspaceContentPage[]): stri
   return workspacePages(pages).filter(page => page.layout === "learn" || !page.workspace.render).map(page => page.path)
 }
 
-/** The id of a page in file names and snapshot names: `/learn/first-kv` is `learn-first-kv`. */
+/** The stable id of a page in file names and snapshot names. */
 export function workspacePageSlug(path: string): string {
-  return path.replace(/^\/+|\/+$/g, "").replace(/[^\w-]+/g, "-") || "index"
+  return createHash("sha256").update(path).digest("hex")
 }
 
 /** The lesson of a `learn` page: its steps come from `lesson`, or from the page itself. */
