@@ -191,13 +191,3 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Pack Rate Limit's workspace dependencies too, so the consumer installs local copies.
 
 **Consequences:** Packing only rate-limit makes the test pass or fail against stale npm versions.
-
-## Concurrent refunds can give back more requests than the window counted
-
-`kvRateLimitDriver.refund` in `packages/rate-limit/src/drivers/kv.ts`.
-
-**Context:** `refund()` reads the count and the refunds counter, and increments the refunds counter only when the count is higher. `RateLimitKVStorage` has only `get` and an atomic `increment`, so two refunds at the same time can both pass the check. Refunds apply to the [current window](../docs/content/docs/rate-limit/limits-and-errors.md#limitations), not the window that counted the request. For example, if one request was allowed before the window rolled over and another just after, refunding each once concurrently in the new window can record two refunds against one counted request. Clamping refunds on read does not help, because later requests raise the count.
-
-**Decision:** Keep the check without an atomic guard. Concurrent refunds can make the driver allow more requests than intended in that window.
-
-**Consequences:** A sound guard needs a compare-and-set, for example a `setIfAbsent()` claim of refund slot `n` for each `n` up to the count. That adds `setIfAbsent` to the public `RateLimitKVStorage` contract and to every custom store, so it needs a maintainer decision.
