@@ -45,7 +45,6 @@ function createRateLimitManifest(
     rateLimits: [...declarations]
       .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
       .map((definition) => {
-        // On Cloudflare, a window that the binding does not support counts in KV.
         const counter = provider === "cloudflare" && !usesCloudflareBinding(definition) ? "kv" : provider
         return { name: definition.name, provider: counter, capabilities: resolveProviderCapabilities(counter) }
       }),

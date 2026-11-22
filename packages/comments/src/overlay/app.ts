@@ -136,12 +136,10 @@ function others(people: readonly RealtimePerson[], me: string | undefined): { pe
   return [...byId.values()]
 }
 
-/** The open count on the Comments button. Its digits roll when it changes. */
 const OpenCount = defineComponent({
   props: { value: { required: true, type: Number } },
   setup(props) {
     const element = ref<HTMLElement>()
-    // Vue renders the first count only. Later counts go through the roll, which owns the children of the element.
     const first = String(props.value)
     onMounted(() => element.value && rollNumber(element.value, props.value))
     watch(() => props.value, value => element.value && rollNumber(element.value, value), { flush: "post" })

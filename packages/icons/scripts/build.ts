@@ -1,15 +1,12 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-/** Attributes of every source SVG. A source that changes them is not part of the set. */
 export const sourceRoot = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">`
 
-/** The source attributes in the form that an Iconify body keeps them: on a group, because Iconify replaces the root. */
 const bodyGroup = `<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">`
 
 const svgDir = new URL("../svg/", import.meta.url)
 
-/** Reads `svg/<name>.svg` and returns the Iconify body of each icon, in name order. */
 export function readIconBodies(): Record<string, string> {
   const names = readdirSync(svgDir).filter(file => file.endsWith(".svg")).map(file => file.slice(0, -4)).sort()
   return Object.fromEntries(names.map((name) => {

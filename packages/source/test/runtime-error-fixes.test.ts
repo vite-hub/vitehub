@@ -5,7 +5,6 @@ import { sourceErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { CollectionCursorError, defineCollection, file } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
 
-/** The runtime codes that Collections, their routes and clients, and the File and MCP Sources can raise. */
 const runtimeCodes = [
   "SOURCE_R0001", "SOURCE_R0002", "SOURCE_R0003", "SOURCE_R0004", "SOURCE_R0005",
   "SOURCE_R0006", "SOURCE_R0008", "SOURCE_R0009", "SOURCE_R0011", "SOURCE_R0012",

@@ -16,7 +16,6 @@ describe("@vite-hub/source package contract", () => {
   })
 
   it("keeps CommonJS dependency discovery and Node built-ins out of the root's static imports", async () => {
-    // A Worker that imports the root and never calls github() must not load the Node built-ins that github() uses.
     const entry = join(import.meta.dirname, "..", "dist", "index.js")
     const pending = [entry]
     const visited = new Set<string>()

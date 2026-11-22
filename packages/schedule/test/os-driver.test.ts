@@ -17,12 +17,10 @@ interface Call {
   env?: Record<string, string>
 }
 
-/** A machine in memory. `respond` answers each command; the default answer is success with no output. */
 function fakeHost(platform: string, respond: (command: string, args: readonly string[]) => Partial<ExecResult> | undefined = () => undefined, overrides: Partial<OsHost> = {}) {
   const files = new Map<string, string>()
   const directories = new Set<string>()
   const calls: Call[] = []
-  // Symbolic links of folders, as `/var` → `/private/var` on macOS.
   const links = new Map<string, string>()
   const resolve = (path: string) => {
     for (const [from, to] of links) {
@@ -65,8 +63,6 @@ function fakeHost(platform: string, respond: (command: string, args: readonly st
 
 const command: InstallOsScheduleOptions["command"] = ["/usr/bin/node", "/home/maxi/skync/bin.mjs", "sync"]
 
-// `systemctl --user show vitehub-os-capture.timer vitehub-os-capture.service --timestamp=unix -p ...` on systemd 259,
-// captured on a real machine, before the first run, during a run, and after a run that exited with code 3.
 const showBefore = `Id=skync.timer
 LoadState=loaded
 FragmentPath=/home/maxi/.config/systemd/user/skync.timer
@@ -148,10 +144,8 @@ ExecMainCode=0
 ExecMainStatus=0
 `
 
-// `systemctl --user show -p UnitPath --value` on systemd 259. The user manager has its own HOME and XDG_CONFIG_HOME.
 const unitPath = "/home/maxi/.config/systemd/user.control /run/user/1000/systemd/user.control /run/user/1000/systemd/transient /run/user/1000/systemd/generator.early /home/maxi/.config/systemd/user /etc/systemd/user /run/user/1000/systemd/user /run/systemd/user /run/user/1000/systemd/generator /home/maxi/.local/share/systemd/user /usr/local/share/systemd/user /usr/share/systemd/user /usr/local/lib/systemd/user /usr/lib/systemd/user /run/user/1000/systemd/generator.late"
 
-/** A systemd that remembers whether the timer is enabled and active. */
 function systemd(overrides: Partial<OsHost> = {}) {
   let enabled = false
   let show = showMissing
@@ -277,7 +271,6 @@ describe("systemd driver", () => {
   it("uses the systemd default folder when the user manager does not say", () => {
     expect(userUnitDirectory(unitPath)).toBe("/home/maxi/.config/systemd/user")
     expect(userUnitDirectory("/etc/systemd/user /usr/lib/systemd/user")).toBeUndefined()
-    // A space in the home folder splits the list. The relative part is not the folder.
     expect(userUnitDirectory("/home/a b/.config/systemd/user.control /home/a b/.config/systemd/user")).toBeUndefined()
   })
 
@@ -295,7 +288,6 @@ describe("systemd driver", () => {
   })
 })
 
-// `launchctl print gui/501/skync` on macOS 15 after one run.
 const launchctlPrint = `gui/501/skync = {
 \tactive count = 0
 \tpath = /Users/maxi/Library/LaunchAgents/skync.plist
@@ -355,7 +347,6 @@ const launchctlPrint = `gui/501/skync = {
 }
 `
 
-/** A launchd that loads the plists that `launchctl bootstrap` gets, and prints their real paths, as launchd does. */
 function launchd(overrides: Partial<OsHost> = {}, respond: (line: string) => Partial<ExecResult> | undefined = () => undefined) {
   const loaded = new Map<string, string>()
   const machine = fakeHost("darwin", (line, args) => {
@@ -441,7 +432,6 @@ describe("launchd driver", () => {
   })
 
   it("owns its job when the home folder is under a symbolic link", async () => {
-    // On macOS /var links to /private/var, and `launchctl print` shows the plist under /private/var.
     const home = "/var/folders/xy/T/home"
     const linked = `${home}/Library/LaunchAgents/skync.plist`
     const machine = launchd({ homedir: home })
@@ -481,7 +471,6 @@ function decode(args: readonly string[]): string {
   return Buffer.from(args.at(-1)!, "base64").toString("utf16le")
 }
 
-/** Task Scheduler behind powershell.exe: the scripts register, read, and remove one task. */
 function taskScheduler(overrides: Partial<OsHost> = {}) {
   let task: { description: string, state: string } | undefined
   let info = ""
@@ -685,7 +674,6 @@ describe("a name that ViteHub did not install", () => {
   })
 
   it("systemd: does not stop a unit of another file that shadows our files", async () => {
-    // A transient unit, as `systemd-run --user --unit=skync` makes, wins over ~/.config/systemd/user.
     const transient = "/run/user/1000/systemd/transient/skync.service"
     const show = (properties: string) => `Id=skync.timer\nLoadState=loaded\nFragmentPath=${timer}\n${properties}\nId=skync.service\nLoadState=loaded\nFragmentPath=${transient}\nActiveState=active\n`
     const machine = fakeHost("linux", line => line.includes(" show ") ? { stdout: show("") } : undefined)
@@ -700,7 +688,6 @@ describe("a name that ViteHub did not install", () => {
   })
 
   it("systemd: owns its units when systemd prints their path with links resolved", async () => {
-    // A dotfiles manager can link ~/.config/systemd to another folder.
     const dotfiles = "/home/maxi/dotfiles/systemd/user"
     const machine = systemd()
     machine.links.set("/home/maxi/.config/systemd", "/home/maxi/dotfiles/systemd")

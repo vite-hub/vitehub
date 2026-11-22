@@ -3,7 +3,6 @@ import { expect, it } from "vitest"
 import { sandboxErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { parseDuration } from "../src/internal/cloudflare-durable-object.ts"
 
-/** The codes that replaced the marked plain errors of the Cloudflare Durable Object and the trusted host. */
 const codes = [
   "SANDBOX_CLOUDFLARE_COMMAND_TIMED_OUT",
   "SANDBOX_CLOUDFLARE_CONTAINER_MISSING",
@@ -13,7 +12,6 @@ const codes = [
 ] as const
 
 it.each(codes)("gives %s a fix and its own docs page", (code) => {
-  // Each code takes its own params. One object that has all of them fits every code.
   const create = sandboxErrorDiagnostics[code] as (params: { processId: string, timeout: number, value: string }) => Error & { docs?: string, fix?: string }
   const error = create({ processId: "p1", timeout: 50, value: "\"soon\"" })
   expect(error.fix).toMatch(/\S/)

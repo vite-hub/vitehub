@@ -42,7 +42,6 @@ export interface SshLaunchContext {
 }
 
 const environmentName = /^[A-Z_][A-Z0-9_]*$/
-/** Every process of one SSH command starts with this variable, so the server can stop the ones that leave its process group. */
 const commandEnvironmentKey = "VITEHUB_SSH_COMMAND"
 
 /** Launch a command on a trusted SSH host with the same working-directory path. */
@@ -66,7 +65,6 @@ export function sshLaunch(options: SshLaunchOptions): (context: SshLaunchContext
     return {
       command: process.execPath,
       args: args(command, cwd),
-      // Agent inspection calls this before the provider starts its own short status-probe deadline.
       prepare: async ({ abortSignal }) => {
         await promisify(execFile)(process.execPath, args("/bin/true", "/"), { signal: abortSignal })
       },
@@ -142,7 +140,6 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
   const server = new ssh2.Server({ hostKeys: [hostKey] }, client => {
     clients.add(client)
     client.once("close", () => clients.delete(client))
-    // Protocol errors close this connection. Do not log client-supplied command text.
     client.on("error", () => client.end())
     client.on("authentication", context => {
       if (context.method !== "publickey" || context.username !== options.user || !context.key.data.equals(publicKey.getPublicSSH())) return context.reject(["publickey"])
@@ -161,7 +158,6 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         const stream = acceptExec()
         stream.allowHalfOpen = true
         const marker = randomUUID()
-        // Not a login shell: a profile, such as Debian's /etc/profile, would set PATH again and drop the forwarded one.
         const child = spawn("/bin/sh", ["-c", info.command], {
           cwd: options.cwd,
           detached: true,
@@ -171,7 +167,7 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
         children.add(child)
         markers.set(child, marker)
         stream.pipe(child.stdin)
-        child.stdin.on("error", () => {}) // Remote command can close stdin before the SSH peer does.
+        child.stdin.on("error", () => {})
         child.stdout.pipe(stream, { end: false })
         child.stderr.pipe(stream.stderr, { end: false })
         const terminate = () => { void stop(child).catch(() => client.end()) }
@@ -187,7 +183,6 @@ export async function serveSsh(options: SshServerOptions): Promise<SshServer> {
       })
     }))
   })
-  // Track sockets before SSH identification, so incomplete handshakes cannot hold shutdown open.
   let endDrain: (() => void) | undefined
   const listener = createServer(socket => {
     sockets.add(socket)

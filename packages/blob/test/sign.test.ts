@@ -171,7 +171,6 @@ describe("signed Blob requests", () => {
 
     const [uploadError, upload] = await storage.sign("source.mp3", { contentLength: 4, contentType: "audio/mpeg", expiresIn: 60, method: "PUT" })
     expect(uploadError).toBeUndefined()
-    // Browsers set Content-Length from the body and refuse it as a request header.
     expect(upload?.headers).toEqual({ "Content-Type": "audio/mpeg" })
     expect(new URL(upload!.url).searchParams.get("X-Amz-SignedHeaders")?.split(";")).toEqual(["content-length", "content-type", "host"])
 

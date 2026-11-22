@@ -1,11 +1,3 @@
-// The list, progress, drop, and delete helpers of `@vite-hub/ui/motion` in Chromium. It runs the page `motion/lists.html`,
-// which renders `MotionList`, `Progress`, `DropField`, and `HoldToDelete`, and reads what each frame draws.
-//
-// Run: node --test test/browser/motion-lists.browser.mjs (or pnpm --filter @vite-hub/ui test:motion)
-//
-// Record mode: MOTION_RECORD=<dir> also records each effect at ¼×, and MOTION_PROTOTYPE=<file> records the same effect
-// of the prototype next to it. `?uploads=today` and `?uploads=new` record the Console upload queue before and after the
-// helpers. It needs ffmpeg.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -26,8 +18,6 @@ const repo = fileURLToPath(new URL("../../../../", import.meta.url))
 const uploadsDir = join(repo, "packages/vite-hub/src/console/runtime/components/")
 const nuxtUIRequire = createRequire(fileURLToPath(import.meta.resolve("@nuxt/ui/vite")))
 
-// The Console upload queue imports MotionList and Progress from "@vite-hub/ui". The page serves them from the source, and
-// "/@uploads-today" serves the queue of before the helpers from git, in its own folder so its imports resolve.
 const todayId = join(uploadsDir, "console-media-uploads.today.vue")
 const consoleParts = {
   name: "motion-lists-console-parts",
@@ -74,10 +64,6 @@ async function open(query = "", options = {}) {
   return { context, errors, page }
 }
 
-/**
- * Clicks `selector` and reads `read(element)` for `frames` frames, from the first frame after Vue rendered the change.
- * `read` runs in the page, on the element that `target` finds once the change is rendered.
- */
 async function trace(page, { click, target, frames = 90, read }) {
   return page.evaluate(async ({ click, target, frames, read }) => {
     const reader = new Function("element", `return (${read})(element)`)
@@ -113,7 +99,6 @@ describe("MotionList", () => {
     const after = await page.locator("[data-id='1']").boundingBox()
     const shift = after.y - before.y
     assert.ok(shift > 40, `the row moved down by one row (${shift}px)`)
-    // On the first frame it is still where it was, then it springs down with no jump between two frames.
     assert.ok(Math.abs(values[0] + shift) < 1, `it starts at -${shift}px, not ${values[0]}`)
     assert.ok(Math.max(...steps(values)) < shift * 0.35, `the largest step is ${Math.max(...steps(values))}px`)
     assert.ok(values.some(value => value > -shift * 0.9 && value < -shift * 0.1), "it passes through the space between")
@@ -188,7 +173,6 @@ describe("MotionList", () => {
   })
 })
 
-/** The height and width of the bar's fill, in its own units, which are CSS pixels. */
 function fillBox(page) {
   return page.locator("[data-test=progress] [data-part=fill]").evaluate((path) => {
     if (!path.getAttribute("d")) return { height: 0, width: 0 }
@@ -275,7 +259,6 @@ describe("Progress", () => {
   })
 })
 
-/** Drags a file over the field at (`x`, `y`) inside it, with a dragover every 50ms, as Chromium sends them. */
 function dragOver(page, x, y) {
   return page.evaluate(({ x, y }) => {
     const field = document.querySelector("[data-test=drop]")
@@ -295,7 +278,6 @@ function dragOver(page, x, y) {
   }, { x, y })
 }
 
-/** The ink of the dots in a box of the canvas: how much alpha, and where its middle is, in CSS pixels of the field. */
 function ink(page, box) {
   return page.locator("[data-test=drop] canvas").evaluate((canvas, { x, y, size }) => {
     const ratio = canvas.width / canvas.clientWidth
@@ -316,7 +298,6 @@ describe("DropField", () => {
   test("the dots lean toward the dragged file and rest after it leaves or drops", async () => {
     const { context, errors, page } = await open()
     const field = page.locator("[data-test=drop]")
-    // The dots sit every 14px from 10px. The file is at (101, 101); the dot at (66, 94) is 36px to its left.
     const near = { x: 101, y: 101, size: 10 }
     const lean = { x: 66, y: 94, size: 6 }
     const restNear = await ink(page, near)
@@ -400,13 +381,11 @@ describe("HoldToDelete", () => {
     }, undefined, { timeout: 5000 })
     assert.equal(await card.evaluate(element => element.style.visibility), "")
 
-    // A full hold: the letters jump into the can, the card leaves toward it, then Undo.
     const box = await hold.boundingBox()
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await page.waitForFunction(() => document.querySelector("[data-test=hold]").dataset.state === "leaving", undefined, { timeout: 3000 })
     await page.mouse.up()
-    // The letters travel toward the can.
     await page.waitForFunction(() => [...document.querySelectorAll("[data-test=hold] [data-part=text] > span")].some(letter => getComputedStyle(letter).translate !== "none"), undefined, { timeout: 5000 })
     assert.equal(await card.evaluate(element => element.style.visibility), "hidden")
     await page.waitForFunction(() => document.querySelector("[data-test=hold]").dataset.state === "undo", undefined, { timeout: 3000 })
@@ -536,7 +515,6 @@ if (recordDir) {
   })
 }
 
-/** Records `act` at ¼× for `seconds`: each frame that Chromium paints, cropped to `clip`, as an mp4 and a tiled image. */
 async function record({ name, query = "", url, clip, seconds, act }) {
   const context = await browser.newContext({ viewport: { width: 900, height: 1400 }, deviceScaleFactor: 2 })
   const page = await context.newPage()
@@ -578,7 +556,6 @@ async function record({ name, query = "", url, clip, seconds, act }) {
 
   const first = Buffer.from(frames[0].data, "base64")
   const ratio = first.readUInt32BE(16) / viewport.width
-  // The screencast frame shows the viewport; the clip is in page pixels of the scrolled viewport.
   const crop = `crop=${Math.round((box.width + 2 * pad) * ratio)}:${Math.round((box.height + 2 * pad) * ratio)}:${Math.max(0, Math.round((box.x - pad) * ratio))}:${Math.max(0, Math.round((box.y - pad) * ratio))}`
   let list = ""
   frames.forEach((frame, index) => {

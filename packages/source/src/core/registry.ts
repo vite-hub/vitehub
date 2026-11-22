@@ -8,12 +8,9 @@ export type SourceModuleLoader = () => Promise<{ default: Source }>
 
 interface RegisteredEntry {
   load: SourceModuleLoader
-  /** The Source after the first load, so later readers reuse it. */
   source?: Promise<Source>
 }
 
-// The generated registry plugin and the app can load this module as two copies in development, so the names live on
-// `globalThis`.
 const registryKey: unique symbol = Symbol.for("vitehub.source.registry")
 
 function sourceRegistry(): Map<string, RegisteredEntry> {
@@ -48,7 +45,6 @@ function loadRegistered(entry: RegisteredEntry): Promise<Source> {
   if (!entry.source) {
     const loading = entry.load().then(module => module.default)
     entry.source = loading
-    // A failed import, such as a syntax error during development, loads again on the next read.
     loading.catch(() => {
       if (entry.source === loading) entry.source = undefined
     })

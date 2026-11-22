@@ -13,7 +13,6 @@ import {
 
 const render = (tree: () => VNode) => renderToString(createSSRApp({ render: tree }));
 
-// The server's HTML for the components the kit adds, before any script runs.
 describe("server rendering of the kit's own components", () => {
   it("renders TagsInput with its tags, its input, and a hidden input per tag", async () => {
     const html = await render(() =>

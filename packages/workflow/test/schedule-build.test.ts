@@ -43,12 +43,10 @@ describe("Workflow preparation for Schedule", () => {
           [VITEHUB_SERVER_DIRS]: [server],
         }
         await (plugin.config as { handler: (config: UserConfig, env: { command: string }) => Promise<void> }).handler(input, { command: "build" })
-        // Model a host config clone that omits the framework's forwarded-directory field.
         const config = { ...input, command: "build" } as unknown as ResolvedConfig
         if (!retainForwardedDirs) Reflect.deleteProperty(config, VITEHUB_SERVER_DIRS)
         configs.push(config)
       }
-      // Both config hooks run before either configResolved hook.
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => void)(config)
       const artifacts = await Promise.all(configs.map(config =>
         plugin.vitehub?.workflow?.prepareScheduleRuntime?.(join(config.root, "artifact"), config),
@@ -96,10 +94,8 @@ describe("Workflow preparation for Schedule", () => {
           resolve: { alias: [] },
         } as unknown as ResolvedConfig)
       }
-      // Resolve both configs before either environment starts, as Vite's builder does.
       for (const config of configs) await (plugin.configResolved as (config: ResolvedConfig) => void)(config)
       const contexts = configs.map(config => {
-        // Vite creates an environment config from the resolved app config.
         const clone = { ...config }
         if (!retainPrivateMetadata) {
           for (const key of Object.getOwnPropertySymbols(clone)) Reflect.deleteProperty(clone, key)
@@ -108,14 +104,12 @@ describe("Workflow preparation for Schedule", () => {
         }
         return { environment: { config: clone } }
       })
-      // Start both environments before either completes its provider output.
       for (const context of contexts) {
         ;(plugin.buildStart as (this: typeof context) => void).call(context)
       }
       for (const [index, context] of contexts.entries()) {
         const config = configs[index]!
         await (plugin.buildEnd as (this: typeof context, error?: Error) => Promise<void>).call(context)
-        // The host plugins finalize this original config's catalog.
         const contributions = useProviderOutputCatalog(config).takeDeploymentContributions()
         expect(contributions).toHaveLength(1)
         await contributions[0]!.write({

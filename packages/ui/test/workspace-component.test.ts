@@ -23,8 +23,6 @@ vi.mock("@xterm/xterm", () => ({
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 vi.mock("../src/playground/zip.ts", () => ({ downloadZip: vi.fn() }));
 
-// A container that boots at once, writes to a map, and is ready when the dev server starts. `hold` keeps each boot
-// waiting until the test calls `open()`, and `live` counts the containers that are booting or running.
 const fake = vi.hoisted(() => ({
   boots: [] as { files: Record<string, string>, snapshot: boolean }[],
   runs: [] as unknown[],
@@ -84,8 +82,6 @@ vi.mock("@vite-hub/web-container", () => ({
 const { Workspace } = await import("../src/workspace/workspace.ts");
 const { webContainer } = await import("../src/workspace/runners/web-container.ts");
 
-// Nuxt UI stand-ins: a button, a menu that lists its items as buttons, a tab strip, and a modal that shows its footer
-// when open.
 type Item = { label: string, type?: string, disabled?: boolean, onSelect?: () => void };
 const UButton = defineComponent({
   props: { label: { default: undefined, type: String } },
@@ -134,11 +130,9 @@ const kv: WorkspaceExample = {
 };
 const blob: WorkspaceExample = { ...kv, id: "blob", label: "Blob", files: { ...kv.files, "server/api/note.get.ts": "export default () => 'note'\n" }, open: "server/api/note.get.ts" };
 const agent: WorkspaceExample = { id: "agent", label: "Agent", files: { "package.json": "{\"name\":\"agent\"}\n" } };
-// KV and Blob have the same dependencies, so they share one snapshot.
 const runner = () => webContainer({ snapshot: example => example.id === "agent" ? agentSnapshot : kvSnapshot });
 const files = (example: WorkspaceExample) => ({ ...example.files });
 
-/** Keeps the slot props of the bar, which the context of the workspace fills. */
 function spy() {
   const box: { context?: WorkspaceSlotProps } = {};
   return { box, slot: (props: WorkspaceSlotProps) => { box.context = props; return []; } };
@@ -175,7 +169,6 @@ describe("Workspace with webContainer()", () => {
     });
     await flushPromises();
     expect(fake.boots).toEqual([{ files: kv.files, snapshot: true }]);
-    // The snapshot has the dependencies, so nothing installs.
     expect(fake.runs).toEqual(["dev"]);
     expect(wrapper.emitted("update:open")).toEqual([[true]]);
     expect(wrapper.get(".vh-workspace-run-state").text()).toBe("Running");
@@ -187,7 +180,6 @@ describe("Workspace with webContainer()", () => {
     expect(box.context!.edited).toEqual(["server/api/health.get.ts"]);
     expect(wrapper.findComponent({ name: "WorkspaceFileTree" }).props("edited")).toEqual(["server/api/health.get.ts"]);
 
-    // Blob has the same snapshot and manifest, so it opens in place after the question.
     await wrapper.get("[data-item='Blob']").trigger("click");
     expect(wrapper.get("[role='dialog']").text()).toContain("Open the Blob example?");
     await wrapper.get("[role='dialog'] button:last-child").trigger("click");
@@ -198,7 +190,6 @@ describe("Workspace with webContainer()", () => {
     expect(box.context!.edited).toEqual([]);
     expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
 
-    // Agent has another snapshot, so it boots again. Without edits there is no question.
     await wrapper.get("[data-item='Agent']").trigger("click");
     await flushPromises();
     expect(wrapper.find("[role='dialog']").exists()).toBe(false);
@@ -212,7 +203,6 @@ describe("Workspace with webContainer()", () => {
     const wrapper = mount(Workspace, { global, props: { examples: [kv, agent], runner: runner() } });
     await flushPromises();
     expect(fake.boots).toHaveLength(1);
-    // Each switch needs another snapshot, so each one starts a new run while the first boot still waits.
     await wrapper.get("[data-item='Agent']").trigger("click");
     await flushPromises();
     await wrapper.get("[data-item='KV']").trigger("click");
@@ -222,7 +212,6 @@ describe("Workspace with webContainer()", () => {
       await flushPromises();
     }
     expect(fake.maxLive).toBe(1);
-    // The run for Agent stopped before its turn, so it never booted. The last run boots KV.
     expect(fake.boots.map(boot => boot.files)).toEqual([kv.files, kv.files]);
     expect(fake.live).toBe(1);
     expect(wrapper.get(".vh-workspace-run-state").text()).toBe("Running");
@@ -251,10 +240,8 @@ describe("Workspace with webContainer()", () => {
     fake.runs.length = 0;
     history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: { ...blob.files, "package.json": "{}" } }, files(blob))));
     const restored = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner() } });
-    // The link inflates in a stream, so it takes more than one tick.
     await vi.waitFor(() => expect(restored.text()).toContain("You opened shared files on the Blob example."));
     await flushPromises();
-    // The shared manifest differs from the snapshot, so the workspace installs the difference.
     expect(fake.boots).toEqual([{ files: { ...blob.files, "package.json": "{}" }, snapshot: true }]);
     expect(fake.runs).toEqual(["install"]);
     restored.unmount();
@@ -382,7 +369,6 @@ describe("Workspace with webContainer()", () => {
   });
 
   it("starts only the picked example when the first example's snapshot would still be downloading", async () => {
-    // One WebContainer runs at a time, so a second start while a run is live throws, as the browser API does.
     const started: string[] = [];
     let live = 0;
     const delayedSnapshot = vi.fn(() => new Promise<Uint8Array>(() => {}));

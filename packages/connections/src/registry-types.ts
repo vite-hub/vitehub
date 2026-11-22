@@ -6,7 +6,6 @@ declare global {
 
 type Modules = ViteHubConnectionDefinitionModules
 
-/** Each instance of a keyed Connection Definition, as `<name>:<instance>`. */
 type InstanceNames = {
   [TName in keyof Modules & string]: Modules[TName] extends { default: ConnectionInstancesDefinition<infer TInstance> } ? `${TName}:${TInstance}` : never
 }[keyof Modules & string]
@@ -16,7 +15,6 @@ export type ConnectionDefinitionName = {
   [TName in keyof Modules & string]: Modules[TName] extends { default: ConnectionInstancesDefinition } ? never : TName
 }[keyof Modules & string] | InstanceNames
 
-/** The definition behind a discovered Connection name, including an instance of a keyed definition. */
 type DefinitionOf<TName extends string> = TName extends keyof Modules
   ? Modules[TName] extends { default: infer TDefinition } ? TDefinition : never
   : TName extends `${infer TGroup}:${string}`

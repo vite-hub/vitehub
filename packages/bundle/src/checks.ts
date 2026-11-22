@@ -22,7 +22,6 @@ function serverChain(explain: Explain, target: string): BundleChainStep[] {
   return explain(target).find(explanation => explanation.side === "server")?.chain ?? []
 }
 
-/** Each rule once, also when several server environments carry it. */
 function uniqueRules(reports: readonly BundleEnvironmentReport[]): BundleStartupRule[] {
   const rules = new Map<string, BundleStartupRule>()
   for (const report of reports) {
@@ -31,7 +30,6 @@ function uniqueRules(reports: readonly BundleEnvironmentReport[]): BundleStartup
   return [...rules.values()]
 }
 
-/** A feature's configuration says nothing about independent consumers of the same packages. */
 function exclusivelyOwned(reports: readonly BundleEnvironmentReport[], rule: BundleStartupRule): boolean {
   let ownedImport = false
   for (const report of reports) {
@@ -51,7 +49,6 @@ function exclusivelyOwned(reports: readonly BundleEnvironmentReport[], rule: Bun
   return ownedImport
 }
 
-/** A package that a feature declared as not needed at startup, and that loads at startup. */
 function startupUnused(server: BundleSide, rules: readonly BundleStartupRule[], explain: Explain): BundleFinding[] {
   return rules.flatMap((rule) => {
     const packages = server.groups
@@ -59,7 +56,6 @@ function startupUnused(server: BundleSide, rules: readonly BundleStartupRule[], 
       .map(group => ({ name: group.name, bytes: group.startupBytes }))
       .sort((left, right) => right.bytes - left.bytes)
     if (!packages.length) return []
-    // The first package of the rule that loads, such as `@libsql/client`, is the one that app code imports.
     const target = rule.packages.find(name => packages.some(item => item.name === name))!
     return [finding("BUNDLE_STARTUP_UNUSED", bundleDiagnostics.BUNDLE_STARTUP_UNUSED({ packages, reason: rule.why, fix: rule.fix, target }), {
       severity: "warning",
@@ -70,7 +66,6 @@ function startupUnused(server: BundleSide, rules: readonly BundleStartupRule[], 
   })
 }
 
-/** Server output over the size that the host accepts. */
 function hostSizeLimit(server: BundleSide, host: string | undefined, explain: Explain): BundleFinding[] {
   if (!host?.startsWith("cloudflare") || server.bytes <= cloudflareWorkerSizeLimit) return []
   const largest = server.groups[0]

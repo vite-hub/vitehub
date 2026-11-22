@@ -11,7 +11,6 @@ describe("project key box", () => {
     expect(sealed).not.toContain("key-a")
     await expect(openProjectKey(secret, "project-a", sealed)).resolves.toBe("key-a")
     await expect(openProjectKey("b".repeat(64), "project-a", sealed)).resolves.toBeUndefined()
-    // A sealed key copied to another project row does not open.
     await expect(openProjectKey(secret, "project-b", sealed)).resolves.toBeUndefined()
   })
 

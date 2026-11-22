@@ -230,7 +230,6 @@ function tokenKey(token: string): string {
   return `token:${createHash("sha256").update(token).digest("base64url")}`
 }
 
-/** The App's bot login, its immutable ID, and its noreply commit email. `@vite-hub/forge` caches it per App. */
 async function appIdentity(client: GitHubAppCredentials, signal?: AbortSignal): Promise<Required<GitHubHostIdentity>> {
   const { id: appId, login, email } = await client.app(signal).catch((error: unknown) => {
     if (signal?.aborted) throw abortError(signal.reason)
@@ -297,7 +296,6 @@ async function waitForCaller<T>(promise: Promise<T>, options: GitHubHostCheckout
 export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const checkoutScope = new AsyncLocalStorage<GitHubHostAccess & { path: string }>()
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
-  // Without a configured identity, the host commits and comments as the bot of its App credentials.
   let appBot: Required<GitHubHostIdentity> | undefined
   const rateLimits = new Map<string, GitHubHostRateLimit>()
 
@@ -349,7 +347,6 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     return configured
   }
 
-  /** `commits: false` is for API calls only: they need no commit identity, so the App's identity is not read. */
   async function scopedAccess(input: GitHubHostAccessOptions, commits = true) {
     const installationRepository = input.installationRepository ?? input.repository
     const config = await credentials({ repository: installationRepository, signal: input.signal })

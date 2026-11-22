@@ -21,15 +21,12 @@ export function isWebhookChannelAdapter(adapter: unknown): adapter is ChannelAda
 
 const verifyHint = "Use `webhook({ signature, secret })`, such as `webhook({ signature: 'bearer', secret: 'HOOKS_SECRET' })`. To accept requests that anyone can send, use `webhook({ secret: false })`."
 
-/** A server variable name, as Webhooks accepts it. */
 const variableName = /^[A-Z_][A-Z0-9_]*$/i
 
 const signatureNames = new Set(["bearer", "token", "github", "stripe"])
 
-/** The signature names before they followed `defineWebhook({ signature })`. */
 const renamedSignatures: Record<string, string> = { "github-sha256": "github", "stripe-sha256": "stripe" }
 
-/** Why `signature` is not valid, or undefined when it is. */
 function signatureProblem(signature: unknown): [problem: string, fix: string] | undefined {
   if (typeof signature === "string") {
     if (signatureNames.has(signature)) return
@@ -56,7 +53,6 @@ function signatureProblem(signature: unknown): [problem: string, fix: string] | 
   }
 }
 
-/** A webhook adapter must verify requests, or turn verification off with `secret: false`. */
 function validateWebhookVerification(kind: string, webhook: Record<string, unknown>): void {
   const { header, secret, signature } = webhook
   const fail = (problem: string, fix = verifyHint) => {
@@ -69,7 +65,6 @@ function validateWebhookVerification(kind: string, webhook: Record<string, unkno
   if (signature === undefined && secret === undefined) fail("has no `signature` and no `secret`, so anyone can send it events")
   if (signature === undefined) fail("has a `secret` but no `signature`, so it cannot verify requests")
   if (secret === undefined) fail("has a `signature` but no `secret`, so it cannot verify requests")
-  // Do not print the string: it can be a secret value from before `secret` named a variable.
   if (typeof secret === "string" && !variableName.test(secret)) {
     fail("has a `secret` string that is not a server variable name", "Set `secret` to the name of the server variable that holds the secret, such as `secret: 'PREFECT_WEBHOOK_SECRET'`, or to a function that returns it, such as `secret: () => useServerEnv().prefect.webhookSecret`.")
   }

@@ -21,12 +21,7 @@ function continuationTag(value: string): string {
 }
 
 function encodeContinuation(providerCursor: string, history: CursorHistory): string {
-  // A random nonce makes accidental provider-cursor collisions impractical.
-  // The nonce is carried in the token so continuations remain portable.
   const nonce = globalThis.crypto.randomUUID()
-  // Keep the token size independent of traversal length. The exact history is
-  // retained in the process-local registry for repeat detection; the token
-  // carries only bounded metadata for diagnostics and format validation.
   const historyTag = continuationTag([...history].join("\u0000"))
   const payload = encodeURIComponent(JSON.stringify({ format: "vitehub-continuation", providerCursor, historyCount: history.size, historyTag }))
   const token = `vhc1:${nonce}:${payload}:${continuationTag(payload)}`
@@ -34,9 +29,6 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
   return token
 }
 
-// Reads a token that another module instance issued, such as another Worker
-// isolate. The tag must match, so a provider cursor is never misread as a token.
-// The full history stays in the issuing instance, so repeat detection restarts here.
 function decodeContinuation(token: string): string | undefined {
   const match = /^vhc1:[0-9a-f-]{36}:([^:]+):([0-9a-f]{32})$/.exec(token)
   if (!match || continuationTag(match[1]!) !== match[2]) return undefined
@@ -52,7 +44,6 @@ function decodeContinuation(token: string): string | undefined {
   return typeof providerCursor === "string" && providerCursor.length > 0 && providerCursor.length <= MAX_CURSOR_LENGTH ? providerCursor : undefined
 }
 
-// The registry owns locally issued and adopted portable continuations.
 const continuations = new Map<string, Continuation>()
 const continuationOwners = new Map<string, Set<string>>()
 const consumedContinuations = new Map<string, Continuation>()
@@ -89,7 +80,6 @@ export function createCursorHistory(namespace = "default") {
         continuation = { providerCursor, history: new Set([providerCursor]), namespace: requestedNamespace }
       }
       else {
-        // A prefix alone does not identify a portable token: providers own opaque cursors.
         if (cursor.length > MAX_CURSOR_LENGTH) {
           throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
         }
@@ -99,7 +89,6 @@ export function createCursorHistory(namespace = "default") {
     continuations.delete(cursor)
     continuationOwners.get(cursor)?.delete(cursor)
     continuationOwners.delete(cursor)
-    // Retry restoration follows the consuming instance's disposal lifecycle.
     consumedContinuations.set(cursor, continuation)
     ownedConsumedContinuations.add(cursor)
     consumedOwners.set(cursor, ownedConsumedContinuations)

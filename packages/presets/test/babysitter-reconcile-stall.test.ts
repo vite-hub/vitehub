@@ -42,7 +42,6 @@ it("stops a reconcile whose GitHub read never answers, names the step, and lets 
     const stalling = reconcile();
     await vi.waitFor(() => expect(runtime.scheduler()).toMatchObject({ status: "ok", running: { reason: "test", step: "bootstrap", subject: repository } }));
     await expect(stalling).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_RECONCILE_STALLED" });
-    // Health shows the stopped reconcile, so a host check can see the loop that does not progress.
     expect(runtime.scheduler()).toMatchObject({ status: "stalled", lastStall: { step: "bootstrap", subject: repository, count: 1 } });
     expect(runtime.scheduler().running).toBeUndefined();
     await vi.waitFor(() => expect(events).toHaveBeenCalledWith("babysitter.reconcile.stalled", expect.objectContaining({
@@ -92,7 +91,6 @@ it("counts stalls in a row and reports a loop that finishes no reconcile as sile
     expect(quiet.scheduler()).toEqual({ status: "ok" });
     vi.setSystemTime(Date.now() + 200 + 60_001);
     expect(quiet.scheduler()).toEqual({ status: "silent" });
-    // A draining host runs no reconcile, so its quiet loop is not silent.
     expect(quiet.scheduler(false)).toEqual({ status: "ok" });
     await quiet.reconcile("test", { track: async work => await work });
     expect(quiet.scheduler()).toMatchObject({ status: "ok", lastFinishedAt: expect.any(String) });

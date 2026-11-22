@@ -113,7 +113,6 @@ function configureCloudflareRealtime(nitro: NitroConfig): void {
   nitro.cloudflare = cloudflare
 }
 
-/** Packages that share the Yjs runtime on the server. They must load as one module graph. */
 const realtimeServerYjsPackages = ["yjs", "y-protocols", "lib0", "@tiptap/y-tiptap", /^y-protocols\//, /^lib0\//]
 
 function moduleSpecifier(from: string, to: string): string {
@@ -127,7 +126,6 @@ function applicationBaseURL(base: string | undefined): string {
 
 const databaseVitePluginName = "@vite-hub/database/vite"
 
-/** The part of the Database Vite plugin that Realtime reads: its resolved configuration. */
 interface DatabaseVitePlugin {
   api?: { getConfig?: () => { databases: Record<string, { dialect?: string } | undefined> } | undefined }
 }
@@ -144,17 +142,12 @@ function findDatabasePlugin(plugins: readonly PluginOption[] | undefined): Datab
   return undefined
 }
 
-/** Whether the Database integration resolved the Default Database on Postgres. The Postgres bus then uses its client. */
 function hasPostgresDefaultDatabase(plugin: DatabaseVitePlugin | undefined): boolean {
   return plugin?.api?.getConfig?.()?.databases.default?.dialect === "postgresql"
 }
 
 type RealtimeNodeDriver = "auto" | "postgres" | "redis"
 
-/**
- * The handler and the Nitro plugin of a Node build. `database` is the module that exports the app's `databases`, when
- * the Default Database is on Postgres: the bus then borrows the postgres.js client of that Database.
- */
 function renderNodeFiles(input: { busPlugin?: string, database?: string, handlerFile: string, importBase: string, namespace: string, nodeDriver?: RealtimeNodeDriver, registryFile: string }): Array<[string, string]> {
   const { busPlugin, database, handlerFile, importBase, namespace, nodeDriver, registryFile } = input
   const busOptions = `, { ${database ? `databases: () => import(${JSON.stringify(database)}).then(module => module.databases), ` : ""}namespace: ${JSON.stringify(namespace)} }`
@@ -186,7 +179,6 @@ function renderNodeFiles(input: { busPlugin?: string, database?: string, handler
   ].join("\n")]]
 }
 
-/** The app name: the `name` in the root `package.json`, else the root folder name. */
 function defaultNamespace(root: string): string {
   try {
     const name: unknown = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).name
@@ -200,7 +192,6 @@ const realtimeAvailabilityId = "#vitehub/realtime/availability"
 const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
 
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
-  // Without `driver`, Realtime picks the host's driver, so the former `authority` key would be ignored silently.
   if (options.driver === undefined && Object.hasOwn(options, "authority")) {
     // SAFETY: An app config without types still passes the former `authority` key.
     const authority = (options as { authority?: unknown }).authority
@@ -214,19 +205,15 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   let hasRoomDriver = false
   const databaseImport = options.databaseImport ?? "@vite-hub/database/drizzle"
   let databasePlugin: DatabaseVitePlugin | undefined
-  // The Default Database is on Postgres. Read when the config is made, and again at `buildStart`.
   let postgresDatabase = false
-  // The files of a Node build, to write again when the Default Database turns out to be on Postgres.
   let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
     api: {
-      // Without a room driver the build fails or Realtime is unavailable, so the server reads nothing.
       deploymentEnv: context => hasRoomDriver ? realtimeDeploymentEnv({ driver: options.driver ?? "auto", postgresDatabase }, context) : [],
     },
     vitehub: {
-      // Without a room driver the build fails or Realtime is unavailable, so there is no state to report.
       durability: () => hasRoomDriver
         ? [{ export: "realtimeDurability", input: { driver: inspectionDriver }, module: durabilityModuleFile(import.meta.url), primitive: "realtime" }]
         : [],
@@ -257,12 +244,9 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       const directory = resolve(root, ".vitehub/nitro/realtime")
       const build = isProductionBuild(config, environment)
       const node = !host || host === "node"
-      // A Node build shares its rooms with the other instances through Postgres or Redis. `vite dev` keeps them in memory.
       const nodeDriver = !build || !node ? undefined
         : driver === "postgres" || driver === "redis" ? driver
           : driver === "auto" && provider !== "cloudflare" ? "auto" as const : undefined
-      // The driver a contribution may rely on. Configurations that fail below have none. Rooms on Node live in the
-      // memory of each instance, also when they are shared.
       const available: RealtimeContributionContext["driver"] | undefined
         = driver === "cloudflare" ? (!host || host === "cloudflare" ? "cloudflare" : undefined)
           : driver === "auto" && provider === "cloudflare" ? "cloudflare"
@@ -285,9 +269,6 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
         ...config.resolve,
         dedupe: [...new Set([...(config.resolve?.dedupe || []), "yjs"])],
       }
-      // The server must load one Yjs. In development Vite inlines `yjs` for Realtime when the app cannot resolve it,
-      // while the Yjs packages that Realtime imports load it natively: two copies break Yjs constructor checks and
-      // drop every client edit. Inline the Yjs family together in the Nitro environment.
       const environments = { ...(config as { environments?: Record<string, Record<string, unknown>> }).environments }
       const nitroEnvironment = { ...environments.nitro }
       const nitroResolve = { ...nitroEnvironment.resolve as Record<string, unknown> }
@@ -330,7 +311,6 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       if (driver === "cloudflare" || (driver === "auto" && provider === "cloudflare")) {
         inspectionDriver = "cloudflare"
         configureCloudflareRealtime(nitro)
-        // The plugin does not import the Realtime server (Tiptap, ProseMirror, Yjs), so a cold start does not load it.
         durablePlugin = resolve(directory, "durable-object.mjs")
         await writeFile(durablePlugin, [
           "export default (nitroApp) => {",
@@ -364,9 +344,6 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
     },
     async buildStart() {
-      // The Database integration resolves its Definitions after this plugin made the Nitro config. Read them again, and
-      // write the handler again when the Default Database moved to or from Postgres. An unresolved Database changes
-      // nothing.
       const databaseConfig = databasePlugin?.api?.getConfig?.()
       if (!databaseConfig || !nodeWrite) return
       postgresDatabase = databaseConfig.databases.default?.dialect === "postgresql"

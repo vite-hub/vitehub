@@ -4,7 +4,6 @@ import type { AgentSandboxTaskConfig } from './module-types'
 
 const owners = ['sandbox']
 
-// The names that `providers/vercel.ts` reads when the config leaves a credential out.
 const vercelCredentialNames = {
   token: { names: ['VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN'], secret: true },
   teamId: { names: ['VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID'], secret: false },

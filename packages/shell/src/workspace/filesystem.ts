@@ -52,7 +52,6 @@ function createReadonlyError() {
 
 function toShellContent(content: ShellContent, encoding?: BufferEncoding): Uint8Array {
   if (typeof content !== "string") return content
-  // Match Just Bash's filesystem conversion, including malformed input behavior.
   if (encoding === "base64") {
     const decoded = atob(content)
     const bytes = new Uint8Array(decoded.length)

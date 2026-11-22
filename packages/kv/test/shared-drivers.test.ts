@@ -16,9 +16,7 @@ import { createHostedKVStorage } from "../src/runtime/hosted-storage.ts"
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
 import type { ResolvedKVStoreConfig } from "../src/types.ts"
 
-// Run the source driver, not the package build.
 vi.mock("@vite-hub/kv/runtime/redis-driver", async () => await import("../src/runtime/redis-driver.ts"))
-// Each test makes many round trips to a server or a SQLite file, which take longer when the machine is busy.
 vi.setConfig({ testTimeout: 30_000 })
 
 const redisUrl = process.env.VITEHUB_TEST_REDIS_URL
@@ -32,10 +30,6 @@ afterAll(async () => {
 
 interface Target {
   name: string
-  /**
-   * `count` stores on one fresh, empty namespace. Each store has its own connection, as separate server processes
-   * have.
-   */
   stores(count: number): Promise<RuntimeStorage[]>
 }
 
@@ -44,7 +38,6 @@ function track(storage: RuntimeStorage): RuntimeStorage {
   return storage
 }
 
-/** A Database as `@vite-hub/database/runtime/registry` exports it: the KV driver reads only `$client`. */
 const databaseStores = (count: number, client: () => object) => {
   const namespace = `test-${randomUUID()}`
   const store: ResolvedKVStoreConfig = { driver: "database", database: "default", namespace }
@@ -174,15 +167,19 @@ describe.each(targets)("$name", (target) => {
     expect(await storage!.getItem("nonce")).toBe("second")
   })
 
-  it("increments one counter atomically from several clients, with the TTL of the first increment", async () => {
+  it("increments one counter atomically from several clients", async () => {
     const stores = await target.stores(3)
-    // Redis and Upstash round an increment TTL up to whole seconds.
-    const values = await Promise.all(stores.flatMap(storage => Array.from({ length: 4 }, () => storage.incrementItem!("attempts", 1))))
+    const values = await Promise.all(stores.flatMap(storage => Array.from({ length: 4 }, () => storage.incrementItem!("attempts", 60))))
     expect(values.sort((a, b) => a - b)).toEqual(Array.from({ length: 12 }, (_, index) => index + 1))
     expect(await stores[0]!.getItem("attempts")).toBe(12)
+  })
 
+  it("keeps the TTL of the first increment", async () => {
+    const [storage] = await target.stores(1)
+    expect(await storage!.incrementItem!("attempts", 60)).toBe(1)
+    expect(await storage!.incrementItem!("attempts", 1)).toBe(2)
     await sleep(1300)
-    expect(await stores[0]!.incrementItem!("attempts", 30)).toBe(1)
+    expect(await storage!.getItem("attempts")).toBe(2)
   })
 
   it("refuses to increment a value that is not a safe integer, and leaves it unchanged", async () => {
@@ -297,7 +294,6 @@ describe.runIf(redisUrl)("redis URL", () => {
 })
 
 describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
-  // A Redis database of its own, so clearing it here cannot touch the keys of other test files.
   const url = `${redisUrl}/5`
   let redis: Redis
 
@@ -313,7 +309,6 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
     expect(config?.stores?.sessions).toMatchObject({ base: "vitehub:kv:sessions" })
     const defaultStore = track(createHostedKVStorage(config, "default"))
     const sessions = track(createHostedKVStorage(config, "sessions"))
-    // Keys of another app, such as sessions or BullMQ jobs, in the same Redis database.
     await redis.set("token", "foreign")
     await redis.set("bull:emails:1", "job")
 
@@ -353,7 +348,6 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
     const expected = Array.from({ length: 40 }, (_, index) => `item:${String(index).padStart(2, "0")}`)
     for (const key of expected) await writer.setItem(key, 1)
 
-    // Each page goes to a new store with its own connection, as a request to another instance does.
     const keys: string[] = []
     let cursor: string | undefined
     do {
@@ -372,7 +366,6 @@ describe.runIf(redisUrl)("redis namespaces with the resolved config", () => {
 describe("database sweep", () => {
   interface RawTarget {
     name: string
-    /** A store and a query that counts the rows of its namespace, including expired rows. */
     create(): Promise<{ storage: RuntimeStorage, rows: () => Promise<number> }>
   }
 
@@ -455,7 +448,6 @@ describe("database sweep", () => {
     const client = createClient({ url: `file:${join(sqliteRoot, `${randomUUID()}.db`)}` })
     cleanups.push(async () => client.close())
     let sweeps = 0
-    // A client whose sweep statement fails, as on a lock timeout. Every other statement runs.
     const failingSweep = {
       execute: async (statement: { sql: string, args: (string | number | null)[] }) => {
         if (statement.sql.startsWith(`delete from ${kvTable} where (namespace`)) {
@@ -489,12 +481,10 @@ describe("database sweep", () => {
 
   it.each(rawTargets)("deletes expired counters in an increment-only workload on $name", async (target) => {
     const { rows, storage } = await target.create()
-    // One counter per client and window, as Rate Limit writes them.
     for (const client of ["a", "b", "c"]) await storage.incrementItem!(`window:1:${client}`, 0.5)
     expect(await rows()).toBe(3)
     await sleep(800)
 
-    // The sweep runs at most once a minute, so the next increment after a minute deletes the expired counters.
     const now = Date.now()
     const clock = vi.spyOn(Date, "now").mockReturnValue(now + 61_000)
     try {

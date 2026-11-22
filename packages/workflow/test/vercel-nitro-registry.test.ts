@@ -33,7 +33,6 @@ async function createApp(files: Record<string, string>): Promise<string> {
 
 type ConfigHook = (config: Record<string, unknown>, env: { command: "build", mode: string }) => Promise<unknown>
 
-/** Runs the config hooks of a `vitehub({ host: "vercel" })` build with `nitro()`, as Vite does. */
 async function configureNitroVercelBuild(root: string, workflow: WorkflowOptions = {}) {
   const plugin = hubWorkflow(workflow, { hosting: "vercel" })
   const hook = plugin.config
@@ -41,7 +40,6 @@ async function configureNitroVercelBuild(root: string, workflow: WorkflowOptions
   const nitroPlugin = { name: "nitro:main" }
   const config: Record<string, unknown> = { nitro: { preset: "vercel" }, plugins: [nitroPlugin], root }
   await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
-  // Nitro's Vite plugin creates Nitro in its config hook and runs the `nitro` module of each plugin.
   const nitroOptions: Record<string, unknown> = {}
   plugin.nitro?.setup({ options: nitroOptions })
   const resolvedConfig = { ...config, plugins: [plugin, nitroPlugin], resolve: { alias: [] } }
@@ -55,7 +53,6 @@ const nitroServerStubs: EsbuildPlugin = {
   name: "nitro-server-stubs",
   setup(build) {
     build.onResolve({ filter: /^(?:nitro|@vercel\/functions)$/ }, args => ({ namespace: "stub", path: args.path }))
-    // The registry imports definitions by file URL, which Vite resolves.
     build.onResolve({ filter: /^file:/ }, args => ({ path: fileURLToPath(args.path) }))
     build.onLoad({ filter: /.*/, namespace: "stub" }, args => ({
       contents: args.path === "nitro"
@@ -77,7 +74,6 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
   })
   const { startupPlugin } = await configureNitroVercelBuild(root)
 
-  // Nitro bundles its startup plugin with the routes. A route then starts the Workflow in the same process.
   const entry = join(root, "server-entry.mjs")
   await writeFile(entry, [
     `import startup from ${JSON.stringify(startupPlugin)}`,
@@ -110,7 +106,6 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     const server = await import(pathToFileURL(outfile).href) as { handleRequest: () => Promise<{ run: { id: string, status: string }, settled: { result: unknown, status: string } }> }
     const { run, settled } = await server.handleRequest()
     expect(run.status).toBe("queued")
-    // The inline run keeps the function alive through `waitUntil` until it settles.
     expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(1)
     expect(settled.status).toBe("completed")
     expect(settled.result).toEqual({ greeting: "Hello Ada" })
@@ -173,7 +168,6 @@ it("gives Nitro the Workflow DevKit webhook route of a native entry, because Nit
   ].join("\n")
   const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/workflows/onboard.ts": native }))
 
-  // Nitro writes `vercel.config.routes` before its own routes, as the native Workflow build does.
   expect(nitroOptions.vercel).toEqual({
     config: {
       routes: [{ dest: "/.well-known/workflow/v1/webhook/[token]", src: "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$" }],

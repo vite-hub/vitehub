@@ -60,7 +60,6 @@ async function setup() {
   return { auth, client, db, person, call, start, poll }
 }
 
-// Only Date moves, so the database and timers keep running.
 function clock() {
   vi.useFakeTimers({ toFake: ["Date"], now: Date.now() })
   return (ms: number) => vi.setSystemTime(Date.now() + ms)
@@ -79,7 +78,6 @@ describe("CLI device flow", () => {
     expect(await (await poll(code.device_code)).json()).toMatchObject({ error: "authorization_pending" })
     advance(5_100)
 
-    // Opening the code claims it for the person, and shows which machine asked.
     const opened = await call(`/device?user_code=${code.user_code}`, { cookie: ada.cookie })
     expect(await opened.json()).toMatchObject({ client_name: "vitehub CLI on test-box", status: "pending", client_id: "vitehub-cli" })
     expect((await call("/cli/approve", { body: { userCode: code.user_code, teamId: ada.team.id }, cookie: ada.cookie })).status).toBe(200)
@@ -93,14 +91,12 @@ describe("CLI device flow", () => {
     expect(token.expires_in).toBeGreaterThan(89 * 86_400)
     expect(token.expires_in).toBeLessThanOrEqual(90 * 86_400)
 
-    // The key is stored only as a hash.
     const rows = (await client.execute("select * from console_api_keys")).rows
     expect(rows).toHaveLength(1)
     for (const value of Object.values(rows[0]!)) expect(String(value)).not.toContain(token.access_token.slice(4))
     expect(rows[0]).toMatchObject({ key_hash: await hashConsoleApiKey(token.access_token), name: "vitehub CLI on test-box", team_id: ada.team.id, start: token.access_token.slice(0, 8) })
     expect(await verifyConsoleApiKey(db, token.access_token)).toMatchObject({ teamId: ada.team.id, user: { id: ada.user.id }, projectIds: null })
 
-    // The code works once.
     advance(5_100)
     expect(await (await poll(code.device_code)).json()).toMatchObject({ error: "invalid_grant" })
   })

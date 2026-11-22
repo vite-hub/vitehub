@@ -35,12 +35,10 @@ export function readCloudflareFailure(error: unknown): CloudflareFailure {
  * A request that may have started a command is not idempotent: it retries only on a cold start.
  */
 export function canRetryCloudflareRequest(failure: CloudflareFailure, idempotent: boolean) {
-  // Cloudflare: an overloaded Durable Object must not receive more requests.
   if (failure.overloaded) return false
   if (failure.retryable === false) return false
   // provider-message-match: Cloudflare has no flag for a Container that is not ready. The request never reached a process, so even a command can retry.
   if (failure.coldStart) return true
-  // A lost response can follow a started command, so only an idempotent request can retry.
   if (!idempotent) return false
   if (failure.retryable !== undefined) return failure.retryable
   // provider-message-match: Sandbox SDK errors can reach the Worker without a retryable flag.

@@ -87,7 +87,6 @@ export function detectPackageManager(root: string, manifest: PackageManifest | u
 function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
   const nuxt = config?.ok ? config.site.nuxt : undefined
   if (!nuxt || nuxt.spread) return
-  // Resolving extended and automatically registered layers requires loading their configs.
   const extended = nuxt.keys.extends
   if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return
   if (nuxt.keys._layers || nuxt.keys.srcDir || existsSync(join(root, "layers"))) return
@@ -100,7 +99,6 @@ function nuxtServerDirs(root: string, config: LocateResult | undefined): string[
   return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
 }
 
-/** The real folders of `name` in NODE_PATH, which Node's resolver reads after every node_modules folder. */
 function globalPackageDirs(name: string): string[] {
   return (process.env.NODE_PATH ?? "").split(delimiter).filter(Boolean).flatMap((dir) => {
     try {
@@ -128,7 +126,6 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   const configFile = framework === "nuxt" ? nuxtConfig : viteConfig
   const configSource = configFile ? await readFile(join(root, configFile), "utf8") : undefined
   let config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
-  // Nuxt automatically registers local layers, which can install ViteHub themselves.
   if (framework === "nuxt" && (!config || (!config.ok && config.reason === "no-vitehub")) && existsSync(join(root, "layers"))) config = { ok: false, reason: "dynamic-options" }
   const folders = parentFolders(root)
   const require = createRequire(join(root, "package.json"))
@@ -139,9 +136,6 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: (name) => {
       if (folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))) return true
-      // Yarn PnP and other active loader hooks can resolve packages without node_modules.
-      // Resolve metadata or an entry point without evaluating either one. `require.resolve` also reads NODE_PATH,
-      // and `pnpm exec` points it at the workspace's hoisted packages: a package found only there is not installed.
       const globalCopies = globalPackageDirs(name)
       for (const specifier of [`${name}/package.json`, name]) {
         try {

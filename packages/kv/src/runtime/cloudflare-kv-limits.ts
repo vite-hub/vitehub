@@ -2,8 +2,6 @@ import type { Driver, TransactionOptions } from "unstorage"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
-// Cloudflare documents these limits at https://developers.cloudflare.com/kv/platform/limits/
-// and the minimum expiration at https://developers.cloudflare.com/kv/api/write-key-value-pairs/.
 const cloudflareKVLimits = {
   keyBytes: 512,
   minExpirationTtl: 60,
@@ -12,9 +10,7 @@ const cloudflareKVLimits = {
 
 const encoder = /*#__PURE__*/ new TextEncoder()
 
-/** Returns the UTF-8 size of `value` when it is above `limit`. */
 function bytesAbove(value: string, limit: number): number | undefined {
-  // A UTF-16 code unit is at most 3 UTF-8 bytes, so a short string cannot exceed the limit.
   if (value.length * 3 <= limit) return
   const bytes = encoder.encode(value).byteLength
   return bytes > limit ? bytes : undefined
@@ -32,7 +28,6 @@ export function assertCloudflareKVWrite(key: string, value: unknown): void {
   if (valueBytes !== undefined) throw kvErrorDiagnostics.KV_VALUE_TOO_LARGE({ bytes: valueBytes, limit: cloudflareKVLimits.valueBytes })
 }
 
-/** Cloudflare KV rejects an expiration below 60 seconds, so a shorter `ttl` becomes 60 seconds, also on the local store of `vite dev`. */
 function cloudflareKVSetOptions(options: TransactionOptions): TransactionOptions {
   const ttl: unknown = options?.ttl
   return typeof ttl === "number" ? { ttl: Math.max(cloudflareKVLimits.minExpirationTtl, ttl) } : options

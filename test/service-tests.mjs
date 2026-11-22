@@ -1,7 +1,4 @@
 #!/usr/bin/env node
-// Runs the package tests that need a real Postgres or Redis. A test file opts in when it reads
-// VITEHUB_TEST_POSTGRES_URL or VITEHUB_TEST_REDIS_URL. CI starts both as service containers and
-// sets the two variables, so a new test file needs no CI change.
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
@@ -11,7 +8,6 @@ export const serviceVariables = Object.freeze(["VITEHUB_TEST_POSTGRES_URL", "VIT
 
 const leadingBuild = /^vp run (?:--cache )?-t ([@\w./-]+)#build$/
 
-/** Lists the package test files that read a service variable, relative to `root`. */
 export function findServiceTests(root) {
   const result = spawnSync("git", [
     "grep",
@@ -21,13 +17,11 @@ export function findServiceTests(root) {
     "--",
     ":(glob)packages/*/test/**/*.test.ts",
   ], { cwd: root, encoding: "utf8" })
-  // git grep exits with 1 when no file matches.
   if (result.status === 1) return []
   if (result.status !== 0) throw new Error(`git grep failed: ${result.stderr || result.error?.message}`)
   return result.stdout.split("\n").filter(Boolean).sort()
 }
 
-/** Groups test files by package directory, for example `packages/kv` -> [`test/redis.test.ts`]. */
 export function groupByPackage(files) {
   const groups = new Map()
   for (const file of files) {
@@ -38,7 +32,6 @@ export function groupByPackage(files) {
   return groups
 }
 
-/** Returns the builds that a package `test` script runs before `vp test`, such as `vp run -t @vite-hub/kv#build`. */
 export function packageBuilds(testScript) {
   const builds = []
   for (const part of String(testScript ?? "").split("&&").map(command => command.trim())) {
@@ -69,7 +62,6 @@ function main() {
   const sources = [...groups].flatMap(([directory, files]) => files.map(file => readFileSync(join(root, directory, file), "utf8")))
   const missing = serviceVariables.filter(name => sources.some(source => source.includes(name)) && !process.env[name])
   if (missing.length) {
-    // Without the variables the tests skip, and a skipped run must not look like a pass.
     console.error(`[service-tests] Set ${missing.join(" and ")}. A service test skips when its variable is not set.`)
     process.exit(1)
   }

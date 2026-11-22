@@ -25,8 +25,6 @@ export interface ForgeCommitFilesInput extends Omit<CommitFilesInput, "changes">
  * Proposed upstream as `FileChange.mode` (https://github.com/danielroe/forges/issues/296).
  */
 export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, input: ForgeCommitFilesInput, options: BaseOptions = {}): Promise<string> {
-  // GitHub's Contents API rejects an empty change set, but history commits must
-  // still create a revision. Use the Git database for empty commits as well.
   if (!(provider.forge === "github" && input.author) && input.changes.length > 0 && !input.changes.some(change => change.mode)) return (await provider.contents.commitFiles(repo, input, options)).sha
   if (provider.forge !== "github") {
     throw forgeDiagnostics.FORGE_R0005({ message: `Git file modes are not supported for ${provider.forge}.` })
@@ -49,10 +47,6 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
   const body = { message: input.message, parents: [parent], tree: treeSha }
   let result = (await provider.request<unknown>("POST", `${base}/commits`, { body, signal })).data
   if (input.author) {
-    // Let GitHub derive the credential's identity, including for installation
-    // tokens, which cannot call /user. This first object is never attached to a
-    // ref. Reuse its committer on the authored object with the same tree/parents.
-    // Omitting committer here would make GitHub copy the supplied author.
     const committer = result instanceof Object && "committer" in result ? result.committer : undefined
     if (!(committer instanceof Object) || !("name" in committer) || typeof committer.name !== "string"
       || !("email" in committer) || typeof committer.email !== "string") {
@@ -81,7 +75,6 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
   return commit
 }
 
-/** The `sha` of a GitHub Git database response, or of its `key` object. */
 function sha(value: unknown, key: "object" | "tree" | undefined, description: string): string {
   const target: unknown = key && value instanceof Object && key in value ? Reflect.get(value, key) : value
   const result: unknown = target instanceof Object && "sha" in target ? target.sha : undefined

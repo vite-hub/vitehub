@@ -37,7 +37,6 @@ const definition = {
   },
 }
 
-/** The error the Cloudflare transport throws when a Durable Object request fails. */
 function cloudflareRequestError(operation: string, cause: unknown) {
   const message = cause instanceof Error ? cause.message : String(cause)
   return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox ${operation} failed: ${message}`, cause, retryable: undefined })
@@ -412,7 +411,6 @@ describe("Sandbox runtime lifecycle", () => {
   it("does not retry a Cloudflare command that reached its exec deadline before the handler started", async () => {
     setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
-    // The transport error of a package install that ran past the exec deadline.
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(startCommandThenThrow(cloudflareDeadlineError("exec", 180000)))
 
     const result = await runSandboxTaskRuntime("example")
@@ -426,7 +424,6 @@ describe("Sandbox runtime lifecycle", () => {
   it("does not rerun the Task when the connection is lost after a command started", async () => {
     setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
     setSandboxTaskRuntimeRegistry({ example: definition })
-    // The package install reached the Container, then Cloudflare lost the response. The host marks it retryable.
     runtimeMocks.executeSandboxTaskDefinition.mockImplementation(startCommandThenThrow(
       cloudflareRequestError("exec", hostError("Network connection lost.", { retryable: true })),
     ))

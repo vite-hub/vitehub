@@ -17,7 +17,6 @@ it("resolves the startup plugin, dispatches handles and executes folder steps wi
     await mkdir(installed, { recursive: true })
     await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
     await copyFile(join(packageRoot, "package.json"), join(installed, "package.json"))
-    // Use the installed dependencies, but copy only the files that Workflow publishes.
     await symlink(join(packageRoot, "node_modules"), join(installed, "node_modules"), "dir")
     await writeFile(join(root, "package.json"), '{"type":"module"}')
     await mkdir(join(root, "server/workflows"), { recursive: true })

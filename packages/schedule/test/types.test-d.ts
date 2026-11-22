@@ -39,7 +39,6 @@ it("types the defineSchedule helper signature", () => {
   // @ts-expect-error the positional form was removed.
   defineSchedule("0 9 * * *", () => {})
 
-  // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.
   defineSchedule({ handler: async (context) => {
     expectTypeOf(context.payload).toEqualTypeOf<unknown>()
   } })

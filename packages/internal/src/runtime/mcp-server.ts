@@ -382,13 +382,10 @@ async function verifyElicitationSession(binding: string, session: string): Promi
 
 function declaresFormElicitation(params: Record<string, unknown>): boolean {
   const elicitation = record(record(params.capabilities)?.elicitation)
-  // An empty `elicitation` object means form mode, for clients of 2025-06-18.
   return elicitation !== undefined && (Object.keys(elicitation).length === 0 || "form" in elicitation)
 }
 
-/** The `tools/call` requests that wait for an answer to `elicitation/create`, by the id of that request. */
 const waitingElicitations = new Map<string, { binding: string, session: string, settle: (answer: Record<string, unknown>) => void }>()
-/** Cancel an in-flight `tools/call` by endpoint, principal, session, and the client's JSON-RPC id. */
 const elicitingCalls = new Map<string, () => void>()
 const cancelElicitation = { result: { action: "cancel" } }
 
@@ -421,10 +418,8 @@ function waitForElicitationAnswer(requestId: string, binding: string, session: s
   })
 }
 
-/** Takes the answer of the client to `elicitation/create`: a JSON-RPC response in its own POST. */
 function answerElicitation(request: Request, server: McpServer, id: JsonRpcId, message: Record<string, unknown>): Response {
   const waiting = typeof id === "string" ? waitingElicitations.get(id) : undefined
-  // The waiting call already verified the session. Require the same session and binding on the answer.
   if (!waiting || waiting.session !== request.headers.get("mcp-session-id") || waiting.binding !== sessionBinding(request, server)) {
     return rpcError(null, -32600, "No tool call waits for this answer. It timed out, the client closed the call, or another server instance has it.", 400)
   }
@@ -432,10 +427,6 @@ function answerElicitation(request: Request, server: McpServer, id: JsonRpcId, m
   return new Response(null, { headers, status: 202 })
 }
 
-/**
- * Runs a tool. A tool that does not elicit gets one JSON answer. A tool that elicits gets an SSE stream: the
- * `elicitation/create` requests, then the result of the `tools/call`.
- */
 async function callTool(request: Request, server: McpServer, tool: McpTool, input: Record<string, unknown>, id: JsonRpcId): Promise<Response> {
   const session = request.headers.get("mcp-session-id")
   if (!session?.startsWith(elicitationSession) || id === null) {
@@ -561,7 +552,6 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
   const raw = message.id
   const id: JsonRpcId = typeof raw === "string" || (typeof raw === "number" && Number.isFinite(raw)) ? raw : null
   if ("id" in message && id === null) return rpcError(null, -32600, "The request id must be a string or a number.", 400)
-  // A message with a result or an error and no method is the answer of the client to a request of the server.
   if (!("method" in message) && ("result" in message || "error" in message)) return answerElicitation(request, server, id, message)
   const method = message.method
   if (typeof method !== "string" || !method) return rpcError(id, -32600, "A request needs a method, such as tools/list.", 400)

@@ -21,7 +21,6 @@ describe("Email Base64 with Buffer", () => {
     const value = source.subarray(1, 4);
     const originalToString = Buffer.prototype.toString;
     const toString = vi.spyOn(Buffer.prototype, "toString").mockImplementationOnce(function (this: Buffer, encoding) {
-      // Model another worker writing after the Buffer is created, before encoding.
       value.fill(0);
       return originalToString.call(this, encoding);
     });

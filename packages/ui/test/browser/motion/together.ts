@@ -1,6 +1,3 @@
-// Effects of different units on one page, so a test sees that they do not fight: tooltips on the tabs of a UTabs
-// (select and appear), a USwitch in a toolbar next to a pressed button (toggle and press), and a UButton that starts to
-// load in a MotionList row while the list adds a row above it (label and list). `motion-together.browser.mjs` drives it.
 import UButton from "@nuxt/ui/components/Button.vue";
 import USwitch from "@nuxt/ui/components/Switch.vue";
 import UTabs from "@nuxt/ui/components/Tabs.vue";
@@ -23,7 +20,6 @@ const files = ref([{ id: 1, name: "cover.png" }, { id: 2, name: "notes.md" }]);
 const busy = ref<number>();
 let next = 3;
 
-// Publish starts to load the row's button and adds a new file above it, so the row moves while its icon swaps.
 function publish(id: number): void {
   busy.value = id;
   files.value = [{ id: next, name: `upload-${next}.png` }, ...files.value];

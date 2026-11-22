@@ -97,11 +97,10 @@ describe("package type tests", () => {
     const testDir = join(packagesDir, name, "test")
     let files: string[]
     try { files = readdirSync(testDir) }
-    catch { return [] } // A package without tests.
+    catch { return [] }
     return files.filter(file => file.endsWith(".test-d.ts")).map(file => [name, join(testDir, file)] as const)
   })
 
-  // An excluded type test passes any assertion: the package typecheck skips it, and Vitest's typecheck keeps the exclude.
   it.each(typeTests)("%s typecheck covers %s", (name, file) => {
     const packageDir = join(packagesDir, name)
     const { scripts } = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf8")) as { scripts?: Record<string, string> }

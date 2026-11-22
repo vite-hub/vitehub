@@ -12,7 +12,6 @@ const questions = {
   fits: ask.chance("Does any category fit?"),
 }
 
-/** The TypeSafe API answer, as the TypeSafe API and Cloudflare AI Gateway return it. */
 const typesafeAnswer = () => Response.json({
   answers: {
     category: { type: "choice", choice: "groceries", confidence: 0.9, probabilities: { groceries: 0.95, rent: 0.05 } },
@@ -22,7 +21,6 @@ const typesafeAnswer = () => Response.json({
   usage: { input_tokens: 40, output_tokens: 0 },
 })
 
-/** The Vercel AI Gateway answer, which advocaat maps back to the TypeSafe shape. */
 const vercelAnswer = () => Response.json({
   answers: {
     category: { type: "choice", choice: "groceries", confidence: 0.9, probabilities: { groceries: 0.95, rent: 0.05 } },

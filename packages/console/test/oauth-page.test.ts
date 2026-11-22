@@ -12,7 +12,6 @@ describe("renderOAuthPage", () => {
     expect(policy).toContain("frame-ancestors 'none'")
     const html = await page.text()
     expect(html).toContain(`<script nonce="${nonce}">`)
-    // Only the parameters that Better Auth signed go back to it, with the passkey and GitHub sign-in and the consent.
     expect(html).toContain('key === "sig" || key === "ba_param" || names.has(key)')
     for (const path of ["/passkey/verify-authentication", "/sign-in/social", "/oauth2/consent", "/oauth2/public-client-prelogin"]) expect(html).toContain(path)
     expect(renderOAuthPage().headers.get("content-security-policy")).not.toBe(policy)

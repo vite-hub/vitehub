@@ -3,10 +3,6 @@ import { deleteCacheEntries, getCacheEntry, listCacheEntries } from "../../packa
 import type { CacheStorage } from "../../packages/vite-hub/src/cache/entries.ts"
 import { consoleErrorResult } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
 
-/**
- * Nitro's `cache` mount, in memory, with keys as Nitro 3 writes them. The real `cache.*` operation code reads it, so the
- * page shows what an app shows. A restart resets it.
- */
 const minute = 60_000
 const now = Date.now()
 const functions = "nitrofunctions.3aFYDY_G88ZLdElv-hEB0r8snSViMYJ1NbRtlNP9o_0"
@@ -27,7 +23,6 @@ const storage: CacheStorage = {
   removeItem: async (key) => { items.delete(key) },
 }
 
-/** Answers a `cache.*` operation with the real operation code, or undefined for any other operation. */
 export async function cacheFixture(operation: string, input: Record<string, unknown>): Promise<ConsoleRpcResult | undefined> {
   const run = {
     "cache.delete": () => deleteCacheEntries(storage, input),

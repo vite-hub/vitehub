@@ -56,7 +56,6 @@ export function githubInstallationRouting(env: GitHubInstallationEnv): GitHubIns
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw forgeErrors.FORGE_INVALID_ENV({ name: names.appInstallations, problem: "must be a JSON object that maps repository owners to installation IDs, such as {\"acme\":123}" })
     }
-    // Own properties only, so an owner such as `__proto__` or `constructor` is a plain key.
     installations = Object.fromEntries(Object.entries(parsed).map(([name, id]) => [name.toLowerCase(), installationNumber(id, `${names.appInstallations} entry "${name}"`)]))
   }
   return {

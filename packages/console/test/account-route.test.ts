@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 const guard = vi.hoisted(() => ({ authorize: undefined as unknown }))
 
-// The guard of `vite-hub/auth/server` checks the session and sends the cookies that renew it (packages/auth tests).
-// Here a request with a cookie is Ada, in team t1, and a request without one is refused as the guard refuses it.
 vi.mock("vite-hub/auth/server", () => ({
   withAuthorization: (authorize: unknown, handler: (request: Request, authorization: { session: object, user: { id: string } }) => Promise<Response>) => {
     guard.authorize = authorize

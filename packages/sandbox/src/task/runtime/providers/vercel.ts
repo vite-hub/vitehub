@@ -6,10 +6,6 @@ import { readEnv } from '@vite-hub/internal/env'
 import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
 import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
 
-/**
- * The Vercel VM timeout starts at create, but the task timeout starts after the Sandbox opens.
- * The VM gets this extra time so that ViteHub, not the VM, ends a run at the task timeout.
- */
 const VERCEL_TASK_SANDBOX_HEADROOM_MS = 30_000
 
 type SandboxTaskOptions = {
@@ -71,7 +67,6 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   }
 }
 
-/** Reports a session timeout above the Vercel plan maximum with its own code and the limit from Vercel. */
 function withPlanLimitError(create: (options: VercelSandboxCreateOptions) => Promise<VercelSandboxInstance>) {
   return async (createOptions: VercelSandboxCreateOptions) => {
     try {

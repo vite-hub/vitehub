@@ -27,7 +27,6 @@ const defaultInstance: Record<ForgeKind, string> = {
   gitea: "https://gitea.com",
 }
 
-// GitHub: `x-access-token` for any token. GitLab: `oauth2` for any token.
 // Forgejo and Gitea read the token from the password and do not check the user name.
 const tokenUsername: Record<ForgeKind, string> = {
   github: "x-access-token",
@@ -44,7 +43,6 @@ function instanceRoot(forge: ForgeKind, baseUrl: string | undefined): string {
   }
   let path = url.pathname.replace(/\/+$/, "")
   if (forge === "github") {
-    // github.com: api.github.com. GitHub Enterprise Server: <host>/api/v3.
     if (url.hostname === "api.github.com") return defaultInstance.github
     path = path.replace(/\/api\/v3$/, "")
   }

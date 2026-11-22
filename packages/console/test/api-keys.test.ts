@@ -10,7 +10,6 @@ import type { ConsoleDatabase } from "../src/projects.ts"
 const state = vi.hoisted(() => ({ db: undefined as unknown }))
 
 vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: state.db }) }))
-// These requests carry no session. A route that falls back to the session answers 401.
 vi.mock("vite-hub/auth/server", () => ({ withAuthorization: () => async () => Response.json({ message: "Unauthorized." }, { status: 401 }) }))
 
 const { createConsoleApiKey, listConsoleApiKeys, revokeConsoleApiKey, verifyConsoleApiKey } = await import("../src/api-keys.ts")
@@ -100,7 +99,6 @@ describe("Console API keys", () => {
     const linked = await linkProject.fetch(bearer(scoped.key, { method: "POST", body: JSON.stringify({ url: "https://new.example.com" }) }))
     expect(linked.status).toBe(403)
 
-    // Ada is a member of Bob's team, but this key is for her own team.
     expect(JSON.stringify(listed)).not.toContain(bobs.id)
 
     expect(await (await whoami.fetch(bearer(scoped.key, { path: "/api/whoami" }))).json()).toEqual({

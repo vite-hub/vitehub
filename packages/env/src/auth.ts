@@ -46,7 +46,6 @@ export function createEnvAuthenticator<
   return async (request) => {
     try {
       const authorization = request.headers.get("authorization");
-      // Never fall back to an owner's cookie when an agent credential is invalid.
       if (authorization !== null) {
         if (!/^Bearer\s+\S+$/i.test(authorization) || !options.agents) return null;
         const session = await options.agents.getSession({ headers: request.headers });
@@ -69,7 +68,6 @@ export function createEnvAuthenticator<
       const session = await options.getSession({ headers: request.headers });
       if (!session || !identifier(session.user.id)) return null;
       const actor = { kind: "user" as const, id: session.user.id };
-      // Only this check creates an administrator context. The bridge rejects copies.
       return grantEnvAccess({ actor }, (await options.isAdmin(session)) === true ? { kind: "admin" } : { kind: "actor" });
     } catch {
       return null;

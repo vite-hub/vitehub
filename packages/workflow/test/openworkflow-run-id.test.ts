@@ -53,7 +53,6 @@ it("returns the stored run for a second start with the same id after the OpenWor
   const runtime = await getOpenWorkflowRuntime(config)
   const stored = await runtime.backend.listWorkflowRuns({})
   expect(stored.data).toHaveLength(1)
-  // Move the run out of the 24 hour OpenWorkflow idempotency window.
   const db: { prepare(sql: string): { run(...values: unknown[]): unknown } } = Reflect.get(runtime.backend, "db")
   db.prepare(`UPDATE "workflow_runs" SET "created_at" = ?`).run(new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
 

@@ -173,7 +173,6 @@ describe("signWebhook()", () => {
   it("matches node:crypto for GitHub's x-hub-signature-256", async () => {
     const headers = await signWebhook(body, { provider: "github", secret: "github-secret" })
     expect(headers).toEqual({ "x-hub-signature-256": `sha256=${createHmac("sha256", "github-secret").update(body).digest("hex")}` })
-    // GitHub's documented example: secret "It's a Secret to Everybody", payload "Hello, World!".
     expect(await signWebhook("Hello, World!", { provider: "github", secret: "It's a Secret to Everybody" })).toEqual({
       "x-hub-signature-256": "sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17",
     })

@@ -21,10 +21,6 @@ function plainDocument(html: string) {
     + `</head><body>${html}</body></html>`;
 }
 
-/**
- * The output runs in a sandboxed frame with its own origin, so the page cannot read its scroll position. This script
- * sends the position to the page, and goes back to the last position after each render.
- */
 function keepScroll(document: string, top: number) {
   const script = `<script>(()=>{const y=${Math.round(top)};const go=()=>scrollTo(0,y);go();addEventListener("load",go);`
     + `addEventListener("scroll",()=>parent.postMessage({vhWorkspaceScroll:scrollY},"*"),{passive:true})})()</script>`;
@@ -65,7 +61,6 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
       running.value = true;
       try {
         const result = await fn(snapshot);
-        // A slower render of older files must not replace a newer one.
         if (current !== runs || stopped) return;
         issues.value = result.issues ?? [];
         html.value = keepScroll(wrap(result.html, snapshot), scrollTop);
@@ -102,7 +97,6 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
       files,
       async setFiles(next, setOptions = {}) {
         files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
-        // Invalidate before the debounce: older work may finish while the reader is still typing.
         runs++;
         clearTimeout(timer);
         timer = setTimeout(() => void run(), debounce);
@@ -119,8 +113,6 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
       ]),
       panel(tab) {
         if (tab === "output") {
-          // Scripts run so that the output works as a real page. The sandbox gives the frame its own origin, so a
-          // shared link cannot reach the page.
           return h("iframe", {
             class: "vh-workspace-frame",
             ref: (element: unknown) => { frame = element instanceof HTMLIFrameElement ? element : undefined; },

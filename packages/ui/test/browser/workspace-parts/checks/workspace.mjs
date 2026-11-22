@@ -1,17 +1,13 @@
-// Workspace against sections 1 to 5 of the prototype: the composed parts keep the rects that the bar, shell, guide,
-// start and code-parts checks measure on each part alone.
 import assert from "node:assert/strict"
 
 import { sections, sizes } from "../prototype.mjs"
 
-/** Section 1, `v-playground-examples-menu`, at 1280x760 with the sidebar open. */
 const section1 = {
   toggle: { x: 8, y: 6.5, w: 30, h: 30 },
   examples: { x: 40, y: 6.5, h: 30 },
   more: { x: 1242, y: 6.5, w: 30, h: 30 },
   sidebar: { x: 0, y: 44, w: 264, h: 716 },
 }
-/** Section 4, `v-playground-start-screen`: five examples make a row of three and a row of two. */
 const section4 = {
   start: { x: 0, y: 44, w: 1280, h: 716 },
   title: { x: 260, w: 760, h: 31.89 },
@@ -112,7 +108,6 @@ export default function ({ test, open, rects, near }) {
   test("Workspace section 4: the start screen mounts no panes, and a pick opens the workspace with focus in its bar", async () => {
     const page = await open("workspace", { section: "4" })
     await page.locator(".vh-ws-start").waitFor()
-    // No run starts before the pick, so the editor and the files are not in the page.
     assert.equal(await page.locator(".vh-ws-shell").count(), 0)
     const reached = []
     for (let index = 0; index < 24; index++) {

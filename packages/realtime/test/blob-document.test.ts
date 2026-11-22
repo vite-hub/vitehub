@@ -6,11 +6,6 @@ import { appendParagraph, createStubEditor, createTestServer, settle } from "./h
 
 import type { RealtimeBlobStore } from "../src/server.ts"
 
-/**
- * Keys files by pathname the way ViteHub Blob does: decoded once. Each write gets a new ETag, and `put()` checks
- * `ifMatch` and `overwrite: false` like Blob, and writes without a condition when it gets neither. `onRead` runs in
- * each `get()`, after the file is read.
- */
 function memoryBlob() {
   const files = new Map<string, { body: string, contentType: string, etag: string }>()
   let version = 0

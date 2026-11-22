@@ -9,7 +9,6 @@ import type { GitHubSource, GitHubSourceOptions } from "./types.ts"
 export function github(options: GitHubSourceOptions): GitHubSource {
   const root = normalizeGitHubRoot(options.root || "")
   let loader: Promise<GitHubSource> | undefined
-  // A failed load lets the next read try again.
   const load = () => loader ??= import("./index.ts").then(module => module.github(options)).catch((error: unknown) => {
     loader = undefined
     throw error

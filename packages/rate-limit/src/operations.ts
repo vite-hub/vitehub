@@ -4,8 +4,6 @@ import * as v from "valibot"
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
 
-// The runtime module reads the counters of the app, which only exist in the Nitro runtime. The operations load it when
-// they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const target = v.object({
@@ -14,7 +12,6 @@ const target = v.object({
 })
 
 function defineRateLimitOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The counters answer for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, cli: { namespace: "rate-limit", ...definition.cli }, section: "rate-limits", user: false })
 }
 

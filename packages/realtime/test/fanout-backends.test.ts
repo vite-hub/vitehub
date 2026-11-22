@@ -16,10 +16,8 @@ vi.mock("@vite-hub/auth/server", () => ({
   }),
 }))
 
-// Each test connects two instances, and the first one creates the Postgres tables.
 vi.setConfig({ testTimeout: 20_000 })
 
-// Opt-in: `docker run -d -p 5432 postgres:17` and `docker run -d -p 6379 redis:7`, then set these variables.
 const postgresUrl = process.env.VITEHUB_TEST_POSTGRES_URL
 const backends = [
   { name: "Postgres", url: postgresUrl, create: (url: string, namespace?: string) => createPostgresRealtimeBus({ namespace, url }) },
@@ -115,7 +113,6 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
   it.skipIf(!url)("keeps the rooms of two apps apart on one backend", async () => {
     const [appA1, appA2, appB] = await Promise.all([create(url!, "app-a"), create(url!, "app-a"), create(url!, "app-b")])
     opened.push(appA1, appA2, appB)
-    // Both apps have a document with the same path, as two Content sites with `index.md`.
     const document = `index-${crypto.randomUUID()}.md`
     const [storeA, storeB] = [createMemoryAdapter({ [document]: { body: "Start" } }), createMemoryAdapter({ [document]: { body: "Start" } })]
     const a1 = createTestServer(realtimeDefinition(storeA.adapter), { handler: { bus: () => appA1 } })
@@ -143,7 +140,6 @@ describe.each(backends)("rooms shared through $name", ({ name, url, create }) =>
     appendParagraph(onB.doc, "B")
     expect(await waitFor(() => paragraphs(onA.doc).length === 3 && paragraphs(onB.doc).length === 3)).toBe(true)
 
-    // Persistence saves after a 2 s debounce.
     expect(await waitFor(() => memory.store.get(document)?.body.split("\n\n").length === 3, 8_000)).toBe(true)
     expect(memory.store.get(document)!.body.split("\n\n").sort()).toEqual(["A", "B", "Start"])
     expect([...onA.controls, ...onB.controls].some(control => control.type === "reset")).toBe(false)
@@ -195,7 +191,6 @@ describe("the Postgres bus on the Default Database", () => {
 
   it.skipIf(!postgresUrl)("uses the client of a Database whose URL comes from another variable, and leaves it open", async () => {
     const saved = { DATABASE_URL: process.env.DATABASE_URL, REDIS_URL: process.env.REDIS_URL, REALTIME_POSTGRES_URL: process.env.REALTIME_POSTGRES_URL }
-    // An unrelated DATABASE_URL on a closed port: Realtime must not use it.
     process.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/unrelated"
     delete process.env.REDIS_URL
     delete process.env.REALTIME_POSTGRES_URL
@@ -215,7 +210,6 @@ describe("the Postgres bus on the Default Database", () => {
       appendParagraph(onA.doc, "Through the Default Database")
       expect(await waitFor(() => paragraphs(onB.doc).includes("Through the Default Database"))).toBe(true)
       await Promise.all(buses.map(bus => bus?.close()))
-      // The Database owns its client. Realtime leaves it open.
       await expect(db.execute("select 1")).resolves.toBeDefined()
     }
     finally {

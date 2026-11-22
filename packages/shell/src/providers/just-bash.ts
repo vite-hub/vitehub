@@ -89,7 +89,6 @@ export function createJustBashDriver(options: JustBashDriverOptions): ShellDrive
       const result = await withDriverTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
         const { Bash, defineCommand } = await import("just-bash/browser")
         let policyDenied = false
-        // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
         const curl = defineCommand("curl", async (args, ctx) => {
           const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: ctx.signal ?? runOptions.signal })
           policyDenied ||= curlResult.policyDenied
@@ -166,9 +165,6 @@ async function runControlledCurl(
       signal: options.signal,
       url: parsed.url,
     }
-    // Keep the cancellation signal on the request without changing the
-    // enumerable request shape used by Source descriptor matching and
-    // existing integrations.
     if (options.signal) Object.defineProperty(request, "signal", {
       configurable: true,
       enumerable: false,
@@ -343,7 +339,6 @@ async function withDriverTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
-  // Just Bash creates a cancellable command context only when exec receives a signal.
   const runOptions = { ...options, signal: controller.signal }
   let timeout: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
@@ -374,10 +369,6 @@ async function withDriverTimeout(
             stdout: "",
             timedOut: true,
           })
-          // Resolve the structured timeout observation before aborting the
-          // driver. Some drivers reject their running promise when the
-          // signal is aborted; resolving first ensures that rejection cannot
-          // win the race and replace the documented timeout result.
           controller.abort(new Error("Shell command timed out."))
         }, options.timeout)
       }))

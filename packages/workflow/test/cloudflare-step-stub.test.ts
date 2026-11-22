@@ -5,11 +5,6 @@ import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 
 type RemoteMethod = (...args: unknown[]) => Promise<unknown>
 
-/**
- * Models the Workers RPC stub that Cloudflare passes as `step`. Every property is a remote
- * method, and so is every property of that method (`step.sleep.bind` is a remote call).
- * A stub that is sent as an argument moves to the callee, so the local stub is disposed.
- */
 function createRpcStepStub(methods: Record<string, RemoteMethod>) {
   const calls: string[] = []
   let disposed = false

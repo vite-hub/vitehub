@@ -8,9 +8,6 @@ import { pathToFileURL } from "node:url"
 import postgres from "postgres"
 import { afterEach, describe, expect, it } from "vitest"
 
-// Needs a live Postgres, for example:
-// docker run -d -e POSTGRES_PASSWORD=pw -p 127.0.0.1:55432:5432 postgres:17
-// VITEHUB_TEST_POSTGRES_URL=postgres://postgres:pw@127.0.0.1:55432/postgres
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
 const dist = new URL("../dist/", import.meta.url)
 const processes = 4
@@ -21,7 +18,6 @@ interface ServerResult {
   warnings: number
 }
 
-// One server: install the runtime config, then let `installOpenWorkflow()` set up the schema and start the worker.
 const serverScript = `
 const [{ setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry }, { installOpenWorkflow }] = await Promise.all([
   import(${JSON.stringify(new URL("runtime/state.js", dist).href)}),
@@ -81,12 +77,10 @@ describe.skipIf(!url)("OpenWorkflow on several Postgres servers", () => {
       await sql.end()
     })
 
-    // Leave time for every process to load its modules before the shared start time.
     const startAt = Date.now() + 3_000
     const results = await Promise.all(Array.from({ length: processes }, () => runServer(pathToFileURL(file).pathname, schema, startAt)))
 
     expect(results.map(result => result.errors)).toEqual(Array.from({ length: processes }, () => []))
-    // The lock lets each server set up the schema on its first attempt, without the start retry.
     expect(results.map(result => result.warnings)).toEqual(Array.from({ length: processes }, () => 0))
     expect(results.map(result => result.started)).toEqual(Array.from({ length: processes }, () => true))
     const [migrations] = await sql.unsafe(`select count(*)::int as count from "${schema}"."openworkflow_migrations"`)

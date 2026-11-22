@@ -9,7 +9,6 @@ import { createProject, fakePackageManager, pnpmManifest, runSetup, viteConfig }
 
 import type { SetupCommandRunner } from "../src/setup/index.ts"
 
-/** A runner that records each call and edits nothing, so a test never runs a real package manager. */
 function fakeRunner(): { calls: { command: string, args: readonly string[], cwd: string }[], run: SetupCommandRunner } {
   const calls: { command: string, args: readonly string[], cwd: string }[] = []
   return {

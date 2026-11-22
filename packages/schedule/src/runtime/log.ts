@@ -16,7 +16,6 @@ export interface ScheduleRunLogFields {
   outcome: "success" | "failure"
 }
 
-// Errors that a log event already has. The console lines and runtime events for the same failure skip them.
 const loggedKey = Symbol.for("vitehub.schedule.logged-errors")
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const logged = (runtimeGlobal[loggedKey] ||= new WeakSet<object>()) as WeakSet<object>

@@ -17,8 +17,6 @@ const route = useRoute();
 const router = useRouter();
 const fallback = playgroundTemplates[0]!;
 
-// Examples with the same dependencies share one snapshot function, so the runner switches between them without a
-// new boot. The tutorial with those dependencies uses the same cache name, so the browser keeps one copy of the parts.
 const snapshots = new Map<string, () => Promise<Uint8Array>>();
 const snapshotOf = new Map<string, string>();
 const examples: WorkspaceExample[] = playgroundTemplates.map(({ snapshot: prebuilt, snapshotOf: key, ...example }) => {
@@ -31,11 +29,9 @@ const examples: WorkspaceExample[] = playgroundTemplates.map(({ snapshot: prebui
 
 // Tokens stay in this tab (sessionStorage). They reach the app only as environment variables of the dev server.
 const connect = defineConnect({ anthropic: true, github: true, netlify: true, openai: true, vercel: true });
-// The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app.
 const runner = webContainer({ connect, port: 3000, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") });
 const open = ref(false);
 
-/** The address keeps the example that is open in `?template=`, so older links open. A share link no longer matches the files, so its hash goes. */
 function keep(id: string) {
   void router.replace({ query: { ...route.query, template: id === fallback.id ? undefined : id }, hash: "" });
 }
@@ -61,7 +57,6 @@ function keep(id: string) {
         <h2 class="mt-10 text-lg font-semibold text-highlighted">Examples</h2>
         <ul class="vh-playground-list">
           <li v-for="example in examples" :key="example.id">
-            <!-- A new document boots the example, as a link from another page does. -->
             <a :href="example.id === fallback.id ? '/playground' : `/playground?template=${example.id}`" class="font-medium text-highlighted">{{ example.label }}</a>
             <span class="text-muted">: {{ example.description }}</span>
           </li>

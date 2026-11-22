@@ -19,7 +19,6 @@ const serverEnv = createRuntimeRegistry({
   lost: env({ optional: true, source: env.provider("vault", "lost") }),
 })
 
-// The Env plugin generates this module for the app. Here it inspects a fixed registry, as the generated module does.
 vi.mock("#vitehub/env/server", () => ({
   inspectServerEnv: () => inspectServerEnv(serverEnv, undefined, { providers: { vault: defineEnvProvider({ read: ({ keys }) => Object.fromEntries(keys.filter(key => key === "token").map(key => [key, canary])) }) } }),
 }))

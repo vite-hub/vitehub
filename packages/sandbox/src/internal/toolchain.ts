@@ -199,7 +199,6 @@ export function parsePackageManager(value: string, source: string): SandboxToolc
   };
 }
 
-/** Detect the target OS, architecture, and C library with POSIX tools. */
 async function detectToolchainPlatform(target: Pick<ToolchainTarget, "run">): Promise<ToolchainPlatform> {
   const result = await target.run([
     "uname -s",
@@ -358,8 +357,6 @@ export async function provisionToolchain(
     ? { pin: pins.packageManager, ...(await resolvePackageManagerVersion(pins.packageManager, signal)) }
     : undefined;
   const nodeKey = distribution.key(nodeVersion);
-  // Integrity pins are part of the cache identity. A cached archive created for
-  // one pin must never satisfy a different (or invalid) project pin.
   const packageKey = packageManager
     ? `${packageManager.name.replace(/^@/, "").replace("/", "-")}-${packageManager.version}${packageManager.pin.integrity ? `-${packageManager.pin.integrity.replace(/[^A-Za-z0-9_-]/g, "_")}` : ""}`
     : undefined;
@@ -473,16 +470,11 @@ async function installEntry(
   }
 }
 
-/**
- * Extract into a private staging directory, then publish with an atomic
- * symbolic link. A concurrent installer that loses the race keeps the winner.
- */
 function installScript(options: {
   archive: string;
   cacheRoot: string;
   key: string;
   metadata: Record<string, string>;
-  /** Package bin entries: command name to package-relative path. */
   shims?: Readonly<Record<string, string>>;
 }): string {
   const final = joinPath(options.cacheRoot, options.key);
@@ -505,7 +497,6 @@ function installScript(options: {
     );
     for (const [command, path] of Object.entries(options.shims)) {
       const shim = `"$staging/bin/"${shellQuote(command)}`;
-      // Shims resolve node from PATH, where the toolchain node comes first.
       lines.push(
         `test -f "$staging/package/"${shellQuote(path)}`,
         `printf '%s\\n' '#!/bin/sh' ${shellQuote(`exec node ${shellQuote(joinPath(final, "package", path))} "$@"`)} > ${shim}`,
@@ -527,7 +518,6 @@ function installScript(options: {
 
 async function verifyPackageManagerHash(pin: SandboxToolchainPackageManagerPin, name: string, tarball: Uint8Array) {
   const [algorithm = "", expected = ""] = pin.integrity?.split(".") ?? [];
-  // Corepack hashes the yarn.js bundle for Yarn 2+, and the registry tarball otherwise.
   const contents = name === "@yarnpkg/cli-dist" ? await tarEntry(tarball, "bin/yarn.js") : tarball;
   const actual = contents ? createHash(algorithm).update(contents).digest("hex") : undefined;
   if (actual !== expected) {
@@ -535,7 +525,6 @@ async function verifyPackageManagerHash(pin: SandboxToolchainPackageManagerPin, 
   }
 }
 
-/** Read one regular file from a gzipped npm package tarball. */
 async function tarEntry(gzipped: Uint8Array, path: string): Promise<Uint8Array | undefined> {
   const stream = new Blob([Uint8Array.from(gzipped)]).stream().pipeThrough(new DecompressionStream("gzip"));
   const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
@@ -563,10 +552,8 @@ async function tarEntry(gzipped: Uint8Array, path: string): Promise<Uint8Array |
 }
 
 async function download(url: string, label: string, signal: AbortSignal | undefined, verify: (bytes: Uint8Array) => void | Promise<void>) {
-  // Concurrent sessions in one process share a download. The cache lock covers other processes.
   let pending = downloads.get(url);
   if (!pending) {
-    // The shared request outlives one caller's cancellation, so it uses its own deadline.
     pending = fetchBytes(url, label, AbortSignal.timeout(downloadTimeoutMilliseconds));
     downloads.set(url, pending);
     void pending.then(() => downloads.delete(url), () => downloads.delete(url));

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { Component } from "vue"
 
-// `?view=all` renders every example closed. `?view=<name>` renders one example, open when `open/<name>.vue` exists.
 const parts = import.meta.glob<{ default: Component }>("./parts/*.vue", { eager: true })
 const open = import.meta.glob<{ default: Component }>("./open/*.vue", { eager: true })
 const view = new URLSearchParams(location.search).get("view") ?? "all"

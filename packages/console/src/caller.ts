@@ -35,7 +35,6 @@ export function consoleCallerUser(user: { id: string, name?: unknown, email?: un
   return { id: user.id, ...(name ? { name } : {}), ...(email ? { email, ...(user.emailVerified === true ? { emailVerified: true } : {}) } : {}) }
 }
 
-/** Optional presentation fields must fit `decodeConsoleCaller()`; the required identity fields stay unchanged. */
 function presentationText(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : undefined
 }

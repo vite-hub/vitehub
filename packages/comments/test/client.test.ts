@@ -41,7 +41,7 @@ describe("createCommentsClient", () => {
     expect(created.metadata).toEqual(metadata)
     metadata.version = 4
     created.metadata!.category = "changed"
-    const stored = await store.get({ id: created.id })
+    const stored = await store.get({ threadId: created.id })
     expect(stored!.metadata).toEqual({ version: 3, emptyBody: true, category: "feedback" })
     expect((await store.list({}))[0]!.metadata).toEqual(stored!.metadata)
   })
@@ -128,7 +128,7 @@ describe("createCommentsClient", () => {
     const thread = await client.create({ subject, anchor, body: "Mine" })
     const replied = await store.as(ben).reply({ threadId: thread.id, body: "Ben's reply" })
     await expect(client.delete({ threadId: thread.id, ...(firstMessage ? { messageId: thread.messages[0]!.id } : {}) })).rejects.toMatchObject({ code: "COMMENTS_R0004" })
-    expect((await store.get({ id: thread.id }))?.messages).toHaveLength(2)
+    expect((await store.get({ threadId: thread.id }))?.messages).toHaveLength(2)
     await store.as(ben).delete({ threadId: thread.id, messageId: replied.messages[1]!.id })
     expect(await client.delete({ threadId: thread.id })).toBeNull()
   })

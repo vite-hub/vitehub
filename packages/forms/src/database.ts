@@ -71,7 +71,6 @@ function toRow(submission: FormSubmission): Row {
   }
 }
 
-/** SQLite, libSQL, and D1 say `no such table`. Drizzle wraps the driver error in `cause`. */
 function isMissingTable(error: unknown): boolean {
   for (let current = error, depth = 0; current instanceof Error && depth < 5; current = current.cause, depth++) {
     if (/no such table:?\s*[`"']?vitehub_form_submissions/i.test(current.message)) return true
@@ -143,7 +142,6 @@ export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDa
       return row ? toSubmission(row) : undefined
     }),
     deleteUser: userId => guarded("delete the submissions of a user", async () => {
-      // `user` holds the JSON of `FormUser`. SQLite, libSQL, and D1 all have `json_extract()`.
       await db().delete(formSubmissions).where(sql`json_extract(${formSubmissions.user}, '$.id') = ${userId}`)
     }),
   }

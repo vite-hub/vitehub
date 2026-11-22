@@ -9,9 +9,7 @@ import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "../st
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "../standard-context.ts"
 
 declare module "h3" {
-  // The type parameters must match the H3Event class of H3 2.
   interface H3Event<_RequestT extends EventHandlerRequest = EventHandlerRequest> {
-    /** Set by ViteHub for each request until H3 implements Standard Context. */
     readonly "~standard": ViteHubStandardProps
   }
 }
@@ -37,7 +35,6 @@ interface PreparedResponseTarget {
 
 type WaitUntil = NonNullable<ViteHubStandardProps["waitUntil"]>
 
-/** H3 2 uses separate headers for returned error Responses. Mirror only Standard Context writes to both. */
 function responseHeaders(target: PreparedResponseTarget): Headers {
   const { headers, errHeaders } = target
   if (!errHeaders) return headers
@@ -69,7 +66,6 @@ function responseHeaders(target: PreparedResponseTarget): Headers {
   return Object.assign(view, methods)
 }
 
-/** Map Standard Context response fields to the response that H3 sends. H3 sends the value the handler returns as the body. */
 function preparedResponse(target: PreparedResponseTarget): StandardContext.PreparedResponse {
   const headers = responseHeaders(target)
   return {
@@ -83,7 +79,6 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
       return headers
     },
     set headers(value) {
-      // Copy the names first. Deleting while iterating Headers skips entries.
       for (const name of Array.from(headers.keys())) headers.delete(name)
       for (const [name, item] of value ?? []) headers.append(name, item)
     },
@@ -96,10 +91,6 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
   }
 }
 
-/**
- * The `~standard` properties of one H3 event. Each property reads the event on first access and keeps the value,
- * because most requests never read Standard Context and ViteHub sets it on every request.
- */
 class H3StandardProps implements ViteHubStandardProps {
   readonly vendor = "h3"
   readonly #event: object
@@ -127,7 +118,6 @@ class H3StandardProps implements ViteHubStandardProps {
     const env = getCloudflareEnv(this.#event, { fallback: false })
     const context = getCloudflareExecutionContext(this.#event)
     const clientAddress = firstAddress(this.#request, requestAddressPaths)
-    // A host can pass the execution context without bindings on the event, so keep each one that it passes.
     return this.#runtime = {
       ...(env || context ? { cloudflare: { ...(env ? { env } : {}), ...(context ? { context } : {}) } } : {}),
       ...(clientAddress ? { clientAddress } : {}),
@@ -190,8 +180,6 @@ export function getRuntimeContext(
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
   if (isHostRequest(value)) return createStandardRuntimeContext(value, getRequestStandardContext(value), options)
-  // Keep host resources when replacing the request, while still allowing a
-  // synthetic event to provide only the explicit request override.
   if (!(value as Partial<ViteHubContext>)["~standard"]) {
     try {
       installStandardContext(value)

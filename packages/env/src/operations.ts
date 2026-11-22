@@ -4,8 +4,6 @@ import * as v from "valibot"
 import type { AnyOperation } from "@vite-hub/internal/operations"
 import type { EnvInspectResult } from "./runtime/operations.ts"
 
-// The runtime module imports the generated Server Env of the app, which only exists in the app server. The operation
-// loads it when it runs, so the CLI and `vitehub inspect` can list it without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const inspect = defineOperation<Record<string, never>, EnvInspectResult>({

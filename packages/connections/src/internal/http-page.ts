@@ -2,15 +2,10 @@ import { managementErrorBody } from "./http-diagnostics.ts";
 
 /** The cookie that keeps the Console page to return to while the provider flow runs. */
 export const RETURN_COOKIE = "vitehub_connection_return";
-/** Seconds that a success page waits before it returns to the Console. */
 const RETURN_DELAY_SECONDS = 2;
 
 const MAX_RETURN_LENGTH = 2048;
 
-/**
- * A same-origin path to return to after the provider flow, or `undefined`. Only a path such as
- * `/_vitehub/connections` passes, so a crafted link cannot send the browser to another site.
- */
 function returnPath(value: string | null | undefined, origin: string): string | undefined {
   if (!value || value.length > MAX_RETURN_LENGTH || !value.startsWith("/") || value.startsWith("//") || value.includes("\\"))
     return undefined;
@@ -68,7 +63,6 @@ const icons = {
     '<svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.25"/><path d="m6.75 10.25 2.25 2.25 4.25-4.5"/></svg>',
 } as const;
 
-// The Console palette in light and dark mode. The page loads no external assets.
 const style = `:root{color-scheme:light dark;--bg:#fdfdfd;--text:#27272a;--muted:#71717a;--strong:#18181b;--ok:#16a34a;--error:#dc2626;--ring:#a1a1aa;--button:#18181b;--button-text:#fafafa}
 @media (prefers-color-scheme:dark){:root{--bg:#0a0a0a;--text:#f4f4f5;--muted:#a1a1aa;--strong:#fafafa;--ok:#4ade80;--error:#f87171;--ring:#71717a;--button:#fafafa;--button-text:#0a0a0a}}
 *{box-sizing:border-box}

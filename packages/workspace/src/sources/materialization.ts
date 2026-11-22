@@ -1138,8 +1138,6 @@ async function materializeWorkspaceSourcesInternal(
         paths.push({ path, status })
         await reportUpdate()
       }
-      // A startup Source writes the files that are new to the Store with one Store call per batch. Files that replace
-      // a Store path keep the checkpointed write above.
       const batchWrites = source.materialize === "startup" && Boolean(sourceStore.writeFiles && store.getMeta && store.setMeta)
       let pending: { entry: MaterializationEntry & { content: string | Uint8Array }, item: WorkspaceSourceItem }[] = []
       let pendingBytes = 0

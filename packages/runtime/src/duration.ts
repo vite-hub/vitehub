@@ -47,7 +47,6 @@ const units: Record<string, number> = {
 
 const pattern = /^(\d+(?:\.\d+)?)\s*([a-z]+)$/i
 
-/** The shortest whole string form of `milliseconds`, such as `"5m"` for `300000`. */
 function suggest(milliseconds: number): string {
   for (const [unit, size] of [["w", week], ["d", day], ["h", hour], ["m", minute], ["s", second]] as const) {
     if (milliseconds >= size && milliseconds % size === 0) return `"${milliseconds / size}${unit}"`
@@ -55,7 +54,6 @@ function suggest(milliseconds: number): string {
   return `"${milliseconds}ms"`
 }
 
-/** Names a value for an error without converting an object, which could run its code. */
 function describe(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value)
   if (typeof value === "object" && value !== null) return "an object"

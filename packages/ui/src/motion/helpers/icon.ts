@@ -25,9 +25,6 @@ export interface SwapIconOptions {
   onRemove?: (icon: Element) => void;
 }
 
-// The prototype's Publish button: the old icon leaves in 200ms, an arrow moves 12px, and a blurred icon shrinks to 0.6
-// with a 2px blur. A blurred icon comes in from 0.5 with a 3px blur in 260ms on an overshoot curve, a sliding one moves
-// 10px in 260ms, and a stroke draws in 340ms (420ms for a spinner) after 120ms. Reduced motion crossfades in 150ms.
 const exit = { duration: 200, travel: 12, scale: 0.6, blur: 2 };
 const enterBlur = { duration: 260, delay: 40, scale: 0.5, blur: 3, ease: cubicBezier(0.3, 1.5, 0.5, 1) };
 const enterSlide = { duration: 260, delay: 80, travel: 10, ease: cubicBezier(0.2, 0.8, 0.2, 1) };
@@ -37,11 +34,9 @@ const crossfade = 150;
 const directions = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] } as const;
 
 interface IconState {
-  /** 1 when the icon shows, 0 when it is gone. */
   shown: number;
   fade?: Tween;
   leaving: boolean;
-  /** The shapes of a stroke that draws in, put back when the draw ends or stops. */
   stroke?: IconShape;
   styles?: Map<string, () => void>;
   restorePlacement?: () => void;
@@ -63,10 +58,6 @@ function styled(icon: Element): icon is HTMLElement | SVGElement {
   return icon instanceof HTMLElement || icon instanceof SVGElement;
 }
 
-/**
- * The shapes of an SVG icon that a draw reveals, through the same shape editor as the check and jelly effects, or
- * undefined when the icon is not an SVG with strokes.
- */
 function strokes(icon: Element): { shape: IconShape; parts: SVGGeometryElement[] } | undefined {
   const svg = icon instanceof SVGSVGElement ? icon : icon.querySelector("svg");
   const shape = svg ? iconShape(svg) : undefined;
@@ -151,7 +142,6 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
     return;
   }
   if (stroke) {
-    // The stroke draws in. The icon shows at once, so a spinner keeps its turn.
     const { shape, parts } = stroke;
     for (const part of parts) {
       shape.set(part, "pathLength", "1");
@@ -167,7 +157,6 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
     }, finish);
     return;
   }
-  // An icon with no stroke to draw blurs in.
   const effective = kind === "draw" ? "blur" : kind;
   if (effective === "blur") {
     state.fade = tween(from, 1, { duration: enterBlur.duration, delay: from ? 0 : enterBlur.delay, ease: enterBlur.ease }, (value) => {
@@ -217,7 +206,6 @@ export function swapIcon(container: HTMLElement, icon: Element, options: SwapIco
     stopIcon(icon);
     return;
   }
-  // A first icon with no old one to replace shows as it is, and the icon that shows already stays.
   if (!others.length && (known ? !known.leaving : !leavingNow.length)) {
     stateOf(icon);
     return;

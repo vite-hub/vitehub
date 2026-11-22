@@ -1,0 +1,7 @@
+{
+  "packages/workflow/src/discovery.ts": 1,
+  "packages/workflow/src/operations.ts": 1,
+  "packages/workflow/src/runtime/operations.ts": 1,
+  "packages/workflow/src/vite.ts": 2,
+  "packages/workflow/test/operations.test.ts": 1
+}
