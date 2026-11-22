@@ -252,14 +252,12 @@ test("WorkspaceBar: the sidebar opens and closes with the keyboard and a click o
   const bar = part("WorkspaceBar")
   const sidebar = bar.locator("aside#ui-sdk-sidebar")
   assert.equal(await sidebar.evaluate(element => element.inert), true)
-  // Enter on the sidebar button opens the panel and moves focus to its first link.
   await bar.getByRole("button", { name: "Open the sidebar" }).focus()
   await page.keyboard.press("Enter")
   await page.waitForFunction(() => document.activeElement?.textContent === "Introduction")
   const toggle = bar.getByRole("button", { name: "Close the sidebar" })
   assert.equal(await toggle.getAttribute("aria-expanded"), "true")
   assert.equal(await toggle.getAttribute("aria-controls"), "ui-sdk-sidebar")
-  // Tab reaches the actions at the bottom. Escape closes the panel and focus goes back to the button.
   await page.keyboard.press("Tab")
   await page.keyboard.press("Tab")
   assert.equal(await focused(), "button")
@@ -267,7 +265,6 @@ test("WorkspaceBar: the sidebar opens and closes with the keyboard and a click o
   await page.keyboard.press("Escape")
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Open the sidebar")
   assert.equal(await sidebar.evaluate(element => element.inert), true)
-  // A click outside closes it and leaves focus where the reader clicked.
   await bar.getByRole("button", { name: "Open the sidebar" }).click()
   await page.waitForFunction(() => document.activeElement?.textContent === "Introduction")
   await bar.locator("[data-outside]").click()
@@ -293,7 +290,6 @@ test("WorkspaceExamples: the arrow keys move, a letter jumps, and Enter picks", 
   await bar.getByRole("button", { name: "Example: Plurals" }).waitFor()
   assert.equal(await focused(), "button \"Example: Plurals\"")
   assert.ok((await events()).includes("examples:plurals"))
-  // The open example is a no-op.
   await page.keyboard.press("Enter")
   await menu.waitFor()
   await page.keyboard.type("p")
@@ -304,7 +300,6 @@ test("WorkspaceExamples: the arrow keys move, a letter jumps, and Enter picks", 
 
 test("PlaygroundContainer: the examples menu and the More actions menu work with the keyboard", async () => {
   const container = part("PlaygroundContainer")
-  // Examples menu: Enter opens it, the arrow keys move, Enter picks, and focus returns to the trigger.
   const trigger = container.getByRole("button", { name: "Example: KV" })
   await trigger.focus()
   await page.keyboard.press("Enter")
@@ -325,7 +320,6 @@ test("PlaygroundContainer: the examples menu and the More actions menu work with
   await page.keyboard.press("Escape")
   await menu.waitFor({ state: "hidden" })
   assert.equal(await focused(), "button \"More actions\"")
-  // After an edit, a change of example asks first, in a dialog with a footer: Escape keeps the files, the button replaces them.
   await container.locator(".cm-content").click()
   await page.keyboard.type("// edit")
   await container.getByRole("button", { name: "Example: Blob" }).click()

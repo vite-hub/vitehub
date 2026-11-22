@@ -433,7 +433,6 @@ export const PlaygroundContainer = defineComponent({
     selected: sessionProps.selected,
     /** Whether the workspace shows. Desktops show it on their own. Set it to `true` to show it on a tablet. Use `v-model:open`. */
     open: { default: false, type: Boolean },
-    /** Shows example cards before starting the workspace. A restored share link skips them and opens its files. */
     start: { default: false, type: Boolean },
   },
   emits: {
@@ -455,7 +454,6 @@ export const PlaygroundContainer = defineComponent({
     const active = computed(() => props.templates.find(item => item.id === session.value?.template.id) ?? session.value?.template ?? first());
     const link = ref<"restored" | "invalid">();
     const root = ref<HTMLElement>();
-    // The start screen shows until the reader picks an example. A share link never shows it.
     const starting = ref(props.start);
     function boot(template: PlaygroundContainerTemplate, files?: PlaygroundFiles) {
       session.value = { files, id: (session.value?.id ?? 0) + 1, template };

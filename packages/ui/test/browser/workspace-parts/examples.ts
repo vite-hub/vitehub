@@ -1,4 +1,3 @@
-// The examples of section 1 of the prototype, in its two groups, for the bar and start fixtures.
 import type { WorkspaceExample } from "../../../src/workspace/workspace-examples.ts";
 
 const files = (count: number) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`src/file-${index}.ts`, ""]));
@@ -11,7 +10,6 @@ export const examples: WorkspaceExample[] = [
   { description: "What shows before a translation exists.", files: files(5), group: "Recipes", id: "fallbacks", label: "Fallbacks" },
 ];
 
-/** The prototype shows dark mode with `.dark` on `<html>`: `?theme=dark`. */
 export function theme(params: URLSearchParams): void {
   document.documentElement.classList.toggle("dark", params.get("theme") === "dark");
 }

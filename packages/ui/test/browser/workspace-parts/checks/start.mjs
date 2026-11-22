@@ -1,5 +1,3 @@
-// WorkspaceStart against section 4 of the prototype, `v-playground-start-screen`: five examples and Empty would make
-// two rows of three. The fixture has the five examples of section 1, so the second row has two cards.
 const section4 = {
   start: { x: 0, y: 44, w: 1280, h: 716 },
   title: { x: 260, w: 760, h: 31.89 },
@@ -30,7 +28,6 @@ export default function ({ test, open, rects, near }) {
       for (const [name, rect] of Object.entries(section4)) {
         for (const [side, value] of Object.entries(rect)) near(got[name]?.[side], value, `${name}.${side}`)
       }
-      // The spacing of the prototype: 4px under the title, 20px under the text, 10px between cards, 18px over the foot.
       near(got.description.y - (got.title.y + got.title.h), 4, "title gap")
       near(got.grid.y - (got.description.y + got.description.h), 20, "text gap")
       near(got.second.x - (got.first.x + got.first.w), 10, "column gap")

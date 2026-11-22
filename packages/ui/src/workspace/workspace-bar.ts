@@ -10,11 +10,8 @@ import { useUIComponent } from "../internal/nuxt-ui.ts";
 export const WorkspaceBar = defineComponent({
   name: "WorkspaceBar",
   props: {
-    /** Whether the sidebar is open. Set it, or use `v-model:sidebar`, to show the sidebar button. */
     sidebar: { default: undefined, type: Boolean },
-    /** The id of the `WorkspaceSidebar`, for the `aria-controls` of the sidebar button. */
     sidebarId: { default: undefined, type: String },
-    /** A label after the examples menu, such as "Step 2 of 5". */
     step: { default: undefined, type: String },
   },
   emits: {
