@@ -359,9 +359,6 @@ async function usePackedPeerManifests(appDir: string, specs: Record<string, stri
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
   const overrides = Object.entries({
     ...specs,
-    "mdast-util-gfm-table": "2.0.0",
-    "msgpackr@^2": "2.1.0",
-    "msgpackr-extract": "3.0.4",
     vue: "3.5.44",
     ...additionalOverrides,
   })

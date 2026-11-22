@@ -23,26 +23,30 @@ export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Compone
 
 export const uiComponentsKey: InjectionKey<ViteHubUIComponents> = Symbol("ViteHubUIComponents");
 
+function lazy(loader: () => Promise<{ default: Component }>): Component {
+  return defineAsyncComponent({ loader, suspensible: false });
+}
+
 // The parts import Nuxt UI themselves, so they do not depend on how the app registers it: Nuxt imports Nuxt UI into
 // each template, and a Vue app may not register it at all. They load on first render, so an entry that never renders a
 // part never loads Nuxt UI.
 const bundled: Record<ViteHubUIComponentName, Component> = {
-  UBadge: defineAsyncComponent(() => import("@nuxt/ui/components/Badge.vue")),
-  UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
-  UChatReasoning: defineAsyncComponent(() => import("@nuxt/ui/components/ChatReasoning.vue")),
-  UChatTool: defineAsyncComponent(() => import("@nuxt/ui/components/ChatTool.vue")),
-  UCollapsible: defineAsyncComponent(() => import("@nuxt/ui/components/Collapsible.vue")),
-  UDropdownMenu: defineAsyncComponent(() => import("@nuxt/ui/components/DropdownMenu.vue")),
-  UEditorDragHandle: defineAsyncComponent(() => import("@nuxt/ui/components/EditorDragHandle.vue")),
-  UEditorSuggestionMenu: defineAsyncComponent(() => import("@nuxt/ui/components/EditorSuggestionMenu.vue")),
-  UEditorToolbar: defineAsyncComponent(() => import("@nuxt/ui/components/EditorToolbar.vue")),
+  UBadge: lazy(() => import("@nuxt/ui/components/Badge.vue")),
+  UButton: lazy(() => import("@nuxt/ui/components/Button.vue")),
+  UChatReasoning: lazy(() => import("@nuxt/ui/components/ChatReasoning.vue")),
+  UChatTool: lazy(() => import("@nuxt/ui/components/ChatTool.vue")),
+  UCollapsible: lazy(() => import("@nuxt/ui/components/Collapsible.vue")),
+  UDropdownMenu: lazy(() => import("@nuxt/ui/components/DropdownMenu.vue")),
+  UEditorDragHandle: lazy(() => import("@nuxt/ui/components/EditorDragHandle.vue")),
+  UEditorSuggestionMenu: lazy(() => import("@nuxt/ui/components/EditorSuggestionMenu.vue")),
+  UEditorToolbar: lazy(() => import("@nuxt/ui/components/EditorToolbar.vue")),
   // Nuxt UI's Vite plugin swaps in its Vue icon only for imports inside Nuxt UI, so import the Vue one here. The Nuxt
   // plugin of this package provides Nuxt UI's Nuxt icon, which reads the @nuxt/icon bundle.
-  UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
-  UInput: defineAsyncComponent(() => import("@nuxt/ui/components/Input.vue")),
-  UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
-  UTabs: defineAsyncComponent(() => import("@nuxt/ui/components/Tabs.vue")),
-  UTooltip: defineAsyncComponent(() => import("@nuxt/ui/components/Tooltip.vue")),
+  UIcon: lazy(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
+  UInput: lazy(() => import("@nuxt/ui/components/Input.vue")),
+  UModal: lazy(() => import("@nuxt/ui/components/Modal.vue")),
+  UTabs: lazy(() => import("@nuxt/ui/components/Tabs.vue")),
+  UTooltip: lazy(() => import("@nuxt/ui/components/Tooltip.vue")),
 };
 
 /**

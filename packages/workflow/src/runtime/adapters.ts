@@ -362,6 +362,13 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
 }
 
 const maximumTimerDelay = 2_147_483_647
+const warnedDelayedInlineWorkflowNames = new Set<string>()
+
+function warnDelayedInlineRun(name: string, startAt: number | undefined): void {
+  if (startAt === undefined || startAt <= Date.now() || isDevelopmentServer() || warnedDelayedInlineWorkflowNames.has(name)) return
+  warnedDelayedInlineWorkflowNames.add(name)
+  console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} starts later in an inline run. A timer in this process holds the run, so a restart loses it. Use OpenWorkflow, Cloudflare, or a Vercel \`native\` entry for a durable delay.`)
+}
 
 async function waitUntilTime(startAt: number | undefined): Promise<void> {
   while (startAt !== undefined && startAt > Date.now()) {
@@ -440,6 +447,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         provider: config.driver,
       // SAFETY: Workflow provider normalization establishes the asserted run contract.
       }, definition as never)
+      warnDelayedInlineRun(name, startAt)
       const run = waitUntilTime(startAt)
         .then(() => {
           runState.startAt = undefined

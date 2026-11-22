@@ -103,8 +103,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const toIndex = createSourceIndex(command)
-  const scanned = withoutHeredocBodies(file, command, toIndex)
-  if (scanned === undefined || stripLineContinuations(scanned).commentContinuation) {
+  if (hasUnterminatedHeredoc(file)) {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const leaves: StatementLeaf[] = []
@@ -118,7 +117,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
   for (const { negated, stmt, separator } of leaves) {
     const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
     const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
-    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd))).text
+    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
     segments.push({
       command: raw,
       followsPipe,
@@ -131,34 +130,15 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
   return segments
 }
 
-function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex): string | undefined {
-  let result: string | undefined = command
+function hasUnterminatedHeredoc(file: File): boolean {
+  let unterminated = false
   walk(file, (node) => {
-    if (result === undefined) return false
-    if (node.type === "Redirect" && !node.hdoc && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc)) {
-      result = withoutTerminatorLine(result, node.word ? wordText(node.word, command, toIndex) : "", toIndex(node.end), node.op === RedirOperator.DashHdoc)
-      return result !== undefined
+    if (node.type === "Redirect" && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc) && node.closePos.offset === 0) {
+      unterminated = true
     }
-    if (node.type === "Redirect" && node.hdoc) {
-      const start = toIndex(node.hdoc.start)
-      const end = toIndex(node.hdoc.end)
-      result = result.slice(0, start) + " ".repeat(end - start) + result.slice(end)
-    }
-    return true
+    return !unterminated
   })
-  return result
-}
-
-function withoutTerminatorLine(source: string, delimiter: string, from: number, stripTabs: boolean): string | undefined {
-  let start = source.indexOf("\n", from) + 1
-  while (start > 0 && start < source.length) {
-    const end = source.indexOf("\n", start) === -1 ? source.length : source.indexOf("\n", start)
-    const line = source.slice(start, end)
-    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delimiter) {
-      return source.slice(0, start) + " ".repeat(end - start) + source.slice(end)
-    }
-    start = end + 1
-  }
+  return unterminated
 }
 
 interface StatementLeaf {
@@ -216,7 +196,6 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
 
 function stripLineContinuations(command: string) {
   let result = ""
-  let commentContinuation = false
   let quote: "'" | "\"" | undefined
   let ansiCQuoted = false
   let escaped = false
@@ -225,10 +204,7 @@ function stripLineContinuations(command: string) {
     const char = command[index]!
     if (comment) {
       result += char
-      if (char === "\n") {
-        comment = false
-        if (command[index - 1] === "\\") commentContinuation = true
-      }
+      if (char === "\n") comment = false
       continue
     }
     if (escaped) {
@@ -271,5 +247,5 @@ function stripLineContinuations(command: string) {
     }
     result += char
   }
-  return { commentContinuation, text: result }
+  return result
 }

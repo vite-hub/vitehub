@@ -63,6 +63,23 @@ describe("inline runs", () => {
     expect(seen).toEqual([{ to: "ada" }])
   })
 
+  it("warns once per Workflow about a delayed inline run outside `vite dev`", async () => {
+    const seen = inlineWorkflow()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      await unwrap(startWorkflow("remind", { to: "a" }, { delay: "50ms", id: "later-a" }))
+      await unwrap(startWorkflow("remind", { to: "b" }, { delay: "50ms", id: "later-b" }))
+      expect(warn).toHaveBeenCalledOnce()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Workflow \"remind\" starts later in an inline run. A timer in this process holds the run, so a restart loses it."))
+      await waitFor(async () => seen.length === 2)
+    }
+    finally {
+      vi.unstubAllEnvs()
+      warn.mockRestore()
+    }
+  })
+
   it("accepts a duration string and a future Date", async () => {
     const seen = inlineWorkflow()
 

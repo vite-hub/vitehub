@@ -36,7 +36,6 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "chat": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",

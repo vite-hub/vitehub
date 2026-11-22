@@ -434,43 +434,31 @@ function guardStatus(guard: DocumentGuard): { error: string | null, issues: Real
   return { error: guard.readOnly ? readOnlyDocumentMessage : null, issues: guard.issues }
 }
 
-function documentTables(sql: RealtimeRoomSql): boolean {
-  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL, editor_version TEXT)")
-  try {
-    sql.exec("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version TEXT")
-  }
-  catch {}
-  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
-  try {
-    sql.exec("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update INTEGER NOT NULL DEFAULT 1")
-    return true
-  }
-  catch {
-    try {
-      sql.exec("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0").toArray()
-      return true
-    }
-    catch {
-      return false
-    }
-  }
+function addMissingColumn(sql: RealtimeRoomSql, table: string, column: string, definition: string): void {
+  if (sql.exec("SELECT name FROM pragma_table_info(?) WHERE name = ?", table, column).toArray().length) return
+  sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
 }
 
-function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateColumn: boolean): void {
+function documentTables(sql: RealtimeRoomSql): void {
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL, editor_version TEXT)")
+  addMissingColumn(sql, "vitehub_realtime_documents", "editor_version", "TEXT")
+  sql.exec("CREATE TABLE IF NOT EXISTS vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL, client_update INTEGER NOT NULL DEFAULT 1)")
+  addMissingColumn(sql, "vitehub_realtime_document_updates", "client_update", "INTEGER NOT NULL DEFAULT 1")
+}
+
+function hasTable(sql: RealtimeRoomSql, table: string): boolean {
+  return sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).toArray().length > 0
+}
+
+function migrateLegacyDocument(sql: RealtimeRoomSql, key: string): void {
+  if (!hasTable(sql, "vitehub_realtime_rooms")) return
   if (sql.exec("SELECT room_key FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray().length) return
-  let legacy: Record<string, unknown> | undefined
-  try {
-    legacy = sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
-  }
-  catch {}
-  if (!legacy) return
-  let updates: Array<Record<string, unknown>> = []
-  try {
-    updates = sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-  }
-  catch {}
-  const update = storedUpdate(legacy.update_blob)
-  if (!update) return
+  const legacy = sql.exec("SELECT baseline_digest, update_blob FROM vitehub_realtime_rooms WHERE room_key = ?", key).toArray()[0]
+  const update = storedUpdate(legacy?.update_blob)
+  if (!legacy || !update) return
+  const updates = hasTable(sql, "vitehub_realtime_updates")
+    ? sql.exec("SELECT update_blob FROM vitehub_realtime_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
+    : []
   sql.exec(
     "INSERT INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)",
     key,
@@ -482,32 +470,11 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
   for (const row of updates) {
     const legacyUpdate = storedUpdate(row.update_blob)
     if (!legacyUpdate) continue
-    const blob = Uint8Array.from(legacyUpdate).buffer
-    if (clientUpdateColumn) {
-      try {
-        sql.exec(
-          "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
-          key,
-          blob,
-        )
-        continue
-      }
-      catch {}
-    }
     sql.exec(
-      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, 1)",
       key,
-      blob,
+      Uint8Array.from(legacyUpdate).buffer,
     )
-  }
-}
-
-function readStoredRoom(sql: RealtimeRoomSql, key: string): Record<string, unknown> | undefined {
-  try {
-    return sql.exec("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
-  }
-  catch {
-    return sql.exec("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
   }
 }
 
@@ -899,11 +866,15 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         }
         return
       case "claim": {
+        let client: number
         try {
-          const client = decoding.readVarUint(decoding.createDecoder(message.data))
-          room.awarenessOwners.claim(room.awareness, remoteOwner(message.instance), client, undefined, true)
+          client = decoding.readVarUint(decoding.createDecoder(message.data))
         }
-        catch { }
+        catch (error) {
+          logRealtime("warn", "Realtime dropped an invalid awareness claim from another instance.", { ...roomFields(room), failed: "bus-claim" }, error, { privateRoom: room.kind === "events" && !room.workspace })
+          return
+        }
+        room.awarenessOwners.claim(room.awareness, remoteOwner(message.instance), client, undefined, true)
         return
       }
       case "awareness": {
@@ -1252,10 +1223,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
             return { loaded, guard: await verifyDocument(editor, loaded), shared: undefined }
           })()
       if (sql) {
-        const clientUpdateColumn = documentTables(sql)
-        migrateLegacyDocument(sql, key, clientUpdateColumn)
+        documentTables(sql)
+        migrateLegacyDocument(sql, key)
       }
-      const stored = sql && readStoredRoom(sql, key)
+      const stored = sql?.exec("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents WHERE room_key = ?", key).toArray()[0]
       const storedDigest = text(stored?.digest) ?? null
       const storedEpoch = text(stored?.epoch)
       const storedState = storedUpdate(stored?.update_blob)
@@ -1277,19 +1248,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
         document = new Y.Doc()
         try {
           Y.applyUpdate(document, storedState)
-          let updates: Array<Record<string, unknown>>
-          try {
-            updates = sql.exec("SELECT update_blob, client_update FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-          }
-          catch {
-            updates = sql.exec("SELECT update_blob FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
-          }
+          const updates = sql.exec("SELECT update_blob, client_update FROM vitehub_realtime_document_updates WHERE room_key = ? ORDER BY sequence", key).toArray()
           for (const row of updates) {
             const update = storedUpdate(row.update_blob)
             if (update) Y.applyUpdate(document, update)
           }
           persistedUpdates = updates.length
-          dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
+          dirty = Number(stored?.dirty) === 1 || updates.some(update => Number(update.client_update) === 1)
           const fields = document.getMap(realtimeDocumentLayout.fields)
           if (!dirty && !holdsFields(fields, guard.clean.fields)) {
             document.transact(() => writeRealtimeFields(fields, guard.clean.fields), serverOrigin)
@@ -1349,39 +1314,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
 
   function persistRoom(room: DocumentRoom): void {
     if (!room.sql) return
-    const row = [room.key, room.epoch, room.digest, room.dirty ? 1 : 0, Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer]
-    try {
-      room.sql.exec(
-        "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob, editor_version) VALUES (?, ?, ?, ?, ?, ?)",
-        ...row,
-        room.editor.version ?? null,
-      )
-    }
-    catch {
-      room.sql.exec("INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob) VALUES (?, ?, ?, ?, ?)", ...row)
-    }
+    room.sql.exec(
+      "INSERT OR REPLACE INTO vitehub_realtime_documents (room_key, epoch, digest, dirty, update_blob, editor_version) VALUES (?, ?, ?, ?, ?, ?)",
+      room.key,
+      room.epoch,
+      room.digest,
+      room.dirty ? 1 : 0,
+      Uint8Array.from(Y.encodeStateAsUpdate(room.document)).buffer,
+      room.editor.version ?? null,
+    )
     room.sql.exec("DELETE FROM vitehub_realtime_document_updates WHERE room_key = ?", room.key)
     room.persistedUpdates = 0
   }
 
   function persistRoomUpdate(room: DocumentRoom, update: Uint8Array, clientUpdate: boolean): void {
     if (!room.sql) return
-    const blob = Uint8Array.from(update).buffer
-    try {
-      room.sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
-        room.key,
-        blob,
-        clientUpdate ? 1 : 0,
-      )
-    }
-    catch {
-      room.sql.exec(
-        "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob) VALUES (?, ?)",
-        room.key,
-        blob,
-      )
-    }
+    room.sql.exec(
+      "INSERT INTO vitehub_realtime_document_updates (room_key, update_blob, client_update) VALUES (?, ?, ?)",
+      room.key,
+      Uint8Array.from(update).buffer,
+      clientUpdate ? 1 : 0,
+    )
     room.persistedUpdates++
     if (room.persistedUpdates >= durableUpdateCompactionInterval) persistRoom(room)
   }

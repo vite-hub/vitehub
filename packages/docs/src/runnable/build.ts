@@ -4,7 +4,7 @@ import { parse } from "yaml"
 
 import { docsErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { RunnableTutorialData, TutorialFiles } from "./steps.ts"
+import type { RunnableTutorialData, TutorialAssets, TutorialFiles } from "./steps.ts"
 
 /** A lesson that runs in the reader's browser. */
 export interface RunnableTutorialSource {
@@ -18,6 +18,15 @@ export interface RunnableTutorialSource {
 
 // Generated or installed files. A fixture that was built or run locally has them, and the workspace makes its own.
 const ignoredEntries = new Set(["node_modules", ".output", ".vitehub", ".nitro", ".data", "dist"])
+
+/**
+ * Local files with secrets, in any folder: `.env` and `.env.*` but not `.env.example`, `.dev.vars*`, npm and netrc
+ * credentials, and keys. Workspace modules ship to the browser, so they never hold these.
+ */
+export function isPrivateFile(name: string): boolean {
+  if (name === ".env.example") return false
+  return name === ".env" || name.startsWith(".env.") || name.startsWith(".dev.vars") || name === ".npmrc" || name === ".netrc" || /\.(?:pem|key|p12|pfx)$/.test(name)
+}
 
 /** Labels of code blocks that are not files of the app, such as `commands/dev` and `output/response.json`. */
 export function isTutorialFileLabel(label: string): boolean {
@@ -92,16 +101,48 @@ export function codeBlock(markdown: string, label: string): string | undefined {
   return match ? `${match[1]}\n` : undefined
 }
 
-/** The text files of a fixture folder, without generated or installed files. */
-export async function readTree(root: string, directory: string = root): Promise<TutorialFiles> {
-  const files: TutorialFiles = {}
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (ignoredEntries.has(entry.name)) continue
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) Object.assign(files, await readTree(root, path))
-    else if (entry.isFile()) files[relative(root, path).replaceAll("\\", "/")] = await readFile(path, "utf8")
+/** Whether `entry`, a name in a fixture folder, is a generated or installed file that the workspace makes itself. */
+export function isIgnoredEntry(entry: string): boolean {
+  return ignoredEntries.has(entry)
+}
+
+/**
+ * The text of a file, with its BOM, or `undefined` for a binary file: bytes that are not valid UTF-8, or that hold a
+ * NUL byte, such as WebAssembly modules and model weights.
+ */
+export function decodeText(bytes: Uint8Array): string | undefined {
+  if (bytes.includes(0)) return undefined
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
   }
-  return files
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * The files of a fixture folder, without generated, installed or private files: the text files in `files`, and the files
+ * that are not valid UTF-8, such as model weights, in `assets`.
+ */
+export async function readTree(root: string): Promise<{ files: TutorialFiles, assets: TutorialAssets }> {
+  const files: TutorialFiles = {}
+  const assets: TutorialAssets = {}
+  async function walk(directory: string) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (ignoredEntries.has(entry.name) || (entry.isFile() && isPrivateFile(entry.name))) continue
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.isFile()) {
+        const name = relative(root, path).replaceAll("\\", "/")
+        const bytes = new Uint8Array(await readFile(path))
+        const text = decodeText(bytes)
+        if (text === undefined) assets[name] = bytes
+        else files[name] = text
+      }
+    }
+  }
+  await walk(root)
+  return { files, assets }
 }
 
 export interface WorkspaceVersions {
@@ -219,7 +260,7 @@ export async function buildRunnableTutorial(input: {
   }
   const lesson = readPage(source.page)
   const start = input.start ? readPage(input.start) : ""
-  const fixture = await readTree(resolve(fixturesDir, source.fixture))
+  const { files: fixture } = await readTree(resolve(fixturesDir, source.fixture))
   if (fixture["package.json"]) fixture["package.json"] = resolveManifest(fixture["package.json"], versions)
 
   const parsed = parseTutorialSteps(lesson)

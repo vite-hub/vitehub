@@ -6,6 +6,15 @@ import { describe, expect, it, vi } from "vitest"
 
 import { runTypecheck, typecheckEnvironment } from "./typecheck.mjs"
 
+function killProcessGroupIfAlive(pid: number) {
+  try {
+    process.kill(-pid, "SIGKILL")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+  }
+}
+
 describe("root typecheck task environment", () => {
   it("provides a default heap size when NODE_OPTIONS is absent", () => {
     expect(typecheckEnvironment({ PATH: "/bin" })).toMatchObject({
@@ -65,8 +74,7 @@ describe("root typecheck task environment", () => {
     finally {
       wrapper.kill("SIGKILL")
       if (phasePid) {
-        try { process.kill(-phasePid, "SIGKILL") }
-        catch { }
+        killProcessGroupIfAlive(phasePid)
       }
       await closed.catch(() => {})
     }
