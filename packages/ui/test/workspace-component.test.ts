@@ -219,6 +219,92 @@ describe("Workspace with webContainer()", () => {
     expect(fake.live).toBe(0);
   });
 
+  it("waits for the boot before it when an example opens in a queued run", async () => {
+    fake.hold = true;
+    const channels: WorkspaceExample = { id: "channels", label: "Channels", files: { ...agent.files, "server.js": "channels" } };
+    const shared = webContainer({ snapshot: example => example.id === "kv" ? kvSnapshot : agentSnapshot });
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, agent, channels], runner: shared } });
+    await flushPromises();
+    await wrapper.get("[data-item='Agent']").trigger("click");
+    await flushPromises();
+    await wrapper.get("[data-item='Channels']").trigger("click");
+    await flushPromises();
+    for (let round = 0; round < 3; round++) {
+      fake.open();
+      await flushPromises();
+    }
+    expect(fake.maxLive).toBe(1);
+    expect(fake.boots.map(boot => boot.files)).toEqual([kv.files, channels.files]);
+    wrapper.unmount();
+  });
+
+  it("keeps the run and its edits on an anchor, and asks before a link replaces edits", async () => {
+    const { box, slot } = spy();
+    const wrapper = mount(Workspace, { attachTo: document.body, global, props: { examples: [kv, blob], runner: runner() }, slots: { "bar-lead": slot } });
+    await flushPromises();
+    await box.context!.setFile("server/api/health.get.ts", "edited");
+    location.hash = "#documentation";
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await flushPromises();
+    expect(box.context!.files["server/api/health.get.ts"]).toBe("edited");
+    expect(fake.boots).toHaveLength(1);
+
+    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: blob.files! }, files(blob))));
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await box.context!.setFile("server/api/health.get.ts", "edited while decoding");
+    await vi.waitFor(() => expect(wrapper.find("[role='dialog']").exists()).toBe(true));
+    expect(box.context!.files["server/api/health.get.ts"]).toBe("edited while decoding");
+    expect(fake.boots).toHaveLength(1);
+    await wrapper.get("[role='dialog'] button:last-child").trigger("click");
+    await flushPromises();
+    expect(fake.boots.at(-1)?.files).toEqual(blob.files);
+    expect(wrapper.text()).toContain("You opened shared files on the Blob example.");
+    wrapper.unmount();
+  });
+
+  it("opens the example that the parent sets, and ignores the echo of its own update", async () => {
+    const { box, slot } = spy();
+    const example = ref("kv");
+    const wrapper = mount(defineComponent(() => () => h(Workspace, {
+      examples: [kv, blob],
+      example: example.value,
+      runner: runner(),
+      "onUpdate:example": (id: string) => { example.value = id; },
+    }, { "bar-lead": slot })), { attachTo: document.body, global });
+    await flushPromises();
+    example.value = "blob";
+    await flushPromises();
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
+    expect(fake.disk.get("server/api/note.get.ts")).toBe(blob.files!["server/api/note.get.ts"]);
+    await box.context!.setFile("server/api/note.get.ts", "edited");
+    await wrapper.get("[data-item='KV']").trigger("click");
+    await wrapper.get("[role='dialog'] button:last-child").trigger("click");
+    await flushPromises();
+    expect(example.value).toBe("kv");
+    await box.context!.setFile("server/api/health.get.ts", "mine");
+    await flushPromises();
+    expect(box.context!.files["server/api/health.get.ts"]).toBe("mine");
+    example.value = "blob";
+    await flushPromises();
+    expect(wrapper.get("[role='dialog']").text()).toContain("Open the Blob example?");
+    wrapper.unmount();
+  });
+
+  it("writes the files that reset gives when the reader resets", async () => {
+    const { box, slot } = spy();
+    const reset = (current: Record<string, string>, example: WorkspaceExample) => ({ ...example.files, "notes.md": current["notes.md"] ?? "" });
+    const wrapper = mount(Workspace, { attachTo: document.body, global, props: { examples: [kv], runner: runner(), reset }, slots: { "bar-lead": slot } });
+    await flushPromises();
+    await box.context!.setFile("server/api/health.get.ts", "edited");
+    await box.context!.setFile("notes.md", "mine");
+    await wrapper.findAll("button").find(button => button.text() === "Reset")!.trigger("click");
+    await wrapper.get("[role='dialog'] button:last-child").trigger("click");
+    await flushPromises();
+    expect(box.context!.files).toEqual({ ...kv.files, "notes.md": "mine" });
+    wrapper.unmount();
+  });
+
   it("copies a link that opens the same files, and restores it on the next visit", async () => {
     const writeText = vi.fn(async (_text: string) => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
