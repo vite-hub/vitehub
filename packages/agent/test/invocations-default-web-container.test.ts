@@ -22,7 +22,7 @@ afterEach(async () => {
 })
 
 // The WASM build of @libsql/client that a WebContainer installs fails to open a file with SQLITE_CANTOPEN.
-it.each([undefined, "1MB"])("keeps the default journal in a local file with SQLite WASM (maxSize: %s)", async (maxSize) => {
+it.each([undefined, "1MB"] as const)("keeps the default journal in a local file with SQLite WASM (maxSize: %s)", async (maxSize) => {
   vi.spyOn(console, "warn").mockImplementation(() => {})
   vi.mocked(createClient).mockClear()
   const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-agent-journal-wasm-"))
