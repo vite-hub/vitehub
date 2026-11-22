@@ -55,7 +55,7 @@ function valueExports(source: string): string[] {
 // Public entries that still forward a whole relative module. Remove an entry when it lists its names. Do not add one.
 const knownRelativeStarExports: Record<string, readonly string[]> = {
   "@vite-hub/agent/capabilities": ["./capabilities/index.ts"],
-  "@vite-hub/agent/invocations": ["./d1.ts", "./sqlite.ts"],
+  "@vite-hub/agent/invocations": ["./d1.ts"],
   "@vite-hub/agent/process": ["./process-host.ts", "./runtime/process.ts"],
   "@vite-hub/agent/state": ["./state/sqlite.ts"],
   "@vite-hub/blob": ["./media.ts"],

@@ -309,6 +309,8 @@ const invocations = defineAgentInvocations({
 
 Each store operation uses `storeTimeoutMs` (default 1,000 ms, range 1 to 60,000). A timeout, rejection, or missing result is not a confirmation.
 
+A lazy store gets up to 10 seconds to open. If it cannot open, best-effort runs proceed and retry while the process stays alive, without waiting for those retries to return the result.
+
 Before the Driver (the part that does the work) starts, a run needs the execution claim, the `running` state, and the first cancellation check. In best-effort mode, the journal retries `running` for up to 60 seconds and rereads cancellation every 10 seconds. A failed write never changes the run's result. A run still stops when the store reports another claim owner (it fails with `Could not persist the Invocation running state.`) or returns a cancellation request (it becomes `cancelled`).
 
 For a custom `run` Driver, strict mode also needs the cancellation warning state before dispatch. Best-effort starts without it, and a remote `cancel()` can throw `AGENT_R0974` until that write succeeds.
