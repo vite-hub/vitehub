@@ -20,6 +20,7 @@ export type HostCredentialsDescription =
 export interface HostCliRunResult {
   exitCode: number | null
   stdout: string
+  stderr?: string
 }
 
 /** Runs a host CLI with an argument array and no shell, and returns its stdout. */

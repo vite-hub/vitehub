@@ -379,7 +379,7 @@ function hasProjectRootDirectoryMarker(root: string): boolean {
       if (statSync(resolve(root, ...marker)).isDirectory()) return true
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!isMissingProjectMarker(error)) throw error
     }
   }
   return false
@@ -397,10 +397,15 @@ function hasProjectRootFileMarker(root: string, markers: string[][] | string[]):
       if (statSync(resolve(root, ...path)).isFile()) return true
     }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      if (!isMissingProjectMarker(error)) throw error
     }
   }
   return false
+}
+
+function isMissingProjectMarker(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code
+  return code === "ENOENT" || code === "ENOTDIR"
 }
 
 /**

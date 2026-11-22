@@ -16,7 +16,7 @@ import { dirname, join } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, setupFailure, type SetupFailure } from "./envelope.ts"
-import { hostCli, hostCliFailed } from "./deploy/host.ts"
+import { createDeployRun, hostCli, hostCliFailed } from "./deploy/host.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -35,7 +35,7 @@ export interface SetupLinkAccount {
 
 /** One host target of `.vitehub/link.json`. */
 export interface SetupLinkTarget {
-  /** Absent only for a Deno link without `--account`. */
+  /** Can be absent for an unverified Deno link. */
   account?: SetupLinkAccount
   project: { id?: string, name: string }
   /** True when the host API confirmed that the project exists. */
@@ -161,6 +161,7 @@ function rerunCommand(host: SetupLinkHost, name: string, options: SetupLinkOptio
 }
 
 function notFound(host: SetupLinkHost, name: string, options: SetupLinkOptions, account: string | undefined): SetupFailure {
+  if (host === "deno") return setupFailure(cliErrorDiagnostics.SETUP_LINK_PROJECT_NOT_FOUND({ account, host, project: name }), setupExitCodes.conflict)
   const rerun = rerunCommand(host, name, options, "--create")
   return setupFailure(cliErrorDiagnostics.SETUP_LINK_PROJECT_NOT_FOUND({ account, host, project: name, rerun }), setupExitCodes.conflict, { rerun })
 }
@@ -275,14 +276,22 @@ async function linkNetlify(name: string, options: SetupLinkOptions, token: strin
   return { ...(site.account ? { account: site.account } : {}), created, project: { id: site.id, name: site.name }, verified: true }
 }
 
-async function linkDeno(name: string, options: SetupLinkOptions, hasCredentials: boolean, root: string, context: ViteHubCliContext): Promise<HostProject> {
+async function linkDeno(name: string, options: SetupLinkOptions, token: string | undefined, root: string, context: ViteHubCliContext): Promise<HostProject> {
   const linked = { ...(options.account ? { account: { id: options.account } } : {}), created: false, project: { name } }
   const organization = options.account ?? context.env.DENO_DEPLOY_ORG?.trim()
-  if (!hasCredentials || !organization) return { ...linked, verified: false }
+  if (!token || !organization) return { ...linked, verified: false }
   const deno = hostCli("deno", "deno", root, context.env)
-  const result = await (context.runHostCli ?? runHostCli)(deno[0], [...deno.slice(1), "deploy", "apps", "get", "--json", "--non-interactive", "--org", organization, "--app", name], { cwd: root, env: context.env })
-  if (result.exitCode !== 0) throw hostCliFailed("deno deploy apps get", { ...result, stderr: "" }, [])
-  return { ...linked, verified: true }
+  const step = "deno deploy apps get"
+  const secrets = [token]
+  const run = context.runHostCli ?? createDeployRun(context.stderr, secrets)
+  const runOptions = { cwd: root, env: context.env, timeoutMs: 30_000 }
+  const result = await run(deno[0], [...deno.slice(1), "deploy", "apps", "get", "--json", "--non-interactive", "--org", organization, "--app", name], runOptions)
+    .catch((error: unknown) => {
+      throw hostCliFailed(step, { exitCode: null, stderr: error instanceof Error ? error.message : String(error), stdout: "" }, secrets)
+    })
+  if (result.exitCode === 4) throw notFound("deno", name, options, organization)
+  if (result.exitCode !== 0) throw hostCliFailed(step, { ...result, stderr: result.stderr ?? "" }, secrets)
+  return { ...linked, account: { id: organization }, verified: true }
 }
 
 /** `content` of a `.gitignore` with a `.vitehub` line, or undefined when it already ignores `.vitehub`. */
@@ -311,7 +320,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   const fetchImpl = context.fetch ?? globalThis.fetch
 
   let linked: HostProject
-  if (host === "deno") linked = await linkDeno(name, options, credentials.ok, project.root, context)
+  if (host === "deno") linked = await linkDeno(name, options, credentials.ok ? credentials.token : undefined, project.root, context)
   else if (!credentials.ok) {
     throw setupFailure(cliErrorDiagnostics.SETUP_LINK_CREDENTIALS_MISSING({ fix: credentials.fix, host }), setupExitCodes.inputNeeded, {
       missing: credentials.missing.map(field => ({ field })),

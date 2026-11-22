@@ -213,12 +213,12 @@ pnpm vitehub unlink
 - `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. The default is the host that `vitehub status` reports.
 - `--project`: the project name on the host. The default is the `name` of `vitehub({ name })`, else the package.json name, in the same form that the build uses.
 - `--account`: the Cloudflare account id, the Vercel team id, the Netlify team slug, or the Deno Deploy organization.
-- `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
+- `--create`: create the project on Cloudflare, Vercel, or Netlify when the host does not have it. Without it, a missing project exits with `3`. Create Deno apps separately in Deno Deploy before linking them; a missing Deno app exits with `3` even with `--create`.
 - `--default`: make this host the target that `vitehub deploy` uses without `--host`. The first linked host is the default.
 
 The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
-The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. On Deno, the command runs `deno deploy apps get` when `DENO_DEPLOY_TOKEN` and the organization (`--account` or `DENO_DEPLOY_ORG`) are set. Without them, the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
+The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. On Deno, the command runs `deno deploy apps get` when `DENO_DEPLOY_TOKEN` and the organization (`--account` or `DENO_DEPLOY_ORG`) are set, and saves the verified organization. Without them, the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
 
 ```json [.vitehub/link.json]
 {
@@ -269,7 +269,7 @@ The project name is not known, for example because `vitehub({ name })` is an exp
 
 ### `SETUP_LINK_PROJECT_NOT_FOUND`
 
-The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. The command exits with `3`.
+The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. On Deno, create the app in Deno Deploy first and then link it. The command exits with `3`.
 
 ## Deploy from your machine
 
@@ -306,7 +306,7 @@ The command runs each host CLI with an argument array and no shell. It runs only
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` |
 
-The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno uses the saved organization from the link, or `DENO_DEPLOY_ORG` if the link has none.
 
 For Cloudflare's read-only migration check, the API token needs at least the account's **D1 Read** permission (**D1 Write** also works). This applies even with `--no-provision` and an existing D1 database ID.
 
@@ -361,7 +361,7 @@ Cloudflare always uploads this stage's local values, including names already on 
 
 On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
-A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. Vercel, Netlify, and Deno need the project before deploy can set values: run `vitehub link --host <host> --create` first, or the command exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
+A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. On Vercel and Netlify, use `vitehub link --host <host> --create` for a new project. On Deno, create the app in Deno Deploy and run `vitehub link --host deno`. Without the required link, deploy exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
 
 When the build lists `VITEHUB_SECRET` as required and neither the host nor a local value has it, deploy asks to generate one. `--yes` generates it without the question. Deploy sets it on the host and prints only that it did.
 
@@ -608,7 +608,7 @@ A required env name is on neither the host nor a local value for the stage. Noth
 
 ### `SETUP_DEPLOY_ENV_NOT_LINKED`
 
-Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. Run `vitehub link --host <host> --create`, then deploy again. The command exits with `2`.
+Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. On Vercel and Netlify, run `vitehub link --host <host> --create`. On Deno, create the app in Deno Deploy if needed, then run `vitehub link --host deno`. Deploy again after linking. The command exits with `2`.
 
 ### `SETUP_DEPLOY_PUSH_FAILED`
 
