@@ -147,9 +147,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
 
 export function createDiscordGatewayHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-) {
+): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response | null> {
   const load = lazy(module => module.createDiscordGatewayHandler(agent))
-  return async (request: Request, options: AgentDiscordGatewayRouteOptions) => await (await load())(request, options)
+  return async (request, options) => await (await load())(request, options)
 }
 
 export function createDiscordGatewayRouteHandler(
