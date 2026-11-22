@@ -10,6 +10,7 @@ import { createServer } from "vite"
 const root = fileURLToPath(new URL("./start-page", import.meta.url))
 const dist = fileURLToPath(new URL("../../dist/", import.meta.url))
 const server = await createServer({
+  cacheDir: join(root, "node_modules/.vite"),
   configFile: false,
   logLevel: "warn",
   plugins: [vue(), nuxtUi({ dts: false })],
