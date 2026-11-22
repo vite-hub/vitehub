@@ -1,5 +1,5 @@
-// Outside the root barrel, so chat pages never load CodeMirror or xterm. Run the app with `useWebContainer()` from
-// `@vite-hub/web-container/vue`, then pass its state to these parts.
+// Outside the root barrel, so chat pages never load CodeMirror or xterm. `Workspace` with a runner is the whole
+// workspace. The parts build other layouts, and render the state of `useWebContainer()` from `@vite-hub/web-container/vue`.
 export { BrowserSupportNotice, detectUnsupportedBrowser, type UnsupportedBrowser } from "./workspace/browser-support-notice.ts";
 export {
   ConnectPanel,
@@ -9,13 +9,22 @@ export {
   type ConnectProviderStatus,
 } from "./workspace/connect-panel.ts";
 export { useConnectStore, type ConnectStore, type UseConnectStoreOptions } from "./workspace/connect-store.ts";
+export { render, type RenderRunnerOptions, type WorkspaceRenderResult } from "./workspace/runners/render.ts";
+export { webContainer, type WebContainerRunner, type WebContainerRunnerOptions, type WorkspaceSnapshot } from "./workspace/runners/web-container.ts";
 export {
-  PlaygroundContainer,
-  usePlaygroundDevice,
-  type PlaygroundContainerTemplate,
-  type PlaygroundContext,
-  type PlaygroundDevice,
-} from "./workspace/playground-container.ts";
+  useWorkspace,
+  useWorkspaceDevice,
+  Workspace,
+  type WorkspaceContext,
+  type WorkspaceDevice,
+  type WorkspaceFiles,
+  type WorkspaceMenuItem,
+  type WorkspaceRun,
+  type WorkspaceRunInput,
+  type WorkspaceRunner,
+  type WorkspaceRunState,
+  type WorkspaceSlotProps,
+} from "./workspace/workspace.ts";
 export { WorkspaceBar } from "./workspace/workspace-bar.ts";
 export { bootChecklist, WorkspaceBootStatus, type BootStepState, type BootStepView } from "./workspace/workspace-boot-status.ts";
 // The checklist formats its step times with the shared duration formatter. It stays public under its first name.

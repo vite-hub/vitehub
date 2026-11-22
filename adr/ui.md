@@ -19,3 +19,63 @@
 **Decision:** The checks compare only rects that do not depend on the width of text.
 
 **Consequences:** A new check that measures a text-sized rect fails for font reasons, not for a layout change.
+
+## A page runs one WebContainer at a time
+
+`webContainer` in `packages/ui/src/workspace/runners/web-container.ts`, and `Workspace` in `packages/ui/src/workspace/workspace.ts`.
+
+**Context:** The browser allows only one WebContainer per page. A fast switch between examples, or a start screen that boots the first example before the pick, would start a second boot while the first one runs.
+
+**Decision:** A new run boots only after the run before it tore its container down. While the start screen of `Workspace` shows, no run starts and no snapshot loads. A share link skips the start screen. `Workspace` mounts a new run only when an example needs other dependencies or another snapshot. Files with another `package.json`, such as from a share link, mount the snapshot and then install the difference.
+
+**Consequences:** A change must not boot a run before the last one stopped, or start one under the start screen.
+
+## The WebContainer runner restarts the server only when the app can change
+
+`webContainer` in `packages/ui/src/workspace/runners/web-container.ts`.
+
+**Context:** Tokens stay in the tab and reach the app only as environment variables. A failed write leaves files on disk that are not the example's.
+
+**Decision:** A new token or a new Vite config restarts the dev server. A failed write shows in the terminal and does not restart it. The installed dependencies stay when the files keep the `package.json` of the example. The checklist takes the place of the preview while the app starts, so the reader can edit. The docs fixtures run `vite --port 3000`, so the docs pass `port: 3000`: Nitro starts dev workers on other ports first, and they are not the app.
+
+**Consequences:** A token must never reach the files or a share link.
+
+## The render runner keeps the newest render and the scroll position
+
+`render` in `packages/ui/src/workspace/runners/render.ts`.
+
+**Context:** The output runs scripts in a sandboxed frame with its own origin, so a shared link cannot reach the page, and the page cannot read the frame's scroll position. Renders are debounced and can end out of order.
+
+**Decision:** Each edit invalidates older work before the debounce, so a slower render of older files never replaces a newer one. A script in the frame posts its scroll position to the page and goes back to it after each render.
+
+**Consequences:** Removing `sandbox` or giving the frame the page's origin lets a share link run code on the page.
+
+## Workspace starts a desktop-only runner only on desktops
+
+`Workspace` in `packages/ui/src/workspace/workspace.ts`.
+
+**Context:** A WebContainer is too heavy for phones and slow on tablets. Before mount the page cannot know the device.
+
+**Decision:** A desktop runner starts on its own on desktops, on a tap on tablets, and never on phones. Before mount, CSS shows the phone card or the placeholder by width. A runner that any device runs waits only for mount. Copy link keeps the `template` key of the link, so older links open.
+
+**Consequences:** Server rendering must not start a run, and older `?template=` and `#code=` links must keep opening.
+
+## Bundled Nuxt UI parts do not suspend
+
+`lazy` in `packages/ui/src/internal/nuxt-ui.ts`.
+
+**Context:** The parts load Nuxt UI components on first render. Inside `Suspense`, such as a Nuxt page, a suspensible async component has no element until it loads. Reka UI anchors a dropdown on its trigger and reads `$el.nodeName`, so the Workspace start screen threw `Cannot read properties of null (reading 'nodeName')`.
+
+**Decision:** The bundled components use `suspensible: false`. Until they load they render a comment node, which Reka UI skips.
+
+**Consequences:** The parts do not hold back a parent `Suspense`. `test:workspace-parts` opens the start screen inside `Suspense` and fails on console errors.
+
+## Workspace follows only share links in the hash, and asks before they replace edits
+
+`Workspace` in `packages/ui/src/workspace/workspace.ts`.
+
+**Context:** A docs page changes the hash for anchors. A share link decodes asynchronously, so the reader can edit or open another example while it decodes.
+
+**Decision:** A hash without `#code=` keeps the run. A decoded link that arrives after the reader opened another example is dropped. A link that would replace edits asks first, as the examples menu does.
+
+**Consequences:** Every run of a WebContainer runner, including Retry and Restart, waits for the boot before it.

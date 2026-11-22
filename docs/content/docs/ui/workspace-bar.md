@@ -6,7 +6,7 @@ navigation.group: Agent work
 icon: i-lucide-panel-top
 ---
 
-`WorkspaceBar` is the 44px bar over a live workspace. It holds the sidebar button, the examples menu, a step label, the run state, and the actions. Three parts go with it: `WorkspaceSidebar`, a panel that opens over the workspace; `WorkspaceExamples`, the examples menu; and `WorkspaceStart`, the examples as cards on a first visit. `PlaygroundContainer` uses the bar, the menu, and the start screen.
+`WorkspaceBar` is the 44px bar over a live workspace. It holds the sidebar button, the examples menu, a step label, the run state, and the actions. Three parts go with it: `WorkspaceSidebar`, a panel that opens over the workspace; `WorkspaceExamples`, the examples menu; and `WorkspaceStart`, the examples as cards on a first visit. [`Workspace`](/docs/ui/workspace) puts them together for you.
 
 ::example{name="WorkspaceBarExample" height=20}
 ::
@@ -22,6 +22,8 @@ import { WorkspaceBar, WorkspaceExamples, WorkspaceSidebar, WorkspaceStart } fro
 ## Usage
 
 Put the bar, the sidebar, and the start screen in one box with `position: relative`, such as the `bar` slot of `WorkspaceShell`. The sidebar and the start screen open under the bar, over the workspace. They do not push it.
+
+The `banner` slot of `WorkspaceShell` shows a notice under the bar, such as for a share link. Set `covered` on the shell while the start screen covers it: the parts under the bar become `inert`, so Tab skips them.
 
 ```vue
 <script setup lang="ts">
@@ -68,7 +70,7 @@ const sidebar = ref(false);
 
 ### Start screen
 
-`WorkspaceStart` shows the examples as cards over the workspace. Show it only on a first visit without a share link, so a link opens its files at once. In `PlaygroundContainer`, set `start` and the container does this for you.
+`WorkspaceStart` shows the examples as cards over the workspace. Show it only on a first visit without a share link, so a link opens its files at once. In `Workspace`, set `start` and it does this for you.
 
 ::example{name="WorkspaceStartExample" height=26}
 ::
@@ -165,5 +167,5 @@ The start screen is a section named by its heading. Each card is a button. Under
 
 ## Related
 
-- [Playground render](/docs/ui/playground-render)
+- [Workspace](/docs/ui/workspace)
 - [File tree](/docs/ui/file-tree)

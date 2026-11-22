@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { usePlaygroundDevice } from "@vite-hub/ui/workspace";
+import { useWorkspaceDevice } from "@vite-hub/ui/workspace";
+import { checkWebContainerSupport } from "@vite-hub/web-container";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import TutorialCodePre from "~/components/tutorial/TutorialCodePre.vue";
 import { frameworkNodes, splitTutorialDocument } from "~/utils/runnable-tutorial";
@@ -46,7 +47,7 @@ const nodes = computed(() => [
 
 // The workspace gates itself by device. The page only places it: next to the lesson on a desktop that can run it,
 // else in the lesson column. Before mount both places render, and CSS shows the one that fits the width.
-const { device, supported } = usePlaygroundDevice();
+const { device, supported } = useWorkspaceDevice({ supported: () => checkWebContainerSupport().supported });
 const opened = ref(false);
 const side = computed(() => device.value === "pending" || (device.value === "desktop" && supported.value === true));
 const inline = computed(() => device.value !== "desktop" || supported.value === false);
@@ -231,7 +232,7 @@ function key(event: KeyboardEvent) {
 
 /* The column beside the lesson shows from desktop widths on. Before mount, the lesson column holds no placeholder. */
 .vh-run-workspace,
-.vh-run-inline :deep(.vh-pc-placeholder) {
+.vh-run-inline :deep(.vh-workspace-placeholder) {
   display: none !important;
 }
 

@@ -83,7 +83,7 @@ function serializeCollectionPage(value: unknown): unknown {
 }
 
 function isCallable(value: unknown): value is (...args: never[]) => unknown {
-  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
+  return typeof value === "function"
 }
 
 function hasDeclaredMethod(value: unknown, key: PropertyKey): boolean {
