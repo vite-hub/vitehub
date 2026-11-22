@@ -158,13 +158,13 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
       await rm(dir, { recursive: true, force: true });
     }
 
-    // The Agent template has other dependencies, so it boots a new workspace with its own snapshot.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^Agent/ }).waitFor();
+    // The Agent example has other dependencies, so it boots a new workspace with its own snapshot.
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Agent/ }).waitFor();
     // Let the menu finish its open animation.
     await page.waitForTimeout(500);
     await shot(page, "desktop-templates");
-    await page.getByRole("menuitem", { name: /^Agent/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Agent/ }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.getByRole("treeitem", { name: "greeting.ts" }).waitFor();
     await page.waitForURL(/\/playground\?template=agent$/);
@@ -174,8 +174,8 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
 
     // The Channels template shares the Agent snapshot. Its preview opens the simulated Slack page of the Agent, and
     // a message sent there streams the reply of the Agent back into the page.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^Channels/ }).click();
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Channels/ }).click();
     await page.getByRole("treeitem", { name: "support.ts" }).waitFor();
     await page.waitForURL(/\/playground\?template=channels$/);
     await waitForApp(page);
@@ -187,8 +187,8 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await chatInPreview(page, /Discord simulator/, "Hello from Discord");
 
     // Back to KV without edits: no question.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^KV/ }).click();
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^KV/ }).click();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     assert.equal(await page.getByRole("dialog").count(), 0);
     await page.close();
@@ -198,7 +198,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     const page = await desktop.newPage();
     step.after(() => page.close().catch(() => {}));
     await page.goto(shareLink);
-    await page.getByText("You opened shared files on the KV template.").waitFor();
+    await page.getByText("You opened shared files on the KV example.").waitFor();
     await page.getByRole("treeitem", { name: "health.get.ts" }).click();
     await page.locator(".cm-content").filter({ hasText: "ok: \"edited\"" }).waitFor();
     await waitForApp(page);
@@ -309,7 +309,7 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   const started = performance.now();
   await page.goto(`${playground}?template=ui`);
   await page.getByRole("treeitem", { name: "App.vue" }).waitFor();
-  await page.getByRole("button", { name: "Template: ViteHub UI" }).waitFor();
+  await page.getByRole("button", { name: "Example: ViteHub UI" }).waitFor();
   await waitForApp(page);
   let app = await uiFrame(page);
   await app.getByRole("heading", { name: "Launch plan" }).waitFor();
@@ -370,8 +370,8 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   assert.ok(await app.evaluate(() => innerWidth) > 390);
   assert.equal(await app.evaluate(() => window.vitehubMark), true, "the width switch kept the same page");
 
-  await page.getByRole("button", { name: /^Template:/ }).click();
-  await page.getByRole("menuitem", { name: /^ViteHub UI/ }).waitFor();
+  await page.getByRole("button", { name: /^Example:/ }).click();
+  await page.getByRole("menuitemcheckbox", { name: /^ViteHub UI/ }).waitFor();
   await page.waitForTimeout(500);
   await shot(page, "ui-templates");
   await page.keyboard.press("Escape");

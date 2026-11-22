@@ -10,7 +10,7 @@ import { playgroundTemplates } from "#build/playground-templates.mjs";
 definePageMeta({ layout: "docs", sidebar: "collapsed" });
 
 const title = "Playground";
-const description = "Edit and run a ViteHub app in your browser. Start from a template, then share a link or download the files.";
+const description = "Edit and run a ViteHub app in your browser. Start from an example, then share a link or download the files.";
 useSeoMeta({ title, ogTitle: title, description, ogDescription: description });
 
 const route = useRoute();
@@ -56,7 +56,7 @@ function keep(id: string) {
       </template>
 
       <template #fallback>
-        <h2 class="mt-10 text-lg font-semibold text-highlighted">Templates</h2>
+        <h2 class="mt-10 text-lg font-semibold text-highlighted">Examples</h2>
         <ul class="vh-playground-list">
           <li v-for="template in playgroundTemplates" :key="template.id">
             <!-- A new document boots the template, as a link from another page does. -->

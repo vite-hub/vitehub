@@ -22,12 +22,15 @@ vi.mock("@xterm/xterm", () => ({
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 vi.mock("../src/playground/zip.ts", () => ({ downloadZip: vi.fn() }));
 
-// A container that boots at once, writes to a map, and is ready when the dev server starts.
-const fake = vi.hoisted(() => ({ boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
+// A single container that writes to a map and is ready when the dev server starts.
+const fake = vi.hoisted(() => ({ active: false, boots: [] as { files: Record<string, string>, snapshot: boolean }[], runs: [] as unknown[], disk: new Map<string, string>(), supported: true }));
 vi.mock("@vite-hub/web-container", () => ({
   checkWebContainerSupport: () => ({ supported: fake.supported }),
-  async bootWebContainer(options: { files: Record<string, string>, snapshot?: unknown, onStatus: (status: unknown) => void }) {
+  async bootWebContainer(options: { files: Record<string, string>, snapshot?: Promise<Uint8Array | ArrayBuffer>, onStatus: (status: unknown) => void }) {
     fake.boots.push({ files: { ...options.files }, snapshot: options.snapshot !== undefined });
+    if (fake.active) throw new Error("Only a single WebContainer instance can be booted");
+    fake.active = true;
+    await options.snapshot;
     for (const [path, contents] of Object.entries(options.files)) fake.disk.set(path, contents);
     options.onStatus({ stage: "mounting", steps: [] });
     let ready: (server: { url: string, port: number }) => void = () => {};
@@ -55,7 +58,7 @@ vi.mock("@vite-hub/web-container", () => ({
         }
         return { exit: new Promise<number>(() => {}), kill: () => {}, output: new ReadableStream<string>() };
       },
-      teardown: () => {},
+      teardown: () => { fake.active = false; },
     };
   },
 }));
@@ -87,8 +90,9 @@ const UModal = defineComponent({
   props: { open: Boolean, title: { default: undefined, type: String } },
   setup: (props, { slots }) => () => props.open ? h("div", { role: "dialog" }, [h("h2", props.title), slots.footer?.()]) : null,
 });
+const UIcon = defineComponent(() => () => h("i"));
 const global = {
-  components: { UButton, UDropdownMenu, UModal, UTabs },
+  components: { UButton, UDropdownMenu, UIcon, UModal, UTabs },
   stubs: { WorkspaceEditor: true, WorkspaceFileTree: true, WorkspacePreview: true },
 };
 
@@ -114,6 +118,7 @@ const agent: PlaygroundContainerTemplate = { id: "agent", label: "Agent", files:
 
 beforeEach(() => {
   vi.mocked(downloadZip).mockClear();
+  fake.active = false;
   fake.boots.length = 0;
   fake.runs.length = 0;
   fake.disk.clear();
@@ -129,7 +134,7 @@ afterEach(() => {
 });
 
 describe("PlaygroundContainer", () => {
-  it("boots the first template on a desktop, tracks edits, and asks before it replaces them", async () => {
+  it("boots the first example on a desktop, tracks edits, and asks before it replaces them", async () => {
     let context: PlaygroundContext | undefined;
     const wrapper = mount(PlaygroundContainer, {
       attachTo: document.body,
@@ -152,7 +157,7 @@ describe("PlaygroundContainer", () => {
 
     // Blob has the same snapshot and manifest, so it opens in place after the question.
     await wrapper.get("[data-item='Blob']").trigger("click");
-    expect(wrapper.get("[role='dialog']").text()).toContain("Open the Blob template?");
+    expect(wrapper.get("[role='dialog']").text()).toContain("Open the Blob example?");
     await wrapper.get("[role='dialog'] button:last-child").trigger("click");
     await flushPromises();
     expect(wrapper.emitted("update:template")).toEqual([["blob"]]);
@@ -194,7 +199,7 @@ describe("PlaygroundContainer", () => {
     history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: { ...blob.files, "package.json": "{}" } }, blob.files)));
     const restored = mount(PlaygroundContainer, { global, props: { templates: [kv, blob] } });
     // The link inflates in a stream, so it takes more than one tick.
-    await vi.waitFor(() => expect(restored.text()).toContain("You opened shared files on the Blob template."));
+    await vi.waitFor(() => expect(restored.text()).toContain("You opened shared files on the Blob example."));
     await flushPromises();
     // The shared manifest differs from the snapshot, so the workspace installs the difference.
     expect(fake.boots).toEqual([{ files: { ...blob.files, "package.json": "{}" }, snapshot: true }]);
@@ -203,7 +208,7 @@ describe("PlaygroundContainer", () => {
 
     history.replaceState(null, "", "/play#code=broken");
     const invalid = mount(PlaygroundContainer, { global, props: { templates: [kv, blob] } });
-    await vi.waitFor(() => expect(invalid.text()).toContain("This link has no files that the workspace can read. It opened the KV template."));
+    await vi.waitFor(() => expect(invalid.text()).toContain("This link has no files that the workspace can read. It opened the KV example."));
     invalid.unmount();
   });
 
@@ -282,6 +287,57 @@ describe("PlaygroundContainer", () => {
     expect(wrapper.get(".extra").text()).toBe("0 edited");
     expect(wrapper.text()).not.toContain("Copy link");
     expect(wrapper.find(".vh-pc-toolbar .menu").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the start screen on a first visit, opens the picked example, and skips the screen for a share link", async () => {
+    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [kv, blob], start: true } });
+    await flushPromises();
+    expect(wrapper.findAll(".vh-ws-start-label").map(label => label.text())).toEqual(["KV", "Blob"]);
+    expect(wrapper.findAll(".vh-ws-start-files").map(files => files.text())).toEqual(["2 files", "3 files"]);
+    await wrapper.findAll(".vh-ws-start-card")[1]!.trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
+    expect(wrapper.emitted("update:template")).toEqual([["blob"]]);
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
+    wrapper.unmount();
+
+    history.replaceState(null, "", playgroundUrl("/play", await encodePlaygroundLink({ template: "blob", files: blob.files }, blob.files)));
+    const shared = mount(PlaygroundContainer, { global, props: { templates: [kv, blob], start: true } });
+    await vi.waitFor(() => expect(shared.text()).toContain("on the Blob example"));
+    await flushPromises();
+    expect(shared.find(".vh-ws-start").exists()).toBe(false);
+    expect(fake.boots.at(-1)).toEqual({ files: blob.files, snapshot: true });
+    shared.unmount();
+  });
+
+  it("boots only the picked example when the default snapshot would still be downloading", async () => {
+    const delayedSnapshot = vi.fn(() => new Promise<Uint8Array>(() => {}));
+    const wrapper = mount(PlaygroundContainer, { global, props: { templates: [{ ...kv, snapshot: delayedSnapshot }, agent], start: true } });
+    await flushPromises();
+
+    await wrapper.findAll(".vh-ws-start-card")[1]!.trigger("click");
+    await flushPromises();
+
+    expect(fake.boots).toEqual([{ files: agent.files, snapshot: true }]);
+    expect(delayedSnapshot).not.toHaveBeenCalled();
+    expect(wrapper.findComponent({ name: "WorkspacePreview" }).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it.each(["card", "menu"])("keeps the panes out of the chooser and hands off focus after a %s pick", async (picker) => {
+    const wrapper = mount(PlaygroundContainer, { attachTo: document.body, global, props: { templates: [kv, blob], start: true } });
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-shell").exists()).toBe(false);
+
+    const choice = wrapper.get(picker === "card" ? ".vh-ws-start-card" : '[data-item="KV"]');
+    (choice.element as HTMLButtonElement).focus();
+    await choice.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
+    expect(wrapper.emitted("update:template")).toEqual([["kv"]]);
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Example: KV"]').element);
     wrapper.unmount();
   });
 
