@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 
 import { docsErrorDiagnostics } from "../error-diagnostics.ts"
-import { decodeText, isIgnoredEntry, readTree } from "./build.ts"
+import { decodeText, isIgnoredEntry, isPrivateFile, readTree } from "./build.ts"
 
 import type { DocsLayout, DocsPageWorkspace } from "../types.ts"
 import type { RunnableTutorialSource } from "./build.ts"
@@ -65,7 +65,7 @@ export function playgroundExampleSources(page: WorkspacePage, rootDir: string): 
 
 function isTextFileOf(dir: string, path: string): boolean {
   const parts = path.split("/")
-  if (isAbsolute(path) || path.includes("\\") || parts.some(part => part === "" || part === "." || part === ".." || isIgnoredEntry(part))) return false
+  if (isAbsolute(path) || path.includes("\\") || parts.some(part => part === "" || part === "." || part === ".." || isIgnoredEntry(part)) || isPrivateFile(parts.at(-1)!)) return false
   const file = resolve(dir, path)
   return existsSync(file) && statSync(file).isFile() && decodeText(readFileSync(file)) !== undefined
 }

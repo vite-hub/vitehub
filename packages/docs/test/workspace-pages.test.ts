@@ -9,6 +9,7 @@ import { docsPageOf } from "../src/page.ts"
 import { checkWorkspacePage, learnLessonSource, pageExamples, renderExamples, webContainerRoutes, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "../src/runnable/workspaces.ts"
 import { docsPageSchema } from "../src/schema.ts"
 import { docsLearnGuideNodes, docsLearnStepNodes } from "../runtime/app/utils/docs-learn.ts"
+import { docsPlaygroundExampleQuery } from "../runtime/app/utils/docs-playground.ts"
 
 import type { Node as ComarkNode } from "comark"
 import type { DocsPageFrontmatter } from "../src/schema.ts"
@@ -108,6 +109,15 @@ describe("workspace pages", () => {
     expect(module).toContain(`data.render = () => import("/app/render.ts")`)
     expect(module).toContain(`{ value: "messages", label: "Messages", component: () => import("/app/Tab.vue") },`)
     expect(module).toContain("export default data")
+  })
+})
+
+describe("playground example query", () => {
+  it("names every example on a page with a chooser, and none on a page with one example", () => {
+    const two = [hello, { id: "clock", label: "Clock", dir: "examples/clock" }]
+    expect(docsPlaygroundExampleQuery(two, "hello")).toBe("hello")
+    expect(docsPlaygroundExampleQuery(two, "clock")).toBe("clock")
+    expect(docsPlaygroundExampleQuery([hello], "hello")).toBeUndefined()
   })
 })
 

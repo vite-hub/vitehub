@@ -3,6 +3,7 @@ import { defineAsyncComponent } from "vue"
 import { render, webContainer, Workspace, type WorkspaceExample, type WorkspaceRunner, type WorkspaceSnapshot } from "@vite-hub/ui/workspace"
 import { fetchSnapshot } from "@vite-hub/web-container"
 import { docsAppPath } from "#docs/navigation"
+import { docsPlaygroundExampleQuery } from "../utils/docs-playground"
 
 import type { DocsWorkspaceData } from "#docs/runnable"
 import type { DocsPageResponse } from "@vite-hub/docs"
@@ -22,8 +23,6 @@ const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebui
   if (key) snapshotOf.set(example.id, key)
   return example
 })
-const fallback = examples[0]!
-
 const load = props.data.render
 const runner: WorkspaceRunner = load
   ? render(async (files, context) => (await load()).default(files, context))
@@ -36,9 +35,12 @@ const example = typeof queried === "string" ? queried : undefined
 const open = ref(false)
 
 function keep(id: string) {
-  void router.replace({ query: { ...route.query, example: id === fallback.id ? undefined : id, template: undefined }, hash: "" })
+  void router.replace({ query: { ...route.query, example: docsPlaygroundExampleQuery(examples, id), template: undefined }, hash: "" })
 }
-const exampleHref = (id: string) => docsAppPath(id === fallback.id ? page.path : `${page.path}?example=${encodeURIComponent(id)}`, appBase)
+function exampleHref(id: string) {
+  const query = docsPlaygroundExampleQuery(examples, id)
+  return docsAppPath(query ? `${page.path}?example=${encodeURIComponent(query)}` : page.path, appBase)
+}
 </script>
 
 <template>
