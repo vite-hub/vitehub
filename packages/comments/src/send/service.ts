@@ -558,10 +558,11 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const tools = await webhooks()
       const [pairingError, pairing] = await tools.getMemberPairing(user.id, code)
       if (pairingError) throw pairingError
+      if (pairing && pairing.state !== "paired") return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       // The member confirms the threads that they saw. When they changed, the code stays, and the member sees the new ones.
       const confirmed = await waiting(caller, user)
       const current = await selectionOf(caller.subject, confirmed.waiting)
-      if (pairing?.state === "paired" && selection !== current) return [undefined, { status: "changed", count: confirmed.waiting.length, selection: current }]
+      if (pairing && selection !== current) return [undefined, { status: "changed", count: confirmed.waiting.length, selection: current }]
       const email = verifiedEmail(user)
       const name = typeof user.name === "string" && user.name.trim() ? user.name : undefined
       const [error, allowed] = await tools.allowMemberPairing(user.id, code, {

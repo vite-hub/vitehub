@@ -71,7 +71,8 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
   const database = drizzle({ client }) as unknown as CommentsDatabase
   const db = drizzle({ client })
   const store = createDrizzleWebhookStore(db)
-  installWebhooks({ webhooks: {}, store, endpoints: createDrizzleWebhookEndpointStore(db), ...(wake ? { wake } : {}) })
+  const endpoints = createDrizzleWebhookEndpointStore(db)
+  installWebhooks({ webhooks: {}, store, endpoints, ...(wake ? { wake } : {}) })
   const comments = defineComments({
     identify: ({ event }) => people[event["~standard"].req.headers.get("x-test-user") ?? ""] ?? null,
     authorize: ({ thread, user, console }) => !thread || (!hidden.has(thread.id) && (user?.role !== "viewer" || console === true)),
@@ -108,7 +109,7 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
     expect(paired.status).toBe(200)
     return { code, allowed: await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as }) }
   }
-  return { comments, call, comment, reply, connect, page, store }
+  return { comments, call, comment, reply, connect, page, store, endpoints }
 }
 
 beforeEach(() => {
@@ -374,6 +375,31 @@ describe("sends", () => {
     const allowed = await call(`/send/allow?page=${page}`, { json: { code, selection: changed.selection }, as: "ana" })
     expect(allowed.body.data.status).toBe("sent")
     expect(deliveries[0]!.body.threads.sort()).toEqual([first.id, second.id].sort())
+  })
+
+  it("does not consume a waiting code if the agent pairs during Allow", async () => {
+    const { call, comment, endpoints, page } = await setup()
+    await comment("ana", "Shorter intro")
+    const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+    const { code, selection } = started.body.data
+    await comment("bob", "Add a map")
+    const pairing = endpoints.pairing.bind(endpoints)
+    const lookup = vi.spyOn(endpoints, "pairing").mockImplementationOnce(async (id) => {
+      const waiting = await pairing(id)
+      expect(waiting?.state).toBe("waiting")
+      expect((await call("/send/pair", { json: { code, url: relay }, origin: null })).status).toBe(200)
+      return waiting
+    })
+    const allow = () => call(`/send/allow?page=${page}`, { json: { code, selection }, as: "ana" })
+    try {
+      expect((await allow()).status).toBe(410)
+    }
+    finally {
+      lookup.mockRestore()
+    }
+    expect((await allow()).body.data).toMatchObject({ status: "changed", count: 2 })
+    expect(await getMemberEndpoint("ana")).toEqual([undefined, null])
+    expect(deliveries).toHaveLength(0)
   })
 
   it("starts the setup prompt from `send.prompt`", async () => {
