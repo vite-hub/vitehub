@@ -196,6 +196,20 @@ describe.each(targets)("lock on $name", (target) => {
     expect(await second!.run(() => "ran")).toEqual([undefined, { acquired: true, value: "ran" }])
   })
 
+  it("rethrows the callback error and warns when the release also fails", async () => {
+    const [storage] = target.stores(1)
+    storage.deleteIfEqualsItem = async () => { throw new Error("store down") }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const failure = new Error("job failed")
+    try {
+      await expect(createKVLock("default", async () => storage, "job", { ttl: 1 }).run(() => { throw failure })).rejects.toBe(failure)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not release the lock \"job\""), expect.objectContaining({ code: "KV_OPERATION_FAILED" }))
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
   it("lets the next runner in after the ttl, and the expired holder cannot free the new lock", async () => {
     const [first, second, third] = target.stores(3)
     const [firstError, held] = await createKVLock("default", async () => first!, "job", { ttl: 0.3 }).acquire()
