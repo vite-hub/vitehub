@@ -35,8 +35,10 @@ describe("line wrapping", () => {
       // The editor waits for `setWrap`, so a bound value stays the source of truth.
       expect(content.classList.contains("cm-lineWrapping")).toBe(false);
 
-      // Option+Z on a US Mac layout types `Ω`. The physical Z key still toggles, and the character is not typed.
+      // US Mac Option+Z toggles wrap. French Mac Option+W uses the same physical key to type `‹`.
       expect(pressAltZ(content, "Ω").defaultPrevented).toBe(true);
+      expect(onToggleWrap).toHaveBeenCalledTimes(2);
+      expect(pressAltZ(content, "‹").defaultPrevented).toBe(false);
       expect(onToggleWrap).toHaveBeenCalledTimes(2);
       // A layout that puts another letter on the Z key, such as AZERTY, goes by the letter.
       pressAltZ(content, "w");
