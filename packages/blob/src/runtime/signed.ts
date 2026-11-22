@@ -29,8 +29,6 @@ export async function handleSignedBlobRequest(request: Request): Promise<Respons
   let tooLarge = false
   let wrongSize = false
   let size = 0
-  // A body without `Content-Length` can still grow past `maxSize` or `contentLength`. Stop reading it there, and fail a
-  // body that ends before `contentLength`, so `put()` stores nothing.
   const body = maxSize !== undefined || contentLength !== undefined
     ? (request.body ?? new Blob([]).stream()).pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {

@@ -36,7 +36,6 @@ const files = {
     "}",
     "",
   ].join("\n"),
-  // Bindings and migrations stay in the project's Wrangler config.
   "wrangler.json": JSON.stringify({
     durable_objects: { bindings: [{ class_name: "Counter", name: "COUNTER" }] },
     migrations: [{ new_sqlite_classes: ["Counter"], tag: "v1" }],

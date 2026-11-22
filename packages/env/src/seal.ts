@@ -65,6 +65,5 @@ export async function unsealWithKey(
     .catch(() => {
       throw sealError();
     });
-  // The plaintext owns its leading U+FEFF; it is not a transport signature.
   return new TextDecoder("utf-8", { ignoreBOM: true }).decode(value);
 }

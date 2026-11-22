@@ -12,7 +12,6 @@ import type { KVPageOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 
 interface CloudflareKVNamespace {
-  /** A bulk read: up to 100 keys per call. */
   get: (keys: string[], type: "text") => Promise<unknown>
   list: (options: { cursor?: string; limit: number; prefix?: string }) => Promise<unknown>
 }
@@ -39,7 +38,6 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
   return page.list_complete || (isCloudflareKVString(page.cursor) && page.cursor.length > 0)
 }
 
-/** Cloudflare reads at most 100 keys in one bulk `get()`. */
 const cloudflareKVBulkGetKeys = 100
 
 const cloudflareBindingIdentities = new WeakMap<object, number>()
@@ -61,8 +59,6 @@ function cloudflareBindingNamespace(bindingName: unknown, namespaceId: unknown, 
 function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriver {
   const bindingName = options.binding
   const namespaceId = options.namespaceId
-  // unstorage reads `binding` on every operation and finds a binding name only on globals.
-  // Resolve it from the active Cloudflare env first, because ViteHub workers scope env per request without the global `__env__`.
   const driverOptions = typeof bindingName === "string"
     ? { ...options, get binding() { return getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) ?? bindingName } }
     : options
@@ -77,7 +73,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     for (const item of items) assertCloudflareKVKey(item.key)
     const values = new Map<string, string | null>()
     for (const batch of chunks([...new Set(items.map(item => item.key))], cloudflareKVBulkGetKeys)) {
-      // The instance is a Promise when unstorage still has to find the binding.
       const page = await (await driver.getInstance()).get(batch, "text")
       if (!(page instanceof Map)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare KV bulk get did not return a Map." })
       for (const key of batch) {
@@ -87,14 +82,11 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     }
     return items.map(item => ({ key: item.key, value: values.get(item.key) ?? null }))
   }
-  // Workers KV has no bulk write in a binding. Check every entry first, so a rejected entry stops the call before any write.
   const setItemsOneByOneWithLimits = setItemsOneByOne(driver)
   driver.setItems = async (items, commonOptions) => {
     for (const item of items) assertCloudflareKVWrite(item.key, item.value)
     await setItemsOneByOneWithLimits(items, commonOptions)
   }
-  // Continuation state is keyed by the cursor that carries it. Consuming the
-  // state before awaiting the provider keeps concurrent traversals independent.
   const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
   const cursorHistories = createCursorHistory(cursorNamespace)
   let disposed = false
@@ -106,8 +98,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       await dispose?.call(driver)
     }
     finally {
-      // A listing already in flight may finish after the provider teardown.
-      // Clear again so it cannot publish a continuation for a closed driver.
       cursorHistories.clear()
     }
   }
@@ -144,8 +134,6 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
       throw error
     }
   }
-  // The unstorage driver clears the keys below a base. KV clears the keys that start with `prefix` as text, as `list()`
-  // matches them. It lists every key first, so a delete never moves a listing cursor.
   driver.clear = async (prefix = "") => {
     const keys: string[] = []
     let cursor: string | undefined

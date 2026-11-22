@@ -30,7 +30,6 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
   setIfAbsentItem?: (key: string, value: string, ttl?: number) => Promise<boolean>
 }
 
-/** The driver method behind each atomic KV operation. */
 const atomicDriverMethods = {
   deleteIfEquals: "deleteIfEqualsItem",
   getAndDelete: "getAndDeleteItem",
@@ -38,7 +37,6 @@ const atomicDriverMethods = {
   setIfAbsent: "setIfAbsentItem",
 } as const satisfies Record<KVAtomicOperation, keyof KVRuntimeDriver>
 
-// The type requires exactly the operations that `KVDriverAtomicOperations` lists for each driver.
 const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOperations[Driver], true> } = {
   "cloudflare": {},
   "database": { deleteIfEquals: true, getAndDelete: true, increment: true, setIfAbsent: true },
@@ -48,13 +46,11 @@ const driverAtomicOperations: { [Driver in KVDriver]: Record<KVDriverAtomicOpera
   "upstash": { deleteIfEquals: true, getAndDelete: true, increment: true, setIfAbsent: true },
 }
 
-/** Other optional unstorage methods that a driver has. */
 const otherOptionalDriverMethods: Partial<Record<KVDriver, readonly string[]>> = {
   "cloudflare": ["validateBatch"],
   "fs-lite": ["getItemRaw", "getMeta", "setItemRaw"],
 }
 
-/** Batch methods. A driver without one gets a version that calls the single-key method for each key. */
 const batchDriverMethods = new Set<PropertyKey>(["getItems", "setItems"])
 
 const lazyOptionalDriverMethods = Object.fromEntries(Object.entries(driverAtomicOperations).map(([driver, operations]) => [

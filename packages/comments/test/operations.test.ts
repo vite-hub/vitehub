@@ -786,7 +786,6 @@ describe("comments.resolve", () => {
     setup(defineComments({ authorize: () => true }))
     const thread = await create()
     expect(await call("comments.get", { threadId: thread.id })).toMatchObject({ ok: true, value: { id: thread.id } })
-    // The error names the fields, so an agent that sent `id` sees `threadId` in the same answer.
     expect(await call("comments.get", { id: thread.id })).toMatchObject({ message: expect.stringContaining("comments.get takes { threadId } or { n, scope }."), ok: false, status: 400 })
     expect(await call("comments.resolve", {})).toMatchObject({ message: expect.stringContaining("comments.resolve takes { threadId, reply? } or { threads }."), ok: false })
   })

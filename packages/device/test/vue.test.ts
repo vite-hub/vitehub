@@ -9,7 +9,6 @@ import type { Component } from "vue"
 import type { FakeDisk } from "./support.ts"
 import type { StoredDataContext, UseStoredDataReturn } from "../src/vue.ts"
 
-// Each test is one browser: a disk and a channel that outlive the pages of the test.
 const browser = { disk: createFakeDisk(), tabs: createFakeBrowser() }
 vi.mock("../src/indexeddb.ts", () => ({
   openIndexedDB: () => browser.disk.open(),
@@ -29,7 +28,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** A new page load: fresh modules, so a fresh device and fresh shared reads, on the same disk. */
 async function openPage() {
   vi.resetModules()
   const [device, vue] = await Promise.all([import("../src/index.ts"), import("../src/vue.ts")])
@@ -38,7 +36,6 @@ async function openPage() {
 
 type Page = Awaited<ReturnType<typeof openPage>>
 
-/** Mounts a component that renders what `read` returns, and returns its root and the read. */
 function mount<T>(read: () => UseStoredDataReturn<T, unknown>) {
   let result: UseStoredDataReturn<T, unknown> | undefined
   const app = createApp(defineComponent({
@@ -54,7 +51,6 @@ function mount<T>(read: () => UseStoredDataReturn<T, unknown>) {
   return { root, read: result! }
 }
 
-/** A loader that answers when the test says so. */
 function deferredLoader<T>() {
   const calls: { signal: AbortSignal, resolve: (value: T) => void, reject: (error: unknown) => void }[] = []
   const loader = ({ signal }: StoredDataContext) => new Promise<T>((resolve, reject) => {
@@ -65,7 +61,6 @@ function deferredLoader<T>() {
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
-/** A first visit as `ada` that stores the projects. */
 async function visit(projects: string[] = ["p1"], disk: FakeDisk = browser.disk) {
   const page = await openPage()
   await page.openDevice()
@@ -199,7 +194,6 @@ describe("useStoredData", () => {
     await first.setDeviceAccount("ada")
     const shown = mount(() => first.useStoredData("projects", deferredLoader<string[]>().loader, { default: () => [] }))
     expect(shown.root.textContent).toBe("[\"p1\"] pending stored")
-    // A second tab of the same browser: its own modules, on the same disk and channel.
     const second = await openPage()
     await second.openDevice()
     expect(await second.clearDevice()).toEqual([undefined, undefined])
@@ -216,7 +210,6 @@ describe("useStoredData", () => {
     const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
     await page.setDeviceAccount("grace")
     expect(calls[0]!.signal.aborted).toBe(true)
-    // The loader of `ada` answers late and does not look at its signal.
     calls[0]!.resolve(["ada only"])
     await tick()
     expect(root.textContent).toBe("[] pending")
@@ -258,7 +251,6 @@ describe("useStoredData", () => {
     expect(root.textContent).toBe("[\"before\"] success")
     await page.setDeviceAccount("ada")
     await tick()
-    // The answer stays on the screen, and the read calls its loader again.
     expect(root.textContent).toBe("[\"before\"] pending")
     expect(browser.disk.keys).toEqual([])
     expect(calls).toHaveLength(2)
@@ -293,7 +285,6 @@ describe("useStoredData", () => {
     await page.setDeviceAccount("ada")
     const { calls, loader } = deferredLoader<string[]>()
     const { root } = mount(() => page.useStoredData("projects", loader, { default: () => [] }))
-    // Another tab signs in as `grace`. This tab drops everything and calls its loader again, with the session it had.
     const other = await openPage()
     await other.openDevice()
     await other.setDeviceAccount("grace")
@@ -376,7 +367,6 @@ describe("useStoredData", () => {
     await page.setDeviceAccount("ada")
     const stays = mount(() => page.useStoredData("project:p1", async () => "p1 of the component that stays"))
     const id = ref("p1")
-    // The loader of this component reads `id`, so after the move it loads p2.
     const moves = mount(() => page.useStoredData(() => `project:${id.value}`, async () => `${id.value} of the component that moves`))
     await tick()
     await moves.read.refresh()
@@ -404,7 +394,6 @@ describe("hydration", () => {
     vi.restoreAllMocks()
   })
 
-  /** A component that renders the projects of the page. */
   function list(page: Page, loader: ListLoader): Component {
     return defineComponent({
       setup() {
@@ -414,7 +403,6 @@ describe("hydration", () => {
     })
   }
 
-  /** Renders the app as a server does: in a page without a document. */
   async function serverRender(app: (page: Page) => Component): Promise<string> {
     vi.stubGlobal("document", undefined)
     try {
@@ -426,7 +414,6 @@ describe("hydration", () => {
     }
   }
 
-  /** Hydrates the server HTML in the browser, and returns the root and the hydration mismatches that Vue logged. */
   function hydrate(html: string, component: Component) {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined)
@@ -538,7 +525,6 @@ describe("the read that says who is signed in", () => {
     session.calls[0]!.resolve({ user: { id: "ada" } })
     await tick()
     expect(shown.root.textContent).toBe("{\"user\":{\"id\":\"ada\"}} success")
-    // The read that named the account keeps its answer and calls its loader once. The other read starts over.
     expect(session.calls).toHaveLength(1)
     expect(projects.calls[0]!.signal.aborted).toBe(true)
     projects.calls[1]!.resolve(["p1"])
@@ -576,7 +562,6 @@ describe("the read that says who is signed in", () => {
     const projects = deferredLoader<string[]>()
     mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
     const list = mount(() => page.useStoredData("projects", projects.loader, { default: () => [] }))
-    // The stored copy shows, and its loader waits for the naming, so it runs once.
     expect(list.root.textContent).toBe("[\"p1\"] pending stored")
     expect(projects.calls).toHaveLength(0)
     session.calls[0]!.resolve({ user: { id: "ada" } })
@@ -655,7 +640,6 @@ describe("the read that says who is signed in, against other changes", () => {
   const accountOf = (session: Session) => session.user?.id ?? null
 
   beforeEach(() => {
-    // The failed reset prints DEVICE_STORAGE_FAILED once.
     vi.spyOn(console, "warn").mockImplementation(() => undefined)
   })
 
@@ -672,7 +656,6 @@ describe("the read that says who is signed in, against other changes", () => {
     mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
     session.calls[0]!.resolve({ user: { id: "ada" } })
     await tick()
-    // Bob signs in, in another tab.
     const other = await openPage()
     await other.openDevice()
     await other.setDeviceAccount("bob")
@@ -682,7 +665,6 @@ describe("the read that says who is signed in, against other changes", () => {
     await tick()
     expect(browser.disk.meta).toMatchObject({ account: "bob" })
     expect(page.inspectDevice().account).not.toBe("ada")
-    // The read starts over, and the answer of the new call names Bob.
     session.calls.at(-1)!.resolve({ user: { id: "bob" } })
     await tick()
     await tick()
@@ -696,7 +678,6 @@ describe("the read that says who is signed in, against other changes", () => {
     let projectCalls = 0
     mount(() => page.useStoredData("session", session.loader, { account: accountOf }))
     const shown = mount(() => page.useStoredData("projects", () => {
-      // The call that the naming of Ada starts names Bob at once.
       if (++projectCalls === 2) void page.setDeviceAccount("bob")
       return new Promise<string[]>(() => undefined)
     }))
@@ -755,7 +736,6 @@ describe("the read that says who is signed in, and the reads it holds", () => {
   type Session = { user: { id: string } | null }
   const accountOf = (session: Session) => session.user?.id ?? null
 
-  /** A first visit as `ada` that stores `projects` and `settings`. */
   async function visitBoth() {
     const page = await openPage()
     await page.openDevice()
@@ -852,7 +832,6 @@ describe("the read that says who is signed in, and the reads it holds", () => {
     expect(projectCalls).toHaveLength(0)
     session.calls[0]!.reject(new Error("offline"))
     await tick()
-    // The projects loader started the session read again, so settings waits for it.
     expect(projectCalls).toHaveLength(1)
     expect(settings.calls).toHaveLength(0)
     session.calls[1]!.resolve({ user: { id: "ada" } })
@@ -886,7 +865,6 @@ describe("the read that says who is signed in, and the reads it holds", () => {
 })
 
 describe("useStoredFetch", () => {
-  /** A server for `fetch()`: each request waits until the test answers it. */
   function fakeServer() {
     const requests: { url: string, init: RequestInit, answer: (status: number, body: unknown) => void }[] = []
     vi.stubGlobal("fetch", (url: string, init: RequestInit) => new Promise<Response>((resolve) => {
@@ -914,8 +892,6 @@ describe("useStoredFetch", () => {
     expect(root.textContent).toBe("[\"p1\"] success")
     expect(browser.disk.keys).toEqual(["/api/projects?open=true&page=2&sort=name&team=t1"])
 
-    // The next page load shows the copy in its first render, for a URL written with another order and an absolute URL on
-    // the origin of the page.
     const next = await openPage()
     await next.openDevice()
     const again = mount(() => next.useStoredFetch<string[]>(`${location.origin}/api/projects?team=t1`, { query: { page: 2, sort: "name", open: true }, default: () => [] }))
@@ -964,7 +940,6 @@ describe("useStoredFetch", () => {
     const page = await openPage()
     await page.openDevice()
     const { read } = mount(() => page.useStoredFetch<{ user: { id: string } | null }>("/api/session", { account: session => session.user?.id ?? null }))
-    // A JSON error body with `user: null` must not sign the person out of the device.
     requests[0]!.answer(401, { user: null })
     await tick()
     await tick()
@@ -996,11 +971,9 @@ describe("useStoredFetch", () => {
     const team = ref("t1")
     const stays = mount(() => page.useStoredFetch<string[]>("/api/projects", { query: { team: "t1" } }))
     const moves = mount(() => page.useStoredFetch<string[]>("/api/projects", { query: () => ({ team: team.value }) }))
-    // The component that moves calls the shared read of t1 last, then moves to t2.
     void moves.read.refresh()
     team.value = "t2"
     await tick()
-    // A clear starts every read over: the read of t1 must ask for t1 again.
     await page.clearDevice()
     await tick()
     expect(requests.map(request => request.url)).toEqual([

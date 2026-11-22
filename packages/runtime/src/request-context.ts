@@ -62,11 +62,6 @@ export function firstAddress(value: object, paths: readonly (readonly string[])[
  */
 export const requestAddressPaths = [["context", "clientAddress"], ["ip"], ["runtime", "node", "req", "socket", "remoteAddress"]] as const
 
-/**
- * The `~standard` properties of a Request that no framework wraps, such as the Request of a Fetchable server
- * entry. srvx and Nitro put the host data on the Request: `runtime.cloudflare`, `waitUntil`, and `ip`.
- * Nothing reads `res` for you. Copy `res.status` and `res.headers` to the Response that you return.
- */
 class RequestStandardProps implements ViteHubStandardProps {
   readonly vendor = "fetch"
   readonly req: Request

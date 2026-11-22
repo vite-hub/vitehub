@@ -1,17 +1,3 @@
-// Starts the Console build of one host on this machine and runs scripts/smoke.mjs and scripts/env-smoke.mjs against it.
-// CI runs it for each host, so console.vitehub.dev and every self-hosted Console run the same checks on the same commit.
-//
-// The build starts three times on one database: with env values off, as console.vitehub.dev runs, then with values on,
-// then with values on and another key.
-//
-//   VITEHUB_HOST=<host> vp build && node scripts/host-smoke.mjs <host>
-//
-// node:       `node .output/server/index.mjs` with SQLite in VITEHUB_DATA_DIR (default .data), as in the Dockerfile.
-// cloudflare: `wrangler d1 migrations apply --local`, then `wrangler dev` with a local D1.
-// vercel:     `vitehub database migrate` on a file: libSQL URL, then the Vercel function behind a static file server.
-//
-// Build the Console page first (`vp run --filter vite-hub build:console-account`), or the smoke fails on the placeholder.
-// PORT picks the port, 3000 by default.
 import { spawn } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs"
@@ -38,7 +24,6 @@ const secrets = { BETTER_AUTH_SECRET: randomBytes(32).toString("hex"), VITEHUB_C
 const temp = mkdtempSync(join(tmpdir(), `vitehub-console-${host}-`))
 const children = []
 const output = []
-// The Vercel function runs in this process and logs with `console`, so the smoke prints with these instead.
 const print = text => process.stdout.write(`${text}\n`)
 const printError = text => process.stderr.write(`${text}\n`)
 
@@ -59,10 +44,8 @@ async function exec(command, args, env) {
   return Buffer.concat(stdout).toString()
 }
 
-/** Stop a server that `run()` started, and wait until its port is free, so the next start answers on it. */
 async function halt(child) {
   const exited = child.exitCode === null && child.signalCode === null ? new Promise(done => child.once("exit", done)) : undefined
-  // The group can be gone before Node reports the exit.
   const signal = (name) => {
     try {
       process.kill(-child.pid, name)
@@ -91,7 +74,6 @@ async function halt(child) {
   throw new Error(`${base} still answers after the server stopped`)
 }
 
-/** Run SQL on a SQLite or file: libSQL database. Returns the rows of a SELECT. */
 function sqlite(file) {
   return (text) => {
     const db = new DatabaseSync(file, { timeout: 10_000 })
@@ -125,22 +107,18 @@ function need(path, build) {
   if (!existsSync(resolve(root, path))) throw new Error(`${path} is missing. Build it first: ${build}`)
 }
 
-// Each host has `start(vars)`, which starts the build with extra variables and returns its stop function, `sql(text)` on
-// the database of the build, and `extra` checks, which run after the shared smoke.
 const hosts = {
   async node() {
     need(".output/server/index.mjs", "VITEHUB_HOST=node vp build")
     const dataDir = resolve(root, process.env.VITEHUB_DATA_DIR ?? ".data")
     const database = join(dataDir, "database/sqlite.db")
     return {
-      // The server applies the migrations when it starts.
       async start(vars) {
         const child = run(process.execPath, [".output/server/index.mjs"], { ...secrets, ...vars, HOST: "127.0.0.1", PORT: String(port) })
         await ready(child)
         return () => halt(child)
       },
       sql: sqlite(database),
-      // The Dockerfile mounts only the data folder, so a database outside it is lost with the container.
       extra: [["keeps SQLite in the data folder", () => {
         if (!existsSync(database)) throw new Error(`${database} does not exist`)
       }]],
@@ -151,8 +129,6 @@ const hosts = {
     const config = ".output/server/wrangler.json"
     const state = join(temp, "wrangler")
     await exec(wrangler, ["d1", "migrations", "apply", "DB", "--local", "--config", config, "--persist-to", state])
-    // The build sets the build date as the compatibility date. The local workerd may not know that date yet, so run with
-    // the newest date that it supports when the build date is newer.
     const built = JSON.parse(readFileSync(resolve(root, config), "utf8")).compatibility_date
     const supported = workerdCompatibilityDate()
     const date = supported && supported < built ? supported : built
@@ -166,7 +142,6 @@ const hosts = {
         await ready(child)
         return () => halt(child)
       },
-      // The local D1 of `wrangler dev`, the same SQLite file that the Worker uses.
       async sql(text) {
         const out = await exec(wrangler, ["d1", "execute", "DB", "--local", "--config", config, "--persist-to", state, "--json", "--command", text])
         const results = JSON.parse(out.slice(out.indexOf("[")))
@@ -177,14 +152,11 @@ const hosts = {
   },
   async vercel() {
     need(".vercel/output/functions/__server.func/index.mjs", "VITEHUB_HOST=vercel vp build")
-    // The deploy steps of the README: migrate the hosted libSQL database, then deploy the prebuilt output.
     const file = join(temp, "console.db")
     const database = { TURSO_DATABASE_URL: pathToFileURL(file).href, TURSO_AUTH_TOKEN: "" }
     await exec(vitehub, ["database", "migrate"], { ...database, VITEHUB_HOST: "vercel" })
     Object.assign(process.env, secrets, database)
-    // The function runs in this process and reads process.env on each request, so a new start sets other variables.
     await serveVercel(resolve(root, ".vercel/output"))
-    // Its logs go with the server output, which the smoke prints when a check fails.
     for (const level of ["debug", "error", "info", "log", "warn"]) console[level] = (...args) => output.push(Buffer.from(`${format(...args)}\n`))
     return {
       async start(vars) {
@@ -200,10 +172,8 @@ const hosts = {
   },
 }
 
-/** The newest compatibility date of the workerd that Wrangler runs. */
 function workerdCompatibilityDate() {
   try {
-    // pnpm links node_modules/wrangler into its store, where Wrangler's own dependencies live.
     const fromWrangler = createRequire(realpathSync(resolve(root, "../../node_modules/wrangler/package.json")))
     const fromMiniflare = createRequire(fromWrangler.resolve("miniflare"))
     return fromMiniflare("workerd").compatibilityDate
@@ -215,10 +185,6 @@ function workerdCompatibilityDate() {
 
 const types = { ".css": "text/css", ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".mjs": "text/javascript", ".svg": "image/svg+xml", ".wasm": "application/wasm", ".woff2": "font/woff2" }
 
-/**
- * Vercel serves a file of `static/` first and sends other paths to the function (`{ "handle": "filesystem" }` in
- * config.json). Every route of the Console goes to the same `__server` function.
- */
 async function serveVercel(dir) {
   const handler = (await import(pathToFileURL(join(dir, "functions/__server.func/index.mjs")).href)).default
   const server = createServer(async (req, res) => {
@@ -232,7 +198,6 @@ async function serveVercel(dir) {
       }
       const body = req.method === "GET" || req.method === "HEAD" ? undefined : Readable.toWeb(req)
       const headers = new Headers(Object.entries(req.headers).flatMap(([name, value]) => [value].flat().map(item => [name, item])))
-      // Vercel sets the client address on every request.
       headers.set("x-forwarded-for", req.socket.remoteAddress)
       headers.set("x-real-ip", req.socket.remoteAddress)
       const request = new Request(url, { method: req.method, headers, body, duplex: "half" })
@@ -270,7 +235,6 @@ let failures = []
 try {
   print(`Console on ${host} at ${base}`)
   const server = await hosts[host]()
-  // Off is the config of console.vitehub.dev.
   let stopServer = await server.start({})
   failures = await smoke(base, print)
   failures.push(...await runChecks(server.extra, [], print))
@@ -299,5 +263,4 @@ if (failures.length) {
   process.exitCode = 1
 }
 else print(`\nAll checks passed on ${host}.`)
-// The Vercel function keeps timers and connections open in this process.
 process.exit()

@@ -17,7 +17,6 @@ export type SandboxNetworkPolicy =
 /** A validated policy. An empty allowlist is `"deny-all"`, and `"*"` is `"allow-all"`. Hostnames are lowercase, unique, and sorted. */
 export type NormalizedSandboxNetworkPolicy = "allow-all" | "deny-all" | { allow: string[] };
 
-// Cloudflare takes at most 128 outbound intercepts per Container. Each host needs two: HTTP and HTTPS.
 const maxCloudflareAllowedHosts = 64;
 
 const label = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
@@ -58,10 +57,6 @@ export function sandboxNetworkAuthority(policy: NormalizedSandboxNetworkPolicy):
   return "restricted";
 }
 
-/**
- * Cloudflare decrypts HTTPS to allowed hosts and signs it again with this CA. It exists while HTTPS interception is on.
- * `exec()` does not inherit the environment of the Container start, so every command gets these variables.
- */
 const cloudflareContainerCa = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 
 export const cloudflareInterceptedHttpsEnv: Readonly<Record<string, string>> = Object.freeze({

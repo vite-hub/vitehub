@@ -32,7 +32,6 @@ describe("Runtime representation guards", () => {
     })
 
     it("accepts Responses of the class that the server installed as the global Response", () => {
-      // Like srvx's NodeResponse: its getters read private fields.
       class ServerResponse {
         #status: number
         constructor(_body?: unknown, init?: { status?: number }) {

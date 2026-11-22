@@ -58,7 +58,6 @@ export function collectDurability(entries: readonly DurabilityEntry[], env: Reco
   const run = (entry: DurabilityEntry): readonly Durability[] => {
     const done = results.get(entry)
     if (done) return done
-    // A cycle reports nothing for the primitive that is still running.
     if (running.has(entry)) return []
     running.add(entry)
     const reports = entry.report(context)
@@ -134,7 +133,6 @@ export const instancesEnvName = "VITEHUB_INSTANCES"
 
 interface DurabilityDiagnosticData extends Record<string, unknown> {
   instances: number
-  /** One line per primitive that would split its state, with its fix. */
   lines: string[]
   primitives: string[]
 }

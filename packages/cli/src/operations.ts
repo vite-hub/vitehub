@@ -14,18 +14,13 @@ import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operatio
 
 type JsonSchema = Record<string, unknown>
 
-/** How a flag reads its text. `json` flags take a JSON document, such as `--body '{"a":1}'`. */
 type FlagType = "boolean" | "integer" | "json" | "list" | "number" | "string"
 
 interface Flag {
   description?: string
-  /** The type of the items of a `list`. */
   item?: FlagType
-  /** The flag may be the literal `null`. */
   nullable: boolean
-  /** A union of scalars, such as `string | number`, tried in this order. */
   alternatives: FlagType[]
-  /** The key of the operation input. */
   key: string
   required: boolean
   type: FlagType
@@ -43,7 +38,6 @@ export async function loadCliOperations(plugins: readonly unknown[], stderr: Vit
       stderr.write(`Could not load the operations of ${contribution.plugin} from ${contribution.module}: ${error instanceof Error ? error.message : String(error)}\n`)
     }
   }
-  // Two commands with one name fail here, with INTERNAL_B0049.
   return createOperationRegistry(sources).list()
 }
 
@@ -61,7 +55,6 @@ function isObject(value: unknown): value is JsonSchema {
 
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
-/** Reads the type of a JSON Schema node. Objects, unknown values, and lists of objects are JSON. */
 function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType, nullable: boolean, type: FlagType } {
   if (!isObject(schema)) return { alternatives: [], nullable: false, type: "json" }
   const options = Array.isArray(schema.anyOf) ? schema.anyOf : Array.isArray(schema.oneOf) ? schema.oneOf : undefined
@@ -73,7 +66,6 @@ function readType(schema: unknown): { alternatives: FlagType[], item?: FlagType,
     if (present.length === 1) return { ...present[0]!, nullable }
     const scalars = present.map(part => part.type)
     if (scalars.every(type => type !== "json" && type !== "list")) {
-      // A union with a string stays a string. Without one, the value takes the first scalar type that it parses as.
       return { alternatives: scalars.includes("string") ? ["string"] : scalars, nullable, type: scalars.includes("string") ? "string" : scalars[0]! }
     }
     return { alternatives: [], nullable, type: "json" }
@@ -184,7 +176,6 @@ function convert(flag: Flag | undefined, name: string, raw: string): unknown {
   if (!flag) return raw
   if (flag.nullable && raw === "null") return null
   if (flag.alternatives.length > 1) {
-    // A string|number union stays a string. Other unions take the first type that the text parses as.
     for (const type of flag.alternatives) {
       try {
         return convertScalar(type, name, raw)
@@ -212,7 +203,6 @@ function assign(input: Record<string, unknown>, flag: Flag | undefined, key: str
   input[key] = convert(flag, name, raw)
 }
 
-/** `--input '{"a":1}'` or `--input @file.json`. */
 function readWholeInput(raw: string, cwd: string): Record<string, unknown> {
   let text = raw
   if (raw.startsWith("@")) {
@@ -283,7 +273,6 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
       assign(parsed.input, flags.find(flag => flag.key === key), key, kebab(key), arg)
     }
   }
-  // Flags and positionals override the whole input.
   parsed.input = { ...whole, ...parsed.input }
   return parsed
 }
@@ -297,7 +286,6 @@ function writeFailure(failure: OperationFailure, parsed: Pick<ParsedCall, "json"
   return 1
 }
 
-/** A coded failure for a thrown diagnostic. */
 function failureOf(error: unknown, status = 400): OperationFailure {
   const code = Reflect.get(Object(error), "code")
   const fix = Reflect.get(Object(error), "fix")
@@ -320,22 +308,15 @@ async function confirm(operation: AnyOperation, target: string): Promise<boolean
   }
 }
 
-/** The roots that the CLI accepts a dev server for: the Vite root and the ViteHub project root. */
 function acceptedRoots(rootDir: string): string[] {
   const roots = new Set([rootDir])
   try {
     roots.add(resolveViteHubProjectRoot(rootDir))
   }
-  catch {
-    // The Vite root alone is enough to compare.
-  }
+  catch {}
   return [...roots]
 }
 
-/**
- * Where a command sends its call: `--url`, else the dev server that wrote `.vitehub/dev-server.json` in this project,
- * else `VITEHUB_DEV_SERVER_URL`. There is no guess: another project may use port 5173.
- */
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
   if (parsed.url) {
     const message = appUrlError(parsed.url)
@@ -345,7 +326,6 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
   const roots = acceptedRoots(context.rootDir)
   const found = findViteHubDevServerUrl(roots, context.env)
   if (found) return { target: found }
-  // Name the project root, not the Vite root: in a Nuxt app, the Vite root is the `app/` source folder.
   const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
   return { failure: failureOf(error, 503) }
 }
@@ -382,14 +362,12 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
       let confirmed = parsed.yes
-      // A call that only reads, such as a dry run, needs no confirmation.
       if (operation.kind === "destructive" && !parsed.yes && !reads) {
         if (!(process.stdin.isTTY && process.stderr.isTTY) || !await confirm(operation, target)) {
           return writeFailure(failureOf(cliErrorDiagnostics.CLI_R0004({ message: `${operation.name} changes or removes data and was not confirmed.` })), parsed, context)
         }
         confirmed = true
       }
-      // The server parses the original input once and verifies confirmation against that result.
       const result = await callOperation({
         confirmed,
         env: context.env,
@@ -408,7 +386,6 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
   }
 }
 
-/** `vitehub <namespace> <group> <command>`: one feature that runs the commands whose name starts with `<group> `. */
 function groupOf(namespace: string, name: string, commands: readonly ViteHubCliFeature[]): ViteHubCliFeature {
   const usage = `vitehub ${namespace} ${name} <${commands.map(command => command.name).join("|")}> [args...]`
   const help = () => {
@@ -469,7 +446,6 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
   }
   for (const group of groups.values()) {
     const namespace = namespaces.get(group.namespace)!
-    // An operation command with the group name wins, as a hand-written command wins over a generated one.
     if (!namespace.features.some(feature => feature.name === group.name)) namespace.features.push(groupOf(group.namespace, group.name, group.commands))
   }
   return [...namespaces.values()]

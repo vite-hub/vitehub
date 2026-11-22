@@ -536,7 +536,6 @@ describe("contributed tables at build time", () => {
     ].join("\n"))
     const module = await audit("id: text('id').primaryKey()")
     const config = await generate(rootDir, contributions({ definition: { module }, name: "audit", plugin: "audit/vite" }))
-    // No migration yet: every contributed table is missing.
     expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
       code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
       why: expect.stringContaining("the table \"audit_log\" from \"audit\""),
@@ -544,7 +543,6 @@ describe("contributed tables at build time", () => {
     await execFileAsync(process.execPath, [drizzleKit, "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
     await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
 
-    // A new version of the package adds a column. The app did not write the table, so only the build can tell it.
     await audit("id: text('id').primaryKey(), requestId: text('request_id')")
     expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
       code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
@@ -633,7 +631,6 @@ describe("contributed tables at build time", () => {
   it("does not check a Database whose newest migration has no snapshot", async () => {
     const rootDir = await createProject()
     const config = await generate(rootDir)
-    // A hand-written D1 migration: its tables are not known.
     await writeProjectFile(rootDir, "server/databases/default/migrations/0001_history.sql", "CREATE TABLE history_refs (workspace text PRIMARY KEY, head text);\n")
     await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
   })

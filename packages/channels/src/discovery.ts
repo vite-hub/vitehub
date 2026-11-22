@@ -28,7 +28,6 @@ function createDiscoveredChannelDefinition(source: DiscoveredChannelDefinition["
   })
 }
 
-// Default exports that cannot be a Channel Definition object.
 const nonDefinitionTypes = new Set<string>([
   "ArrayExpression",
   "ArrowFunctionExpression",
@@ -41,7 +40,6 @@ const nonDefinitionTypes = new Set<string>([
   "UnaryExpression",
 ])
 
-// A default export that is an object literal must carry `adapter`, unless a spread or computed key can add it.
 function canBeChannelDefinitionObject(value: Node): boolean {
   if (value.type !== "ObjectExpression") return true
   return objectProperties(value).some(property => property.node.type === "SpreadElement" || property.key === undefined || property.key === "adapter")
@@ -51,11 +49,6 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
   return node.type === "Identifier" ? node.name : node.value
 }
 
-/**
- * A module in `server/channels` is a Channel when its default export can be a `defineChannel()` result: not a
- * function, a class, a primitive, an array, or an object literal without `adapter`. The module is read, not run. A module
- * that cannot be read statically stays a Channel, so the runtime reports its problems.
- */
 function isChannelModule(file: string): boolean {
   return isOutboundChannelSource(readFileSync(file, "utf8"), file)
 }
@@ -74,7 +67,6 @@ export function isOutboundChannelSource(source: string, file: string): boolean {
     if (statement.type === "ImportDeclaration") continue
     if (statement.type === "ExportDefaultDeclaration") {
       const declaration = statement.declaration
-      // An interface is a type. The module has no default export at runtime.
       if (declaration.type === "TSInterfaceDeclaration") continue
       hasDefault = true
       defaultExport = declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" ? declaration : unwrapExpression(declaration)
@@ -82,7 +74,6 @@ export function isOutboundChannelSource(source: string, file: string): boolean {
     }
     if (statement.type === "ExportAllDeclaration") {
       if (statement.exportKind === "type") continue
-      // `export *` can re-export a default from a module that this check does not read.
       if (!statement.exported) reexportsAll = true
       else if (exportName(statement.exported) === "default") hasDefault = true
       continue
@@ -123,7 +114,6 @@ export function isOutboundChannelSource(source: string, file: string): boolean {
   return value.type === "CallExpression" || (!nonDefinitionTypes.has(value.type) && canBeChannelDefinitionObject(value))
 }
 
-// `webhook()` and `stripe()` come from the adapters entry, which `@vite-hub/agent/channels` re-exports.
 const channelModules = new Set(["vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 const webhookAdapterNames = new Set(["stripe", "webhook"])
 

@@ -10,11 +10,10 @@ export type RealtimeRequestFailure = {
 
 type RealtimeInvalidAccessReason = "auth" | "not-authorize" | "not-public" | "origins-without-identify" | "public-with-rule"
 
-// Keep published codes stable. Each code has a heading on the docs page.
 export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/realtime/diagnostics",
   codes: {
-    // Client errors. `save()`, `history.checkpoint()`, and `refresh()` return them as `[error, undefined]`.
+    // Client errors.
     REALTIME_DISABLED: {
       why: ({ action }: { action: RealtimeRequestAction }) => `Realtime is disabled, so \`${action}()\` cannot run.`,
       fix: "Set `enabled` to `true` on `useRealtimeTiptap()` before you call the method.",
@@ -54,7 +53,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Call the method again when `synced` is true. When it keeps failing, check that the WebSocket stays connected.",
     },
 
-    // Room request errors. `requestRealtimeRoom()` returns them as `[error, undefined]`.
+    // Room request errors.
     REALTIME_ROOM_ABORTED: {
       why: "The request to the room stopped because its signal aborted.",
       fix: "Nothing to fix when the caller stopped on purpose, such as a cancelled Agent run. Call again to ask once more.",
@@ -84,7 +83,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Make the page answer sooner, or pass a longer `timeout` to `requestRealtimeRoom()`.",
     },
 
-    // Room errors. The server closes the WebSocket with a close code, so the client sees them in the stream.
+    // Room errors.
     REALTIME_AWARENESS_OWNERSHIP_CONFLICT: {
       why: "A realtime awareness client id belongs to another peer.",
       fix: "Let each editor tab use its own Yjs awareness client. Do not reuse a client id on two connections.",
@@ -106,7 +105,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Use one awareness client for each editor tab.",
     },
 
-    // Room write errors. The server rejects the write of a peer with them, and reports a failed room save.
+    // Room write errors.
     REALTIME_ROOM_WRITE_CONFLICT: {
       why: "Realtime room record compare-and-set failed.",
       fix: "Connect again. Another Realtime instance changed the room at the same time. If it keeps failing, check that every instance uses the same Realtime bus.",
@@ -120,13 +119,13 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Write only through a writable connection, and do not change the `status` map, which the server writes. A client that misses room state connects again to sync it.",
     },
 
-    // Adapter errors. A document adapter throws `RealtimeDocumentConflict`, and the room re-seeds.
+    // Adapter errors.
     REALTIME_DOCUMENT_CONFLICT: {
       why: ({ problem }: { problem?: string }) => problem ?? "The stored document changed since the realtime room loaded it.",
       fix: "Realtime re-seeds the room from the stored document. Listen to `onReset()` to recover text that the room did not save.",
     },
 
-    // Config errors. The server throws them, because the code or the deployment must change.
+    // Config errors.
     REALTIME_BLOB_ETAG_MISSING: {
       why: ({ pathname }: { pathname: string }) => `The Blob store returned no \`httpEtag\` for ${pathname}, so \`blobDocument()\` cannot save the file only if it is unchanged.`,
       fix: "Pass a ViteHub Blob store, such as `blob` from `vite-hub/blob`, whose `head()` returns `httpEtag` on every driver. A store of your own must return `httpEtag` from `head()` and accept `ifMatch` in `put()`.",
@@ -189,7 +188,7 @@ export const realtimeErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Make the document adapter `save()` finish in less than 30 seconds. Realtime tries the save again.",
     },
 
-    // Build errors. The Vite integration throws them when it reads the config.
+    // Build errors.
     REALTIME_DRIVER_CONFLICT: {
       why: ({ driver, host }: { driver: "cloudflare" | "memory" | "postgres" | "redis", host: string }) => driver === "memory"
         ? `Realtime driver "memory" is single-process only, and the ${host} host runs more than one process.`

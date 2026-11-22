@@ -10,7 +10,6 @@ export async function stopChild(child, graceMs = 500) {
       closed,
       new Promise(resolve => { timer = setTimeout(resolve, graceMs) }),
     ])
-    // The process group can outlive its leader, so also stop surviving descendants.
     signalChild(child, "SIGKILL")
     await closed
     await waitForGroupExit(child)
@@ -49,7 +48,6 @@ export async function hasLiveGroupMember(pid) {
       if (Number(fields[2]) === pid && fields[0] !== "Z") return true
     }
     catch (error) {
-      // A process can exit after /proc is enumerated but before its stat file is read.
       if (error.code !== "ENOENT" && error.code !== "ESRCH") throw error
     }
   }
@@ -70,7 +68,6 @@ function signalChild(child, signal) {
   }
 }
 
-// Keep signal cleanup active until the provider has been reaped.
 export function manageChild(...initialChildren) {
   const children = new Set(initialChildren)
   let cleanup
@@ -107,7 +104,6 @@ export function manageChild(...initialChildren) {
       await stop()
     }
     finally {
-      // Restore Node's default signal termination, including its exit status.
       process.kill(process.pid, signal)
     }
   }

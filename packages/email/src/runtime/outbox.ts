@@ -74,7 +74,6 @@ interface EmailOutboxState {
   nextId: number
 }
 
-// The generated Email definition and the Console reader are separate bundles in one runtime. They share this state.
 const outboxState = Symbol.for("vitehub.email.outbox")
 
 type OutboxGlobal = typeof globalThis & { [outboxState]?: Map<string, EmailOutboxState> }
@@ -217,18 +216,14 @@ function failedDelivery(error: unknown): EmailOutboxDelivery {
   try {
     shape = getViteHubErrorShape(error)
   }
-  catch {
-    // Provider errors can be proxies whose properties throw while being inspected.
-  }
+  catch {}
   let code: string | undefined = shape?.code
   if (code === undefined) {
     try {
       const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
       code = coded.success ? coded.output.code : undefined
     }
-    catch {
-      // Keep the delivery record inspectable even when the provider value is hostile.
-    }
+    catch {}
   }
   let message: string
   try {
@@ -289,7 +284,6 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
     driver = await createEmailDriverResolver(options.driver)()
   }
   catch (error) {
-    // Keep the message visible when the provider options cannot be resolved, then report the original failure.
     return {
       name: options.provider,
       send(message) {
@@ -319,7 +313,6 @@ export async function createEmailDevOutboxDriver(options: EmailDevOutboxDriverOp
         captured.delivery = { id: sent.id, status: "sent" }
       }
       else {
-        // Keep malformed provider responses out of the successful delivery history.
         captured.delivery = failedDelivery(new Error("Email driver returned an invalid message id."))
       }
       return result

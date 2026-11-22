@@ -183,7 +183,6 @@ describe("vitehub agent invocations through the Console of the app", () => {
 
   it("deletes through the Console only after a question or --yes", async () => {
     const app = localApp({ console: () => ({ deleted: true }) })
-    // Vitest has no terminal, so nothing can confirm.
     const refused = await run(["delete", "ainv_1", "--url", "http://localhost:3000"], app.fetch)
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("run it again with --yes")

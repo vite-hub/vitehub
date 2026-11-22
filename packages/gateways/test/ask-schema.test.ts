@@ -20,7 +20,6 @@ function isReceipt(value: unknown): value is Receipt {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "merchant") === "string" && typeof Reflect.get(value, "amount") === "number"
 }
 
-/** A Standard Schema with JSON Schema conversion, as Zod 4 and ArkType make. */
 const receipt = {
   "~standard": {
     jsonSchema: { input: () => structuredClone(receiptJsonSchema), output: () => structuredClone(receiptJsonSchema) },
@@ -61,7 +60,6 @@ describe("ask(prompt, { model, schema? })", () => {
     })
 
     expect(error).toBeUndefined()
-    // The schema output, after its own transforms.
     expect(data).toEqual({ amount: -34.9, merchant: "MERCADONA" })
     expectTypeOf(data).toEqualTypeOf<Receipt | undefined>()
     expect(calls).toHaveLength(1)

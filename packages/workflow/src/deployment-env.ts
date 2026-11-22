@@ -8,7 +8,6 @@ function entry(names: readonly string[], required: boolean, secret: boolean, has
   return { names, required, secret, hasDefault, owners }
 }
 
-/** The entry of `workflow.postgres.url` or `workflow.sqlite.path` when the config reads it from env. A literal reads none. */
 function valueEntry(value: WorkflowRuntimeConfigValue | undefined, secret: boolean): DeploymentEnvEntry[] {
   if (value === undefined || typeof value === "string") return []
   const names = value.source?.names ?? (value.source?.name ? [value.source.name] : [])
@@ -26,7 +25,6 @@ function valueEntry(value: WorkflowRuntimeConfigValue | undefined, secret: boole
 export function workflowDeploymentEnv(workflow: ResolvedWorkflowOptions | undefined): DeploymentEnvEntry[] {
   if (workflow?.driver !== "openworkflow") return []
   const { postgres, sqlite } = workflow
-  // A configured `namespaceId` or `schema` wins over its variable.
   const namespace = (configured: string | undefined) => configured ? [] : [entry(["OPENWORKFLOW_NAMESPACE_ID"], false, false, true)]
   const schema = postgres?.schema ? [] : [entry(["OPENWORKFLOW_SCHEMA"], false, false, true)]
   if (postgres?.url !== undefined) return [...valueEntry(postgres.url, true), ...namespace(postgres.namespaceId), ...schema]

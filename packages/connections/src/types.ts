@@ -85,50 +85,27 @@ interface ConnectionProviderOptions<TApis extends object> {
   readonly id: string
   readonly revocationEndpoint?: string
   readonly clientSecret?: ConnectionValue
-  /** Scopes added to each authorization request so the provider identifies the account. */
   readonly identityScopes?: readonly string[]
   readonly authorizationParams?: Readonly<Record<string, string>>
-  /** Typed API catalogs. Their root URLs receive the token. Default: none. */
   readonly apis?: { readonly [TApi in keyof TApis]: ConnectionApiCatalog }
-  /** Pacing, retries, and a timeout for provider requests. */
   readonly requests?: ConnectionRequestPolicy
-  /**
-   * Read the account identity from the token response of an authorization code exchange.
-   * Default: when `identityScopes` includes `openid`, the `sub` and `email` claims of the ID token.
-   */
   account?: (token: ConnectionTokenResponse) => ConnectionAccount | undefined
-  /** Type-only method map. It has no runtime value. */
   readonly "~apis"?: TApis
 }
 
-/** A provider with a client that you registered, and its endpoints. */
 interface ConnectionProviderClient {
   readonly authorizationEndpoint: string
   readonly tokenEndpoint: string
   readonly clientId: ConnectionValue
-  /**
-   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
-   * and `mcp({ servers: { name: { connection } } })` connects to it.
-   */
   readonly mcp?: string
   readonly clientName?: never
 }
 
-/**
- * A provider that ViteHub finds from its MCP endpoint, as MCP clients do. Each endpoint and the client that you
- * leave out come from the authorization server metadata. Without `clientId`, ViteHub registers a client
- * (RFC 7591) on the first Connect, stores it, and reuses it.
- */
 interface ConnectionProviderDiscovery {
   readonly authorizationEndpoint?: string
   readonly tokenEndpoint?: string
   readonly clientId?: ConnectionValue
-  /**
-   * The provider's MCP endpoint, for example `https://mcp.example.com/mcp`. The token is also sent there,
-   * and `mcp({ servers: { name: { connection } } })` connects to it.
-   */
   readonly mcp: string
-  /** The client name that the provider shows when a person approves access. Default: the host of the app. */
   readonly clientName?: string
 }
 
@@ -217,22 +194,8 @@ export interface ConnectionApiKeyProvider<TApis extends object = object> {
 }
 
 interface ConnectionDefinitionRules<TApis extends object, TSelection extends ConnectionApiSelection<TApis>> {
-  /**
-   * Markdown for the person who connects it: what to set up first, which account to choose, what to
-   * approve. The Console shows it on the Connection, and `inspect()` returns it. Without it, a
-   * `<name>.md` next to the definition file is used.
-   */
   docs?: string
-  /** API methods to expose. Omit to expose every method of every provider API. */
   api?: TSelection
-  /**
-   * Access rules by actor, for example `schedule:gmail` or `agent:labeller`. A rule is an object or
-   * the `"mcp"` preset, for an actor that only uses the provider's `mcp` endpoint.
-   * When set, actors not listed are denied. A discovered Agent without its own rule uses the rule of the
-   * nearest Agent it extends; an inline Agent that `runAgent()` runs gets only the rules that name it.
-   * When omitted, server actors may read and
-   * call non-high-risk writes, and Agent writes require approval.
-   */
   access?: Readonly<Record<string, ConnectionAccessRule<ConnectionActionPattern<TApis>> | ConnectionAccessPreset>>
 }
 
@@ -298,8 +261,6 @@ export interface ConnectionInstancesDefinition<
   readonly instances: readonly TInstance[]
   /** The Connection Definition of one instance. It runs once per process, when the instance is first used. */
   definition(instance: TInstance): TDefinition
-  // `api` and `access` belong in `definition`. Declaring them here lets `defineConnection()` report a
-  // wrong `api` or `access` entry of a plain definition at that entry.
   readonly api?: never
   readonly access?: never
 }

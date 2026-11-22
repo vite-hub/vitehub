@@ -1,6 +1,5 @@
 import type { Diagnostic } from "nostics"
 
-// These diagnostics use gateway-owned text, without provider bodies or credential values.
 const publicCodes = new Set(["GATEWAYS_R0002", "GATEWAYS_R0006", "GATEWAYS_R0008", "GATEWAYS_R0009", "GATEWAYS_R0011"])
 const publicDiagnostics = new WeakMap<Error, { message: string, fix?: string }>()
 

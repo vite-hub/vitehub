@@ -13,7 +13,6 @@ import type { ExecResult, OsDriver, OsHost, OsScheduleStatus, OsTimerSpec } from
 const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 const { join } = pathsFor("linux")
 
-// `installOsSchedule()` rejects line breaks before it renders, so this never runs.
 function lineBreak(): never {
   throw invariantError("a systemd value has a line break after validation")
 }
@@ -22,7 +21,6 @@ function pad(value: number): string {
   return String(value).padStart(2, "0")
 }
 
-/** `1..5`, `0,15,30,45`, or `*` when the list holds every value. Runs of three or more become ranges. */
 function calendarList(values: readonly number[], size: number, format: (value: number) => string = pad): string {
   if (values.length === size) return "*"
   const parts: string[] = []
@@ -41,10 +39,8 @@ function calendarList(values: readonly number[], size: number, format: (value: n
  * of the month with a restricted weekday, so that case takes two lines.
  */
 export function systemdCalendars(fields: CronFields, timeZone: string): string[] {
-  // Without a zone, systemd uses the machine time zone of the moment.
   const time = `${calendarList(fields.hours, 24)}:${calendarList(fields.minutes, 60)}:00${timeZone === "local" ? "" : ` ${timeZone}`}`
   const months = calendarList(fields.months, 12)
-  // systemd weeks start on Monday, and its weekday ranges cannot wrap past Sunday.
   const weekdays = calendarList(fields.weekdays.map(weekday => weekday || 7).sort((left, right) => left - right), 7, weekday => weekdayNames[weekday % 7]!)
   const byWeekday = `${weekdays} *-${months}-* ${time}`
   const byDay = `*-${months}-${calendarList(fields.days, 31)} ${time}`
@@ -93,7 +89,6 @@ export function renderSystemdTimer(spec: OsTimerSpec): string {
   ].join("\n")
 }
 
-/** Reads `systemctl show` output: blocks of `Key=value` lines, one block per unit, keyed by `Id`. */
 function parseSystemctlShow(output: string): Map<string, Map<string, string>> {
   const units = new Map<string, Map<string, string>>()
   for (const block of output.split(/\n\s*\n/)) {
@@ -108,14 +103,12 @@ function parseSystemctlShow(output: string): Map<string, Map<string, string>> {
   return units
 }
 
-/** `@1794841368` (`--timestamp=unix`) as a Date. Empty or `0` means never. */
 function unixTimestamp(value: string | undefined): Date | undefined {
   const seconds = Number(value?.replace(/^@/, ""))
   return value && Number.isFinite(seconds) && seconds > 0 ? new Date(seconds * 1000) : undefined
 }
 
 const statusProperties = ["Id", "LoadState", "FragmentPath", "ActiveState", "SubState", "NextElapseUSecRealtime", "LastTriggerUSec", "ExecMainStartTimestamp", "ExecMainExitTimestamp", "ExecMainCode", "ExecMainStatus", "Result"]
-// `ExecMainCode` values from `siginfo`: 1 exited, 2 killed, 3 dumped core.
 const exitedCode = "1"
 
 const marker = `# ${generatedHeader}`
@@ -125,10 +118,6 @@ interface UnitPaths {
   timer: string
 }
 
-/**
- * The unit or file that holds `name` when ViteHub did not install it: a file at our path without our header, or a
- * loaded unit that systemd reads from another file, such as /usr/lib/systemd/user/<name>.service or a transient unit.
- */
 async function foreignResource(host: OsHost, paths: UnitPaths, texts: { service?: string, timer?: string }, units: Map<string, Map<string, string>>, name: string): Promise<string | undefined> {
   for (const kind of ["service", "timer"] as const) {
     const text = texts[kind]
@@ -138,7 +127,6 @@ async function foreignResource(host: OsHost, paths: UnitPaths, texts: { service?
     if (!state || state === "not-found") continue
     const fragment = unit?.get("FragmentPath")
     if (!fragment) return `${name}.${kind}`
-    // systemd can print the path with symbolic links resolved, as for a ~/.config that links to a dotfiles folder.
     if (fragment !== paths[kind] && await host.fs.realpath(fragment) !== await host.fs.realpath(paths[kind])) return fragment
   }
   return undefined
@@ -159,14 +147,12 @@ export function userUnitDirectory(unitPath: string): string | undefined {
 /** systemd timers, as `systemctl --user` units or system units in /etc/systemd/system. */
 export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
   const user = scope === "user"
-  // `systemctl --user` finds the user manager through XDG_RUNTIME_DIR, which `sudo -u` and cron jobs do not set.
   const execEnv = user && !host.env.XDG_RUNTIME_DIR && host.uid !== undefined ? { XDG_RUNTIME_DIR: `/run/user/${host.uid}` } : undefined
   let directory: Promise<string> | undefined
 
   async function unitDirectory(): Promise<string> {
     if (!user) return "/etc/systemd/system"
     const result = await systemctl("show", "-p", "UnitPath", "--value")
-    // Without an answer, the next systemctl command returns the error. Until then, use the systemd default.
     return (result.code === 0 ? userUnitDirectory(result.stdout) : undefined) ?? join(host.env.XDG_CONFIG_HOME || join(host.homedir, ".config"), "systemd/user")
   }
 
@@ -206,7 +192,6 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
     return { ...(service === undefined ? {} : { service }), ...(timer === undefined ? {} : { timer }) }
   }
 
-  /** The resource that holds `name` when ViteHub did not install it in this scope. */
   async function foreign(name: string, files: UnitPaths, texts: { service?: string, timer?: string }): Promise<Result<string | undefined, OsScheduleErrorCode>> {
     const fileOwner = await foreignResource(host, files, texts, new Map(), name)
     if (fileOwner) return [undefined, fileOwner]
@@ -235,7 +220,6 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
         if (reloadError) return [reloadError, undefined]
         const [enableError] = await run("enable", unit)
         if (enableError) return [enableError, undefined]
-        // A restart reads the new OnCalendar= lines, and starts the timer when it was stopped.
         const [restartError] = await run("restart", unit)
         if (restartError) return [restartError, undefined]
       }
@@ -281,7 +265,6 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
         installed,
         running,
         ...(lastRunAt ? { lastRunAt } : {}),
-        // A signal ends the run with the shell's code for it, 128 + the signal number.
         ...(exited && !running && Number.isInteger(exitStatus) ? { lastExitCode: service?.get("ExecMainCode") === exitedCode ? exitStatus : 128 + exitStatus } : {}),
         ...(nextRunAt ? { nextRunAt } : {}),
         ...(lingering === undefined ? {} : { linger: lingering }),
@@ -295,19 +278,15 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       const texts = await readUnits(files)
       const logFile = logFileOf(texts.service)
       const nothing = { name, platform: "linux" as const, scope, removed: [], existed: false }
-      // Without our files there is nothing of ours to stop, and a unit of the same name is not ours.
       if (texts.service === undefined && texts.timer === undefined) return [undefined, nothing]
       const [foreignError, resource] = await foreign(name, files, texts)
       if (foreignError) return [foreignError, undefined]
       if (resource) return [undefined, nothing]
-      // A unit that systemd never loaded has nothing to stop.
       const notLoaded = /not loaded|does not exist|not found/i
       for (const args of [["disable", "--now", `${name}.timer`], ["stop", `${name}.service`]]) {
         const result = await systemctl(...args)
         if (result.code !== 0 && !notLoaded.test(commandOutput(result))) return failed(args, result)
       }
-      // Persistent=true keeps the time of the last run in a stamp file. A later install with the same name would read
-      // it and start a catch-up run at once. systemd before 243 has no `clean`, and then keeps the stamp.
       await systemctl("clean", "--what=state", `${name}.timer`)
       const removed: string[] = []
       for (const file of [files.timer, files.service, ...(logFile ? [logFile] : [])]) {
@@ -315,7 +294,6 @@ export function createSystemdDriver(host: OsHost, scope: OsScheduleScope): OsDri
       }
       const [reloadError] = await run("daemon-reload")
       if (reloadError) return [reloadError, undefined]
-      // Forget a failed last run, so `systemctl list-units --failed` does not show a unit that no longer exists.
       await systemctl("reset-failed", `${name}.service`, `${name}.timer`)
       return [undefined, { name, platform: "linux", scope, removed, existed: true }]
     },

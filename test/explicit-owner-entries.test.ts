@@ -11,7 +11,6 @@ interface OwnerEntry {
   source: string
 }
 
-// The public entries of each package, with their source file. `internal/*` entries are for ViteHub packages only.
 function publicOwnerEntries(): OwnerEntry[] {
   return packageInfos.flatMap((info) => {
     const exports = readPackageManifest(info.name).exports ?? {}
@@ -30,7 +29,6 @@ function relativeStarExports(source: string): string[] {
   return [...readFileSync(source, "utf8").matchAll(/^export\s+\*\s+from\s+["'](\.{1,2}\/[^"']+)["']/gm)].map(match => match[1]!)
 }
 
-// The value names that an entry exports. Types are not autocomplete noise in value position, so they are not listed.
 function valueExports(source: string): string[] {
   const file = ts.createSourceFile(source, readFileSync(source, "utf8"), ts.ScriptTarget.Latest)
   const names: string[] = []
@@ -52,7 +50,6 @@ function valueExports(source: string): string[] {
   return names.sort()
 }
 
-// Public entries that still forward a whole relative module. Remove an entry when it lists its names. Do not add one.
 const knownRelativeStarExports: Record<string, readonly string[]> = {
   "@vite-hub/agent/capabilities": ["./capabilities/index.ts"],
   "@vite-hub/agent/invocations": ["./d1.ts"],
@@ -101,7 +98,6 @@ const knownRelativeStarExports: Record<string, readonly string[]> = {
   "@vite-hub/workflow/openworkflow": ["./runtime/openworkflow-worker.ts"],
 }
 
-// Each value an app can import from these entries. A helper that only ViteHub packages use goes in `internal/*`.
 const pinnedOwnerEntries: Record<string, readonly string[]> = {
   "@vite-hub/comments": ["commentRoom", "commentsRoleAllows", "defaultPolicy", "defineCommentSubject", "defineComments", "describeCommentContext", "normalizeCommentPage"],
   "@vite-hub/forms": ["chatModalErrors", "checkForm", "createFormsInbox", "createMemoryFormsStore", "defineForm", "fieldErrors", "formFields", "handleFormRequest", "readChatModal", "readElicitation", "toChatModal", "toElicitation"],

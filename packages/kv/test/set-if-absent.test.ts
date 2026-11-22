@@ -130,7 +130,6 @@ describe("upstash", () => {
   })
 
   function createDriver() {
-    // unstorage loads this Redis class instead of `@upstash/redis`, so the test stays offline.
     const options = {
       base: "app",
       driver: "upstash" as const,

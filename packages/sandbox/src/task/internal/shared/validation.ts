@@ -61,7 +61,6 @@ function hasStandardValidator<TInput, TOutput>(
   if (!isObject(value))
     return false
 
-  // Lazy schema getters can create the own marker when first read.
   const standard = value['~standard']
   return Object.hasOwn(value, '~standard') && isObject(standard) && typeof standard.validate === 'function'
 }

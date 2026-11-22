@@ -5,18 +5,11 @@ import { collectGlobFiles, globFilePath, resolveGlobInput } from "../sources/glo
 
 import type { GlobInput } from "../sources/glob.ts"
 
-/**
- * Bundling glob(): a ViteHub server build swaps each `glob()` call whose options are literals for a module that holds
- * the files it matches, through files(). Hosts without a file system, such as Cloudflare Workers, then serve the same
- * keys and bytes that glob() reads from disk. `vite dev` keeps glob() as it is.
- */
-
 /** Prefix of the generated modules' ids. `\0` keeps other plugins from resolving or transforming them. */
 export const BUNDLED_GLOB_ID = "\0vitehub-source-glob:"
 /** Matches those ids, for Rolldown's hook filters. */
 export const BUNDLED_GLOB_ID_PATTERN = /^\0vitehub-source-glob:/
 
-/** The ESTree node shape the rewrite reads; Rollup's `this.parse()` returns these. */
 interface Node {
   type: string
   start: number
@@ -48,7 +41,6 @@ function walk(node: Node, visit: (node: Node) => void) {
   }
 }
 
-/** A literal's value, or undefined for anything that is not one. */
 function literal(node: Node | undefined): unknown {
   if (!node) return undefined
   if (node.type === "Literal") return node.value
@@ -113,7 +105,6 @@ export function rewriteGlobCalls(code: string, calls: GlobCall[]): string {
   const imports: string[] = []
   const bundled = calls.filter((call): call is GlobCall & { input: GlobInput } => call.input !== undefined)
   bundled.forEach((call, index) => imports.push(`import __vitehubGlob${index} from ${JSON.stringify(bundledGlobId(call))};`))
-  // From the end, so earlier offsets stay right.
   for (const [index, call] of [...bundled.entries()].reverse()) {
     output = output.slice(0, call.start) + `__vitehubGlob${index}` + output.slice(call.end)
   }
@@ -153,21 +144,17 @@ export function renderBundledGlob(filesModule: string, entries: Record<string, U
     `import { files } from ${JSON.stringify(filesModule)}`,
     `let unpacked`,
     `async function unpack(base64) {`,
-    // Node, Bun, Deno, and Workers with nodejs_compat have node:zlib and node:buffer. On Node they decode about 5 times faster than atob() and DecompressionStream.
-    // https://github.com/nodejs/performance/issues/134
     `  const zlib = globalThis.process?.getBuiltinModule?.("node:zlib")`,
     `  const buffer = globalThis.process?.getBuiltinModule?.("node:buffer")`,
     `  if (zlib && buffer) {`,
     `    const bytes = zlib.gunzipSync(buffer.Buffer.from(base64, "base64"))`,
     `    return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)`,
     `  }`,
-    // A loop, because Uint8Array.from() with a map function takes about 75 ms for 1.5 MB of base64.
     `  const binary = atob(base64)`,
     `  const gzip = new Uint8Array(binary.length)`,
     `  for (let index = 0; index < binary.length; index++) gzip[index] = binary.charCodeAt(index)`,
     `  return new Uint8Array(await new Response(new Response(gzip).body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())`,
     `}`,
-    // slice() copies, so a caller that changes the bytes of one file does not change the others.
     `const file = (start, end) => async () => (await (unpacked ??= unpack(${JSON.stringify(packed)}))).slice(start, end)`,
     `export default files({`,
     ...lines,

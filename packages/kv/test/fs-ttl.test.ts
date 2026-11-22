@@ -22,7 +22,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 let base: string
 beforeEach(async () => {
-  // Fake only Date, so filesystem promises still resolve.
   vi.useFakeTimers({ now: Date.UTC(2026, 10, 13), toFake: ["Date"] })
   base = await mkdtemp(join(tmpdir(), "vitehub-kv-fs-ttl-"))
 })
@@ -47,7 +46,6 @@ it("expires a key after its ttl in every read", async () => {
     await expect(storage.getKeys()).resolves.toEqual(["keep"])
     await expect(storage.listKeys({ limit: 10 })).resolves.toEqual({ keys: ["keep"] })
     await expect(storage.getItem("keep")).resolves.toBe("yes")
-    // Reads delete the expired file, and only keys stay in the base folder.
     expect((await readdir(base)).filter(name => name.startsWith("key-"))).toEqual(["key-keep"])
   }
   finally {
@@ -124,7 +122,6 @@ it("removes the expiry files with the key and with clear()", async () => {
 })
 
 it("keeps files without an expiry, as older versions wrote them", async () => {
-  // The old layout stored `legacy` as a plain file. The first open migrates it.
   await writeFile(join(base, "legacy"), "\"old\"")
   const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
   try {
@@ -185,7 +182,6 @@ it("serializes expired cleanup with another driver's claim", async () => {
     const claimA = first.setIfAbsentItem!("lock", "owner-a")
     await reached
     const claimB = second.setIfAbsentItem!("lock", "owner-b")
-    // Give B a chance to publish while A is paused immediately before deleting the old value.
     await Promise.race([claimB, new Promise(resolve => setTimeout(resolve, 100))])
     resume()
     expect(await Promise.all([claimA, claimB])).toEqual([true, false])

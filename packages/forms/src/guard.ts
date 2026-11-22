@@ -24,7 +24,6 @@ function bodyKind(request: Request): BodyKind | undefined {
   return undefined
 }
 
-/** Reads at most `limit` bytes, so a large body without `content-length` stops early. */
 async function readBytes(request: Request, limit: number) {
   const declared = Number(request.headers.get("content-length") ?? 0)
   if (declared > limit) return undefined
@@ -37,7 +36,6 @@ async function readBytes(request: Request, limit: number) {
     if (done) break
     size += value.byteLength
     if (size > limit) {
-      // Do not wait for another branch when the host supplied a cloned request.
       reader.cancel().catch(() => {})
       return undefined
     }
@@ -69,7 +67,6 @@ async function readBody(request: Request, kind: BodyKind, text: string): Promise
       : new URLSearchParams(text)
   }
   catch {
-    // A multipart body without its boundary, or a broken one.
     return undefined
   }
   const body: Record<string, unknown> = {}
@@ -88,10 +85,7 @@ function appPath(value: unknown, request: Request): string | null {
     const origin = forwardedRequestOrigin(request)
     const url = new URL(raw, origin)
     if (url.origin !== origin) return null
-    // The result of an earlier post without JavaScript, such as `contact.error`, is not part of the page. Another
-    // `form` query of the app stays.
     if (/(^|\.)(sent|error)$/.test(url.searchParams.get("form") ?? "")) url.searchParams.delete("form")
-    // One leading slash: `//evil.test` would be a link to another site.
     return `${url.pathname.replace(/^\/+/, "/")}${url.search}`.slice(0, 2000)
   }
   catch {
@@ -129,7 +123,6 @@ function wantsPage(request: Request, kind: BodyKind): boolean {
  */
 export function back(request: Request, page: string | null, result: "sent" | "error", name?: string): Response {
   const url = new URL(page ?? "/", request.url)
-  // The form name tells two forms on one page apart: `?form=contact.sent`.
   url.searchParams.set("form", name ? `${name}.${result}` : result)
   return new Response(null, { status: 303, headers: { location: `${url.pathname}${url.search}`, "cache-control": "no-store" } })
 }
@@ -180,15 +173,11 @@ export async function guardRequest(request: Request, options: GuardRequestOption
   const kind = bodyKind(request)
   if (!kind) return [fail(415, "Send JSON or form data."), undefined]
   const origin = request.headers.get("origin")
-  // Behind a proxy that ends TLS, `request.url` is `http:` while the browser sends its `https:` origin.
   if (origin && origin !== forwardedRequestOrigin(request) && !options.origins?.includes(origin)) return [fail(403, "This origin may not send this form."), undefined]
   const html = wantsPage(request, kind)
-  // A browser form without JavaScript goes back to its page on every failure, not to a JSON answer.
   const stop = (status: number, message: string, headers?: Record<string, string>): [Response, undefined] => [html ? back(request, appPath(undefined, request), "error", options.name) : fail(status, message, headers), undefined]
   const bytes = await readBytes(request, options.maxBytes ?? defaultMaxBytes)
   if (bytes === undefined) return stop(413, "The message is too large.")
-  // Bound the raw bytes before a callback can consume them. Keep the bytes intact for native body readers.
-  // Nitro's Node request adapter has no native Request internal state; copy its public fields.
   const refused = await options.check?.(new Request(request.url, {
     method: request.method,
     headers: request.headers,

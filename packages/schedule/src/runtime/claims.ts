@@ -55,7 +55,6 @@ function keepAlive(lease: Lease, ttlMs: number, reportError: (error: unknown) =>
   return async () => {
     stopped = true
     clearInterval(timer)
-    // Finish an earlier renewal before extending the claim to cover a failed done-marker write.
     await renewal
   }
 }
@@ -84,7 +83,6 @@ export function createOccurrenceClaims(options: OccurrenceClaimsOptions): Occurr
           if (final) {
             const [markError, marked] = await options.leases.acquire(occurrenceDoneKey(runId, options.prefix), { ttl: doneTtl, ...owner })
             if (markError) {
-              // Keep the claim for the same window as the missing marker. Renew checks the holder's ID.
               release = false
               options.reportError(markError)
               const [renewError, renewed] = await lease.renew({ ttl: doneTtl })
@@ -97,7 +95,6 @@ export function createOccurrenceClaims(options: OccurrenceClaimsOptions): Occurr
         return "ran"
       }
       finally {
-        // A failed release leaves the claim until its TTL ends. The done marker already stops a second run.
         if (release) {
           const [releaseError] = await lease.release()
           if (releaseError) options.reportError(releaseError)

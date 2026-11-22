@@ -1,22 +1,5 @@
 #!/usr/bin/env node
 
-// The release workflow publishes with npm trusted publishing only, and npm can link a trusted publisher only to a
-// package that already exists. Run this script once, signed in to npm (`npm login`), before the first release of a new
-// package. For each publishable package under packages/ that npm does not have yet, it:
-//
-// 1. publishes a placeholder `0.0.0-claim` under the `claim` dist-tag, so the name exists, and
-// 2. links every publishable package that the release job cannot publish to `.github/workflows/release.yml` in the
-//    `npm-release` environment of vite-hub/vitehub, replacing only links for that repository and workflow. A second
-//    run picks up what the first left.
-//
-// npm asks for two-factor authentication on a publish and on trusted publisher changes. The script prints the sign-in
-// link and waits. Choose "skip for the next 5 minutes" on the npm page so the rest of the run does not ask again.
-//
-// npm lets a trusted publisher configuration expire, and the CLI does not show it: the website says "Expired" and the
-// release job fails with ENEEDAUTH. `--replace` also refreshes otherwise matching release links when the package version
-// in packages/ is not on npm yet.
-//
-// Run: node .github/scripts/claim-npm-packages.mjs [--dry-run] [--replace] [<package name>...]
 import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -43,7 +26,6 @@ function npmOutput(npmArgs) {
   return result.stdout
 }
 
-/** The token of `npm login`, from NPM_TOKEN or the user .npmrc. */
 function npmToken() {
   if (process.env.NPM_TOKEN) return process.env.NPM_TOKEN
   const userConfig = npmOutput(["config", "get", "userconfig"]).trim()
@@ -55,12 +37,6 @@ function npmToken() {
 let token
 let otp
 
-/**
- * Calls the trusted publisher API of the registry, as `npm trust` does. `npm trust` waits for the browser sign-in only
- * when it writes to a terminal, and with `--json` it holds the sign-in link back until it ends, so the script cannot
- * read its output. When the registry asks for two-factor authentication, this prints the link, waits for the sign-in,
- * and keeps the one-time password for the next calls.
- */
 async function trustApi(method, name, path = "", body) {
   token ??= npmToken()
   const url = `${registry}/-/package/${name.replace("/", "%2f")}/trust${path}`
@@ -80,7 +56,6 @@ async function trustApi(method, name, path = "", body) {
     if (response.ok) return text ? JSON.parse(text) : undefined
     const challenge = response.status === 401 && /otp/i.test(response.headers.get("www-authenticate") ?? "") ? JSON.parse(text || "{}") : undefined
     if (!challenge || attempt > 2) throw new Error(`${method} ${url} answered ${response.status}: ${text}`)
-    // A kept password that npm no longer accepts: try once without it, since "skip for the next 5 minutes" may cover it.
     if (otp) {
       otp = undefined
       continue
@@ -101,7 +76,6 @@ async function signInPassword(doneUrl) {
   }
 }
 
-/** The packages of the scopes of `packages` that the signed-in account can write. */
 function ownedPackages(packages) {
   const names = new Set()
   for (const scope of new Set(packages.map(pkg => pkg.name.split("/")[0]).filter(part => part.startsWith("@")))) {
@@ -110,7 +84,6 @@ function ownedPackages(packages) {
   return names
 }
 
-/** The GitHub trusted publisher configurations for this repository's release workflow. */
 async function releaseTrustConfigs(name) {
   const body = await trustApi("GET", name)
   return (Array.isArray(body) ? body : body ? [body] : []).filter(config =>
@@ -122,10 +95,6 @@ async function releaseTrustConfigs(name) {
   }))
 }
 
-/**
- * The release job runs `npm publish` in the `npm-release` environment. A configuration without an environment also
- * accepts it. `createPackage` is the publish permission; a configuration with only `createStagedPackage` cannot publish.
- */
 function publishesFromRelease(config) {
   return (config.environment == null || config.environment === trust.environment)
     && (config.permissions ?? []).includes("createPackage")
@@ -141,7 +110,6 @@ function npm(npmArgs, options = {}) {
   if (result.status !== 0) throw new Error(`npm ${npmArgs[0]} failed with exit code ${result.status}`)
 }
 
-/** The name, description and repository of every package under packages/ that is not private. */
 function publishablePackages() {
   const packages = []
   for (const entry of readdirSync(join(repoRoot, "packages"), { withFileTypes: true })) {
@@ -209,8 +177,6 @@ const packages = publishablePackages().filter(pkg => only.length === 0 || only.i
 const unknown = only.filter(name => !packages.some(pkg => pkg.name === name))
 if (unknown.length) throw new Error(`Not a publishable package under packages/: ${unknown.join(", ")}`)
 
-// The registry answers 404 for a new package for some minutes after its publish, so ask npm which packages the signed-in
-// account has. A dry run without a login only asks the registry.
 const owned = dryRun ? new Set() : ownedPackages(packages)
 const missing = []
 for (const pkg of packages) {
@@ -219,14 +185,11 @@ for (const pkg of packages) {
 if (missing.length) console.log(`npm does not have: ${missing.map(pkg => pkg.name).join(", ")}${dryRun ? " (dry run)" : ""}`)
 for (const pkg of missing) publishPlaceholder(pkg)
 
-// Replace only this repository's release workflow links; other publishers can coexist with the release link.
 const untrusted = []
 if (dryRun) untrusted.push(...missing.map(pkg => ({ pkg, stale: [] })))
 else {
   for (const pkg of packages) {
     const configs = await releaseTrustConfigs(pkg.name)
-    // npm lets a configuration expire, and `npm trust list` does not say so. With --replace, every package that has not
-    // published its version yet gets a fresh configuration.
     if (!configs.some(publishesFromRelease) || (replace && !await versionOnNpm(pkg.name, pkg.version))) {
       untrusted.push({ pkg, stale: configs })
     }
@@ -237,7 +200,6 @@ for (const { pkg, stale } of untrusted) {
   console.log(`${pkg.name}: ${stale.length ? `has ${stale.map(describeConfig).join(", ")}` : "no link for the release workflow"}`)
 }
 for (const [index, { pkg, stale }] of untrusted.entries()) {
-  // npm asks for at most one trusted publisher change every 2 seconds.
   if (index > 0) await sleep(2000)
   for (const config of stale) {
     await revokeTrustedPublisher(pkg.name, config)

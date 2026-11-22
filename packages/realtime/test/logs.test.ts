@@ -19,13 +19,11 @@ afterEach(() => {
 
 const app = "https://app.example"
 
-/** evlog's request logger, where evlog's Nitro plugin puts it. */
 function requestLogger(path?: string) {
   const fields = { path }
   return { fields, set: vi.fn((update: Record<string, unknown>) => { Object.assign(fields, update) }), warn: vi.fn(), error: vi.fn() }
 }
 
-/** The evlog bridge that `vitehub()` installs. Each event's logger is kept, so a test can read what it logged. */
 function fakeEvlog() {
   const enabled = { value: true }
   const events: Array<{ fields: Record<string, unknown>, info: ReturnType<typeof vi.fn>, error: ReturnType<typeof vi.fn>, warn: ReturnType<typeof vi.fn>, emit: ReturnType<typeof vi.fn> }> = []
@@ -88,7 +86,6 @@ describe("Realtime refusals on the upgrade request's wide event", () => {
   })
 
   it("sets a refusal and logs the error when authorize() throws, also to the console", async () => {
-    // The console line also covers an app whose evlog excludes this path: its request logger never emits.
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const log = requestLogger()
     const failure = new Error("The permissions table is not reachable.")
@@ -185,7 +182,6 @@ describe("Realtime log events after the upgrade", () => {
       message: "A Realtime connection failed.",
       realtime: { definition: "docs", room: "guides/welcome.md", failed: "peer" },
     })
-    // The event has a fixed message, never the socket error's own message.
     expect(evlog.events[0]!.error).toHaveBeenCalledWith("A Realtime connection failed.")
     expect(evlog.events[0]!.emit).toHaveBeenCalledOnce()
   })
@@ -334,7 +330,6 @@ describe("Realtime log events: one per failure, and none lost", () => {
   })
 
   it("sends an error to evlog only, and prints to the console when evlog is off", async () => {
-    // Standalone events reach evlog's output and the app's evlog:drain hooks, so a console line would print it twice.
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const evlog = fakeEvlog()

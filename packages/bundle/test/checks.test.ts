@@ -48,7 +48,6 @@ function chunk(fileName: string, modules: Record<string, number>, options: { ent
   }
 }
 
-/** The Cloudflare D1 app before #3573: the Agent route imports the Database runtime, which imports libSQL statically. */
 function workerBuild(options: { lazyLibsql?: boolean, host?: string, rules?: BundleStartupRule[] } = {}): BundleEnvironmentReport {
   const lazy = options.lazyLibsql
   const report = collectEnvironmentReport({

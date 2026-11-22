@@ -137,7 +137,6 @@ export function setupRequestArgs(request: unknown): { action: "add" | "remove", 
   return { action, argv }
 }
 
-/** The SHA-256 of each file, or `absent`. */
 async function fingerprint(root: string, paths: Iterable<string>): Promise<Map<string, string>> {
   const files = new Map<string, string>()
   for (const path of new Set(paths)) {
@@ -207,13 +206,11 @@ export function createSetupSession(options: SetupSessionOptions): SetupSession {
     try {
       const stored = typeof planId === "string" ? plans.get(planId) : undefined
       if (!stored || typeof planId !== "string") throw setupFailure(cliErrorDiagnostics.SETUP_PLAN_UNKNOWN(), setupExitCodes.error)
-      // A plan applies once, also when the apply fails.
       plans.delete(planId)
       const current = await fingerprint(options.root, stored.files.keys())
       for (const [path, hash] of stored.files) {
         if (current.get(path) !== hash) throw setupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: path }), setupExitCodes.stalePlan)
       }
-      // Files that the plan did not record, such as an import that `remove` scans for, can still change the plan.
       const project = await readSetupProject(options.root, options.env)
       const again = stored.action === "add" ? await planSetupAdd(project, stored.args, options.env) : await planSetupRemove(project, stored.args, options.env)
       if (!sameChange(stored.planned.plan, again.plan)) {
@@ -239,7 +236,6 @@ export function createSetupSession(options: SetupSessionOptions): SetupSession {
     },
     catalog: () => {
       const catalog: SetupCatalog = setupCatalog()
-      // Starter templates are functions, so the document keeps only the data.
       return { body: JSON.parse(JSON.stringify(catalog)) as SetupSessionResult["body"], exitCode: setupExitCodes.done }
     },
     plan,

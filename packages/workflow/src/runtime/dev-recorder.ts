@@ -1,8 +1,5 @@
 import type { WorkflowDriver } from "../types.ts"
 
-// The slot for the run history of `vite dev`. Only the dev Nitro plugin imports the recorder from `./dev-runs.ts` and
-// installs it here, so a build has no recorder and no history code.
-
 /** One step of a recorded run. */
 export interface WorkflowDevStepRecord {
   completedAt?: Date

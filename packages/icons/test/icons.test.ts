@@ -38,7 +38,6 @@ describe("@vite-hub/icons", () => {
   })
 
   it("names icons in kebab case", () => {
-    // Digits are allowed, so `i18n` keeps its `vite-hub/i18n` import name.
     for (const name of Object.keys(bodies)) expect(name).toMatch(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/)
   })
 

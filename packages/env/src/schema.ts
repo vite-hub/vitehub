@@ -94,8 +94,6 @@ function hasSchemaMethod(schema: ZodLikeSchema, method: "parse" | "safeParse" | 
 }
 
 function isZodSchemaMethod(schema: ZodLikeSchema, method: string): boolean {
-  // Zod 4 records its constructor on the instance. Only accept entry points
-  // owned by that constructor's direct prototype, not unrelated ancestors.
   if (!Object.hasOwn(schema, "_zod")) {
     return false
   }

@@ -178,7 +178,6 @@ export function describeInputIssues(issues: readonly StandardSchemaV1.Issue[]): 
   }).join(" ")
 }
 
-/** The top-level fields of an input JSON Schema, such as `{ threadId } or { n, scope }`. A `?` marks an optional field. */
 function describeInputFields(schema: Record<string, unknown>): string | undefined {
   const shapes = (Array.isArray(schema.anyOf) ? schema.anyOf : [schema]).map((shape) => {
     if (!isObject(shape) || !isObject(shape.properties)) return undefined
@@ -193,7 +192,6 @@ function describeInputFields(schema: Record<string, unknown>): string | undefine
 export async function parseOperationInput(operation: AnyOperation, input: unknown): Promise<unknown> {
   const result = await operation.input["~standard"].validate(input ?? {})
   if (!result.issues) return result.value
-  // Name the fields, so that a caller who sent the wrong ones sees the right ones in the same answer.
   const fields = describeInputFields(operationInputJsonSchema(operation))
   const issues = describeInputIssues(result.issues)
   const message = `Invalid input for ${operation.name}. ${issues}${fields ? `${/[.!?]$/.test(issues) ? "" : "."} ${operation.name} takes ${fields}.` : ""}`

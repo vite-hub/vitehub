@@ -52,7 +52,6 @@ export function resolveWorkflowStepOptions(step: string, options: unknown): Reso
   return { retries: { backoff, delay: delay as WorkflowDuration, limit }, ...(timeout === undefined ? {} : { timeout: timeout as WorkflowDuration }) }
 }
 
-/** Calls `callback` after `milliseconds`, also when that is longer than one Node timer can wait. Returns a cancel function. */
 function onTimeout(milliseconds: number, callback: () => void): () => void {
   const deadline = Date.now() + milliseconds
   let timer: ReturnType<typeof setTimeout>
@@ -115,8 +114,6 @@ export async function runProviderStep<TResult>(
   options?: WorkflowStepOptions,
 ): Promise<TResult> {
   const resolved = resolveWorkflowStepOptions(name, options)
-  // The provider runs this function for each attempt. Cloudflare also enforces `timeout` itself; elsewhere only this
-  // timer does. An inline run does not retry, and it keeps the time limit too.
   const attempt = () => runWorkflowStepAttempt(name, resolved.timeout, run)
   timedAttempts.add(attempt)
   if (typeof step?.do === "function") {
@@ -169,7 +166,6 @@ export function createWorkflowSteps(
   }))
 }
 
-/** The units of a sleep duration, in milliseconds. Cloudflare reads a month as 30 days and a year as 365.25 days. */
 const durationUnits = {
   second: 1_000,
   minute: 60_000,
@@ -191,7 +187,6 @@ export function toDurationMilliseconds(value: unknown): number | undefined {
   return match ? Number(match[1]) * durationUnits[match[2] as WorkflowDurationUnit] : undefined
 }
 
-/** A sleep target: a number of milliseconds, or a date. */
 function toSleepTarget(name: string, until: unknown): number | Date {
   if (Object.prototype.toString.call(until) === "[object Date]") {
     // SAFETY: The tag check above accepts a Date from any realm.
@@ -206,7 +201,6 @@ function toSleepTarget(name: string, until: unknown): number | Date {
   throw workflowErrorDiagnostics.WORKFLOW_SLEEP_DURATION_INVALID({ name, value })
 }
 
-/** Node fires a timer longer than this at once, so a longer wait uses more than one timer. */
 const maxTimerDelay = 2_147_483_647
 
 async function waitUntil(time: number): Promise<void> {
@@ -215,10 +209,6 @@ async function waitUntil(time: number): Promise<void> {
   }
 }
 
-/**
- * `context.sleep()` of a folder Workflow. It names each sleep by call order (`sleep-1`, `sleep-2`), so the orchestrator
- * must call it in the same order on each replay. Without a provider sleep, the run is inline and waits with a timer.
- */
 function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext["sleep"] {
   let count = 0
   return async (until) => {
@@ -228,7 +218,6 @@ function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext
     if (step?.sleep) {
       if (typeof target === "number") return await step.sleep(name, target)
       if (step.sleepUntil) return await step.sleepUntil(name, target)
-      // A provider stores the wake time of a sleep and does not read the duration again on replay.
       return await step.sleep(name, Math.max(0, target.getTime() - Date.now()))
     }
     const time = typeof target === "number" ? Date.now() + target : target.getTime()
@@ -238,15 +227,9 @@ function createSleep(context: WorkflowProviderContext): WorkflowExecutionContext
 
 interface WorkflowSignals {
   createSignal: WorkflowExecutionContext["createSignal"]
-  /** Forgets the inline signals of the run when the handler ends. */
   close: () => void
 }
 
-/**
- * `context.createSignal()`. It names each signal by call order (`signal-1`, `signal-2`), so the token is the same on
- * each replay. A provider with `waitForSignal` waits durably. Without a provider step, the run is inline and waits in
- * memory. `wait` replaces the wait of a root step, which fails.
- */
 function createSignals(context: WorkflowProviderContext, wait?: () => Promise<never>): WorkflowSignals {
   let count = 0
   const inlineTokens: string[] = []
@@ -254,7 +237,6 @@ function createSignals(context: WorkflowProviderContext, wait?: () => Promise<ne
   const createSignal = <TValue>(): WorkflowSignal<TValue> => {
     if (context.provider === "vercel") throw workflowErrorDiagnostics.WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED({ name: context.name })
     const step = context.step
-    // A durable provider without signals must not wait in memory: a replay would lose the wait.
     if (step?.do && !step.waitForSignal) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "signals", provider: context.provider } })
     const name = `signal-${++count}`
     const inline = !step?.waitForSignal
@@ -275,20 +257,13 @@ function createSignals(context: WorkflowProviderContext, wait?: () => Promise<ne
   return { close: () => closeInlineWorkflowSignals(inlineTokens), createSignal }
 }
 
-/**
- * Gives every handler `context.sleep()`, `context.createSignal()`, and a step runner. Generated folder Workflows replace
- * this empty runner with their step files. The context keeps the provider step at runtime, so the generated step
- * runner can use it.
- */
 function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>, sleep: WorkflowExecutionContext["sleep"], createSignal: WorkflowExecutionContext["createSignal"]): WorkflowExecutionContext<TPayload> {
   // SAFETY: `WorkflowSteps` types the steps of every folder Workflow. A Workflow without step files has none, and the
   // generated entry of a folder Workflow replaces this object with its own steps.
   return { ...context, createSignal, sleep, steps: {} as WorkflowExecutionContext["steps"] }
 }
 
-/** The root step result that says the handler called `context.sleep()`. A replay reads it and fails the same way. */
 const rootStepSleepResult = { "~vitehubRootStepSleep": true } as const
-/** The root step result that says the handler called `signal.wait()`. A replay reads it and fails the same way. */
 const rootStepSignalResult = { "~vitehubRootStepSignal": true } as const
 
 /**
@@ -315,12 +290,6 @@ export function readNonRetryableStepResult(value: unknown): NonRetryableError | 
   return code === undefined ? error : Object.assign(error, { code })
 }
 
-/**
- * Runs the handler in its root step, or alone for a folder Workflow (`rootStep: false`). A sleep or a signal wait
- * inside the root step fails the run with `WORKFLOW_ROOT_STEP_SLEEP` or `WORKFLOW_ROOT_STEP_SIGNAL` on every
- * provider. The root step returns a marker instead of throwing, so the provider does not retry it and run the code
- * before the wait again.
- */
 async function runInRootStep<TPayload, TResult, TOutput>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
@@ -373,10 +342,6 @@ export async function runWorkflowHandler<TPayload, TResult>(
   return toResponse(await runInRootStep(context, definition, value => value))
 }
 
-/**
- * The stored result of a run. A `Response` from the handler is stored as a serialized Response. Any other value is
- * stored as JSON, so every provider returns the same plain value.
- */
 async function toStoredWorkflowResult(value: unknown): Promise<unknown> {
   if (isResponse(value)) return await serializeResponse(value)
   const json = JSON.stringify(value)

@@ -376,7 +376,6 @@ describe("calls of the ViteHub MCP in the Console", () => {
     const project = await callAsMcp("project.get", {})
     expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
     expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
-    // MCP clients read what each operation takes before they call it.
     const reference = project.ok ? Reflect.get(Object(project.value), "reference") : undefined
     expect(reference).toEqual(expect.arrayContaining([{ description: "Delete one key.", input: { properties: { key: { type: "string" } }, required: ["key"], type: "object" }, kind: "destructive", name: "test.drop" }]))
     expect(reference).not.toContainEqual(expect.objectContaining({ name: "test.hidden" }))

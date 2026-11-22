@@ -16,8 +16,6 @@ async function manifest(directory: string): Promise<Manifest> {
 }
 
 describe("Comark in Content", () => {
-  // Content renders with the app's Comark UI plugins. A Comark copy of its own, such as 0.9.2 next to the app's 0.9.0,
-  // made apps add pnpm overrides to keep one copy. A Comark UI copy of its own gave finance a second comark-ui.
   it.each(["content", "cms", "docs"])("@vite-hub/%s takes comark, @comark/html, and comark-ui from the app", async (directory) => {
     const { dependencies = {}, peerDependencies = {}, peerDependenciesMeta = {} } = await manifest(directory)
     for (const name of ["comark", "@comark/html", "comark-ui"]) {

@@ -90,7 +90,6 @@ const attachments = v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1),
 const metadata = v.optional(v.record(v.string(), v.union([v.string(), v.number(), v.boolean(), v.null()])))
 const revision = v.pipe(v.number(), v.integer(), v.minValue(0))
 const threadId = v.strictObject({ threadId: id })
-/** Threads that one `comments.resolve` call resolves at most. */
 const maximumResolvedThreads = 50
 const resolveReply = v.pipe(v.string(), v.regex(/\S/, "A resolution reply needs some text."), v.maxLength(maximumCommentBodyLength), v.description("What changed, such as the commit or a link. It is added to the thread as a reply."))
 const resolveEntry = v.strictObject({ threadId: id, reply: v.optional(resolveReply) })
@@ -398,10 +397,6 @@ export const commentActions = {
     return next
   },
 
-  /**
-   * Resolve threads that the caller handled, each with an optional reply that says what changed. Every thread is
-   * checked before any of them changes, so a missing thread or a refused one changes nothing.
-   */
   async resolveThreads(input: readonly { threadId: string, reply?: string }[], who: CommentsCaller): Promise<CommentThread[]> {
     const by = author(who)
     const plans = await Promise.all(input.map(async (entry) => {
@@ -483,7 +478,6 @@ const list = defineOperation({
   section: "comments",
 })
 
-/** What an Agent does after it handles a thread, in the answer of `comments.threads`. */
 const resolveNext = "After you make the change that a thread asks for, resolve it with comments.resolve and a reply that says what changed, such as the commit or a link. Resolve every thread that you handled in one call: { threads: [{ threadId, reply }] }. Open threads stay on the page."
 
 /** Threads that one search reads from the store at a time. */
@@ -515,7 +509,6 @@ const threads = defineOperation({
       before = cursorOf(listed.threads.at(-1)!)
     }
     const note = hiddenThreadsNote(hidden, { authorize: Boolean(who.runtime.definition.authorize), identify: Boolean(who.runtime.identify), user: who.user !== null, console: who.console === true })
-    // Agents read this list right before they work on the threads, so it says how a thread ends.
     const next = status === "open" && found.length ? resolveNext : undefined
     return { status, threads: found.map(commentThreadSummary), hidden, ...(note ? { note } : {}), ...(next ? { next } : {}) }
   },

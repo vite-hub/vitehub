@@ -11,7 +11,6 @@ export default defineMcpTool({
   handler: async ({ id }, { caller }) => {
     const project = await projectOperation(caller, id, "project.get", {})
     if (!project || typeof project !== "object" || !("reference" in project)) return project
-    // An app from before `reference` sends only the operation names.
     const { reference, ...rest } = project
     return { ...rest, operations: reference }
   },

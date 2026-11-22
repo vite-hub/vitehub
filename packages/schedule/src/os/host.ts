@@ -122,7 +122,6 @@ function exec(file: string, args: readonly string[], env?: Record<string, string
   return new Promise((resolve) => {
     execFile(file, args, { encoding: "utf8", env: env ? { ...process.env, ...env } : process.env, maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (!error) return resolve({ code: 0, stdout, stderr })
-      // A missing program has a string code, such as "ENOENT", and no exit code.
       const code = typeof error.code === "number" ? error.code : 127
       resolve({ code, stdout, stderr: stderr || error.message })
     })
@@ -150,7 +149,6 @@ export function createNodeHost(): OsHost {
     platform: process.platform,
     uid: process.getuid?.(),
     user: process.platform === "win32" && process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${user}` : user,
-    // Read on each call, so a change of HOME or TZ in the process applies to the next call.
     get homedir() {
       return homedir()
     },

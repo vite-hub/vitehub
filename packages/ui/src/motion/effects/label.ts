@@ -19,7 +19,6 @@ export const label: MotionEffect = {
       discardMorph(element);
       return;
     }
-    // The morph's own letters, or a change that did not write new text.
     if (added.length ? added.every(isOwnNode) : removed.length > 0) return;
     const before = morphTarget(element) ?? oldText;
     if (before === undefined) return;
