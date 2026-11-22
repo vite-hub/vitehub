@@ -1,5 +1,5 @@
-// Opens a runnable tutorial in headless Chromium against a running docs server, boots the real WebContainer, follows
-// the steps, edits a file, and reads the app. It needs network access to StackBlitz. With the snapshots that
+// Opens the `layout: learn` lessons in headless Chromium against a running docs server, boots the real WebContainer,
+// takes every lesson to its last step, and follows the first Agent lesson in detail: it edits a file and reads the app. It needs network access to StackBlitz. With the snapshots that
 // `nuxt build` (or `TUTORIAL_SNAPSHOTS=1 nuxi dev`) writes, the workspace mounts node_modules and the run takes about a
 // minute. Without them it needs the npm registry, and the first start installs for about four minutes.
 //
@@ -16,6 +16,12 @@ import { chromium } from "playwright-core";
 const base = process.env.DOCS_URL ?? "http://127.0.0.1:4870";
 const shots = process.env.TUTORIAL_SCREENSHOTS;
 const tutorial = `${base}/learn/first-agent`;
+// The first two lessons preview `/api/health`. The Choices lesson ends with a page, so its preview is the app page.
+const lessons = [
+  { path: "/learn/first-server-primitive", ready: /"ok":\s*true/ },
+  { path: "/learn/first-agent", ready: /"ok":\s*true/ },
+  { path: "/learn/choices", ready: /^Forecast filters$/ },
+];
 const installTimeout = 10 * 60_000;
 
 async function shot(page, name) {
@@ -49,10 +55,65 @@ async function runRequest(page) {
     return element && !element.disabled;
   }, undefined, { timeout: installTimeout });
   await button.click();
-  const output = page.locator(".vh-tutorial-run-output");
+  const output = page.locator(".vh-docs-learn-output");
   await output.waitFor({ timeout: 60_000 });
   return output.innerText();
 }
+
+/** Waits for the preview of the app: the boot screen goes once the dev server answers. */
+async function waitForApp(page) {
+  await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
+  await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
+}
+
+/** Solve writes the answer of the step. It asks first when the files differ from the start of the step. */
+async function solve(page) {
+  await page.getByRole("button", { name: "Solve" }).click();
+  const replace = page.getByRole("dialog").getByRole("button", { name: "Replace files" });
+  if (await replace.waitFor({ timeout: 1500 }).then(() => true, () => false)) await replace.click();
+}
+
+test("takes every lesson to its last step", { timeout: 30 * 60_000 }, async (t) => {
+  const browser = await chromium.launch({ args: ["--headless=new"] });
+  t.after(() => browser.close());
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  for (const { path, ready } of lessons) {
+    await t.test(path, async (step) => {
+      const page = await context.newPage();
+      step.after(() => page.close().catch(() => {}));
+      page.on("pageerror", error => console.log("[page error]", error.message));
+      const started = performance.now();
+      const response = await page.goto(`${base}${path}`);
+      assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
+      assert.equal(await page.evaluate(() => crossOriginIsolated), true);
+      const count = page.locator(".vh-ws-step-nav-count");
+      await count.filter({ hasText: /^Step 1 of \d+$/ }).waitFor();
+      const total = Number((await count.innerText()).match(/of (\d+)/)[1]);
+      for (let index = 1; index < total; index++) {
+        await solve(page);
+        await page.getByRole("button", { name: "Next step" }).click();
+        await count.filter({ hasText: `Step ${index + 1} of ${total}` }).waitFor();
+      }
+      await solve(page);
+      assert.equal(await count.innerText(), `Step ${total} of ${total}`);
+      assert.match(page.url(), new RegExp(`step=${total}$`));
+      await waitForApp(page);
+      await shot(page, `last-step${path.replaceAll("/", "-")}`);
+      // A step that adds index.html restarts the dev server, and Playwright cannot read a frame that loaded twice.
+      // The preview address serves the same app in a new tab, so read the page there.
+      const tab = await context.newPage();
+      await tab.goto(await page.locator(".vh-ws-preview-frame").getAttribute("src"));
+      let text = "";
+      for (let attempt = 0; attempt < 60 && !ready.test(text); attempt++) {
+        text = (await tab.evaluate(() => document.body.innerText.includes("\"ok\"") ? document.body.innerText : document.title).catch(() => "")).trim();
+        if (!ready.test(text)) await tab.waitForTimeout(1000);
+      }
+      await tab.close();
+      assert.match(text, ready);
+      console.log(`${path}: step ${total} of ${total}, preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
+    });
+  }
+});
 
 test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, async (t) => {
   const browser = await chromium.launch({ args: ["--headless=new"] });
@@ -70,34 +131,33 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
-    await page.getByText("Step 1 of 4").waitFor();
+    await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 1 of 4" }).waitFor();
     await page.locator(".vh-ws-boot").waitFor();
     await shot(page, "desktop-booting");
 
-    // Step 1 changes vite.config.ts. Solve writes it, without a question because nothing was edited.
+    // Step 1 shows vite.config.ts: the Agent file of the next step turns Agents on. Solve asks nothing, since nothing was edited.
     await page.getByRole("button", { name: "Solve" }).click();
-    await page.locator(".cm-content").filter({ hasText: "agent: true" }).waitFor();
-    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.locator(".cm-content").filter({ hasText: "plugins: [vitehub()]" }).waitFor();
+    await page.getByRole("button", { name: "Next step" }).click();
 
     // Step 2 creates the Agent. "Show in editor" opens the new file empty; Solve then asks before it replaces the edit.
-    await page.getByText("Step 2 of 4").waitFor();
+    await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 2 of 4" }).waitFor();
     await page.getByRole("button", { name: "Show in editor" }).first().click();
     await page.locator(".cm-content").click();
     await page.keyboard.type("// my attempt");
     await page.getByRole("button", { name: "Solve" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.locator(".cm-content").filter({ hasText: "defineAgent" }).waitFor();
-    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("button", { name: "Next step" }).click();
 
-    await page.getByText("Step 3 of 4").waitFor();
+    await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 3 of 4" }).waitFor();
     await page.getByRole("button", { name: "Solve" }).click();
     await page.locator(".cm-content").filter({ hasText: "runAgent(greeting" }).waitFor();
-    await page.getByRole("button", { name: "Next", exact: true }).click();
-    await page.getByText("Step 4 of 4").waitFor();
+    await page.getByRole("button", { name: "Next step" }).click();
+    await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 4 of 4" }).waitFor();
 
     // The preview shows the health route once the dev server is ready.
-    await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
-    await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
+    await waitForApp(page);
     const health = await readHealth(page);
     console.log("preview /api/health:", health);
     console.log(`first boot: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
@@ -125,11 +185,11 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.keyboard.type("Hi");
     await page.waitForTimeout(3000);
     await page.getByRole("button", { name: "Run in workspace" }).click();
-    await page.locator(".vh-tutorial-run-output").filter({ hasText: "Hi, Ada" }).waitFor({ timeout: 60_000 });
+    await page.locator(".vh-docs-learn-output").filter({ hasText: "Hi, Ada" }).waitFor({ timeout: 60_000 });
     await shot(page, "desktop-edited");
 
     // Going back with an edit asks before it replaces the files.
-    await page.getByRole("button", { name: "Prev" }).first().click();
+    await page.getByRole("button", { name: "Previous step" }).click();
     await page.getByText("You changed 1 file").waitFor();
     await shot(page, "desktop-step-bar");
     await page.getByRole("button", { name: "Keep mine" }).click();
@@ -145,8 +205,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     step.after(() => page.close().catch(() => {}));
     const started = performance.now();
     await page.goto(tutorial);
-    await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
-    await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
+    await waitForApp(page);
     assert.match(await readHealth(page), /"ok":\s*true/);
     console.log(`later boot: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
     await page.close();
@@ -155,13 +214,13 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
   await t.test("tablet: boots only after a tap", async () => {
     const page = await browser.newPage({ viewport: { width: 900, height: 1180 } });
     await page.goto(tutorial);
-    await page.getByRole("button", { name: "Open workspace" }).waitFor();
+    await page.getByRole("button", { name: "Open lesson" }).waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await shot(page, "tablet");
     // The server renders the button, so a tap before hydration does nothing. Tap until the workspace mounts.
     for (let attempt = 0; attempt < 15 && await page.locator(".vh-ws-shell").count() === 0; attempt++) {
-      await page.getByRole("button", { name: "Open workspace" }).click().catch(() => {});
+      await page.getByRole("button", { name: "Open lesson" }).click().catch(() => {});
       await page.waitForTimeout(2000);
     }
     await page.locator(".vh-ws-shell").waitFor();
@@ -173,7 +232,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
   await t.test("phone: prose and a card, never a WebContainer", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(tutorial);
-    const card = page.getByText("The live workspace runs in a desktop browser. Open this page on a desktop to edit and run the code.");
+    const card = page.getByText("The live lesson runs in a desktop browser. Open this page on a desktop to edit and run the code.");
     await card.waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
@@ -182,7 +241,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     // The zip holds the files of the step that is open.
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download files" }).click();
-    assert.equal((await download).suggestedFilename(), "first-agent.zip");
+    assert.equal((await download).suggestedFilename(), "learn-first-agent.zip");
     await page.close();
   });
 
@@ -215,7 +274,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     const navigation = page.waitForEvent("framenavigated", { predicate: frame => frame === page.mainFrame() });
     await page.getByRole("link", { name: "Run this tutorial in your browser" }).click();
     await navigation;
-    await page.getByText("Step 1 of 4").waitFor();
+    await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 1 of 4" }).waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the tutorial loaded as a new isolated document");
     await page.getByRole("link", { name: "Read in the docs" }).click();
     await page.waitForURL(/\/docs\/getting-started\/first-agent/);

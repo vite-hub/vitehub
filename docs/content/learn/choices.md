@@ -4,7 +4,6 @@ description: Build a filter box that reads "nord parts except vak supply" and fi
 layout: learn
 fixture: choices
 lesson: /docs/choices/get-started
-preview: /api/health
 navigation.order: 3
 ---
 

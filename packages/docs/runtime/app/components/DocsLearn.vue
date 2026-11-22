@@ -163,10 +163,13 @@ const guideComponents = { pre: DocsLearnCodePre, DocsLearnFile }
       :examples="examples"
       :runner="runner"
       :share="false"
-      :name="tutorial.slug"
       label="lesson"
     >
       <template #guide>
+        <!-- A lesson that takes its steps from a docs page links back to that page. -->
+        <p v-if="tutorial.page !== response.page.path" class="mb-4 text-sm text-muted">
+          <NuxtLink :to="tutorial.page" class="hover:text-highlighted">Read in the docs</NuxtLink>
+        </p>
         <UPageBody prose class="docs-content docs-tutorial-content !my-0 !px-0 !pb-0">
           <DocsMarkdown :key="step" :document="{ nodes: guideNodes, toc: [] }" :components="guideComponents" />
         </UPageBody>
