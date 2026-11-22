@@ -7,7 +7,7 @@ const frameworkPackages = new Set(["@unhead/vue", "nuxt-nightly", "@vue/reactivi
 
 function manifestPackageName(manifestFile: string): string | undefined {
   if (!existsSync(manifestFile)) return undefined
-  const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8"))
+  const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8").replace(/^\uFEFF/, ""))
   const name = manifest && typeof manifest === "object" ? Reflect.get(manifest, "name") : undefined
   return typeof name === "string" ? name : undefined
 }
