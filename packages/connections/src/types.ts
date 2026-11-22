@@ -1,4 +1,5 @@
 import type { Result } from "@vite-hub/runtime"
+import * as v from "valibot"
 
 import type { ConnectionsErrorCode } from "./errors.ts"
 import type { EnvAccessContext } from "@vite-hub/env/bridge"
@@ -6,6 +7,9 @@ import type { EnvDatabase } from "@vite-hub/env/database"
 
 /** Maximum name length that fits the Env Bridge `connection/<name>` key. */
 export const CONNECTION_NAME_MAX_LENGTH = 501
+
+/** A Connection name: 1 to 501 characters, without leading or trailing whitespace. */
+export const connectionNameSchema: v.GenericSchema<string> = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."))
 
 /** Type shape of one provider API method. Generated catalogs describe each method with it. */
 export interface ConnectionMethodSignature {
@@ -337,8 +341,8 @@ export type ConnectionClient<TApis extends object = object, TSelection = Connect
    */
   fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Result<Response, ConnectionsErrorCode>>
   /**
-   * The Connection status, for example "connected". It never rejects: a Connection that cannot be
-   * inspected, for example because its store cannot open, is "disconnected".
+   * The Connection status, for example "connected". An unknown name, or a store without its key or
+   * database, is "disconnected". Other failures, such as a database that cannot open, reject.
    */
   status: () => Promise<ConnectionStatus>
 } & {
@@ -399,6 +403,8 @@ export interface ConnectionInspection {
   docs?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
   keySource?: "fallback" | "stored"
+  /** Why the provider `fallback` gave no key, such as `CONNECTIONS_INVALID_PROVIDER`, when it threw during inspection. The Connection is then disconnected. */
+  keyError?: string
   name: string
   provider: string
   refreshedAt?: string

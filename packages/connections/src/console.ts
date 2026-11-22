@@ -18,6 +18,7 @@ export const connectionsConsoleSection: ViteHubConsoleOperationSection = {
       { key: "name", label: "Connection" },
       { key: "provider", label: "Provider" },
       { format: "status", key: "status", label: "Status", tones: { connected: "success", reauth_required: "warning" } },
+      { key: "keyError", label: "Key error" },
       { key: "account", label: "Account" },
       { format: "datetime", key: "refreshedAt", label: "Refreshed" },
     ],

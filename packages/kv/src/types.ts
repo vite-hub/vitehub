@@ -264,7 +264,8 @@ export interface KVLock {
   /**
    * Takes the lock, runs `fn`, and releases the lock, also when `fn` throws. An error from `fn` is thrown again after
    * the release. Returns `{ acquired: false }` without calling `fn` when another runner holds the lock after `wait`.
-   * A release that fails returns `KV_OPERATION_FAILED` after `fn` ran; the lock then expires after `ttl`.
+   * A release that fails returns `KV_OPERATION_FAILED` after `fn` ran; the lock then expires after `ttl`. When `fn`
+   * threw, its error is thrown and the failed release is logged as a warning.
    */
   run<T>(fn: () => T): Promise<Result<KVLockRunResult<Awaited<T>>, KVLockErrorCode>>
   /** Takes the lock and returns a `release()` function. Prefer `run()`, which always releases. */

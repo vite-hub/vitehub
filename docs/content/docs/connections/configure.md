@@ -209,7 +209,7 @@ export default defineConnection({
 })
 ```
 
-The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection.
+The fallback applies only when no key was ever set, or the Connections store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key from `set-key` always wins, and so does a revoke. The fallback key gets the same format check, access rules, and approvals as a stored key, and is recorded as activity while the store is open. An approval requested with it does not run after an admin sets a key. Inspection reports `keySource: 'fallback'` or `'stored'` for a connected API key Connection. When the fallback throws, inspection reports `keySource: 'fallback'`, the error code in `keyError`, and `'disconnected'`, and `vitehub connections inspect` prints `key: provider fallback failed (<code>)`.
 
 ## Keyed Connections
 

@@ -60,7 +60,5 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const [next, keys] = await (await client()).scan(cursor, { count, match: `${escapeRedisGlob(base)}:${match}` })
     return [String(next), keys.map(unprefixed)]
   })
-  const dispose = driver.dispose
-  driver.dispose = async () => { await dispose?.call(driver) }
   return driver
 }

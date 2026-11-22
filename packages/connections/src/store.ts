@@ -1,7 +1,6 @@
 import { createEnvBridge } from "@vite-hub/env/bridge"
 import { createDatabaseEnvStore } from "@vite-hub/env/database"
 import type { EnvStoreRotation } from "@vite-hub/env/database"
-import { importSealKey, unsealWithKey } from "@vite-hub/env/seal"
 import { sql } from "drizzle-orm"
 import * as v from "valibot"
 
@@ -114,9 +113,6 @@ const approvalRow = v.object({
   status: v.picklist(["approved", "denied", "executed", "failed", "pending"]),
   trace_id: v.nullable(v.string()),
 })
-const legacyGrantRow = v.object({ name: identifier, provider: v.string(), account: v.nullable(v.string()), scopes: v.string(), payload: v.string(), revision: identifier, status: v.picklist(["active", "disconnected", "error", "needs-reconnect"]), connected_at: v.string(), updated_at: v.string(), expires_at: v.nullable(v.number()) })
-const legacyPendingRow = v.object({ state: identifier, name: identifier, payload: v.string(), expires_at: v.number(), opened: v.number() })
-const legacyTokenSet = v.object({ accessToken: v.string(), account: v.optional(v.string()), expiresAt: v.optional(v.number()), refreshToken: v.optional(v.string()), scopes: v.array(v.string()), tokenType: v.string() })
 
 function parseJson(value: string): unknown {
   try {
@@ -161,15 +157,6 @@ function toApproval(row: unknown): ConnectionApproval {
  */
 export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKeys: readonly Uint8Array[] }): ConnectionStore {
   const envStore = createDatabaseEnvStore({ db: options.db, encryptionKeys: options.encryptionKeys, namespace: "connections" })
-  async function unsealLegacy(additionalData: unknown[], payload: string): Promise<string> {
-    const data = new TextEncoder().encode(JSON.stringify(additionalData))
-    let failure: unknown
-    for (const raw of options.encryptionKeys) {
-      try { return await unsealWithKey(await importSealKey(raw), data, payload) }
-      catch (error) { failure ??= error }
-    }
-    throw failure
-  }
   const retention = resolveActivityRetention(options.activityRetention)
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
     const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
@@ -213,38 +200,6 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
         if (!await hasMetadata()) {
           try { await db.run(sql.raw(`ALTER TABLE ${table} ADD COLUMN ${name} TEXT`)) }
           catch (error) { if (!await hasMetadata()) throw error }
-        }
-      }
-      const legacyTables = await db.all(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('vitehub_connection_grants', 'vitehub_connection_pending')`)
-      const legacyNames = new Set(legacyTables.map(row => v.parse(v.object({ name: v.string() }), row).name))
-      if (legacyNames.has("vitehub_connection_grants")) {
-        const rows = await db.all(sql`SELECT name, provider, account, scopes, payload, revision, status, connected_at, updated_at, expires_at FROM vitehub_connection_grants`)
-        for (const row of rows) {
-          const grant = v.parse(legacyGrantRow, row)
-          const secretKey = `connection/${grant.name}`
-          const secret = await envStore.secrets.inspect(secretKey)
-          const state = (await db.all(sql`SELECT name FROM vitehub_connection_state WHERE name = ${grant.name}`))[0]
-          if (secret && state) {
-            await db.run(sql`DELETE FROM vitehub_connection_grants WHERE name = ${grant.name} AND revision = ${grant.revision} AND payload = ${grant.payload}`)
-            continue
-          }
-          const legacyToken = v.parse(legacyTokenSet, JSON.parse(await unsealLegacy(["connection-grant", grant.name, grant.revision], grant.payload)))
-          const token = { ...legacyToken, ...(legacyToken.account ? { accountId: legacyToken.account } : {}) }
-          if (!secret) {
-            await envStore.secrets.replace({ key: secretKey, value: JSON.stringify(token), expectedRevision: null })
-          }
-          await db.run(sql`INSERT INTO vitehub_connection_state (name, status, account_id, account_email, scopes, connected_at, refreshed_at, updated_at) VALUES (${grant.name}, ${grant.status === "active" ? "connected" : grant.status === "needs-reconnect" ? "reauth_required" : "revoked"}, ${token.accountId ?? null}, ${grant.account ?? null}, ${JSON.stringify(token.scopes)}, ${grant.connected_at}, ${grant.updated_at}, ${grant.updated_at}) ON CONFLICT (name) DO NOTHING`)
-          await db.run(sql`DELETE FROM vitehub_connection_grants WHERE name = ${grant.name} AND revision = ${grant.revision} AND payload = ${grant.payload}`)
-        }
-      }
-      if (legacyNames.has("vitehub_connection_pending")) {
-        const now = Date.now()
-        const rows = await db.all(sql`SELECT state, name, payload, expires_at, opened FROM vitehub_connection_pending WHERE opened = 1 AND expires_at > ${now}`)
-        for (const row of rows) {
-          const pending = v.parse(legacyPendingRow, row)
-          const value = v.parse(v.object({ actor: v.object({ id: v.string(), kind: v.string() }), redirectUri: v.string(), verifier: v.string() }), JSON.parse(await unsealLegacy(["connection-pending", pending.state], pending.payload)))
-          await db.run(sql`INSERT INTO vitehub_connection_authorizations (state, name, actor, verifier, redirect_uri, expires_at) VALUES (${pending.state}, ${pending.name}, ${`${value.actor.kind}:${value.actor.id}`}, ${value.verifier}, ${value.redirectUri}, ${pending.expires_at}) ON CONFLICT (state) DO NOTHING`)
-          await db.run(sql`DELETE FROM vitehub_connection_pending WHERE state = ${pending.state}`)
         }
       }
       const columns = await db.all(sql`PRAGMA table_info(vitehub_connection_approvals)`)
