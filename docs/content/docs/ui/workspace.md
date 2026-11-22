@@ -142,7 +142,7 @@ With a `sidebar` slot, the bar shows a sidebar button. Reset, Download, and Copy
 
 ## Accessibility
 
-The workspace is a region named by `label`. The bar, the editor, the tabs, and the menus use the parts of [Workspace bar](/docs/ui/workspace-bar) and [Workspace code](/docs/ui/workspace-code). While the start screen covers the workspace, the parts under it are `inert`, so Tab only reaches the example cards. Reset and every action of `guard` ask first in a dialog when files are edited. The render output runs in a sandboxed frame with its own origin, so a shared link cannot reach your page.
+The workspace is a region named by `label`. The bar, the editor, the tabs, and the menus use the parts of [Workspace bar](/docs/ui/workspace-bar) and [Workspace code](/docs/ui/workspace-code). While the start screen shows, only the bar and the example cards are in the page. After a pick, focus moves to the bar. Reset and every action of `guard` ask first in a dialog when files are edited. The render output runs in a sandboxed frame with its own origin, so a shared link cannot reach your page.
 
 ## API Reference
 
@@ -162,7 +162,7 @@ The workspace is a region named by `label`. The bar, the editor, the tabs, and t
 | `tabs` | `WorkspaceTabItem[]` | `[]` | More output tabs, after the tabs of the runner. Each one shows the slot with the name of its `value`. |
 | `share` | `boolean` | `true` | Copy link and Download, and opening `#code=` links. |
 | `name` | `string` | `""` | The start of the zip name. The example id follows it. |
-| `start` | `boolean` | `false` | Shows the examples as cards over the workspace on a first visit. A share link skips them. |
+| `start` | `boolean` | `false` | Shows the examples as cards on a first visit, before any run starts or any snapshot loads. A share link skips them. |
 | `label` | `string` | `"workspace"` | What the reader calls this, in lowercase, such as `"playground"`. It names the region, the Open button, and the notices. |
 | `open` | `boolean` | `false` | Whether the workspace shows, for a runner that only desktops start. Set it to `true` to show it on a tablet. Use `v-model:open`. |
 

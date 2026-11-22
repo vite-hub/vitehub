@@ -7,6 +7,7 @@ import {
   inject,
   type InjectionKey,
   markRaw,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   type PropType,
@@ -206,7 +207,7 @@ const workspaceProps = {
   share: { default: true, type: Boolean },
   /** The start of the zip name. The example id follows it, as in `vitehub-kv.zip`. */
   name: { default: "", type: String },
-  /** Shows the examples as cards over the workspace on a first visit. A share link skips them and opens its files. */
+  /** Shows the examples as cards on a first visit, before any run starts or any snapshot loads. A share link skips them and opens its files. */
   start: { default: false, type: Boolean },
   /** What the reader calls this, in lowercase, such as `"playground"`. It names the region, the Open button, and the notices. */
   label: { default: "workspace", type: String },
@@ -225,8 +226,6 @@ const WorkspaceSession = defineComponent({
     booted: { required: true, type: Object as PropType<WorkspaceExample> },
     /** The files to start with: the files of the example, or of a share link. */
     files: { required: true, type: Object as PropType<WorkspaceFiles> },
-    /** Shows the start screen over the workspace. */
-    start: { default: false, type: Boolean },
     /** A notice over the workspace, such as for a share link. */
     notice: { default: undefined, type: String },
     step: { default: 0, type: Number },
@@ -234,7 +233,6 @@ const WorkspaceSession = defineComponent({
   emits: {
     "update:selected": (path: string) => typeof path === "string",
     "update:step": (step: number) => Number.isInteger(step),
-    started: () => true,
     change: (example: WorkspaceExample) => !!example,
     remount: (example: WorkspaceExample) => !!example,
   },
@@ -343,8 +341,6 @@ const WorkspaceSession = defineComponent({
           : undefined;
       return [
         h(WorkspaceBar, {
-          // The start screen covers the workspace, so only its cards take focus.
-          inert: props.start ? "" : undefined,
           sidebar: hasSidebar ? sidebar.value : undefined,
           sidebarId: hasSidebar ? "vh-workspace-sidebar" : undefined,
           "onUpdate:sidebar": (open: boolean) => { sidebar.value = open; },
@@ -384,15 +380,6 @@ const WorkspaceSession = defineComponent({
               "onCopy-link": () => void copyLink(),
             }, () => slots.sidebar?.(slotProps))
           : undefined,
-        props.start
-          ? h(WorkspaceStart, {
-              examples: config.examples,
-              onPick: (id: string) => {
-                emit("started");
-                pick(id);
-              },
-            })
-          : undefined,
       ];
     }
 
@@ -431,7 +418,6 @@ const WorkspaceSession = defineComponent({
       };
       return h("div", { class: "vh-workspace-session" }, [
         h(WorkspaceShell, {
-          covered: props.start,
           label: capitalize(config.label ?? "workspace"),
           layout: layout.value,
           storageKey: `vitehub:workspace:${config.label}:${layout.value}`,
@@ -475,6 +461,7 @@ export const Workspace = defineComponent({
   setup(props, { emit, slots }) {
     const UButton = useUIComponent("UButton");
     const { device, supported } = useWorkspaceDevice(props.runner);
+    const root = ref<HTMLElement>();
     const first = () => props.examples.find(item => item.id === props.example) ?? props.examples[0]!;
 
     // `id` changes when the files need a new run, such as for an example with other dependencies. Only share links pin
@@ -482,7 +469,8 @@ export const Workspace = defineComponent({
     const session = shallowRef<{ id: number, example: WorkspaceExample, files?: WorkspaceFiles }>();
     const active = computed(() => props.examples.find(item => item.id === session.value?.example.id) ?? session.value?.example ?? first());
     const link = ref<"restored" | "invalid">();
-    // The start screen shows until the reader picks an example. A share link never shows it.
+    // The start screen shows until the reader picks an example. No run starts and no snapshot loads before the pick. A
+    // share link never shows it.
     const starting = ref(props.start);
     const localStep = ref(props.step ?? 0);
     watch(() => props.step, (step) => { if (step !== undefined) localStep.value = step; });
@@ -523,6 +511,30 @@ export const Workspace = defineComponent({
       emit("update:example", example.id);
     }
 
+    async function startExample(id: string) {
+      const example = props.examples.find(item => item.id === id);
+      if (!starting.value || !example) return;
+      starting.value = false;
+      opened(example);
+      boot(example);
+      // The picked card or menu item is gone, so focus moves to the bar of the workspace.
+      await nextTick();
+      root.value?.querySelector<HTMLElement>(".vh-ws-topbar .vh-ws-examples-button, .vh-ws-topbar button[aria-label='More actions']")?.focus();
+    }
+
+    function chooser(): VNode {
+      const text = notice();
+      return h("div", { class: "vh-workspace-session" }, [
+        h(WorkspaceBar, null, {
+          examples: props.examples.length > 1
+            ? () => h(WorkspaceExamples, { examples: props.examples, modelValue: null, "onUpdate:modelValue": startExample })
+            : undefined,
+        }),
+        text ? h("div", { class: "vh-workspace-notice", role: "status" }, text) : undefined,
+        h(WorkspaceStart, { examples: props.examples, onPick: startExample }),
+      ]);
+    }
+
     const requested = ref(props.open);
     watch(() => props.open, (open) => { requested.value = open; });
     // A desktop runner starts on its own only on desktops, on a tap on tablets, and never on phones.
@@ -544,7 +556,7 @@ export const Workspace = defineComponent({
       const label = session.value.example.label;
       const many = props.examples.length > 1;
       return link.value === "invalid"
-        ? `This link has no files that the ${props.label} can read.${many ? ` It opened the ${label} example.` : ""}`
+        ? `This link has no files that the ${props.label} can read.${many && !starting.value ? ` It opened the ${label} example.` : ""}`
         : `You opened shared files${many ? ` on the ${label} example` : ""}.`;
     }
 
@@ -598,26 +610,26 @@ export const Workspace = defineComponent({
 
     return () => {
       const current = session.value;
-      return h("div", { class: "vh-workspace", "data-runner": props.runner.desktop ? "desktop" : "any" }, [
-        shown.value && current
-          ? h(WorkspaceSession, {
-              key: current.id,
-              booted: active.value,
-              config: props,
-              files: current.files ?? filesOf(active.value),
-              notice: notice(),
-              start: starting.value && link.value !== "restored",
-              step: step.value,
-              onChange: opened,
-              onStarted: () => { starting.value = false; },
-              onRemount: (example: WorkspaceExample) => {
-                opened(example);
-                boot(example);
-              },
-              "onUpdate:selected": (path: string) => emit("update:selected", path),
-              "onUpdate:step": setStep,
-            }, slots)
-          : gate(),
+      return h("div", { class: "vh-workspace", "data-runner": props.runner.desktop ? "desktop" : "any", ref: root }, [
+        !shown.value || !current
+          ? gate()
+          : starting.value
+            ? chooser()
+            : h(WorkspaceSession, {
+                key: current.id,
+                booted: active.value,
+                config: props,
+                files: current.files ?? filesOf(active.value),
+                notice: notice(),
+                step: step.value,
+                onChange: opened,
+                onRemount: (example: WorkspaceExample) => {
+                  opened(example);
+                  boot(example);
+                },
+                "onUpdate:selected": (path: string) => emit("update:selected", path),
+                "onUpdate:step": setStep,
+              }, slots),
       ]);
     };
   },
