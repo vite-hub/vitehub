@@ -1253,6 +1253,15 @@ describe("shell timeout policy", () => {
     expect(aborted).toBe(true)
   })
 
+  it("reports the timeout when the driver rejects after the runtime aborts it", async () => {
+    const driver = timeoutDriver("runtime", (_command, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Driver aborted", "AbortError")), { once: true })
+    }))
+    const runtime = createShellRuntime({ driver, policy: { timeout: 20 } })
+    await expect(runtime.exec("hang")).resolves.toMatchObject({ event: "command_timed_out", timedOut: true })
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+
   it("stops a background process when the runtime enforces the timeout", async () => {
     let stopped = 0
     const driver = timeoutDriver("runtime", async command => ({ command, event: "command_finished", exitCode: 0, stderr: "", stdout: "" }), async command => ({

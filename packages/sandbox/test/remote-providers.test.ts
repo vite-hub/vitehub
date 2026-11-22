@@ -245,6 +245,32 @@ describe("remote Sandbox providers", () => {
     }
   });
 
+  it.each([
+    ["ignores", new DOMException("Log transport aborted", "AbortError"), undefined],
+    ["reports", new Error("log transport close failed"), "log transport close failed"],
+  ] as const)("%s a Vercel log iterator close failure when both channels are cancelled", async (_label, failure, message) => {
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs(options?: { signal?: AbortSignal }) {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<{ data: string; stream: "stdout" }>>((_resolve, reject) => {
+              options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+            }),
+            return: () => Promise.reject(failure),
+          }),
+        };
+      },
+    });
+    try {
+      await child.stdout.cancel();
+      if (message) await expect(child.stderr.cancel()).rejects.toThrow(message);
+      else await expect(child.stderr.cancel()).resolves.toBeUndefined();
+    } finally {
+      await session.close();
+    }
+  });
+
   it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
     const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
     const stub = cloudflareStub(async command => ({

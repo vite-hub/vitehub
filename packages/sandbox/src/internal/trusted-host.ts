@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
@@ -258,10 +259,12 @@ async function createSession(
   } catch (error) {
     if (session) {
       initializationFailed = true;
-      try {
-        await session.destroy?.();
-      } catch {
-        void retrySessionDestroy(session);
+      const cleanup = await destroyFailedSession(session);
+      if (cleanup) {
+        throw new AggregateError(
+          [error, cleanup.error],
+          `[vitehub] Trusted-host Sandbox initialization failed: ${failureMessage(error)} Cleanup failed: ${failureMessage(cleanup.error)}`,
+        );
       }
     }
     else {
@@ -277,17 +280,24 @@ async function createSession(
   }
 }
 
-async function retrySessionDestroy(session: TrustedHostSession): Promise<void> {
-  while (true) {
-    await new Promise<void>((resolvePromise) => {
-      const timer = setTimeout(resolvePromise, 250);
-      timer.unref?.();
-    });
+const failedSessionDestroyAttempts = 3;
+
+async function destroyFailedSession(session: TrustedHostSession): Promise<{ error: unknown } | undefined> {
+  let failure: { error: unknown } | undefined;
+  for (let attempt = 0; attempt < failedSessionDestroyAttempts; attempt++) {
+    if (failure) await delay(250);
     try {
       await session.destroy?.();
-      return;
-    } catch {}
+      return undefined;
+    } catch (error) {
+      failure = { error };
+    }
   }
+  return failure;
+}
+
+function failureMessage(error: unknown) {
+  return error instanceof Error ? error.message || error.name : String(error);
 }
 
 async function provisionTrustedHostToolchain(
