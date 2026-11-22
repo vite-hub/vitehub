@@ -48,7 +48,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** Knip prints a hint for an entry that matches no file and for an unneeded ignore. Knip maps dist to src only from a tsconfig outDir, which packages do not set. The vite-plus plugin reads only run.tasks. Packages bundle @vite-hub/internal with alwaysBundle.
 
-**Decision:** Every entry list goes through matching(), so a new Knip hint means the config is out of date. Package entries come from package.json exports/imports/bin mapped from ./dist to src, plus source paths named in vite.config.ts and *.vite.config.ts. Each package that bundles internal declares the internal modules' imports, listed in bundledInternal. Root tasks are written inline in `run.tasks` of the root `vite.config.ts`, not spread in from another module, because the vite-plus plugin reads only literal task objects (webpro-nl/knip#2406). The root entry list names only scripts that a script or a person starts with `node <path>`, such as `test/local/vercel-bridge-server.mjs`, which `test/local/local.mjs` spawns.
+**Decision:** Every entry list goes through matching(), so a new Knip hint means the config is out of date. Package entries come from package.json exports/imports/bin mapped from ./dist to src, plus source paths named in vite.config.ts and *.vite.config.ts. Each package that bundles internal declares the internal modules' imports, listed in bundledInternal.
 
 **Consequences:** Adding a pattern without matching() hides out-of-date config. Setting outDir or changing the dist layout breaks toSource. A new internal import used by a bundling package must be declared by that package.
 
@@ -444,13 +444,13 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 ## Peer named imports are checked in Node, from the package directory
 
-`peer named imports`, `loader`, `loadExports`, `loadsOnlyInBuild` in `test/peer-named-imports.test.ts`.
+`peer named imports`, `loader`, `loadExports` in `test/peer-named-imports.test.ts`.
 
 **Context:** `--eval` resolves bare ids from cwd; modules print logs on import.
 
-**Decision:** One child Node per package with cwd set to the package directory, parse after a marker line; only Node conditions are covered. `loadsOnlyInBuild` skips a peer module that only a bundler can load: it fails with `ERR_PACKAGE_IMPORT_NOT_DEFINED` because it imports a `#` id such as `#imports`, or with `ERR_PACKAGE_PATH_NOT_EXPORTED` because its export has only a `types` condition. `@nuxt/ui/composables` and `@nuxt/ui/vue-plugin` match these rules.
+**Decision:** One child Node per package with cwd set to the package directory, parse after a marker line; only Node conditions are covered.
 
-**Consequences:** Running from another cwd resolves the wrong versions. The test does not check the names imported from a module that only a build can load.
+**Consequences:** Running from another cwd resolves the wrong versions.
 
 ## Provider error contract: no meaning from error messages
 
@@ -551,73 +551,3 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Only draft writes on docs/en/*.md enqueue; the job binds the English draft digest and the Agent saves with sourceDigest.
 
 **Consequences:** Widening the path regex makes an endless translation loop; dropping the digest loses stale detection.
-
-## CI rewrites node_modules/.modules.yaml so the Vite+ task cache survives a fresh install
-
-`.github/actions/setup/stable-pnpm-modules.mjs`, the "Make the pnpm install state stable for the task cache" step in `.github/actions/setup/action.yml`.
-
-**Context:** Vite reads `node_modules/.modules.yaml` while it resolves a config, so the Vite+ task cache fingerprints the file. pnpm writes the install time into `prunedAt`, and when a package is installed in several versions it does not always hoist the same one into `hoistedDependencies`. Two fresh installs of one lockfile write different files, and every package build misses the restored cache. Vite+ can drop a path from one task's `input`, but it has no setting that drops a path from the config fingerprint.
-
-**Decision:** After install, CI sets `prunedAt` to the epoch, empties `hoistedDependencies`, and sorts the keys.
-
-**Consequences:** This is an upstream gap, not a ViteHub rule. Delete the script, its step and `test/stable-pnpm-modules.test.ts` when Vite+ (voidzero-dev/vite-plus) leaves `node_modules/.modules.yaml` out of the config fingerprint, or when pnpm (pnpm/pnpm) writes the same `.modules.yaml` for the same lockfile.
-
-## Nuxt 5 comes from the nuxt-nightly alias until it ships on the stable nuxt package
-
-The `nuxt` catalog alias in `pnpm-workspace.yaml`, `packageOverrides.ui.ignoreDependencies` in `knip.config.ts`, `createProject` in `test/local/netlify-real-project.mjs`.
-
-**Context:** ViteHub targets Nuxt 5, and the stable `nuxt` package still publishes Nuxt 4 (`latest` was 4.6.4 on 2026-11-22). The catalog installs `npm:nuxt-nightly@5.0.0-...` under the name `nuxt`. Knip sees `#app` resolve into `nuxt-nightly` and reports it for packages/ui. The Netlify real-project app installs packages whose Nuxt peer must resolve to the same nightly.
-
-**Decision:** packages/ui ignores `nuxt-nightly` in Knip, and the Netlify real-project app overrides `nuxt` with the catalog alias.
-
-**Consequences:** When Nuxt 5 is `latest` on the `nuxt` package, replace the alias with the stable version and delete the Knip ignore and the override in the same pull request.
-
-## Realtime declares prosemirror-transform for the y-tiptap copy it bundles
-
-`packageOverrides.realtime` in `knip.config.ts`, `publishes Realtime's shared Tiptap dependencies in its runtime closure` in `test/public-package-exports.test.ts`.
-
-**Context:** Realtime bundles `@tiptap/y-tiptap` and keeps ProseMirror external, so an isolated app needs every ProseMirror package that the bundled code imports. The lockfile resolves the catalog range `^3.0.9` to 3.0.9, which imports `prosemirror-transform` without declaring it. Nothing in Realtime's own source imports it, so Knip reports the dependency as unused.
-
-**Decision:** Realtime depends on `prosemirror-transform` itself, and Knip ignores that dependency for Realtime.
-
-**Consequences:** `@tiptap/y-tiptap` 3.0.10 and later declare `prosemirror-transform`, so no upstream report is needed. When Realtime's lockfile entry moves to 3.0.10 or later, remove the dependency and the Knip ignore together.
-
-## Consumer fixtures pin a few transitive packages to the versions the workspace tested
-
-`workspaceConfig` in `test/consumer/public-package-exports.test.ts`, `test/consumer/source-closures.test.ts`, `test/consumer/vite-hub.test.ts`; `appOverrides` in `test/multi-instance/run.mjs`.
-
-**Context:** A fixture installs packed ViteHub tarballs into a new app, so pnpm resolves every range afresh. Some packages publish a release before the exact dependency it needs: `@tailwindcss/vite` before its Oxide binary, `@tanstack/vue-virtual` before its `@tanstack/virtual-core`. The fixture then fails for a reason outside ViteHub.
-
-**Decision:** `@tailwindcss/vite` and `@tanstack/vue-virtual` take their version from the copy that Nuxt UI resolves in packages/ui, so they follow the lockfile. `ai`, `js-base64`, `@napi-rs/wasm-runtime` and `@emnapi/core`/`@emnapi/runtime` are hand pins. The `mdast-util-gfm-table` and `msgpackr`/`msgpackr-extract` pins were removed on 2026-11-22, once the registry served the tarballs that had returned 404.
-
-**Consequences:** Hand pins drift: `source-closures.test.ts` and `run.mjs` pin `@napi-rs/wasm-runtime` 1.1.6 while `vite-hub.test.ts` and the lockfile use 1.2.4. These pins can go when one helper derives fixture overrides from `pnpm-lock.yaml` for every fixture. Until then, change a hand pin in every fixture that has it.
-
-## Consumer fixtures pin @nestjs/common and @nestjs/core to one version
-
-`workspaceConfig` in `test/consumer/source-closures.test.ts`, `test/consumer/vite-hub.test.ts`; `appOverrides` in `test/multi-instance/run.mjs`.
-
-**Context:** `workflow` depends on `@workflow/nest`, which declares required peers `@nestjs/core >=10.0.0` and `@nestjs/common >=10.0.0`. With open ranges, pnpm resolves each peer on its own in a packed graph and can install two Nest versions that do not work together.
-
-**Decision:** The fixtures override both packages to 11.2.3.
-
-**Consequences:** This is an upstream bug in `@workflow/nest` (vercel/workflow): its Nest peers have no upper bound. Remove the overrides when it narrows them. Bump both packages together.
-
-## Agent bundles @t3tools/provider-runtime and its Effect copy
-
-`assertProviderRuntimeLoads` in `test/consumer/vite-hub.test.ts`.
-
-**Context:** `@t3tools/provider-runtime` is published only on pkg.pr.new, not on npm. A published package cannot make an app install a pkg.pr.new URL.
-
-**Decision:** Agent bundles the runtime with the Effect copy it imports. The test checks that the packed Agent loads its provider entry from its own files, names neither the runtime nor Effect as dependencies, and bundles no msgpackr.
-
-**Consequences:** When the runtime has an npm release, depend on it, stop bundling it, and delete this assertion.
-
-## The Blob and Queue fixture adds @types/json-schema for the AI SDK declarations
-
-`installs and builds a Blob and Queue app without the packages of other features` in `test/consumer/vite-hub.test.ts`.
-
-**Context:** `@ai-sdk/provider` 4.0.24 imports types from `json-schema` in `dist/index.d.ts` but lists `@types/json-schema` only in `devDependencies`. With pnpm hoisting off, the app's typecheck cannot find those types.
-
-**Decision:** The fixture app adds `@types/json-schema` as a devDependency.
-
-**Consequences:** This is an upstream bug in `@ai-sdk/provider` (vercel/ai): the types its declarations import should be a dependency. Remove the devDependency when it is.
