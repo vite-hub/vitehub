@@ -75,8 +75,8 @@ useDocsSeo({
 
 <template>
   <!-- The layout's UMain is the page's only main landmark. -->
-  <DocsLearn v-if="workspace?.layout === 'learn'" :key="page.path" :response="response" :data="workspace" />
-  <DocsPlayground v-else-if="workspace" :key="page.path" :response="response" :data="workspace" />
+  <LazyDocsLearn v-if="workspace?.layout === 'learn'" :key="page.path" :response="response" :data="workspace" />
+  <LazyDocsPlayground v-else-if="workspace" :key="page.path" :response="response" :data="workspace" />
 
   <div v-else-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader

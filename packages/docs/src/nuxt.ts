@@ -33,7 +33,7 @@ import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { comarkBlocksSource } from "./comark-blocks.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
-import { webContainerRoutes } from "./runnable/workspaces.ts"
+import { webContainerRoutes, workspacePages } from "./runnable/workspaces.ts"
 import { docsWebContainerDefaults } from "./workspace-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { setupDocsRunnable, type DocsRunnableOptions } from "./runnable/nuxt.ts"
@@ -622,13 +622,15 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (!ownDiscoveryRoutes) agentDiscoveryOptions.routes = discoveryRoutes(manifest)
     moduleOptions.agentDiscovery = agentDiscoveryOptions
     /**
-     * What the module reads from the manifest only when Nuxt starts: the mount of the docs page route, and the routes
-     * that negotiate Markdown. A content change that moves them needs a restart. Any other change reloads the pages.
-     * `<base>/**` already covers a new page below the base.
+     * What the module reads from the manifest only when Nuxt starts: the mount of the docs page route, the routes
+     * that negotiate Markdown, and the workspace pages, whose modules and isolated routes are set up then. A content
+     * change that moves them needs a restart. Any other change reloads the pages. `<base>/**` already covers a new page
+     * below the base.
      */
     const startupShape = (pages: DocsManifest) => JSON.stringify([
       docsMount(pages),
       ownDiscoveryRoutes ? null : discoveryRoutes(pages).filter(route => typeof route !== "string" || route.endsWith("/**") || !isDocsPath(route, config.base)),
+      workspacePages(docsManifestPages(pages)).map(page => [page.path, page.layout, page.workspace]),
     ])
 
     // The `llms` option for Content's `llms.txt`. Server code only, so it stays out of the page payload.
