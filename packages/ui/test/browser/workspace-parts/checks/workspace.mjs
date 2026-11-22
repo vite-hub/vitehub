@@ -109,17 +109,18 @@ export default function ({ test, open, rects, near }) {
     check(got, section4)
   })
 
-  test("Workspace section 4: Tab never reaches the editor, the files or the bar under the start screen", async () => {
+  test("Workspace section 4: the start screen mounts no panes, and a pick opens the workspace with focus in its bar", async () => {
     const page = await open("workspace", { section: "4" })
-    // The editor mounts under the screen, so its content is there to take focus if the cover lets it.
-    await page.locator(".vh-ws-editor .cm-content").waitFor({ state: "attached" })
+    await page.locator(".vh-ws-start").waitFor()
+    // No run starts before the pick, so the editor and the files are not in the page.
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0)
     const reached = []
     for (let index = 0; index < 24; index++) {
       await page.keyboard.press("Tab")
       reached.push(await page.evaluate(() => {
         const element = document.activeElement
         if (!element || element === document.body) return "body"
-        if (element.closest(".cm-content, .vh-ws-file-tree, .vh-ws-body, .vh-ws-topbar")) return `covered: ${element.className || element.localName}`
+        if (element.closest(".cm-content, .vh-ws-file-tree, .vh-ws-body")) return `covered: ${element.className || element.localName}`
         return element.closest(".vh-ws-start") ? "start" : `other: ${element.className || element.localName}`
       }))
     }
@@ -127,6 +128,7 @@ export default function ({ test, open, rects, near }) {
     assert.ok(reached.includes("start"), `Tab reached no start card: ${reached.join(", ")}`)
     await page.getByRole("button", { name: /^Plurals/ }).click()
     await page.locator(".vh-ws-start").waitFor({ state: "detached" })
+    assert.ok(await page.evaluate(() => !!document.activeElement?.closest(".vh-ws-topbar")), "focus moves to the bar after a pick")
     await page.locator(".vh-ws-editor .cm-content").click()
     assert.ok(await page.evaluate(() => !!document.activeElement?.closest(".cm-content")), "the editor takes focus after a pick")
   })

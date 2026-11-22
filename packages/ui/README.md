@@ -135,7 +135,7 @@ const runner = webContainer({ port: 3000, connect, snapshot: () => hello });
 - Examples with the same `snapshot` loader and the same `package.json` switch in place. Another snapshot, or an edited `package.json`, boots a new run. One runner boots one WebContainer at a time.
 - Slots: `#bar-lead` and `#bar-actions` add controls to the bar, `#sidebar` fills the sidebar and moves Reset, Download, and Copy link to its bottom, `#guide` holds the text of a step, `#banner` shows under the bar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ files, setFile, edited, example, show, showTab, guard, runner, run }`, and `useWorkspace()` gives the same values to a component in a slot. `#intro` and `#fallback` show around the card when the workspace does not show.
 - The share link keeps the key `template` for the example id, so older links open.
-- While the start screen covers the workspace, the parts under it are `inert`.
+- While the start screen shows, the workspace starts no run and loads no snapshot. A pick of a card or a menu item starts the picked example and moves focus to the bar.
 - `WorkspaceShell` has three layouts:
   - `side` (default): the code on the left and the output at the side, with a draggable line between them.
   - `guide-top`: the `#guide` pane over the code, with a draggable line between them, and the output at the side.

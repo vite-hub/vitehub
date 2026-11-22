@@ -3,11 +3,11 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { defineConnect } from "@vite-hub/web-container/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, type PropType, ref } from "vue";
+import { defineComponent, h, onScopeDispose, type PropType, ref } from "vue";
 import { decodePlaygroundLink, encodePlaygroundLink, playgroundUrl } from "../src/playground/share.ts";
 import { downloadZip } from "../src/playground/zip.ts";
 import type { WorkspaceExample } from "../src/workspace/workspace-examples.ts";
-import type { WorkspaceSlotProps } from "../src/workspace/workspace.ts";
+import type { WorkspaceRunner, WorkspaceSlotProps } from "../src/workspace/workspace.ts";
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -381,18 +381,49 @@ describe("Workspace with webContainer()", () => {
     shared.unmount();
   });
 
-  it("makes the covered workspace inert while the start screen shows", async () => {
+  it("starts only the picked example when the first example's snapshot would still be downloading", async () => {
+    // One WebContainer runs at a time, so a second start while a run is live throws, as the browser API does.
+    const started: string[] = [];
+    let live = 0;
+    const delayedSnapshot = vi.fn(() => new Promise<Uint8Array>(() => {}));
+    const inner = webContainer({ snapshot: example => example.id === "agent" ? agentSnapshot : delayedSnapshot });
+    const single: WorkspaceRunner = {
+      ...inner,
+      start(input) {
+        if (live > 0) throw new Error("Only a single WebContainer instance can be booted");
+        live++;
+        started.push(input.example.id);
+        onScopeDispose(() => { live--; });
+        return inner.start(input);
+      },
+    };
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, agent], runner: single, start: true } });
+    await flushPromises();
+
+    await wrapper.findAll(".vh-ws-start-card")[1]!.trigger("click");
+    await flushPromises();
+
+    expect(started).toEqual(["agent"]);
+    expect(fake.boots).toEqual([{ files: agent.files, snapshot: true }]);
+    expect(delayedSnapshot).not.toHaveBeenCalled();
+    expect(wrapper.findComponent({ name: "WorkspacePreview" }).exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it.each(["card", "menu"])("keeps the panes out of the chooser and hands off focus after a %s pick", async (picker) => {
     const wrapper = mount(Workspace, { attachTo: document.body, global, props: { examples: [kv, blob], runner: runner(), start: true } });
     await flushPromises();
-    expect(wrapper.find(".vh-ws-start").exists()).toBe(true);
-    // Focus reaches only the cards: the bar and the body under the start screen are inert.
-    expect(wrapper.get(".vh-ws-body").attributes()).toHaveProperty("inert");
-    expect(wrapper.get(".vh-ws-topbar").attributes()).toHaveProperty("inert");
-    expect(wrapper.get(".vh-ws-start").element.closest("[inert]")).toBeNull();
-    await wrapper.findAll(".vh-ws-start-card")[0]!.trigger("click");
+    expect(wrapper.find(".vh-ws-shell").exists()).toBe(false);
+    expect(fake.boots).toEqual([]);
+
+    const choice = wrapper.get(picker === "card" ? ".vh-ws-start-card" : '[data-item="KV"]');
+    (choice.element as HTMLButtonElement).focus();
+    await choice.trigger("click");
     await flushPromises();
-    expect(wrapper.get(".vh-ws-body").attributes()).not.toHaveProperty("inert");
-    expect(wrapper.get(".vh-ws-topbar").attributes()).not.toHaveProperty("inert");
+
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
+    expect(wrapper.emitted("update:example")).toEqual([["kv"]]);
+    expect(document.activeElement).toBe(wrapper.get('button[aria-label="Example: KV"]').element);
     wrapper.unmount();
   });
 
