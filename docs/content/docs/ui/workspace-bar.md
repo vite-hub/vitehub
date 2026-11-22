@@ -111,7 +111,7 @@ The start screen is a section named by its heading. Each card is a button. Under
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `examples` | `WorkspaceExample[]` | Required | Each `{ id, label, description?, group?, files? }`. |
-| `modelValue` | `string` | | The id of the open example. Without it, the first example shows. Use `v-model`. |
+| `modelValue` | `string \| null` | | The id of the open example. Without it, the first example shows. Pass `null` before an example is open. Use `v-model`. |
 | `label` | `string` | `"Example"` | The word before the name of the open example on the button. |
 
 `groupExamples(examples)` returns the examples by group, in the order that the menu shows them.
