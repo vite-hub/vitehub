@@ -383,6 +383,24 @@ describe("contributed Schedule inspection", () => {
     expect(record("utc").fields).toContainEqual({ label: "Time zone", value: "UTC" })
   })
 
+  it("lists Definitions that host cron output rejects without a host cron", async () => {
+    const { root } = await createRoot({ file: false })
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "zone.ts"), "export default defineSchedule({ cron: '0 9 * * *', timeZone: 'Mars/Olympus', handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "range.ts"), "export default defineSchedule({ cron: '99 9 * * *', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "days.ts"), "export default defineSchedule({ cron: '0 9 1 * 1', timeZone: 'Europe/Madrid', handler: () => {} })\n", "utf8")
+    await writeFile(join(root, "server", "schedules", "computed.ts"), "export default defineSchedule({ cron: every, handler: () => {} })\n", "utf8")
+
+    const listed = await inspectScheduleDefinitions({ projectRoot: root, rootDir: root, serverRootDir: root })
+    const labels = (name: string) => listed.find(entry => entry.name === name)!.fields.map(field => field.label)
+
+    for (const name of ["zone", "range", "days"]) {
+      expect(labels(name)).toContain("Cron")
+      expect(labels(name)).not.toContain("Host cron (UTC)")
+    }
+    expect(labels("computed")).toEqual(["Kind"])
+  })
+
   it("names manual runs with the word of the detail panel", async () => {
     const { root } = await createRoot({ file: false })
     await mkdir(join(root, "server", "schedules"), { recursive: true })

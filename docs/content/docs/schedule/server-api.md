@@ -194,5 +194,3 @@ A Schedule with the cron `* * * * *` makes 1,440 `info` events a day. To keep fe
 - `listRuns({ scheduleId, idPrefix, limit })` lists runs, newest first. `idPrefix` filters run IDs before `limit`, so the Process Runtime reads only the newest `srun_static_` run for catch-up.
 - `listAttempts(runId)` lists the attempts of one run.
 - In development, `vitehub schedule runs list <name>` and `vitehub schedule runs get <runId>` read the same store.
-
-For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 more recent records for a cron run. If none is one, it checks the whole `catchUpMs` window instead of guessing a time. Existing static run IDs stop duplicates. Support `idPrefix` to read only one record.

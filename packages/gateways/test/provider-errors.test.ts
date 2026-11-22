@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ask, typesafe, vercel } from "../src/index.ts"
+import { askAiGateway } from "../src/internal.ts"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -69,5 +70,16 @@ describe("Jev provider errors", () => {
     const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)
     expect(headers.get("authorization")).toBe("Bearer oidc-token")
     expect(headers.get("ai-gateway-auth-method")).toBe("oidc")
+  })
+
+  it("warns with the cause when a trace observer throws and still returns the answer", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => answered()))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const thrown = new Error("trace store is down")
+    const observe = vi.fn(async () => { throw thrown })
+    await expect(askAiGateway(typesafe({ apiKey: "test-sdk-key" }), "state", questions, { observe })).resolves.toEqual([undefined, { accepted: true }])
+    expect(observe).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "GATEWAYS_TRACE_OBSERVER_FAILED", cause: thrown }))
+    warn.mockRestore()
   })
 })

@@ -202,9 +202,6 @@ const config: KnipConfiguration = {
   ignoreDependencies: ["cloudflare"],
   ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
   ignoreBinaries: ["crabbox"],
-  ignoreIssues: {
-    "packages/ui/src/components/agent-chat-{message,prompt}.ts": ["files"],
-  },
   workspaces: {
     ".": {
       entry: [
@@ -212,8 +209,7 @@ const config: KnipConfiguration = {
         "scripts/lint/delete-comments.mjs",
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",
-        "test/package-metadata.mjs",
-        "test/local/*.mjs",
+        "test/local/vercel-bridge-server.mjs",
         ...matching("playground/vite", ["vite.config.ts", ...viteConfigEntries("playground/vite"), ...viteHubAppEntries])
           .map(pattern => `playground/vite/${pattern}`),
       ],
@@ -221,7 +217,6 @@ const config: KnipConfiguration = {
         "oxlint",
         "@vercel/blob",
         "sharp",
-        "chat",
       ],
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
     },
@@ -254,12 +249,6 @@ const config: KnipConfiguration = {
       entry: appEntries("playground/docs"),
       ignoreDependencies: [
         /^@iconify-json\//,
-        "@ai-sdk/vue",
-        "@vite-hub/env",
-        "@vite-hub/runtime",
-        "@vite-hub/source",
-        "h3",
-        "vue-tsc",
       ],
     },
     "packages/docs/playground": {

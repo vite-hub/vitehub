@@ -1,3 +1,5 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 interface LocalWaitUntil {
   flush(): Promise<void>
   waitUntil(promise: PromiseLike<unknown>): void
@@ -37,16 +39,18 @@ export async function runWithScheduleWaitUntil<T>(
   if (hostWaitUntil) return await run(hostWaitUntil)
 
   const local = createLocalWaitUntil()
+  let result: T
   try {
-    const result = await run(local.waitUntil)
-    await local.flush()
-    return result
+    result = await run(local.waitUntil)
   }
   catch (error) {
-    try {
-      await local.flush()
-    }
-    catch {}
+    await local.flush().catch(logDeferredFailure)
     throw error
   }
+  await local.flush()
+  return result
+}
+
+function logDeferredFailure(error: unknown): void {
+  logFailure({ field: "schedule", fields: { op: "wait-until" }, level: "error", message: "Schedule deferred work failed after the handler failed", error }, () => console.error("[vitehub:schedule] Deferred work failed after the handler failed.", error))
 }

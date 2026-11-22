@@ -4,6 +4,7 @@ import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqli
 import { webhooksErrors } from "./errors.ts"
 
 import type { AnyRelations } from "drizzle-orm"
+import type { BatchItem, BatchResponse } from "drizzle-orm/batch"
 import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
 
 /** Where a delivery is. `sending` holds a claim while one server posts it. */
@@ -92,6 +93,12 @@ export const webhooksTables: readonly string[] = [
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
 export type WebhooksDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
+
+function hasBatch(database: WebhooksDatabase): database is WebhooksDatabase & {
+  batch<T extends [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]>(queries: T): Promise<BatchResponse<T>>
+} {
+  return "batch" in database && typeof database.batch === "function"
+}
 
 /** One delivery, as code, the CLI, and the Console read it. */
 export interface WebhookDelivery {
@@ -262,19 +269,24 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       return row
     }),
     recordOnce: send => guarded("store a delivery", async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const inserted = await db().all(sql`
-          INSERT INTO vitehub_webhook_deliveries (id, webhook, owner, key, event, body, revision, count, state, attempts, due_at, created_at, updated_at)
-          SELECT ${send.id}, ${send.webhook}, ${send.owner ?? null}, ${send.key}, ${send.event}, ${send.body}, 1, ${send.count ?? 1}, 'pending', 0, ${send.dueAt}, ${send.now}, ${send.now}
-          WHERE NOT EXISTS (SELECT 1 FROM vitehub_webhook_deliveries WHERE webhook = ${send.webhook} AND key = ${send.key} AND state IN ('pending', 'sending', 'sent'))
-          RETURNING id`)
-        if (inserted.length) return { id: send.id, revision: 1, state: "pending", created: true }
-        const [existing] = await db().select({ id: t.id, revision: t.revision, state: t.state }).from(t)
-          .where(and(eq(t.webhook, send.webhook), eq(t.key, send.key), inArray(t.state, ["pending", "sending", "sent"])))
-          .orderBy(desc(t.createdAt))
-          .limit(1)
-        if (existing) return { ...existing, created: false }
-      }
+      const connection = db()
+      const columns = { id: t.id, revision: t.revision, state: t.state }
+      const live = and(eq(t.webhook, send.webhook), eq(t.key, send.key), inArray(t.state, ["pending", "sending", "sent"]))
+      const insert = (target: WebhooksDatabase) => target.insert(t).select(sql`
+        SELECT ${send.id}, ${send.webhook}, ${send.owner ?? null}, ${send.key}, ${send.event}, ${send.body},
+          1, ${send.count ?? 1}, 'pending', 0, NULL, NULL, ${send.dueAt}, ${send.now}, ${send.now}, NULL
+        WHERE NOT EXISTS (SELECT 1 FROM ${t} WHERE ${live})
+      `).returning(columns)
+      const existing = (target: WebhooksDatabase) => target.select(columns).from(t)
+        .where(live).orderBy(desc(t.createdAt)).limit(1)
+      const [[inserted], [retained]] = hasBatch(connection)
+        ? await connection.batch([insert(connection), existing(connection)])
+        : await connection.transaction(async (tx) => {
+            const inserted = await insert(tx)
+            return [inserted, await existing(tx)] as const
+          }, { behavior: "immediate" })
+      if (inserted) return { ...inserted, created: true }
+      if (retained) return { ...retained, created: false }
       throw webhooksErrors.WEBHOOKS_STORE_FAILED({ action: "store a delivery" })
     }),
     get: id => guarded("read a delivery", async () => {

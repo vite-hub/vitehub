@@ -228,6 +228,16 @@ describe("Workflow dev registry", () => {
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
   })
 
+  it("warns once with the diagnostic code when the Workflow configuration is invalid in `vite dev`", async () => {
+    const projectRoot = await createApp()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const hook = configHook({ driver: "openworkflow", postgres: "postgres://localhost/workflow" } as unknown as WorkflowOptions)
+    await hook({ root: projectRoot }, { command: "serve", mode: "development" })
+    await hook({ root: projectRoot }, { command: "serve", mode: "development" })
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/^\[vitehub:workflow\] WORKFLOW_C0005: `workflow.postgres` must be a plain object\..* runs without Workflows/))
+  })
+
   it.each<{ workflow: WorkflowOptions, provider: string }>([
     { workflow: { driver: "vercel" }, provider: "vercel" },
     { workflow: { driver: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },

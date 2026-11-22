@@ -146,10 +146,12 @@ async function requestJev(
     else if (answer.type === "score") answers[name] = question?.type === "score" ? { ...answer, ratio: answer.score / (question.criteria.length - 1) } : answer
     else answers[name] = question?.type === "switch" ? answer.choice : answer
   }
-  const model: unknown = result.model
-  const usage: unknown = result.usage
+  return { answers, ...jevResponseMetadata(result) }
+}
+
+function jevResponseMetadata(body: { model?: unknown, usage?: unknown }): Omit<JevResponse, "answers"> {
+  const { model, usage } = body
   return {
-    answers,
     ...(typeof model === "string" && model ? { model } : {}),
     ...(isObject(usage)
       ? { usage: { inputTokens: finiteNumber(usage.input_tokens), outputTokens: finiteNumber(usage.output_tokens) } }
@@ -161,9 +163,7 @@ const retryableJevStatuses = new Set([408, 429, 500, 502, 503, 504])
 const jevAttempts = 3
 
 function errorStatus(error: unknown): number | undefined {
-  if (!isObject(error)) return undefined
-  const status = Number.isInteger(error.statusCode) ? Number(error.statusCode) : error.status
-  return Number.isInteger(status) ? Number(status) : undefined
+  return isObject(error) && Number.isInteger(error.status) ? Number(error.status) : undefined
 }
 
 function errorRequestId(error: unknown): string | undefined {
@@ -252,7 +252,9 @@ async function observeJevBatch(
     try {
       await observe?.(event)
     }
-    catch {}
+    catch (error) {
+      console.warn(gatewayDiagnostics.GATEWAYS_TRACE_OBSERVER_FAILED({ event: event.name, cause: error }))
+    }
   }
   const batchAttributes = {
     "ask.batch.count": position.count,
