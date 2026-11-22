@@ -21,7 +21,6 @@ const pages: Record<string, string> = {
   FileDiff: "diff",
   FileTree: "file-tree",
   DeviceFrame: "device-frame",
-  PlaygroundRender: "playground-render",
   Markdown: "markdown",
   MessageParts: "message-parts",
   MultiFileDiff: "diff",
@@ -115,10 +114,15 @@ const pages: Record<string, string> = {
 
 // The documented parts of `vite-hub/ui/workspace`. A new documented part needs a page here.
 const workspacePages: Record<string, string> = {
+  WorkspaceBar: "workspace-bar",
   WorkspaceEditor: "workspace-code",
   WorkspaceEditorHead: "workspace-code",
+  WorkspaceExamples: "workspace-bar",
   WorkspaceFileTree: "workspace-code",
+  WorkspaceSidebar: "workspace-bar",
+  WorkspaceStart: "workspace-bar",
   WorkspaceStatus: "workspace-code",
+  Workspace: "workspace",
 };
 Object.assign(pages, workspacePages);
 

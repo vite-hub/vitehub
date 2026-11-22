@@ -16,8 +16,8 @@ export interface ProcessScheduleWake {
 }
 
 export interface ProcessWakeContext {
-  /** Newest cron-triggered run time, `undefined` when none exists, or `"unknown"` to check the full catch-up window when legacy history is inconclusive. */
-  latestScheduledAt?(scheduleId: string): Promise<Date | "unknown" | undefined>
+  /** Newest cron-triggered run time, or `undefined` when none exists. */
+  latestScheduledAt?(scheduleId: string): Promise<Date | undefined>
   /** Occurrences held by another process or awaiting a lease-store retry. */
   retries?(): readonly ProcessScheduleWake[]
   reportError(error: unknown): void
@@ -194,7 +194,7 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
     const currentMinute = floorUTCMinute(now())
     const due: ProcessScheduleWake[] = []
     for (const schedule of entries) {
-      let latest: Date | "unknown" | undefined
+      let latest: Date | undefined
       try {
         latest = await context.latestScheduledAt(schedule.id)
       }
@@ -202,9 +202,7 @@ export function createProcessWakeDriver(options: ProcessWakeDriverOptions, conte
         reportError(error)
       }
       if (!latest) continue
-      const first = latest === "unknown"
-        ? currentMinute - catchUpMs
-        : Math.max(floorUTCMinute(latest) + minuteMs, currentMinute - catchUpMs)
+      const first = Math.max(floorUTCMinute(latest) + minuteMs, currentMinute - catchUpMs)
       due.push(...dueOccurrences([schedule], first, currentMinute - minuteMs))
     }
     enqueue(due.sort(byScheduledAt), currentMinute)

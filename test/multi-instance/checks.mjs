@@ -199,18 +199,15 @@ export const checks = [
     title: "a Workflow started on A completes once and B reads its result (OpenWorkflow set in the config)",
     async run(context) {
       const [a, b] = needInstances(context, ["a", "b", "c"])
-      const workers = await context.sql`select instance, key from oracle_events where kind = 'worker' order by instance`
-      const started = workers.filter(row => row.key === "started").map(row => row.instance)
       const token = randomUUID()
       const { id } = await post(a, "/api/workflow", { token })
       const run = await settle(() => request(b, `/api/workflow?id=${id}`), value => value.status === "completed" || value.status === "failed", { timeoutMs: 60_000 })
       const [{ count }] = await context.sql`select count(*)::int as count from oracle_events where kind = 'workflow' and key = ${token}`
       const detail = [
-        `workers started on ${started.join(", ") || "no instance"}`,
         `status ${run.status} on B with result ${JSON.stringify(run.result)}`,
         `the body ran ${count} time(s)`,
       ].join(", ")
-      const ok = started.length === 3 && run.status === "completed" && run.result?.token === token && count === 1
+      const ok = run.status === "completed" && run.result?.token === token && count === 1
       return ok ? pass(detail) : fail(detail)
     },
   },

@@ -15,6 +15,7 @@ import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
@@ -646,14 +647,20 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
   return features
 }
 
+async function inspectContentEntryForGeneration(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
+  const { parseAst } = await import("vite")
+  const code = await readFile(file, "utf8")
+  return inspectContentModule(parseAst(code, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+}
+
 /** Read what the Content module defines without running it. A file that does not parse counts as defining everything. */
 export async function inspectContentEntry(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
-  const { parseAst } = await import("vite")
   try {
-    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+    return await inspectContentEntryForGeneration(file, contentImportBase)
   }
-  catch {
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, llms: false, live: true, previews: false, sqlite: false, github: false }
+  catch (error) {
+    if (!isRecord(error) || error.code !== "PARSE_ERROR") throw error
+    return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true, sqlite: false, github: false }
   }
 }
 
@@ -681,7 +688,7 @@ async function writeContentArtifact(
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
-  const inspected = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  const inspected = await inspectContentEntryForGeneration(file, options.contentImportBase ?? "@vite-hub/content")
   const features = { ...inspected, ...options.appSeo?.sitemap ? { sitemap: false } : {}, ...options.appSeo?.robots ? { robots: false } : {} }
   const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
   const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []

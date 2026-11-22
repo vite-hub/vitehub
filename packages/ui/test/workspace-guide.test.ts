@@ -3,7 +3,6 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { defineComponent, h, type PropType, ref } from "vue";
-import { PlaygroundRender } from "../src/index.ts";
 import {
   provideWorkspaceFileOpener,
   WorkspaceFileLink,
@@ -185,12 +184,5 @@ describe("WorkspaceIssues", () => {
     await wrapper.setProps({ empty: "No issues." });
     expect(wrapper.attributes("hidden")).toBeUndefined();
     expect(wrapper.text()).toBe("No issues.");
-  });
-
-  it("is the issues list of PlaygroundRender", () => {
-    const wrapper = mount(PlaygroundRender, {
-      props: { panes: [{ file: "a.md", label: "A" }], presets: [{ files: { "a.md": "" }, id: "a", label: "A" }], render: async () => ({ html: "" }) },
-    });
-    expect(wrapper.findComponent(WorkspaceIssues).classes()).toEqual(["vh-ws-issues", "vh-pg-issues"]);
   });
 });
