@@ -191,7 +191,6 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   preview: z.string().startsWith("/").optional(),
 }
 
-/** The fields that only these layouts read. A field on another layout is a mistake, so the schema rejects it. */
 const layoutFields = {
   examples: ["playground"],
   tabs: ["playground"],

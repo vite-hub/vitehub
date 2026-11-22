@@ -2,8 +2,6 @@
 import { parseCurl } from "#docs/runnable"
 import { docsLearnActionsKey } from "../utils/docs-learn"
 
-// A code block of a `learn` page. A file of the app gets "Show in editor". A request to the app gets "Run in workspace",
-// and the response shows under the block, because the preview frame can only send GET requests.
 const props = defineProps<{
   code?: string
   language?: string | null
@@ -15,7 +13,6 @@ const props = defineProps<{
 
 const actions = inject(docsLearnActionsKey, undefined)
 const root = useTemplateRef<HTMLElement>("root")
-// Parsed pages pass no `code`, so read the command from the rendered block.
 const command = ref(props.code)
 onMounted(() => { command.value ??= root.value?.querySelector("pre")?.textContent ?? undefined })
 const isFile = computed(() => !!props.filename && !!actions?.available && actions.paths.includes(props.filename))

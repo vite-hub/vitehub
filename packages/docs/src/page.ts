@@ -60,7 +60,6 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(frontmatter.codePanel ? { codePanel: true } : {}),
     ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
     ...(workspace ? { workspace: workspaceOf(frontmatter) } : {}),
-    // A workspace needs the width, so its sidebar starts as a narrow strip.
     sidebar: frontmatter.sidebar ?? (workspace ? "collapsed" : true),
     toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home" && !workspace),
     kind: navigation?.kind ?? null,
@@ -74,7 +73,6 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
 
 function workspaceOf(frontmatter: DocsPageFrontmatter): DocsPageWorkspace {
   const { examples, tabs, render, port, fixture, guide, lesson, preview } = frontmatter
-  // JSON drops the fields that the page does not set.
   return { examples, tabs, render, port, fixture, guide, lesson, preview }
 }
 
