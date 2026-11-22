@@ -1,6 +1,4 @@
 <script setup lang="ts">
-// A docs tutorial layout: the lesson on the left and the live Workspace on the right.
-// Query parameters pick a state for screenshots: ?fail=install, ?notice=safari, ?boot=0&tab=connect.
 import { defineConnect } from "@vite-hub/web-container/connect";
 import {
   BrowserSupportNotice,
@@ -45,7 +43,6 @@ const connect = defineConnect({ anthropic: true, cloudflare: { relay: "reader" }
 const runner = webContainer({ connect, port: 3000 });
 const store = useConnectStore();
 
-// Without a container, the Connect panel shows each provider state for screenshots.
 const states = computed(() => {
   const result: Partial<Record<"openai" | "vercel" | "github", ConnectProviderState>> = {};
   for (const name of ["openai", "vercel", "github"] as const) {
@@ -62,7 +59,6 @@ const states = computed(() => {
 function copy(text: string) {
   void navigator.clipboard?.writeText(text);
 }
-// The test reads the WebContainer of the current run.
 Object.defineProperty(window, "workspace", { configurable: true, get: () => runner.workspace.value });
 </script>
 

@@ -133,7 +133,6 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.getByText("You changed 1 file").waitFor();
     await shot(page, "desktop-step-bar");
     await page.getByRole("button", { name: "Keep mine" }).click();
-    // Reset in the bar goes back to the start of the step.
     await page.getByRole("button", { name: "Reset", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Discard changes" }).click();
     await page.getByText("You changed").waitFor({ state: "detached" });
