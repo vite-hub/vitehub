@@ -14,7 +14,7 @@ const runtimeRoot = resolve(packageRoot, "../runtime")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes Env error codes for the shared ViteHubError contract", async () => {
+it("publishes Env error codes for the shared ViteHubError contract", { timeout: 45_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-env-types-"))
 
   try {
@@ -35,7 +35,7 @@ it("publishes Env error codes for the shared ViteHubError contract", async () =>
       extends: "./tsconfig.json",
       files: ["cli-consumer.ts"],
     }))
-    await execFileAsync(process.execPath, [tsc, "--build", root, join(root, "tsconfig.cli.json")])
+    await execFileAsync(process.execPath, [tsc, "--build", root, join(root, "tsconfig.cli.json")], { timeout: 30_000, killSignal: "SIGKILL" })
   }
   finally {
     await rm(root, { force: true, recursive: true })

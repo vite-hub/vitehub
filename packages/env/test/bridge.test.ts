@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { format } from "node:util";
 import { createEnvBridge } from "../src/bridge.ts";
 import { createDatabaseEnvStore } from "../src/database.ts";
 import { agentEnvAccess } from "./agent-access.ts";
@@ -126,7 +127,7 @@ describe("Env Bridge", () => {
     const { bridge, emit } = setup();
     await bridge.replace(admin, { key: "github", value: "never-log-this", expectedRevision: null });
     await bridge.grant(admin, { actor: agent.actor, key: "github", permissions: ["use"] });
-    emit.mockRejectedValue(new Error("Exporter offline"));
+    emit.mockRejectedValue(new Error("Exporter offline", { cause: new Error("exporter-credential-7f3a") }));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await expect(
       bridge.use(agent, "github", "github.issues.list", (secret) => {
@@ -147,8 +148,10 @@ describe("Env Bridge", () => {
       "started",
     ]);
     expect(JSON.stringify(events)).not.toContain("never-log-this");
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Env activity export failed"), expect.objectContaining({ message: "Exporter offline" }));
-    expect(JSON.stringify(warn.mock.calls)).not.toContain("never-log-this");
+    const warnings = warn.mock.calls.map(args => format(...args));
+    expect(warnings).toEqual(events.filter(event => event.action === "use").map(event =>
+      `[vitehub] Env activity export failed for event ${event.id}. The activity store keeps the event.`).reverse());
+    expect(warnings.join("\n")).not.toContain("exporter-credential-7f3a");
     warn.mockRestore();
   });
   it("enforces grants, revocation and the authenticated token's permission ceiling", async () => {

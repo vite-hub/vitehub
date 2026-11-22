@@ -311,6 +311,17 @@ describe("env declarations", () => {
     expect(() => env.number({ min: 1 } as never)).toThrow("env() does not accept min.")
   })
 
+  it("keeps non-enumerable declaration options", () => {
+    const source = env.source("ENV_TOKEN")
+    const options = Object.defineProperties({}, {
+      default: { value: "fallback" },
+      secret: { value: true },
+      source: { value: source },
+    })
+    expect(env(options)).toMatchObject({ default: "fallback", secret: true, source })
+    expect(() => env(Object.defineProperty({}, "required", { value: true }))).toThrow("does not accept required")
+  })
+
   it("reads the canonical name before the inferred path name", () => {
     expect(resolveEnvSource(env(), "env.telegram.botToken")).toMatchObject({
       canonical: "VITEHUB_TELEGRAM_BOT_TOKEN",

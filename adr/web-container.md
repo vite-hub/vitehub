@@ -62,3 +62,10 @@ The `npm ci` error check in `createNodeModulesSnapshot` in `packages/web-contain
 
 **Consequences:** If npm rewords the sentence, a stale lockfile fails with npm's own error instead of the mismatch diagnostic. It can go when npm gives this case its own code.
 
+## Mark the lazy preview promise as handled
+
+**Context:** A caller can save `app.preview.ready` and wait for `app.run("dev")` before awaiting it. A startup failure rejects both promises.
+
+**Decision:** Attach a rejection handler when the preview promise is created. Return the original promise so awaiting it still reports the startup failure.
+
+**Consequences:** A caller can handle startup first without triggering an unhandled rejection from preview readiness.

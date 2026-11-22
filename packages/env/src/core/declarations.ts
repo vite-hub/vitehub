@@ -287,7 +287,8 @@ interface DeclarationOptions {
 const declarationOptionKeys: ReadonlySet<string> = new Set(["default", "mode", "optional", "schema", "secret", "source", "type"])
 
 function copyOptions(options: EnvVariableOptions): EnvVariableOptions | undefined {
-  return isRuntimeRecord(options) ? { ...options } : undefined
+  if (!isRuntimeRecord(options)) return undefined
+  return Object.fromEntries(Object.getOwnPropertyNames(options).map(key => [key, options[key]]))
 }
 
 function readDeclarationOptions(options: EnvVariableOptions): DeclarationOptions {

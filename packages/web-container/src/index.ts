@@ -384,10 +384,13 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     deliverReady?.(result)
   }
   function readiness() {
-    ready ??= new Promise<WebContainerPreviewServer>((resolve, reject) => {
-      deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
-      if (readyResult) deliverReady(readyResult)
-    })
+    if (!ready) {
+      ready = new Promise<WebContainerPreviewServer>((resolve, reject) => {
+        deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
+        if (readyResult) deliverReady(readyResult)
+      })
+      void ready.catch(() => undefined)
+    }
     return ready
   }
   function rejectPendingReady(error: Error) {

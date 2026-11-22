@@ -252,6 +252,17 @@ describe("WebContainer lifecycle", () => {
     expect(container.teardown).toHaveBeenCalledOnce()
   })
 
+  it("allows readiness to be awaited in a later turn after startup fails", async () => {
+    const { container } = fixture()
+    const error = new Error("spawn failed")
+    container.spawn.mockRejectedValueOnce(error)
+    const app = await bootWebContainer()
+    const ready = app.preview.ready
+    await expect(app.run("dev")).rejects.toBe(error)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect(ready).rejects.toBe(error)
+  })
+
   it("rejects readiness that is first read after teardown", async () => {
     fixture()
     const app = await bootWebContainer()

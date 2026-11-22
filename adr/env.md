@@ -21,3 +21,11 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Bearer never falls back to the cookie; schemas keyed by function; branch only from refs/heads; lazy runtime import; checked-only SQL text; unseal order derive, authenticate, database, decrypt, expiry, use; keep the BOM; secrets get no default hint, enum list, or issue text; constant-time compare over all tokens; no # in the browser id; take stale locks by rename; Agent is an optional peer.
 
 **Consequences:** Reverting any of these opens a security or correctness gap.
+
+## Close the stage environment when initialization fails
+
+**Context:** The Env CLI uses Vite's discovery flag to skip dev-server work. A custom environment can fail after Vite initializes its plugin container, so a rejected `init()` does not mean there is nothing to close.
+
+**Decision:** Attempt to close each environment as soon as its creation succeeds. After a rejected `init()`, ignore only Vite's error that the plugin container does not exist. Keep the primary diagnostic visible if any other cleanup error occurs.
+
+**Consequences:** Custom environments can clean up after partial initialization, and the CLI shows the original load failure.

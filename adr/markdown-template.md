@@ -61,3 +61,11 @@ The `rawBlockTags` child handling in `renderMarkdownTemplateInternal` in `packag
 **Decision:** When the bracket count does not balance, fall back to the last unescaped `[`.
 
 **Consequences:** It can go when Comark keeps escape information in the text it returns.
+
+## Escape ampersands before writing authored HTML attributes
+
+**Context:** Comark parses HTML attribute references, but its serializer keeps text that looks like a reference. For example, it can write the decoded text `&copy;` as a reference rather than as literal text.
+
+**Decision:** Escape ampersands after URL validation and before handing attributes to the HTML serializer. Comark escapes the other attribute characters.
+
+**Consequences:** The browser reads the same attribute text that the parser saw. URL validation does not decode the value again.
