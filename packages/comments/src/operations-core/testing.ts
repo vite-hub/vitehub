@@ -149,8 +149,8 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       return threads.sort((a, b) => a.n - b.n).map(copy)
     },
     async get(input) {
-      const found = "id" in input
-        ? store.threads.get(input.id)
+      const found = "threadId" in input
+        ? store.threads.get(input.threadId)
         : [...store.threads.values()].find(item => item.n === input.n && item.scope === input.scope)
       return found ? copy(found) : null
     },
