@@ -106,8 +106,12 @@ export function isIgnoredEntry(entry: string): boolean {
   return ignoredEntries.has(entry)
 }
 
-/** The text of a file, with its BOM, or `undefined` when its bytes are not valid UTF-8, such as model weights. */
+/**
+ * The text of a file, with its BOM, or `undefined` for a binary file: bytes that are not valid UTF-8, or that hold a
+ * NUL byte, such as WebAssembly modules and model weights.
+ */
 export function decodeText(bytes: Uint8Array): string | undefined {
+  if (bytes.includes(0)) return undefined
   try {
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
   }
