@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { hubSource, inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
+import { hubSource, inspectCollectionModule, inspectContentEntry, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -324,14 +324,13 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
   }
 })
 
-it("removes the Collection types wrapper that earlier versions wrote", async () => {
+it("counts a Content module that does not parse as defining every handler, and fails on one it cannot read", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {
-    const wrapper = join(projectRoot, ".vitehub/types/source/vitehub-source-registry.d.ts")
-    await mkdir(join(projectRoot, ".vitehub/types/source"), { recursive: true })
-    await writeFile(wrapper, '/// <reference path="./collections.d.ts" />\n')
-    expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
-    await expect(access(wrapper)).rejects.toMatchObject({ code: "ENOENT" })
+    const file = join(projectRoot, "content.ts")
+    await writeFile(file, 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ seo: {')
+    expect(await inspectContentEntry(file)).toEqual({ route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true, sqlite: false, github: false })
+    await expect(inspectContentEntry(join(projectRoot, "missing.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })

@@ -15,6 +15,7 @@ import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
@@ -33,7 +34,6 @@ export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const sourceTypesEntry = ".vitehub/types/source/sources.d.ts"
 const sourceRegistryEntry = ".vitehub/source/registry.mjs"
-const retiredCollectionTypesWrapper = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
@@ -343,7 +343,6 @@ async function writeCollectionArtifacts(
 ): Promise<GeneratedSourceHandler[]> {
   const output = resolve(options.projectRoot, collectionTypesEntry)
   const routesDirectory = resolve(options.projectRoot, collectionRoutesDirectory)
-  await rm(resolve(options.projectRoot, retiredCollectionTypesWrapper), { force: true })
   if (collections.length === 0) {
     await Promise.all([
       rm(output, { force: true }),
@@ -649,11 +648,13 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
 /** Read what the Content module defines without running it. A file that does not parse counts as defining everything. */
 export async function inspectContentEntry(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
   const { parseAst } = await import("vite")
+  const code = await readFile(file, "utf8")
   try {
-    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+    return inspectContentModule(parseAst(code, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
   }
-  catch {
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, llms: false, live: true, previews: false, sqlite: false, github: false }
+  catch (error) {
+    if (!isRecord(error) || error.code !== "PARSE_ERROR") throw error
+    return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true, sqlite: false, github: false }
   }
 }
 

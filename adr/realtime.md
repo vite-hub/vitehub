@@ -108,6 +108,37 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** Room storage trusts `storage.sql` of a Durable Object request. Function sources and prototype layout vary between workerd versions, and copied native getters or Proxies can forge naive checks.
 
-**Decision:** The check requires the constructor to own the prototype, rejects built-in container constructors, requires a native `databaseSize` getter source, and probes the receiver brand: the getter must reject Map/Set/ArrayBuffer-like receivers and an object that only copies the prototype, and return a finite size for the real one.
+**Decision:** The check requires the constructor to own the prototype, rejects built-in container constructors, requires a native `databaseSize` getter source named `databaseSize`, `get databaseSize`, or nothing, and probes the receiver brand: the getter must reject Map/Set/ArrayBuffer-like receivers and an object that only copies the prototype, and return a finite size for the real one.
 
 **Consequences:** Weakening any probe lets a counterfeit carrier act as Durable Object storage.
+
+## Durable Object room tables add missing columns by checking `pragma_table_info`
+
+`documentTables` and `addMissingColumn` in `packages/realtime/src/internal/server.ts`.
+
+**Context:** Rooms opened before `client_update` and `editor_version` existed keep tables without those columns. Durable Object SQLite accepts `ALTER TABLE ... ADD COLUMN` but rejects `PRAGMA user_version` with `SQLITE_AUTH`, so the schema cannot carry a version number. A second `ADD COLUMN` fails with "duplicate column name".
+
+**Decision:** Room open creates the final tables, then adds each column that `pragma_table_info` does not list. Every read and write uses the final columns, with one SQL form per query.
+
+**Consequences:** A new column needs its own `addMissingColumn` call. A failing ALTER now fails the room open instead of falling back to fewer columns.
+
+## Pre-adapter Durable Object rooms are copied into the current journal
+
+`migrateLegacyDocument` in `packages/realtime/src/internal/server.ts`.
+
+**Context:** Releases from 2026-08-09 to 2026-10-16 stored Durable Object rooms in `vitehub_realtime_rooms` and `vitehub_realtime_updates`. Some of them wrote the room without its update journal. Whether any deployed Durable Object still holds such a room is not known.
+
+**Decision:** When `vitehub_realtime_rooms` exists and the room has no current row, room open copies the room and, when `vitehub_realtime_updates` exists, its updates. It checks `sqlite_master` for each table instead of catching the error of a missing one.
+
+**Consequences:** Deleting the migration loses the unsaved edits of a pre-adapter room. It can go once no deployed Durable Object holds those tables.
+
+## The editor rewrites escaped GitHub alert markers after @tiptap/markdown renders
+
+`escapedAlertMarker` and `RealtimeBlockquote` in `packages/realtime/src/editor.ts`.
+
+**Context:** @tiptap/markdown escapes every bracket in text, so it writes `> [!NOTE]` as `> \[!NOTE\]`, which GitHub renders as a plain quote.
+
+**Decision:** `RealtimeBlockquote` renders through the Blockquote extension, then turns an escaped alert marker on the first line back into `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]`.
+
+**Consequences:** Without the rewrite, every saved alert loses its type. It can go when @tiptap/markdown keeps alert markers or ViteHub adds an alert node with its own `renderMarkdown`.
+

@@ -90,7 +90,7 @@
     "@ai-sdk/openai-compatible": "^3.0.0",
     "@ai-sdk/provider": "^4.0.0",
     "advocaat": "catalog:ai",
-    "ai": "catalog:ai-compat"
+    "ai": "^7.0.0"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/anthropic": {
