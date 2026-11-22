@@ -11,10 +11,6 @@ export const scheduleErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
       fix: "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).",
     },
-    SCHEDULE_HISTORY_INCOMPLETE: {
-      why: ({ maxRecords, recordCount }: { maxRecords: number, recordCount: number }) => `Schedule run history is incomplete because ${recordCount} records have no usable metadata index (maximum fallback is ${maxRecords}). Rebuild the schedule run index before listing history.`,
-      fix: "Rebuild the Schedule run index of the store, as the message says, before you list the history.",
-    },
     SCHEDULE_OPERATION_FAILED: {
       why: "Schedule operation failed.",
       fix: "Read `error.cause` for the error of the Schedule store or handler. Check that the store is reachable, then retry.",

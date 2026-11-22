@@ -289,7 +289,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     }
     catch (error) {
       console.error(`[vitehub:queue] The local provider ran a job, but cannot delete ${file(job)}.`, error)
-      await persist(job).catch(() => {})
+      await persist(job).catch((persistError: unknown) => console.error(`[vitehub:queue] The local provider cannot mark ${file(job)} done either. The job runs again after a restart.`, persistError))
     }
   }
 

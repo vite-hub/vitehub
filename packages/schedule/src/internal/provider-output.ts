@@ -168,17 +168,27 @@ export interface NetlifyScheduleFunctionOutput {
 
 const cronFieldPattern = /^[*,/\-0-9]+$/
 
-export function validateProviderCron(cron: string, scheduleName: string): void {
+/** Whether host wake output accepts `cron`: five numeric UTC fields that Cloudflare, Vercel, and Netlify all read. */
+export function isProviderCron(cron: string): boolean {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
-  if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field)) || hasVercelDayConflict) {
+  return fields.length === 5 && fields.every(field => cronFieldPattern.test(field)) && !hasVercelDayConflict
+}
+
+export function validateProviderCron(cron: string, scheduleName: string): void {
+  if (!isProviderCron(cron)) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare, Vercel, and Netlify.` })
   }
 }
 
-function readStaticScheduleCron(file: string, scheduleName: string): string {
+/** Reads the `cron` option of a `defineSchedule()` call. Returns `undefined` when it is missing or not a static string. */
+export function readStaticScheduleCronOption(file: string): string | undefined {
   const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
-  const cron = definition?.options && staticString(findProperty(definition.options, "cron")?.value)
+  return (definition?.options && staticString(findProperty(definition.options, "cron")?.value)) || undefined
+}
+
+function readStaticScheduleCron(file: string, scheduleName: string): string {
+  const cron = readStaticScheduleCronOption(file)
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
