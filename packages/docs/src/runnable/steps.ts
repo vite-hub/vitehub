@@ -2,6 +2,8 @@
 import type { WorkspaceRenderContext, WorkspaceRenderResult } from "@vite-hub/ui/workspace"
 import type { Component } from "vue"
 
+import type { DocsConnectProvider } from "../schema.ts"
+
 /** Text files of an app, keyed by a relative path such as `server/api/greet.post.ts`. */
 export type TutorialFiles = Record<string, string>
 
@@ -63,6 +65,8 @@ export interface DocsPlaygroundData {
   examples: DocsPlaygroundExampleData[]
   /** Without `render`: the port of the dev server. */
   port: number
+  /** Without `render`: the accounts that the reader can connect. */
+  connect?: DocsConnectProvider[]
 }
 
 /** What the page module of a `learn` page holds. */

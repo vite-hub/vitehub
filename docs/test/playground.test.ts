@@ -6,15 +6,19 @@ import { describe, expect, it } from "vitest";
 
 import { readWorkspaceVersions } from "../../packages/docs/src/runnable/build";
 import { buildPlaygroundTemplates, snapshotSources } from "../../packages/docs/src/runnable/playground";
-import { playgroundTemplates, runnableTutorials } from "../runnable";
+import { webContainerRoutes } from "../../packages/docs/src/runnable/workspaces";
 import { isIsolatedTutorialPath } from "../app/utils/runnable-tutorial";
+import { learnPages, playgroundExamples, playgroundPage, runnableLessons } from "./workspace-pages";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(docsRoot, "..");
 const fixturesDir = resolve(repoRoot, "fixtures/tutorials");
 
+const page = "playground--";
+
 async function templates() {
-  return buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: runnableTutorials, examples: playgroundTemplates });
+  const built = await buildPlaygroundTemplates({ fixturesDir, versions: await readWorkspaceVersions(repoRoot), tutorials: await runnableLessons(), examples: await playgroundExamples() });
+  return built.map(template => ({ ...template, id: template.id.slice(page.length) }));
 }
 
 describe("playground", () => {
@@ -46,25 +50,21 @@ describe("playground", () => {
     const built = await templates();
     const snapshots = Object.fromEntries(built.map(template => [template.id, template.snapshotOf]));
     expect(snapshots).toEqual({
-      "kv": "first-server-primitive",
-      "blob": "playground-blob",
-      "queue": "playground-queue",
-      "cache": "playground-cache",
-      "rate-limit": "playground-rate-limit",
-      "agent": "first-agent",
-      "channels": "first-agent",
-      "ui": "playground-ui",
+      "kv": "learn-first-server-primitive",
+      "blob": `playground-${page}blob`,
+      "queue": `playground-${page}queue`,
+      "cache": `playground-${page}cache`,
+      "rate-limit": `playground-${page}rate-limit`,
+      "agent": "learn-first-agent",
+      "channels": "learn-first-agent",
+      "ui": `playground-${page}ui`,
     });
     // Each distinct feature install needs its own snapshot.
-    expect(snapshotSources(runnableTutorials, playgroundTemplates, built)).toEqual([
-      ...runnableTutorials,
-      { slug: "playground-blob", page: "/playground", fixture: "playground-blob" },
-      { slug: "playground-queue", page: "/playground", fixture: "playground-queue" },
-      { slug: "playground-cache", page: "/playground", fixture: "playground-cache" },
-      { slug: "playground-rate-limit", page: "/playground", fixture: "playground-rate-limit" },
-      { slug: "playground-ui", page: "/playground", fixture: "playground-ui" },
-    ]);
-    expect(snapshotSources(runnableTutorials, playgroundTemplates, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
+    const lessons = await runnableLessons();
+    const examples = await playgroundExamples();
+    const own = (id: string) => ({ slug: `playground-${page}${id}`, page: "/playground", fixture: resolve(fixturesDir, `playground-${id}`) });
+    const withPage = built.map(template => ({ ...template, id: `${page}${template.id}` }));
+    expect(snapshotSources(lessons, examples, withPage)).toEqual([...lessons, own("blob"), own("queue"), own("cache"), own("rate-limit"), own("ui")]);
   });
 
   it("shows the \"Run this tutorial\" link only on tutorials", () => {
@@ -81,8 +81,14 @@ describe("playground", () => {
   });
 
   it("lists templates whose fixtures exist", async () => {
-    for (const template of playgroundTemplates) {
-      await expect(readFile(resolve(fixturesDir, template.fixture, "package.json"), "utf8")).resolves.toContain("\"dev\"");
+    for (const template of await playgroundExamples()) {
+      await expect(readFile(resolve(template.fixture, "package.json"), "utf8")).resolves.toContain("\"dev\"");
     }
+  });
+
+  it("isolates /playground and every lesson, and offers the Connect accounts", async () => {
+    const pages = [await playgroundPage(), ...await learnPages()];
+    expect(webContainerRoutes(pages)).toEqual(["/playground", "/learn/first-server-primitive", "/learn/first-agent", "/learn/choices"]);
+    expect((await playgroundPage()).workspace.connect).toEqual(["anthropic", "github", "netlify", "openai", "vercel"]);
   });
 });

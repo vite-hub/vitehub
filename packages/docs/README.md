@@ -142,7 +142,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
-| `examples`, `tabs`, `render`, `port` | None | `layout: playground` only. See [Workspace pages](#workspace-pages). |
+| `examples`, `tabs`, `render`, `connect`, `port` | None | `layout: playground` only. See [Workspace pages](#workspace-pages). |
 | `fixture`, `guide`, `lesson`, `preview`, `port` | None | `layout: learn` only. See [Workspace pages](#workspace-pages). |
 | `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
@@ -232,6 +232,7 @@ The text of the page shows when the workspace cannot run.
 | `examples` | Required | `{ id, label, group, description, dir, open, preview, readonly }`, in menu order. `id` is the `?example=` value. `group` is the heading in the examples menu. `open` is the file that the editor opens first. `preview` is the path that the preview opens. `readonly` lists text files of `dir` that the reader cannot edit. With more than one example and no `?example=`, the page opens on a start screen. |
 | `tabs` | None | `{ value, label }`: more output tabs. The tab `messages` renders `app/components/playground/PlaygroundTabMessages.vue`, which reads the workspace with `useWorkspace()` from `@vite-hub/ui/workspace`. A missing component fails the build with `DOCS_WORKSPACE_TAB_MISSING`. |
 | `render` | None | A module relative to the app root, such as `app/playground/render.ts`. The page runs its default export on the files 200 ms after each edit, and shows the HTML in an Output tab. No WebContainer starts, so the page works on every device. |
+| `connect` | None | Accounts that the reader can connect in a Connect tab: `anthropic`, `github`, `netlify`, `openai`, or `vercel`. Each one takes a token in the tab. Any other name, such as `cloudflare`, which needs a relay, fails the build with `DOCS_CONTENT_INVALID`. A token stays in the browser tab, and the app gets it as an environment variable of the dev server, such as `GITHUB_TOKEN`. Not with `render`. |
 | `port` | `3000` | The port of the dev server. Not with `render`. |
 
 ```ts [app/playground/render.ts]
@@ -302,7 +303,7 @@ export default () => "Hello."
 | `preview` | `/` | The path that the preview opens. |
 | `port` | `3000` | The port of the dev server. |
 
-A WebContainer runs only in a cross-origin isolated page. The module lists every `learn` page and every `playground` page without `render`, and passes them to `vite-hub/nuxt` as `webContainer.routes`, in either module order. The app needs `vite-hub/nuxt` and `@vite-hub/web-container`; without them, the build fails with `DOCS_WORKSPACE_VITEHUB_MISSING`. A `render` page stays a plain page. A missing `dir`, `fixture`, or `render` file fails the build with `DOCS_WORKSPACE_DIR_MISSING` or `DOCS_WORKSPACE_RENDER_MISSING`, and a `readonly` path that is not a text file of its `dir` with `DOCS_WORKSPACE_READONLY_MISSING`.
+A WebContainer runs only in a cross-origin isolated page. The module lists every `learn` page and every `playground` page without `render`, and passes them to `vite-hub/nuxt` as `webContainer.routes`, in either module order. The app needs `vite-hub/nuxt` and `@vite-hub/web-container`; without them, the build fails with `DOCS_WORKSPACE_VITEHUB_MISSING`. A `render` page stays a plain page. A missing `dir`, `fixture`, or `render` file fails the build with `DOCS_WORKSPACE_DIR_MISSING` or `DOCS_WORKSPACE_RENDER_MISSING`, and a `readonly` path that is not a text file of its `dir` with `DOCS_WORKSPACE_READONLY_MISSING`. Each workspace page gets an id from its path, such as `learn-first-agent` for `/learn/first-agent`, and the id names its snapshots, its examples, and its zip. Two pages with one id, such as `/docs/a/b` and `/docs/a-b`, fail the build with `DOCS_WORKSPACE_ID_COLLISION`, and so does a page id that matches a `slug` in `runnable.lessons` or an `id` in `runnable.examples`.
 
 The frontmatter is the one source of truth for workspace pages. `runnable.lessons` and `runnable.examples` stay for app pages that read `#build/runnable-tutorials.mjs` and `#build/playground-templates.mjs`, such as a custom `/learn/[slug]` page. Both use one snapshot build: an example with the dependencies of a lesson mounts the snapshot of that lesson, and `nuxt build` writes the snapshots of workspace pages as it does for `runnable`. A `layout: tutorial` page with `codePanel` works as before.
 

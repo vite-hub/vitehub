@@ -9,7 +9,7 @@ import { buildRunnableTutorial, noWorkspaceVersions, readWorkspaceVersions } fro
 import { tutorialPageFacts } from "./learn.ts"
 import { buildPlaygroundTemplates, snapshotSources } from "./playground.ts"
 import { buildTutorialSnapshots, readTutorialSnapshots, tutorialSnapshotInputs } from "./snapshots.ts"
-import { checkWorkspacePage, learnLessonSource, pageExamples, playgroundExampleSources, renderExamples, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "./workspaces.ts"
+import { checkRunnableIds, checkWorkspacePage, checkWorkspacePageIds, learnLessonSource, pageExamples, playgroundExampleSources, renderExamples, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "./workspaces.ts"
 
 import type { RunnableTutorialSource } from "./build.ts"
 import type { PlaygroundTemplateSource } from "./playground.ts"
@@ -95,6 +95,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   const rootDir = nuxt.options.rootDir
   const fixturesDir = resolve(rootDir, options.fixtures ?? "fixtures")
   const pages = workspacePages(content.pages())
+  checkWorkspacePageIds(pages)
   for (const page of pages) checkWorkspacePage(page, { rootDir, srcDir: nuxt.options.srcDir, fixturesDir })
   const learnPages = pages.filter(page => page.layout === "learn")
   const containerPages = pages.filter(page => page.layout === "playground" && !page.workspace.render)
@@ -102,6 +103,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   const pageLessons = learnPages.map(learnLessonSource)
   const lessons = [...options.lessons ?? [], ...pageLessons]
   const examples = [...options.examples ?? [], ...containerPages.flatMap(page => playgroundExampleSources(page, rootDir))]
+  checkRunnableIds(lessons, examples)
   const workspaceRoot = options.pnpmWorkspace === undefined ? undefined : resolve(rootDir, options.pnpmWorkspace)
   const versions = workspaceRoot ? await readWorkspaceVersions(workspaceRoot) : noWorkspaceVersions
 
@@ -147,7 +149,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   // `snapshots.json` of older builds, which stored root URLs.
   const partsBase = `${nuxt.options.app.baseURL.replace(/\/+$/, "")}${baseURL}/snapshots/`
   const served = (snapshot: TutorialSnapshot | undefined) => snapshot && { ...snapshot, parts: snapshot.parts.map(part => `${partsBase}${basename(part)}`) }
-  const snapshotOf = (slug: string, all: TutorialSnapshots | undefined) => served(all?.[slug])
+  const snapshotOf = (slug: string, all: TutorialSnapshots | undefined) => served(all && Object.hasOwn(all, slug) ? all[slug] : undefined)
 
   const currentTutorials = async () => (nuxt.options.dev ? await build() : tutorials).map(tutorial => ({ ...tutorial, snapshot: snapshotOf(tutorial.slug, snapshots) }))
   const currentTemplates = async () => (nuxt.options.dev ? await buildTemplates() : templates).map(template => ({ ...template, snapshot: snapshotOf(template.snapshotOf, snapshots) }))
@@ -176,7 +178,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
     if (page.workspace.render) {
       return workspacePageModule({ layout: "playground", examples: await renderExamples(page, rootDir), port }, { render: resolve(rootDir, page.workspace.render), tabs })
     }
-    return workspacePageModule({ layout: "playground", examples: pageExamples(page, await currentTemplates()), port }, { tabs })
+    return workspacePageModule({ layout: "playground", examples: pageExamples(page, await currentTemplates()), port, connect: page.workspace.connect }, { tabs })
   }
   const pageFile = (page: WorkspacePage) => `docs/workspaces/${workspacePageSlug(page.path)}.mjs`
   for (const page of [...learnPages, ...containerPages, ...renderPages]) {

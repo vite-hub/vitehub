@@ -15,7 +15,7 @@ const fake = vi.hoisted(() => {
     failNext: false,
     ready: undefined as ((url: string) => void) | undefined,
     serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
-    exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void }[],
+    exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void, reject: (error: Error) => void }[],
     output: [] as ReadableStreamDefaultController<string>[],
     mountFiles: undefined as Record<string, string | Uint8Array> | undefined,
     releaseBoot: undefined as (() => void) | undefined,
@@ -68,8 +68,9 @@ vi.mock("../src/index.ts", () => ({
       async run(command: unknown, options: { env?: Record<string, string> } = {}) {
         if (fake.failNext) { fake.failNext = false; throw new Error("spawn failed"); }
         let resolve: (code: number) => void = () => {};
-        const exit = new Promise<number>((done) => { resolve = done; });
-        fake.exits.push({ command, env: options.env, resolve });
+        let reject: (error: Error) => void = () => {};
+        const exit = new Promise<number>((done, fail) => { resolve = done; reject = fail; });
+        fake.exits.push({ command, env: options.env, resolve, reject });
         if (command !== "install" && fake.autoReady) fake.ready?.("https://preview.example");
         return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { fake.output.push(controller); controller.enqueue(`$ ${String(command)}\n`); } }) };
       },
@@ -190,6 +191,35 @@ describe("useWebContainer", () => {
     expect(fake.exits[2]?.env).toEqual({ OPENAI_API_KEY: "sk-test" });
     expect(workspace.previewUrl.value).toBe("https://preview.example");
     wrapper.unmount();
+  });
+
+  it("reports a dev server whose exit rejects, and leaves no unhandled rejection after unmount", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const running = mountWorkspace({ files: {}, install: false });
+      await flushPromises();
+      fake.releaseBoot?.();
+      await flushPromises();
+      fake.exits[0]?.reject(new Error("Process aborted"));
+      await flushPromises();
+      expect(running.workspace.failure.value).toMatchObject({ kind: "server", error: new Error("Process aborted") });
+      running.wrapper.unmount();
+
+      const torn = mountWorkspace({ files: {}, install: false });
+      await flushPromises();
+      fake.releaseBoot?.();
+      await flushPromises();
+      torn.wrapper.unmount();
+      fake.exits[1]?.reject(new Error("Process aborted"));
+      await flushPromises();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(torn.workspace.failure.value).toBeUndefined();
+      expect(unhandled).not.toHaveBeenCalled();
+    }
+    finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   it("reports a stopped dev server and restarts it", async () => {

@@ -169,11 +169,12 @@ export function docsSectionHome(section: DocsSection<DocsAppPage>): string {
 export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
 
 /**
- * The first start link that opens a docs page outside the docs base, such as an Introduction outside every section.
- * It leads the start section, so the links that open it begin there. `null` when no start link is a docs page.
+ * The first start link that opens a docs page to read outside the docs base, such as an Introduction outside every
+ * section. It leads the start section, so the links that open it begin there. A `home`, `playground` or `learn` page is
+ * not a page to read first. `null` when no start link is such a page.
  */
 export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
-  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home").map(page => page.path))
+  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)).map(page => page.path))
   const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
   return link ? normalizeDocsPath(link.to) : null
 }

@@ -2,6 +2,7 @@
 import { defineAsyncComponent } from "vue"
 import { render, webContainer, Workspace, type WorkspaceExample, type WorkspaceRunner, type WorkspaceSnapshot } from "@vite-hub/ui/workspace"
 import { fetchSnapshot } from "@vite-hub/web-container"
+import { defineConnect, type ConnectConfig } from "@vite-hub/web-container/connect"
 import { docsAppPath } from "#docs/navigation"
 import { docsPlaygroundExampleQuery } from "../utils/docs-playground"
 
@@ -12,7 +13,7 @@ const props = defineProps<{ response: DocsPageResponse, data: Exclude<DocsWorksp
 const route = useRoute()
 const router = useRouter()
 const { page } = props.response
-const { appBase } = useDocsConfig()
+const { appBase, site } = useDocsConfig()
 
 const snapshots = new Map<string, WorkspaceSnapshot>()
 const snapshotOf = new Map<string, string>()
@@ -23,15 +24,18 @@ const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebui
   if (key) snapshotOf.set(example.id, key)
   return example
 })
+const connectConfig: ConnectConfig = {}
+for (const name of props.data.connect ?? []) connectConfig[name] = true
+const connect = props.data.connect?.length ? defineConnect(connectConfig) : undefined
 const load = props.data.render
 const runner: WorkspaceRunner = load
   ? render(async (files, context) => (await load()).default(files, context))
-  : webContainer({ port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
+  : webContainer({ connect, port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
+const zipPrefix = site.name.toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "")
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))
 const tabItems = tabs.map(({ value, label }) => ({ value, label }))
 
-const queried = [route.query.example, route.query.template].find(value => typeof value === "string" && examples.some(example => example.id === value))
-const example = typeof queried === "string" ? queried : undefined
+const example = computed(() => [route.query.example, route.query.template].find((value): value is string => typeof value === "string" && examples.some(example => example.id === value)))
 const open = ref(false)
 
 function keep(id: string) {
@@ -53,6 +57,7 @@ function exampleHref(id: string) {
       :tabs="tabItems"
       :start="examples.length > 1 && !example"
       label="playground"
+      :name="zipPrefix"
       @update:example="keep"
     >
       <template v-for="tab in tabs" :key="tab.value" #[tab.value]>

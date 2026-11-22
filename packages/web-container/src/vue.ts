@@ -275,15 +275,19 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       }
       devRun = run;
       pipe(run);
-      void run.exit.then((exitCode) => {
+      const stopped = (stop: WebContainerFailure) => {
         if (devRun !== run) return;
         devRun = undefined;
         serverActive = false;
         if (disposed) return;
         previewUrl.value = undefined;
-        failure.value = { kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) };
+        failure.value = stop;
         status.value = "error";
-      });
+      };
+      void run.exit.then(
+        exitCode => stopped({ kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) }),
+        (cause: unknown) => stopped({ kind: "server", error: toError(cause) }),
+      );
     }
     catch (cause) {
       serverActive = false;

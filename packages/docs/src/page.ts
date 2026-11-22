@@ -72,8 +72,8 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
 }
 
 function workspaceOf(frontmatter: DocsPageFrontmatter): DocsPageWorkspace {
-  const { examples, tabs, render, port, fixture, guide, lesson, preview } = frontmatter
-  return { examples, tabs, render, port, fixture, guide, lesson, preview }
+  const { examples, tabs, render, connect, port, fixture, guide, lesson, preview } = frontmatter
+  return { examples, tabs, render, connect, port, fixture, guide, lesson, preview }
 }
 
 /**

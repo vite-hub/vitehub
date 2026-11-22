@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import type { ConnectProviderName } from "@vite-hub/web-container/connect"
+
 /**
  * How a page renders. `article` is prose with an outline, `tutorial` numbers its steps, `landing` is a wide Overview,
  * and `home` is the page's own blocks at full width under the site header, without the docs sidebar, such as a
@@ -38,6 +40,11 @@ export interface DocsPlaygroundTab {
   value: string
   label: string
 }
+
+/** An account that a playground page can connect: each one takes a token in its Connect tab. */
+export type DocsConnectProvider = Exclude<ConnectProviderName, "cloudflare">
+
+const connectProviders = ["anthropic", "github", "netlify", "openai", "vercel"] as const satisfies readonly DocsConnectProvider[]
 
 /** Navigation fields of a page. `false` keeps the page out of the sidebar. */
 export type DocsPageNavigation = false | {
@@ -91,6 +98,11 @@ export interface DocsPageFrontmatter {
    * export renders the files to HTML in the page. Without it, the examples run in a WebContainer.
    */
   render?: string
+  /**
+   * `layout: playground` without `render`. The accounts that the reader can connect in a Connect tab, such as
+   * `[github, vercel]`. A credential stays in the browser tab and reaches the app as an environment variable.
+   */
+  connect?: DocsConnectProvider[]
   /** `playground` and `learn` without `render`. The port of the dev server of the app. Defaults to `3000`. */
   port?: number
   /** `layout: learn` only. The folder of the app after the last step, in the `docs.runnable.fixtures` folder. */
@@ -190,6 +202,7 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   examples: z.array(z.strictObject(exampleFields)).optional(),
   tabs: z.array(z.strictObject({ value: z.string().regex(/^[a-z][\w-]*$/i, "Use letters, digits, `-`, or `_`, starting with a letter"), label: z.string() })).optional(),
   render: z.string().optional(),
+  connect: z.array(z.enum(connectProviders)).min(1).optional(),
   port: z.number().int().min(1).max(65535).optional(),
   fixture: z.string().optional(),
   guide: z.enum(["top", "side"]).optional(),
@@ -201,6 +214,7 @@ const layoutFields = {
   examples: ["playground"],
   tabs: ["playground"],
   render: ["playground"],
+  connect: ["playground"],
   port: ["playground", "learn"],
   fixture: ["learn"],
   guide: ["learn"],
@@ -222,6 +236,7 @@ function checkLayoutFields(page: DocsPageFrontmatter, context: z.RefinementCtx) 
       ids.add(example.id)
     }
     if (page.render !== undefined && page.port !== undefined) context.addIssue({ code: "custom", path: ["port"], message: "A `render` page runs in the browser page and has no dev server port" })
+    if (page.render !== undefined && page.connect !== undefined) context.addIssue({ code: "custom", path: ["connect"], message: "A `render` page runs no app, so it has no accounts to connect" })
   }
   if (layout === "learn" && page.fixture === undefined) context.addIssue({ code: "custom", path: ["fixture"], message: "A learn page needs the `fixture` folder of its app" })
 }

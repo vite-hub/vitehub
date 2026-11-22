@@ -517,6 +517,13 @@ export const Workspace = defineComponent({
       root.value?.querySelector<HTMLElement>(".vh-ws-topbar .vh-ws-examples-button, .vh-ws-topbar button[aria-label='More actions']")?.focus();
     }
 
+    watch(() => props.example, (id) => {
+      const example = props.examples.find(item => item.id === id);
+      if (!starting.value || !example) return;
+      starting.value = false;
+      boot(example);
+    });
+
     function chooser(): VNode {
       const text = notice();
       return h("div", { class: "vh-workspace-session" }, [

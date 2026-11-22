@@ -129,6 +129,10 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ dir, page }: { dir: string, page: string }) => `The docs page ${page} runs the folder ${dir}, which does not exist.`,
       fix: "Set `dir` of each example in `examples` to a folder of the app relative to the app root, or set `fixture` of a learn page to a folder in the `docs.runnable.fixtures` folder (`fixtures` by default).",
     },
+    DOCS_WORKSPACE_ID_COLLISION: {
+      why: ({ id, owners }: { id: string, owners: readonly string[] }) => `${owners.join(" and ")} get the same workspace id ${id}, so their lessons, examples, or snapshots would overwrite each other.`,
+      fix: "Rename a page, or change the `slug` of a lesson or the `id` of an example in `docs.runnable`. A page's id is its path in lower case with each run of other characters as `-`, so `/docs/a/b` and `/docs/a-b` are both `docs-a-b`, and its examples are `<page id>--<example id>`. An example `kv` also takes the snapshot id `playground-kv`.",
+    },
     DOCS_WORKSPACE_READONLY_MISSING: {
       why: ({ dir, example, page, path }: { dir: string, example: string, page: string, path: string }) => `The example ${example} of the docs page ${page} marks ${path} read-only, but ${dir} has no text file at that path.`,
       fix: "Set each path in `readonly` to a text file of the example's `dir`, relative to that folder, such as `model.ts`. Binary files, such as `weights.bin`, are never editable, so leave them out.",

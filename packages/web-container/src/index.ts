@@ -445,12 +445,15 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")
           fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
-        })
+        }, (cause: unknown) => fail(cause instanceof Error ? cause : new Error(String(cause))))
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
           devRunning = false
           if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+        }, (cause: unknown) => {
+          devRunning = false
+          fail(cause instanceof Error ? cause : new Error(String(cause)))
         })
       }
       return run

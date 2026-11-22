@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { docsPageOf } from "../src/page.ts"
-import { checkWorkspacePage, learnLessonSource, pageExamples, renderExamples, webContainerRoutes, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "../src/runnable/workspaces.ts"
+import { checkWorkspacePage, checkWorkspacePageIds, learnLessonSource, pageExamples, renderExamples, webContainerRoutes, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "../src/runnable/workspaces.ts"
 import { docsPageSchema } from "../src/schema.ts"
 import { docsLearnGuideNodes, docsLearnStepNodes } from "../runtime/app/utils/docs-learn.ts"
 import { docsPlaygroundExampleQuery } from "../runtime/app/utils/docs-playground.ts"
@@ -48,6 +48,14 @@ describe("workspace frontmatter", () => {
     expect(issues({ title: "Try", layout: "playground", render: "app/render.ts", port: 3000, examples: [hello] })).toEqual(["port: A `render` page runs in the browser page and has no dev server port"])
   })
 
+  it("accepts the accounts of a Connect tab only on a playground that runs an app", () => {
+    expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["github", "vercel"] })).toEqual([])
+    expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["gitlab"] })).toHaveLength(1)
+    expect(issues({ title: "Try", layout: "playground", examples: [hello], connect: ["cloudflare"] })).toHaveLength(1)
+    expect(issues({ title: "Try", layout: "playground", render: "app/render.ts", examples: [hello], connect: ["github"] })).toEqual(["connect: A `render` page runs no app, so it has no accounts to connect"])
+    expect(issues({ title: "Learn", layout: "learn", fixture: "kv", connect: ["github"] })).toEqual(["connect: Only a page with `layout: playground` reads `connect`"])
+  })
+
   it("rejects a tab value that cannot name a component", () => {
     expect(issues({ title: "Try", layout: "playground", examples: [hello], tabs: [{ value: "1st", label: "First" }] })).toHaveLength(1)
   })
@@ -81,10 +89,10 @@ describe("workspace pages", () => {
   })
 
   it("gives every page path a stable distinct id and reads its lesson from `lesson`, else from the page", () => {
-    const lessonSlug = "531852c7af276cde7a7d01bea4fb5dd86608a6168cab77c4b475bf06ecb52f93"
+    const lessonSlug = "docs-try-lesson"
     expect(workspacePageSlug("/docs/try/lesson")).toBe(lessonSlug)
-    expect(workspacePageSlug("/docs/a/b")).not.toBe(workspacePageSlug("/docs/a-b"))
-    expect(workspacePageSlug("/docs/A")).not.toBe(workspacePageSlug("/docs/a"))
+    expect(workspacePageSlug("/learn/first--agent/")).toBe("learn-first-agent")
+    expect(workspacePageSlug("/")).toBe("index")
     const learn = workspacePages(pages)[0]!
     expect(learnLessonSource(learn)).toEqual({ slug: lessonSlug, page: "/docs/try/lesson", fixture: "kv" })
     expect(learnLessonSource({ ...learn, workspace: { fixture: "kv", lesson: "/docs/kv/get-started" } })).toMatchObject({ page: "/docs/kv/get-started" })
@@ -139,6 +147,14 @@ describe("checkWorkspacePage", () => {
       return (error as { code?: string }).code
     }
   }
+
+  it("fails the build when two pages get one id", () => {
+    const page = (path: string): WorkspacePage => ({ path, layout: "learn", workspace: { fixture: "kv" } })
+    expect(code(() => checkWorkspacePageIds([page("/docs/a"), page("/docs/b")]))).toBeUndefined()
+    for (const [first, second] of [["/docs/a/b", "/docs/a-b"], ["/docs/A", "/docs/a"]] as const) {
+      expect(code(() => checkWorkspacePageIds([page(first), page(second)]))).toBe("DOCS_WORKSPACE_ID_COLLISION")
+    }
+  })
 
   it("fails the build for a missing folder, render module, or tab component", async () => {
     const playground: WorkspacePage = { path: "/docs/try", layout: "playground", workspace: { examples: [hello], render: "app/render.ts", tabs: [{ value: "messages", label: "Messages" }] } }

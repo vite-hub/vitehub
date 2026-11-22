@@ -281,7 +281,7 @@ examples:
 This text shows when the workspace cannot run.
 ```
 
-`?example=clock` opens an example. With more than one example and no `?example=`, the page opens on a start screen. `tabs: [{ value: messages, label: Messages }]` adds an output tab that renders `app/components/playground/PlaygroundTabMessages.vue`. That component reads the files and edits with `useWorkspace()` from `@vite-hub/ui/workspace`.
+`?example=clock` opens an example. With more than one example and no `?example=`, the page opens on a start screen. `tabs: [{ value: messages, label: Messages }]` adds an output tab that renders `app/components/playground/PlaygroundTabMessages.vue`. That component reads the files and edits with `useWorkspace()` from `@vite-hub/ui/workspace`. `connect: [github, vercel]` adds a Connect tab where the reader pastes a token. The token stays in the browser tab, and the app gets it as an environment variable of the dev server, such as `GITHUB_TOKEN`.
 
 A playground that only turns files into HTML needs no WebContainer. Set `render` to a module whose default export takes the files and returns `{ html, issues? }`. The page runs it 200 ms after each edit, on every device:
 
