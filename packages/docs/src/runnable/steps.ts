@@ -1,5 +1,6 @@
 // Shared by the build and the browser, so this file imports nothing from Node.
 import type { WorkspaceRenderResult } from "@vite-hub/ui/workspace"
+import type { ConnectProviderName } from "@vite-hub/web-container/connect"
 import type { Component } from "vue"
 
 /** Text files of an app, keyed by a relative path such as `server/api/greet.post.ts`. */
@@ -53,6 +54,8 @@ export interface DocsPlaygroundData {
   examples: DocsPlaygroundExampleData[]
   /** Without `render`: the port of the dev server. */
   port: number
+  /** Without `render`: the accounts that the reader can connect. */
+  connect?: ConnectProviderName[]
 }
 
 /** What the page module of a `learn` page holds. */

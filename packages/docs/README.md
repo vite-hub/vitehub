@@ -142,7 +142,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
-| `examples`, `tabs`, `render`, `port` | None | `layout: playground` only. See [Workspace pages](#workspace-pages). |
+| `examples`, `tabs`, `render`, `connect`, `port` | None | `layout: playground` only. See [Workspace pages](#workspace-pages). |
 | `fixture`, `guide`, `lesson`, `preview`, `port` | None | `layout: learn` only. See [Workspace pages](#workspace-pages). |
 | `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
@@ -232,6 +232,7 @@ The text of the page shows when the workspace cannot run.
 | `examples` | Required | `{ id, label, group, description, dir, open, preview }`, in menu order. `id` is the `?example=` value. `group` is the heading in the examples menu. `open` is the file that the editor opens first. `preview` is the path that the preview opens. With more than one example and no `?example=`, the page opens on a start screen. |
 | `tabs` | None | `{ value, label }`: more output tabs. The tab `messages` renders `app/components/playground/PlaygroundTabMessages.vue`, which reads the workspace with `useWorkspace()` from `@vite-hub/ui/workspace`. A missing component fails the build with `DOCS_WORKSPACE_TAB_MISSING`. |
 | `render` | None | A module relative to the app root, such as `app/playground/render.ts`. The page runs its default export on the files 200 ms after each edit, and shows the HTML in an Output tab. No WebContainer starts, so the page works on every device. |
+| `connect` | None | Accounts that the reader can connect in a Connect tab: `anthropic`, `cloudflare`, `github`, `netlify`, `openai`, or `vercel`. A token stays in the browser tab, and the app gets it as an environment variable of the dev server, such as `GITHUB_TOKEN`. Not with `render`. |
 | `port` | `3000` | The port of the dev server. Not with `render`. |
 
 ```ts [app/playground/render.ts]

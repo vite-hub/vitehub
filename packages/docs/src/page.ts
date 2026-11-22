@@ -73,9 +73,9 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
 }
 
 function workspaceOf(frontmatter: DocsPageFrontmatter): DocsPageWorkspace {
-  const { examples, tabs, render, port, fixture, guide, lesson, preview } = frontmatter
+  const { examples, tabs, render, connect, port, fixture, guide, lesson, preview } = frontmatter
   // JSON drops the fields that the page does not set.
-  return { examples, tabs, render, port, fixture, guide, lesson, preview }
+  return { examples, tabs, render, connect, port, fixture, guide, lesson, preview }
 }
 
 /**

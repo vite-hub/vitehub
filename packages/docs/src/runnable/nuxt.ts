@@ -178,7 +178,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
     if (page.workspace.render) {
       return workspacePageModule({ layout: "playground", examples: await renderExamples(page, rootDir), port }, { render: resolve(rootDir, page.workspace.render), tabs })
     }
-    return workspacePageModule({ layout: "playground", examples: pageExamples(page, await currentTemplates()), port }, { tabs })
+    return workspacePageModule({ layout: "playground", examples: pageExamples(page, await currentTemplates()), port, connect: page.workspace.connect }, { tabs })
   }
   const pageFile = (page: WorkspacePage) => `docs/workspaces/${workspacePageSlug(page.path)}.mjs`
   for (const page of [...learnPages, ...containerPages, ...renderPages]) {

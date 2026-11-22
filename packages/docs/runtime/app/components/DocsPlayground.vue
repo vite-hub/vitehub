@@ -2,6 +2,7 @@
 import { defineAsyncComponent } from "vue"
 import { render, webContainer, Workspace, type WorkspaceExample, type WorkspaceRunner, type WorkspaceSnapshot } from "@vite-hub/ui/workspace"
 import { fetchSnapshot } from "@vite-hub/web-container"
+import { defineConnect, type ConnectConfig } from "@vite-hub/web-container/connect"
 import { docsAppPath } from "#docs/navigation"
 
 import type { DocsWorkspaceData } from "#docs/runnable"
@@ -13,7 +14,7 @@ const props = defineProps<{ response: DocsPageResponse, data: Exclude<DocsWorksp
 const route = useRoute()
 const router = useRouter()
 const { page } = props.response
-const { appBase } = useDocsConfig()
+const { appBase, site } = useDocsConfig()
 
 // Examples with the same dependencies share one snapshot function, so the runner switches between them without a new
 // boot. A lesson with those dependencies uses the same cache name, so the browser keeps one copy of the parts.
@@ -28,10 +29,20 @@ const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebui
 })
 const fallback = examples[0]!
 
+// `connect` adds a Connect tab. Tokens stay in this tab (sessionStorage) and reach the app only as environment variables
+// of the dev server.
+const connectConfig: ConnectConfig = {}
+for (const name of props.data.connect ?? []) {
+  if (name === "cloudflare") connectConfig.cloudflare = { relay: "reader" }
+  else connectConfig[name] = true
+}
+const connect = props.data.connect?.length ? defineConnect(connectConfig) : undefined
 const load = props.data.render
 const runner: WorkspaceRunner = load
   ? render(async files => (await load()).default(files))
-  : webContainer({ port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
+  : webContainer({ connect, port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
+// A download is `<site>-<example>.zip`, such as `vitehub-kv.zip`.
+const zipPrefix = site.name.toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "")
 // Each tab draws the component of its `value`, which reads the workspace through `useWorkspace()`.
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))
 const tabItems = tabs.map(({ value, label }) => ({ value, label }))
@@ -58,6 +69,7 @@ const exampleHref = (id: string) => docsAppPath(id === fallback.id ? page.path :
       :tabs="tabItems"
       :start="examples.length > 1 && !example"
       label="playground"
+      :name="zipPrefix"
       @update:example="keep"
     >
       <template v-for="tab in tabs" :key="tab.value" #[tab.value]>

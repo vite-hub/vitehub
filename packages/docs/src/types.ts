@@ -3,7 +3,7 @@ import type { DocsLayout, DocsPageFrontmatter } from "./schema.ts"
 export type { DocsLayout }
 
 /** The workspace fields of a `layout: playground` or `layout: learn` page, as its frontmatter sets them. */
-export type DocsPageWorkspace = Pick<DocsPageFrontmatter, "examples" | "tabs" | "render" | "port" | "fixture" | "guide" | "lesson" | "preview">
+export type DocsPageWorkspace = Pick<DocsPageFrontmatter, "examples" | "tabs" | "render" | "connect" | "port" | "fixture" | "guide" | "lesson" | "preview">
 
 /**
  * The fields of a page that the app reads. `useDocsManifest()` returns pages with only these fields, so every page of
