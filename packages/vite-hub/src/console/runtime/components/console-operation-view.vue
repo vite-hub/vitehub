@@ -155,7 +155,6 @@ function selectThread(id: string): void {
   selectedId.value = id;
 }
 
-// Comment on site can open a page that has threads. The list already holds them, so this needs no other request.
 const threadPages = computed(() => detail.value?.kind === "comment-thread"
   ? items.value.flatMap(item => operationValue(item, "subject.kind") === "page" ? [String(operationValue(item, "subject.id"))] : [])
   : []);

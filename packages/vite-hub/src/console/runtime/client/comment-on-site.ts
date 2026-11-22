@@ -2,7 +2,6 @@ import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-sha
 
 import { projectAppUrl, resolveProjectUrl } from "./project"
 
-// An app path, as Comments stores the page of a thread: one leading slash, no whitespace, `\`, `?`, or `#`.
 const pagePath = /^\/(?![/\\])[^\s\\?#]*$/
 
 /**

@@ -17,7 +17,6 @@ it("opens the app's home page in comment mode on the Console's own origin", () =
 it("opens the app of an account Console, not the Console server that forwards its requests", () => {
   setConsoleProject({ origin: "", base: "/p/acme", app: { origin: "https://acme.example", base: "/portal" }, remote: true })
   expect(commentOnSiteUrl()).toBe("https://acme.example/portal/?vitehub=comments")
-  // A thread's page is the full path that the browser had, with the base.
   expect(commentOnSiteUrl("/portal/pricing")).toBe("https://acme.example/portal/pricing?vitehub=comments")
 })
 

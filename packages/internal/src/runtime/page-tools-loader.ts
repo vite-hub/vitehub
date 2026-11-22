@@ -574,8 +574,6 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()
-  // The tools are on and the linked tool knows it was linked, so `?vitehub` has done its work. A copied address or a
-  // reload then shows the page as it is, and the browser's stored choices decide the tools.
   else {
     const url = new URL(location.href)
     if (url.searchParams.has(viteHubPageToolsQuery)) {

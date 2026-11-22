@@ -333,7 +333,6 @@ describe("the Comments overlay on the comment parts", () => {
     expect(shadow.querySelector('[data-slot="comment-thread"]')!.textContent).toContain("Second, resolved")
     expect(composer(shadow, "Reply")).toBeNull()
     expect(first!.n).not.toBe(second!.n)
-    // The link has done its work: the address drops it, and the thread stays open.
     await vi.waitFor(() => expect(location.pathname + location.search).toBe("/pricing"))
     expect(shadow.querySelector(`[aria-label="Comment ${second!.n}"][data-slot="comment-thread"]`)).not.toBeNull()
   })
@@ -359,7 +358,6 @@ describe("the Comments overlay on the comment parts", () => {
     answer()
     await vi.waitFor(() => expect(shadow.querySelector(`[aria-label="Comment ${thread!.n}"][data-slot="comment-thread"]`)).not.toBeNull())
     await vi.waitFor(() => expect(location.pathname + location.search + location.hash).toBe("/pricing?plan=pro#faq"))
-    // The thread opens, not comment mode.
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })
 

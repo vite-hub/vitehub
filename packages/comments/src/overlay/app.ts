@@ -251,11 +251,8 @@ function clip(box: MarkerBox, element: Element): MarkerBox {
   return { left, top, width: Math.min(box.left + box.width, rect.right) - left, height: Math.min(box.top + box.height, rect.bottom) - top }
 }
 
-/** Elements of the overlay, the pill, and its windows. Anchors skip them, as they skip the comment parts. */
-/** The query of a link to a thread, `?comment=<n>`. `useComments` reads it, and the session route names it the tool's `param`. */
 const threadParam = "comment"
 
-/** Removes `?comment=<n>` from the address, without a navigation. */
 function dropThreadLink() {
   const url = new URL(location.href)
   if (!url.searchParams.has(threadParam)) return
@@ -263,6 +260,7 @@ function dropThreadLink() {
   history.replaceState(history.state, "", url)
 }
 
+/** Elements of the overlay, the pill, and its windows. Anchors skip them, as they skip the comment parts. */
 function ignored(element: Element): boolean {
   for (let node: Element | null = element; node;) {
     if (node.closest("[data-comments-ui], vitehub-pill, vitehub-window")) return true
@@ -624,7 +622,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** Why this person cannot comment, with **Sign in with GitHub** when the site offers it. */
   function denied(current: CommentsSession) {
-    // The way back opens Comments again: the loader dropped the `?vitehub` that may have brought the person here.
     const back = new URL(location.href)
     back.searchParams.set(viteHubPageToolsQuery, "comments")
     const signIn = current.signIn && `${current.signIn.url}?return=${encodeURIComponent(back.pathname + back.search + back.hash)}`
@@ -757,8 +754,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(() => state.status.value, (status) => {
         if (status === "ready" && !room) void joinRoom()
       })
-      // The listed threads let `useComments` open the thread of a `?comment=<n>` link. Then the address drops the link,
-      // as the loader drops `?vitehub`, so a reload or a copied address shows the page as it is.
       watch(() => state.status.value === "ready" && !resolving.value ? search.value : undefined, (readySearch) => {
         const current = navigations
         if (readySearch) void nextTick(() => {
@@ -1115,7 +1110,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     })
   }
 
-  /** What the Comments button does: comment mode for a person who may comment, the list for a reader. */
   function pressComments() {
     if (canComment.value) setMode("comment")
     else showPanel()
