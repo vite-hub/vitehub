@@ -5,6 +5,8 @@ import { dirname, resolve } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { workspacePageSlug } from "../src/runnable/workspaces.ts"
+
 import type { WorkspaceContentPage } from "../src/runnable/workspaces.ts"
 
 const templates = vi.hoisted(() => new Map<string, () => string | Promise<string>>())
@@ -146,25 +148,28 @@ describe("docs.runnable", () => {
       { path: "/docs/try/render", layout: "playground", workspace: { examples: [{ id: "page", label: "Page", dir: "examples/page" }], render: "app/render.ts" } },
     ]
     const siteContent = { pages: () => sitePages, read: (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8") }
-    buildTutorialSnapshots.mockResolvedValue({ "docs-try-lesson": snapshot })
+    const lessonSlug = workspacePageSlug("/docs/try/lesson")
+    const playgroundSlug = workspacePageSlug("/docs/try/playground")
+    const renderSlug = workspacePageSlug("/docs/try/render")
+    buildTutorialSnapshots.mockResolvedValue({ [lessonSlug]: snapshot })
     const { nuxt, hooks } = fakeNuxt()
     const { workspaces } = await setupDocsRunnable({}, { nuxt, content: siteContent })
     await hooks.get("app:templates")!()
 
-    expect(workspaces).toContain(`"/docs/try/lesson": () => import("./workspaces/docs-try-lesson.mjs"),`)
-    expect(workspaces).toContain(`"/docs/try/render": () => import("./workspaces/docs-try-render.mjs"),`)
-    const lesson = await templates.get("docs/workspaces/docs-try-lesson.mjs")!()
+    expect(workspaces).toContain(`"/docs/try/lesson": () => import("./workspaces/${lessonSlug}.mjs"),`)
+    expect(workspaces).toContain(`"/docs/try/render": () => import("./workspaces/${renderSlug}.mjs"),`)
+    const lesson = await templates.get(`docs/workspaces/${lessonSlug}.mjs`)!()
     expect(lesson).toContain(`"layout":"learn"`)
     expect(lesson).toContain(`"guide":"top"`)
     expect(lesson).toContain(`"title":"Add the route"`)
     expect(await templates.get("runnable-tutorials.mjs")!()).toBe("export const runnableTutorials = []\n")
-    const playground = await templates.get("docs/workspaces/docs-try-playground.mjs")!()
+    const playground = await templates.get(`docs/workspaces/${playgroundSlug}.mjs`)!()
     expect(playground).toContain(`"id":"hello"`)
-    expect(playground).toContain(`"snapshotOf":"docs-try-lesson"`)
+    expect(playground).toContain(`"snapshotOf":"${lessonSlug}"`)
     expect(playground).toContain(JSON.stringify(served))
     expect(playground).toContain(`"port":4000`)
     expect(playground).toContain(`component: () => import(${JSON.stringify(resolve(dir, "app/components/playground/PlaygroundTabMessages.vue"))})`)
-    const render = await templates.get("docs/workspaces/docs-try-render.mjs")!()
+    const render = await templates.get(`docs/workspaces/${renderSlug}.mjs`)!()
     expect(render).toContain(`"files":{"index.html":"<h1>Hi</h1>\\n"}`)
     expect(render).toContain(`data.render = () => import(${JSON.stringify(resolve(dir, "app/render.ts"))})`)
     expect(await templates.get("learn-facts.mjs")!()).toContain(`"/docs/try/lesson":{"steps":1`)

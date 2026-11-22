@@ -78,11 +78,13 @@ describe("workspace pages", () => {
     expect(webContainerRoutes(pages)).toEqual(["/docs/try/lesson", "/docs/try/playground"])
   })
 
-  it("names a page by its path and reads its lesson from `lesson`, else from the page", () => {
-    expect(workspacePageSlug("/docs/try/lesson")).toBe("docs-try-lesson")
-    expect(workspacePageSlug("/")).toBe("index")
+  it("gives every page path a stable distinct id and reads its lesson from `lesson`, else from the page", () => {
+    const lessonSlug = "531852c7af276cde7a7d01bea4fb5dd86608a6168cab77c4b475bf06ecb52f93"
+    expect(workspacePageSlug("/docs/try/lesson")).toBe(lessonSlug)
+    expect(workspacePageSlug("/docs/a/b")).not.toBe(workspacePageSlug("/docs/a-b"))
+    expect(workspacePageSlug("/docs/A")).not.toBe(workspacePageSlug("/docs/a"))
     const learn = workspacePages(pages)[0]!
-    expect(learnLessonSource(learn)).toEqual({ slug: "docs-try-lesson", page: "/docs/try/lesson", fixture: "kv" })
+    expect(learnLessonSource(learn)).toEqual({ slug: lessonSlug, page: "/docs/try/lesson", fixture: "kv" })
     expect(learnLessonSource({ ...learn, workspace: { fixture: "kv", lesson: "/docs/kv/get-started" } })).toMatchObject({ page: "/docs/kv/get-started" })
   })
 
@@ -92,10 +94,12 @@ describe("workspace pages", () => {
   })
 
   it("gives the examples of a page their own ids back", () => {
-    const template = { label: "Hello", files: {}, snapshotOf: "docs-try-playground--hello" }
+    const page = workspacePages(pages)[1]!
+    const prefix = workspacePageSlug(page.path)
+    const template = { label: "Hello", files: {}, snapshotOf: `${prefix}--hello` }
     expect(pageExamples(workspacePages(pages)[1]!, [
-      { ...template, id: "docs-try-playground--hello" },
-      { ...template, id: "docs-try-other--hello" },
+      { ...template, id: `${prefix}--hello` },
+      { ...template, id: `${workspacePageSlug("/docs/try/other")}--hello` },
     ]).map(example => example.id)).toEqual(["hello"])
   })
 

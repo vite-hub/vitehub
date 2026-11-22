@@ -69,3 +69,13 @@
 **Decision:** Binary files mount with each boot and never reach the file tree, the editor, or a share link. An example with other assets opens in a new run. A read-only file shows in the editor but the reader cannot edit it, while `useWorkspace().setFile` can still write it. The run opens files through a function, since it starts before the editor state exists, and a path that the run does not have keeps the open file. The open example decides which files are read-only.
 
 **Consequences:** A replace removes only the files it tracks, so assets stay on disk across edits.
+
+## Bundled Nuxt UI parts do not suspend
+
+`lazy` in `packages/ui/src/internal/nuxt-ui.ts`.
+
+**Context:** The parts load Nuxt UI components on first render. Inside `Suspense`, such as a Nuxt page, a suspensible async component has no element until it loads. Reka UI anchors a dropdown on its trigger and reads `$el.nodeName`, so the Workspace start screen threw `Cannot read properties of null (reading 'nodeName')`.
+
+**Decision:** The bundled components use `suspensible: false`. Until they load they render a comment node, which Reka UI skips.
+
+**Consequences:** The parts do not hold back a parent `Suspense`. `test:workspace-parts` opens the start screen inside `Suspense` and fails on console errors.
