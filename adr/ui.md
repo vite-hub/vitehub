@@ -59,3 +59,13 @@
 **Decision:** A desktop runner starts on its own on desktops, on a tap on tablets, and never on phones. Before mount, CSS shows the phone card or the placeholder by width. A runner that any device runs waits only for mount. Copy link keeps the `template` key of the link, so older links open.
 
 **Consequences:** Server rendering must not start a run, and older `?template=` and `#code=` links must keep opening.
+
+## Bundled Nuxt UI parts do not suspend
+
+`lazy` in `packages/ui/src/internal/nuxt-ui.ts`.
+
+**Context:** The parts load Nuxt UI components on first render. Inside `Suspense`, such as a Nuxt page, a suspensible async component has no element until it loads. Reka UI anchors a dropdown on its trigger and reads `$el.nodeName`, so the Workspace start screen threw `Cannot read properties of null (reading 'nodeName')`.
+
+**Decision:** The bundled components use `suspensible: false`. Until they load they render a comment node, which Reka UI skips.
+
+**Consequences:** The parts do not hold back a parent `Suspense`. `test:workspace-parts` opens the start screen inside `Suspense` and fails on console errors.
