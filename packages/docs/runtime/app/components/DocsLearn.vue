@@ -52,7 +52,7 @@ const snapshot = prebuilt && (() => fetchSnapshot(prebuilt.parts, { cache: `vite
 
 const baseline = shallowRef<Files>(stepFiles(step.value, "start"))
 const examples = computed<WorkspaceExample[]>(() => [
-  { id: props.response.page.path.split("/").filter(Boolean).join("-") || "lesson", label: tutorial.title, files: stepFiles(step.value, "start"), preview: props.data.preview },
+  { id: tutorial.slug, label: tutorial.title, files: stepFiles(step.value, "start"), preview: props.data.preview },
 ])
 const resetStep = (files: Files) => tutorialWorkspaceFiles(tutorial, files, stepFiles(step.value, "start"))
 const runner = webContainer({ port: props.data.port, snapshot: () => snapshot || undefined })

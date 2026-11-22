@@ -1,5 +1,4 @@
 import { Buffer } from "node:buffer"
-import { createHash } from "node:crypto"
 import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 
@@ -34,9 +33,23 @@ export function webContainerRoutes(pages: readonly WorkspaceContentPage[]): stri
   return workspacePages(pages).filter(page => page.layout === "learn" || !page.workspace.render).map(page => page.path)
 }
 
-/** The stable id of a page in file names and snapshot names. */
+/**
+ * The id of a page in file names, snapshot names, and zip names: `/learn/first-kv` is `learn-first-kv`. It has no
+ * `--`, so the ids of a page's examples, `<page id>--<example id>`, never start with the id of another page.
+ */
 export function workspacePageSlug(path: string): string {
-  return createHash("sha256").update(path).digest("hex")
+  return path.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "index"
+}
+
+/** Fails the build when two pages get one id, such as `/docs/a/b` and `/docs/a-b`. */
+export function checkWorkspacePageIds(pages: readonly WorkspacePage[]): void {
+  const seen = new Map<string, string>()
+  for (const page of pages) {
+    const id = workspacePageSlug(page.path)
+    const other = seen.get(id)
+    if (other !== undefined) throw docsErrorDiagnostics.DOCS_WORKSPACE_ID_COLLISION({ id, pages: [other, page.path] })
+    seen.set(id, page.path)
+  }
 }
 
 /** The lesson of a `learn` page: its steps come from `lesson`, or from the page itself. */

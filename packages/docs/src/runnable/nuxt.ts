@@ -9,7 +9,7 @@ import { buildRunnableTutorial, noWorkspaceVersions, readWorkspaceVersions } fro
 import { tutorialPageFacts } from "./learn.ts"
 import { buildPlaygroundTemplates, snapshotSources } from "./playground.ts"
 import { buildTutorialSnapshots, readTutorialSnapshots, tutorialSnapshotInputs } from "./snapshots.ts"
-import { checkWorkspacePage, learnLessonSource, pageExamples, playgroundExampleSources, renderExamples, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "./workspaces.ts"
+import { checkWorkspacePage, checkWorkspacePageIds, learnLessonSource, pageExamples, playgroundExampleSources, renderExamples, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "./workspaces.ts"
 
 import type { RunnableTutorialSource } from "./build.ts"
 import type { PlaygroundTemplateSource } from "./playground.ts"
@@ -95,6 +95,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   const rootDir = nuxt.options.rootDir
   const fixturesDir = resolve(rootDir, options.fixtures ?? "fixtures")
   const pages = workspacePages(content.pages())
+  checkWorkspacePageIds(pages)
   for (const page of pages) checkWorkspacePage(page, { rootDir, srcDir: nuxt.options.srcDir, fixturesDir })
   const learnPages = pages.filter(page => page.layout === "learn")
   const containerPages = pages.filter(page => page.layout === "playground" && !page.workspace.render)
