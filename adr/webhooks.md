@@ -91,13 +91,3 @@ in `packages/webhooks/src/vite.ts`.
 **Decision:** The `config` hook writes the registry and stores the state that the manifest reads. The `queues` contribution writes only the Queue handler file. The runtime plugin installs the webhooks when the server starts, so `sendWebhook()` works in the first request.
 
 **Consequences:** Writing the registry from another hook can race with `config` and give a stale registry.
-
-## A delivery is signed over the bytes it posts, rebuilt from the parsed body
-
-`postDelivery` in `packages/webhooks/src/runtime.ts`.
-
-**Context:** The store keeps `body` as the text of `JSON.stringify(body)` at send time. `WebhookDeliveryStore.claim` returns a `WebhookDelivery`, whose `body` is the parsed value. For text that `JSON.stringify` wrote, `JSON.stringify(JSON.parse(text))` gives the same text: key order, number forms, and string escapes all come back unchanged.
-
-**Decision:** `postDelivery` stringifies `claim.body` once, signs that string, and posts the same string. The signature always covers the bytes sent.
-
-**Consequences:** Carrying the stored text in the claim would change the public `WebhookDelivery` and `WebhookDeliveryStore` types. A store that rewrites `body` into other JSON text, such as a JSON column that reorders keys, still posts a matching signature, but the bytes can differ from what the send stored.
