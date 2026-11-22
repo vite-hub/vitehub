@@ -25,8 +25,6 @@ const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebui
 })
 const fallback = examples[0]!
 
-// `connect` adds a Connect tab. Tokens stay in this tab (sessionStorage) and reach the app only as environment variables
-// of the dev server.
 const connectConfig: ConnectConfig = {}
 for (const name of props.data.connect ?? []) {
   if (name === "cloudflare") connectConfig.cloudflare = { relay: "reader" }

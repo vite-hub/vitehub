@@ -36,7 +36,6 @@ export interface DocsPlaygroundTab {
   label: string
 }
 
-/** The accounts that a reader can connect on a `layout: playground` page. */
 const connectProviders = ["anthropic", "cloudflare", "github", "netlify", "openai", "vercel"] as const satisfies readonly ConnectProviderName[]
 
 /** Navigation fields of a page. `false` keeps the page out of the sidebar. */
