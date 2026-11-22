@@ -14,7 +14,7 @@ import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { agentChannelOperations } from "../src/operations.ts"
-import { createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from "../src/server/internal.ts"
+import { createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, runDiscordGatewayListeners } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 import type { AgentRunContext } from "../src/index.ts"
@@ -397,6 +397,25 @@ describe("simulated chat Channels", () => {
     const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
     const response = await createDiscordGatewayRouteHandler(agent)(new Request("https://example.com/_vitehub/agents/support/discord/gateway"), { durationMs: 1 })
     expect(response.status).toBe(204)
+  })
+
+  it("runs the Gateway listener of a simulated Discord Channel once in a Node process", async () => {
+    const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
+    const handler = createDiscordGatewayRouteHandler(agent)
+    const statuses: number[] = []
+    let runs = 0
+    const stop = runDiscordGatewayListeners({
+      support: async (abortSignal) => {
+        runs++
+        const response = await handler(new Request("http://vitehub.local/_vitehub/agents/support/discord/gateway"), { abortSignal, durationMs: 1 })
+        statuses.push(response.status)
+        return response
+      },
+    })
+    await vi.waitFor(() => expect(statuses).toEqual([204]))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    await stop()
+    expect(runs).toBe(1)
   })
 
   it("leaves Channels alone when simulation is off", () => {

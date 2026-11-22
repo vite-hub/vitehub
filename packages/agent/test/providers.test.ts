@@ -2139,9 +2139,9 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(webhookRoute).toContain("export function startDiscordGateways()")
-      expect(webhookRoute).toContain("abortSignal: controller.signal")
+      expect(webhookRoute).toContain("abortSignal, durationMs: discordGatewayDurationMs")
       expect(webhookRoute).toContain("process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS")
-      expect(webhookRoute).toContain("if (signal.aborted) return Promise.resolve()")
+      expect(webhookRoute).toContain("return runDiscordGatewayListeners(")
       expect(webhookRoute).not.toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
     } finally {
       await rm(root, { force: true, recursive: true })
