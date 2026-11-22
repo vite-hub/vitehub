@@ -175,6 +175,34 @@ describe("docs.runnable", () => {
     expect(await templates.get("learn-facts.mjs")!()).toContain(`"/docs/try/lesson":{"steps":1`)
   })
 
+  it("keeps local private files out of every workspace module", async () => {
+    await write("content/docs/try/lesson.md", `---\ntitle: Lesson\nlayout: learn\nfixture: kv\n---\n::tutorial-step{title="Add the route"}\n${fence}ts [server/api/kv.get.ts]\nexport default () => 1\n${fence}\n::\n`)
+    await write("fixtures/kv/package.json", JSON.stringify({ name: "kv", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("fixtures/kv/server/api/kv.get.ts", "export default () => 1\n")
+    await write("examples/hello/package.json", JSON.stringify({ name: "hello", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("examples/page/index.html", "<h1>Hi</h1>\n")
+    await write("app/render.ts", "export default files => ({ html: files['index.html'] })\n")
+    const secrets = [".env", ".env.local", "server/.env.production", ".dev.vars", "nested/.dev.vars.staging", ".npmrc", "certs/server.pem", "certs/server.key"]
+    for (const root of ["fixtures/kv", "examples/hello", "examples/page"]) {
+      for (const file of secrets) await write(`${root}/${file}`, "TOKEN=private-value\n")
+      await write(`${root}/.env.example`, "TOKEN=\n")
+    }
+    const sitePages: WorkspaceContentPage[] = [
+      { path: "/docs/try/lesson", layout: "learn", workspace: { fixture: "kv" } },
+      { path: "/docs/try/playground", layout: "playground", workspace: { examples: [{ id: "hello", label: "Hello", dir: "examples/hello" }] } },
+      { path: "/docs/try/render", layout: "playground", workspace: { examples: [{ id: "page", label: "Page", dir: "examples/page" }], render: "app/render.ts" } },
+    ]
+    const siteContent = { pages: () => sitePages, read: (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8") }
+    const { nuxt } = fakeNuxt()
+    await setupDocsRunnable({}, { nuxt, content: siteContent })
+
+    for (const path of ["/docs/try/lesson", "/docs/try/playground", "/docs/try/render"]) {
+      const module = await templates.get(`docs/workspaces/${workspacePageSlug(path)}.mjs`)!()
+      expect(module).not.toContain("private-value")
+      expect(module).toContain(`".env.example":"TOKEN=\\n"`)
+    }
+  })
+
   it("asks for a pnpm workspace when a fixture uses one", async () => {
     await app()
     await write("fixtures/kv/package.json", JSON.stringify({ name: "kv", dependencies: { "vite-hub": "workspace:*" } }))

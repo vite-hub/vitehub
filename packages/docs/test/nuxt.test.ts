@@ -946,6 +946,23 @@ describe("docs Nuxt setup", () => {
     expect(updateTemplates).not.toHaveBeenCalled()
   })
 
+  it("restarts development when a page becomes a playground, so its workspace module and isolated route follow", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-workspace-restart-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    const page = join(content, "docs/play.md")
+    writeFileSync(page, "---\ntitle: Play\n---\n# Play")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    writeFileSync(page, "---\ntitle: Play\nlayout: playground\nexamples:\n  - id: hello\n    label: Hello\n    dir: examples/hello\n---\n# Play")
+    watchContent.mock.calls[0]![2]!("change", "docs/play.md")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
   it("reloads Nitro once when a page or its agent copy changes", async () => {
     vi.useFakeTimers()
     const content = mkdtempSync(join(tmpdir(), "docs-copies-"))

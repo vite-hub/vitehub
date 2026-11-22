@@ -19,6 +19,15 @@ export interface RunnableTutorialSource {
 // Generated or installed files. A fixture that was built or run locally has them, and the workspace makes its own.
 const ignoredEntries = new Set(["node_modules", ".output", ".vitehub", ".nitro", ".data", "dist"])
 
+/**
+ * Local files with secrets, in any folder: `.env` and `.env.*` but not `.env.example`, `.dev.vars*`, npm and netrc
+ * credentials, and keys. Workspace modules ship to the browser, so they never hold these.
+ */
+export function isPrivateFile(name: string): boolean {
+  if (name === ".env.example") return false
+  return name === ".env" || name.startsWith(".env.") || name.startsWith(".dev.vars") || name === ".npmrc" || name === ".netrc" || /\.(?:pem|key|p12|pfx)$/.test(name)
+}
+
 /** Labels of code blocks that are not files of the app, such as `commands/dev` and `output/response.json`. */
 export function isTutorialFileLabel(label: string): boolean {
   return !label.startsWith("commands/") && !label.startsWith("output/")
@@ -92,11 +101,11 @@ export function codeBlock(markdown: string, label: string): string | undefined {
   return match ? `${match[1]}\n` : undefined
 }
 
-/** The text files of a fixture folder, without generated or installed files. */
+/** The text files of a fixture folder, without generated or installed files and without private files. */
 export async function readTree(root: string, directory: string = root): Promise<TutorialFiles> {
   const files: TutorialFiles = {}
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (ignoredEntries.has(entry.name)) continue
+    if (ignoredEntries.has(entry.name) || (entry.isFile() && isPrivateFile(entry.name))) continue
     const path = join(directory, entry.name)
     if (entry.isDirectory()) Object.assign(files, await readTree(root, path))
     else if (entry.isFile()) files[relative(root, path).replaceAll("\\", "/")] = await readFile(path, "utf8")
