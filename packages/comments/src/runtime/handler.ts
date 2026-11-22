@@ -550,7 +550,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       const threadId = decodeURIComponent(parts[1])
       const action = parts[2]
       const messageId = parts[3] ? decodeURIComponent(parts[3]) : undefined
-      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(who, thread))
+      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ threadId }, who), (thread, who) => threadResponse(who, thread))
       if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)

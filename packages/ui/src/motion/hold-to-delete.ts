@@ -7,10 +7,6 @@ import { writeMotionStyle } from "./registry.ts";
 import { createSpring, getMotionSlowFactor, onEachFrame } from "./spring.ts";
 
 const svgNs = "http://www.w3.org/2000/svg";
-// The numbers of the prototype's hold to delete. The fill takes 1.1s to fill and 0.35s to empty, and the lid opens by
-// 24° with it. At the end the lid opens to 78° in 220ms, each letter jumps into the can (460ms + 10ms a letter, 42ms
-// apart, after 140ms), and the lid snaps shut in 300ms. 340ms later the label types "Undo" and the fill fades in 260ms.
-// The width of the button follows the label on a (380, 32) spring, and each new letter blurs in from 6px in 240ms.
 const fillSeconds = 1.1;
 const emptySeconds = 0.35;
 const lidHold = -24;
@@ -20,7 +16,6 @@ const lidOpenEasing = cubicBezier(0.3, 1.5, 0.5, 1);
 const riseEasing = cubicBezier(0.2, 0.7, 0.4, 1);
 const fallEasing = cubicBezier(0.6, 0, 0.9, 0.5);
 const easeIn = cubicBezier(0.42, 0, 1, 1);
-// The prototype's dropped file leaves toward its target in 320ms, ease in, down to 20%, with a 3px blur.
 const leaveEasing = cubicBezier(0.5, 0, 0.75, 0);
 const leavingAttribute = "data-motion-leaving";
 
@@ -69,7 +64,6 @@ function svg<K extends keyof SVGElementTagNameMap>(tag: K, attributes: Record<st
   return element;
 }
 
-/** A trash can with a lid that opens on its left corner. */
 function trashCan(): { can: SVGSVGElement; lid: SVGGElement } {
   const can = svg("svg", { "aria-hidden": "true", "data-part": "can", fill: "none", height: "16", stroke: "currentColor", "stroke-linecap": "round", "stroke-linejoin": "round", "stroke-width": "2", viewBox: "0 0 24 24", width: "16" });
   const lid = svg("g", { "data-part": "lid" });
@@ -129,7 +123,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
   let stopHold: (() => void) | undefined;
   let stopTweens: Array<() => void> = [];
   let undoTimer: ReturnType<typeof setTimeout> | undefined;
-  // The state when the pointer or key press started, until its click has passed.
   let pressStart: HoldToDeleteState | undefined;
   let holdKey: string | undefined;
   let destroyed = false;
@@ -152,7 +145,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     return value;
   }
 
-  // The new letters blur in one after another, and the width of the button follows on its spring.
   function setText(value: string, animate: boolean): void {
     const from = button.getBoundingClientRect().width;
     text.replaceChildren(...[...value].map((letter) => {
@@ -215,7 +207,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     });
   }
 
-  // A copy of the item flies into the can, as the prototype's dropped file flies into its drop area.
   function itemLeaves(): Promise<unknown> {
     const item = options.item?.();
     if (!(item instanceof HTMLElement) || still()) return Promise.resolve();
@@ -243,7 +234,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     });
   }
 
-  // The letters jump into the can: up and toward it, then down into it while they shrink and turn.
   function lettersLeave(): Promise<unknown> {
     const target = can.getBoundingClientRect();
     const tx = target.left + target.width / 2;
@@ -285,7 +275,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
     stopTweens.push(open.stop);
     await Promise.all([lettersLeave(), leaving]);
     if (state !== "leaving") return;
-    // The lid snaps shut: past closed by 5°, then closed.
     const shut = playTween(0.3, (p) => {
       const angle = p <= 0.65 ? lidOpen + (5 - lidOpen) * (p / 0.65) : 5 - 5 * ((p - 0.65) / 0.35);
       writeMotionStyle(lid, { rotate: p < 1 ? `${angle.toFixed(2)}deg` : null });
@@ -362,7 +351,6 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
 
   const release = () => {
     if (state === "holding") run(-1);
-    // The click of this press comes next in the same task, so it is still known as a press.
     setTimeout(() => (pressStart = undefined));
   };
   const onPointerDown = (event: PointerEvent) => {
@@ -391,12 +379,10 @@ export function createHoldToDelete(button: HTMLElement, options: HoldToDeleteOpt
   };
   const onClick = async () => {
     const started = pressStart;
-    // The click that ends a complete hold is not an Undo. A new press or a click from a screen reader is.
     if (state === "undo" || state === "leaving") {
       if (started === undefined || started === "undo" || started === "leaving") undo();
       return;
     }
-    // A pointer or a key held the button: the hold decides, not the click.
     if (started !== undefined || state !== "idle") return;
     const ok = await (options.confirm ?? (() => window.confirm(`${label || "Delete"}?`)))();
     if (ok && !destroyed && state === "idle") {

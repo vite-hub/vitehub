@@ -15,7 +15,6 @@ export const MorphText = defineComponent({
   name: "MorphText",
   props: {
     text: { required: true, type: String },
-    /** The element to render. */
     as: { default: "span", type: String },
   },
   setup(props) {
@@ -40,10 +39,8 @@ export const RollNumber = defineComponent({
   name: "RollNumber",
   props: {
     value: { required: true, type: Number },
-    /** Turns the number into its text, such as `n => n.toLocaleString()`. */
     // SAFETY: Vue's runtime constructor cannot express the function type.
     format: { default: undefined, type: Function as PropType<(value: number) => string> },
-    /** The text of `value` when the app formats it already, such as "$4.20". It wins over `format`. */
     text: { default: undefined, type: String },
     as: { default: "span", type: String },
   },
@@ -77,7 +74,6 @@ export const SwapIcon = defineComponent({
     // SAFETY: Vue's runtime constructor cannot express these string literal unions.
     exit: { default: undefined, type: String as PropType<IconExit> },
     enter: { default: undefined, type: String as PropType<IconEnter> },
-    /** The icon turns, as a spinner does. */
     spin: { default: false, type: Boolean },
   },
   setup(props, { attrs, slots }) {
@@ -100,8 +96,6 @@ export const SwapIcon = defineComponent({
         },
       });
     });
-    // Each icon has its own wrapper, so the swap moves the wrapper and a class on the icon, such as a size, stays. The
-    // class goes to each icon, and the other attributes to the container.
     return () => {
       const { class: iconClass, ...rest } = attrs;
       return h("span", { "data-slot": "swap-icon", ...rest, "ref": container, "aria-hidden": "true", "style": { display: "inline-flex", flexShrink: 0 } },

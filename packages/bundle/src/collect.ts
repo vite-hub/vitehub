@@ -73,11 +73,6 @@ interface Edges {
   complete: boolean
 }
 
-/**
- * Reads the imports of a module as report ids. The bundler drops modules that leave no code, such as a package index
- * that only re-exports, so an import of such a module continues to the modules that it imports. An edge is dynamic
- * when one step on the way is `import()`.
- */
 function createEdgeReader(ids: ReadonlyMap<string, string>, getModuleInfo: CollectOptions["getModuleInfo"]): (raw: string) => Edges {
   const through = new Map<string, Edges>()
   const visit = (raw: string, visiting: Set<string>): Edges => {
@@ -101,7 +96,6 @@ function createEdgeReader(ids: ReadonlyMap<string, string>, getModuleInfo: Colle
     for (const next of info?.importedIds ?? []) add(next, false)
     for (const next of info?.dynamicallyImportedIds ?? []) add(next, true)
     visiting.delete(raw)
-    // A recursive edge truncates this traversal. Another entry must be able to read it afresh.
     if (result.complete) through.set(raw, result)
     return result
   }
@@ -124,7 +118,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
   const packages = new Map<string, string | undefined>()
   const isEntry = (id: string, chunk: OutputChunkLike) => options.getModuleInfo(id)?.isEntry ?? chunk.facadeModuleId === id
   for (const chunk of chunks) {
-    // Entry facades can render no code while still providing the root of the import graph.
     for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0 || isEntry(id, chunk)) ids.set(id, moduleId(id, options.root, packages))
   }
   const edges = createEdgeReader(ids, options.getModuleInfo)
@@ -133,7 +126,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
   const rows: BundleChunk[] = chunks.map((chunk) => {
     const bytes = Buffer.byteLength(chunk.code)
     const entries = Object.entries(chunk.modules).filter(([id]) => ids.has(id))
-    // `page.vue` and `page.vue?vue&type=script` become one module.
     const merged = new Map<string, { rendered: number, imports: Set<string>, dynamicImports: Set<string>, entry: boolean }>()
     for (const [raw, module] of entries) {
       const id = ids.get(raw)!
@@ -148,7 +140,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     const shares = allocateBytes([...merged.values()].map(row => row.rendered), bytes)
     const modules: BundleModule[] = [...merged].map(([id, row], index) => ({
       id,
-      // Minification and chunk glue change the size after rendering, so each module gets its share of the file.
       bytes: shares[index]!,
       imports: [...row.imports].filter(next => next !== id).sort(),
       dynamicImports: [...row.dynamicImports].filter(next => next !== id && !row.imports.has(next)).sort(),

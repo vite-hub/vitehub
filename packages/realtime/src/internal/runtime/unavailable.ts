@@ -1,6 +1,5 @@
 import type { RealtimeAvailability } from "../../types.ts"
 
-// Builds without the Realtime integration resolve `#vitehub/realtime/availability` here.
 const availability: RealtimeAvailability = {
   available: false,
   reason: "This build does not enable Realtime.",

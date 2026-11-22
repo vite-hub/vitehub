@@ -56,7 +56,6 @@ it("starts polling after an initial scan failure is retried", async () => {
     },
   })
 
-  // The original error, not a wrapper.
   await expect(driver.reconcile([record()])).rejects.toBe(failure)
   await driver.reconcile([record()])
   now = new Date(60_000)
@@ -84,7 +83,6 @@ it.each([
   })
 
   await driver.reconcile([record()])
-  // The next scan runs 120.2 s later. Without catch-up it would check only the 180 s minute.
   now = new Date(180_100)
   await vi.advanceTimersByTimeAsync(60_000)
   await driver.close()
@@ -212,7 +210,6 @@ it("does not start queued wakes after close begins and waits only for the runnin
   let closed = false
   const closing = driver.close().then(() => { closed = true })
   expect(driver.close()).toBe(driver.close())
-  // A reconcile during close updates the Schedules but does not wake them.
   await driver.reconcile([record("first"), record("queued"), record("added")])
   await vi.advanceTimersByTimeAsync(60_000)
   expect(closed).toBe(false)

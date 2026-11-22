@@ -23,7 +23,6 @@ export function browserErrorsReporterSource(endpoint: string): string {
     `const endpoint = ${endpoint}`,
     `const seen = new Set()`,
     `let sent = 0`,
-    // The rules of the server's `parseFields()`, so a bad entry does not fill the 16 KiB body. The server counts both.
     `const flatFields = fields => {`,
     `  const kept = {}`,
     `  let count = 0`,
@@ -54,14 +53,12 @@ export function browserErrorsReporterSource(endpoint: string): string {
     `  }`,
     `  return json`,
     `}`,
-    // A chunk that a deploy removed fails again after each reload, so the tab reports it once.
     `const firstInTab = message => {`,
     `  try {`,
     `    const key = "vite-hub.browserErrors.chunk:" + message`,
     `    if (sessionStorage.getItem(key)) return false`,
     `    sessionStorage.setItem(key, "1")`,
     `  }`,
-    // Storage can be off or full. Then the report still goes.
     `  catch {}`,
     `  return true`,
     `}`,
@@ -71,12 +68,10 @@ export function browserErrorsReporterSource(endpoint: string): string {
     // Leaving a page aborts its requests. That is not a failure.
     `    if (failure.name === "AbortError") return`,
     `    const action = typeof options?.action === "string" ? options.action.slice(0, 100) : undefined`,
-    // Not the name: Nuxt sends a Vue error to `vue:error`, then as a NuxtError with the same message to `app:error`.
     `    const key = (action ?? "") + "\\n" + failure.message`,
     `    if (seen.has(key) || sent >= 10) return`,
     `    seen.add(key)`,
     `    if (kind === "chunk" && !firstInTab(failure.message)) return`,
-    // A string has no stack of its own: `new Error()` above would only point here.
     `    const stack = error instanceof Error ? failure.stack?.slice(0, 4000) : undefined`,
     `    const level = options?.level === "warn" ? "warn" : undefined`,
     `    const name = typeof failure.name === "string" ? failure.name.slice(0, 120) : undefined`,
@@ -91,7 +86,6 @@ export function browserErrorsReporterSource(endpoint: string): string {
     // A failed <img> or <script> load has no error object, and a script of another origin shows only "Script error.".
     `addEventListener("error", event => { if (event.error) report("error", event.error) })`,
     `addEventListener("unhandledrejection", event => report("unhandledrejection", event.reason))`,
-    // Vite's preload event also carries errors thrown while evaluating a successfully fetched module.
     `const reportPreloadError = error => {`,
     `  const message = error instanceof Error ? error.message : ""`,
     `  const loadFailed = (error instanceof TypeError && (/^(Failed to fetch dynamically imported module: |error loading dynamically imported module: )/.test(message) || message === "Importing a module script failed."))`,

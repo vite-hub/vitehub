@@ -55,9 +55,6 @@ function main() {
 
   try {
     for (const tarball of packPackages(packDirectory, packages)) {
-      // @vite-hub/auth already owns the repository's publint dependency. Run
-      // through that workspace package so this check does not add another copy
-      // of the tool to every package or to the root manifest.
       command("corepack", [
         "pnpm",
         "exec",

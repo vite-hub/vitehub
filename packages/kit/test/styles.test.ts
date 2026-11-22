@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { inlineWebCss, scopeStyles } from "../scripts/styles.ts";
 
-// The rules of the scoped sheet, without its header and the color-scheme rule at the end.
 function scoped(css: string): string {
   const out = scopeStyles(css);
   return out.slice(out.indexOf("*/") + 2, out.lastIndexOf("/* The scope root takes")).trim();

@@ -7,7 +7,6 @@ import { formsDiagnostics } from "./errors.ts"
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { FormSubmission } from "./types.ts"
 
-// The inbox lives in the Nitro runtime. The operations load it when they run, so the CLI can list them without it.
 async function inbox() {
   const installed = (await import("./runtime.ts")).installedForms()
   if (!installed) throw formsDiagnostics.FORMS_NOT_INSTALLED()
@@ -21,13 +20,11 @@ async function unwrap<T>(result: Promise<[Error, undefined] | [undefined, T]>): 
 }
 
 function defineFormsOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // Access to the Forms section of the Console decides. The operations never read the signed-in user.
   return defineOperation({ ...definition, cli: { namespace: "forms", ...definition.cli }, section: "forms", user: false })
 }
 
 const status = v.picklist(["open", "done", "spam"])
 
-/** The first text value of a submission on one line, such as its message. */
 function preview(data: unknown): string {
   const values = Object.values(Object(data) as Record<string, unknown>)
   const text = values.find((value): value is string => typeof value === "string" && value.includes(" ")) ?? values.find(value => typeof value === "string") ?? ""

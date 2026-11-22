@@ -1,10 +1,3 @@
-/**
- * Accounts a reader can connect to a WebContainer app: deploy targets, a source host, and model providers.
- *
- * This entry only describes providers. It runs no OAuth flow yet. A connected credential stays in the
- * browser tab and reaches the app only as an environment variable of one `container.run()` call.
- */
-
 import { webContainerErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type ConnectProviderName = "anthropic" | "cloudflare" | "github" | "netlify" | "openai" | "vercel"

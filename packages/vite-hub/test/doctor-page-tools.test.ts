@@ -22,14 +22,8 @@ function write(root: string, file: string, text: string) {
   writeFileSync(join(root, file), text)
 }
 
-/** The page tools route that Comments generates. `packages/comments/src/live-vite.ts` writes it. */
 const commentsRouteFile = ".vitehub/nitro/comments/page-tools-route.mjs"
 
-/**
- * Runs `no-route-middleware-api-security` on a Nuxt app with an auth route middleware, which turns the rule on, and
- * a Doctor manifest with the page tools routes of the Console and Comments, plus `extra` app handlers. Doctor reads
- * the file paths of `serverHandlers`, and the routes of `resolvedServerHandlers` when the manifest has them.
- */
 async function middlewareSecurityReport(manifestKey: "serverHandlers" | "resolvedServerHandlers", extra: Array<{ route: string, file: string, text: string }> = []) {
   const root = mkdtempSync(join(tmpdir(), "vitehub-doctor-page-tools-"))
   roots.push(root)
@@ -64,7 +58,6 @@ async function middlewareSecurityReport(manifestKey: "serverHandlers" | "resolve
     serverHandlers: handlers,
     ...(manifestKey === "resolvedServerHandlers" ? { resolvedServerHandlers: handlers } : {}),
   }))
-  // The CLI is what apps run. It exits with 1 when it reports a warning, so read its JSON report from the error too.
   const cli = fileURLToPath(import.meta.resolve("vite-doctor/cli"))
   const args = [cli, root, "--framework", "nuxt", "--extends", "nuxt/strict", "--rules", "nuxt/middleware/no-route-middleware-api-security", "--no-cache", "--format", "json"]
   const stdout = await promisify(execFile)(process.execPath, args).then(({ stdout }) => stdout, (error: { stdout?: string }) => error.stdout ?? "")
@@ -72,10 +65,7 @@ async function middlewareSecurityReport(manifestKey: "serverHandlers" | "resolve
   return report.diagnostics.map(diagnostic => diagnostic.location?.path)
 }
 
-// The page tools route is public: it lists the tools that this visitor may use, and each tool checks access again on
-// its own routes. Doctor takes a handler for an auth route when its path or file has a word such as `session`.
 it.each(["serverHandlers", "resolvedServerHandlers"] as const)("lets Vite Doctor pass the page tools routes of the Console and Comments, from %s", async (manifestKey) => {
-  // The control: an app route on an auth path without a guard.
   const unguarded = { route: "/api/admin/users", file: "server/api/admin/users.get.ts", text: "export default defineEventHandler(() => [])\n" }
   expect(await middlewareSecurityReport(manifestKey, [unguarded])).toEqual(["server/api/admin/users.get.ts"])
 })

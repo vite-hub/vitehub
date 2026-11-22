@@ -1080,7 +1080,6 @@ describe("@vite-hub/shell just-bash runtime", () => {
     const list = vi.spyOn(workspace, "list")
 
     createReadonlyWorkspaceFs(workspace)
-    // A refresh starts in a later microtask, so wait for the next macrotask before checking.
     await setImmediate()
 
     expect(list).not.toHaveBeenCalled()

@@ -8,7 +8,6 @@ import { createProject, runSetup } from "./setup-helpers.ts"
 const consoleUrl = "https://console.example.com"
 const token = `vhk_${"S".repeat(43)}`
 
-/** A Console that answers the device flow, `whoami`, and the revoke of the current key. It records each request. */
 function fakeConsole(options: { deny?: boolean, pending?: number } = {}) {
   const requests: { method: string, path: string, authorization: string | null, body: unknown }[] = []
   let pending = options.pending ?? 1

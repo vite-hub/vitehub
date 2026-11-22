@@ -26,7 +26,6 @@ export default defineConfig({
       "src/internal/runtime/vercel-client.ts",
     ],
     exports: {
-      // Generated code imports these modules by path. They are not public API.
       exclude: ["operations", "internal/runtime/cloudflare-client", "internal/runtime/cloudflare-vite", "internal/runtime/local-client", "internal/runtime/postgres-client", "internal/runtime/state", "internal/runtime/vercel-client", "internal/runtime/worker-client"],
       customExports: normalizePackageExports,
       inlinedDependencies: false,

@@ -116,7 +116,6 @@ export async function resolveTaskSandbox(
   providerOptions: SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver },
   local: SandboxTaskDefinitionOptions,
 ) {
-  // The Sandbox Task plugin aliases this package import to the generated loader; without the plugin it resolves to the generic loader.
   const providerLoader = await import('#vitehub-sandbox-task-provider-loader')
   const runtimeProvider = await providerLoader.loadSandboxTaskRuntimeProvider(provider)
   return await runtimeProvider.resolveTaskSandbox({

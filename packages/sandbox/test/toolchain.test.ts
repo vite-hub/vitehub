@@ -41,7 +41,6 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   await fixture?.close();
   fixture = undefined;
-  // Published toolchain entries are read-only.
   await Promise.all(roots.splice(0).map(async (root) => {
     await execFileAsync("chmod", ["-R", "u+w", root]).catch(() => undefined);
     await rm(root, { force: true, recursive: true });
@@ -199,7 +198,6 @@ describe("trusted-host toolchain", () => {
         node: { source: ".node-version", version: fixtureNodeVersion },
         packageManager: { name: "pnpm", source: "package.json#packageManager", version: fixturePnpmVersion },
       });
-      // Published entries are read-only.
       await expect(writeFile(join(cache, `node-v${fixtureNodeVersion}-${hostPlatformSuffix()}`, "bin", "extra"), "")).rejects.toThrow();
     }
     finally {

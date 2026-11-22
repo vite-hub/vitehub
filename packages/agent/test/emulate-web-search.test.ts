@@ -20,7 +20,6 @@ const rules: NonNullable<AiSeedConfig["rules"]>[number][] = [
   { id: "news", match: { textContains: "news" }, reply: [{ type: "text", text: "No news today." }] },
 ]
 
-/** A hosted provider tool from an AI SDK provider, as an author passes it outside webSearch(). */
 const hostedWebSearch = { ...createOpenAI({ apiKey: "unused" }).tools.webSearch(), name: "web_search" }
 
 let emulator: Emulator
@@ -43,7 +42,6 @@ async function calls(): Promise<CallRecord[]> {
   return await (await fetch(`${emulator.url}/_ai/calls`)).json() as CallRecord[]
 }
 
-/** Runs the Agent with a telemetry exporter and returns its result and the coded warnings on the Invocation. */
 async function runWithWarnings({ capabilities = [], driver }: { capabilities?: AgentCapabilityDefinition[], driver: AgentDriver }, prompt = "Any news?", options: { tools?: Record<string, unknown> } = {}) {
   const telemetry = vi.fn<AgentTelemetry>()
   const agent = defineAgent({
@@ -176,7 +174,6 @@ describe("webSearch() on languageModel(emulate(), id)", () => {
     expect(warnings).toHaveLength(1)
     expect(warnings[0]!["diagnostic.fix"]).not.toContain("VITEHUB_MODELS")
     expect(warnings[0]!["diagnostic.fix"]).toContain("supports hosted tools")
-    // Telemetry omits the message as content, so the why is checked on the diagnostic.
     const diagnostic = agentDiagnostics.AGENT_MODELS_EMULATE_PROVIDER_TOOL_DROPPED({ source: "gateway", tool: "openai.web_search" })
     expect(diagnostic.message).toContain("emulate() gateway")
     expect(diagnostic.message).not.toContain("VITEHUB_MODELS")

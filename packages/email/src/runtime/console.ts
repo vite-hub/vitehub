@@ -42,10 +42,6 @@ export function toEmailOutboxListItem(message: EmailOutboxMessage): EmailOutboxL
   }
 }
 
-/**
- * The outbox of `runtimeId`. Without one, the newest installed outbox: the Console calls its reader with no arguments,
- * and each app generates a random runtime id.
- */
 function outboxOf(runtimeId?: string) {
   return runtimeId === undefined ? getActiveEmailOutbox() : getEmailOutbox(runtimeId)
 }
@@ -80,10 +76,6 @@ export function formatEmailOutboxDelivery(delivery: EmailOutboxDelivery): string
   }
 }
 
-/**
- * One status word for the Delivery column, so the Console list shows a failed message with an error dot. The record's
- * Delivery field keeps the full text with the provider id or the error.
- */
 function deliveryStatus(delivery: EmailOutboxDelivery): string {
   switch (delivery.status) {
     case "pending":
@@ -125,7 +117,6 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
     ...(message.metadata ? [{ label: "Metadata", value: Object.entries(message.metadata).map(([key, value]) => `${key}=${value}`).join("\n") }] : []),
     { label: "Text body", value: message.text ?? "None" },
     {
-      // The Console shows HTML as escaped source text. It never renders the HTML.
       label: "HTML source",
       value: message.html === undefined
         ? "None"

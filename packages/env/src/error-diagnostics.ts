@@ -4,11 +4,8 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-/** A code whose call site passes the message as `why`. Pass the fix as a string literal: the docs catalog reads only literals. */
 const withFix = (fix: string) => ({ ...dynamicError, fix })
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: ENV_R0007 and ENV_R0024.
 export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/env/diagnostics",
   codes: {

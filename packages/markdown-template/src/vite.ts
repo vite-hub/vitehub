@@ -35,7 +35,6 @@ async function writeFileIfChanged(path: string, contents: string): Promise<void>
   await writeFile(path, contents, "utf8")
 }
 
-// The ids that parseMarkdownTemplateRequest() accepts. Rolldown and Vite skip the hooks for every other id.
 const MARKDOWN_TEMPLATE_ID_PATTERN = /^[^#?]*(?:\.template\.md|\?markdown-template)$/
 
 function isFileId(id: string): boolean {
@@ -66,7 +65,6 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
         if (!resolved || resolved.external) {
           this.error(`[vitehub] Could not resolve Markdown template ${JSON.stringify(request.path)}${importer ? ` from ${JSON.stringify(importer)}` : ""}.`)
         }
-        // Resolver queries and fragments identify plugin-owned modules, even on absolute paths.
         if (!isFileId(resolved.id) || /[?#]/.test(resolved.id)) return resolved
         return { ...resolved, id: `${resolved.id}?${markdownTemplateModuleQuery}` }
       },
@@ -80,8 +78,6 @@ export function hubMarkdownTemplate(options: HubMarkdownTemplateOptions = {}): P
         let path = request.path
         if (path.startsWith("/@fs/")) {
           path = path.slice("/@fs".length)
-          // Vite prefixes Windows drive-letter paths with a separator (`/@fs/C:\\...`).
-          // Remove that separator so Node receives the native absolute path.
           if (/^\/[A-Za-z]:[\\/]/.test(path)) path = path.slice(1)
         }
         const template = await readFile(path, "utf8")

@@ -54,7 +54,6 @@ const oauthDefinitionSchema = v.looseObject({
       requests: requestsSchema,
     }),
     v.check(provider => !Object.hasOwn(provider, "kind")),
-    // Without `mcp`, ViteHub has no metadata to find the endpoints or to register a client.
     v.check(provider => provider.mcp !== undefined || (provider.authorizationEndpoint !== undefined && provider.tokenEndpoint !== undefined && provider.clientId !== undefined && provider.clientName === undefined)),
   ),
   scopes: v.array(v.string()),
@@ -87,7 +86,6 @@ const definitionSchema = v.pipe(
     access: v.record(v.string(), v.strictObject({ read: v.optional(v.boolean()) })),
     docs: v.optional(v.string()),
   })]),
-  // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
   v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),
 )
 const instancesSchema = v.strictObject({

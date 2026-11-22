@@ -7,10 +7,6 @@ interface NitroAppLike {
   hooks: { hook(name: "close", callback: () => Promise<void>): unknown }
 }
 
-/**
- * Prints the driver that each inferred store uses in this process. A Node build of `vitehub()` prints the stores in its
- * Durability table at boot, so KV prints nothing there.
- */
 async function logInferredStores(): Promise<void> {
   const { durabilityReportsStores, kv } = await import("#vitehub/kv/config")
   if (!kv || durabilityReportsStores) return

@@ -6,7 +6,6 @@ import { emailErrorDiagnostics } from "../src/error-diagnostics.ts"
 it("documents each Email error code with a docs heading", async () => {
   const page = await readFile(new URL("../../../docs/content/docs/email/limits-and-errors.md", import.meta.url), "utf8")
 
-  // A code after the legacy list gets only its generated page. test/diagnostic-codes.test.ts keeps it off this page.
   const legacy = new Set((await readFile(new URL("../../../test/fixtures/legacy-diagnostic-codes.txt", import.meta.url), "utf8")).split("\n"))
 
   for (const code of Object.keys(emailErrorDiagnostics).filter(code => legacy.has(code))) {

@@ -6,7 +6,6 @@ import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ResultError } from "@vite-hub/runtime"
 import type { EmailClient, EmailDefinition, EmailErrorCode, EmailProviderError, EmailProviderErrorCode } from "./types.ts"
 
-// Only `email.send({ template })` returns `EMAIL_TEMPLATE_RENDER_FAILED`. No driver failure maps to it.
 const errorCodes: Record<Exclude<EmailProviderErrorCode, "NOT_CONFIGURED">, Exclude<EmailErrorCode, "EMAIL_TEMPLATE_RENDER_FAILED">> = {
   AUTH: "EMAIL_AUTHENTICATION",
   CANCELLED: "EMAIL_PROVIDER_FAILED",
@@ -19,7 +18,6 @@ const errorCodes: Record<Exclude<EmailProviderErrorCode, "NOT_CONFIGURED">, Excl
 }
 
 const renderFirst = "Render it yourself and pass the result as `html` or `text`."
-// Fields that no shipped driver sends. Untyped callers can still pass them, so `send()` tells what to write instead.
 const removedFields: Record<string, string> = {
   amp: "Send the HTML version as `html`.",
   dsn: "Remove it.",
@@ -40,7 +38,6 @@ const removedFields: Record<string, string> = {
   tracking: "Set tracking in the provider dashboard.",
 }
 
-/** Returns why ViteHub cannot send the message, or `undefined` when the message is valid. */
 function invalidMessage(message: unknown, driver: string): EmailProviderError | undefined {
   if (!message || typeof message !== "object") return emailProviderError(driver, "INVALID_OPTIONS", "The message must be an object.")
   const removed = Object.entries(message).find(([field, value]) => value !== undefined && Object.hasOwn(removedFields, field))?.[0]
@@ -51,7 +48,6 @@ function invalidMessage(message: unknown, driver: string): EmailProviderError | 
   return undefined
 }
 
-/** Maps a driver failure to the error that `send()` returns. Invalid driver options throw `EMAIL_NOT_CONFIGURED`. */
 function sendError(error: unknown, driver: string): ResultError<EmailErrorCode> {
   if (emailErrorDiagnostics.EMAIL_INVALID_DRIVER.is(error) || emailErrorDiagnostics.EMAIL_NOT_CONFIGURED.is(error)) throw error
   if (!isEmailProviderError(error)) return emailErrorDiagnostics.EMAIL_PROVIDER_FAILED({ cause: error, driver })

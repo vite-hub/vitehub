@@ -2,8 +2,6 @@ import "../virtual-module.d.ts"
 
 import { normalizeKey } from "unstorage"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-// The package import keeps the Nitro module graph on the storage that `hubKV()` selects, for example the generated
-// Cloudflare KV runtime. A relative import would bypass that selection.
 import { kv } from "@vite-hub/kv"
 
 import { inspectKVValue, kvValueType } from "./inspect-value.ts"
@@ -118,7 +116,6 @@ export interface KVOperationInput {
   value?: unknown
 }
 
-/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const kvOperationStatus: Readonly<Record<string, number>> = {
   KV_DISABLED: 409,
   KV_INVALID_CURSOR: 400,
@@ -133,7 +130,6 @@ const maximumKeyLength = 2_048
 function unwrap<TResult>(result: Result<TResult>): TResult {
   const [error, value] = result
   if (!error) return value
-  // A store answered with an error. Codes without their own status are provider failures.
   throw Object.assign(error, { status: kvOperationStatus[error.code] ?? 502 })
 }
 
@@ -172,7 +168,6 @@ function selectStore(stores: readonly KVDevStore[], name = "default"): { driver:
   return { driver: store.driver, name, storage: name === "default" ? kv : kv.store(name) }
 }
 
-/** The keys under `vitehub:` belong to ViteHub, which keeps its own state there. */
 function requireWritableKey(operation: string, key: string): void {
   if (!normalizeKey(key).toLowerCase().startsWith("vitehub:")) return
   throw kvErrorDiagnostics.KV_RESERVED_KEY({ key, operation })
@@ -194,11 +189,8 @@ export async function runKVOperation(operation: KVDevOperation, input: KVOperati
   }
   catch (error) {
     const code: unknown = Reflect.get(Object(error), "code")
-    // A Result error can come from the copy of nostics in @vite-hub/runtime, so match the code, not the class.
     const status = Reflect.get(Object(error), "status") ?? (typeof code === "string" ? kvOperationStatus[code] : undefined)
     if (typeof status !== "number" || !(error instanceof Error)) throw error
-    // The CLI and the Console read `status` and `statusMessage`. The message names the provider error of a failed
-    // call, and loses the values under secret names.
     const cause = code === "KV_OPERATION_FAILED" && error.cause instanceof Error ? ` ${error.cause.message}` : ""
     throw Object.assign(error, { status, statusMessage: redactInspectionText(`${error.message}${cause}`) })
   }

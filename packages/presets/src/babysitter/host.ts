@@ -311,7 +311,6 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
       const [health, queue, prerequisites, guard, skip] = await Promise.all([
         processHealth(), queueHealth(), prerequisiteHealth(), admissionHealth(), skipHealth(),
       ]);
-      // A drained host runs no reconcile, so only a running or starting host can be silent.
       const hostStatus = host.status();
       const scheduler = schedulerHealth(hostStatus === "accepting" || hostStatus === "starting");
       const stall = scheduler.status === "stalled" ? scheduler.lastStall : undefined;
@@ -344,7 +343,6 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
             reason: guard.reason,
             retryAt: guard.retryAt,
             detail: guard.detail,
-            // Retained for existing clients. lastSkip is historical; accepting is current.
             lastSkip,
             history: { lastSkip },
           },
@@ -363,7 +361,6 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   };
 }
 
-/** Bound the wait without starting more reads while a dependency is still busy. */
 function boundedHealthRead<T>(read: () => Promise<T>): () => Promise<T | undefined> {
   let pending: Promise<T | undefined> | undefined;
   return () => pending ??= new Promise(resolve => {

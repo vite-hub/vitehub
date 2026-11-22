@@ -23,7 +23,6 @@ describe("resolveServerEnv reuse", () => {
     vi.unstubAllEnvs()
   })
 
-  // A SecretEnv is created when a value is parsed, so the same instance means the value was reused.
   it("reuses the resolved values while the names it reads hold the same values", () => {
     const values = registry()
     const first = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://one.test" }))

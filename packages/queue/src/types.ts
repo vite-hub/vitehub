@@ -177,7 +177,6 @@ export interface LocalQueueDriverOptions extends QueueSharedOptions {
 export type LocalQueueRules = QueueDriver
 
 interface LocalQueueModuleDriverOptions extends QueueSharedOptions {
-  /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
   base?: string
   driver: "local"
 }

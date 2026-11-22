@@ -1,6 +1,5 @@
 import type { CmsRoleName } from "vite-hub/cms/access"
 
-/** Playground users and the CMS role each gets at sign-up. Each signs in at /login with the password below. */
 export const playgroundUsers = {
   "admin@vitehub.dev": "admin",
   "editor@vitehub.dev": "publisher",

@@ -1,6 +1,3 @@
-// Effects of different units on one page in Chromium: the "Together" row of the motion page. Each test drives two
-// effects at the same time and checks that each one still does its work and clears what it wrote.
-// Run: pnpm --filter @vite-hub/ui test:motion
 import assert from "node:assert/strict"
 import { createRequire } from "node:module"
 import { after, describe, test } from "node:test"
@@ -43,7 +40,6 @@ async function open() {
   return { context, errors, page }
 }
 
-/** Reads `read(element)` on every frame until `stop()`. `read` runs in the page. */
 async function sample(page, selector, read) {
   await page.evaluate(({ selector, source }) => {
     const read = new Function(`return (${source})`)()
@@ -63,7 +59,6 @@ async function sample(page, selector, read) {
   return { stop: () => page.evaluate(() => window.stopTogether()) }
 }
 
-/** True when no element under `selector` has inline motion left: `translate`, `scale`, `rotate`, `filter`, or `clip-path`. */
 function clean(page, selector) {
   return page.waitForFunction(selector => [document.querySelector(selector), ...document.querySelectorAll(`${selector} *`)].every(node => !node.style?.translate && !node.style?.scale && !node.style?.rotate && !node.style?.filter && !node.style?.clipPath), selector, { timeout: 10_000 })
 }
@@ -80,7 +75,6 @@ describe("effects together", () => {
     await page.mouse.move(target.x, target.y, { steps: 4 })
     const tooltip = page.locator("[role=tooltip]", { hasText: "Show the source" })
     await tooltip.waitFor({ state: "attached" })
-    // The tooltip effect writes its rise on the box of the tooltip.
     await page.waitForFunction(() => [...document.querySelectorAll("[data-reka-popper-content-wrapper] *")].some(node => node.style.translate || node.style.clipPath))
     const trace = await sample(page, "[data-test=together-tabs] [data-slot=indicator]", element => element.style.translate || element.style.scale)
     await page.mouse.down()
@@ -99,7 +93,6 @@ describe("effects together", () => {
 
   test("a USwitch in a toolbar: the knob travels and lands, the switch does not squash, and the pressed button next to it keeps its own state", async () => {
     const { context, errors, page } = await open()
-    // Nuxt UI puts `data-test` on the switch button itself.
     const control = "[data-test=together-switch][role=switch]"
     const knob = `${control} [data-slot=thumb]`
     const before = await page.locator(knob).boundingBox()

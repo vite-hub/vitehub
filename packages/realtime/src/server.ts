@@ -1,5 +1,3 @@
-// The public server entry of @vite-hub/realtime. Each name here has a row in docs/content/docs/realtime/server-api.md.
-// The Yjs and room helpers that ViteHub packages use are in `@vite-hub/realtime/internal/server`.
 export { isRealtimeAvailable } from "./availability.ts"
 export { blobDocument } from "./blob-document.ts"
 export type { RealtimeBlobDocumentOptions, RealtimeBlobStore } from "./blob-document.ts"

@@ -3,13 +3,6 @@ import type { Plugin } from "vite"
 import { renderChannelSimulatorPage } from "../../packages/agent/src/internal/channel-simulator/page.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
-/**
- * The Channels section without Agents. `release-engineer` has two simulated Channels, as `agent.channels.simulate`
- * gives them in `vite dev`, and `product-reviewer` has a real Telegram Channel with a durable State. The simulated
- * Channels serve the real chat page of `@vite-hub/agent`, but no Agent answers its messages here.
- */
-
-// A simulated Channel has no provider history, so channels.list gives it no warning.
 const simulated = { durable: false, maxMessages: 100, mode: "provider-window", transcripts: false, ttlMs: 604_800_000 }
 const providerWindow = {
   ...simulated,
@@ -49,7 +42,6 @@ function retentionOf(agent: unknown, channel: unknown) {
   return channels.find(entry => entry.agent === agent && entry.channel === channel)?.retention ?? providerWindow
 }
 
-/** Answers the `channels.*` operations, or `undefined` for other operations. */
 export function channelsFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   if (operation === "channels.list") return { ok: true, value: { channels } }
   if (operation === "channels.threads") {
@@ -62,7 +54,6 @@ export function channelsFixture(operation: string, input: Record<string, unknown
   return undefined
 }
 
-/** Serves the chat page of each simulated Channel on its webhook route, as the Agent route does on a browser GET. */
 export function channelSimulatorPages(): Plugin {
   return {
     name: "vitehub-console-playground-channel-simulator",

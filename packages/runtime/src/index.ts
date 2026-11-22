@@ -1,5 +1,3 @@
-// The public entry of @vite-hub/runtime. List each name: a helper that only ViteHub packages use goes in an
-// `internal/*` entry. `test/explicit-owner-entries.test.ts` checks this list.
 export {
   createExecutionContext,
   createRuntimeContext,

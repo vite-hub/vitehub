@@ -264,7 +264,6 @@ describe("createCrabboxRuntime", () => {
       const supervisorConfig = join(root, "supervisor.json")
       const supervisedPidFile = join(root, "supervised.pid")
       await writeFile(supervisorConfig, JSON.stringify({ sandboxRoot: session.root, marker: marker.stdout, pidFile: supervisedPidFile }))
-      // Keep the supervisor's cwd, arguments, environment, and open files outside the Sandbox.
       const supervisor = spawn(process.execPath, ["-e", `
         const { readFileSync, writeFileSync } = require("node:fs")
         const { spawn } = require("node:child_process")
@@ -855,7 +854,6 @@ describe("createCrabboxRuntime", () => {
           toolchain: "project",
         }, {})
         expect(sandbox.plan.requirements.map(requirement => requirement.command)).toEqual(["node", "pnpm"])
-        // Sessions on one authoritative workspace are serialized. The second one reuses the cache.
         for (let index = 0; index < 2; index++) {
           const session = await sandbox.open()
           try {

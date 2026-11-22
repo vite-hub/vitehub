@@ -1,5 +1,3 @@
-// Pure helpers, so the server runtime reads records on any host.
-
 import { hashSkeleton, recordStatus } from "@diglot/core"
 import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage"
 
@@ -34,7 +32,6 @@ const positionalRe = /(?<!\\)\{(\d+)\}/g
 
 type TagCounts = Map<string, { min: number, max: number }>
 
-/** Sequential messages add occurrences; ICU alternatives take their minimum and maximum. */
 function addTagCounts(target: TagCounts, counts: TagCounts) {
   for (const [tag, count] of counts) {
     const previous = target.get(tag)
@@ -42,7 +39,6 @@ function addTagCounts(target: TagCounts, counts: TagCounts) {
   }
 }
 
-/** Read ICU arguments and rich-text components from the messages that Lingui will render, or the tag problem. */
 function messagePlaceholders(message: string): { names: Set<string>, tags: TagCounts } | { problem: string } {
   const names = new Set<string>()
   let problem: string | undefined
@@ -110,7 +106,6 @@ export function validateMessagePlaceholders(source: string, text: string): Valid
     return [
       ...[...required.names].filter(name => !translated.names.has(name)).map((name): ValidationIssue => ({ code: "missing-placeholder", message: `${name} is missing` })),
       ...[...translated.names].filter(name => !required.names.has(name)).map((name): ValidationIssue => ({ code: "unknown-placeholder", message: `Unknown ${name}` })),
-      // Preserve occurrence counts, both on every source path and on paths that repeat a component.
       ...[...required.tags].filter(([tag, count]) => {
         const actual = translated.tags.get(tag)
         return actual && (actual.min < count.min || actual.max < count.max)

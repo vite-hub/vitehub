@@ -84,7 +84,6 @@ function describePersistence(node: ESTree.Node | undefined): string {
   return `idle save after ${debounce} ms (at most ${maxWait} ms) and when the last client leaves`
 }
 
-/** Reads the static shape of one Realtime Definition file without executing it. */
 function describeRealtimeDefinitionSource(parse: typeof parseSync, file: string, source: string): ViteHubDefinitionField[] {
   let object: ESTree.ObjectExpression | undefined
   let builder: string | undefined
@@ -136,7 +135,6 @@ export async function summarizeRealtimeDefinitions(
   definitions: readonly DiscoveredRealtimeDefinition[],
   driver: RealtimeInspectionDriver,
 ): Promise<ViteHubDefinitionSummary[]> {
-  // Vite is an optional peer: load its parser only when inspection runs inside a Vite project.
   const { parseSync } = await import("vite")
   return definitions.map((definition) => {
     let source = ""

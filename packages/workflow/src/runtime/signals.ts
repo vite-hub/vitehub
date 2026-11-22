@@ -49,7 +49,6 @@ export function readWorkflowSignalToken(token: string): WorkflowSignalAddress | 
   return { host: host as WorkflowSignalHost, run, signal, workflow }
 }
 
-/** An inline signal: the value that came before the wait, or the wait that the value ends. */
 interface InlineSignal {
   resolve?: (value: unknown) => void
   sent?: { value: unknown }

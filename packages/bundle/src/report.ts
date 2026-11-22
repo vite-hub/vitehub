@@ -20,10 +20,6 @@ function outputPath(report: BundleEnvironmentReport, file: string): string {
   return report.outDir === "." ? file : `${report.outDir}/${file}`
 }
 
-/**
- * A server build that bundles the output of another server build, such as Nitro bundling Nuxt's SSR output, holds that
- * output as opaque modules. This returns, for each such module, the inner environment and chunk.
- */
 function innerOutputs(reports: readonly BundleEnvironmentReport[]): Map<string, { report: BundleEnvironmentReport, file: string }> {
   const outputs = new Map<string, { report: BundleEnvironmentReport, file: string }>()
   for (const report of reports) {
@@ -39,7 +35,6 @@ function isInner(report: BundleEnvironmentReport, reports: readonly BundleEnviro
   return reports.some(other => other !== report && other.side === "server" && other.chunks.some(chunk => chunk.modules.some(module => files.has(module.id))))
 }
 
-/** Every module of a side, with SSR output that Nitro bundles replaced by the SSR modules, scaled to Nitro's bytes. */
 function placedModules(outer: readonly BundleEnvironmentReport[], all: readonly BundleEnvironmentReport[]): PlacedModule[] {
   const inner = innerOutputs(all.filter(report => !outer.includes(report)))
   const placed: PlacedModule[] = []
@@ -126,16 +121,11 @@ function matches(id: string, target: string): boolean {
   return !id.startsWith("node_modules/") && (id.startsWith(`${target}/`) || id.endsWith(`/${target}`))
 }
 
-/**
- * The shortest import chain from an entry of one environment to a module that matches. Static imports come first: a
- * module that loads at startup gets the chain that loads it, not a lazy one. Without a static chain, `import()` counts.
- */
 function chainIn(report: BundleEnvironmentReport, found: (id: string) => boolean): string[] | undefined {
   return searchChain(report, found, false) ?? searchChain(report, found, true)
 }
 
 function searchChain(report: BundleEnvironmentReport, found: (id: string) => boolean, dynamic: boolean): string[] | undefined {
-  // One id can sit in several chunks. Its edges are the union.
   const modules = new Map<string, { entry: boolean, next: Set<string> }>()
   for (const module of report.chunks.flatMap(chunk => chunk.modules)) {
     const row = modules.get(module.id) ?? { entry: false, next: new Set<string>() }

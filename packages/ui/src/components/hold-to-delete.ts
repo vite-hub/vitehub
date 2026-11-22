@@ -13,16 +13,11 @@ import { createHoldToDelete, type HoldToDelete as HoldToDeleteController, type H
 export const HoldToDelete = defineComponent({
   name: "HoldToDelete",
   props: {
-    /** The real delete. It runs once, after the Undo window. A rejection emits `undo` and `error`. */
     commit: { required: true, type: Function as PropType<() => void | Promise<void>> },
-    /** The item that leaves toward the trash, such as the row of the button. */
     item: { default: undefined, type: Function as PropType<() => Element | null | undefined> },
-    /** An empty label shows only the trash can. Then give the button an `aria-label`. */
     label: { default: "Hold to delete", type: String },
     undoLabel: { default: "Undo", type: String },
-    /** How long Undo stays, in milliseconds. */
     undoFor: { default: 5000, type: Number },
-    /** Asked before a delete that comes from a click and not a hold, such as from a screen reader. */
     confirm: { default: undefined, type: Function as PropType<() => boolean | Promise<boolean>> },
   },
   emits: {

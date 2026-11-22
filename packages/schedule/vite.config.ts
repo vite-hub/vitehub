@@ -2,7 +2,6 @@ import { defineConfig } from "vite-plus";
 
 import { normalizePackageExports, packDefaults } from "@vite-hub/internal/package-exports"
 
-// Generated code imports these modules by path. They are not public API.
 const privateEntries = new Set(["./definition", "./operations", "./runtime/console", "./runtime/state"]);
 
 export default defineConfig({

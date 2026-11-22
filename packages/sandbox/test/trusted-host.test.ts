@@ -419,7 +419,6 @@ describe("createTrustedHostRuntime", () => {
     try {
       expect(leftover).toBeGreaterThan(0);
       await session.destroy?.();
-      // A killed orphan can stay a zombie until its new parent reaps it.
       await expect.poll(() => readFile(`/proc/${leftover}/stat`, "utf8").then(stat => !/\) Z /.test(stat), () => false)).toBe(false);
     } finally {
       try {

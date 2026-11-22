@@ -320,8 +320,6 @@ function hasFiles(event: DragEvent): boolean {
   return [...event.dataTransfer?.types ?? []].includes("Files");
 }
 
-// The whole browser takes a drop. The drop field of @vite-hub/ui marks it with `data-over`, which shows the drop
-// target, and the dots of the target lean toward the file.
 let dropField: DropField | undefined;
 onMounted(() => {
   if (!browser.value || !dropSurface.value) return;
@@ -928,7 +926,6 @@ defineExpose({
   z-index: 15;
 }
 
-/* The drop target covers the whole browser, so a file can land anywhere on it. It shows while a file is over it. */
 .vitehub-media-browser:not([data-over]) > .vitehub-media-drop {
   display: none;
 }

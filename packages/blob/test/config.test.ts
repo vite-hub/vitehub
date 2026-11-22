@@ -1057,14 +1057,12 @@ describe("renamed Blob drivers", () => {
 
 describe("unknown Blob store options", () => {
   it("throws for a driver option of a store without driver, and names the driver that reads it", () => {
-    // A plain config object skips TypeScript's unknown-key check. Without `driver`, the store would ignore `token`.
     const config = { token: "env:BLOB_READ_WRITE_TOKEN" }
     expect(() => normalizeBlobOptions(config as never, { env: {}, hosting: "vercel" })).toThrow(expect.objectContaining({
       code: "BLOB_UNKNOWN_STORE_OPTION",
       fix: expect.stringContaining("Set `driver` to \"netlify-blobs\" or \"vercel\", which reads `token`."),
       why: "`blob.token` is not an option of a Blob store without `driver`. ViteHub picks the driver from the host and would ignore it.",
     }))
-    // The Cloudflare host reads these without `driver`.
     expect(normalizeBlobOptions({ binding: "BLOB", bucketName: "strata-og-images" }, { env: {}, hosting: "cloudflare" })?.store).toMatchObject({ binding: "BLOB", bucketName: "strata-og-images", driver: "cloudflare" })
   })
 

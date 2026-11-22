@@ -34,7 +34,6 @@ function createDefinition(options: Partial<AuthRuntimeOptions> = {}) {
   })
 }
 
-/** A Nitro v3 request event. With `log`, it has evlog's request logger where evlog's Nitro plugin puts it. */
 function event(path: string, init: RequestInit = {}, log?: ReturnType<typeof evlogLogger> | ReturnType<typeof createRequestLogger>) {
   const request = new Request(new URL(path, origin), init)
   if (log) Object.assign(request, { context: { log } })
@@ -45,7 +44,6 @@ function post(path: string, body: object, log?: Parameters<typeof event>[2]) {
   return event(path, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", origin } }, log)
 }
 
-/** The `auth` fields that the request set on its wide event. */
 function authFields(log: ReturnType<typeof evlogLogger>): unknown[] {
   return log.set.mock.calls.map(([fields]) => fields).filter(fields => "auth" in fields).map(fields => fields.auth)
 }
@@ -176,7 +174,6 @@ describe("Auth outcomes on the request's wide event", () => {
     const error = new URL(response.headers.get("location")!).searchParams.get("error")
     expect(error).toBeTruthy()
     expect(authFields(log)).toEqual([{ path: "/callback/:id", provider: "github", outcome: "failure", status: 302, code: error }])
-    // Better Auth's own log line about the state goes on the event too, without the query of any URL.
     const lines = [...log.warn.mock.calls, ...log.error.mock.calls].map(([entry]) => entry instanceof Error ? `${entry.message}\n${entry.stack}` : String(entry))
     expect(lines.some(line => line.startsWith("[Better Auth] "))).toBe(true)
     expect(JSON.stringify([log.set.mock.calls, lines])).not.toContain("provider-code")

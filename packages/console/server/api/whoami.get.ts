@@ -1,6 +1,5 @@
 import { consoleJson, consoleKeyCaller, consoleProblem } from "../utils/console.ts"
 
-// Who an API key acts for: `vitehub whoami` calls it with `Authorization: Bearer vhk_...`. It never answers the key.
 export default {
   async fetch(request: Request): Promise<Response> {
     const caller = await consoleKeyCaller(request)

@@ -55,10 +55,8 @@ export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClie
   }
 }
 
-/** Once cleanup catches up, wait this long before checking for newly expired keys. */
 const sweepIntervalMs = 60_000
 const sweepBatchSize = 1000
-/** Rows per batch statement. It keeps the parameters below SQLite's oldest limit of 999. */
 const batchRows = 200
 
 function ttlMilliseconds(ttl: number): number {
@@ -90,7 +88,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0
   let sweeping = false
-  /** The sweep failed and has not run since. A streak of failures logs once. */
   let sweepFailing = false
 
   async function ready(): Promise<KVSqlClient> {
@@ -99,13 +96,10 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const columns = `(namespace text not null, "key" text not null, value text not null, expires_at bigint, primary key (namespace, "key"))`
       const index = `create index if not exists ${table}_expires_at on ${table} (expires_at)`
       try {
-        // A table that exists needs no DDL. Postgres prints a notice for each `if not exists` that skips.
         await client.query(`select 1 from ${table} limit 0`, [])
         return client
       }
       catch {}
-      // Postgres sessions that create the same missing table at once can fail on its catalog, so one statement takes a
-      // transaction lock first. SQLite runs DDL under its write lock already.
       if (client.dialect === "postgresql") {
         await client.query(`do $$ begin perform pg_advisory_xact_lock(hashtext('${table}')); create table if not exists ${table} ${columns}; ${index}; end $$`, [])
       }
@@ -121,7 +115,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     return pending
   }
 
-  /** Runs SQL written with `?` placeholders, which become `$1`, `$2`, ... on Postgres. `{now}` is the Database clock in ms. */
   async function query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]> {
     const client = await ready()
     const now = client.dialect === "postgresql"
@@ -134,11 +127,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
 
   const live = `(expires_at is null or expires_at > {now})`
 
-  /**
-   * Deletes expired rows of this namespace in background batches. A full batch lets the next write sweep again;
-   * otherwise cleanup waits a minute. Reads already skip expired rows. A failed sweep, for example on a lock
-   * timeout, does not fail the write that runs it. It runs again a minute later, and a streak of failures logs once.
-   */
   async function sweep(): Promise<void> {
     if (sweeping || Date.now() - sweptAt < sweepIntervalMs) return
     sweeping = true
@@ -154,7 +142,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     }
     catch (error) {
       if (!sweepFailing) {
-        // A write starts the sweep in the background, after its request may have answered. No `waitUntil()` reaches it.
         logFailure({ field: "kv", fields: { op: "expiry-sweep", driver: "database", namespace }, message: "KV could not delete expired rows", error }, () => {
           console.warn(`[vitehub] KV could not delete expired rows from ${table}. It tries again every minute.`, error)
         })
@@ -166,7 +153,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     }
   }
 
-  /** Matches keys that start with `prefix`. `substr()` counts characters on both dialects, unlike `LIKE` on SQLite, which ignores case. */
   function prefixFilter(prefix: string | undefined): [string, KVSqlParam[]] {
     if (!prefix) return ["", []]
     return [` and substr("key", 1, ?) = ?`, [[...prefix].length, prefix]]
@@ -181,7 +167,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
   async function upsert(items: readonly { key: string, value: string }[], setOptions: { ttl?: unknown } | undefined): Promise<void> {
     void sweep()
     const ttl = setOptions?.ttl
-    // Like other unstorage drivers, no TTL or 0 keeps the key.
     if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
     const ms = typeof ttl === "number" && ttl !== 0 ? ttlMilliseconds(ttl) : undefined
     const row = `(?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})`
@@ -204,7 +189,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       const [row] = await query(`select value from ${table} where namespace = ? and "key" = ? and ${live}`, [namespace, key])
       return row ? String(row.value) : null
     },
-    // One query per 200 keys.
     async getItems(items) {
       const values = new Map<string, string>()
       for (const batch of chunks([...new Set(items.map(item => item.key))], batchRows)) {
@@ -217,7 +201,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       return items.map(item => ({ key: item.key, value: values.get(item.key) ?? null }))
     },
     setItem: (key, value, setOptions?: { ttl?: unknown }) => upsert([{ key, value }], setOptions),
-    // One statement per 200 entries. kv.setMany() passes each key once, as one statement cannot update a row twice.
     setItems: (items, setOptions?: { ttl?: unknown }) => upsert(items, setOptions),
     async removeItem(key) {
       await query(`delete from ${table} where namespace = ? and "key" = ?`, [namespace, key])
@@ -241,7 +224,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     async setIfAbsentItem(key, value, ttl) {
       void sweep()
       const ms = ttl === undefined ? undefined : ttlMilliseconds(ttl)
-      // One statement: a missing key inserts, an expired key is replaced, and a live key returns no row.
       const rows = await query(
         `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})
          on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at
@@ -254,29 +236,20 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This implements the caller-typed driver read, like getItem().
     async getAndDeleteItem<T = unknown>(key: string): Promise<T | null> {
       const [row] = await query(`delete from ${table} where namespace = ? and "key" = ? returning value, ${live} as live`, [namespace, key])
-      // An expired key is deleted too, but it had no value. Postgres returns a boolean, SQLite 1 or 0.
       if (!row || !(row.live === true || Number(row.live) === 1)) return null
       // SAFETY: The KV runtime decodes the stored text into the caller's type, as it does for getItem().
       return String(row.value) as T
     },
     async incrementItem(key, ttl) {
       const ms = ttlMilliseconds(ttl)
-      // Counters such as rate limit windows are often written only by `increment()`, so it deletes expired rows too.
       void sweep()
       const { dialect } = await ready()
       const value = `${table}.value`
-      // A canonical integer of at most 16 digits: no sign other than "-", no leading zero, and small enough that the
-      // cast to bigint cannot overflow. Postgres does not promise to short-circuit `or`, so every cast sits behind
-      // this check in a `case`, and a value such as "hello" gives null instead of a cast error on both dialects.
       const integer = dialect === "postgresql"
-        // `query()` turns each `?` into a placeholder, so the pattern writes `-{0,1}`.
         ? `${value} ~ '^(0|-{0,1}[1-9][0-9]{0,15})$'`
         : `(length(${value}) <= 17 and (${value} = '0' or (${value} glob '[1-9]*' and ${value} not glob '*[^0-9]*') or (${value} glob '-[1-9]*' and substr(${value}, 2) not glob '*[^0-9]*')))`
       const counter = `(case when ${integer} then cast(${value} as bigint) end)`
       const expired = `${table}.expires_at is not null and ${table}.expires_at <= {now}`
-      // One statement: a missing or expired counter starts at 1 with the TTL, also when the expired value was not an
-      // integer, and a live one keeps its expiry. A live value that is not an integer below the safe limit fails the
-      // `where`, so the statement changes nothing.
       const rows = await query(
         `insert into ${table} (namespace, "key", value, expires_at) values (?, ?, '1', {now} + cast(? as bigint))
          on conflict (namespace, "key") do update set
@@ -296,7 +269,6 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
       return rows.length > 0
     },
     async dispose() {
-      // The Database owns the connection.
       pending = undefined
     },
   }

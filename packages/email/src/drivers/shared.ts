@@ -85,7 +85,6 @@ export function bytesToBase64(value: Uint8Array): string {
     }
   ).Buffer;
   if (Buffer) {
-    // Shared memory can change during encoding; preserve the existing copy semantics.
     const bytes = typeof SharedArrayBuffer !== "undefined" && value.buffer instanceof SharedArrayBuffer
       ? Buffer.from(value)
       : Buffer.from(value.buffer, value.byteOffset, value.byteLength);
@@ -95,7 +94,6 @@ export function bytesToBase64(value: Uint8Array): string {
   let chunk: number[] = [];
   for (const byte of value) {
     chunk.push(byte);
-    // Whole three-byte groups avoid Base64 padding between chunks.
     if (chunk.length === 12_288) {
       chunks.push(btoa(String.fromCharCode(...chunk)));
       chunk = [];

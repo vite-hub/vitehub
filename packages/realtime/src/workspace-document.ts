@@ -23,7 +23,6 @@ export async function readRealtimeWorkspaceDocument(
     }
     catch (error) {
       const shape = getViteHubErrorShape(error)
-      // Registry failures name the missing Workspace; absent document paths do not.
       if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined) return undefined
       throw error
     }
@@ -91,7 +90,6 @@ export function workspaceDocument(workspaceName: string, checkpointAuthor?: Real
       if (!(await workspace.capabilities()).conditionalWrites) {
         throw new HTTPError({ status: 501, message: "Realtime saves require a Workspace Store with conditional writes." })
       }
-      // Each instance has its own memory Store, so shared rooms would save to different copies.
       if (context.authority !== "memory" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
         throw new HTTPError({ status: 501, message: "Durable and shared realtime rooms require a durable Workspace Store." })
       }
@@ -99,7 +97,6 @@ export function workspaceDocument(workspaceName: string, checkpointAuthor?: Real
         const current = ifDigest
           ? await workspace.fs.stat(documentId).catch((error: unknown) => {
               const shape = getViteHubErrorShape(error)
-              // Only this lookup proves the document is missing; write hooks can read other paths.
               if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.message.startsWith("[vitehub] Workspace path does not exist:")) {
                 throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
               }
@@ -117,7 +114,6 @@ export function workspaceDocument(workspaceName: string, checkpointAuthor?: Real
         if (isWorkspaceConflict(error)) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
         throw error
       }
-      // Workspace hooks may normalize the file; the room merges the stored form.
       const written = await readRealtimeWorkspaceDocument(workspace, workspace, documentId)
       if (!written.baselineDigest) throw realtimeErrorDiagnostics.REALTIME_MISSING_DIGEST({ operation: "save" })
       return { digest: written.baselineDigest, stored: { body: written.markdown } }

@@ -74,7 +74,6 @@ function sameLocalMinute(left: ScheduleDateFields, right: ScheduleDateFields): b
   return left.minute === right.minute && left.hour === right.hour && left.day === right.day && left.month === right.month && left.year === right.year
 }
 
-/** Detect a repeated local minute using the actual offset before the transition (including historical 23-hour rollbacks). */
 function isRepeatedFixedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields, scheduledAt: Date, timeZone: string | undefined): boolean {
   if (!timeZone || timeZone === "UTC" || cron.minutes.length === hourMinutes || cron.hours.length === 24) return false
   const previous = new Date(scheduledAt.getTime() - dayMinutes * minuteMs)
@@ -86,10 +85,6 @@ function isRepeatedFixedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields
   return sameLocalMinute(scheduleDateFields(firstOccurrence, timeZone), fields)
 }
 
-/**
- * Detect a local time that the clock skipped on a spring-forward day, read with the offset from before the gap, as
- * RFC 5545 and `Temporal` do. `02:30` in a gap from `02:00` to `03:00` maps to `03:30`, so it runs once that day.
- */
 function matchesSkippedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields, scheduledAt: Date, timeZone: string | undefined): boolean {
   if (!timeZone || timeZone === "UTC") return false
   const currentOffset = localEpochMs(fields) - scheduledAt.getTime()

@@ -19,7 +19,6 @@ interface FakeKV extends RateLimitKVStorage {
   values: Map<string, number>
 }
 
-/** A KV store with an atomic increment, as one Redis server or one Database is for every client. */
 function fakeKV(): FakeKV {
   const values = new Map<string, number>()
   const ttls = new Map<string, number>()
@@ -88,7 +87,6 @@ describe("kvRateLimitDriver", () => {
 
   it("keeps windows of different lengths apart, each with its own TTL", async () => {
     const kv = fakeKV()
-    // windowStart is a full hour, so a minute window and an hour window start together.
     const minute = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 1, window: "1m" })
     const hour = createRateLimiter({ driver: kvRateLimitDriver({ now: () => windowStart, storage: kv }), limit: 1, window: "1h" })
 

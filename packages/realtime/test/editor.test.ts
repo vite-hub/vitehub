@@ -24,7 +24,6 @@ describe("realtime editor extensions", () => {
   it("adds no empty paragraph per collaborator after a document that ends in a list", () => {
     stubDom()
     const docs = [new Y.Doc(), new Y.Doc()]
-    // Relay every update to the other document, as the room does.
     docs.forEach((doc, index) => doc.on("update", (update: Uint8Array, origin: unknown) => {
       if (origin !== "relay") Y.applyUpdate(docs[1 - index]!, update, "relay")
     }))

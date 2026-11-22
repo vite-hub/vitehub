@@ -218,7 +218,6 @@ function writeIfChanged(file: string, contents: string): void {
   writeFileSync(file, contents)
 }
 
-/** Writes the generated files of the webhooks, or removes them when the app uses no webhooks. Returns the files. */
 function writeWebhooksFiles(projectRoot: string, webhooks: readonly DiscoveredWebhook[], imports: WebhooksImports, features: WebhooksRegistryFeatures): ReturnType<typeof webhooksGeneratedFiles> {
   const files = webhooksGeneratedFiles(projectRoot)
   if (!webhooks.length && !features.memberEndpoints) {
@@ -239,10 +238,6 @@ export function webhooksDevelopmentKeyFile(projectRoot: string): string {
   return resolve(projectRoot, ".vitehub/data/webhooks-key")
 }
 
-/**
- * In `vite dev`, a missing `VITEHUB_WEBHOOKS_KEY` reads the key file of the project, or generates it, so member
- * endpoints survive a restart. A build never generates a key.
- */
 async function ensureDevelopmentKey(projectRoot: string, envDir: string | false, mode: string): Promise<string | undefined> {
   const { loadEnv } = await import("vite")
   if (loadAllEnv(loadEnv, mode, envDir).VITEHUB_WEBHOOKS_KEY?.trim()) return undefined
@@ -287,13 +282,11 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
   const imports: WebhooksImports = { ...defaultImports, ...options.imports }
   let projectRoot: string | undefined
   let serverDirs: readonly string[] | undefined
-  // Set by the `config` hook. The deployment manifest reads it after the build resolves its config.
   let memberEndpointsOn = false
   const project = (context: PluginContext) => ({
     projectRoot: projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd(),
     serverDirs: serverDirs ?? context.serverDirs,
   })
-  /** The files of `server/webhooks/` and the plugins that use member endpoints. */
   const usage = async (context: PluginContext) => {
     const { projectRoot: root, serverDirs: dirs } = project(context)
     const webhooks = discoverWebhooks(root, dirs)
@@ -336,7 +329,6 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
             : [],
         ]
       },
-      // The Queue may read the handler before `config` runs. Only `config` owns the registry.
       async queues(context) {
         const { root, webhooks, features } = await usage(context)
         if ((!webhooks.length && !features.memberEndpoints) || !features.queue) return []
@@ -362,7 +354,6 @@ export function hubWebhooks(options: HubWebhooksOptions = {}): Plugin & {
         const files = writeWebhooksFiles(root, webhooks, imports, { ...features, developmentKeyFile })
         if (!webhooks.length && !features.memberEndpoints) return
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        // The plugin installs the webhooks when the server starts, so `sendWebhook()` works in the first request.
         kit.addPlugin(files.plugin)
         Reflect.set(config, "nitro", kit.config)
       },

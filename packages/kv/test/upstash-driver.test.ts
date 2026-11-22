@@ -19,7 +19,6 @@ afterEach(() => {
 })
 
 function createDriver() {
-  // Keep unstorage's real asynchronous loader and inject its Redis library for offline verification.
   const options = {
     base: "app",
     driver: "upstash" as const,
@@ -56,7 +55,6 @@ it.each(["null", "123456", '"123"', '{"singleUse": true}'])("preserves stored te
     }
     else if (command === "getdel") data.delete(key!)
     else if (command !== "get") throw new Error(`Unexpected Redis command: ${command}`)
-    // Match Upstash's default base64 response encoding (status replies stay plain text).
     return Response.json({ result: result === null || result === "OK" ? result : Buffer.from(result).toString("base64") })
   }))
   const options = {
@@ -82,7 +80,6 @@ it("increments through the asynchronous unstorage Upstash client", async () => {
   expect(redis.eval).toHaveBeenCalledWith(expect.stringContaining("redis.call('INCR'"), ["app:counter"], ["60"])
 })
 
-/** An in-memory Upstash database. SCAN returns every match in one batch, as Upstash may return more than `count`. */
 function createFakeUpstash() {
   const data = new Map<string, string>()
   const sets: Array<{ key: string, options: unknown }> = []
@@ -125,7 +122,6 @@ function createFakeUpstash() {
     }
   }
   const create = (store: { base?: string } = {}) => {
-    // unstorage loads this Redis class instead of `@upstash/redis`, so the test stays offline.
     const options = { base: "app", driver: "upstash" as const, token: "test", url: "https://example.com", lib: { Redis: FakeRedis }, ...store }
     return createUpstashKVDriver(options)
   }

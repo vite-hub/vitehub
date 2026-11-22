@@ -41,14 +41,12 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-netlify-"))
     roots.push(root)
     const functionsDir = join(root, ".netlify", ...(layout === "legacy" ? ["functions-internal"] : ["v1", "functions"]))
-    // Simulate a prior build whose Schedule has since been removed or renamed.
     const removedFunctionDir = join(functionsDir, "vitehub-schedule-removed")
     await mkdir(removedFunctionDir, { recursive: true })
     await writeFile(join(removedFunctionDir, "vitehub-schedule-removed.mjs"), "export const config = { schedule: '0 * * * *' }\n")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
     await writeFile(join(root, "package.json"), "{\"type\":\"module\"}\n")
     await symlink(fileURLToPath(new URL("../../../node_modules", import.meta.url)), join(root, "node_modules"), "dir")
-    // Nitro's plugins configure the app's primitives, such as the Database, before any handler runs.
     let finishStartup!: () => void
     scheduleGlobal.vitehubNetlifyStartup = new Promise<void>(resolve => { finishStartup = resolve })
     await writeFile(join(root, "configure.mjs"), [
@@ -85,7 +83,6 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       runtimeImport: fileURLToPath(new URL("../dist/runtime/static.js", import.meta.url)),
     } as Parameters<typeof createScheduleNitroConfig>[0]
     let instance: Nitro | undefined
-    // Database registers its migration writer after Schedule's configured Nitro module in direct Vite apps.
     const laterWriter: NitroModule = {
       name: "later-compiled-writer",
       setup(nitro) {
@@ -101,7 +98,6 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       compatibilityDate: "2026-10-01",
       dev: false,
       logLevel: 0,
-      // Nitro 3 defaults to the Frameworks API layout; select the legacy layout explicitly.
       ...(layout === "legacy" ? { output: { dir: functionsDir } } : {}),
       plugins: [join(root, "configure.mjs")],
       preset: "netlify",
@@ -137,14 +133,12 @@ describe("Netlify scheduled functions in a Nitro build", () => {
 
     const functionName = "vitehub-schedule-cleanup"
     const functionDir = join(functionsDir, functionName)
-    // Netlify Build discovers generated sources here before bundling into .netlify/functions.
     expect(functionsDir).toBe(resolve(nitro.options.output.dir))
     const functionSources = await readdir(functionsDir)
     expect(functionSources).toContain(functionName)
     expect(functionSources).not.toContain("vitehub-schedule-removed")
     await expect(readFile(join(nitro.options.output.serverDir, "migrations", "0001.sql"), "utf8")).resolves.toContain("CREATE TABLE")
     await expect(readFile(join(functionDir, "migrations", "0001.sql"), "utf8")).resolves.toContain("CREATE TABLE")
-    // Netlify deploys each function directory alone, so load it without the app sources or the server function.
     const deployed = join(root, "deployed")
     await cp(functionDir, deployed, { recursive: true })
     await rm(join(root, ".netlify"), { force: true, recursive: true })
@@ -154,7 +148,6 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       default: (request: Request) => Promise<Response>
     }
 
-    // The server function's entry keeps Nitro's request handler.
     expect(typeof (await import(pathToFileURL(join(deployed, "main.mjs")).href) as { default: unknown }).default).toBe("function")
     expect(scheduled.config).toEqual({ includedFiles: ["**"], nodeBundler: "none", schedule: "0 0 * * *" })
     const response = scheduled.default(new Request("https://app.netlify.app/", { body: "{\"next_run\":\"\"}", method: "POST" }))
@@ -180,7 +173,6 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     for (const name of ["foo.bar", "foo_bar"]) {
       await writeFile(join(root, "server", "schedules", `${name}.ts`), "export default defineSchedule({ cron: '0 * * * *', handler() {} })\n")
     }
-    // The effective host is supplied by the Nitro integration after Schedule's Vite config has run.
     const config = await createScheduleNitroConfig({ command, nitroOwnsPaths: true, root })
     expect(config).not.toBeNull()
     const create = () => createNitro({

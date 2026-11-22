@@ -2,7 +2,6 @@ import { defineHandler } from "h3"
 
 import { playgroundPassword, playgroundUsers } from "../roles"
 
-// A sign-in page for the playground users. Each button signs up the user once, then signs in.
 export default defineHandler(() => new Response(`<!doctype html>
 <html lang="en">
 <meta charset="utf-8">

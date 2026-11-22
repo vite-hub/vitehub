@@ -1,6 +1,3 @@
-// The appear page: tooltips, toasts, and the reading surfaces (dialog, side panel, popover, menu) that the motion layer
-// of `@vite-hub/ui/motion` moves or opens at once. `?mode=today` turns the layer off and gives the components the
-// animations of the theme before the layer, to record both. The bar on top sets the speed (1×, ¼×) and reduced motion.
 import { addCollection } from "@iconify/vue";
 import lucide from "@iconify-json/lucide/icons.json";
 import "@fontsource-variable/geist";
@@ -25,7 +22,6 @@ import "./appear.css";
 const today = new URLSearchParams(location.search).get("mode") === "today";
 document.documentElement.dataset.mode = today ? "today" : "spring";
 
-// The enter and leave animations of Nuxt UI that the theme had before the motion layer.
 const todayTooltip = today ? { content: "data-[state=delayed-open]:animate-[scale-in_100ms_var(--ease-out)] data-[state=closed]:animate-[scale-out_100ms_var(--ease-out)]" } : undefined;
 const todayModal = today
   ? {
@@ -55,8 +51,6 @@ function row(title: string, children: VNode[], attrs: Record<string, unknown> = 
 
 const toolbarClass = "inline-flex gap-0.5 rounded-xl border border-default bg-elevated p-1";
 
-// One tooltip element of our own for the whole toolbar, as the prototype has: the page moves it to the trigger under
-// the pointer and shows it with `data-open`.
 const OwnToolbar = defineComponent({
   setup() {
     const tip = ref<HTMLElement>();

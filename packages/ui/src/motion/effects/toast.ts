@@ -9,7 +9,6 @@ const crossfade = 0.15;
 
 interface Item {
   element: HTMLElement;
-  /** Where the toast is without motion, on the screen. */
   rest: { left: number; top: number; width: number; height: number };
   x: Spring;
   y: Spring;
@@ -21,7 +20,6 @@ interface List {
   items: Map<HTMLElement, Item>;
   observer: MutationObserver;
   region: HTMLElement;
-  /** Frames left to check the places of the toasts, for a toaster that lays its stack out after it renders. */
   watchFrames: number;
   frame: number;
 }
@@ -30,10 +28,6 @@ const lists = new WeakMap<HTMLElement, List>();
 
 const fixed = (element: Element | null) => !!element && getComputedStyle(element).position === "fixed";
 
-/**
- * True when the item is a toast: an item of the list of a notifications region that stays on the screen. Nuxt UI's
- * toaster renders a `role=region` with a fixed list, and ui-sdk's toast region is fixed itself.
- */
 function isToast(element: HTMLElement): boolean {
   const list = element.parentElement;
   if (!list || (list.tagName !== "OL" && list.tagName !== "UL")) return false;
@@ -41,20 +35,14 @@ function isToast(element: HTMLElement): boolean {
   return !!region && (fixed(list) || fixed(list.parentElement) || fixed(region));
 }
 
-/** The edge of the screen that the toasts live at: the nearer one, top or bottom. */
 function edgeOf(rect: { top: number; height: number }): "top" | "bottom" {
   return rect.top + rect.height / 2 > innerHeight / 2 ? "bottom" : "top";
 }
 
-/** How far the toast moves to be just past its edge of the screen. */
 function pastEdge(rect: { top: number; height: number }): number {
   return edgeOf(rect) === "bottom" ? innerHeight - rect.top : -(rect.top + rect.height);
 }
 
-/**
- * Where a toast that closes goes: past the side of the screen that the toaster sits at, so it does not cross the other
- * toasts, or past its top or bottom edge for a toaster in the middle.
- */
 function exitOf(rect: DOMRect, direction?: string | null): { axis: "x" | "y"; distance: number } {
   if (direction === "left") return { axis: "x", distance: -rect.right };
   if (direction === "right") return { axis: "x", distance: innerWidth - rect.left };
@@ -99,17 +87,12 @@ function createItem(element: HTMLElement, rest: Item["rest"]): Item {
   return item;
 }
 
-/** Moves a spring by `distance` and lets it spring back to rest from there with the speed it has. */
 function shift(spring: Spring, distance: number): void {
   const velocity = spring.velocity;
   spring.set(spring.value + distance);
   spring.to(0, { velocity });
 }
 
-/**
- * Measures where each toast is now. A toast that the list moved, because a toast came or left, starts from where a
- * person saw it and springs to its new place.
- */
 function relayout(list: List): void {
   for (const item of list.items.values()) {
     if (!item.element.isConnected) continue;
@@ -128,7 +111,6 @@ function relayout(list: List): void {
   }
 }
 
-/** Checks the places of the toasts on each frame for a short time, as Nuxt UI lays its stack out after it renders. */
 function watchLayout(list: List): void {
   list.watchFrames = 12;
   if (list.frame) return;
@@ -141,7 +123,6 @@ function watchLayout(list: List): void {
   list.frame = requestAnimationFrame(step);
 }
 
-/** A toast leaves past the screen edge, and the others make room. */
 function leave(list: List, element: HTMLElement): void {
   const item = list.items.get(element);
   if (!item) return;
@@ -174,7 +155,6 @@ function leave(list: List, element: HTMLElement): void {
       const spring = createSpring(0, (value) => {
         const offset = `${Math.round(value * 100) / 100}px`;
         writeMotionStyle(ghost, { translate: axis === "x" ? `${offset} 0px` : `0px ${offset}` });
-        // Gone once it is fully past the edge, or when the spring rests there.
         if ((target > 0 ? value >= target : value <= target) || !spring.active) {
           spring.stop();
           ghost.remove();
@@ -229,7 +209,6 @@ export const toast: MotionEffect = {
     if (!isToast(element)) return;
     const list = listOf(element);
     if (list.items.has(element)) return;
-    // The others moved when this toast came in: they start from where a person saw them.
     relayout(list);
     const rect = element.getBoundingClientRect();
     const item = createItem(element, { left: rect.left, top: rect.top, width: rect.width, height: rect.height });
@@ -237,8 +216,6 @@ export const toast: MotionEffect = {
     if (prefersReducedMotion()) {
       const fade = createSpring(0, () => write(element, item.x, item.y, fade));
       item.fade = fade;
-      // Write the start at once, as `item.y.set()` does below. A spring writes nothing until its first frame, so until
-      // then the toast has no opacity of its own and looks settled at full opacity to anything that reads it.
       fade.set(0);
       fade.to(1, { tween: crossfade });
     }

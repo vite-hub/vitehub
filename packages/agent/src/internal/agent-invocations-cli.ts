@@ -53,7 +53,6 @@ type Action = "capabilities" | "compact" | "delete" | "export" | "get" | "list" 
 const actions = new Set<string>(["capabilities", "compact", "delete", "export", "get", "list", "prune", "tail", "undo", "wait-idle", "workspace"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
 const journalActions = new Set<string | undefined>(["capabilities", "compact", "export", "list", "prune", "wait-idle"])
-/** Actions that only the app's Console answers. */
 const consoleActions = new Set<string | undefined>(["capabilities", "workspace"])
 function isAction(value: string): value is Action {
   return actions.has(value)
@@ -81,7 +80,6 @@ interface ParsedArgs {
   consoleFallback?: boolean
   database?: string
   dryRun: boolean
-  /** `--yes`: delete through the Console without asking. */
   yes: boolean
   help: boolean
   id?: string

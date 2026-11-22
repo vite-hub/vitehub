@@ -124,11 +124,9 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
   const networkPolicy = normalizeCloudflareNetworkPolicy(options.networkPolicy);
   if (options.getSandbox && options.networkPolicy !== undefined)
     throw sandboxErrorDiagnostics.SANDBOX_NETWORK_POLICY_INVALID({ problem: "A custom getSandbox starts the Container, so ViteHub cannot apply networkPolicy." });
-  // The built-in Durable Object starts the Container with this policy. A custom `getSandbox` decides the network itself.
   const executionAuthority = options.getSandbox
     ? cloudflareExecutionAuthority
     : { ...cloudflareExecutionAuthority, network: sandboxNetworkAuthority(networkPolicy) };
-  // Allowed HTTPS hosts reach the command through Cloudflare's interception CA.
   const commandEnv = typeof networkPolicy === "object" ? cloudflareInterceptedHttpsEnv : {};
   return markBuiltInSandboxRuntime({
     name: "cloudflare",
@@ -145,8 +143,6 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
       return await openRemoteSandbox(input, runtimeSession, {
         executionAuthority: openOptions.executionAuthority,
         initialize: openOptions?.initialize,
-        // A new Container starts empty. One with the same ID can serve other sessions right now,
-        // so opening must not delete their files. A checkout still needs an empty workspace.
         preserveHome: true,
         preserveWorkspace: !input.checkout,
         runtime: "cloudflare",
@@ -156,10 +152,6 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
   });
 }
 
-/**
- * Reaches the Sandbox Durable Object that the ViteHub Cloudflare host integration exports.
- * @cloudflare/sandbox 1.0 has no `getSandbox`; the generated class implements this stub over RPC.
- */
 function getCloudflareSandbox(
   namespace: CloudflareDurableObjectNamespace,
   id: string,
@@ -177,8 +169,6 @@ function getCloudflareSandbox(
       });
     await configured;
   };
-  // List each method: a Durable Object stub answers every property name, and the session
-  // only falls back to shell commands for methods the stub lacks (listFiles, exposePort).
   return {
     cancelExec: async id => (await ready(), await target.cancelExec(id)),
     deleteFile: async path => (await ready(), await target.deleteFile(path)),
@@ -240,13 +230,10 @@ function createCloudflareSession(
           return await execution;
         }),
         options.abortSignal,
-        // Stop only this command. The Sandbox and its other processes keep running.
         () => request("cancelExec", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.cancelExec(execId)),
       );
       return { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout };
     } finally {
-      // Cancellation must acknowledge exit before invocation cleanup or same-ID reuse.
-      // A transport deadline must still bound an unresponsive RPC.
       if (options.abortSignal?.aborted) await Promise.allSettled(executions);
     }
   };
@@ -400,7 +387,6 @@ function cloudflareProcess(
     ...output,
     ...(process.stdin ? { stdin: process.stdin } : {}),
     async kill(signal?: string) {
-      // Workers RPC drops error codes, so check the signal before the request. A custom stub decides itself.
       if (builtIn && cloudflareSignalNumber(signal) === undefined)
         throw sandboxErrorDiagnostics.SANDBOX_R0165({ runtime: "Cloudflare", signal: String(signal) });
       await process.kill(signal);
@@ -423,7 +409,6 @@ interface CloudflareLogEvent {
   type: string;
 }
 
-/** Bounds each channel independently so an unread channel cannot stall its sibling. */
 function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
   const bufferLimit = 1024 * 1024;
   const encoder = new TextEncoder();
@@ -448,7 +433,6 @@ function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
   const forward = (name: "stderr" | "stdout", data: string) => {
     const controller = open.get(name);
     if (!controller || data.length === 0) return;
-    // Bound the encoding allocation even when a single log event is oversized.
     const chunk = new Uint8Array(Math.min(data.length * 3, controller.desiredSize ?? 0));
     const { read, written } = encoder.encodeInto(data, chunk);
     if (read < data.length) {

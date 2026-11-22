@@ -7,7 +7,6 @@ export type { McpContentBlock, McpIcon, McpMeta, McpPromptMessage, McpPromptResu
 
 declare global {
   namespace ViteHub {
-    /** Generated declarations set `hooks` to the type of the default export of `server/mcp.ts`. */
     interface McpRegistry {}
   }
 }
@@ -248,20 +247,12 @@ export interface McpResourceContext extends McpToolContext {
 export type McpResourceValue = string | Uint8Array | { contents: McpResourceContents[] } | undefined | null
 
 interface McpResourceFields {
-  /** A short name for people, such as "Changelog". */
   title?: string
   description?: string
-  /** The MIME type of the contents, such as `text/markdown`, or `text/html;profile=mcp-app` for the HTML of an MCP App. */
   mimeType?: string
-  /**
-   * The `_meta` of the resource in `resources/list` and of the contents that a string or `Uint8Array` handler returns,
-   * such as `{ ui: { csp, prefersBorder } }` of MCP Apps.
-   */
   _meta?: McpMeta
-  /** `"public"` lets anyone read the resource without sign-in, on `mcp.publicRoute` or with `mcp.auth: "optional"`. Then `caller` is `undefined`. */
   access?: "public"
   public?: never
-  /** Reads the resource. A string is text, and a `Uint8Array` is sent as base64 `blob`. */
   handler: (uri: string, context: McpResourceContext) => McpResourceValue | Promise<McpResourceValue>
 }
 

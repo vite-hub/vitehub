@@ -8,7 +8,6 @@ async function dispatchProviderSchedule(run) {
     if (run.mode !== "local") {
       return undefined
     }
-    // wrangler dev --test-scheduled exposes /__scheduled to fire cron triggers on demand.
     const startedAt = Date.now()
     const url = new URL("/__scheduled?cron=*+*+*+*+*", run.url)
     const response = await fetch(url, { method: "POST" })

@@ -73,7 +73,6 @@ describe("Schedule runs in logs", () => {
       warn: [],
       error: [failure],
     })
-    // The run event has the failure, so the console line is not printed again.
     expect(console).not.toHaveBeenCalled()
   })
 

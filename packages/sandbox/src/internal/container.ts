@@ -86,7 +86,6 @@ const reservedCredentialNames = new Set([
   "XDG_CONFIG_HOME",
   "XDG_STATE_HOME",
 ]);
-/** Names that the Docker CLI reads itself. Their Sandbox values travel on the command line instead of the CLI environment. */
 const cliEnvironment = (name: string) => name === "PATH" || name === "HOME" || name.startsWith("DOCKER_") || name.startsWith("XDG_");
 
 interface NormalizedContainerOptions {
@@ -223,7 +222,6 @@ function invalid(message: string) {
   return sandboxErrorDiagnostics.SANDBOX_R0160({ message: `[vitehub] ${message}` });
 }
 
-/** Docker object names allow [a-zA-Z0-9][a-zA-Z0-9_.-]. */
 function dockerName(id: string) {
   const safe = id.replace(/[^a-zA-Z0-9_.-]/g, "-").replace(/^[^a-zA-Z0-9]+/, "").slice(0, 40);
   return `vitehub-sandbox-${safe || "session"}-${randomBytes(4).toString("hex")}`;
@@ -256,7 +254,6 @@ async function startContainer(
   };
 
   try {
-    // Older Docker releases can silently ignore unknown bridge options.
     const version = await required(docker(["version", "--format", "{{.Server.Version}}"], { signal }), "check the Docker daemon version");
     const major = /^v?(\d+)\./.exec(version.stdout.trim());
     if (!major || Number(major[1]) < 28)
@@ -269,8 +266,6 @@ async function startContainer(
     } catch {
       throw unsupportedPlatform();
     }
-    // Check the daemon rather than the CLI host so remote native Linux contexts work.
-    // VM host aliases and rootless networking can bypass Moby's isolated bridge.
     if (!platform || platform.OSType !== "linux"
       || typeof platform.OperatingSystem !== "string" || !platform.OperatingSystem.trim()
       || typeof platform.KernelVersion !== "string" || !platform.KernelVersion.trim()
@@ -279,8 +274,6 @@ async function startContainer(
       || !Array.isArray(platform.SecurityOptions)
       || platform.SecurityOptions.some(option => typeof option !== "string" || /rootless/i.test(option)))
       throw unsupportedPlatform();
-    // An internal bridge normally still exposes host services at its gateway. Isolated
-    // gateway mode leaves the host bridge without an address.
     await required(docker([
       "network", "create", "--internal",
       "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated",
@@ -306,7 +299,6 @@ async function startContainer(
         VITEHUB_BROKER_RULES: JSON.stringify({ allow: options.egress.allow, policy: options.egress.policy, secrets }),
         ...secretEnvironment,
       };
-      // Secret values reach the broker through the CLI environment, never the command line.
       await required(docker([
         "run", "-d", "--name", broker, "--label", label, "--network", "bridge",
         "--user", "mitmproxy", "--security-opt", "no-new-privileges:true",
@@ -368,7 +360,6 @@ async function startSandboxContainer(
     ...(options.user === undefined ? [] : ["--user", options.user]),
     "--entrypoint", "sh", options.image, "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done",
   ], { signal }), "start the Sandbox container");
-  // The Sandbox user owns its root, so it can replace Home and the workspace without root.
   const owner = options.user === undefined ? "\"$(id -u):$(id -g)\"" : shellQuote(options.user);
   const setup = await docker(["exec", ...(options.user === undefined ? [] : ["-u", "0"]), name, "sh", "-c",
     `mkdir -p ${sandboxRoot} ${pidDirectory} && chown ${owner} ${sandboxRoot} ${pidDirectory}`,
@@ -475,7 +466,6 @@ function createContainerSession(state: {
   const children = new Set<ChildProcess>();
   let destroyPromise: Promise<void> | undefined;
 
-  /** Starts `command` in the Sandbox. The wrapper records the process id so kill() reaches the Sandbox process, not only the Docker CLI. */
   const start = (options: Parameters<RuntimeSession["run"]>[0], stdin: boolean) => {
     const pidFile = `${pidDirectory}/${randomUUID()}`;
     const environment = { ...state.env, ...options.env };
@@ -488,7 +478,6 @@ function createContainerSession(state: {
         inline.push("-e", key);
       }
     }
-    // An explicit working directory must exist. Setup commands run before the workspace exists, so they fall back to /.
     const enter = options.workingDirectory === undefined
       ? `cd ${sandboxWorkspace} 2>/dev/null || cd /`
       : "cd -- \"$2\" || exit 127";
@@ -516,7 +505,6 @@ function createContainerSession(state: {
           if (name === "KILL") child.kill("SIGKILL");
           return;
         }
-        // The Docker CLI can return a process handle before its shell registers the PID.
         if (result.exitCode !== 3 || Date.now() >= deadline)
           throw sandboxErrorDiagnostics.SANDBOX_R0164({ message: `[vitehub] Container Sandbox could not signal the process: ${result.stderr.trim() || "PID registration timed out."}` });
         await delay(50);
@@ -660,7 +648,6 @@ function createContainerSession(state: {
   };
 }
 
-/** Relative file paths are relative to the Sandbox workspace, like command working directories. */
 function sandboxPath(path: string) {
   return posix.isAbsolute(path) ? path : posix.join(sandboxWorkspace, path);
 }

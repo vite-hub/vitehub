@@ -10,8 +10,6 @@ import type { AiFormat, AiSeedConfig } from "@emulators/ai"
 import type { Emulator } from "emulate"
 import type { AiGateway } from "../src/index.ts"
 
-// `languageModel()` returns a LanguageModelV4, which only `ai` 7 calls. `ai` 6 accepts V2 and V3 models only,
-// so these runs use the catalog `ai` 7. The `ai` 6 peer range serves `askWithModel()`, which takes any model.
 const apis = [
   { api: "chat", format: "openai-chat", model: "gpt-5.1" },
   { api: "responses", format: "openai-responses", model: "gpt-5.1" },
