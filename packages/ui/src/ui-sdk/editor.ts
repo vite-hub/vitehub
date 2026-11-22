@@ -20,9 +20,10 @@ import {
   TriggerMenuSeparator,
   TriggerMenuStatus,
 } from "@ui-sdk/vue/trigger-menu";
-import { type Component, computed, defineComponent, h, inject, onMounted, type PropType, type Ref, ref, shallowRef, type VNode } from "vue";
+import { type Component, computed, defineComponent, h, inject, onBeforeUnmount, onMounted, type PropType, type Ref, ref, shallowRef, type VNode } from "vue";
 
 import { useViteHubUIIcons } from "../config.ts";
+import { createMotionList } from "../motion/list.ts";
 import { createEditorHandlers, type EditorHandlers, editorHandlersKey, type EditorItem } from "../editor/handlers.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 
@@ -450,6 +451,31 @@ export const UEditorSuggestionMenu = defineComponent({
 export interface EditorDragHandleNode { node: JSONContent, pos: number }
 
 /**
+ * Moves the drag handle to each new place with the list mover of the motion layer, as a neighbor of a list moves. The
+ * drag handle extension places it with `left` and `top`. A handle that was hidden shows at its new place at once.
+ */
+function followPlace(element: HTMLElement): () => void {
+  const parent = element.parentElement;
+  if (!parent) return () => {};
+  const list = createMotionList(parent, { items: () => [element] });
+  const read = () => ({ place: `${element.style.left} ${element.style.top}`, shown: element.style.visibility !== "hidden" });
+  let last = read();
+  list.measure();
+  const observer = new MutationObserver(() => {
+    const next = read();
+    if (next.place === last.place && next.shown === last.shown) return;
+    if (next.shown && last.shown) list.play();
+    last = next;
+    list.measure();
+  });
+  observer.observe(element, { attributes: true, attributeFilter: ["style"] });
+  return () => {
+    observer.disconnect();
+    list.destroy();
+  };
+}
+
+/**
  * Nuxt UI's `UEditorDragHandle`: a handle beside the block under the pointer, which drags the block to move it. A press
  * selects the block and emits `nodeChange`. The default slot replaces the button and gets `onClick`, which selects the
  * block and returns it, and `ui.handle()`, the class of a handle button.
@@ -487,6 +513,13 @@ export const UEditorDragHandle = defineComponent({
       return found;
     };
     const ui = { handle: (options?: { class?: unknown }) => ["vh-editor-drag-handle__handle", props.ui.handle, options?.class].filter(Boolean).join(" ") };
+    const handle = ref<{ $el?: unknown }>();
+    let stopFollowing: (() => void) | undefined;
+    onMounted(() => {
+      const element = handle.value?.$el;
+      if (element instanceof HTMLElement) stopFollowing = followPlace(element);
+    });
+    onBeforeUnmount(() => stopFollowing?.());
 
     // Nuxt UI's place: left of the block and 8px from it, centered beside a short block and at the top of a tall one. It
     // flips to the other side and shifts to stay in the viewport, as Nuxt UI's does.
@@ -506,6 +539,7 @@ export const UEditorDragHandle = defineComponent({
     return () => h(BlockHandle, {
       class: ["vh-editor-drag-handle", props.ui.root].filter(Boolean).join(" "),
       computePositionConfig,
+      ref: handle,
       "data-slot": "editor-drag-handle",
       editor: props.editor,
       nested: props.nested,

@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { frameworks, frameworkView } from "../modules/tutorials/build"
+import { frameworks, frameworkView } from "../../packages/docs/src/runnable/build"
 
 const docsRoot = resolve(import.meta.dirname, "..")
 

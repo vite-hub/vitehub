@@ -19,13 +19,13 @@ try {
 catch (error) {
   if (lockfile === undefined || error?.code !== "WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH") throw error
   // The dependencies changed since the lockfile was written. Update it, keeping the versions that still fit.
-  console.warn(`[tutorials] ${lockPath} does not match the dependencies (${error.message.split("\n")[0]}). Updating it; commit the change.`)
+  console.warn(`[docs] ${lockPath} does not match the dependencies (${error.message.split("\n")[0]}). Updating it; commit the change.`)
   result = await createNodeModulesSnapshot({ dir, lockfile, frozenLockfile: false })
 }
 if (result.lockfile !== lockfile) {
   await mkdir(dirname(lockPath), { recursive: true })
   await writeFile(lockPath, result.lockfile)
-  console.warn(`[tutorials] Wrote ${lockPath}. Commit it, so the next build installs the same versions.`)
+  console.warn(`[docs] Wrote ${lockPath}. Commit it, so the next build installs the same versions.`)
 }
 const parts = packSnapshot(result.snapshot)
 const hash = createHash("sha256")

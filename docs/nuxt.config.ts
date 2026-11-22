@@ -2,10 +2,11 @@ import { defineNuxtConfig } from "nuxt/config";
 import { fileURLToPath } from "node:url";
 import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
+import { playgroundTemplates, runnableTutorials } from "./runnable";
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
-  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org", "vite-hub/nuxt"],
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "nuxt-schema-org", "vite-hub/nuxt"],
   // The site serves /_vitehub/rpc so that a ViteHub Console can link it. Only calls that the Console signs with the key
   // in a VITEHUB_CONSOLE_KEY_<NAME> secret pass. Site access in that Console signs the team in to comment on pages
   // (server/auth.ts).
@@ -19,12 +20,20 @@ export default defineNuxtConfig({
     workspace: false,
     console: true,
     publicUrl: "https://vitehub.dev",
-    // Runnable tutorials and the playground boot a WebContainer (modules/tutorials).
+    // Runnable tutorials and the playground boot a WebContainer (`docs.runnable`).
     webContainer: { routes: ["/learn/**", "/playground"] },
   },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
+    // Fixtures use `catalog:` and `workspace:` specifiers, so the snapshots pack this repository's packages.
+    runnable: {
+      fixtures: "../fixtures/tutorials",
+      lessons: runnableTutorials,
+      examples: playgroundTemplates,
+      start: "/docs/getting-started/installation",
+      pnpmWorkspace: "..",
+    },
     site: {
       name: "ViteHub",
       url: "https://vitehub.dev",
@@ -272,7 +281,7 @@ export default defineNuxtConfig({
     prerender: {
       failOnError: true,
       // The docs module adds every content page. These are app routes.
-      routes: ["/openapi.json", "/robots.txt"],
+      routes: ["/openapi.json", "/robots.txt", "/playground", ...runnableTutorials.map(tutorial => `/learn/${tutorial.slug}`)],
     },
   },
   compatibilityDate: "2026-05-30",

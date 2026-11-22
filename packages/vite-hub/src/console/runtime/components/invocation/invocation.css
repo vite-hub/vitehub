@@ -649,7 +649,6 @@
   height: 0.75rem;
   margin-inline-start: auto;
   opacity: 0.7;
-  transition: transform 140ms ease;
   width: 0.75rem;
 }
 
@@ -1039,8 +1038,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   height: 0.75rem;
   margin-inline-start: auto;
   opacity: 0.7;
-  transform: rotate(0);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity 140ms ease;
   width: 0.75rem;
 }
 
@@ -1095,7 +1093,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   height: 0.75rem;
   margin-inline-start: auto;
   opacity: 0.7;
-  transition: transform 150ms ease;
   width: 0.75rem;
 }
 
@@ -1130,7 +1127,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 @media (hover: hover) {
   :is(.vh-invocation-event__summary, .vh-invocation-capabilities__summary, .vh-invocation-preparation__summary) > :is(.vh-invocation-event__disclosure, .vh-invocation-capabilities__disclosure, .vh-invocation-preparation__disclosure) {
     opacity: 0;
-    transition: opacity 150ms ease-out, transform 140ms ease;
+    transition: opacity 150ms ease-out;
   }
 
   :is(.vh-invocation-event__summary, .vh-invocation-capabilities__summary, .vh-invocation-preparation__summary):is(:hover, :focus-visible) > :is(.vh-invocation-event__disclosure, .vh-invocation-capabilities__disclosure, .vh-invocation-preparation__disclosure),
@@ -1191,7 +1188,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   height: 0.75rem;
   margin-inline-start: auto;
   opacity: 0.7;
-  transition: transform 140ms ease;
   width: 0.75rem;
 }
 
@@ -1237,7 +1233,6 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   flex: 0 0 0.75rem;
   height: 0.75rem;
   opacity: 0.7;
-  transition: transform 150ms ease;
   width: 0.75rem;
 }
 
@@ -2166,7 +2161,6 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
   height: 0.75rem;
   stroke: currentColor;
   stroke-width: 2;
-  transition: transform 150ms ease;
   width: 0.75rem;
 }
 
@@ -2419,10 +2413,6 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
   .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status-icon svg {
     animation: none;
   }
-
-  .vh-invocation-inspector__chevron {
-    transition: none;
-  }
 }
 
 
@@ -2648,10 +2638,6 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
   font-weight: 500;
 }
 
-.vh-invocation-error__chevron {
-  transition: transform 150ms ease-out;
-}
-
 .vh-invocation-error__action[aria-expanded="true"] .vh-invocation-error__chevron {
   transform: rotate(90deg);
 }
@@ -2693,16 +2679,12 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
   height: 1.75rem;
   padding-inline: 0.5rem;
   text-decoration: none;
-  transition: background-color 150ms ease-out, color 150ms ease-out, transform 150ms ease-out;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
 }
 
 .vh-invocation-error__action:hover {
   background: var(--vh-bg-elevated);
   color: var(--vh-text);
-}
-
-.vh-invocation-error__action:active {
-  transform: scale(0.97);
 }
 
 .vh-invocation-error__action svg {
@@ -2713,13 +2695,8 @@ summary.vh-invocation-inspector__group-heading::-webkit-details-marker,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vh-invocation-error__action,
-  .vh-invocation-error__chevron {
+  .vh-invocation-error__action {
     transition: none;
-  }
-
-  .vh-invocation-error__action:active {
-    transform: none;
   }
 }
 

@@ -6,11 +6,32 @@ navigation.group: Runtime and output
 icon: i-lucide-stethoscope
 ---
 
-[Vite Doctor](https://github.com/onmax/vite-doctor) checks your code and reports problems with a stable code. ViteHub ships a Doctor Extension with rules for ViteHub mistakes. You do not register it: install and run `vite-doctor`, and the ViteHub rules run too.
+[Vite Doctor](https://github.com/onmax/vite-doctor) checks your code and reports problems with a stable code. ViteHub ships a Doctor Extension, `vite-hub/doctor`. Its rules find ViteHub mistakes and code that a ViteHub built-in already does.
 
 ## Run the ViteHub rules
 
-With Vite, add the `doctor()` plugin after `vitehub()`, which passes its Doctor Extension to `doctor()`.
+The standalone `vite-doctor` CLI, which most projects run in CI, does not load `vite.config.ts` or `nuxt.config.ts`. Register the extension and select its rules in a Doctor config file:
+
+```ts [doctor.config.ts]
+import { defineDoctorConfig } from 'vite-doctor/config'
+import vitehub from 'vite-hub/doctor'
+
+export default defineDoctorConfig({
+  extends: ['vitehub/recommended'],
+  extensions: [vitehub],
+})
+```
+
+```bash
+pnpm vite-doctor . --config doctor.config.ts
+```
+
+The config needs both lines:
+
+- `extensions` loads the ViteHub rules.
+- `extends` selects the rules that run. Without `extends`, Doctor uses `'auto'`, which selects the recommended rules of each loaded Rule Pack. A list such as `extends: ['nuxt/strict']` replaces `'auto'`, so add `'vitehub/recommended'` to it. Without it, Doctor loads the ViteHub rules, runs none of them, and reports 0 problems.
+
+With Vite, you can run Doctor from the dev server instead. Add the `doctor()` plugin after `vitehub()`, which passes its Doctor Extension to `doctor()`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -35,20 +56,7 @@ pnpm nuxt prepare
 pnpm nuxt doctor
 ```
 
-The standalone `vite-doctor` CLI does not load `vite.config.ts`. To run the ViteHub rules from it, register `vite-hub/doctor` in a Doctor config file:
-
-```ts [doctor.config.ts]
-import { defineDoctorConfig } from 'vite-doctor/config'
-import vitehub from 'vite-hub/doctor'
-
-export default defineDoctorConfig({ extensions: [vitehub] })
-```
-
-```bash
-pnpm vite-doctor . --config doctor.config.ts
-```
-
-In a Nuxt app, `pnpm vite-doctor . --host-extensions` also loads the extension that `vite-hub/nuxt` registers.
+In a Nuxt app, `pnpm vite-doctor . --host-extensions` also loads the extension that `vite-hub/nuxt` registers. In each case, a Doctor config with its own `extends` list must include `'vitehub/recommended'`.
 
 Some rules read the whole project:
 
@@ -91,6 +99,9 @@ Some rules read the whole project:
 | [`VHUB0034`](#vhub0034) | `vitehub/markdown-file-path` | Warning |
 | [`VHUB0035`](#vhub0035) | `vitehub/comments-entry` | Error |
 | [`VHUB0036`](#vhub0036) | `vitehub/prefer-vite-hub-imports` | Warning |
+| [`VHUB0037`](#vhub0037) | `vitehub/prefer-built-ins` | Warning |
+| [`VHUB0038`](#vhub0038) | `vitehub/prefer-built-in-commands` | Warning |
+| [`VHUB0039`](#vhub0039) | `vitehub/no-owned-table-writes` | Warning |
 
 ## VHUB0001
 
@@ -1135,6 +1146,89 @@ The fix names the `vite-hub/*` path. The rule reads the dependencies in the proj
 - generated files under `.vitehub/`
 
 [Import paths](/docs/reference/import-paths) lists every `vite-hub/*` path.
+
+## VHUB0037
+
+**Use the ViteHub built-in instead of code that does its job.** Rule `vitehub/prefer-built-ins`.
+
+App code does work that a ViteHub built-in already does. The hand-written copy misses the checks of the built-in, and nobody updates it when ViteHub changes. Each diagnostic names the built-in and links its docs. The rule reports:
+
+| Code | Built-in |
+| --- | --- |
+| A `drizzle.config.*` file whose `out` or `schema` points into `databases/` of a server directory, where Database Definitions live | [`vitehub database generate` and `vitehub database migrate`](/docs/database/configure#apply-migrations) |
+| SQL that reads or writes `d1_migrations`, the ledger of a hand-written D1 migrator | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy), or `vitehub database migrate` for D1 over HTTP |
+| SQL with `VACUUM INTO`, which copies a SQLite file | [`database.migrateOnStart: { backup: true }`](/docs/database/configure#back-up-sqlite-before-migrations), or [`vitehub database export`](/docs/database/configure#export-a-database) |
+| A sign-in proxy header, such as `x-auth-request-access-token`, `x-forwarded-email`, `cf-access-jwt-assertion`, or `tailscale-user-login` | [`forwardAuth()`](/docs/auth/configure#sign-in-through-a-trusted-proxy) |
+| A `const` that hard-codes the bound parameter limit, such as `const D1_MAX_BINDINGS = 100` | [`chunkParameters()`](/docs/database/server-api#stay-under-the-bound-parameter-limit) |
+| `--secrets-file` in a file that runs `wrangler deploy --config .output/server/wrangler.json`, the build's Worker | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy), which sends only the declared env |
+| `if (await storage.getItem(key)) return` followed by `await storage.setItem(key, <literal>)` | [`kv.setIfAbsent()`](/docs/kv/server-api#use-it-at-runtime), or [`withIdempotency()`](/docs/database/server-api#run-work-once-for-a-key) where KV has no atomic write |
+
+```ts [server/utils/uploads.ts] fragment
+// Invalid
+const storage = useStorage('cache')
+if (await storage.getItem(`uploads:${id}`)) return false
+await storage.setItem(`uploads:${id}`, 1, { ttl: 900 })
+
+// Valid
+import { kv } from 'vite-hub/kv'
+
+const [claimError, claimed] = await kv.setIfAbsent(`uploads:${id}`, 1, { ttl: '15m' })
+if (claimError) throw claimError
+if (!claimed) return false
+```
+
+The rule reports each kind once per file. It does not report:
+
+- a Drizzle Kit config for a database outside `databases/` of a server directory
+- `d1_migrations` alone, such as the `cloudflare.migrationsTable` option
+- a proxy header inside a file that imports `forwardAuth()` from `vite-hub/auth/forward`
+- `--secrets-file` for another Worker config, or with `--env`
+- a cache that stores a computed value, or a check on a `Map`, which has no `await`
+- test files, generated files under `.vitehub/`, the source of ViteHub, and packages that do not depend on `vite-hub`. In a workspace, the rule reads the `package.json` of the package that owns the file.
+
+## VHUB0038
+
+**Use the ViteHub command instead of a script that does its job.** Rule `vitehub/prefer-built-in-commands`.
+
+A `package.json` script runs a tool that a ViteHub command wraps. The rule reads the `scripts` of each workspace package that depends on `vite-hub`, and reports:
+
+| Script | Command |
+| --- | --- |
+| `drizzle-kit generate`, `migrate`, or `up`, when its config points into `databases/` of a server directory | [`vitehub database generate`, `migrate`, or `up`](/docs/database/configure#apply-migrations), which run Drizzle Kit on each Database Definition |
+| `wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json` | [`database.migrateOnDeploy`](/docs/database/configure#migrate-when-you-deploy) with `vitehub deploy` |
+| `wrangler deploy --config .output/server/wrangler.json --secrets-file ...` | [`vitehub deploy`](/docs/cli/project#check-env-before-a-deploy) |
+| `vitehub types prepare` in a Nuxt app whose `nuxt.config` registers `vite-hub/nuxt` | `nuxt prepare`, where [the Nuxt module writes the types](/docs/development/generated-files#include-generated-types) |
+
+```json [package.json]
+{
+  "scripts": {
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config .output/server/wrangler.json",
+    "postinstall": "nuxt prepare && vitehub types prepare"
+  }
+}
+```
+
+It does not report `wrangler d1 migrations apply --local`, which has no ViteHub command, `drizzle-kit studio`, or `vitehub types prepare` in a Vite app. It skips Wrangler commands for another Worker config or with `--env`, `--name`, or `--cwd`. It also skips Drizzle Kit configs for another database or when the ViteHub Database is explicitly disabled. Doctor skips commands after a directory change in a script because their relative paths may point outside the app.
+
+## VHUB0039
+
+**Change ViteHub feature tables through the feature.** Rule `vitehub/no-owned-table-writes`.
+
+Server code calls `insert()`, `update()`, or `delete()` on a table that a ViteHub feature exports, such as `commentSends` from `vite-hub/comments/database` or `webhookEndpoints` from `vite-hub/webhooks/database`. SQL that changes a `vitehub_*` table counts too, including a schema-qualified name and a Drizzle `sql` template that interpolates a feature table. Text in SQL strings and comments does not count. The write skips the checks of the feature, such as permissions and counters, and breaks when ViteHub changes the table.
+
+```ts [server/api/send/endpoint.delete.ts] fragment
+// Invalid
+import { webhookEndpoints } from 'vite-hub/webhooks/database'
+
+await db.delete(webhookEndpoints).where(eq(webhookEndpoints.owner, userId))
+```
+
+Use the server API of the feature. When it has no operation for the write, ask for one in [vite-hub/vitehub](https://github.com/vite-hub/vitehub). The rule does not report:
+
+- reads, such as `db.select().from(commentThreads)`
+- Auth tables from `vite-hub/auth/schema`, which Better Auth and the app share
+- files outside the server directory (`server/`, or the Nuxt `serverDir`), such as scripts that write migration files, and its `databases/` folder, which holds migrations and seeds
 
 ## Related
 

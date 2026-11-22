@@ -2,7 +2,7 @@ import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "v
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 import { vRing } from "./components/motion.ts";
-import { installMotion } from "./motion/layer.ts";
+import { installMotion } from "./motion/install.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 
@@ -26,6 +26,10 @@ export interface ViteHubUIIconOptions {
   arrowUp?: string;
   /** Resolve on a comment thread. */
   check?: string;
+  /** The previous picture of an image preview. */
+  chevronLeft?: string;
+  /** The next picture of an image preview. */
+  chevronRight?: string;
   /** Close a comment thread, an image preview, or remove an attachment. */
   close?: string;
   copy?: string;
@@ -89,6 +93,8 @@ const defaultIcons: Required<ViteHubUIIconOptions> = {
   arrowLeft: "i-lucide-arrow-left",
   arrowUp: "i-lucide-arrow-up",
   check: "i-lucide-check",
+  chevronLeft: "i-lucide-chevron-left",
+  chevronRight: "i-lucide-chevron-right",
   close: "i-lucide-x",
   copy: "i-lucide-copy",
   copyCheck: "i-lucide-check",
