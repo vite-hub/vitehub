@@ -1,8 +1,3 @@
-/**
- * The docs tools of the ViteHub MCP forward each call to the public docs MCP server of vitehub.dev, so the Console
- * serves the same pages without a copy of the docs.
- */
-
 /** The public docs MCP server: stateless Streamable HTTP, with no sign-in. */
 export const docsMcpUrl = "https://vitehub.dev/mcp"
 
@@ -17,7 +12,6 @@ function failed(text: string): DocsToolResult {
   return { content: [{ text, type: "text" }], isError: true }
 }
 
-/** The JSON-RPC message of an answer. The docs server answers with one Server-Sent Event or with plain JSON. */
 function message(body: string, type: string | null): unknown {
   if (!type?.includes("text/event-stream")) return JSON.parse(body)
   const data = body.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trim()).join("\n")

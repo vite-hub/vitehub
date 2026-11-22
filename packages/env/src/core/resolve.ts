@@ -73,7 +73,6 @@ export function createSourceContext(input: {
       branch: async () => {
         const branch = envValue(input.env, ["GIT_BRANCH", "GITHUB_HEAD_REF"])
         if (branch) return branch
-        // GitHub sets GITHUB_REF_NAME to the tag name on a tag push, so read it only on a branch ref.
         if (Object.hasOwn(input.env, "GITHUB_REF_TYPE") && input.env.GITHUB_REF_TYPE === "branch") {
           const refName = envValue(input.env, ["GITHUB_REF_NAME"])
           if (refName) return refName
@@ -188,7 +187,6 @@ export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | un
   }
 }
 
-// A key such as "nested.token" or "api-key" has no unambiguous upper snake case name.
 const canonicalKey = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 
 function claimCanonicalName(owners: Map<string, string>, canonical: string | undefined, path: string): void {
@@ -345,7 +343,6 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       if (value.type) {
         throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses env.schemaFrom(), so its type comes from the schema. Remove the type option.`)
       }
-      // The schema runs in the server build, so a default is checked when the value resolves.
       return [key, {
         default: value.default,
         required: value.required,
@@ -384,9 +381,6 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
   }
 }
 
-// Env errors and diagnostics, such as an invalid default, already name the
-// declaration. Only unexpected errors, such as a revoked Proxy, are reported
-// as an invalid declaration.
 function isClassifiedError(error: unknown): boolean {
   return isViteHubError(error) || error instanceof Diagnostic
 }
@@ -395,9 +389,6 @@ function setOwnValue(record: Record<string, unknown>, key: string, value: unknow
   Object.defineProperty(record, key, { configurable: true, enumerable: true, value, writable: true })
 }
 
-// Defaults use the parsed type. Only host and provider values are parsed from strings.
-// A list default is an array. A JSON default is the value or its JSON text; it stays as written, because the
-// runtime parses it again and reads a string as JSON text.
 function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: string): unknown {
   const typed = schema.kind === "boolean" || schema.kind === "number" ? typeof value === schema.kind : schema.kind === "list" ? Array.isArray(value) : true
   const result = typed ? parseEnvValue(schema, value) : { message: `Expected a ${schema.kind === "list" ? "array" : schema.kind} default.`, success: false as const }
@@ -407,13 +398,8 @@ function parseRuntimeDefault(schema: EnvValueSchema, value: unknown, path: strin
   return schema.kind === "json" ? value : result.data
 }
 
-/** The default prefix of canonical variable names. */
 const defaultEnvPrefix = "VITEHUB_"
 
-/**
- * The canonical variable name of a declaration path: the prefix plus the path in upper snake case.
- * `env.server.cliproxy.apiKey` becomes `VITEHUB_CLIPROXY_API_KEY`. `false` disables canonical names.
- */
 function canonicalEnvName(path: string, prefix: string | false = defaultEnvPrefix): string | undefined {
   return prefix === false ? undefined : `${prefix}${pathToEnvName(path)}`
 }
@@ -460,7 +446,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
     case "env":
       for (const name of source.names || [source.name]) {
         const value = Object.hasOwn(context.env, name) ? context.env[name] : undefined
-        // An empty variable counts as missing, the same as on the server.
         if (typeof value !== "undefined" && value !== "") {
           return { label: `env:${name}`, value }
         }

@@ -100,7 +100,6 @@ const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
 
 const cursorCodec = createCollectionCursorCodec(arrayCursorSchema)
 
-/** Read a dot path through own properties. Arrays fan out to every element. */
 function collectionValueAt(value: unknown, path: string): unknown {
   const segments = path.split(".").filter(Boolean)
   function visit(current: unknown, remaining: string[]): unknown {
@@ -114,8 +113,6 @@ function collectionValueAt(value: unknown, path: string): unknown {
   return visit(value, segments)
 }
 
-// Validated items often carry Dates (`z.coerce.date()`). Treat a valid Date as its ISO string for filters, search,
-// and facets, and as its timestamp for sorting.
 function dateTime(value: unknown): number | undefined {
   if (Object.prototype.toString.call(value) !== "[object Date]") return
   const time = Date.prototype.getTime.call(value)
@@ -157,7 +154,6 @@ function assertFieldList(label: string, fields: readonly string[] | undefined): 
   }
 }
 
-// Server code may filter on any field path; parseQuery() limits HTTP callers to the declared filters.
 function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQuery {
   const normalized: NormalizedQuery = { empty: [], filters: Object.create(null), search: "" }
   for (const [key, value] of Object.entries(query).sort(([a], [b]) => compareProtocolStrings(a, b))) {
@@ -251,7 +247,6 @@ export function array<TItem, const TFilter extends string = never>(
     throw sourceErrorDiagnostics.SOURCE_R0028({ message: "[vitehub] array() sort must name a field." })
   }
   const filters = new Set<string>(options.filters ?? [])
-  // options.filters is the TFilter list, so membership proves the literal type.
   const isFilter = (key: string): key is TFilter => filters.has(key)
   const searchFields = options.search ?? []
   const facetFields = options.facets ?? []

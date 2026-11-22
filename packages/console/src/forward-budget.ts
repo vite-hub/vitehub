@@ -30,7 +30,6 @@ export async function consumeForwardBudget(db: ConsoleDatabase, userId: string, 
       target: rateLimit.key,
     })
     .returning({ count: rateLimit.count, start: rateLimit.lastRequest })
-  // The Auth schema types its columns loosely, so the numbers are read as numbers here.
   const count = Number(row?.count)
   if (count <= limit) return undefined
   return Math.max(1, Math.ceil((Number(row?.start) + windowMs - now) / 1000))

@@ -263,7 +263,7 @@ onMounted(readIcon);
 </script>
 
 <template>
-  <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+  <div class="pointer-events-none absolute inset-0" aria-hidden="true" data-motion="none">
     <canvas ref="canvas" class="size-full" />
     <span ref="source" class="hidden">
       <UIcon :name="icon" mode="svg" />

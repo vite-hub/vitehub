@@ -1,11 +1,6 @@
 import { deviceScript } from "./device-page.injected.ts"
 import { renderStandalonePage } from "./oauth-page.ts"
 
-/**
- * The `/device` page of `vitehub login`. The CLI prints a code and this address. Signed out, the person signs in with
- * GitHub or a passkey and comes back. Signed in, they type the code (or open the link with it), see which machine asked,
- * pick a team, and approve or deny. Approval gives the CLI an API key for that team; the page never sees the key.
- */
 const styles = `
 form { display: flex; gap: 8px; }
 input, select { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; font-size: 16px; }

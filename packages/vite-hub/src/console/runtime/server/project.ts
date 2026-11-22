@@ -33,7 +33,6 @@ export interface ConsoleProjectBuild {
     message?: string
     /** The name of the commit author, without the email. */
     author?: string
-    /** The GitHub login of the commit author, so the Console shows the author's avatar. */
     login?: string
     branch?: string
     /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
@@ -90,9 +89,6 @@ export async function readConsoleProject(context: OperationContext & { access: C
   return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
 }
 
-/**
- * Use the same list operation and caller as the inbox. If the list fails, the answer still describes the project.
- */
 async function countOpenComments(registry: ReturnType<typeof consoleOperationRegistry>, context: OperationContext & { access: ConsoleAccess }): Promise<{ open: number } | undefined> {
   const user = context.user ?? await readConsoleOperationUser(context.access) ?? null
   const result = await runOperation(registry, "comments.list", { limit: 500 }, { ...context, user })

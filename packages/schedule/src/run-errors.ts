@@ -2,14 +2,11 @@ import { defineErrors } from "@vite-hub/runtime"
 
 import type { ErrorCatalog } from "@vite-hub/runtime"
 
-// A type alias, not an interface, so it fits the index signature of `defineErrors()`.
 type RunScheduleErrorCodes = {
   SCHEDULE_INVALID_SCHEDULED_AT: { fix: string, why: string }
   SCHEDULE_RUN_STORE_FAILED: { fix: string, why: string }
 }
 
-// Errors that `runSchedule()` returns as `[error, undefined]`. A Definition that does not exist or does not set
-// `manual: true` throws instead, because the code must change.
 export const runScheduleErrors: ErrorCatalog<RunScheduleErrorCodes> = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {

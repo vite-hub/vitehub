@@ -6,7 +6,6 @@ import { createOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
 import { validatePayload } from "../src/runtime/payload.ts"
 import { unwrap } from "./unwrap.ts"
 
-/** The runtime codes that the Workflow client, its providers, and the Vercel and Cloudflare output can raise. */
 const runtimeCodes = [
   "WORKFLOW_R0001", "WORKFLOW_R0003", "WORKFLOW_R0004", "WORKFLOW_R0005", "WORKFLOW_R0006",
   "WORKFLOW_R0008", "WORKFLOW_R0009", "WORKFLOW_R0010", "WORKFLOW_R0011", "WORKFLOW_R0012",

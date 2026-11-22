@@ -26,7 +26,6 @@ function hook<T>(value: unknown): T {
   return (Reflect.has(Object(value), "handler") ? Reflect.get(Object(value), "handler") : value) as T
 }
 
-/** Runs the hooks that `vite dev` or `vite build` runs, and returns the resolved KV config and Nitro options. */
 async function resolvePlugin(command: "build" | "serve", options?: KVOptions, hosting?: string, nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}) {
   const plugin = hubKV(options, { hosting })
   await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro, root: directory }, { command })
@@ -35,7 +34,6 @@ async function resolvePlugin(command: "build" | "serve", options?: KVOptions, ho
   return { kv: plugin.api.getConfig().kv, nitro, plugin, runtime: await resolveId("@vite-hub/kv", undefined, { ssr: true }) }
 }
 
-/** Stores keys of an `fs-lite` store in the test directory. */
 function inDirectory(config: false | ResolvedKVModuleOptions): ResolvedKVModuleOptions {
   if (!config) throw new Error("KV is disabled.")
   const store = config.store
@@ -44,7 +42,6 @@ function inDirectory(config: false | ResolvedKVModuleOptions): ResolvedKVModuleO
   return config
 }
 
-/** An offline Upstash REST API. It answers single commands and pipelines. */
 function stubUpstash() {
   const data = new Map<string, string>()
   const run = ([command, key, value]: string[]) => {
@@ -132,7 +129,6 @@ describe("KV in vite dev", () => {
   it("uses a local store with the Workers KV limits on the Cloudflare host without a binding", async () => {
     const { kv: config, runtime } = await resolvePlugin("serve", undefined, "cloudflare-module")
     expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare", localBase: ".vitehub/data/kv-cloudflare/KV" } })
-    // The package runtime, not the generated Cloudflare runtime, so the store can fall back.
     expect(runtime).toBeUndefined()
 
     fixture.kv = inDirectory(config)
@@ -264,7 +260,6 @@ describe("KV in a Vite dev server", () => {
     ["the Cloudflare preset", undefined, "cloudflare-module"],
     ["an explicit Cloudflare store", { driver: "cloudflare" } satisfies KVOptions, undefined],
   ])("serves %s from the local store when the runtime has no binding", async (_name, options, hosting) => {
-    // A Vite SSR dev server runs in Node, like Nitro's default `node-worker` dev runner: no request has a KV binding.
     await mkdir(join(directory, "node_modules/@vite-hub"), { recursive: true })
     await symlink(resolve(import.meta.dirname, ".."), join(directory, "node_modules/@vite-hub/kv"), "dir")
     await mkdir(join(directory, "src"))
@@ -280,7 +275,6 @@ describe("KV in a Vite dev server", () => {
       `}`,
     ].join("\n"))
     const cwd = process.cwd()
-    // `fs-lite` resolves its directory from the working directory, which is the project root in `vite dev`.
     process.chdir(directory)
     const server = await createServer({ appType: "custom", configFile: false, logLevel: "silent", plugins: [hubKV(options, { hosting })], root: directory, server: { middlewareMode: true, ws: false } })
     try {

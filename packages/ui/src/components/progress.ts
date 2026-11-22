@@ -9,11 +9,8 @@ import { createProgress, type Progress as ProgressController } from "../motion/p
 export const Progress = defineComponent({
   name: "Progress",
   props: {
-    /** A fraction from 0 to 1, or `null` while work runs with no known total. Without a value the bar is empty. */
     value: { default: undefined, type: Number as PropType<number | null> },
-    /** The work is done. */
     done: { default: false, type: Boolean },
-    /** The accessible name, such as "Upload cover.png". */
     label: { default: undefined, type: String },
   },
   setup(props) {
@@ -33,7 +30,6 @@ export const Progress = defineComponent({
     watch(() => [props.value, props.done], apply);
     onBeforeUnmount(() => progress?.destroy());
     const now = () => (props.done ? 100 : typeof props.value === "number" ? Math.round(Math.max(0, Math.min(1, props.value)) * 100) : undefined);
-    // The server renders the role and the value, so the bar is announced before the helper draws it.
     return () => h("div", {
       ref: root,
       "aria-label": props.label,

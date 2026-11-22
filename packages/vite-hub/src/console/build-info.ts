@@ -7,20 +7,14 @@ import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
 
 type Env = Record<string, string | undefined>
 
-/**
- * The CI variables that give the subject and the author of the commit, so a checkout without history still has them.
- * `login` counts only when the `provider` variable says `github`, because it names a login on that Git provider.
- */
 const commitDetails: ReadonlyArray<{ sha: string, message: string, author?: string, login?: { name: string, provider: string } }> = [
   { sha: "VERCEL_GIT_COMMIT_SHA", message: "VERCEL_GIT_COMMIT_MESSAGE", author: "VERCEL_GIT_COMMIT_AUTHOR_NAME", login: { name: "VERCEL_GIT_COMMIT_AUTHOR_LOGIN", provider: "VERCEL_GIT_PROVIDER" } },
   { sha: "CI_COMMIT_SHA", message: "CI_COMMIT_TITLE" },
 ]
 
 const shaPattern = /^[0-9a-f]{7,64}$/i
-/** The GitHub address that hides an author's email: `<id>+<login>@users.noreply.github.com`, or `<login>@…` for old accounts. */
 const noreplyPattern = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i
 
-/** The GitHub login of the author of `sha` in the payload of a GitHub Actions `push` event. */
 async function pushEventLogin(env: Env, sha: string): Promise<string | undefined> {
   if (env.GITHUB_EVENT_NAME !== "push" || !env.GITHUB_EVENT_PATH) return undefined
   try {

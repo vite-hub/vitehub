@@ -24,7 +24,6 @@ describe("GitHub App webhook deliveries", () => {
       requests.push(`${init?.method ?? "GET"} ${url.pathname}${url.search}`)
       if (url.pathname.endsWith("/attempts")) return new Response("{}", { status: 202, headers: { "content-type": "application/json" } })
       const cursor = url.searchParams.get("cursor")
-      // Raw text keeps IDs past 2^53 exact, as GitHub sends them.
       return new Response(JSON.stringify(pages[cursor ?? "first"]).replace("3854367974137798700", "3854367974137798657"), { status: 200, headers: {
         "content-type": "application/json",
         ...cursor ? {} : { link: `<https://api.github.com/app/hook/deliveries?per_page=100&cursor=next>; rel="next"` },

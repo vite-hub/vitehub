@@ -19,7 +19,6 @@ function flip(sealed: string, index: number): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
-// Each call is one app instance with its own connection to the same database file.
 async function sharedDatabase() {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-seal-uses-"))
   cleanup.push(() => rm(dir, { recursive: true, force: true }))

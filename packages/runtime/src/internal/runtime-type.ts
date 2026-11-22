@@ -28,7 +28,6 @@ export function hasRuntimeType<TType extends keyof RuntimeTypeMap>(
     case "symbol":
     case "undefined": {
       const representation = typeof value
-      // Callable HTMLDDA browser values report undefined without being undefined.
       return (representation === "undefined" && value !== undefined ? "function" : representation) === expected
     }
   }
@@ -44,31 +43,22 @@ export function isRuntimeObject(value: unknown): value is object {
   return value !== null && Object(value) === value
 }
 
-/** Whether a value is an object literal or a null-prototype record. A built-in object whose prototype code replaced reads as one. */
 function isPlainRecord(value: object): boolean {
   const prototype = Object.getPrototypeOf(value)
   return prototype === Object.prototype || prototype === null
 }
 
-/** The native Response class and its `status` getter, and the proxy check of Node.js. Read once, at import. */
 function captureResponseChecks() {
   const response: unknown = globalThis.Response
   return {
     response,
     status: typeof response === "function" ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get : undefined,
-    // Node.js 22 runs the Response brand check through a Proxy. Node.js 24 does not.
     isProxy: globalThis.process?.getBuiltinModule?.("node:util")?.types.isProxy,
   }
 }
 
-// Pure, so a bundle that never checks a Response drops the capture.
 const nativeResponseChecks = /* @__PURE__ */ captureResponseChecks()
 
-/**
- * The `status` getter of the global `Response` when a server replaced the native class. srvx, which Nitro uses on Node.js,
- * installs its own `Response` class, so `Response.json()` in app code and in ViteHub returns an instance of that class.
- * Its getters read private fields, so they check the brand like the native getter does.
- */
 function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
   const current: unknown = globalThis.Response
   if (typeof current !== "function" || current === nativeResponseChecks.response) return undefined
@@ -84,9 +74,6 @@ function replacedResponseStatus(): ((this: unknown) => unknown) | undefined {
  */
 export function isRuntimeResponse(value: unknown): value is Response {
   if (value === null || typeof value !== "object" || nativeResponseChecks.isProxy?.(value)) return false
-  // A failed brand check throws, and each TypeError captures a stack trace. An array, an object literal, or a
-  // null-prototype record skips both checks. Where `isProxy` is missing, this would run the getPrototypeOf trap of a
-  // proxy, so it runs only with `isProxy`.
   if (nativeResponseChecks.isProxy !== undefined && (Array.isArray(value) || isPlainRecord(value))) return false
   for (const status of [nativeResponseChecks.status, replacedResponseStatus()]) {
     if (!status) continue

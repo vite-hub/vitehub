@@ -117,7 +117,6 @@ it("writes new startup Source files with one batch and keeps the checkpointed wr
   expect(result.sources[0]).toMatchObject({ counts: { added: 39, updated: 1 }, files: 40, status: "ready" })
   expect(writeFiles).toHaveBeenCalledTimes(1)
   expect(writeFiles.mock.calls[0]![0]).toHaveLength(39)
-  // One owner write per replaced file and snapshot checkpoints, not one per new file.
   expect(setMeta.mock.calls.length).toBeLessThan(15)
   await expect(view.readFile("repo/dir3/file-39.md")).resolves.toBe("file 39\n")
   await expect(view.readFile("repo/dir0/file-0.md")).resolves.toBe("file 0\n")

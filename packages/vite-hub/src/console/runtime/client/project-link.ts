@@ -115,7 +115,6 @@ export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | und
     const entry = field(commitValue, key)
     if (entry) commit[key] = entry
   }
-  // The login goes into an image URL, so only a GitHub login counts.
   const login = githubAuthorLogin(field(commitValue, "login"))
   if (login) commit.login = login
   const repository = field(commitValue, "repository")

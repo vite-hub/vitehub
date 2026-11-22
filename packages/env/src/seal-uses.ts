@@ -11,9 +11,7 @@ export interface SealUsesDatabase {
 const table = "vitehub_env_seal_uses"
 const ready = new WeakMap<SealUsesDatabase, Promise<void>>()
 
-// The queries embed only a hex id and integers that this module checks, so no input reaches the SQL text.
 function checkId(id: string): string {
-  // seal() makes the id from 16 random bytes and unseal() reads it from the authenticated header.
   invariant(/^[\da-f]{32}$/.test(id), "a seal id must be 32 lowercase hex characters")
   return id
 }
@@ -33,7 +31,6 @@ function initialize(db: SealUsesDatabase): Promise<void> {
 
 /** Keeps `uses` for a new id. The row holds no part of the value. */
 export async function createSealUses(db: SealUsesDatabase, id: string, uses: number, expiresAt: number | undefined): Promise<void> {
-  // seal() checks `uses` and throws ENV_SEAL_ARGUMENT_INVALID before it gets here.
   invariant(Number.isSafeInteger(uses) && uses >= 1, "`uses` must be a positive integer")
   await initialize(db)
   const now = Date.now()

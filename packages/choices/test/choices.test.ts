@@ -207,7 +207,6 @@ describe("defineChoices() with infer", () => {
       criteria: { "No project": projects[0]!.description, "Thai": projects[2]!.description, "ViteHub": projects[1]!.description },
       instructions: expect.stringContaining("does not have to name the option"),
     })
-    // The description is sent once, in the criteria.
     expect(JSON.stringify(ask.mock.calls[0]![0])).not.toContain(projects[0]!.description)
     expect(ask.mock.calls[0]![0]).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
   })
@@ -400,7 +399,6 @@ describe("defineChoices() errors", () => {
       expect(error?.code).toBe("DECISIONS_R0005")
       expect(error?.message).toBe("[vitehub] The gateway request failed.")
       expect(error?.fix).toBe("Read error.cause for the gateway error.")
-      // `askWithModel()` returns the model failure as GATEWAYS_ASK_MODEL_FAILED, with the AI SDK error as its cause.
       expect(error?.cause).toMatchObject({ code: "GATEWAYS_ASK_MODEL_FAILED", cause })
     })
   })

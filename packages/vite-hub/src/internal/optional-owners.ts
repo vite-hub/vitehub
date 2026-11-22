@@ -102,7 +102,6 @@ export const optionalFeaturePackages = {
   // `server/sync/` turns Sync on, and its change log goes to the Database.
   "sync": ["@vite-hub/sync"],
   "ui": ["@vite-hub/ui"],
-  // `webContainer: { routes }` makes those pages cross-origin isolated.
   "webContainer": ["@vite-hub/web-container"],
   // `server/webhooks/` turns Webhooks on. It needs `queue` and `database`.
   "webhooks": ["@vite-hub/webhooks"],

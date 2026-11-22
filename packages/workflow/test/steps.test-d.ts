@@ -2,9 +2,6 @@ import { expectTypeOf, it } from "vitest"
 import { defineWorkflow } from "../src/definition.ts"
 import type { WorkflowProviderContext, WorkflowStep, WorkflowStepContext } from "../src/types.ts"
 
-// `registry-types.test.ts` checks typed folder steps in a program of its own, with the `.vitehub/workflow.d.ts` that
-// ViteHub writes. An augmentation here would reach every handler of this package.
-
 it("types the payload from the type argument", () => {
   const onboard = defineWorkflow<{ email: string }>({
     handler: async ({ payload, steps }) => {

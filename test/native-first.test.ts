@@ -4,9 +4,6 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { repoRoot } from "./utils/repo"
 
-/** The parts of the native-first rule in AGENTS.md that code can check. */
-
-// Tracked files only, so build output, caches, and test fixtures stay out.
 const tracked = execFileSync("git", ["ls-files", "--", "package.json", "packages", "docs", "playground"], { cwd: repoRoot, encoding: "utf8" })
   .split("\n")
   .filter(file => file && !/(?:^|\/)(?:test|fixtures)\//.test(file))

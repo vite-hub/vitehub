@@ -43,7 +43,6 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter(item => typeof item === "string") : []
 }
 
-/** One entry of `env` in `deployment.json`. Only names: the build never writes a value there. */
 function readEnvEntry(value: unknown): DeploymentEnvEntry[] {
   if (!isRecord(value)) return []
   const names = stringList(value.names)
@@ -62,7 +61,6 @@ function readEnvEntry(value: unknown): DeploymentEnvEntry[] {
   }]
 }
 
-/** `deploy` of `deployment.json`. Only paths that start with one `/` and a key that IndexNow accepts. */
 function readDeploy(value: unknown): DeploymentDeployManifest {
   if (!isRecord(value)) return { check: [] }
   const check = stringList(value.check).filter(path => path.startsWith("/") && !path.startsWith("//"))

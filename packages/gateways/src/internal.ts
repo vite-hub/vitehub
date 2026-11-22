@@ -1,4 +1,3 @@
-// For ViteHub packages: model API routing and Agent Invocations. Applications import `@vite-hub/gateways`.
 export { aiGatewayAsks, aiGatewayLanguageModel, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayModelRoute, resolveAiGatewayRoute, resolveAiGatewaySecret } from "./definition.ts"
 export type { AiGatewayLanguageModelRoute, AiGatewayModelRoute, AiGatewayResolvedRoute } from "./definition.ts"
 export { aiGatewayEnvNames } from "./env.ts"

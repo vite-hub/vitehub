@@ -5,9 +5,6 @@ import type { CommentsAuthorizeContext } from "@vite-hub/comments"
 import type { ContentAuthorize } from "@vite-hub/content"
 import type { AccessControl, Role, RoleAuthorizeRequest, Statements } from "better-auth/plugins/access"
 
-// `better-auth` is an optional peer, and `index.ts` imports this file for `roles: true`. Without `better-auth`, Vite
-// puts a stub with no exports in its place, and a named import from the stub fails the app build. Namespace imports
-// build, and only `roles: true` loads this file.
 const { createAccessControl } = betterAuthAccess
 const { adminAc, defaultStatements, userAc } = betterAuthAdminAccess
 
@@ -76,7 +73,6 @@ function isCmsRoleName(name: string): name is CmsRoleName {
   return Object.hasOwn(cmsRoles, name)
 }
 
-/** The known CMS roles of a user. `role` holds one role, or several separated by commas, as Better Auth stores them. */
 function cmsRolesOf(user: CmsUser | null | undefined): CmsRoleName[] {
   const role = user?.role
   if (String(role) !== role) return []
@@ -98,7 +94,6 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })
 
-/** The `comment` permission of each Comments action. Only `publisher` and `admin` delete. */
 const commentPermissions: Readonly<Record<CommentsAuthorizeContext["action"], CmsStatements["comment"][number]>> = {
   read: "read",
   write: "create",

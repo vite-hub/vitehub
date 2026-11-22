@@ -140,7 +140,6 @@ function readSpec(platform: OsSchedulePlatform, name: string, schedule: unknown,
     ...(isString(logDir) ? { logDir } : {}),
     ...(typeof randomDelaySeconds === "number" ? { randomDelaySeconds } : {}),
   }
-  // A line break ends a systemd setting, and would let a value add settings of its own.
   if (platform === "linux") {
     const values = [...command, ...Object.values(variables), cwd, logDir, description].filter(isString)
     if (values.some(value => /[\n\r]/.test(value))) return invalid("systemd values must be one line. Remove the line break from `command`, `env`, `cwd`, `logDir` or `description`.")
@@ -198,7 +197,6 @@ export function createOsSchedules(host: OsHost): OsSchedules {
     if (scope === "system" && host.uid !== undefined && host.uid !== 0) return [osScheduleErrors.SCHEDULE_OS_PERMISSION_REQUIRED({ scope }), undefined]
     const [driverError, found] = driver(scope)
     if (driverError) return [driverError, undefined]
-    // A user timer runs in the home directory unless `cwd` says otherwise, as a systemd user service does.
     const withCwd = spec.cwd === undefined && scope === "user" ? { ...spec, cwd: host.homedir } : spec
     const [installError, installation] = await found.driver.install(withCwd)
     if (installError) return [installError, undefined]

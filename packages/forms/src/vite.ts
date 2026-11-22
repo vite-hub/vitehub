@@ -56,7 +56,6 @@ export function discoverForms(projectRoot: string, serverDirs: readonly string[]
 export function storingForms(forms: readonly DiscoveredForm[]): DiscoveredForm[] {
   return forms.filter((form) => {
     const options = findDefaultExportCall(scanModule(readFileSync(form.file, "utf8"), form.file), ["defineForm"])?.options
-    // A spread or dynamic key can replace an earlier explicit store value.
     const store = options && objectProperties(options).findLast(property => property.key === "store" || property.key === undefined)
     return store?.key !== "store" || !store.value || staticValue(store.value) !== false
   })
@@ -152,7 +151,6 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
     name: FORMS_VITE_PLUGIN_NAME,
     enforce: "pre",
     vitehub: {
-      // The Console, `vitehub forms`, and MCP read the inbox through these operations.
       operations: () => usesForms({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
         ? [{ export: "formsOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).formsOperations, module: imports.operations }]
         : [],
@@ -195,7 +193,6 @@ export function hubForms(options: HubFormsOptions = {}): Plugin & { vitehub: { d
         await writeFile(plugin, 'import handler from "./handler.mjs"\nexport default app => handler.registerUserData(app)\n')
         const { mount } = viteHubPageToolsBase(config)
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        // Not lazy: the handler installs the inbox when the server starts, so server code reads it before any submission.
         kit.addHandler({ handler, lazy: false, route: `${mount}${formsRoute}/**` })
         kit.addPlugin(plugin)
         Reflect.set(config, "nitro", kit.config)

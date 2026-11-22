@@ -78,7 +78,6 @@ interface FileContext {
   output: MagicString
   style: CodeStyle
   changed: boolean
-  /** Options objects already rewritten, so a `vitehub` key that two passes reach changes once. */
   rewritten: Set<ObjectExpression>
 }
 
@@ -163,7 +162,6 @@ function unwrapSafeValue(node: Node): Node {
   return value
 }
 
-/** Returns false when the property's driver needs manual migration. */
 function renameValue(context: FileContext, property: ObjectProperty, values: Readonly<Record<string, string>>, label: string): boolean {
   const value = unwrapExpression(property.value)
   if (value.type === "StringLiteral") {
@@ -273,7 +271,6 @@ function rewriteProgram(context: FileContext, program: File) {
 
 async function migrate({ cwd }: CodemodContext, { reportParseErrors } = { reportParseErrors: true }): Promise<CodemodResult> {
   const files = (await glob(sourcePatterns, { cwd, ignore: ignoredPatterns, dot: false })).sort()
-  // A config file can take its vite-hub options from another file, such as `vitehub: hostProfile.vitehub`.
   const imported = importedConfigOptions(cwd, files.filter(file => configFile.test(basename(file))), (program, file) => findConfigRoot(program, [], file))
   const edits: FileEdit[] = []
   const followUps = imported.followUps

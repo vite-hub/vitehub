@@ -77,11 +77,9 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
-    // Match the verified lockfile instead of selecting a freshly published tarball.
     "  \"ai\": \"7.0.130\"",
     "  \"js-base64\": \"3.9.4\"",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
-    // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
@@ -138,7 +136,6 @@ describe("packed Source capability closures", () => {
           private: true,
           type: "module",
           dependencies: { "@modelcontextprotocol/sdk": "1.32.2", "vite-hub": overrides["vite-hub"] },
-          // The facade also exports table(), whose documented peer is Drizzle.
           devDependencies: { "drizzle-orm": "1.0.0-rc.5", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
@@ -208,7 +205,6 @@ console.log(item.content)
 
       const lightweight = await buildWorker(appDir, "src/lightweight.ts", "lightweight")
       const lightweightInputs = Object.keys(lightweight.inputs).join("\n")
-      // pnpm names the peer in Source's store folder, so match SDK files, not the folder name.
       expect(lightweightInputs).not.toMatch(/@modelcontextprotocol\/|mcp-resources|pkce-challenge/)
       expect(await readFile(join(appDir, "dist/lightweight.js"), "utf8")).not.toMatch(/@modelcontextprotocol\/|pkce-challenge/)
 

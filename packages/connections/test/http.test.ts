@@ -54,7 +54,6 @@ describe("createConnectionsHandler", () => {
 
   it("passes the Request with its Standard Context to the actor", async () => {
     const request = post({ action: "unknown" });
-    // Nitro sets the Standard Context of the event on its Request.
     Object.defineProperty(request, "~standard", { value: { vendor: "test", req: request, res: { headers: new Headers() } } });
     const actor = vi.fn((input: Request) => {
       expect(Reflect.get(input, "~standard")).toMatchObject({ req: request });
@@ -398,7 +397,6 @@ describe("createConnectionsHandler", () => {
     const test = createTestRuntime();
     const actor = vi.fn(() => "user:ada");
     const handler = createConnectionsHandler({ actor, runtime: () => test.runtime });
-    // The proxy terminates TLS, so the server sees http:// while the browser sends its https:// Origin.
     const request = new Request("http://agent.example.com/_vitehub/connections", {
       body: JSON.stringify({ action: "list" }),
       headers: { "content-type": "application/json", origin: "https://agent.example.com" },
@@ -432,7 +430,6 @@ describe("createConnectionsHandler", () => {
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", config);
       const test = createTestRuntime();
       const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
-      // The proxy terminates TLS, so the server sees http:// for the public host.
       const start = await handler.fetch(new Request("http://agent.example.com/_vitehub/connections/connect/mail"));
       expect(start.status).toBe(302);
       const location = new URL(start.headers.get("location")!);
@@ -450,7 +447,6 @@ describe("createConnectionsHandler", () => {
         method: "POST",
       });
       expect((await handler.fetch(request("https://agent.example.com"))).status).toBe(200);
-      // The origin that the server sees stays valid, for example through a port forward.
       expect((await handler.fetch(request("http://agent.example.com"))).status).toBe(200);
       const rejected = await handler.fetch(request("https://attacker.example.com"));
       expect(rejected.status).toBe(403);
@@ -621,7 +617,6 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain('<meta http-equiv="refresh" content="2;url=/_vitehub/connections">');
       expect(html).toContain('<a class="button" href="/_vitehub/connections">Back to Connections</a>');
       expect(html).toContain("prefers-color-scheme:dark");
-      // The page is self-contained: no scripts, no stylesheets, no images.
       expect(html).not.toMatch(/<script|<link|<img|src=/);
       expect(callback.headers.get("content-security-policy")).toContain("default-src 'none'");
       expect(cookies(callback)).toEqual([
@@ -673,7 +668,6 @@ describe("createConnectionsHandler", () => {
       expect(html).toContain("CONNECTIONS_AUTHORIZATION_CANCELLED · 400");
       expect(html).toContain('href="https://vitehub.dev/docs/connections/diagnostics/connections_authorization_cancelled"');
       expect(html).toContain('href="/portal/_vitehub/connections">Back to Connections');
-      // A failure waits for the user and never shows the provider's free text.
       expect(html).not.toContain("http-equiv");
       expect(html).not.toContain("Call us");
     });

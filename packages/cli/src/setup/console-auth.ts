@@ -29,7 +29,6 @@ export interface ConsoleCredential {
 
 interface CredentialsFile {
   version: 1
-  /** Keyed by Console origin, such as `https://console.vitehub.dev`. */
   consoles: Record<string, ConsoleCredential>
 }
 
@@ -51,7 +50,6 @@ async function readCredentials(file: string): Promise<CredentialsFile> {
   return { version: 1, consoles: consoles instanceof Object ? consoles as Record<string, ConsoleCredential> : {} }
 }
 
-/** Writes the file with mode 600 in a folder with mode 700. A temporary file and a rename keep it whole. */
 async function writeCredentials(file: string, value: CredentialsFile): Promise<void> {
   await mkdir(dirname(file), { mode: 0o700, recursive: true })
   const temporary = `${file}.${process.pid}.tmp`
@@ -140,12 +138,10 @@ const wait = (seconds: number) => new Promise(resolve => setTimeout(resolve, sec
 
 const dateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
 
-/** The user code in two groups, such as `WDJB-MJHT`, as RFC 8628 suggests. The Console accepts it with or without the dash. */
 function groupCode(code: string): string {
   return code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code
 }
 
-/** Runs the device flow against `origin` and returns the API key. The key is never written to a stream. */
 async function deviceLogin(origin: string, context: ViteHubCliContext, prompt: ViteHubCliContext["stdout"]): Promise<TokenAnswer> {
   const started = await postJson(context, `${origin}/api/auth/device/code`, { client_id: clientId, client_name: `vitehub CLI on ${hostname()}` }).catch((error: unknown) => {
     throw loginFailed(origin, `The Console did not answer: ${error instanceof Error ? error.message : String(error)}`)
@@ -199,7 +195,6 @@ export const loginCommand: ViteHubCliCommand = {
         return setupExitCodes.done
       }
       const origin = consoleOrigin(values.console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl)
-      // With --json, stdout holds only the result document.
       const answer = await deviceLogin(origin, context, json ? context.stderr : context.stdout)
       const file = consoleCredentialsFile(context.env)
       const saved = await readCredentials(file)
@@ -270,15 +265,12 @@ export const logoutCommand: ViteHubCliCommand = {
       }
       const file = consoleCredentialsFile(context.env)
       const saved = await readCredentials(file)
-      // Logout acts only on the saved key, not on VITEHUB_CONSOLE_TOKEN.
       const credential = await readConsoleCredential({ ...context.env, [consoleTokenVariable]: undefined }, values.console)
       if (!credential) {
         if (json) writeSetupJson(context, { removed: false })
         else context.stdout.write("Not signed in.\n")
         return setupExitCodes.done
       }
-      // The key stops working on the Console first. Offline, the key is still removed here, and stays valid until it
-      // expires or someone revokes it in Settings.
       const response = await (context.fetch ?? fetch)(`${credential.origin}/api/api-keys/current`, { headers: { authorization: `Bearer ${credential.token}` }, method: "DELETE" }).catch(() => undefined)
       const revoked = response !== undefined && (response.status === 204 || response.status === 401 || response.status === 404)
       const { [credential.origin]: _removed, ...consoles } = saved.consoles

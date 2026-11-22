@@ -24,7 +24,6 @@ import Icon from "./console-icon.vue";
  */
 const props = defineProps<{
   status: Record<string, ConsoleAccountAppStatus>;
-  /** What each app answered in its check, such as its build and its open comments, by app id. */
   checks?: Record<string, ConsoleAccountCheck>;
 }>();
 
@@ -39,7 +38,6 @@ const failedAvatars = ref(new Set<string>());
 function markAvatarFailed(url: string | undefined) {
   if (url) failedAvatars.value.add(url);
 }
-// Each app row: its logo, its Last deploy cell from the build that the app reported in its check, and its comments.
 const rows = computed(() => apps.value.map((app) => {
   const check = props.checks?.[app.id];
   const build = check?.build;
@@ -51,7 +49,6 @@ const rows = computed(() => apps.value.map((app) => {
     identity: consoleAppIdentity(app, name(app)),
     deploy,
     site,
-    // The site opens with the Comments pill on, as Comment on site does in the app's Console.
     comments: check?.comments && { ...check.comments, url: consoleCommentsSiteUrl(site) },
   };
 }));

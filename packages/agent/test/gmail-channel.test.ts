@@ -413,7 +413,6 @@ describe("gmail() Channel", () => {
         notificationHistoryId: "105",
         state: { keyPrefix: "mail:", state },
       })
-      // Clearing the pending mark is part of taking the lock, so a lease lost there means the sync never held it.
       if (phase === "pending") await expect(syncing).resolves.toEqual({ finished: false })
       else await expect(syncing).rejects.toThrow("Lost ownership")
       await expect(storedCursor(second)).resolves.toBe("200")

@@ -41,7 +41,6 @@ async function digestOf(text: string): Promise<string> {
  */
 export function blobDocument(store: RealtimeBlobStore, options: RealtimeBlobDocumentOptions = {}): RealtimeDocumentAdapter {
   const { contentType = "text/markdown; charset=utf-8", prefix = "" } = options
-  // Blob decodes a pathname once, so `a%2Fb.md` would open `a/b.md`. Escaping `%` keeps each document id its own file.
   const pathnameOf = (documentId: string) => (prefix + documentId).replaceAll("%", "%25")
   const read = async (pathname: string) => {
     const [error, file] = await store.get(pathname)
@@ -57,7 +56,6 @@ export function blobDocument(store: RealtimeBlobStore, options: RealtimeBlobDocu
     },
     async save({ documentId }, { body }, { ifDigest }) {
       const pathname = pathnameOf(documentId)
-      // The ETag comes before the body. A write between the two reads gives an old ETag, so the put fails and nothing is lost.
       const [headError, object] = await store.head(pathname)
       if (headError && errorCode(headError) !== "BLOB_NOT_FOUND") throw headError
       const stored = object ? await read(pathname) : null

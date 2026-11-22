@@ -227,7 +227,6 @@ async function fetchAgentInfo(url: string, rootDir: string, fetchImpl: typeof fe
   })
 }
 
-/** `vitehub agent get --url <deployed app>`: the `status.get` operation of the app's Console RPC. */
 async function readDeployedAgent(parsed: ParsedInfoArgs, context: AgentInfoCliContext, options: AgentInfoCliOptions): Promise<number> {
   const result = await callOperationFromCli({
     env: context.env,

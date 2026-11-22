@@ -186,14 +186,7 @@ export interface RealtimePersistenceOptions {
 }
 
 interface RealtimeDefinitionIdentity {
-  /** Resolve the user for a request, replacing the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: RealtimeRequestContext) => RealtimeUser | null | undefined | Promise<RealtimeUser | null | undefined>
-  /**
-   * Let a page on another origin connect, such as a script that sites load from the app. Return `true` to accept
-   * `origin`. Without it, only the app's own origin or an origin trusted by Auth connects. The browser sends cookies with a cross-site handshake
-   * too, so `identify` and `authorize` must then trust only what the page sends on purpose, such as a ticket in
-   * `params`, never the session cookie. `authorize: true` without `identify` rejects it: the Auth session is a cookie.
-   */
   origins?: (context: RealtimeOriginContext) => boolean | Promise<boolean>
 }
 
@@ -222,15 +215,10 @@ export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
 
 interface RealtimeDocumentFields {
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
-  /**
-   * Editor schema and Markdown codec. Defaults to the built-in Markdown kit. A function picks the codec of each
-   * document, such as one per Content collection; browsers that open the document must use the same schema.
-   */
   editor?: RealtimeEditor | ((context: RealtimeDocumentContext) => RealtimeEditor)
   history?: {
     checkpoint: true | { message?: string }
   }
-  /** Idle saves. `false` saves only when a client calls `save()` or `history.checkpoint()`. */
   persistence?: RealtimePersistenceOptions | false
 }
 
@@ -242,17 +230,7 @@ interface RealtimePresenceFields {
   editor?: never
   history?: never
   persistence?: never
-  /**
-   * Lets server code ask the one browser in a room with `requestRealtimeRoom()` from `@vite-hub/realtime/server`. The
-   * browser answers with `room.onRequest()`. Default `false`: rooms without it refuse request frames.
-   */
   requests?: boolean
-  /**
-   * `"user"`: each person gets their own rooms. A room is keyed by the identity of whoever joins it, so the same room id
-   * for two people is two rooms, and `requestRealtimeRoom()` must name the person with `{ user }`. The identity is the
-   * ViteHub Auth session when the app has Auth, read without requiring one; everyone without a session shares one
-   * `anonymous` scope. With `identify` or `authorize: true`, those decide the identity.
-   */
   scope?: "user"
 }
 

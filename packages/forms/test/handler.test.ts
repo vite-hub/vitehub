@@ -100,7 +100,6 @@ describe("handleFormRequest", () => {
     const { store, all } = services()
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/contact?plan=pro&form=contact.error` } }), all)
     expect((await store.list())[0]?.page).toBe("/contact?plan=pro")
-    // A `form` query of the app itself stays.
     await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { headers: { referer: `${origin}/signup?form=newsletter` } }), all)
     expect((await store.list())[0]?.page).toBe("/signup?form=newsletter")
   })
@@ -124,7 +123,6 @@ describe("handleFormRequest", () => {
     expect((await store.list()).map(row => row.id)).toEqual([key])
     expect(onSubmit).toHaveBeenCalledTimes(1)
     expect(email).toHaveBeenCalledTimes(1)
-    // The key of another message must not drop this one.
     const other = await send("Something else")
     expect(other.status).toBe(422)
     expect(await store.list()).toHaveLength(1)
@@ -152,7 +150,6 @@ describe("handleFormRequest", () => {
     const { email, all } = services()
     const store = createMemoryFormsStore()
     const key = "0b5c2a8e-1d4f-4e7a-9c3b-2f6d8e1a7b90"
-    // Another instance stored the message between the lookup and the insert of this one.
     const racing = { ...store, get: vi.fn(store.get).mockResolvedValueOnce(undefined) }
     await store.insert({ id: key, form: "contact", data: { email: "ada@example.com", message: "Hello" }, page: null, anchor: null, user: null, status: "open", createdAt: 1, updatedAt: 1 })
     const response = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hello" }, { headers: { "idempotency-key": key } }), { ...all, store: racing })
@@ -205,7 +202,6 @@ describe("handleFormRequest", () => {
 
   it("checks authorize with the identified user", async () => {
     const form = defineForm({ schema: v.object({ text: v.string() }), authorize: ({ user }) => user?.id === "ada" })
-    // A refused sender uses no rate budget.
     const rateLimit = vi.fn(async () => ({ allowed: true }))
     const anonymous = services({ rateLimit })
     expect((await handleFormRequest("issue", form, post({ text: "x" }), anonymous.all)).status).toBe(401)
@@ -315,7 +311,6 @@ describe("handleFormRequest", () => {
     expect(await store.list()).toHaveLength(1)
     const wrong = await handleFormRequest("contact", contact, post({ email: "x", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), all)
     expect(wrong.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
-    // Every other failure also goes back to the page, such as the rate limit.
     const limited = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, { type: "application/x-www-form-urlencoded", headers: { accept: "text/html" } }), { ...all, rateLimit: async () => ({ allowed: false }) })
     expect(limited.status).toBe(303)
     expect(limited.headers.get("location")).toBe("/pricing?plan=pro&form=contact.error")
@@ -358,14 +353,12 @@ describe("handleFormRequest", () => {
 
   it("trusts the origin of a TLS proxy, keeps redirects on the site, and rejects a broken multipart body", async () => {
     const { all } = services()
-    // The proxy ends TLS, so the server sees `http:` and the browser sends its `https:` origin.
     const proxied = new Request("http://site.test/_vitehub/forms/contact", {
       method: "POST",
       headers: { "content-type": "application/json", origin: "https://site.test", "x-forwarded-proto": "https" },
       body: JSON.stringify({ email: "ada@example.com", message: "Hi" }),
     })
     expect((await handleFormRequest("contact", contact, proxied, all)).status).toBe(201)
-    // A path with two leading slashes would send the visitor to another site.
     const html = { type: "application/x-www-form-urlencoded", headers: { accept: "text/html", referer: `${origin}//x//evil.test` } }
     const sent = await handleFormRequest("contact", contact, post({ email: "ada@example.com", message: "Hi" }, html), all)
     expect(sent.headers.get("location")).toBe("/x//evil.test?form=contact.sent")

@@ -118,7 +118,6 @@ describe("createFormsHandler", () => {
   })
 
   it("counts in the shared Rate Limit, so two server processes share one budget", async () => {
-    // Two processes of one app, each with its own memory, and one shared counter store.
     const counts = new Map<string, number>()
     const calls: unknown[] = []
     const rateLimit: FormsSharedRateLimit = async (_, name, options) => {

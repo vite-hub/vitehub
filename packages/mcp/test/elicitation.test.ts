@@ -1,6 +1,3 @@
-// A tool asks the person for values in the middle of a call (MCP elicitation). The real MCP TypeScript SDK client
-// drives the handler, so the test proves the wire flow: initialize with the capability, tools/call, the
-// `elicitation/create` event on the SSE answer, the answer as a new POST, and the tool result on the same stream.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js"
@@ -47,7 +44,6 @@ function server(options: Partial<McpHandlerOptions> = {}) {
   return createMcpHandler({ name: "drops", route: "/mcp", tools: { list_drops: listDrops, share_drop: shareDrop }, ...options })
 }
 
-/** A real MCP SDK client whose requests go to the handler. `answer` is what the person does in the form. */
 async function connect(handler: ReturnType<typeof server>, answer?: (message: string) => ElicitResult | Promise<ElicitResult>): Promise<Client> {
   const client = new Client({ name: "test-client", version: "1" }, { capabilities: answer ? { elicitation: { form: {} } } : {} })
   if (answer) client.setRequestHandler(ElicitRequestSchema, request => answer(request.params.message))
@@ -123,7 +119,6 @@ describe("MCP elicitation through a real MCP client", () => {
   })
 
   it("gives the handler the form error of an answer that the schema refuses", async () => {
-    // The MCP client checks the JSON Schema. The refine check runs only on the server.
     const client = await connect(server(), () => ({ action: "accept", content: { email: "sam@gmail.com", role: "viewer" } }))
     const result = await client.callTool({ name: "share_drop", arguments: { drop: "launch-notes" } })
     expect(text(result)).toBe("Did not share launch-notes: Invite an acme.dev address.")
@@ -156,7 +151,6 @@ interface SseMessage {
   result?: { content?: unknown, isError?: boolean, structuredContent?: unknown }
 }
 
-/** Reads the next SSE `data:` message of the stream. */
 async function nextMessage(reader: ReadableStreamDefaultReader<string>, buffer: { text: string }): Promise<SseMessage> {
   while (!buffer.text.includes("\n\n")) {
     const chunk = await reader.read()

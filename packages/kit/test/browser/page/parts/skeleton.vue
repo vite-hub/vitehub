@@ -1,5 +1,4 @@
 <script setup lang="ts">
-// The Console's skeletons: text lines, a row, a round avatar, and a still bar. The page sets each size.
 </script>
 
 <template>

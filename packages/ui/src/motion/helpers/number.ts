@@ -28,9 +28,6 @@ export function diffDigits(from: string, to: string): DigitColumn[] {
   return changed;
 }
 
-// The numbers of the prototype's count: the old digit leaves 1em (12px on 12px text) toward where the count goes, at
-// 0.55 of its size with a 2px blur, in 240ms. The new one comes from the other side in 380ms, 60ms later, on an
-// overshoot curve. Under reduced motion the changed digits crossfade in 150ms.
 const travel = 1;
 const small = 0.55;
 const blur = 2;
@@ -41,7 +38,6 @@ const crossfade = 150;
 interface Glyph {
   node: HTMLSpanElement;
   fade?: Tween;
-  /** 1 when it shows, 0 when it is gone. */
   shown: number;
 }
 
@@ -70,7 +66,6 @@ function glyph(char: string): Glyph {
 
 function column(char: string): Column {
   const node = own(document.createElement("span"));
-  // One cell: the old and the new digit share it, and it clips them as the prototype's odometer does.
   node.style.cssText = "display:inline-grid;overflow:hidden;justify-items:center";
   const current = char ? glyph(char) : undefined;
   if (current) node.append(current.node);
@@ -142,7 +137,6 @@ export function rollNumber(element: HTMLElement, value: number, format: (value: 
 
   const chars = [...text];
   const count = Math.max(chars.length, state.columns.length);
-  // Columns are right-aligned: pad the left with empty columns, so the units of both numbers share a column.
   while (state.columns.length < count) {
     const added = column("");
     state.frame.holder.prepend(added.node);
@@ -176,8 +170,6 @@ export function rollNumber(element: HTMLElement, value: number, format: (value: 
       settleColumns(element, state);
     });
   });
-  // The width goes to the width of the new number. A column that leaves stays in the flow until its digit is gone,
-  // and the letters sit at the end of the element, so nothing jumps.
   const width = state.frame.width;
   const leavingColumns = state.columns.filter(item => !item.char);
   for (const item of leavingColumns) item.node.style.display = "none";
@@ -187,7 +179,6 @@ export function rollNumber(element: HTMLElement, value: number, format: (value: 
   else width.to(end);
 }
 
-/** The number in a text such as "1,204" or "12%", for the first roll of an element that the server rendered. */
 function parseCount(text: string): number | undefined {
   const digits = text.replace(/[^\d.-]/g, "");
   const value = digits ? Number(digits) : Number.NaN;

@@ -155,7 +155,6 @@ export async function resolveDefaultDeployTarget(root: string, env: NodeJS.Proce
   return { host: selected.link?.host ?? setupStatus(project, env).host.name, link: selected.link }
 }
 
-/** `--host`, else the default target, else the only target, else the config host. The CLI host wins over the config. */
 function deployTarget(project: SetupProject, links: SetupLinks, option: string | undefined, env: NodeJS.ProcessEnv): { host: DeployHost, link: SetupLink | undefined } {
   if (option !== undefined) {
     const named = hostFromNitroPreset(option)
@@ -173,7 +172,6 @@ function temporaryUnsupported(reason: string): SetupFailure {
   return setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_TEMPORARY_UNSUPPORTED({ reason }), setupExitCodes.conflict)
 }
 
-/** Cloudflare: Wrangler refuses `--temporary` with a login. Vercel: the CLI refuses it in CI and in a linked folder. */
 function assertTemporary(host: DeployHost, args: SetupDeployArgs, credentials: HostCredentials, project: SetupProject, env: NodeJS.ProcessEnv): void {
   if (!temporaryHosts.includes(host)) throw temporaryUnsupported(`${host} has no temporary deploy. Only cloudflare and vercel have one.`)
   if (args.preview) throw temporaryUnsupported("A temporary deploy always goes to production, so --preview does not apply.")
@@ -214,7 +212,6 @@ async function hostAdapter(host: DeployHost, context: DeployContext): Promise<De
   }
 }
 
-/** Records the host project after a first deploy, so `status` finds it. It stays unverified until `vitehub link`. */
 async function recordLink(root: string, host: DeployHost, result: DeployResult, fallbackName: string): Promise<void> {
   const project = result.project ?? { name: fallbackName }
   await addSetupLink(root, {
@@ -239,7 +236,6 @@ function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHub
   }
 }
 
-/** Pushes the checkout folders after the deploy. A failed push does not undo the deploy, so it exits with 1 and says so. */
 async function pushCheckouts(checkouts: DeployCheckouts, deployed: SetupDeployOutput, args: SetupDeployArgs, context: ViteHubCliContext): Promise<SetupDeployOutput> {
   try {
     const pushed = await pushDeployCheckouts(checkouts, context)
@@ -276,15 +272,11 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     }
   }
 
-  // Provision runs before the build, because the build binds the ids that it records. A temporary deploy has no account.
   const provisioned = args.provision && !args.temporary
     ? await provisionForDeploy({ build: args.build, credentials, host, json: args.json, link, rerun: rerunCommand(args, { provision: false }), yes: args.yes }, context)
     : undefined
 
-  // A preview must not write the shared Workspace ref, so only a production deploy pushes. This imports project code,
-  // so it runs only after the confirmation.
   const checkouts = args.push && !args.preview ? await prepareDeployCheckouts(project.root, context) : undefined
-  // A new host next to linked ones gets this note once: the deploy records its target below.
   if (!link && !args.temporary) writeSeparateResourcesNote(context, host, links)
   if (args.build) await build(project, host, context)
   const output = await readBuildOutput(project.root, host)
@@ -292,7 +284,6 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
-  // After provisioning and the build, the Env gate runs before runtime host writes: `env.apply()` and the D1 migrations of `adapter.deploy()` come after it.
   const env = await checkDeployEnv({
     context,
     entries: output.env,
@@ -326,7 +317,6 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const adapter = await hostAdapter(host, deployContext)
   await env.apply()
   const checkPaths = args.check ? output.deploy.check : []
-  // Read before the deploy replaces it: the rollback target of a failed check. A preview does not replace production.
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
@@ -355,7 +345,6 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
 
 type PreviousDeployment = { deployment: HostDeployment | undefined } | { failed: string }
 
-/** The deployment that serves production before this deploy. Without a link or a token there is nothing to read. */
 async function previousDeployment(root: string, link: SetupLink | undefined, credentials: HostCredentials, context: ViteHubCliContext, run: DeployRun): Promise<PreviousDeployment> {
   if (!link) return { failed: "the project was not linked before this deploy." }
   if (!credentials.ok) return { failed: `deploy used the saved ${link.host} CLI login, which gives no API token.` }
@@ -367,7 +356,6 @@ async function previousDeployment(root: string, link: SetupLink | undefined, cre
   }
 }
 
-/** A deployed app that failed a check. Production now serves it, so the error says how to roll back. */
 function checkFailed(deployed: SetupDeployOutput, host: DeployHost, previous: PreviousDeployment | undefined, projectName: string, link: SetupLink | undefined, result: DeployResult, preview: boolean): SetupFailure {
   const rollback = preview
     ? { note: "This was a preview deploy, so production did not change." }

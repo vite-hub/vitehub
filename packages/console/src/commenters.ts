@@ -8,11 +8,9 @@ export const commentersVariable = "VITEHUB_CONSOLE_COMMENTERS"
  * one that Console signed. Without the variable, nobody may.
  */
 export function mayComment(user: object | null, commenters: string | undefined): boolean {
-  // Comments users carry the app's own fields, such as the email of a ViteHub Auth user, untyped.
   const value: unknown = user ? Reflect.get(user, "email") : undefined
   if (typeof value !== "string" || !value) return false
   const email = value.toLowerCase()
-  // A passkey account has a placeholder email until it connects GitHub. It never names a real person.
   if (email.endsWith("@passkey.invalid")) return false
   return (commenters ?? "").split(",").some(entry => entry.trim().toLowerCase() === email)
 }

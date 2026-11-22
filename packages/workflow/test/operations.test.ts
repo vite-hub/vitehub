@@ -80,7 +80,6 @@ describe("workflow operations", () => {
 
   it("lists and shows the runs that `vite dev` recorded, with steps, result, and error", async () => {
     enableWorkflowDevRuns()
-    // A folder Workflow: each step file runs through the step runner.
     const folder = (fail: boolean) => async () => ({
       default: {
         handler: async (context: WorkflowExecutionContext) => {
@@ -145,7 +144,6 @@ describe("workflow operations", () => {
     expect(read).toMatchObject({ ok: true, value: { run: { id, status: "completed" } } })
     expect(read.ok && (read.value as { run: object }).run).not.toHaveProperty("steps")
 
-    // A second enable keeps the history, and new runs are recorded after a clear.
     enableWorkflowDevRuns()
     await call("workflow.start", { workflow: "welcome" })
     expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [{ workflow: "welcome" }] } })

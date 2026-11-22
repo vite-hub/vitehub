@@ -49,8 +49,6 @@ export function isRealtimeDurableObjectNamespace(value: unknown): value is Realt
 /** The `$DurableObject` binding of the running Worker. Nitro's Cloudflare entry stores each request's bindings in `globalThis.__env__`. */
 export function workerDurableObjects(): RealtimeDurableObjectNamespace | undefined {
   try {
-    // The internal runtime resolves the active request's AsyncLocalStorage scope before
-    // falling back to Nitro's ambient __env__ binding.
     const binding = getActiveCloudflareBinding<unknown>("$DurableObject")
     return isRealtimeDurableObjectNamespace(binding) ? binding : undefined
   }
@@ -98,7 +96,6 @@ export function localRequesters(): Set<WeakRef<LocalRequest>> {
 
 type RoomRequestErrorParams = { count?: number, definition?: string, reason?: string, timeout?: number }
 
-/** The parameters each request error was made with, so a Durable Object can send the same error to the Worker. */
 const roomRequestErrorParams = new WeakMap<object, RoomRequestErrorParams>()
 
 export function roomRequestError(code: RealtimeRoomRequestErrorCode, params: RoomRequestErrorParams = {}): RealtimeRoomRequestResult {
@@ -133,7 +130,6 @@ function isRoomRequestErrorCode(value: unknown): value is RealtimeRoomRequestErr
   return typeof value === "string" && roomRequestErrorCodes.has(value)
 }
 
-/** The JSON a Durable Object returns for one request: the answer, or the error code and its parameters. */
 type DurableRequestReply = { ok: true, body: unknown } | { ok: false, code: RealtimeRoomRequestErrorCode, params: RoomRequestErrorParams }
 
 export function toDurableRequestReply(result: RealtimeRoomRequestResult): DurableRequestReply {
@@ -169,7 +165,6 @@ export async function requestRealtimeRoom(definition: string, documentId: string
   if (local.signal?.aborted) return roomRequestError("REALTIME_ROOM_ABORTED")
   const binding = options.durableObjects ?? workerDurableObjects()
   if (binding) return await requestDurableRoom(binding, definition, documentId, body, local)
-  // The newest handler first: a reloaded server leaves its old handler behind until it is collected.
   for (const reference of [...localRequesters()].reverse()) {
     const request = reference.deref()
     if (!request) {
@@ -178,7 +173,6 @@ export async function requestRealtimeRoom(definition: string, documentId: string
     }
     return await request(definition, documentId, body, local)
   }
-  // No Realtime handler runs in this process yet: no browser has connected.
   return roomRequestError("REALTIME_ROOM_EMPTY")
 }
 

@@ -102,6 +102,36 @@ describe("defineAuth", () => {
     }
   })
 
+  it("accepts the Nuxt page guard map in access.pages", () => {
+    const pages = { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest", "/team/:id": "user", "/": false } as const
+    expect(defineAuth({ access: { pages } }).options.access).toEqual({ pages })
+  })
+
+  it.each([
+    [{ "dashboard/**": "user" }, '"dashboard/**": "user"'],
+    [{ "/admin/**": "admin" }, '"/admin/**": "admin"'],
+    [{ "/account": "user", "/account/:id?": false }, '"/account/:id?": false'],
+    [{ "/account/:id": "user", "/account/:id/:tab?": false }, '"/account/:id/:tab?": false'],
+    [{ "/p/:path+": "user" }, '"/p/:path+": "user"'],
+    [{ "/p/:path*": "user" }, '"/p/:path*": "user"'],
+    [{ "/account{/:id}?": "user" }, '"/account{/:id}?": "user"'],
+    [{ "/files/:id(\\d+)": "user" }, '"/files/:id(\\\\d+)": "user"'],
+    [{ "/files/:id.json": "user" }, '"/files/:id.json": "user"'],
+    [{ "/docs/**:rest": false }, '"/docs/**:rest": false'],
+    [{ "/a/**/b": "user" }, '"/a/**/b": "user"'],
+    [{ "/a/": "user" }, '"/a/": "user"'],
+    [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
+    // Vue Router matches pages without case by default, so the key order would decide the mode.
+    [{ "/Dashboard": "user", "/dashboard": false }, '"/dashboard": false'],
+    // Vue Router compares the upper case of each character, so `σ` and `ς` match. Nuxt decodes route rule keys.
+    [{ "/σ": "user", "/ς": false }, '"/ς": false'],
+    [{ "/café": "user", "/caf%C3%A9": false }, '"/caf%C3%A9": false'],
+    [{ "/team/*": false }, '"/team/*": false'],
+    [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
+  ] as const)("rejects the access.pages entry in %j", (pages, entry) => {
+    expect(() => defineAuth({ access: { pages: pages as never } })).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID", message: expect.stringContaining(entry) }))
+  })
+
   it("keeps components.prefix and rejects any other components value", () => {
     expect(defineAuth({ components: { prefix: "Custom" } }).options.components).toEqual({ prefix: "Custom" })
     for (const components of [false, { prefix: "" }, { prefix: 1 }, { prefix: "Custom", global: true }]) {
@@ -116,6 +146,7 @@ describe("defineAuth", () => {
     expect(() => defineAuth({ access: { signIn: "//evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_C0028" }))
     expect(defineAuth({ access: { signIn: "/login", afterSignIn: "/dashboard" } }).options.access).toEqual({ signIn: "/login", afterSignIn: "/dashboard" })
     expect(() => defineAuth({ access: { afterSignIn: "https://evil.example" } })).toThrow(expect.objectContaining({ code: "AUTH_AFTER_SIGN_IN_INVALID" }))
+    expect(() => defineAuth({ access: { pages: ["/dashboard/**"] } } as never)).toThrow(expect.objectContaining({ code: "AUTH_PAGE_ROUTES_INVALID" }))
     expect(() => defineAuth({ access: { signIn: { provider: "github", callbackURL: "/app" } } } as never)).toThrow(expect.objectContaining({ code: "AUTH_SIGN_IN_CALLBACK_URL_MOVED" }))
     expect(() => defineAuth({ access: { signIn: { provider: "" } } } as never)).toThrow(/access\.signIn\.provider/)
     expect(() => defineAuth({ access: { signIn: { provider: "github", requestSignUp: "yes" } } } as never)).toThrow(/requestSignUp/)

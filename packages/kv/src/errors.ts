@@ -39,7 +39,6 @@ export async function kvResult<TData, TCode extends KVErrorCode = never>(
   }
 }
 
-// The generated Cloudflare KV runtime imports these helpers from the package build.
 export { kvStoreWithMode } from "./store-mode.ts"
 
 export function kvStoreNotFoundError(store: string): ResultError<"KV_STORE_NOT_FOUND"> {
@@ -59,7 +58,6 @@ export function kvListLimitInvalid(options: KVListOptions): boolean {
   return options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit <= 0)
 }
 
-/** The page size when `list()` reads every key. Every driver accepts it. */
 const listAllPageSize = 1000
 
 /** One page with `limit`. Without it, every key from `cursor` on, in one page without a cursor. */

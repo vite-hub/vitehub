@@ -2,7 +2,6 @@ export const testLayerIncludes = Object.freeze({
   contracts: ["test/*.test.ts"],
   consumer: ["test/consumer/**/*.test.ts"],
   output: ["test/output/**/*.test.ts"],
-  // Package suites also own app fixtures that they run in a child test process.
   packages: ["packages/*/test/**/*.test.ts", "packages/*/test/**/*.test-d.ts", "packages/*/fixtures/*/test/**/*.test.ts"],
 });
 

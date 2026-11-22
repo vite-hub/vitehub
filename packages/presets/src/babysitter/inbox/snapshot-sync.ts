@@ -205,6 +205,7 @@ const openPullRequestSchema = v.object({
   commits: v.object({ nodes: v.array(v.object({ commit: v.object({ statusCheckRollup: v.nullish(v.object({ state: v.nullish(v.string()), contexts: nodes })) }) })) }),
   latestReviews: nodes, reviewThreads: nodes,
 })
+const approvedReview = v.object({ state: v.literal('APPROVED') })
 const openPullRequestsSchema = v.object({ repository: v.object({ pullRequests: v.object({
   nodes: v.array(openPullRequestSchema), pageInfo: v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) }),
 }) }) })
@@ -310,12 +311,14 @@ export async function detectChangedPullRequests(inbox: PullRequestInbox, graphql
       signal?.throwIfAborted()
       if (!allowSeed) continue
       // A PR that no delivery reported yet. Seeding applies the filter; the claim hydrates it over REST.
-      await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,
+      const seeded = await inbox.seed(repository, { number, title: pr.title, state: 'open', draft: pr.isDraft, user: pr.author ? { login: pr.author.login } : null,
         author_association: pr.authorAssociation, html_url: pr.url, updated_at: pr.updatedAt, labels: pr.labels.nodes.map(label => label.name),
         head: { sha: pr.headRefOid, ref: pr.headRefName, repo: pr.headRepository ? { full_name: pr.headRepository.nameWithOwner } : null },
         base: { sha: pr.baseRefOid ?? undefined, ref: pr.baseRefName } }, signal)
       signal?.throwIfAborted()
-      await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint, signal)
+      // The seed carries no reviews, so an approval that admits the PR needs the probe to read them.
+      if (seeded.status === 'terminal' && inbox.admitApproved && pr.latestReviews.nodes.some(review => v.is(approvedReview, review))) await mark(number, fingerprint, openPullRequestChecksSettled(pr))
+      else await inbox.setMeta(`change-fingerprint:${repository}:${number}`, fingerprint, signal)
     }
     // An inbox PR missing from the open list closed or merged.
     for (const item of tracked) if (item.repository === repository && item.status !== 'terminal' && !open.has(item.number)) await mark(item.number, 'closed', true)

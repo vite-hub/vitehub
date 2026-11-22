@@ -1386,7 +1386,6 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   }
 }
 
-/** `vitehub agent conversations export`: the one command of the `conversations` group. */
 async function runAgentConversationsCli(args: string[], context: Parameters<typeof runConversationsExportCli>[1]): Promise<number> {
   const [command, ...rest] = args
   if (command === "export") return await runConversationsExportCli(rest, context)

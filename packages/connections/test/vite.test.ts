@@ -109,7 +109,6 @@ describe("hubConnections", () => {
       "/_vitehub/connections/connect/**",
       "/_vitehub/connections/callback",
     ]);
-    // A GET of the management path stays free for the Console Connections page.
     expect(nitro.handlers.map((handler) => handler.method)).toEqual(["post", "get", "get"]);
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       `from "${importBase}/server"`,
@@ -234,7 +233,6 @@ describe("hubConnections", () => {
     const root = await createTempProject();
     const connections = hubConnections();
     const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> }, routing: { sync: vi.fn() } };
-    // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
     const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
     const config = await resolveConfig({
       root,
@@ -281,7 +279,6 @@ describe("hubConnections", () => {
       command: "build",
       mode: "production",
     });
-    // Without the management API, production serves only the callback of flows that the Console starts.
     const callbackOnly = (build.nitro as { handlers: Array<{ handler: string, method: string, route: string }> }).handlers;
     expect(callbackOnly.map(({ method, route }) => ({ method, route }))).toEqual([{ method: "get", route: "/_vitehub/connections/callback" }]);
     expect(await readFile(callbackOnly[0]!.handler, "utf8")).toContain('export default createConnectionsHandler({ actor: () => undefined, basePath: "/_vitehub/connections" })');
@@ -608,7 +605,6 @@ describe("hubConnections", () => {
       await writeConnection(root, "server/connections/google.ts");
       const extras = Array.from({ length: 200 }, (_, index) => join(root, `server/connections/extra-with-a-long-name-${index}.ts`));
       for (const extra of extras) writeFileSync(extra, "export default {}\n");
-      // Each preparation discovers synchronously before it writes, so the first sees 201 Connections and the second one.
       const first = hubConnections().api.prepareTypes({ projectRoot: root });
       for (const extra of extras) rmSync(extra);
       await Promise.all([first, hubConnections().api.prepareTypes({ projectRoot: root })]);

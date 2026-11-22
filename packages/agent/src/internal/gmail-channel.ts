@@ -1107,10 +1107,6 @@ interface MailboxLease {
   record: GmailMailboxRecord
   state: AtomicAgentStateLockAdapter
   write: (record: GmailMailboxRecord, mutations?: readonly AgentStateCacheMutation[]) => Promise<void>
-  /**
-   * Keeps the final record of the sync and writes it when the sync releases the lock, in the same State request.
-   * A later `write()` writes it first.
-   */
   finish: (record: GmailMailboxRecord, mutations?: readonly AgentStateCacheMutation[]) => void
 }
 
@@ -1324,8 +1320,6 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
     }
     if (known && !isNewerHistoryId(notification, known)) return { finished: true }
   }
-  // Each lock takes one State request that also reads the record, and clears the pending mark when there is one.
-  // On Cloudflare each State request is a Durable Object request, which Workers Logs record one by one.
   const acquire = async (clear: boolean) => {
     const { lock, values } = await acquireLockWith(state, keys.lock, syncLockTtlMs, clear ? [{ key: keys.pending, type: "delete" }] : [], [keys.mailbox])
     // SAFETY: Only this sync writes the mailbox key, always with a GmailMailboxRecord.
@@ -1359,15 +1353,11 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       return agentDiagnostics.AGENT_GMAIL_LOCK_LOST({ lock: "mailbox" })
     }
     let legacy = false
-    /** The final record that waits for the lock release. */
     let finishing: { record: GmailMailboxRecord, mutations: readonly AgentStateCacheMutation[] } | undefined
     const recordWrite = (next: GmailMailboxRecord, mutations: readonly AgentStateCacheMutation[]) => {
       const record: GmailMailboxRecord = { ...next, ...(sync.mailbox ? { mailbox: sync.mailbox } : {}) }
       const compatibility: AgentStateCacheMutation[] = [
-        // The checkpoint of earlier versions is in the record now.
         ...(legacy ? [{ key: keys.legacyProgress, type: "delete" as const }] : []),
-        // Earlier versions read the cursor from this key. Writing it keeps the place of an app that pins an earlier
-        // version again. Stop writing it after @vite-hub/agent 0.2.0 ships.
         ...(record.historyId ? [{ key: keys.legacyCursor, type: "set" as const, value: record.historyId }] : []),
       ]
       return { mutations: [{ key: keys.mailbox, type: "set" as const, value: record }, ...compatibility, ...mutations], record }
@@ -1448,7 +1438,6 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<GmailMai
       }
       clearInterval(timer)
       await renewalTask
-      // The final record, the release, and the pending check go in one State request.
       const final = finishing && !ownershipLost ? recordWrite(finishing.record, finishing.mutations) : undefined
       const released = await releaseLockWith(state, heldLock, final?.mutations ?? [], [keys.pending])
       if (final && released.committed) written(final.record)

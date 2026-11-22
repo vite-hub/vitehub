@@ -1,6 +1,11 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import hubAuthNuxt from "../src/nuxt.ts"
+import { assertNoCachedPageGuards } from "../src/page-guard-cache.ts"
 
 import type { AuthNuxtModuleOptions } from "../src/nuxt.ts"
 
@@ -158,5 +163,161 @@ describe("Nuxt page guard with cache route rules", () => {
     await expect(buildNuxt(account, { "/**": { ssr: true }, "/account/preview": { ssr: false }, "/account/**": { swr: 60 } })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
     await expect(buildNuxt(pages, { "/**": { ssr: false, swr: 60 }, "POST /dashboard": { ssr: true } })).resolves.toBeDefined()
     await expect(buildNuxt(pages, { "/**": { ssr: false, swr: 60 }, "GET /dashboard": { ssr: true } })).rejects.toMatchObject({ message: expect.stringContaining("the page \"/dashboard\"") })
+  })
+})
+
+describe("Nuxt page guard of access.pages with cache route rules", () => {
+  const accessPages = { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } as const
+  const pagesWithoutMeta: Page[] = [
+    { path: "/dashboard" },
+    { path: "/dashboard/:id()" },
+    { path: "/dashboard/open", meta: { auth: false } },
+    { path: "/login" },
+    { path: "/blog/:slug()" },
+  ]
+  const check = (routeRules: RouteRules, pages: Page[] = pagesWithoutMeta, access: Record<`/${string}`, "user" | "guest" | false> = accessPages) => assertNoCachedPageGuards(pages, routeRules, { accessPages: access })
+
+  it.each([
+    ["/dashboard/welcome", "/%64ashboard/welcome"],
+    ["/dashboard/σ", "/dashboard/ς"],
+  ] as const)("uses equivalent route keys for cache checks on %s", async (path, guest) => {
+    const access = { "/dashboard/**": "user", [guest]: "guest" } as const
+    await expect(check({ [path]: { prerender: true } }, [{ path }], access)).resolves.toBeUndefined()
+    await expect(check({ [path]: { swr: 60 } }, [{ path }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    await expect(check({ [path]: { swr: 60 } }, [{ path }], { ...access, [guest]: false })).resolves.toBeUndefined()
+  })
+
+  it("fails the build when a route rule caches a page that access.pages guards, or its payload", async () => {
+    await expect(check({ "/dashboard/**": { swr: 60 } })).rejects.toMatchObject({
+      code: "AUTH_GUARDED_PAGE_CACHED",
+      message: expect.stringContaining("the page \"/dashboard\", which `access.pages` \"/dashboard/**\" guards"),
+    })
+    await expect(check({ "/dashboard/settings": { isr: true } })).rejects.toMatchObject({ message: expect.stringContaining("the page \"/dashboard/:id()\"") })
+    await expect(check({ "/login": { swr: 60 } })).rejects.toMatchObject({ message: expect.stringContaining("`access.pages` \"/login\"") })
+    // Nuxt renders the payload of a page with the guard of the page path.
+    await expect(check({ "/account/_payload.json": { isr: 60 } }, [{ path: "/account" }], { "/account": "user" })).rejects.toMatchObject({ message: expect.stringContaining("payload of the page \"/account\"") })
+  })
+
+  it("passes on the pages that access.pages leaves public", async () => {
+    await expect(check({ "/blog/**": { swr: 60 } })).resolves.toBeUndefined()
+    // A guest page renders the same for every visitor that has no cookie.
+    await expect(check({ "/login": { prerender: true } })).resolves.toBeUndefined()
+    // definePageMeta({ auth }) wins over access.pages.
+    await expect(check({ "/dashboard/open": { swr: 60 } })).resolves.toBeUndefined()
+    // `false` of a narrower pattern takes the guard off the paths that a dynamic page renders.
+    await expect(check({ "/dashboard/pricing": { swr: 60 } })).resolves.toBeUndefined()
+  })
+
+  it("keeps the guard of a narrower pattern inside a `false` pattern", async () => {
+    const pages: Page[] = [{ path: "/a/:rest(.*)*" }]
+    const access = { "/a/**": "user", "/a/b/**": false, "/a/b/c": "user" } as const
+    await expect(check({ "/a/b/d": { swr: 60 } }, pages, access)).resolves.toBeUndefined()
+    await expect(check({ "/a/b/**": { swr: 60 } }, pages, access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+  })
+
+  it("counts a guard that covers only some paths of a page", async () => {
+    // `/team/admin` is guarded, and the `/team/:id` page renders it.
+    const team: Page[] = [{ path: "/team/:id()" }]
+    const admin = { "/team/admin": "user" } as const
+    await expect(check({ "/team/admin": { swr: 60 } }, team, admin)).rejects.toMatchObject({ message: expect.stringContaining("`access.pages` \"/team/admin\"") })
+    await expect(check({ "/team/admin/_payload.json": { swr: 60 } }, team, admin)).rejects.toMatchObject({ message: expect.stringContaining("payload of the page \"/team/:id()\"") })
+    await expect(check({ "/team/other": { swr: 60 } }, team, admin)).resolves.toBeUndefined()
+    // A catch-all page renders the paths of a pattern with `:name`.
+    await expect(check({ "/acme/settings": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/:org/settings": "user" })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    // The payload of a `false` page renders with the mode of the page path.
+    await expect(check({ "/dashboard/pricing/_payload.json": { swr: 60 } })).resolves.toBeUndefined()
+  })
+
+  it("counts a rule that caches the payload of a guarded path", async () => {
+    // `/team/admin/:file` caches `/team/admin/_payload.json`.
+    await expect(check({ "/team/admin/:file": { swr: 60 } }, [{ path: "/team/admin" }], { "/team/admin": "user" })).rejects.toMatchObject({ message: expect.stringContaining("payload of the page \"/team/admin\"") })
+    // A catch-all page renders `/team/admin` and its payload.
+    await expect(check({ "/team/admin/_payload.json": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/team/admin": "user" })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    await expect(check({ "/team/other/_payload.json": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/team/admin": "user" })).resolves.toBeUndefined()
+  })
+
+  it("exempts a payload only when a false key covers the page of the payload", async () => {
+    // Nuxt picks the guard of `/team/_payload.json` from `/team`, which `/team/:file` does not match.
+    await expect(check({ "/team/_payload.json": { swr: 60 } }, [{ path: "/team" }], { "/**": "user", "/team/:file": false })).rejects.toMatchObject({ message: expect.stringContaining("payload of the page \"/team\"") })
+    await expect(check({ "/team/:file": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/**": "user", "/team/:file": false })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    await expect(check({ "/team/admin/_payload.json": { swr: 60 } }, [{ path: "/:slug(.*)*" }], { "/**": "user", "/team/admin": false })).resolves.toBeUndefined()
+  })
+
+  it("passes a prerender of a path whose most specific key is 'guest'", async () => {
+    const access = { "/dashboard/**": "user", "/dashboard/welcome": "guest" } as const
+    await expect(check({ "/dashboard/welcome": { prerender: true } }, [{ path: "/dashboard/welcome" }, { path: "/dashboard/:id()" }], access)).resolves.toBeUndefined()
+    // A prerender renders without a cookie, but a cache keeps the redirect of the first signed-in visitor.
+    await expect(check({ "/dashboard/welcome": { swr: 60 } }, [{ path: "/dashboard/:id()" }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+  })
+
+  it("exempts a path only when its `false` key wins over each guarding key, as the guard orders them", async () => {
+    // `/team/:id` wins over `/:org/admin` on `/team/admin`: Nuxt compares the static `team` with `:org` first.
+    const access = { "/:org/admin": "user", "/team/:id": false } as const
+    await expect(check({ "/team/admin": { swr: 60 } }, [{ path: "/:slug(.*)*" }], access)).resolves.toBeUndefined()
+    await expect(check({ "/acme/admin": { swr: 60 } }, [{ path: "/:slug(.*)*" }], access)).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+  })
+
+  it("reads access.pages of server/auth.ts in the build", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-page-cache-"))
+    try {
+      await mkdir(join(rootDir, "server"))
+      await writeFile(join(rootDir, "server/auth.ts"), "import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: { pages: { '/dashboard/**': 'user' } } })\n")
+      await expect(buildNuxt([{ path: "/dashboard" }], { "/dashboard": { swr: 60 } }, undefined, { rootDir })).rejects.toMatchObject({ code: "AUTH_GUARDED_PAGE_CACHED" })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("Nuxt sign-in page under access.pages", () => {
+  /** Builds a Nuxt app whose server/auth.ts has this `access`. */
+  async function build(access: string, pages: Page[]): Promise<NuxtOptions> {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-auth-sign-in-page-"))
+    try {
+      await mkdir(join(rootDir, "server"))
+      await writeFile(join(rootDir, "server/auth.ts"), `import { defineAuth } from '@vite-hub/auth'\nexport default defineAuth({ access: ${access} })\n`)
+      return await buildNuxt(pages, {}, undefined, { rootDir })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  }
+
+  it("fails the build when a 'user' key is the most specific key of the sign-in page", async () => {
+    // The guard would send signed-out visitors to `/login`, which then answers 401.
+    await expect(build("{ pages: { '/**': 'user' } }", [{ path: "/login" }])).rejects.toMatchObject({
+      code: "AUTH_PAGE_ROUTES_INVALID",
+      message: expect.stringContaining('"/**": "user", which guards the sign-in page "/login" of `access.signIn`'),
+    })
+    await expect(build("{ signIn: '/sign-in', pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/sign-in" }])).rejects.toMatchObject({ message: expect.stringContaining('the sign-in page "/sign-in"') })
+    await expect(build("{ pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/login" }, { path: "/admin", meta: { auth: { only: "user", redirectTo: "/sign-in" } } }])).rejects.toMatchObject({ message: expect.stringContaining('the sign-in page "/sign-in" of the `redirectTo` of the page "/admin"') })
+    await expect(build("{ pages: { '/**': 'user', '/login': 'guest' } }", [{ path: "/login" }])).resolves.toBeDefined()
+    await expect(build("{ pages: { '/**': 'user', '/login': false } }", [{ path: "/login" }])).resolves.toBeDefined()
+    await expect(build("{ pages: { '/**': 'user' } }", [{ path: "/login", meta: { auth: "guest" } }])).resolves.toBeDefined()
+    await expect(build("{ signIn: { provider: 'github' }, pages: { '/**': 'user' } }", [{ path: "/" }])).resolves.toBeDefined()
+  })
+
+  it("allows a guest-only page to redirect signed-in users to a guarded page", async () => {
+    await expect(build("{ pages: { '/dashboard': 'user' } }", [
+      { path: "/login", meta: { auth: { only: "guest", redirectTo: "/dashboard" } } },
+      { path: "/dashboard" },
+    ])).resolves.toBeDefined()
+  })
+
+  it("uses the auth meta of the selected sign-in route", async () => {
+    const access = "{ pages: { '/**': 'user' } }"
+    const dynamic = { path: "/:slug()", meta: { auth: false } }
+    await expect(build(access, [dynamic, { path: "/login" }])).rejects.toMatchObject({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    await expect(build(access, [
+      dynamic,
+      { path: "/account", alias: ["/login"], meta: { auth: false }, children: [{ path: "" }] },
+    ])).resolves.toBeDefined()
+  })
+
+  it("applies route rules that Nuxt matches after splitting encoded slashes", async () => {
+    const pages = [{ path: "/login/:slug(.*)*" }]
+    await expect(build("{ signIn: '/login/a%2Fb', pages: { '/login/a/b': 'user' } }", pages)).rejects.toMatchObject({ code: "AUTH_PAGE_ROUTES_INVALID" })
+    await expect(build("{ signIn: '/login/a%2Fb', pages: { '/login/:slug': 'user', '/login/a/b': false } }", pages)).resolves.toBeDefined()
   })
 })

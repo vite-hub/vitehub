@@ -14,7 +14,6 @@ afterEach(async () => {
   await Promise.all(temporary.splice(0).map(path => rm(path, { force: true, recursive: true })));
 });
 
-/** A Docker CLI stand-in that records each call and answers the broker readiness probe. */
 async function fakeDocker(options: { processes?: boolean; failSignals?: boolean; serverVersion?: string; serverInfo?: Record<string, unknown> } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-container-"));
   temporary.push(root);
@@ -187,7 +186,6 @@ describe("container Sandbox runtime", () => {
     expect(command?.argv).toEqual(expect.arrayContaining(["-e", "GH_TOKEN", "-e", "PROJECT_ENV"]));
     expect(command?.env.GH_TOKEN).toMatch(/^vitehub-GH_TOKEN-[0-9a-f]{32}$/);
     expect(command?.env.PROJECT_ENV).toBe("test");
-    // The Docker CLI reads HOME itself, so the Sandbox value travels inline. Other names are inherited by name only.
     expect(command?.argv).toEqual(expect.arrayContaining(["-e", "HOME=/vitehub/home", "-e", "HTTPS_PROXY", "-e", "NODE_EXTRA_CA_CERTS"]));
 
     const removal = calls.find(call => call.argv[0] === "rm" && call.argv[1] === "-f");
@@ -209,7 +207,6 @@ describe("container Sandbox runtime", () => {
         controller.abort(reason);
         await expect(child.wait()).rejects.toBe(reason);
       }
-      // Even abort must wait for the remote signal command, rather than only killing the CLI.
       const calls = await fake.calls();
       expect(calls.filter(call => call.argv[0] === "signal-result").at(-1)?.argv[1]).toBe("0");
     } finally {
@@ -252,7 +249,6 @@ describe("container Sandbox runtime", () => {
 
 const dockerTests = process.env.VITEHUB_SANDBOX_DOCKER_TEST === "1";
 
-/** Runs against a real Docker daemon. Set VITEHUB_SANDBOX_DOCKER_TEST=1 to enable. */
 describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
   const image = process.env.VITEHUB_SANDBOX_DOCKER_IMAGE || "node:24-bookworm";
 
@@ -274,8 +270,6 @@ describe.skipIf(!dockerTests)("container Sandbox runtime with Docker", () => {
       const gateway = subnet.split("/")[0]!.replace(/\.\d+$/, ".1");
       const defaultGateway = execFileSync("docker", ["network", "inspect", "bridge", "--format", "{{(index .IPAM.Config 0).Gateway}}"], { encoding: "utf8" }).trim();
       for (const host of new Set([gateway, defaultGateway, "host.docker.internal"])) {
-        // Run against a local native Linux daemon so the listener shares the Docker host.
-        // A TCP socket ignores every proxy environment variable.
         const result = await session.exec("node", ["-e", `
           const socket = require('node:net').connect(${address.port}, ${JSON.stringify(host)});
           socket.on('connect', () => process.exit(1));

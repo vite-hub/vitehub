@@ -13,7 +13,6 @@ it.each(["options", "seo", "mcp"])("does not reserve /mcp for unknown %s, and se
   try {
     await mkdir(join(projectRoot, "server"))
     const helper = join(projectRoot, "content-helper.mjs")
-    // The real generated middleware delegates enabled requests to this handler boundary.
     await writeFile(helper, "export const defineContent = options => options; export const defineContentMcpHandler = () => ({ fetch: async () => new Response('Content MCP') })")
     for (const enabled of [undefined, false, true]) {
       const suffix = String(enabled)
@@ -28,14 +27,12 @@ it.each(["options", "seo", "mcp"])("does not reserve /mcp for unknown %s, and se
       const mcp = handlers.find(handler => handler.route === "/mcp")!
       if (!("middleware" in mcp)) throw new Error("Expected Content MCP middleware")
       expect(mcp.middleware).toBe(true)
-      // Give each fixture its own module URL so native ESM does not reuse the previous content configuration.
       const fixture = join(projectRoot, `middleware-${suffix}.mjs`)
       const content = join(projectRoot, `content-${suffix}.mjs`)
       await writeFile(content, await readFile(join(projectRoot, "server/content.mjs"), "utf8"))
       await writeFile(fixture, (await readFile(mcp.handler, "utf8")).replace(JSON.stringify(pathToFileURL(join(projectRoot, "server/content.mjs")).href), JSON.stringify(pathToFileURL(content).href)))
       const { default: middleware } = await import(/* @vite-ignore */ pathToFileURL(fixture).href)
       for (const baseURL of ["/", "/app/"]) {
-        // Nitro prefixes route-scoped middleware and handlers without rewriting the request URL.
         const route = `${baseURL}${mcp.route.slice(1)}`
         const app = new H3().use(route, middleware).post(route, () => new Response("App MCP"))
         const result = await app.request(route, { method: "POST" })
@@ -56,7 +53,6 @@ it("retains the collision guard when both MCP servers are explicitly enabled", a
     await mkdir(join(projectRoot, "server"))
     await writeFile(join(projectRoot, "server/content.mjs"), "import { defineContent } from '@vite-hub/content'; export default defineContent({ seo: { mcp: true } })")
     const handlers = await prepareSourceGeneration({ projectRoot })
-    // The app MCP server of `vitehub({ mcp })` writes its entry to .vitehub/nitro/mcp/.
     const appMcp = { handler: join(projectRoot, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" }
     let error: unknown
     try {
@@ -70,7 +66,6 @@ it("retains the collision guard when both MCP servers are explicitly enabled", a
       why: "[vitehub] defineContent({ seo: { mcp } }) serves its MCP server at \"/mcp\", and the app MCP server of vitehub({ mcp }) answers there too.",
       fix: expect.stringContaining("vitehub({ mcp: { route: '/mcp/app' } })"),
     })
-    // Another handler at /mcp gets the same diagnostic, which names it by file.
     expect(() => mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "/app/server/mcp-proxy.mjs", route: "/mcp" }] }, handlers))
       .toThrowError(expect.objectContaining({ code: "SOURCE_B0010", why: expect.stringContaining("the handler /app/server/mcp-proxy.mjs answers there too") }))
   }

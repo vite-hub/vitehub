@@ -301,7 +301,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       name: options.name,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
-      // `vitehub()` in a Vite config builds a Nitro server. Nuxt writes its own plugin and names itself.
       ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
       ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),

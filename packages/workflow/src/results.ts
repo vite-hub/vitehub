@@ -57,7 +57,6 @@ export interface WorkflowSignalResult {
 export type WorkflowOperationName = "cancel" | "get" | "resume" | "start"
 
 interface WorkflowOperationSupport {
-  /** Explains what the runtime does, or why it cannot do the operation. */
   note: string
   supported: boolean
 }

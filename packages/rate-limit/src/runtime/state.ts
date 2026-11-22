@@ -24,7 +24,6 @@ let kvRuntime: RateLimitKVRuntime | undefined
 let activeDriver: Promise<RateLimitRuntimeConfig["driver"]> | undefined
 const runtimeLimiters = new Map<string, Map<string, RateLimiter>>()
 
-/** The counters of this process, or in app tests the counters of the current test. */
 function limiters(): Map<string, Map<string, RateLimiter>> {
   const test = getViteHubTestMode()
   return test ? test.backend("rate-limit", () => new Map<string, Map<string, RateLimiter>>()) : runtimeLimiters
@@ -72,7 +71,6 @@ export async function resolveRateLimitDriver(): Promise<RateLimitRuntimeConfig["
   if (activeDriver) return await activeDriver
   const pending = resolveKVDriver(requireKVRuntime(), memoryFallback)
   activeDriver = pending
-  // A failed choice, for example an unknown KV store, fails this call and lets the next call try again.
   void pending.catch(() => {
     if (activeDriver === pending) activeDriver = undefined
   })

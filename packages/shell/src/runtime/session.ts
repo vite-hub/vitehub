@@ -47,7 +47,6 @@ function normalizeLimit(value: number | undefined): number | undefined {
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
 }
 
-/** A per-call limit can only lower the policy limit. */
 function lowerLimit(requested: number | undefined, policy: number | undefined): number | undefined {
   const call = normalizeLimit(requested)
   const bound = normalizeLimit(policy)
@@ -90,7 +89,6 @@ function createTimeoutObservation(command: string, cwd: string | undefined, time
   }
 }
 
-/** Race the driver against the timeout, then abort the driver work. */
 async function execWithRuntimeTimeout(
   driver: ShellDriver,
   command: string,
@@ -102,7 +100,6 @@ async function execWithRuntimeTimeout(
     ...options,
     signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
   })
-  // The driver may reject after the timeout aborts it. That late result is not observed.
   running.catch(() => {})
   let timer: ReturnType<typeof setTimeout> | undefined
   const timedOut = new Promise<ShellObservation>((resolve) => {
@@ -159,8 +156,6 @@ class RuntimeShellSession implements ShellSession {
     if (this.#disposed) {
       return createPolicyObservation(command, options.cwd, shellSessionDisposedMessage)
     }
-    // Count every attempted shell invocation against the shared Invocation budget,
-    // including calls rejected by the per-session shell cap below, unless the caller already charged it.
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     if (typeof this.policy.maxShellCalls === "number" && this.#shellCalls >= this.policy.maxShellCalls) {
       return createPolicyObservation(
@@ -225,7 +220,6 @@ class RuntimeShellSession implements ShellSession {
     this.#starts.add(start)
     void start.finally(() => this.#starts.delete(start))
 
-    // A runtime timeout counts from the start call, so a slow or stuck driver startup is bounded too.
     const timeout = this.boundary.timeout.enforcedBy === "runtime" ? options.timeout : undefined
     const controller = timeout === undefined ? undefined : new AbortController()
     let stop: (() => Promise<ShellObservation>) | undefined
@@ -257,7 +251,6 @@ class RuntimeShellSession implements ShellSession {
     catch (error) {
       clearTimeout(timer)
       finishStart()
-      // The driver may still return a handle after the runtime gave up on it. Stop that late process.
       if (controller?.signal.aborted) void starting?.then(late => late.stop()).catch(() => {})
       throw error
     }
@@ -313,7 +306,6 @@ class RuntimeShellSession implements ShellSession {
     this.#disposed = true
     if (this.#disposeTask) return this.#disposeTask
     this.#disposeTask = (async () => {
-      // A runtime-timed start stops waiting for its driver now. Its late handle is stopped when it arrives.
       for (const cancel of this.#cancelStarts) cancel(shellErrorDiagnostics.SHELL_R0012({ message: shellSessionDisposedMessage }))
       await Promise.all(this.#starts)
       const failures: unknown[] = []

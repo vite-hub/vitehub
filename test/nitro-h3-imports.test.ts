@@ -4,21 +4,12 @@ import { join, resolve } from "node:path"
 
 import { expect, it } from "vitest"
 
-/**
- * Nuxt 5 applies its Nitro v2 compatibility layer to the whole app when server code imports values from `h3`, and
- * warns `NUXT_B9003` with the package name. `nitro/h3` is the same H3, and Nuxt reads it as Nitro 3 code. So package
- * sources import H3 values from `nitro/h3`, and import only types from `h3`. A package that imports `nitro/h3` declares
- * `nitro` as a peer dependency, as `vite-hub` does.
- */
-
 const repoRoot = resolve(import.meta.dirname, "..")
 
-/** Files that never run in a Nitro server, with the reason. */
 const exceptions: Readonly<Record<string, string>> = {
   "packages/internal/src/runtime/vercel-hosted.ts": "The Vercel server of a Vite app without Nitro. It builds its own H3 app.",
 }
 
-/** Packages that import `nitro/h3` without a `nitro` peer, with the reason. */
 const peerExceptions: Readonly<Record<string, string>> = {
   "packages/docs": "A Nuxt layer for docs sites. The Nuxt app that extends it installs Nitro.",
 }

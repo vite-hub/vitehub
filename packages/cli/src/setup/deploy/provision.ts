@@ -34,13 +34,11 @@ export interface DeployProvisionInput {
   rerun: string
 }
 
-/** A step whose recorded state declares nothing has no resource to create, so deploy does not ask the host. */
 function declaresResources(step: ProvisionStep, env: NodeJS.ProcessEnv): boolean {
   const described = step.recordedState?.({ env })
   return described === undefined || described.some(category => category.declared.length > 0)
 }
 
-/** Says which credential the steps miss, for the reason of SETUP_DEPLOY_PROVISION_UNCHECKED. */
 function missingCredential(host: ProvisionProvider, env: NodeJS.ProcessEnv): string {
   if (host === "cloudflare" && !env.CLOUDFLARE_ACCOUNT_ID?.trim()) {
     return "Set CLOUDFLARE_ACCOUNT_ID, or run `vitehub link --host cloudflare --account <id>`. A `wrangler login` with several accounts does not say which one to use."
@@ -79,9 +77,7 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
   const loaded = await context.loadProvision(host)
   const steps = loaded.steps.filter(step => step.provider === host && declaresResources(step, env))
   if (!steps.length) return
-  // The build reads the ids from the config root, which is the project root unless the config moves it.
   const root = loaded.rootDir
-  // An unreadable state file would lose the ids of the resources that this deploy creates.
   await readProvisionState(root)
 
   const plan = await planProvisionSteps(host, steps, {
@@ -108,13 +104,11 @@ export async function provisionForDeploy(input: DeployProvisionInput, context: V
       context.stdout.write(`Provision on ${host}:\n`)
       writeProvisionActions(changes.map(change => change.planned), context.stdout)
     }
-    // The deploy question already ran, so without --yes this is a terminal.
     if (!input.yes && !await confirmProvision(changes.length, host)) {
       throw setupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The resources were not confirmed. Nothing was created or deployed." }), setupExitCodes.error)
     }
   }
 
-  // apply() of an existing resource creates nothing and returns its ids, so the state file stays complete.
   let state: ProvisionState = {}
   try {
     for (const { action } of plan.actions) {

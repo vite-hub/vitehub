@@ -3,6 +3,7 @@ import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult
 import type { ViteHubContext } from "@vite-hub/runtime/internal/h3"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
+import type { AuthPages } from "./nuxt-types.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 import type { AuthSchemaOptions } from "./table-specs.ts"
@@ -162,6 +163,12 @@ export interface AuthAccessConfiguration {
    * user from an `auth: 'guest'` page. Default: `"/"`.
    */
   afterSignIn?: string
+  /**
+   * Nuxt pages that the page guard protects, by route pattern: `'user'`, `'guest'`, or `false`, such as
+   * `{ '/dashboard/**': 'user', '/login': 'guest' }`. The most specific pattern wins, and `definePageMeta({ auth })` of
+   * a page wins over all patterns. Vite apps without Nuxt ignore it.
+   */
+  pages?: AuthPages
 }
 
 /** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
@@ -257,6 +264,8 @@ export interface ResolvedAuthViteConfig {
     signIn?: { page: string } | { provider: true }
     /** `access.afterSignIn`. Set only when the Definition has it. */
     afterSignIn?: string
+    /** `access.pages`. Set only when the Definition has it. */
+    pages?: AuthPages
   }
   basePath: string
   /** `components` of the Definition, which the Nuxt module reads at build time. Set only when the Definition has a prefix. */

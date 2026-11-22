@@ -31,13 +31,11 @@ async function createApp(dialect: "postgresql" | "sqlite", serverDir = "server")
 
 type Hook<T extends unknown[], R> = { handler: (...args: T) => R }
 
-/** The Database Vite plugin as KV sees it, with the configuration that the Database integration resolves. */
 function databasePlugin(root: string, serverDirs?: string[]): Plugin {
   // SAFETY: KV reads only `name` and `api.getConfig()` of the Database plugin.
   return { name: "@vite-hub/database/vite", api: { getConfig: () => resolveDBViteConfig(undefined, root, { implicitDefault: true, serverDirs }) } } as Plugin
 }
 
-/** Runs the plugin as a Vite build does and returns the generated `#vitehub/kv/config` module. */
 async function generatedConfig(root: string, plugins: Plugin[], options?: Parameters<typeof hubKV>[1]): Promise<string> {
   const plugin = hubKV(undefined, options)
   // SAFETY: The test passes the fields of a resolved Vite config that the KV plugin reads.

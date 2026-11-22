@@ -21,7 +21,6 @@ export interface LocaleState {
 const localeKey: InjectionKey<LocaleState> = Symbol("vite-hub.i18n.locale")
 const instanceKey: InjectionKey<{ i18n: I18n, locale: Ref<string> }> = Symbol.for("vite-hub.i18n.instance")
 
-// Track default-runtime messages that run outside a Vue injection context.
 const activeLocale = shallowRef<string>()
 
 /**
@@ -72,7 +71,6 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
       })
       app.use(createLingui({ i18n }))
       app.component("Trans", Trans)
-      // Reading `locale` makes each template that calls `t` re-render after a locale change.
       // SAFETY: the build compiles each ``t`...` `` call in a template to `t(descriptor)`, so the runtime receives a descriptor.
       app.config.globalProperties.t = ((descriptor: MessageDescriptor) => {
         void locale.value
@@ -107,7 +105,6 @@ export function useLocale(): LocaleState {
 
 declare module "vue" {
   interface ComponentCustomProperties {
-    /** Translate a message in a template: ``{{ t`Save` }}``. ViteHub compiles it at build time. */
     t: (strings: TemplateStringsArray, ...values: unknown[]) => string
   }
 }

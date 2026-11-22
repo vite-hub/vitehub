@@ -11,7 +11,6 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-/** A fake Cloudflare Workflow binding. `terminate()` throws on a finished instance, as Cloudflare does. */
 function cloudflareBinding(statuses: Record<string, string>, options: { terminate?: (id: string) => Promise<void> } = {}) {
   const terminate = vi.fn(options.terminate ?? (async (id: string) => {
     if (["complete", "errored", "terminated"].includes(statuses[id]!)) {

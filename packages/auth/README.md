@@ -513,7 +513,8 @@ const { data: sessions } = await useAsyncData("sessions", async () => {
 | `'user'` or `true` | Visitors with a session | `access.signIn` (default `/login`), with `?redirect=<the page>`. A provider opens `<basePath>/sign-in`. |
 | `'guest'` | Visitors without a session, such as on the login page | `access.afterSignIn` (default `/`) |
 | `{ only, redirectTo }` | `only` is `'user'` or `'guest'` | `redirectTo` |
-| `false` or unset | Everyone | |
+| `false` | Everyone | |
+| Not set | The mode of the most specific `access.pages` pattern, or everyone if no pattern matches | |
 
 ```ts
 // server/auth.ts
@@ -521,6 +522,19 @@ import { defineAuth } from "@vite-hub/auth"
 
 export default defineAuth({
   access: { signIn: "/sign-in", afterSignIn: "/app" },
+})
+```
+
+To guard pages from the Auth Definition, map route patterns to `'user'`, `'guest'`, or `false` in `access.pages`. The Nuxt module reads it at build time and adds the guard to the `appMiddleware` route rule of each pattern, so the server render and navigation in the browser send the visitor to the same page. The most specific pattern wins, `false` removes the guard of a wider pattern, and `definePageMeta({ auth })` of a page wins over all patterns. A key has static segments, `:name`, and a last `/**`. Optional, repeated, and regex params stop the build with `AUTH_PAGE_ROUTES_INVALID`, because Nuxt then orders patterns by position and not by how specific they are. So do two keys that match the same pages, such as keys that differ only in param names, letter case, or percent-encoding.
+
+The build also stops with `AUTH_PAGE_ROUTES_INVALID` when `access.pages` applies a `'user'` guard to `access.signIn` or to a `redirectTo` for signed-out visitors. A guest-only page can still redirect signed-in users to a `'user'` page.
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
+export default defineAuth({
+  access: { pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } },
 })
 ```
 
@@ -532,7 +546,7 @@ The guard runs when the route changes. On a `'user'` page, `signOut()` of `useUs
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
 
-The Nitro build fails with `AUTH_GUARDED_PAGE_CACHED` when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards: `swr`, `cache`, `isr`, `prerender`, or `static`. The page guard runs when the server renders the page, so a cached page serves the render of one visitor to all visitors. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. The check reads `<page>/_payload.json` as a separate path, so use a pattern such as `'/dashboard/**'` that matches the page and its payload. A public page with a static path, such as `/users/public`, may be cached when the route rule key is that exact path or its `/_payload.json`. A guest page, such as the login page, may be prerendered, and a path with `ssr: false` is not checked. The check reads `auth` when `definePageMeta()` sets it to a literal value. The module adds `auth` to Nuxt's `experimental.extraPageMetaExtractionKeys` for this.
+The Nitro build fails with `AUTH_GUARDED_PAGE_CACHED` when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards: `swr`, `cache`, `isr`, `prerender`, or `static`. The page guard runs when the server renders the page, so a cached page serves the render of one visitor to all visitors. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. The check reads `<page>/_payload.json` as a separate path, so use a pattern such as `'/dashboard/**'` that matches the page and its payload. A public page with a static path, such as `/users/public`, may be cached when the route rule key is that exact path or its `/_payload.json`. A guest page, such as the login page, may be prerendered, and a path with `ssr: false` is not checked. With `access.pages`, a path whose most specific key is `false` may be cached, and a path whose most specific key is `'guest'` may be prerendered. The check reads `auth` when `definePageMeta()` sets it to a literal value. The module adds `auth` to Nuxt's `experimental.extraPageMetaExtractionKeys` for this.
 
 ## GitHub organization membership
 

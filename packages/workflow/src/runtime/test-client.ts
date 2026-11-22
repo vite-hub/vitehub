@@ -24,7 +24,6 @@ function toWorkflowRun<TPayload>(run: WorkflowTestRun, provider: WorkflowDriver)
 export function recordWorkflowTestRun<TPayload>(test: ViteHubTestMode, provider: WorkflowDriver, input: { deferred: boolean, id: string, name: string, payload: TPayload | undefined }): WorkflowRun<TPayload, unknown> {
   const runs = workflowTestRuns(test)
   const existing = runs.find(run => run.workflow === input.name && run.id === input.id)
-  // A run id starts one run, as with every provider, so a second start returns the first run.
   if (existing) return toWorkflowRun(existing, provider)
   const run: WorkflowTestRun = { deferred: input.deferred, id: input.id, payload: structuredClone(input.payload), status: "queued", workflow: input.name }
   runs.push(run)

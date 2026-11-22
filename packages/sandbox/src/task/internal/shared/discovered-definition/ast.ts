@@ -203,8 +203,6 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
         if (!binding.isTypeOnly) {
           directBindings.add(binding.name.text)
           directBindingOperations.set(binding.name.text, binding.propertyName?.text ?? binding.name.text)
-          // Named imports can themselves expose an object API, for example
-          // `import { promises as fs } from "node:fs"`.
           namespaceBindings.add(binding.name.text)
         }
       }
@@ -414,8 +412,6 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
     if (typescript.isIdentifier(node)
       && (directBindings.has(node.text) || namespaceBindings.has(node.text))
       && !isTrackedFilesystemBindingUse(node)) {
-      // Once a filesystem function escapes into an object, array, callback,
-      // or another value we do not model, its eventual path is unknown.
       references.push({ relativeTo: 'working-directory' })
     }
     if (typescript.isCallExpression(node)
@@ -423,9 +419,6 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
       && node.arguments[0]
       && typescript.isStringLiteralLike(node.arguments[0])
       && filesystemModuleSpecifiers.has(node.arguments[0].text)) {
-      // Dynamic-import bindings can flow through await, promises, and
-      // destructuring. Preserve the project when a Definition loads a
-      // filesystem module this way unless a future analysis proves its paths.
       references.push({ relativeTo: 'working-directory' })
     }
     if (typescript.isCallExpression(node) || typescript.isNewExpression(node)) {
@@ -436,8 +429,6 @@ export function findFilesystemPathReferences(source: string, id: string): Filesy
         const reference = operation === 'exec' || operation === 'execSync'
           ? undefined
           : resolveFilesystemPath(node.arguments?.[0])
-        // mkdtemp creates a new runtime directory; its prefix cannot identify
-        // an existing project asset that needs to be retained.
         if (operation !== 'mkdtemp' && reference !== 'runtime') {
           references.push(hasChildProcessArguments ? {
             relativeTo: 'working-directory',

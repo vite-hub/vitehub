@@ -655,8 +655,6 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       }
       resetProviderOutputRuntime(providerOutput)
       siblingRuntimeGenerations.capture(this, providerOutput)
-      // Each environment of the build starts once, and the migrations are the same for all of them. Under Nuxt, the
-      // module checks this in `nitro:config`.
       if (resolved?.command === "build" && runtimeConfig && !(database && "nuxtHostResource" in database)) {
         contributedTablesChecked ??= assertContributedTablesGenerated(runtimeConfig, { alias: viteStringAliases(resolved.resolve?.alias) })
         return contributedTablesChecked

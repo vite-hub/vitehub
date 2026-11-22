@@ -11,7 +11,6 @@ describe("ExecutionBudget", () => {
       const budget = kind === "root" ? root : root.child({ deadlineAt })
       const descendant = budget.child()
       try {
-        // Moving the clock does not deliver the pending deadline timer.
         vi.setSystemTime(deadlineAt)
         expect(budget.signal.aborted).toBe(false)
         const charge = () => {
@@ -46,7 +45,6 @@ describe("ExecutionBudget", () => {
       try {
         root.recordToolCall(3)
         const usage = root.snapshot().usage
-        // Expire the inherited deadline without delivering any deadline timer.
         vi.setSystemTime(deadlineAt)
         expect(owner.signal.aborted).toBe(false)
         const charge = () => {

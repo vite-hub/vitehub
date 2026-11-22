@@ -56,8 +56,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   let kvPromise: Promise<DenoKV> | undefined
   let disposed = false
   let disposal: Promise<void> | undefined
-  // Keep history with the continuation cursor that carries it. Consuming the
-  // entry before awaiting Deno lets concurrent traversals remain independent.
   const cursorNamespace = `deno-kv:${options.path ?? "default"}`
   const cursorHistories = createCursorHistory(cursorNamespace)
 
@@ -82,7 +80,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    // Deno KV lists structured keys; scan/filter keeps ViteHub string-prefix keys correct.
     for await (const entry of kv.list({ prefix: [] })) {
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
@@ -112,7 +109,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
           }
         }
         finally {
-          // An in-flight listing can finish after the provider teardown.
           cursorHistories.clear()
         }
       })()
@@ -162,7 +158,6 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async setIfAbsentItem(key, value, ttl) {
       const denoKey = toDenoKey(key)
-      // A null versionstamp check commits only while the key is missing.
       const result = await (await open()).atomic()
         .check({ key: denoKey, versionstamp: null })
         .set(denoKey, value, toDenoExpireIn(ttl))

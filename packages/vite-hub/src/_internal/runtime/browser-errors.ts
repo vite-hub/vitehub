@@ -9,7 +9,6 @@ const perMinute = 20
 
 const kinds = new Set(["error", "unhandledrejection", "chunk", "vue", "nuxt", "handled"])
 
-/** The most fields a report can have. */
 const maxFields = 20
 
 const fieldName = /^[A-Za-z][\w.-]{0,39}$/
@@ -54,11 +53,6 @@ function isRecord(value: unknown): value is object {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-/**
- * The first 20 flat values with plain names, each string cut to 300 characters, and how many other entries it dropped.
- * A nested value would let a page write any shape into the event. A bad entry does not drop the report: the page sends
- * each error once, so a refused report is lost.
- */
 function parseFields(value: unknown): { fields: Record<string, BrowserReportField>, dropped: number } {
   if (!isRecord(value)) return { fields: {}, dropped: value === undefined ? 0 : 1 }
   const fields: Record<string, BrowserReportField> = {}
@@ -76,7 +70,6 @@ function parseFields(value: unknown): { fields: Record<string, BrowserReportFiel
   return { fields, dropped }
 }
 
-/** The count of fields that the page dropped before it sent the report. */
 function pageDropped(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 1000 ? value : 0
 }
@@ -88,7 +81,6 @@ export function parseBrowserErrorReport(body: unknown): BrowserErrorReport | und
   const path: unknown = Reflect.get(body, "path")
   const message = text(Reflect.get(body, "message"), 1000)
   if (typeof kind !== "string" || !kinds.has(kind) || typeof path !== "string" || !path.startsWith("/") || message === undefined) return undefined
-  // A bad action, level, or field is ignored, never a reason to lose the report.
   const action = text(Reflect.get(body, "action"), 100)
   const { fields, dropped } = parseFields(Reflect.get(body, "fields"))
   const droppedFields = dropped + pageDropped(Reflect.get(body, "droppedFields"))
@@ -96,7 +88,6 @@ export function parseBrowserErrorReport(body: unknown): BrowserErrorReport | und
   return {
     kind,
     path: path.split(/[?#]/, 1)[0]!.slice(0, 300),
-    // An uncaught error is always an error, whatever the page says.
     level: kind === "handled" && Reflect.get(body, "level") === "warn" ? "warn" : "error",
     ...(action ? { action } : {}),
     ...(Object.keys(fields).length > 0 ? { fields } : {}),

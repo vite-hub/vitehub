@@ -564,8 +564,6 @@ describe("renamed KV drivers", () => {
 })
 
 describe("unknown KV store options", () => {
-  // strata kept its config in `build/host-profile.ts`. It dropped `driver` from `{ binding, driver, namespaceId }`, and
-  // KV used the default binding and namespace instead of its own.
   const hostProfile = { binding: "STRATA_KV", namespaceId: "4f701e72f4414181b2a760cbb798fa8d" }
 
   it("throws for a driver option of a store without driver, and names the driver that reads it", () => {

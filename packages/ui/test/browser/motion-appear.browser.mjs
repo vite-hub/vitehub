@@ -1,11 +1,3 @@
-// The appear effects of `@vite-hub/ui/motion` in Chromium: tooltips, toasts, and the reading surfaces that open at
-// once. It runs the page `motion/appear.html` and reads each effect frame by frame.
-//
-// Run: node --test test/browser/motion-appear.browser.mjs
-//
-// Record mode: MOTION_RECORD=<dir> also records each effect at ¼× (today and with the layer), and writes the frames,
-// one tiled image, and one video. MOTION_PROTOTYPE=<file> adds the toolbar tooltip of the prototype HTML file. It needs
-// ffmpeg.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
@@ -50,11 +42,6 @@ async function open(query = "", options = {}) {
   return { context, errors, page }
 }
 
-/**
- * Records, on every frame until `stop()`, each tooltip box that a person can see: the box of each `role=tooltip`
- * (Reka's box is the parent of a visually hidden `role=tooltip`) and each ghost of one. For each it keeps the visual
- * rect, its inline motion, and whether it is a ghost.
- */
 async function sampleTooltips(page) {
   await page.evaluate(() => {
     const frames = []
@@ -113,7 +100,6 @@ async function hover(page, selector) {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 })
 }
 
-/** Waits until no tooltip box has inline motion and no ghost is left. */
 async function settled(page) {
   await page.waitForFunction(() => ![...document.querySelectorAll("[data-motion=none][aria-hidden=true]")].length
     && [...document.querySelectorAll("[role=tooltip]")].every((element) => {
@@ -137,18 +123,15 @@ describe("tooltip", async () => {
       const rect = box.getBoundingClientRect()
       return { bottom: rect.bottom, width: rect.width, offsetWidth: box.offsetWidth, translate: box.style.translate, scale: box.style.scale, clip: getComputedStyle(box).clipPath }
     })
-    // It starts behind the trigger: its clip hides what is below the top edge of the trigger, and it is narrow.
     assert.ok(first.bottom > trigger.y + 4, `the first frame sits low, behind the trigger (bottom ${first.bottom}, trigger top ${trigger.y})`)
     assert.notEqual(first.clip, "none", "the first frame is clipped at the trigger")
     assert.ok(first.width < last.width * 0.75, `the first frame is narrow (${first.width} of ${last.width})`)
     assert.ok(first.label.every(opacity => opacity < 0.05), "the label is not shown while it rises")
-    // It ends where Floating UI put it, at full width, with nothing left inline.
     assert.ok(last.bottom <= trigger.y, "it ends above its trigger")
     assert.ok(Math.abs(last.width - last.offsetWidth) < 0.5, "it ends at full width")
     assert.equal(last.translate, "")
     assert.equal(last.scale, "")
     assert.equal(last.clip, "none")
-    // It rises: its top goes up over several frames, it does not jump.
     const tops = visible.map(box => box.top)
     assert.ok(tops.filter((top, index) => index && top < tops[index - 1] - 0.1).length >= 4, "it rises over several frames")
     assert.deepEqual(errors, [])
@@ -163,12 +146,10 @@ describe("tooltip", async () => {
     const from = await rectOf(page, "[data-test='tool-Edit']")
     const to = await rectOf(page, "[data-test='tool-Notifications']")
     const trace = await sampleTooltips(page)
-    // A person moves the pointer across the toolbar, so the pointer moves on each frame.
     await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 })
     await page.waitForTimeout(100)
     await settled(page)
     const frames = await trace.stop()
-    // A person sees a tooltip in every frame: the box that leaves hands over to the box that comes.
     assert.deepEqual(frames.filter(frame => !frame.some(box => box.opacity > 0.5)).length, 0, "no frame is without a tooltip")
     const centers = frames.map(frame => frame.find(box => !box.ghost && box.opacity > 0) ?? frame[0]).map(box => (box.left + box.right) / 2)
     const start = from.x + from.width / 2
@@ -176,11 +157,9 @@ describe("tooltip", async () => {
     const between = centers.filter(center => center > start + 4 && center < end - 4)
     assert.ok(between.length >= 4, `it slides through ${between.length} frames between the triggers`)
     assert.ok(Math.abs(centers.at(-1) - end) < 1, "it ends over the new trigger")
-    // It also widens to the longer label instead of jumping.
     const widths = frames.map(frame => frame.find(box => !box.ghost)?.width).filter(Boolean)
     assert.ok(new Set(widths.map(width => Math.round(width))).size > 4, "its width changes over several frames")
 
-    // Leaving the toolbar: the box narrows and sinks behind its trigger, then goes.
     const sink = await sampleTooltips(page)
     await page.mouse.move(450, 880)
     await settled(page)
@@ -306,7 +285,6 @@ describe("tooltip", async () => {
 })
 
 describe("reading surfaces", async () => {
-  /** Opens a surface and reads its first frame: opacity, scale, animation, and its rect in that frame and later. */
   async function firstFrame(page, trigger, selector) {
     await page.evaluate((selector) => {
       window.firstFrame = new Promise((resolve) => {
@@ -364,7 +342,6 @@ describe("reading surfaces", async () => {
 })
 
 describe("toast", async () => {
-  /** Records the `translate` and the rect of every toast and toast ghost on every frame until `stop()`. */
   async function sampleToasts(page, selector) {
     await page.evaluate((selector) => {
       const frames = []
@@ -548,11 +525,9 @@ if (recordDir) {
         },
       })
     }
-    // The first visit can reload the page while Vite optimizes dependencies, so warm it up first.
     const warm = await open()
     await warm.context.close()
     for (const subject of subjects) await record(subject)
-    // One video per effect: today, then the motion layer, then the prototype, side by side.
     const ffmpeg = (...args) => execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...args])
     for (const [name, parts] of [["tooltip", ["today", "new", "prototype"]], ["toaster", ["today", "new"]], ["modal", ["today", "new"]]]) {
       const inputs = parts.map(part => join(recordDir, `${name}-${part}.mp4`)).filter(file => existsSync(file))
@@ -562,10 +537,6 @@ if (recordDir) {
   })
 }
 
-/**
- * Runs the steps of one effect at ¼× and records each frame that Chromium paints around the element, then writes one
- * video and one tiled image of 24 frames.
- */
 async function record({ name, query = "", url, selector, pad = [20, 20], area, prototype, steps }) {
   const context = await browser.newContext({ viewport: { width: 900, height: 900 } })
   const page = await context.newPage()
@@ -582,13 +553,11 @@ async function record({ name, query = "", url, selector, pad = [20, 20], area, p
     })
   }
   else if (query.includes("today")) {
-    // The animations of the theme before the layer are CSS, so the browser slows them.
     const cdp = await context.newCDPSession(page)
     await cdp.send("Animation.enable")
     await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.25 })
   }
   else await page.locator("[data-test=speed]").click()
-  // A headless browser draws no pointer, so the page draws one that follows the mouse.
   const arrow = encodeURIComponent("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 14 20\"><path d=\"M1 1v16l4-4 3 6 2-1-3-6h6z\" fill=\"#111\" stroke=\"#fff\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></svg>")
   await page.addStyleTag({ content: `#record-pointer{position:fixed;left:0;top:0;z-index:2147483647;width:14px;height:20px;background:url("data:image/svg+xml,${arrow}");pointer-events:none}` })
   await page.evaluate(() => {

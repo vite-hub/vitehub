@@ -27,7 +27,6 @@ function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBindin
   return Boolean(value) && typeof value === "object" && typeof (value as CloudflareRateLimitBinding).limit === "function"
 }
 
-/** What a guard reads from the request that it limits. */
 interface RateLimitRequestScope {
   clientAddress?: string
   cloudflareEnv?: Record<string, unknown>
@@ -48,7 +47,6 @@ function isWebRequest(value: unknown): value is Request {
     && typeof Reflect.get(headers, "get") === "function"
 }
 
-/** Structural Requests may carry unrelated event-named properties, so identify the event's shape. */
 function isRequestEvent(input: RateLimitRequestEvent): input is ViteHubContext {
   if ("~standard" in input) {
     const standard: unknown = input["~standard"]
@@ -57,12 +55,10 @@ function isRequestEvent(input: RateLimitRequestEvent): input is ViteHubContext {
       && isWebRequest(Reflect.get(standard, "req"))
       && isObject(Reflect.get(standard, "res"))
   }
-  // Match the H3 shape that getStandardContext() can adapt when Nitro has not installed it yet.
   return Object.hasOwn(input, "req") && isWebRequest(Reflect.get(input, "req")) && isObject(Reflect.get(input, "res"))
 }
 
 function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
-  // A Request has no client address. On Cloudflare, the bindings are those of the request that runs.
   if (!isRequestEvent(input)) return { cloudflareEnv: getActiveCloudflareEnv(), headers: input.headers }
   const standard = getStandardContext(input)
   return {
@@ -78,7 +74,6 @@ function getRequestKey(scope: RateLimitRequestScope, driver: "cloudflare" | "kv"
     : scope.clientAddress
 }
 
-/** A failure of one check, such as a request without a key. Option errors throw instead. */
 function checkError<TCode extends CheckRateLimitErrorCode>(code: TCode, message: string): ResultError<TCode> {
   const diagnostic = code === "RATE_LIMIT_R0009"
     ? rateLimitErrorDiagnostics.RATE_LIMIT_R0009({ message })
@@ -101,9 +96,7 @@ function getCloudflareRateLimiter(scope: RateLimitRequestScope, name: string, po
   })]
 }
 
-/** One guard call, after ViteHub checked its options and found its key. */
 interface RateLimitCall {
-  /** The driver that counts this call. On Cloudflare, a window that the binding does not support counts in KV. */
   counter: RateLimitRuntimeConfig["driver"]
   id: string
   key: string
@@ -134,7 +127,6 @@ async function resolveRateLimitCall(
   const resolved = normalizeRateLimitPolicy(options)
   const driver = await resolveRateLimitDriver()
   const scope = getRequestScope(event)
-  // A test request has no client address, so in app tests all requests without a key count as one client.
   const key = options.key ?? getRequestKey(scope, driver) ?? (getViteHubTestMode() ? "test-client" : undefined)
   if (!key) {
     return [checkError("RATE_LIMIT_R0013", `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.`), undefined]
@@ -157,7 +149,6 @@ async function consumeRateLimit(
   if (error) return [error, undefined]
   const decision = await limiter.consume({ key: call.key })
   if (decision.reason) {
-    // The key can be a client address or a user id, so the event says only where it came from.
     requestLog(event)?.set({ rateLimit: [{
       name: call.id,
       limit: call.policy.limit,

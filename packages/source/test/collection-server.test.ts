@@ -96,7 +96,6 @@ describe("defineCollectionHandler", () => {
       }
     }
 
-    // Mirrors Auth's withAuthorization contract: the Auth package tests the real session lookup.
     const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (request) => {
       const user = request.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })

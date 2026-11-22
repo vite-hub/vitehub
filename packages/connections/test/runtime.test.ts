@@ -68,7 +68,6 @@ describe("connect", () => {
     const challenge = base64Url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(exchange.get("code_verifier")!)))
     expect(challenge).toBe(authorization.searchParams.get("code_challenge"))
 
-    // A state is single use.
     expect(await rejection(test.runtime.complete({ actor: "user:owner", code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
   })
 
@@ -101,7 +100,6 @@ describe("connect", () => {
   it("quarantines an unidentified replacement grant without clearing the account", async () => {
     const test = createTestRuntime()
     await connect(test)
-    // Model a provider consuming the existing grant while issuing the rejected account token.
     test.provider.valid.delete(ACCESS_TOKEN)
     await expect(connect(test, { id_token: undefined, access_token: "unknown-access", refresh_token: "unknown-refresh" })).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/revoke")).toHaveLength(0)
@@ -243,7 +241,6 @@ describe("connect", () => {
     test.provider.valid.add("access-two")
     test.provider.fetch = async (...args) => {
       const response = await providerFetch(...args)
-      // Some providers revoke the entire application grant, including the winning token.
       if (String(args[0]) === "https://auth.example.com/revoke") test.provider.valid.clear()
       return response
     }
@@ -448,10 +445,9 @@ describe("calls", () => {
     test.provider.tokenResponses.push({ body: { access_token: "access-2", expires_in: 3600 } })
     const client = test.runtime.client("mail", {})
     await Promise.all([client.call("mail.labels.list", { userId: "me" }), client.call("mail.labels.list", { userId: "me" })])
-    expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/token")).toHaveLength(2) // connect + one refresh
+    expect(test.provider.calls.filter(call => call.url === "https://auth.example.com/token")).toHaveLength(2)
     const refresh = new URLSearchParams(test.provider.calls.find(call => call.body?.includes("grant_type=refresh_token"))!.body)
     expect(refresh.get("refresh_token")).toBe(REFRESH_TOKEN)
-    // The refresh keeps the refresh token when the provider does not rotate it.
     test.now.value += 3600_000
     test.provider.valid = new Set(["access-3"])
     test.provider.tokenResponses.push({ body: { access_token: "access-3", expires_in: 3600 } })
@@ -472,7 +468,6 @@ describe("calls", () => {
       second.client("mail", {}).call("mail.labels.list", { userId: "me" }),
     ])
     const tokens = first.provider.calls.filter(call => call.url.startsWith("https://mail.example.com/")).map(call => call.headers.get("authorization"))
-    // The losing isolate discards its token and uses the stored one.
     expect(new Set(tokens).size).toBe(1)
   })
 
@@ -810,7 +805,6 @@ describe("approvals", () => {
     }
     const calls = test.provider.calls.length
     const client = test.runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) })
-    // A disconnected or revoked Connection is not connected. One without a usable grant must be connected again.
     const code = status === "disconnected" || status === "revoked" ? "CONNECTIONS_NOT_CONNECTED" : "CONNECTIONS_NEEDS_RECONNECT"
     expect(await rejection(client.call("mail.messages.modify", { id: "m1", userId: "me" }))).toMatchObject({ code })
     expect(await rejection(client.fetch("https://mail.example.com/mail/v1/users/me/messages/m1/modify", { method: "POST" }))).toMatchObject({ code })
@@ -867,7 +861,6 @@ describe("approvals", () => {
     // @ts-expect-error A decision needs the actor that made it.
     expect(await rejection(test.runtime.approve({ id }))).toMatchObject({ code: "CONNECTIONS_INVALID_ACTOR" })
     const missing = { code: "CONNECTIONS_INVALID_ACTOR", why: expect.stringContaining("requires `actor`") }
-    // A JavaScript caller can omit `actor` or send an empty one.
     for (const actor of [undefined, ""]) {
       const caller = { actor } as unknown as { actor: string }
       expect(await rejection(test.runtime.approve({ ...caller, id }))).toMatchObject(missing)
@@ -879,7 +872,6 @@ describe("approvals", () => {
     }
     expect((await test.runtime.approvals({ status: "pending" })).approvals).toEqual([expect.objectContaining({ id, status: "pending" })])
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "connected" })
-    // The rejected callbacks did not consume the state, so the actor check still finds it.
     expect(await rejection(test.runtime.complete({ actor: "user:other", code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_FORBIDDEN" })
     expect(await test.runtime.deny({ actor: "user:owner", id })).toMatchObject({ decidedBy: "user:owner", status: "denied" })
   })
@@ -968,7 +960,6 @@ describe("approvals", () => {
           ? { executionExpiresAt: new Date(test.now.value + 5 * 60_000).toISOString() }
           : {}),
       })
-      // Model interruption either before dispatch or after the provider commits the write.
       if (dispatched)
         await test.runtime
           .client("mail", {})

@@ -48,7 +48,6 @@ describe("collectConsoleBuild", () => {
   it("records the GitHub login of the author from Vercel, a GitHub Actions push, or a noreply email", async () => {
     const vercel = { VERCEL_GIT_COMMIT_AUTHOR_LOGIN: "ada", VERCEL_GIT_COMMIT_AUTHOR_NAME: "Ada", VERCEL_GIT_COMMIT_MESSAGE: "feat: ship", VERCEL_GIT_COMMIT_SHA: sha }
     expect((await collectConsoleBuild({ cwd: "/app", env: { ...vercel, VERCEL_GIT_PROVIDER: "github" }, git: noGit, now })).commit?.login).toBe("ada")
-    // A GitLab login has no GitHub avatar.
     expect((await collectConsoleBuild({ cwd: "/app", env: { ...vercel, VERCEL_GIT_PROVIDER: "gitlab" }, git: noGit, now })).commit).not.toHaveProperty("login")
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-build-event-"))

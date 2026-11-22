@@ -28,7 +28,6 @@ function event(body: unknown, headers: Record<string, string> = {}): H3Event {
   return { req, url: new URL(req.url) } as unknown as H3Event
 }
 
-/** The JSON-RPC answer, or the JSON body of a rejection. */
 interface Answer {
   code?: string
   error?: { code: number, data?: unknown, message: string }
@@ -421,7 +420,6 @@ describe("app MCP hooks", () => {
     expect(refused.response.status).toBe(401)
     expect(refused.response.headers.get("www-authenticate")).toContain("error=\"invalid_token\"")
 
-    // A request without a token, or with an access token of mcpOAuth(), never reaches verifyToken.
     expect((await rpc({ ...options, verify: async () => [{ code: "AUTH_MCP_TOKEN_MISSING", message: "No token." }, undefined] as const }, "tools/list")).response.status).toBe(401)
     expect((await rpc({ ...options, verify }, "tools/list", undefined, { authorization: "Bearer jwt" })).response.status).toBe(200)
     expect(verifyToken).toHaveBeenCalledTimes(2)

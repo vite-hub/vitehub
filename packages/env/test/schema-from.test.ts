@@ -13,7 +13,6 @@ import { createRuntimeRegistry, resolveEnvEntries, createSourceContext } from ".
 import { hubEnv } from "../src/vite.ts"
 
 const execute = promisify(execFile)
-// Inside the package, so the build resolves zod and @vite-hub/env like an installed app.
 const temporaryRoot = fileURLToPath(new URL("../.vitest-tmp/", import.meta.url))
 const syntheticToken = "schema-from-synthetic-token-0123456789"
 const shortToken = "short-secret-value"

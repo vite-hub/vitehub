@@ -196,7 +196,6 @@ describe("Agent invocation console", () => {
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv","site"])`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
-      // `vitehub()` in a Vite config builds a Nitro server for the host that it names.
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain('"host":{"name":"cloudflare","preset":"cloudflare-module"},"framework":{"name":"nitro"}')
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,

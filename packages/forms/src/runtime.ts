@@ -52,7 +52,6 @@ export type FormsSharedRateLimit = SharedRateLimit
 const installedKey = Symbol.for("vitehub.forms.installed")
 const rejectMissingStore = () => Promise.reject(new Error("[vitehub] Forms has no store."))
 
-/** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
 const emptyFormsStore: FormsStore = {
   insert: rejectMissingStore,
   insertWith: rejectMissingStore,
@@ -87,7 +86,6 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   const { useDatabase } = options
   const store: FormsStore | undefined = useDatabase
     ? createDrizzleFormsStore(() => {
-        // The registry also holds a placeholder `default` that throws, so ask it which Database the forms use.
         try {
           return useDatabase(options.database).db
         }
@@ -98,7 +96,6 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
   const { sendEmail, session, context } = options
-  // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
   const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })
   const services = (request: Request): FormServices => {
     const host = context?.(request)
@@ -125,9 +122,7 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
       try {
         name = decodeURIComponent(segment)
       }
-      catch {
-        // A broken escape, such as `%E0`, names no form: the lookup below answers 404.
-      }
+      catch {}
       const form = forms.get(name)
       if (!form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name)}.` }), { status: 404, headers: { "content-type": "application/json" } })
       return await handleFormRequest(name, form, request, services(request))

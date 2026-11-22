@@ -22,7 +22,6 @@ import type { McpOAuthAuth } from "vite-hub/auth/mcp"
 import type { McpToolDefinition } from "vite-hub/mcp"
 import type { H3Event } from "h3"
 
-// The Console's tools read the Console Database with `useDatabase()`. The test gives them an in-memory one.
 const state = vi.hoisted(() => ({ db: undefined as unknown }))
 vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: state.db }) }))
 
@@ -33,11 +32,9 @@ const appUrl = "https://app.example.com"
 const secret = "s".repeat(64)
 const schema = { ...authSqliteSchema, ...consoleSchema }
 
-// The tool files as the generated server entries import them. The file name is the tool name.
 const tools = Object.fromEntries(Object.entries(import.meta.glob<McpToolDefinition>("../server/mcp/tools/*.ts", { eager: true, import: "default" }))
   .map(([file, tool]) => [file.replace(/^.*\/(.*)\.ts$/, "$1"), tool]))
 
-// What vitehub.dev/mcp answers today (one Server-Sent Event per answer).
 const upstreamTools = [
   { name: "get-page", inputSchema: { type: "object", properties: { path: { type: "string", description: "Page path from list-pages, such as /docs/getting-started" } }, required: ["path"] } },
   { name: "list-pages", inputSchema: { type: "object", properties: {} } },
@@ -47,9 +44,7 @@ let auth: McpOAuthAuth & { handler: (request: Request) => Promise<Response> }
 let teamId = ""
 let tokens: Record<"ada" | "bob", string>
 const appCalls: Array<{ caller: ConsoleCaller, headers: Headers, input: unknown, operation: string }> = []
-/** The env line of the link, as the app keeps it: `VITEHUB_CONSOLE_KEY_<NAME>=<public key>`. */
 let linkVariable = ""
-/** The stand-in app runs a vite-hub from before the forward-compatible caller check. */
 let olderApp = false
 
 async function migrate() {
@@ -62,7 +57,6 @@ async function migrate() {
 
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) => auth.handler(new Request(`${origin}/api/auth${path}`, { body: JSON.stringify(body), headers: { "content-type": "application/json", origin, ...headers }, method: "POST" }))
 
-/** The browser flow of an MCP client: register, authorize with PKCE, sign in, consent, and exchange the code. */
 async function signInAgent(email: string): Promise<string> {
   const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: [redirect], token_endpoint_auth_method: "none" })
   const { client_id } = await registration.json() as { client_id: string }
@@ -90,7 +84,6 @@ beforeAll(async () => {
   process.env.VITEHUB_CONSOLE_SECRET = secret
   const db = await migrate()
   state.db = db
-  // The Console's Auth, with the plugins that the MCP needs. Email sign-in stands in for GitHub and passkeys.
   const instance = betterAuth({
     baseURL: origin,
     database: drizzleAdapter(db, { provider: "sqlite", schema }),
@@ -116,18 +109,14 @@ beforeAll(async () => {
 
   vi.stubGlobal("fetch", vi.fn(async (target: Request | string | URL, init?: RequestInit) => {
     const url = String(target)
-    // The forward sends the body as bytes.
     const body: unknown = JSON.parse(init?.body instanceof ArrayBuffer ? new TextDecoder().decode(init.body) : String(init?.body ?? "{}"))
     if (url === "https://vitehub.dev/mcp") {
       const params = Reflect.get(Object(body), "params") as { name: string, arguments: Record<string, unknown> }
       const result = { content: [{ text: `# ${params.name} ${JSON.stringify(params.arguments)}`, type: "text" }], isError: false }
       return new Response(`event: message\ndata: ${JSON.stringify({ id: 1, jsonrpc: "2.0", result })}\n\n`, { headers: { "content-type": "text/event-stream" } })
     }
-    // A stand-in app: it checks the signature with the public key of the link, then applies the MCP rules of
-    // vite-hub's Operations endpoint to a call that the Console MCP signed (see the vite-hub console-signature tests).
     expect(url).toBe(`${appUrl}/_vitehub/rpc`)
     const headers = new Headers(init?.headers)
-    // An older app knew only these caller fields, and refused any other as a malformed header.
     const callerFields = Object.keys(JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString()) as object)
     if (olderApp && callerFields.some(field => !["via", "user", "team"].includes(field))) {
       return Response.json({ code: "CONSOLE_SIGNATURE_INVALID", message: "The `x-vitehub-signature` or `x-vitehub-caller` header is malformed.", ok: false, status: 401 }, { status: 401 })
@@ -215,7 +204,6 @@ describe("ViteHub MCP at /mcp/account", () => {
   it("lists the docs tools and the account tools to a signed-in member", async () => {
     const { body } = await rpc(accountServer, "/mcp/account", "tools/list", undefined, tokens.bob)
     expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_operation", "unlink_app"])
-    // A client such as Executor asks the person before a tool that is not read-only. Reads must say that they only read.
     const annotations = Object.fromEntries(body!.result.tools.map(tool => [tool.name, tool.annotations]))
     expect(annotations.read_operation).toMatchObject({ destructiveHint: false, readOnlyHint: true })
     expect(annotations.run_operation).toMatchObject({ destructiveHint: true, readOnlyHint: false })
@@ -260,7 +248,6 @@ describe("ViteHub MCP at /mcp/account", () => {
     const save = await call("run_operation", { id, input: { collection: "posts", id: "hello", text: "# Hi" }, operation: "content.save" }, tokens.bob)
     expect(save.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONTENT_R0009") }], isError: true })
 
-    // Every call is signed for the person as the MCP: no bearer token, no CLI surface, and the confirmation is signed.
     for (const { caller, headers } of appCalls) {
       expect(headers.has("authorization")).toBe(false)
       expect(headers.has("x-vitehub-surface")).toBe(false)
@@ -300,7 +287,6 @@ describe("ViteHub MCP at /mcp/account", () => {
         expect(answer.body!.result.content[0]!.text).toContain("CONSOLE_APP_VITEHUB_OUTDATED: The app runs vite-hub 0.0.1, which does not accept this call of the ViteHub MCP.")
         expect(answer.body!.result.content[0]!.text).toContain("Fix: Upgrade vite-hub in the app")
       }
-      // The older app has the key of the link, so check_app finds it linked: it reads project.get as the Console page does.
       appCalls.length = 0
       expect((await call("check_app", { id }, tokens.bob)).body!.result.structuredContent).toMatchObject({ answer: { name: "probe", vitehub: "0.0.1" }, linked: true, status: 200 })
       expect(appCalls.map(entry => entry.caller)).toEqual([{ team: { id: teamId, role: "member" }, user: expect.objectContaining({ email: "bob@example.com" }), via: "console" }])
