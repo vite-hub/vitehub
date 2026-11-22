@@ -11,8 +11,6 @@ const title = "Learn ViteHub";
 const description = "Build your first ViteHub app in the browser, then add one primitive at a time to your own app.";
 useSeoMeta({ title, ogTitle: title, description, ogDescription: description });
 
-// The lessons (`content/learn/`) and the playground are `layout: learn` and `layout: playground` pages. Their
-// frontmatter says which docs page a lesson runs and which examples the playground opens.
 const manifest = useDocsManifest();
 const workspacePages = manifest.pages.filter(page => page.layout === "learn" || page.layout === "playground").sort((a, b) => a.order - b.order);
 const { data: workspaces } = await useAsyncData("learn:workspaces", () => Promise.all(workspacePages.map(page => $fetch<DocsPageResponse>(`/api/_docs/page${page.path}.json`))));

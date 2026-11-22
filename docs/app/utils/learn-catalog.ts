@@ -64,7 +64,6 @@ export function buildLearnCatalog(input: {
     }
     if (entries.length) catalog.quickstarts.push({ product: section.title, icon: section.icon, entries });
   }
-  // The runnable tutorials follow the order of their learn pages, which is the order to take them in.
   const order = input.runnable.map(tutorial => tutorial.lesson);
   catalog.browser.sort((a, b) => order.indexOf(a.page) - order.indexOf(b.page));
   return catalog;

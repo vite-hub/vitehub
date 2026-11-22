@@ -23,9 +23,6 @@ export default defineNuxtConfig({
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
-    // The lessons (`content/learn/`) and the playground (`content/playground.md`) are `layout: learn` and
-    // `layout: playground` pages, which also make their routes cross-origin isolated. Fixtures use `catalog:` and
-    // `workspace:` specifiers, so the snapshots pack this repository's packages.
     runnable: {
       fixtures: "../fixtures/tutorials",
       start: "/docs/getting-started/installation",

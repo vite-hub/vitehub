@@ -14,7 +14,6 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(docsRoot, "..");
 const fixturesDir = resolve(repoRoot, "fixtures/tutorials");
 
-// The docs module builds the examples of `content/playground.md` under ids that start with the page: `playground--kv`.
 const page = "playground--";
 
 async function templates() {

@@ -16,7 +16,6 @@ import { chromium } from "playwright-core";
 const base = process.env.DOCS_URL ?? "http://127.0.0.1:4870";
 const shots = process.env.TUTORIAL_SCREENSHOTS;
 const tutorial = `${base}/learn/first-agent`;
-// The first two lessons preview `/api/health`. The Choices lesson ends with a page, so its preview is the app page.
 const lessons = [
   { path: "/learn/first-server-primitive", ready: /"ok":\s*true/ },
   { path: "/learn/first-agent", ready: /"ok":\s*true/ },
@@ -60,13 +59,11 @@ async function runRequest(page) {
   return output.innerText();
 }
 
-/** Waits for the preview of the app: the boot screen goes once the dev server answers. */
 async function waitForApp(page) {
   await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
   await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
 }
 
-/** Solve writes the answer of the step. It asks first when the files differ from the start of the step. */
 async function solve(page) {
   await page.getByRole("button", { name: "Solve" }).click();
   const replace = page.getByRole("dialog").getByRole("button", { name: "Replace files" });
@@ -99,8 +96,6 @@ test("takes every lesson to its last step", { timeout: 30 * 60_000 }, async (t) 
       assert.match(page.url(), new RegExp(`step=${total}$`));
       await waitForApp(page);
       await shot(page, `last-step${path.replaceAll("/", "-")}`);
-      // A step that adds index.html restarts the dev server, and Playwright cannot read a frame that loaded twice.
-      // The preview address serves the same app in a new tab, so read the page there.
       const tab = await context.newPage();
       await tab.goto(await page.locator(".vh-ws-preview-frame").getAttribute("src"));
       let text = "";
@@ -156,7 +151,6 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.getByRole("button", { name: "Next step" }).click();
     await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 4 of 4" }).waitFor();
 
-    // The preview shows the health route once the dev server is ready.
     await waitForApp(page);
     const health = await readHealth(page);
     console.log("preview /api/health:", health);

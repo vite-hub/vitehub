@@ -118,13 +118,14 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
-    await page.locator(".vh-ws-shell").waitFor();
-    // A first visit shows the examples over the workspace, which boots the first one, KV, behind them.
     const start = page.locator(".vh-ws-start");
     await start.getByRole("button", { name: /^KV/ }).waitFor();
     await shot(page, "desktop-start");
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0, "no workspace before the reader picks an example");
+    assert.equal(containerFrames(page).length, 0, "no WebContainer before the reader picks an example");
     await start.getByRole("button", { name: /^KV/ }).click();
     await start.waitFor({ state: "detached" });
+    await page.locator(".vh-ws-shell").waitFor();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     await shot(page, "desktop-booting");
 
@@ -224,6 +225,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await page.getByRole("button", { name: "Open playground" }).click();
+    await page.locator(".vh-ws-start").getByRole("button", { name: /^KV/ }).click();
     await page.locator(".vh-ws-shell").waitFor();
     await page.close();
   });
@@ -274,9 +276,8 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(home?.headers()["cross-origin-opener-policy"], undefined);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Playground" }).click();
     await page.waitForURL(/\/playground$/);
-    await page.locator(".vh-ws-shell").waitFor();
+    await page.locator(".vh-ws-start").waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the playground loaded as a new isolated document");
-    // Playground to docs, through the sidebar. Get started opens its section, not the playground.
     await page.getByRole("navigation", { name: "ViteHub navigation" }).getByRole("link", { name: "Get started" }).click();
     await page.waitForURL(/\/docs\/getting-started$/);
     assert.equal(await page.evaluate(() => crossOriginIsolated), false, "the docs page loaded as a new document");
@@ -345,7 +346,6 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   // An edit reaches the app through hot module replacement: the component starts again, and the page does not reload.
   await app.evaluate(() => { window.vitehubMark = true; });
   await replaceWord(page, "Ada", "Ida");
-  // The Terminal tab keeps the dev server log while the Preview tab shows.
   await page.getByText("hmr update /src/App.vue").waitFor({ state: "attached", timeout: 60_000 });
   await app.getByRole("tab", { name: "Members" }).click();
   await app.getByRole("tabpanel").getByText("Ida Lovelace", { exact: true }).waitFor();

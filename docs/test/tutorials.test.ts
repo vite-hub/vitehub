@@ -201,7 +201,6 @@ describe("documentation tutorials", () => {
 
 });
 
-// The `layout: learn` pages under `content/learn`, and the lessons that the docs module builds from them.
 const pages = await learnPages();
 const runnableTutorials = pages.map(learnLessonSource);
 

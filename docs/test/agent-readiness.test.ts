@@ -10,7 +10,6 @@ import config from "../nuxt.config";
 const docsRoot = resolve(import.meta.dirname, "..");
 const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
-// The playground and the lessons are content pages too, with `layout: playground` and `layout: learn`.
 const workspacePages = ["learn/choices", "learn/first-agent", "learn/first-server-primitive", "playground"];
 
 describe("agent-ready HTTP contracts", () => {
@@ -37,7 +36,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
     expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
     expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
-    // The docs module lists the content pages, `/playground` among them. The sitemap names only the app pages.
     expect(config.docs?.sitemap).toEqual(["/learn", "/examples", "/projects", "/templates"]);
     expect(typeof config.docs?.rawMarkdown).toBe("function");
   });
