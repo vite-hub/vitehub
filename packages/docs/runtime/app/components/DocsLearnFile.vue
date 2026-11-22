@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { WorkspaceFileLink } from "@vite-hub/ui/workspace"
 
-// Inline code in a lesson step that names a file of the app. A click opens the file in the workspace editor.
 defineProps<{ path: string }>()
 </script>
 

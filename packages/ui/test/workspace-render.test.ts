@@ -69,12 +69,10 @@ describe("Workspace with render()", () => {
     const frame = wrapper.get("iframe.vh-workspace-frame");
     expect(frame.attributes("sandbox")).toBe("allow-scripts allow-popups");
     expect(frame.attributes("srcdoc")).toContain("<main><p>{\"one\":\"1 item\"}</p>");
-    // The frame posts its scroll position, so the next render keeps it.
     expect(frame.attributes("srcdoc")).toContain("vhWorkspaceScroll");
     expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Output", "Issues 1"]);
     expect(wrapper.get("[data-tab='issues']").text()).toContain("The file has one key.");
     expect(wrapper.get(".vh-workspace-run-state").text()).toBe("1 issue");
-    // A render runner has no More menu.
     expect(wrapper.find("[aria-label='More actions']").exists()).toBe(false);
     wrapper.unmount();
   });
@@ -96,7 +94,6 @@ describe("Workspace with render()", () => {
     vi.advanceTimersByTime(1);
     expect(fn).toHaveBeenCalledTimes(2);
     expect(fn).toHaveBeenLastCalledWith({ "messages.json": "ab" });
-    // The newer render ends first. The older one ends later and must not replace it.
     resolvers[1]!("new");
     await flushPromises();
     resolvers[0]!("old");

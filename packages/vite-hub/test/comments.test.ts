@@ -100,6 +100,16 @@ afterEach(async () => {
 })
 
 describe("comment operations over the Console RPC", () => {
+  it("resolves a full batch with replies above the default signed RPC byte limit", async () => {
+    await setup()
+    const reply = "直".repeat(500)
+    const threads = []
+    for (let index = 0; index < 50; index++) threads.push({ threadId: (await create()).id, reply })
+    const result = await value<CommentThread[]>("comments.resolve", { threads })
+    expect(result.map(thread => ({ id: thread.id, status: thread.status, reply: thread.messages.at(-1)?.body })))
+      .toEqual(threads.map(entry => ({ id: entry.threadId, status: "resolved", reply })))
+  })
+
   it("creates, lists, and gets threads in the shapes of the client types", async () => {
     await setup()
     const thread = await create()
@@ -109,9 +119,9 @@ describe("comment operations over the Console RPC", () => {
     expect(typeof thread.createdAt).toBe("number")
     expect(await value<CommentThread[]>("comments.list", { page: "/pricing" })).toEqual([thread])
     expect(await value<CommentThread[]>("comments.list", { page: "/other" })).toEqual([])
-    expect(await value("comments.get", { id: thread.id })).toEqual(thread)
+    expect(await value("comments.get", { threadId: thread.id })).toEqual(thread)
     expect(await value("comments.get", { n: 1, scope: "site" })).toEqual(thread)
-    expect(await value("comments.get", { id: "thread_missing" })).toBeNull()
+    expect(await value("comments.get", { threadId: "thread_missing" })).toBeNull()
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toHaveLength(1)
     signedIn = ben
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toEqual([])
@@ -133,7 +143,7 @@ describe("comment operations over the Console RPC", () => {
     expect(authorize).toHaveBeenCalledWith({ console: true, action: "write", subject: page, user: ana })
     await value("comments.resolve", { threadId: thread.id })
     expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
-    await value("comments.get", { id: thread.id })
+    await value("comments.get", { threadId: thread.id })
     expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
   })
 
@@ -218,7 +228,7 @@ describe("comment operations over the Console RPC", () => {
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0009", status: 403 })
     signedIn = ana
     expect(await value("comments.delete", { messageId: mine.messages[0]!.id, threadId: mine.id })).toBeNull()
-    expect(await value("comments.get", { id: mine.id })).toBeNull()
+    expect(await value("comments.get", { threadId: mine.id })).toBeNull()
     expect(await failure("comments.delete", { threadId: mine.id })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
   })
 
@@ -259,14 +269,14 @@ describe("comment operations over the Console RPC", () => {
 })
 
 describe("comments in the CLI, the Console, and the browser transport", () => {
-  it("prints the threads for `vitehub comments list --json`", async () => {
+  it.each(["list", "get", "resolve"] as const)("runs `vitehub comments %s` with flags", async (command) => {
     await setup()
     const thread = await create()
     installConsoleProjectRoot("/app")
     let output = ""
     let errors = ""
     const code = await runViteHubCli({
-      args: ["comments", "list", "--json"],
+      args: ["comments", command, "--json", ...(command === "list" ? [] : ["--thread-id", thread.id])],
       cwd: "/app",
       env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" },
       fetch: (async (url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(await signed(new Request(String(url), init)))) as typeof fetch,
@@ -276,7 +286,10 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       stdout: { write: (chunk: string | Uint8Array) => { output += String(chunk); return true } },
     })
     expect(code, errors || output).toBe(0)
-    expect(JSON.parse(output)).toEqual([thread])
+    const result: unknown = JSON.parse(output)
+    if (command === "list") expect(result).toEqual([thread])
+    else if (command === "get") expect(result).toEqual(thread)
+    else expect(result).toMatchObject({ id: thread.id, status: "resolved" })
   })
 
   it("describes the Console section as a list of comments.list with filter chips and page links", () => {
@@ -353,7 +366,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(await transport.users({ query: "an" })).toEqual([ana])
     expect(await transport.delete({ threadId: thread.id })).toBeNull()
     expect(transport.subscribe).toBeUndefined()
-    await expect(transport.get({ id: "x" })).resolves.toBeNull()
+    await expect(transport.get({ threadId: "x" })).resolves.toBeNull()
     await expect(transport.edit({ body: "x", messageId: "m", threadId: "missing" })).rejects.toMatchObject({ code: "COMMENTS_R0002", fix: expect.stringMatching(/\S/), status: 404 })
   })
 })
@@ -422,7 +435,7 @@ describe("who can see and change a thread", () => {
     ] as const) expect(await failure(name, input), name).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     expect(await failure("comments.reply", { body: "Hi", threadId: "thread_missing" })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
     // get answers null for a hidden thread and for a missing one, by id and by number.
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toBeNull()
     signedIn = ana
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toEqual(thread)
@@ -434,7 +447,7 @@ describe("who can see and change a thread", () => {
     install(defineComments(), store)
     signedIn = undefined
     const messageId = thread.messages[0]!.id
-    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.get", { threadId: thread.id })).toBeNull()
     expect(await value("comments.list", {})).toEqual([])
     for (const [name, input] of [
       ["comments.users", { query: "an" }],

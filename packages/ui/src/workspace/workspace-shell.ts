@@ -154,7 +154,6 @@ export const WorkspaceShell = defineComponent({
     storageKey: { default: undefined, type: [String, Boolean] as PropType<string | false> },
     /** The accessible name of the workspace region. */
     label: { default: "Workspace", type: String },
-    /** Something covers the body, such as a start screen in the bar slot. The body is `inert`, so focus skips it. */
     covered: { default: false, type: Boolean },
   },
   emits: {

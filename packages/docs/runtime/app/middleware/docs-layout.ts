@@ -6,8 +6,7 @@ import { articleLayout } from "#docs/shell"
 
 // A docs page renders in the docs shell whichever app page serves its path. A page outside the docs base, such as
 // `/about`, is a plain article under the site header, and a `home` page is its own blocks under it. A page that
-// `start.links` lists opens inside the start section, so it gets the shell too, and so does a `playground` or `learn`
-// page, which fills the shell with its workspace. With an app-owned `app.vue`, plain
+// `start.links` lists opens inside the start section, so it gets the shell too. With an app-owned `app.vue`, plain
 // articles use `docs-article`, so the app keeps its `default` layout.
 export default defineNuxtRouteMiddleware(async (to, from) => {
   // The pages inside a panel load when the reader opens it, before anything reads the manifest for this route.

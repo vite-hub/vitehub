@@ -240,7 +240,6 @@ const UDropdownMenu = defineComponent({
         h("span", item.label),
         item.description ? h("span", { "data-slot": "menu-item-description" }, item.description) : null,
       ];
-      // As in Nuxt UI, a checkbox item shows its `checked` state and a pick runs `onSelect`. The menu then closes.
       if (item.type === "checkbox") {
         return h(MenuCheckboxItem, {
           checked: item.checked ?? false,

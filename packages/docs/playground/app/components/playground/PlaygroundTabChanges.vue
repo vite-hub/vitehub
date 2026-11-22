@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useWorkspace } from "@vite-hub/ui/workspace"
 
-// The Changes tab of /docs/try/playground: the files that the reader edited in the open example.
 const { edited, example } = useWorkspace()
 </script>
 

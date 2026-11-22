@@ -8,7 +8,6 @@ const examples: WorkspaceExample[] = [
 
 const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-// Formats the JSON. A thrown parse error shows in the Issues tab.
 const runner = render(async (files: WorkspaceFiles) => ({
   html: `<pre>${escape(JSON.stringify(JSON.parse(files["data.json"] ?? ""), null, 2))}</pre>`,
 }));
