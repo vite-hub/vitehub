@@ -74,9 +74,9 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.locator(".vh-ws-boot").waitFor();
     await shot(page, "desktop-booting");
 
-    // Step 1 changes vite.config.ts. Solve writes it, without a question because nothing was edited.
+    // Step 1 keeps vite.config.ts. Solve writes it, without a question because nothing was edited.
     await page.getByRole("button", { name: "Solve" }).click();
-    await page.locator(".cm-content").filter({ hasText: "agent: true" }).waitFor();
+    await page.locator(".cm-content").filter({ hasText: "plugins: [vitehub()]" }).waitFor();
     await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Step 2 creates the Agent. "Show in editor" opens the new file empty; Solve then asks before it replaces the edit.
@@ -87,6 +87,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.getByRole("button", { name: "Solve" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.locator(".cm-content").filter({ hasText: "defineAgent" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).isEnabled(), true);
     await page.getByRole("button", { name: "Next", exact: true }).click();
 
     await page.getByText("Step 3 of 4").waitFor();
@@ -172,7 +173,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
   await t.test("phone: prose and a card, never a WebContainer", async () => {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, acceptDownloads: true });
     await page.goto(tutorial);
-    const card = page.getByText("The live workspace runs in a desktop browser. Open this page on a desktop to edit and run the code.");
+    const card = page.locator(".vh-run-inline").getByText("The live workspace runs in a desktop browser. Open this page on a desktop to edit and run the code.");
     await card.waitFor();
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
