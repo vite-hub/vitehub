@@ -3,7 +3,9 @@ import { afterEach, expect, it, vi } from "vitest"
 vi.mock("#vitehub/connections/registry", () => ({ default: {}, activityRetention: undefined, database: undefined, docs: undefined }))
 
 import { setConnectionsRuntime, useConnection } from "../src/runtime/state.ts"
+import { apiKey } from "../src/api-key.ts"
 import { defineConnection } from "../src/definition.ts"
+import { connectionsErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { connect, createTestRuntime, testProvider } from "./helpers.ts"
 
 const definition = defineConnection({ api: { mail: ["labels.*"] }, provider: testProvider(), scopes: ["mail.modify"] })
@@ -60,15 +62,33 @@ it("rejects surrounding whitespace in Connection names", async () => {
   expect(connection.name).toBe("mail")
 })
 
-it("resolves the Connection status and never rejects", async () => {
+it("resolves the Connection status, and rejects failures other than a missing Connection or store config", async () => {
   const test = createTestRuntime()
   setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, fetch: test.provider.fetch, now: () => test.now.value, store: test.store })
   await expect(useConnection("mail").status()).resolves.toBe("disconnected")
   await connect(test)
   await expect(useConnection("mail").status()).resolves.toBe("connected")
-  setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, store: () => Promise.reject(new Error("no store")) })
+  setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, store: () => Promise.reject(connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "key" })) })
   await expect(useConnection("mail").status()).resolves.toBe("disconnected")
   await expect(useConnection("missing" as string).status()).resolves.toBe("disconnected")
+  setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, store: () => Promise.reject(new Error("no store")) })
+  await expect(useConnection("mail").status()).rejects.toThrow("no store")
+})
+
+it("reports a store outage unless the fallback supplies a key", async () => {
+  let fallbackKey: string | undefined
+  const storeError = new Error("database cannot open")
+  const definitions = {
+    executor: defineConnection({ provider: apiKey({ fallback: () => fallbackKey, origins: ["https://api.example.com"] }) }),
+  }
+  setConnectionsRuntime({ definitions, store: () => Promise.reject(storeError) })
+  const connection = useConnection("executor" as string)
+  await expect(connection.status()).rejects.toBe(storeError)
+  fallbackKey = "fallback-key"
+  await expect(connection.status()).resolves.toBe("connected")
+  fallbackKey = undefined
+  setConnectionsRuntime({ definitions, store: () => Promise.reject(connectionsErrorDiagnostics.CONNECTIONS_NOT_CONFIGURED({ missing: "key" })) })
+  await expect(connection.status()).resolves.toBe("disconnected")
 })
 
 it("uses the registry that the vite dev Nitro plugin installs", async () => {

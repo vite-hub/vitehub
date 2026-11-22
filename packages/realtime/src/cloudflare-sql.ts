@@ -35,7 +35,7 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     if (typeof SharedArrayBuffer === "function" && constructor === SharedArrayBuffer) return false
     const nativeGetterSource = /^function(?:\s+[\w$]+)*\s*\(\s*\)\s*\{\s*\[native\s+code\]\s*\}$/
     if (!nativeGetterSource.test(Function.prototype.toString.call(databaseSize))) return false
-    if (!/^(?:|databaseSize|get databaseSize|get size)$/i.test(databaseSize.name)) return false
+    if (!/^(?:|databaseSize|get databaseSize)$/i.test(databaseSize.name)) return false
     const hasFiniteDatabaseSize = (createReceiver: () => object): boolean => {
       try {
         return Number.isFinite(Reflect.apply(databaseSize, createReceiver(), []))

@@ -1,14 +1,9 @@
 import type { DeploymentEnvContext, DeploymentEnvEntry } from '@vite-hub/internal/build/deployment-plan-output'
 
 import type { AgentSandboxTaskConfig } from './module-types'
+import { vercelCredentialEnv } from './vercel-credentials.ts'
 
 const owners = ['sandbox']
-
-const vercelCredentialNames = {
-  token: { names: ['VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN'], secret: true },
-  teamId: { names: ['VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID'], secret: false },
-  projectId: { names: ['VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID'], secret: false },
-} as const
 
 /**
  * The variables that Sandbox Tasks read on the deployed host. A Vercel Sandbox reads its token, team, and project from
@@ -25,5 +20,5 @@ export function sandboxDeploymentEnv(
   const required = context.host !== 'vercel'
   return (['token', 'teamId', 'projectId'] as const).flatMap(option => configured?.[option]?.trim()
     ? []
-    : [{ names: vercelCredentialNames[option].names, required, secret: vercelCredentialNames[option].secret, hasDefault: false, owners }])
+    : [{ names: vercelCredentialEnv[option].names, required, secret: vercelCredentialEnv[option].secret, hasDefault: false, owners }])
 }

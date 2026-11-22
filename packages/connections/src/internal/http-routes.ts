@@ -6,7 +6,7 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
 
 import { isConnectionError, type ConnectionsCatalogCode } from "../errors.ts";
 import { connectionsErrorDiagnostics } from "../error-diagnostics.ts";
-import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts";
+import { connectionNameSchema } from "../types.ts";
 import { connectionsRuntimeFor } from "./http-access.ts";
 import { managementErrorBody } from "./http-diagnostics.ts";
 import { page, readCookie, requestReturnPath, RETURN_COOKIE } from "./http-page.ts";
@@ -19,7 +19,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 const STATE_COOKIE = "vitehub_connection_state";
 const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
+const name = connectionNameSchema;
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
   v.object({ action: v.literal("list") }),
