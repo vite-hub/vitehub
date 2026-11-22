@@ -22,8 +22,6 @@ type StoredScheduleRunAttemptRecord = Omit<ScheduleRunAttemptRecord, "completedA
   updatedAt: string
 }
 
-const maxLegacyHistoryRecords = 1000
-
 function trimPrefix(prefix: string): string {
   return prefix.replace(/^\/+|\/+$/g, "")
 }
@@ -52,10 +50,6 @@ function scheduleRunAttemptKey(prefix: string, id: string): string {
 
 function scheduleRunBase(prefix: string): string {
   return `${joinKey(prefix, "schedule-runs")}/`
-}
-
-function scheduleRunAttemptBase(prefix: string): string {
-  return `${joinKey(prefix, "schedule-run-attempts")}/`
 }
 
 const keyLocks = new Map<string, Promise<void>>()
@@ -212,27 +206,35 @@ function runIndexMetadata(key: string): { id: string, scheduleId: string, schedu
   }
 }
 
+function attemptIndexEntry(key: string): { attemptId: string, runId: string } | undefined {
+  try {
+    const parts = keySegments(key, 2)
+    return { attemptId: parts[1]!, runId: parts[0]! }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function listedKeyId(key: string): string | undefined {
+  try {
+    return keySegments(key, 1)[0]
+  }
+  catch {
+    return undefined
+  }
+}
+
 export function createKVScheduleRunStore(options: KVScheduleStoreOptions): ScheduleRunStore {
   const prefix = options.prefix ?? "vitehub:schedule"
 
   const store = options.kvStore
-  async function indexRun(run: ScheduleRunRecord): Promise<void> {
-    try {
-      await store.set(joinKey(prefix, "schedule-run-index", run.id, run.scheduleId, run.scheduledAt.toISOString()), true)
-    }
-    catch {}
-  }
-
-  async function indexAttempt(attempt: ScheduleRunAttemptRecord): Promise<void> {
-    try {
-      await store.set(joinKey(prefix, "schedule-run-attempt-index", attempt.runId, attempt.id), true)
-    }
-    catch {}
-  }
 
   async function readSnapshot() {
-    const keys = await store.keys(scheduleRunBase(prefix))
-    const indexKeys = await store.keys(`${joinKey(prefix, "schedule-run-index")}/`)
+    const [keys, indexKeys] = await Promise.all([
+      store.keys(scheduleRunBase(prefix)),
+      store.keys(`${joinKey(prefix, "schedule-run-index")}/`),
+    ])
     const metadataById = new Map(indexKeys.flatMap(key => {
       const metadata = runIndexMetadata(key)
       return metadata ? [[metadata.id, metadata] as const] : []
@@ -240,66 +242,30 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     type IndexedRun = { id: string, key: string, scheduledAt: number }
     const known: IndexedRun[] = []
     const bySchedule = new Map<string, IndexedRun[]>()
-    const unknown: string[] = []
-    const recordsByKey = new Map<string, ScheduleRunRecord | undefined>()
-    function groupRun(key: string, metadata: { id: string, scheduleId: string, scheduledAt: number }) {
+    for (const key of keys) {
+      const id = listedKeyId(key)
+      const metadata = id === undefined ? undefined : metadataById.get(id)
+      if (!metadata) continue
       const entry = { id: metadata.id, key, scheduledAt: metadata.scheduledAt }
       known.push(entry)
       const group = bySchedule.get(metadata.scheduleId) ?? []
       bySchedule.set(metadata.scheduleId, group)
       group.push(entry)
     }
-    for (const key of keys) {
-      let id: string
-      try {
-        id = keySegments(key, 1)[0]!
-      }
-      catch {
-        unknown.push(key)
-        continue
-      }
-      const metadata = metadataById.get(id)
-      if (!metadata) {
-        unknown.push(key)
-        continue
-      }
-      groupRun(key, metadata)
-    }
-    if (unknown.length > maxLegacyHistoryRecords) {
-      return { keys, known, bySchedule, recordsByKey, unknown }
-    }
-    const legacyKeys = unknown
-    for (let offset = 0; offset < legacyKeys.length; offset += 16) {
-      const batch = await Promise.all(legacyKeys.slice(offset, offset + 16).map(async key => {
-        const stored = await store.get<StoredScheduleRunRecord>(key)
-        const run = stored ? cloneScheduleRun(stored) : undefined
-        recordsByKey.set(key, run)
-        if (run) await indexRun(run)
-        return { key, run }
-      }))
-      for (const { key, run } of batch) {
-        if (run) groupRun(key, { id: run.id, scheduleId: run.scheduleId, scheduledAt: run.scheduledAt.getTime() })
-      }
-    }
     for (const entries of [known, ...bySchedule.values()]) {
       entries.sort((left, right) => right.scheduledAt - left.scheduledAt)
     }
-    return { keys, known, bySchedule, recordsByKey, unknown }
+    return { known, bySchedule, recordsByKey: new Map<string, ScheduleRunRecord | undefined>() }
   }
 
   async function listRuns(options: ScheduleRunListOptions, snapshot: Awaited<ReturnType<typeof readSnapshot>>) {
-    if (snapshot.unknown.length > maxLegacyHistoryRecords) {
-      throw scheduleErrorDiagnostics.SCHEDULE_HISTORY_INCOMPLETE({ maxRecords: maxLegacyHistoryRecords, recordCount: snapshot.unknown.length })
-    }
-    const { keys, recordsByKey } = snapshot
+    const { recordsByKey } = snapshot
     const known = options.scheduleId === undefined
       ? snapshot.known
       : snapshot.bySchedule.get(options.scheduleId) ?? []
     const matching = options.idPrefix === undefined ? known : known.filter(entry => entry.id.startsWith(options.idPrefix!))
     const records: ScheduleRunRecord[] = []
-    const selectedKeys = options.scheduleId === undefined && options.idPrefix === undefined && options.limit === undefined
-      ? keys
-      : matching.slice(0, options.limit ?? matching.length).map(entry => entry.key)
+    const selectedKeys = matching.slice(0, options.limit ?? matching.length).map(entry => entry.key)
     for (let index = 0; index < selectedKeys.length; index += 16) {
       const batch = await Promise.all(selectedKeys.slice(index, index + 16).map(async (key) => {
         if (recordsByKey.has(key)) return recordsByKey.get(key)
@@ -320,8 +286,8 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
         if (await store.has(key)) {
           throw scheduleErrorDiagnostics.SCHEDULE_R0032({ message: `Schedule Run Attempt already exists: ${attempt.id}` })
         }
+        await store.set(joinKey(prefix, "schedule-run-attempt-index", attempt.runId, attempt.id), true)
         await store.set(key, serializeScheduleRunAttempt(attempt))
-        await indexAttempt(attempt)
         return cloneScheduleRunAttempt(attempt)
       })
     },
@@ -331,8 +297,8 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
         if (await store.has(key)) {
           throw scheduleErrorDiagnostics.SCHEDULE_R0033({ message: `Schedule Run already exists: ${run.id}` })
         }
+        await store.set(joinKey(prefix, "schedule-run-index", run.id, run.scheduleId, run.scheduledAt.toISOString()), true)
         await store.set(key, serializeScheduleRun(run))
-        await indexRun(run)
         return cloneScheduleRun(run)
       })
     },
@@ -345,36 +311,16 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       return run ? cloneScheduleRun(run) : undefined
     },
     async listAttempts(runId) {
-      const [keys, indexKeys] = await Promise.all([
-        store.keys(scheduleRunAttemptBase(prefix)),
-        store.keys(`${joinKey(prefix, "schedule-run-attempt-index")}/`),
-      ])
-      const runByAttemptId = new Map<string, string>()
-      for (const key of indexKeys) {
-        try {
-          const parts = keySegments(key, 2)
-          runByAttemptId.set(parts[1]!, parts[0]!)
-        }
-        catch {}
-      }
-      const selectedKeys = keys.filter((key) => {
-        try {
-          const id = keySegments(key, 1)[0]!
-          const indexedRunId = runByAttemptId.get(id)
-          return indexedRunId === undefined || indexedRunId === runId
-        }
-        catch {
-          return true
-        }
+      const indexKeys = await store.keys(`${joinKey(prefix, "schedule-run-attempt-index")}/`)
+      const attemptIds = indexKeys.flatMap((key) => {
+        const entry = attemptIndexEntry(key)
+        return entry?.runId === runId ? [entry.attemptId] : []
       })
       const attempts: ScheduleRunAttemptRecord[] = []
-      for (let offset = 0; offset < selectedKeys.length; offset += 16) {
-        const batch = await Promise.all(selectedKeys.slice(offset, offset + 16).map(async (key) => {
-          const stored = await store.get<StoredScheduleRunAttemptRecord>(key)
-          if (!stored) return
-          const attempt = cloneScheduleRunAttempt(stored)
-          if (!runByAttemptId.has(attempt.id)) await indexAttempt(attempt)
-          return attempt.runId === runId ? attempt : undefined
+      for (let offset = 0; offset < attemptIds.length; offset += 16) {
+        const batch = await Promise.all(attemptIds.slice(offset, offset + 16).map(async (id) => {
+          const stored = await store.get<StoredScheduleRunAttemptRecord>(scheduleRunAttemptKey(prefix, id))
+          return stored ? cloneScheduleRunAttempt(stored) : undefined
         }))
         attempts.push(...batch.flatMap(attempt => attempt ? [attempt] : []))
       }

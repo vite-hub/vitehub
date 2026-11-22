@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import { webhooksErrors } from "./errors.ts"
@@ -262,20 +262,14 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       return row
     }),
     recordOnce: send => guarded("store a delivery", async () => {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const inserted = await db().all(sql`
-          INSERT INTO vitehub_webhook_deliveries (id, webhook, owner, key, event, body, revision, count, state, attempts, due_at, created_at, updated_at)
-          SELECT ${send.id}, ${send.webhook}, ${send.owner ?? null}, ${send.key}, ${send.event}, ${send.body}, 1, ${send.count ?? 1}, 'pending', 0, ${send.dueAt}, ${send.now}, ${send.now}
-          WHERE NOT EXISTS (SELECT 1 FROM vitehub_webhook_deliveries WHERE webhook = ${send.webhook} AND key = ${send.key} AND state IN ('pending', 'sending', 'sent'))
-          RETURNING id`)
-        if (inserted.length) return { id: send.id, revision: 1, state: "pending", created: true }
-        const [existing] = await db().select({ id: t.id, revision: t.revision, state: t.state }).from(t)
-          .where(and(eq(t.webhook, send.webhook), eq(t.key, send.key), inArray(t.state, ["pending", "sending", "sent"])))
-          .orderBy(desc(t.createdAt))
-          .limit(1)
-        if (existing) return { ...existing, created: false }
-      }
-      throw webhooksErrors.WEBHOOKS_STORE_FAILED({ action: "store a delivery" })
+      const [row] = await db().all<{ id: string, revision: number, state: WebhookDeliveryState }>(sql`
+        INSERT INTO vitehub_webhook_deliveries (id, webhook, owner, key, event, body, revision, count, state, attempts, due_at, created_at, updated_at)
+        SELECT COALESCE((SELECT id FROM vitehub_webhook_deliveries WHERE webhook = ${send.webhook} AND key = ${send.key} AND state IN ('pending', 'sending', 'sent') ORDER BY created_at DESC LIMIT 1), ${send.id}), ${send.webhook}, ${send.owner ?? null}, ${send.key}, ${send.event}, ${send.body}, 1, ${send.count ?? 1}, 'pending', 0, ${send.dueAt}, ${send.now}, ${send.now}
+        WHERE true
+        ON CONFLICT(id) DO UPDATE SET id = vitehub_webhook_deliveries.id
+        RETURNING id, revision, state`)
+      if (!row) throw webhooksErrors.WEBHOOKS_STORE_FAILED({ action: "store a delivery" })
+      return { id: row.id, revision: row.revision, state: row.state, created: row.id === send.id }
     }),
     get: id => guarded("read a delivery", async () => {
       const [row] = await db().select().from(t).where(eq(t.id, id)).limit(1)

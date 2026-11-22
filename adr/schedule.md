@@ -16,9 +16,9 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 `scheduleErrorDiagnostics`, `osScheduleErrors`, `startedScheduleErrors` in `packages/schedule/src/error-diagnostics.ts`, `packages/schedule/src/os/errors.ts`, `packages/schedule/src/started-errors.ts`.
 
-**Context:** Codes link to vitehub.dev/docs/schedule/diagnostics and each started-Schedule code has a heading on that docs page. The retired list exists only in this comment: SCHEDULE_R0001, SCHEDULE_R0002, SCHEDULE_R0036, SCHEDULE_R0037, SCHEDULE_R0038.
+**Context:** Codes link to vitehub.dev/docs/schedule/diagnostics and each started-Schedule code has a heading on that docs page. The retired list exists only in this entry: SCHEDULE_HISTORY_INCOMPLETE, SCHEDULE_R0001, SCHEDULE_R0002, SCHEDULE_R0036, SCHEDULE_R0037, SCHEDULE_R0038.
 
-**Decision:** Never rename or reuse a published code. Retired codes: SCHEDULE_R0001, SCHEDULE_R0002, SCHEDULE_R0036, SCHEDULE_R0037, SCHEDULE_R0038. Keep a docs heading per started-Schedule code.
+**Decision:** Never rename or reuse a published code. Retired codes: SCHEDULE_HISTORY_INCOMPLETE, SCHEDULE_R0001, SCHEDULE_R0002, SCHEDULE_R0036, SCHEDULE_R0037, SCHEDULE_R0038. Keep a docs heading per started-Schedule code.
 
 **Consequences:** Reusing a retired code makes old docs links and user catches match a different failure. Move the retired list into data (catalog or docs) before the comment is deleted.
 
@@ -141,6 +141,16 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Reject CR/LF in command, env, cwd, logDir, description on Linux.
 
 **Consequences:** Removing the check allows unit-file injection from user-provided values.
+
+## systemd rendering keeps a line-break invariant after validation
+
+`lineBreak` in `packages/schedule/src/os/systemd.ts`.
+
+**Context:** `systemdValue`, `systemdExecArgument`, and `systemdAssignment` in `@vite-hub/internal/systemd` take a `lineBreak: () => never` callback, and other packages call them with their own. `validateOsScheduleSpec` rejects line breaks before the systemd driver renders, so the callback does not run for a value it checked. The log file path also joins `host.homedir`, which no validation reads.
+
+**Decision:** The driver passes `lineBreak`, which throws an invariant error. It never writes a unit file that holds a line break, even when a value skipped validation.
+
+**Consequences:** It can go when `@vite-hub/internal/systemd` takes a branded one-line string type that only validation creates, so the types carry the check. Until then, deleting it means each helper needs another way to refuse a line break.
 
 ## systemd weekday ranges start Monday and cannot wrap
 
@@ -312,15 +322,15 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Consequences:** Importing it pulls Node built-ins into Worker bundles.
 
-## KV key order is not a contract: over-cap unindexed history fails explicitly
+## KV run history lists only indexed records; the index key is written first
 
-`createKVScheduleRunStore.readSnapshot`, `createKVScheduleRunStore.listRuns` in `packages/schedule/src/runtime/store.ts`.
+`createKVScheduleRunStore.createRun`, `createKVScheduleRunStore.createAttempt`, `createKVScheduleRunStore.readSnapshot`, `createKVScheduleRunStore.listAttempts` in `packages/schedule/src/runtime/store.ts`.
 
-**Context:** When more than maxLegacyHistoryRecords records lack a metadata index, the store does not read a provider-ordered subset; listRuns throws SCHEDULE_HISTORY_INCOMPLETE instead of returning partial data.
+**Context:** KV key order is not a contract, so history needs the `schedule-run-index` and `schedule-run-attempt-index` keys to sort, filter, and limit runs without reading every record. Until #5153 the index was best effort: a failed index write was ignored, and every listing read and backfilled the unindexed records, up to 1,000, then failed with SCHEDULE_HISTORY_INCOMPLETE. The index exists since 2026-10-02, and ViteHub is 0.x.
 
-**Decision:** Never return a partial or provider-ordered subset as history.
+**Decision:** The index is required. createRun and createAttempt write the index key before the record, so a failed index write fails the call and leaves no record. listRuns and listAttempts read only indexed records, and skip an index key whose record is missing. There is no fallback scan.
 
-**Consequences:** Returning a prefix could present an incomplete set as the newest or full history.
+**Consequences:** A KV store must accept the index keys. A run or attempt written before 2026-10-02 that no listing has backfilled since does not show in the history; getRun and getAttempt still read it. A crash between the two writes leaves an index key without a record, which listings skip.
 
 ## Registry invalidation covers Nitro's environment graph
 
