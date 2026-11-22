@@ -210,7 +210,8 @@ describe.each([
     expect(completed).toEqual(["parent", "child"])
   })
 
-  it("preserves the handler error when deferred work also fails", async () => {
+  it("preserves the handler error and logs the deferred failure when both fail", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
     const handlerError = new Error("handler failure")
     await expect(execute({
       cron: "0 10 * * *",
@@ -223,6 +224,8 @@ describe.each([
       },
       name: "error-precedence",
     })).rejects.toBe(handlerError)
+    expect(log).toHaveBeenCalledWith("[vitehub:schedule] Deferred work failed after the handler failed.", expect.objectContaining({ message: "deferred failure" }))
+    log.mockRestore()
   })
 
   it("leaves deferred settlement to the supplied host", async () => {

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -95,10 +95,8 @@ describe("package type tests", () => {
   const packagesDir = fileURLToPath(new URL("../packages/", import.meta.url))
   const typeTests = readdirSync(packagesDir).flatMap((name) => {
     const testDir = join(packagesDir, name, "test")
-    let files: string[]
-    try { files = readdirSync(testDir) }
-    catch { return [] }
-    return files.filter(file => file.endsWith(".test-d.ts")).map(file => [name, join(testDir, file)] as const)
+    if (!existsSync(testDir)) return []
+    return readdirSync(testDir).filter(file => file.endsWith(".test-d.ts")).map(file => [name, join(testDir, file)] as const)
   })
 
   it.each(typeTests)("%s typecheck covers %s", (name, file) => {

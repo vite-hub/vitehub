@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer"
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync, statSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
 
 import { docsErrorDiagnostics } from "../error-diagnostics.ts"
@@ -66,8 +66,9 @@ export function playgroundExampleSources(page: WorkspacePage, rootDir: string): 
 function isTextFileOf(dir: string, path: string): boolean {
   const parts = path.split("/")
   if (isAbsolute(path) || path.includes("\\") || parts.some(part => part === "" || part === "." || part === ".." || isIgnoredEntry(part)) || isPrivateFile(parts.at(-1)!)) return false
-  const file = resolve(dir, path)
-  return existsSync(file) && statSync(file).isFile() && decodeText(readFileSync(file)) !== undefined
+  const stats = parts.map((_, index) => lstatSync(resolve(dir, ...parts.slice(0, index + 1)), { throwIfNoEntry: false }))
+  if (stats.some((stat, index) => !(index === parts.length - 1 ? stat?.isFile() : stat?.isDirectory()))) return false
+  return decodeText(readFileSync(resolve(dir, path))) !== undefined
 }
 
 /**

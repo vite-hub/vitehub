@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -20,6 +20,7 @@ const issues = (frontmatter: Record<string, unknown>) => {
   return result.success ? [] : result.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`)
 }
 const hello = { id: "hello", label: "Hello", dir: "examples/hello" }
+const wasm = new Uint8Array([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00])
 
 describe("workspace frontmatter", () => {
   it("accepts a playground page and a learn page", () => {
@@ -167,9 +168,13 @@ describe("checkWorkspacePage", () => {
     await write("examples/hello/pixel.bin", new Uint8Array([0x89, 0x50, 0xff, 0xfe]))
     await write("examples/hello/node_modules/a.js", "")
     await write("examples/outside.html", "")
+    await write("examples/hello/module.wasm", wasm)
+    await write("examples/hello/weights.safetensors", new Uint8Array(16))
+    await symlink(resolve(dir, "examples/hello/index.html"), resolve(dir, "examples/hello/alias.html"))
+    await symlink(resolve(dir, "examples/hello"), resolve(dir, "examples/hello/linked"))
     const page = (readonly: string[]): WorkspacePage => ({ path: "/docs/try", layout: "playground", workspace: { examples: [{ ...hello, readonly }] } })
     expect(code(() => check(page(["index.html"])))).toBeUndefined()
-    for (const path of ["missing.html", "pixel.bin", "../outside.html", "./index.html", "node_modules/a.js", "/index.html", ""]) {
+    for (const path of ["module.wasm", "weights.safetensors", "alias.html", "linked/index.html", "missing.html", "pixel.bin", "../outside.html", "./index.html", "node_modules/a.js", "/index.html", ""]) {
       expect(code(() => check(page([path]))), path).toBe("DOCS_WORKSPACE_READONLY_MISSING")
     }
   })
@@ -185,11 +190,13 @@ describe("render examples with binary files", () => {
     await mkdir(resolve(dir, "examples/hello/data"), { recursive: true })
     await writeFile(resolve(dir, "examples/hello/index.html"), "<h1>Hi</h1>\n")
     await writeFile(resolve(dir, "examples/hello/data/pixel.bin"), pixel)
+    await writeFile(resolve(dir, "examples/hello/data/module.wasm"), wasm)
+    await writeFile(resolve(dir, "examples/hello/data/weights.safetensors"), new Uint8Array(16))
     const page: WorkspacePage = { path: "/docs/try", layout: "playground", workspace: { examples: [{ ...hello, readonly: ["index.html"] }], render: "app/render.ts" } }
     const examples = await renderExamples(page, dir)
     expect(examples[0]).toMatchObject({ id: "hello", readonly: ["index.html"], files: { "index.html": "<h1>Hi</h1>\n" } })
     expect(Object.keys(examples[0]!.files)).toEqual(["index.html"])
-    expect(examples[0]!.assets).toEqual({ "data/pixel.bin": pixel })
+    expect(examples[0]!.assets).toEqual({ "data/pixel.bin": pixel, "data/module.wasm": wasm, "data/weights.safetensors": new Uint8Array(16) })
 
     const file = resolve(dir, "page.mjs")
     await writeFile(file, workspacePageModule({ layout: "playground", examples, port: 3000 }))

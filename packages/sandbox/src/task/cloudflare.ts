@@ -21,7 +21,7 @@ export const defaultCloudflareSandboxClassName = 'Sandbox'
 export const defaultCloudflareSandboxMigrationTag = 'v1'
 const defaultCloudflareSandboxMaxInstances = 12
 const cloudflareSandboxNodeImage = '24-bookworm-slim'
-const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps tini unzip wget zip'
+const cloudflareSandboxPackages = 'ca-certificates git procps tini'
 const durableObjectModule = '@vite-hub/sandbox/internal/cloudflare'
 
 function resolveModule(id: string) {
@@ -32,8 +32,8 @@ function resolveCloudflareSandboxEntrypoint() {
   try {
     return resolveModule('@cloudflare/sandbox')
   }
-  catch {
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0003({ message: '[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.' })
+  catch (cause) {
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0003({ cause, message: '[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.' })
   }
 }
 

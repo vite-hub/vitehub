@@ -45,8 +45,9 @@ export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WebContainerFiles;
   /**
-   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. They are not in `files`, so
-   * edits, `modified`, and `setFiles()` never touch them.
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. Text files at an asset path,
+   * or at a path that would replace one with a folder or a file, are dropped, so edits, `modified`, `setFiles()`
+   * and `reset()` never touch them.
    */
   assets?: Readonly<Record<string, Uint8Array>>;
   /**
@@ -143,7 +144,10 @@ function parentDirectory(path: string): string | undefined {
  * or your own. Only one WebContainer runs per page.
  */
 export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
-  const initial: WebContainerFiles = { ...options.files };
+  const assetPaths = Object.keys(options.assets ?? {});
+  const textFiles = (next: Readonly<WebContainerFiles>): WebContainerFiles => Object.fromEntries(Object.entries(next).filter(([path]) =>
+    !assetPaths.some(asset => asset === path || asset.startsWith(`${path}/`) || path.startsWith(`${asset}/`))));
+  const initial: WebContainerFiles = textFiles(options.files);
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";
 
@@ -402,7 +406,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   }
 
   async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
-    files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
+    files.value = setOptions.mode === "replace" ? textFiles(next) : { ...files.value, ...textFiles(next) };
     await sync();
   }
 

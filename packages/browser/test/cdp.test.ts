@@ -115,6 +115,39 @@ describe("cdp controller", () => {
     vi.useRealTimers()
   })
 
+  it("keeps the timeout error and attaches a failed socket close as its cause", async () => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    const failure = new Error("WebSocket close failed")
+    socket.close.mockImplementationOnce(() => { throw failure })
+    function PendingSocket() {
+      return socket
+    }
+    vi.stubGlobal("WebSocket", PendingSocket)
+
+    try {
+      const connecting = cdp().attach({
+        endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+        kind: "cdp",
+      }, {
+        driver: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        sessionId: "public-id",
+      })
+      const result = expect(connecting).rejects.toMatchObject({
+        cause: failure,
+        code: "BROWSER_PROVIDER_ERROR",
+        details: { operation: "connect to the browser" },
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+
   it.each(["error", "close"])("rejects a local socket %s before opening and cleans up setup", async (event) => {
     vi.useFakeTimers()
     const socket = new FakeSocket()

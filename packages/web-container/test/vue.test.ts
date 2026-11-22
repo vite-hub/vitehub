@@ -152,6 +152,26 @@ describe("useWebContainer", () => {
     wrapper.unmount();
   });
 
+  it("keeps asset paths out of the text files, at boot, in edits, and through Reset", async () => {
+    const weights = new Uint8Array([0, 1, 254, 255]);
+    const assets = { "weights.bin": weights, "model/data.bin": weights };
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a", "weights.bin": "shadow", "model": "file" }, assets });
+    await flushPromises();
+    expect(fake.mountFiles).toEqual({ "a.txt": "a", ...assets });
+    expect(workspace.files.value).toEqual({ "a.txt": "a" });
+
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ "weights.bin": "text", "model/data.bin/x.txt": "x", "b.txt": "b" });
+    expect(workspace.files.value).toEqual({ "a.txt": "a", "b.txt": "b" });
+    expect(fake.disk.get("weights.bin")).toBe(weights);
+    expect(fake.disk.get("model/data.bin")).toBe(weights);
+
+    await workspace.reset();
+    expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", ...assets });
+    wrapper.unmount();
+  });
+
   it("reports an install failure with its exit code, and retries the install", async () => {
     const { workspace, wrapper } = mountWorkspace({ env: () => ({ OPENAI_API_KEY: "sk-test" }), files: { "a.txt": "a" } });
     await flushPromises();
