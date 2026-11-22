@@ -391,23 +391,3 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** A Drizzle table Collection (rawRows) gets a route only with authorize, and a public one needs transform.
 
 **Consequences:** Relaxing the rawRows access rule can expose whole database rows, including secrets, on a public route.
-
-## GitHub file reads work around forges `contents.getFile()` on a directory
-
-`file` and `metadata` in `packages/source/src/sources/github/client.ts`.
-
-**Context:** forges `contents.getFile()` cannot tell a directory from a file. On a directory it requests `git/blobs/undefined`, and GitHub answers 422 ([danielroe/forges#292](https://github.com/danielroe/forges/issues/292), open).
-
-**Decision:** `file` turns that 422 into a ViteHub error that names the path as a directory or another entry type, with the forges error as `cause`. `metadata` sends the raw contents request, reads the entry `type`, and returns undefined for anything but a file.
-
-**Consequences:** Routing `metadata` through `contents.getFile()` makes every directory probe fail with 422. Both can go when forges returns the entry type or rejects a directory with its own error.
-
-## The packed build aliases fdir to its ESM entry and strips its picomatch probe
-
-`pack.alias.fdir` and the `source-fdir-without-optional-glob` plugin in `packages/source/vite.config.ts`.
-
-**Context:** The source build bundles tinyglobby and fdir. fdir's ESM entry probes for picomatch with a `require` built by `createRequire(import.meta.url)`, which keeps `node:module` and the probe in the Worker bundle.
-
-**Decision:** The pack config aliases fdir to `dist/index.mjs` and replaces the probe with `let pm = null`. The plugin throws when the probe text changes, so an fdir update cannot ship the probe silently.
-
-**Consequences:** Update the replaced text when fdir changes its probe. It can go when fdir builds without the picomatch probe ([thecodrr/fdir#164](https://github.com/thecodrr/fdir/pull/164), open).
