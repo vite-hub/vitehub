@@ -14,7 +14,7 @@ import { hubEmail } from "../src/vite.ts"
 
 import type { EmailClient, EmailDefinition } from "../src/types.ts"
 
-type ConfigHook = (config: Record<string, unknown>, env?: { command: "build" | "serve", mode: string }) => Promise<unknown>
+type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []
@@ -35,10 +35,10 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubEmail>, root: string, command?: "build" | "serve"): Promise<{ config: Record<string, unknown>, definition: string }> {
+async function configure(plugin: ReturnType<typeof hubEmail>, root: string, command: "build" | "serve" = "build"): Promise<{ config: Record<string, unknown>, definition: string }> {
   const config: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
   // SAFETY: the hooks are functions in hubEmail. The tests call them the way Vite does.
-  await (plugin.config as ConfigHook)(config, command ? { command, mode: command === "serve" ? "development" : "production" } : undefined)
+  await (plugin.config as ConfigHook)(config, { command, mode: command === "serve" ? "development" : "production" })
   await (plugin.configResolved as ConfigResolvedHook)({ root })
   const handler = plugin.api.getDefinition()?.handler
   if (!handler) throw new Error("Expected a configured Email definition")
