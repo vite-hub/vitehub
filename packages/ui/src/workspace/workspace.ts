@@ -198,6 +198,7 @@ const workspaceProps = {
   start: { default: false, type: Boolean },
   label: { default: "workspace", type: String },
   open: { default: false, type: Boolean },
+  reset: { default: undefined, type: Function as PropType<(files: WorkspaceFiles, example: WorkspaceExample) => WorkspaceFiles> },
 };
 
 type WorkspaceProps = Readonly<ExtractPropTypes<typeof workspaceProps>>;
@@ -210,12 +211,14 @@ const WorkspaceSession = defineComponent({
     files: { required: true, type: Object as PropType<WorkspaceFiles> },
     notice: { default: undefined, type: String },
     step: { default: 0, type: Number },
+    shared: { default: undefined, type: Object as PropType<{ example: WorkspaceExample, files: WorkspaceFiles }> },
   },
   emits: {
     "update:selected": (path: string) => typeof path === "string",
     "update:step": (step: number) => Number.isInteger(step),
     change: (example: WorkspaceExample) => !!example,
     remount: (example: WorkspaceExample) => !!example,
+    restore: (link: { example: WorkspaceExample, files: WorkspaceFiles }) => !!link,
   },
   setup(props, { emit, slots }) {
     const UButton = useUIComponent("UButton");
@@ -248,10 +251,9 @@ const WorkspaceSession = defineComponent({
       confirm.value = undefined;
     }
 
-    async function load(next: WorkspaceExample) {
+    async function load(next: WorkspaceExample, files = filesOf(next)) {
       if (!run.keeps(next)) return emit("remount", next);
       current.value = next;
-      const files = filesOf(next);
       selected.value = firstFile(next, files);
       emit("change", next);
       await run.open(next, files);
@@ -261,9 +263,13 @@ const WorkspaceSession = defineComponent({
       if (!next || (next.id === example.value.id && edited.value.length === 0)) return;
       guard(`Open the ${next.label} example?`, "Replace files", () => void load(next));
     }
+    watch(() => config.example, (id) => { if (id !== undefined && id !== example.value.id) pick(id); });
+    watch(() => props.shared, (link) => {
+      if (link) guard(`Open the shared files${config.examples.length > 1 ? ` on the ${link.example.label} example` : ""}?`, "Replace files", () => emit("restore", link));
+    });
     function reset() {
       const title = config.examples.length > 1 ? `Discard your changes to the ${example.value.label} example?` : "Discard your changes?";
-      guard(title, "Discard changes", () => void load(example.value));
+      guard(title, "Discard changes", () => void load(example.value, config.reset?.(run.files.value, example.value)));
     }
 
     const { copy, copied } = useCopy();
@@ -447,26 +453,50 @@ export const Workspace = defineComponent({
     }
 
     let restoration = 0;
-    async function restore() {
+    let opening = 0;
+    const shared = shallowRef<{ example: WorkspaceExample, files: WorkspaceFiles }>();
+    async function readLink() {
       const request = ++restoration;
       const code = props.share ? readPlaygroundHash(location.hash) : undefined;
       const decoded = code ? await decodePlaygroundLink(code, props.examples.map(item => ({ files: filesOf(item), id: item.id }))) : undefined;
-      if (request !== restoration) return;
-      const shared = decoded?.template === undefined ? undefined : props.examples.find(item => item.id === decoded.template);
-      link.value = shared ? "restored" : code ? "invalid" : undefined;
-      if (shared && decoded) {
-        starting.value = false;
-        return boot(shared, decoded.files);
-      }
+      if (request !== restoration) return undefined;
+      const example = decoded?.template === undefined ? undefined : props.examples.find(item => item.id === decoded.template);
+      return { code, link: example && decoded ? { example, files: decoded.files } : undefined };
+    }
+    function openLink(next: { example: WorkspaceExample, files: WorkspaceFiles }) {
+      shared.value = undefined;
+      link.value = "restored";
+      starting.value = false;
+      boot(next.example, next.files);
+    }
+    async function restore() {
+      const read = await readLink();
+      if (!read) return;
+      if (read.link) return openLink(read.link);
+      link.value = read.code ? "invalid" : undefined;
       boot(first());
+    }
+    async function follow() {
+      if (!readPlaygroundHash(location.hash)) return;
+      if (!session.value) return restore();
+      const before = opening;
+      const read = await readLink();
+      if (!read || before !== opening) return;
+      if (!read.link) {
+        link.value = "invalid";
+        return;
+      }
+      if (shown.value && !starting.value) shared.value = { ...read.link };
+      else openLink(read.link);
     }
     onMounted(() => {
       void restore();
-      if (props.share) window.addEventListener("hashchange", restore);
+      if (props.share) window.addEventListener("hashchange", follow);
     });
-    onBeforeUnmount(() => window.removeEventListener("hashchange", restore));
+    onBeforeUnmount(() => window.removeEventListener("hashchange", follow));
 
     function opened(example: WorkspaceExample) {
+      opening++;
       link.value = undefined;
       emit("update:example", example.id);
     }
@@ -577,8 +607,10 @@ export const Workspace = defineComponent({
                 config: props,
                 files: current.files ?? filesOf(active.value),
                 notice: notice(),
+                shared: shared.value,
                 step: step.value,
                 onChange: opened,
+                onRestore: openLink,
                 onRemount: (example: WorkspaceExample) => {
                   opened(example);
                   boot(example);

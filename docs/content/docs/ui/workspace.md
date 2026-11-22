@@ -27,8 +27,7 @@ The entry loads CodeMirror and xterm only when a workspace shows them, and it is
 
 `webContainer()` mounts the files of the example in a WebContainer, installs the dependencies, and runs `npm run dev`. The output has a Preview tab for the dev server on `port` and a Terminal tab. With `connect`, a Connect tab signs in to the providers of `defineConnect()`.
 
-::example{name="WorkspaceExample" height=28}
-::
+A WebContainer runs only on a cross-origin isolated page, and this page is not one. Open the [Playground](/playground) to run an app in a workspace.
 
 ```vue
 <script setup lang="ts">
@@ -112,7 +111,7 @@ const { device, supported } = useWorkspaceDevice(runner);
 
 ### Share links
 
-With `share`, Copy link puts the files in the URL hash as `#code=…`, with the example id as `template`. Opening the link restores those files on their example and shows a notice. Download saves a zip named after `name` and the example id, such as `vitehub-kv.zip`.
+With `share`, Copy link puts the files in the URL hash as `#code=…`, with the example id as `template`. Opening the link restores those files on their example and shows a notice. A link that opens while the reader has edits asks first, and a hash without `#code=`, such as an anchor, keeps the run. Download saves a zip named after `name` and the example id, such as `vitehub-kv.zip`.
 
 ### Sidebar
 
@@ -132,7 +131,7 @@ The workspace is a region named by `label`. The bar, the editor, the tabs, and t
 | --- | --- | --- | --- |
 | `examples` | `WorkspaceExample[]` | Required | The examples, each `{ id, label, files, group?, description?, open?, preview? }`. More than one shows an examples menu. |
 | `runner` | `WorkspaceRunner` | Required | Runs the files: `webContainer()` or `render()`. |
-| `example` | `string` | | The id of the open example, such as from `?example=`. Defaults to the first example. Use `v-model:example`. |
+| `example` | `string` | | The id of the open example, such as from `?example=`. Defaults to the first example. A change opens that example, and asks first when the reader edited files. Use `v-model:example`. |
 | `selected` | `string` | | The file in the editor. Use `v-model:selected`. |
 | `steps` | `WorkspaceStep[]` | `[]` | The steps of a lesson, each `{ title, description? }`. They add the guide and the steps menu. |
 | `step` | `number` | | The current step, from 0. Use `v-model:step`. |
@@ -142,6 +141,7 @@ The workspace is a region named by `label`. The bar, the editor, the tabs, and t
 | `name` | `string` | `""` | The start of the zip name. The example id follows it. |
 | `start` | `boolean` | `false` | Shows the examples as cards on a first visit, before any run starts or any snapshot loads. A share link skips them. |
 | `label` | `string` | `"workspace"` | What the reader calls this, in lowercase, such as `"playground"`. It names the region, the Open button, and the notices. |
+| `reset` | `(files, example) => WorkspaceFiles` | | The files that Reset writes, from the current files and the example. Defaults to the files of the example. A lesson can use it to keep the files that the reader added. |
 | `open` | `boolean` | `false` | Whether the workspace shows, for a runner that only desktops start. Set it to `true` to show it on a tablet. Use `v-model:open`. |
 
 #### Events

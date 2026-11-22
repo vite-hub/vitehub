@@ -29,8 +29,9 @@ const snapshot = prebuilt && (() => fetchSnapshot(prebuilt.parts, { cache: `vite
 
 const baseline = shallowRef<Files>(stepFiles(props.step, "start"));
 const examples = computed<WorkspaceExample[]>(() => [
-  { id: props.tutorial.slug, label: props.tutorial.title, files: baseline.value, preview: "/api/health" },
+  { id: props.tutorial.slug, label: props.tutorial.title, files: stepFiles(props.step, "start"), preview: "/api/health" },
 ]);
+const resetStep = (files: Files) => tutorialWorkspaceFiles(props.tutorial, files, stepFiles(props.step, "start"));
 const runner = webContainer({ port: 3000, snapshot: () => snapshot || undefined });
 type Container = NonNullable<typeof runner.workspace.value>;
 
@@ -115,6 +116,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
     guide="side"
     :examples="examples"
     :runner="runner"
+    :reset="resetStep"
     :share="false"
   >
     <template #bar-actions="{ guard }">
