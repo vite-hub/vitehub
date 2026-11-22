@@ -65,6 +65,8 @@ export interface WorkspaceRunInput {
   files: WorkspaceFiles;
   /** Shows an output tab, such as `"terminal"`. */
   showTab: (tab: WorkspaceTab) => void;
+  /** Opens a file of the run in the editor, such as the file of an issue. */
+  show: (path: string) => void;
 }
 
 /**
@@ -225,7 +227,8 @@ const WorkspaceSession = defineComponent({
 
     const tab = ref<WorkspaceTab>();
     const showTab = (next: WorkspaceTab) => { tab.value = next; };
-    const run = config.runner.start({ example: props.booted, files: { ...props.files }, showTab });
+    const showFile = (path: string) => { if (run.files.value[path] !== undefined) show(path); };
+    const run = config.runner.start({ example: props.booted, files: { ...props.files }, showTab, show: showFile });
 
     const current = shallowRef(props.booted);
     const example = computed(() => config.examples.find(item => item.id === current.value.id) ?? current.value);
@@ -292,6 +295,8 @@ const WorkspaceSession = defineComponent({
       get: () => run.files.value[selected.value] ?? "",
       set: value => void setFile(selected.value, value).catch(() => {}),
     });
+
+    const locked = computed(() => example.value.readonly?.includes(selected.value) ?? false);
 
     const layout = computed<WorkspaceLayout>(() => {
       if (config.steps.length) return `guide-${config.guide ?? "top"}`;
@@ -365,10 +370,11 @@ const WorkspaceSession = defineComponent({
           h("div", { class: "vh-ws-head" }, h("span", { class: "vh-ws-muted" }, "Files")),
           h(WorkspaceFileTree, { edited: edited.value, paths: paths.value, selected: selected.value, "onUpdate:selected": show }),
         ],
-        "editor-head": () => h(WorkspaceEditorHead, { path: selected.value, wrap: wrap.value, "onUpdate:wrap": (next: boolean) => { wrap.value = next; } }),
+        "editor-head": () => h(WorkspaceEditorHead, { path: selected.value, readonly: locked.value, wrap: wrap.value, "onUpdate:wrap": (next: boolean) => { wrap.value = next; } }),
         editor: () => h(WorkspaceEditor, {
           modelValue: source.value,
           path: selected.value,
+          readonly: locked.value,
           wrap: wrap.value,
           onCursor: (next: WorkspaceCursor) => { cursor.value = next; },
           "onUpdate:modelValue": (value: string) => { source.value = value; },

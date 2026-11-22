@@ -33,7 +33,7 @@ for (const name of props.data.connect ?? []) {
 const connect = props.data.connect?.length ? defineConnect(connectConfig) : undefined
 const load = props.data.render
 const runner: WorkspaceRunner = load
-  ? render(async files => (await load()).default(files))
+  ? render(async (files, context) => (await load()).default(files, context))
   : webContainer({ connect, port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
 const zipPrefix = site.name.toLowerCase().replace(/[^a-z\d]+/g, "-").replace(/^-|-$/g, "")
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))

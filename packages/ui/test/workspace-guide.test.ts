@@ -185,4 +185,17 @@ describe("WorkspaceIssues", () => {
     expect(wrapper.attributes("hidden")).toBeUndefined();
     expect(wrapper.text()).toBe("No issues.");
   });
+
+  it("shows file:line as a button that emits show with the path", async () => {
+    const wrapper = mount(WorkspaceIssues, { props: { issues: [
+      { file: "index.html", line: 1, message: "No h1." },
+      { file: "app.vue", message: "Unused import." },
+      { line: 2, message: "Missing comma." },
+    ] } });
+    expect(wrapper.findAll("li").map(item => item.text())).toEqual(["index.html:1No h1.", "app.vueUnused import.", "Line 2Missing comma."]);
+    const buttons = wrapper.findAll("button.vh-ws-issue-file");
+    expect(buttons.map(button => button.attributes("title"))).toEqual(["Open index.html", "Open app.vue"]);
+    await buttons[1]!.trigger("click");
+    expect(wrapper.emitted("show")).toEqual([["app.vue"]]);
+  });
 });

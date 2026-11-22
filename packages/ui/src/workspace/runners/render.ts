@@ -1,11 +1,18 @@
 import { computed, h, onScopeDispose, ref, shallowRef } from "vue";
 import { type WorkspaceIssue, WorkspaceIssues } from "../workspace-issues.ts";
+import type { WorkspaceExample } from "../workspace-examples.ts";
 import type { WorkspaceFiles, WorkspaceRun, WorkspaceRunner, WorkspaceRunState } from "../workspace.ts";
 
 /** What `render()` gets back from its function: the HTML of the output, and the problems that it found. */
 export interface WorkspaceRenderResult {
   html: string;
   issues?: readonly WorkspaceIssue[];
+}
+
+/** What `render()` gives its function with the files. */
+export interface WorkspaceRenderContext {
+  /** The open example. Read binary files, such as model weights, from `example.assets`. */
+  example: WorkspaceExample;
 }
 
 export interface RenderRunnerOptions {
@@ -37,14 +44,16 @@ const message = (error: unknown) => error instanceof Error ? error.message : Str
 
 /**
  * Runs the files of a `Workspace` through `fn` in the page, 200 ms after the last edit, and shows the HTML in an
- * Output tab and the problems in an Issues tab. A result for older files never replaces a newer one, and a thrown error
- * becomes an issue. Every device can run it.
+ * Output tab and the problems in an Issues tab. `fn` gets the open example too, with its `assets`. A result for older
+ * files never replaces a newer one, and a thrown error becomes an issue. The file of an issue opens in the editor on a
+ * click. Every device can run it.
  */
-export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderResult>, options: RenderRunnerOptions = {}): WorkspaceRunner {
+export function render(fn: (files: WorkspaceFiles, context: WorkspaceRenderContext) => Promise<WorkspaceRenderResult>, options: RenderRunnerOptions = {}): WorkspaceRunner {
   const wrap = options.document ?? plainDocument;
 
-  function start({ files: initial }: Parameters<WorkspaceRunner["start"]>[0]): WorkspaceRun {
+  function start({ example: booted, files: initial, show }: Parameters<WorkspaceRunner["start"]>[0]): WorkspaceRun {
     const files = shallowRef<WorkspaceFiles>({ ...initial });
+    let example = booted;
     const issues = ref<readonly WorkspaceIssue[]>([]);
     const html = ref<string>();
     const running = ref(true);
@@ -60,7 +69,7 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
       const snapshot = files.value;
       running.value = true;
       try {
-        const result = await fn(snapshot);
+        const result = await fn(snapshot, { example });
         if (current !== runs || stopped) return;
         issues.value = result.issues ?? [];
         html.value = keepScroll(wrap(result.html, snapshot), scrollTop);
@@ -102,7 +111,8 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
         timer = setTimeout(() => void run(), debounce);
       },
       keeps: () => true,
-      async open(_example, next) {
+      async open(opened, next) {
+        example = opened;
         scrollTop = 0;
         files.value = { ...next };
         await run();
@@ -121,7 +131,7 @@ export function render(fn: (files: WorkspaceFiles) => Promise<WorkspaceRenderRes
             title: "Output",
           });
         }
-        if (tab === "issues") return h("div", { class: "vh-workspace-scroll" }, h(WorkspaceIssues, { empty: "No issues.", issues: issues.value }));
+        if (tab === "issues") return h("div", { class: "vh-workspace-scroll" }, h(WorkspaceIssues, { empty: "No issues.", issues: issues.value, onShow: show }));
         return undefined;
       },
       state,

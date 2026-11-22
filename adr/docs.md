@@ -39,3 +39,13 @@
 **Decision:** The build snapshots `node_modules` of each fixture, and the browser caches the parts under one name per set of dependencies, so a lesson and an example with the same dependencies share one copy and the runner switches between them without a new boot. A fixture without dependencies has no snapshot. A code block that sends a request runs it in the workspace through a script in `node_modules`, so the file tree and the zip never list it, and shows the response under the block. The steps of a lesson can come from another docs page, so the prose has one source. A lesson shows the Vite tab of each framework tabs block, since the workspace is a Vite app. `?step=` and `?example=` open a step or an example, and older `?template=` links still open.
 
 **Consequences:** A change to the cache name or the request script path breaks shared snapshots or lists internal files to the reader.
+
+## Binary files of an example stay in the page module as base64
+
+`setupDocsRunnable` in `packages/docs/src/runnable/nuxt.ts`, and `packages/docs/src/runnable/workspaces.ts`.
+
+**Context:** JSON has no bytes, and `Uint8Array.fromBase64` is not in every browser.
+
+**Decision:** The binary files of an example go only into the page modules of workspace pages, as base64 that the module turns back into bytes when it loads. `readTree(dir)` reads only text files inside `dir` that are not generated and are valid UTF-8.
+
+**Consequences:** When every supported browser has `Uint8Array.fromBase64`, the decoder can use it.

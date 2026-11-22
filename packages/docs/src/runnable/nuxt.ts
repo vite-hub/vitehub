@@ -161,7 +161,7 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   addTemplate({
     filename: "playground-templates.mjs",
     write: true,
-    getContents: async () => `export const playgroundTemplates = ${JSON.stringify((await currentTemplates()).filter(template => configExamples.has(template.id)))}\n`,
+    getContents: async () => `export const playgroundTemplates = ${JSON.stringify((await currentTemplates()).filter(template => configExamples.has(template.id)).map(({ assets: _assets, ...template }) => template))}\n`,
   })
 
   const pageModule = async (page: WorkspacePage): Promise<string> => {

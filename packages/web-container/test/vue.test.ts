@@ -9,7 +9,7 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
 const fake = vi.hoisted(() => {
   const state = {
-    disk: new Map<string, string>(),
+    disk: new Map<string, string | Uint8Array>(),
     directories: new Set<string>(),
     autoReady: true,
     failNext: false,
@@ -17,7 +17,7 @@ const fake = vi.hoisted(() => {
     serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
     exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void, reject: (error: Error) => void }[],
     output: [] as ReadableStreamDefaultController<string>[],
-    mountFiles: undefined as Record<string, string> | undefined,
+    mountFiles: undefined as Record<string, string | Uint8Array> | undefined,
     releaseBoot: undefined as (() => void) | undefined,
     statusListener: undefined as ((status: WebContainerStatus) => void) | undefined,
   };
@@ -26,7 +26,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock("../src/index.ts", () => ({
   checkWebContainerSupport: () => ({ supported: true }),
-  async bootWebContainer(options: { files: Record<string, string>, onStatus: (status: WebContainerStatus) => void }) {
+  async bootWebContainer(options: { files: Record<string, string | Uint8Array>, onStatus: (status: WebContainerStatus) => void }) {
     fake.statusListener = options.onStatus;
     fake.mountFiles = { ...options.files };
     for (const [path, contents] of Object.entries(options.files)) {
@@ -133,6 +133,22 @@ describe("useWebContainer", () => {
     await workspace.reset();
     expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", "b.txt": "b" });
     expect(workspace.modified.value).toEqual([]);
+    wrapper.unmount();
+  });
+
+  it("mounts the assets next to the files, and keeps them out of files and edits", async () => {
+    const weights = new Uint8Array([0, 1, 254, 255]);
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a" }, assets: { "model/weights.bin": weights } });
+    await flushPromises();
+    expect(fake.mountFiles).toEqual({ "a.txt": "a", "model/weights.bin": weights });
+    expect(fake.mountFiles?.["model/weights.bin"]).toBe(weights);
+    expect(workspace.files.value).toEqual({ "a.txt": "a" });
+
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ "b.txt": "b" }, { mode: "replace" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ "b.txt": "b", "model/weights.bin": weights });
+    expect(workspace.modified.value).toEqual(["a.txt", "b.txt"]);
     wrapper.unmount();
   });
 
