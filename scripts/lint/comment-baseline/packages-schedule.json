@@ -1,6 +1,10 @@
 {
   "packages/schedule/src/os/task-scheduler.ts": 1,
+  "packages/schedule/src/runtime/process.ts": 2,
+  "packages/schedule/src/vite.ts": 3,
+  "packages/schedule/test/durability.test.ts": 1,
   "packages/schedule/test/os-e2e.mjs": 4,
   "packages/schedule/test/os-render.test.ts": 1,
+  "packages/schedule/test/process-instances.test.ts": 2,
   "packages/schedule/test/process-leases.test.ts": 3
 }

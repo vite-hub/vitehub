@@ -14,6 +14,7 @@ export default defineConfig({
       "src/ai-sdk.ts",
       "src/index.ts",
       "src/internal.ts",
+      "src/testing.ts",
     ],
   },
 })

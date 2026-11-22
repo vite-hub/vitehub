@@ -49,6 +49,38 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ problems }: { problems: readonly string[] }) => `Docs redirects break links:\n${problems.map(problem => `- ${problem}`).join("\n")}`,
       fix: "Point each redirect route rule that the message lists to a docs page, or remove the rule when the page that it hides still exists.",
     },
+    DOCS_RUNNABLE_CATALOG_VERSION_MISSING: {
+      why: ({ catalog, name }: { catalog: string, name: string }) => `[@vite-hub/docs] A fixture of docs.runnable uses catalog:, but the pnpm catalog "${catalog}" has no version of ${name}.`,
+      fix: "Set `docs.runnable.pnpmWorkspace` to the folder of pnpm-workspace.yaml, and add the package to the catalog that the specifier names.",
+    },
+    DOCS_RUNNABLE_DEV_SERVER_MISSING: {
+      why: ({ fixture, name }: { fixture: string, name: string }) => `[@vite-hub/docs] The dev script of the fixture ${fixture} runs ${name}, but ${name} is in devDependencies. The snapshot of docs.runnable installs dependencies only, so the workspace cannot start.`,
+      fix: "Move the package that the message names from `devDependencies` to `dependencies` in the package.json of the fixture.",
+    },
+    DOCS_RUNNABLE_FIXTURE_FILE_MISSING: {
+      why: ({ fixture, label, page }: { fixture: string, label: string, page: string }) => `[@vite-hub/docs] ${page} shows ${label}, but the fixture ${fixture} has no such file.`,
+      fix: "Add the file to the fixture folder, or correct the label of the code block in the lesson page.",
+    },
+    DOCS_RUNNABLE_PACK_FAILED: {
+      why: ({ name }: { name: string }) => `[@vite-hub/docs] pnpm pack wrote no tarball for ${name}, so the snapshot of docs.runnable cannot install it.`,
+      fix: "Run `pnpm pack` in the folder of the package that the message names, and fix the error that it shows.",
+    },
+    DOCS_RUNNABLE_PAGE_MISSING: {
+      why: ({ page }: { page: string }) => `[@vite-hub/docs] docs.runnable names the page ${page}, but the docs site has no page at that URL.`,
+      fix: "Set `page` of the lesson, or `docs.runnable.start`, to the URL of a docs page, such as `/docs/getting-started/first-agent`.",
+    },
+    DOCS_RUNNABLE_STEPS_MISSING: {
+      why: ({ page }: { page: string }) => `[@vite-hub/docs] ${page} has no ::tutorial-step blocks, so docs.runnable cannot build its lesson.`,
+      fix: "Add `::tutorial-step{title=\"...\"}` blocks to the lesson page, or remove the lesson from `docs.runnable.lessons`.",
+    },
+    DOCS_RUNNABLE_TITLE_MISSING: {
+      why: ({ block }: { block: string }) => `[@vite-hub/docs] A ::tutorial-step block has no title: ${block}`,
+      fix: "Give the block a title, such as `::tutorial-step{title=\"Add the route\"}`.",
+    },
+    DOCS_RUNNABLE_WORKSPACE_PACKAGE_MISSING: {
+      why: ({ name }: { name: string }) => `[@vite-hub/docs] A fixture of docs.runnable uses workspace:, but the pnpm workspace has no package named ${name}.`,
+      fix: "Set `docs.runnable.pnpmWorkspace` to the folder of pnpm-workspace.yaml, and check that its `packages` patterns include the package.",
+    },
     DOCS_SEO_DESCRIPTION_INVALID: {
       why: ({ problems }: { problems: readonly string[] }) => `Docs pages have no description, one of the wrong length, or the description of another page:\n${problems.map(problem => `- ${problem}`).join("\n")}`,
       fix: "Set `description` in the frontmatter of each page that the message lists, with 70 to 160 characters, and give each page its own.",

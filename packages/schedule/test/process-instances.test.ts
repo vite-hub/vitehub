@@ -221,6 +221,75 @@ describe("Process Runtime on more than one process", () => {
     }))
   })
 
+  it.each([
+    { catchUpMs: 0, lateMs: 60_000, runs: 1 },
+    { catchUpMs: 60 * 60_000, lateMs: 60_000, runs: 1 },
+    // The done marker of a finished run lasts only `catchUpMs` plus `leaseTtlMs` plus two minutes.
+    { catchUpMs: 0, lateMs: 2 * 60_000, runs: 0 },
+  ])("runs an occurrence of a crashed process while its done marker can exist (catchUpMs: $catchUpMs, $lateMs ms late)", async ({ catchUpMs, lateMs, runs }) => {
+    const leases = createMemoryLeaseStore()
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = minute("2026-11-09T08:00:00.000Z")
+    const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
+    // The crashed process claimed the occurrence, started its run, and stopped. Its claim ends in a later minute.
+    await leases.acquire(`vitehub:schedule/schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
+    await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
+    const handler = vi.fn()
+    const time = clock("2026-11-09T08:00:10.000Z")
+
+    await install(await startProcess(), {
+      catchUpMs,
+      leases,
+      now: time.now,
+      registry: { daily: async () => defineSchedule({ cron: "0 8 * * *", handler }) },
+      scheduleRunStore,
+    })
+    await sleep(50)
+    time.advance(lateMs)
+    await sleep(500)
+
+    expect(handler).toHaveBeenCalledTimes(runs)
+    if (runs) expect(await scheduleRunStore.getRun(runId)).toEqual(expect.objectContaining({ attemptCount: 2, status: "succeeded" }))
+  })
+
+  it("keeps the failover of a crashed process after one lease store error", async () => {
+    const memory = createMemoryLeaseStore()
+    let failNextAcquire = false
+    const leases: typeof memory = {
+      ...memory,
+      async acquire(key, options) {
+        if (!failNextAcquire) return memory.acquire(key, options)
+        failNextAcquire = false
+        throw new Error("The lease store is not available.")
+      },
+    }
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const scheduledAt = minute("2026-11-09T08:00:00.000Z")
+    const runId = "srun_static_daily_2026-11-09T08:00:00.000Z"
+    await memory.acquire(`vitehub:schedule/schedule/${runId}`, { owner: "crashed", ttl: 0.3 })
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: scheduledAt, id: runId, scheduleId: "daily", scheduledAt, startedAt: scheduledAt, status: "running", target: "daily", updatedAt: scheduledAt })
+    await scheduleRunStore.createAttempt({ createdAt: scheduledAt, id: "satt_crashed", runId, startedAt: scheduledAt, status: "running", updatedAt: scheduledAt })
+    const handler = vi.fn()
+    const time = clock("2026-11-09T08:00:10.000Z")
+
+    await install(await startProcess(), {
+      catchUpMs: 0,
+      leases,
+      now: time.now,
+      onError: vi.fn(),
+      registry: { daily: async () => defineSchedule({ cron: "0 8 * * *", handler }) },
+      scheduleRunStore,
+    })
+    await sleep(50)
+    failNextAcquire = true
+    time.advance(60_000)
+    await sleep(500)
+
+    expect(failNextAcquire).toBe(false)
+    expect(handler).toHaveBeenCalledTimes(1)
+  })
+
   it.each([false, true])("runs an unfinished occurrence once when every process restarts after its minute (build timings: %s)", async (buildTimings) => {
     const leases = createMemoryLeaseStore()
     const scheduleRunStore = createMemoryScheduleRunStore()

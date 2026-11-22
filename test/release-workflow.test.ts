@@ -9,7 +9,9 @@ import viteConfig from "../vite.config.ts"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
-const previewWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
+// The preview publish job is the last job of ci.yml.
+const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
+const previewWorkflow = ciWorkflow.slice(ciWorkflow.indexOf("  publish-preview:\n"))
 
 function pinned(action: string) {
   return new RegExp(`uses: ${action}@[0-9a-f]{40} # v\\d+\\.\\d+\\.\\d+\\n`)

@@ -29,7 +29,7 @@ async function loadParser(): Promise<ShellParser> {
     if (!shSyntax.parse) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE()
     return shSyntax.parse
   }
-  const processor = shSyntax.getProcessor(imports => WebAssembly.instantiate(wasm, imports))
+  const processor = shSyntax.getProcessor((imports: Record<string, unknown>) => WebAssembly.instantiate(wasm, imports))
   return (text, options) => processor(text, options)
 }
 

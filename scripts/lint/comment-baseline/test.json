@@ -1,4 +1,6 @@
 {
-  "test/design-rules.test.ts": 19,
+  "test/ci-gate.test.ts": 1,
+  "test/design-rules.test.ts": 16,
+  "test/release-workflow.test.ts": 1,
   "test/tiptap-single-copy.test.ts": 2
 }

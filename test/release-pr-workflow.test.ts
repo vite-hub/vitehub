@@ -29,7 +29,7 @@ describe("release PR workflow", () => {
     expect(workflow).toContain("steps.pending-release.outputs.pending != 'true'")
     expect(workflow).toContain('checkout: "false"')
     expect(workflow).toContain("packages/*")
-    expect(workflow).toContain("for workflow in ci.yml pkg-pr-new.yml; do")
+    expect(workflow).toContain("for workflow in ci.yml; do")
     expect(workflow).toContain('actions/workflows/${workflow}/runs?head_sha=${head_sha}')
     expect(workflow).toContain('select(.status == "completed" and .conclusion == "success")')
     expect(workflow).toContain('gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"')

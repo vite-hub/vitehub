@@ -1,6 +1,6 @@
-import { BinCmdOperator, LangVariant, RedirOperator, walk, type File } from "sh-syntax"
+import { BinCmdOperator, LangVariant, RedirOperator, createSourceIndex, walk, type File } from "sh-syntax"
 
-import { createSourceIndex, wordText } from "./parse.ts"
+import { wordText } from "./parse.ts"
 import { parseShell } from "./sh-syntax.ts"
 
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"

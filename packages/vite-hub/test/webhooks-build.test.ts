@@ -186,6 +186,17 @@ describe("Webhooks in a built Nitro 3 app", () => {
     }
   }, 300_000)
 
+  it("resolves the verified owner of a member endpoint through Auth", async () => {
+    const root = await createProject({
+      ...memberFiles,
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ database: 'memory', emailAndPassword: { enabled: true } })\n",
+    })
+    const options: ViteHubOptions = { auth: true, database: true, host: "node" }
+    expect((await runCli(root, [vitehub(options), sendPlugin], ["database", "generate"])).exitCode).toBe(0)
+    await build(root, options, [sendPlugin])
+    expect(await readFile(join(root, ".vitehub/nitro/webhooks/registry.mjs"), "utf8")).toContain("resolveVerifiedOwner: findVerifiedAuthUserId,")
+  }, 240_000)
+
   it("contributes the vitehub-webhooks Queue to the Cloudflare output", async () => {
     const root = await createProject({
       ...files,

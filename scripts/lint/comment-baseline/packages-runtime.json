@@ -1,3 +1,4 @@
 {
+  "packages/runtime/src/internal/public-url.ts": 2,
   "packages/runtime/src/internal/shutdown.ts": 3
 }

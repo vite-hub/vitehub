@@ -111,6 +111,24 @@ describe("GitHub inbox change detection", () => {
     await f.inbox.close()
   })
 
+  it("reads the reviews of an outside PR whose approval is present on its first scan", async () => {
+    let now = 1_000_000
+    const inbox = new PullRequestInbox({ path: ":memory:", repositories: [repository], clock: () => now, admitApproved: true, filter: { authorAssociation: { allow: ["OWNER", "MEMBER"] } } })
+    const outside = node(9, { authorAssociation: "NONE", author: { login: "outsider" }, latestReviews: { nodes: [{ id: "R1", state: "APPROVED" }] } })
+    const graphql = vi.fn(async () => ({ data: { repository: { pullRequests: { nodes: [outside], pageInfo: { hasNextPage: false, endCursor: null } } } } }))
+    const read = vi.fn(async (path: string) => {
+      if (path === `repos/${repository}/pulls/9`) return [{ number: 9, state: "open", user: { login: "outsider" }, author_association: "NONE", head: { sha: head, ref: "fix-9" }, base: { ref: "main" } }]
+      if (path.startsWith(`repos/${repository}/pulls/9/reviews`)) return [{ id: 1, state: "APPROVED", commit_id: head, user: { login: "onmax" }, author_association: "OWNER", submitted_at: "2026-10-01T00:00:00Z" }]
+      return []
+    })
+    now += 61_000
+    await detectChangedPullRequests(inbox, () => graphql, [repository], now)
+    expect((await inbox.get(repository, 9))?.status).toBe("terminal")
+    expect(await probeChangedSnapshots(inbox, read, now)).toBe(1)
+    expect((await inbox.claim(1)).map(claim => claim.snapshot.number)).toEqual([9])
+    await inbox.close()
+  })
+
   it("probes a PR that left the open list and records it closed", async () => {
     let open = [node(7)]
     const f = setup(() => open)

@@ -10,9 +10,12 @@ import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 
 // `agent invocations` talks to a server or a journal database, so a broken or slow project config cannot block it.
 // Its entry does not import `vite`, so it also runs on a server that installed only production dependencies. It reads
-// only literal config values.
+// only literal config values. `agent emulator` with an explicit emulator, or outside a project, needs no project config.
 const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   features: [{
+    name: "emulator",
+    run: async (args, context) => requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-emulator-cli")), "agent").runAgentEmulatorCli(args, context),
+  }, {
     name: "invocations",
     run: async (args, context) => {
       const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-invocations-cli")), "agent")
@@ -68,8 +71,10 @@ runViteHubCliEntrypoint({
   },
   loadConfig: loadViteHubCliConfig,
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
-    if (namespace !== "agent" || (feature !== "invocations" && feature !== "state")) return true
-    const { isAgentCliEnabled } = await import("./internal/runtime-feature-guard.ts")
+    if (namespace !== "agent" || (feature !== "emulator" && feature !== "invocations" && feature !== "state")) return true
+    const { isAgentCliEnabled, isAgentEmulatorStandalone } = await import("./internal/runtime-feature-guard.ts")
+    // Without an explicit emulator, the project loads and the Agent CLI contributor runs the command.
+    if (feature === "emulator") return isAgentEmulatorStandalone(process.argv.slice(4), process.env, cwd)
     return isAgentCliEnabled(cwd)
   },
   // `connections` and `kv` commands only call the running app. Loading the project runs every ViteHub plugin, and the

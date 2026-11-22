@@ -19,6 +19,7 @@ export default defineConfig({
           name: "workspace",
           include: ["test/**/*.test.ts"],
           exclude: [...configDefaults.exclude, "test/history.test.ts"],
+          fileParallelism: false,
           typecheck: {
             enabled: true,
             include: ["test/**/*.test-d.ts"],

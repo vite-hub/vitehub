@@ -305,7 +305,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
           await page.mouse.click(x, 30)
           await composer.waitFor({ timeout: 5000 })
           const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
-          await bubble.evaluate(card => Promise.all(card.getAnimations().map(animation => animation.finished)))
+          // The bubble comes out of its pin with the appear effect of the motion layer. Wait until it rests.
+          await bubble.evaluate(card => new Promise((resolve) => {
+            const check = () => (card.style.translate || card.style.clipPath || card.style.opacity ? requestAnimationFrame(check) : resolve())
+            check()
+          }))
           await composer.fill("A visible Send button")
           const card = await bubble.boundingBox()
           assert.ok(card.x >= 0 && card.x + card.width <= width, `at x ${x} in ${width}px (${rootSize}px root) the card is at ${card.x}..${card.x + card.width}`)
@@ -587,6 +591,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
       const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
+      // The bar rises from the text with the appear effect of the motion layer. Measure it where it rests.
+      await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").evaluate(bar => new Promise((resolve) => {
+        const check = () => (bar.style.translate || bar.style.clipPath || bar.style.opacity ? requestAnimationFrame(check) : resolve())
+        check()
+      }))
       const box = await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
@@ -678,13 +687,15 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const start = performance.now()
       const log = window.pinLog = []
       const record = () => {
-        const pins = [...root.querySelectorAll("[data-slot='comment-layer-item']:not([data-draft])")].filter(item => item.querySelector("[data-slot='comment-pin']"))
-        const entry = { at: performance.now() - start, count: pins.length, leaving: pins.some(item => item.dataset.leaving === "true"), animation: pins.map(item => getComputedStyle(item.querySelector("[data-slot='comment-pin']")).animationName).join(",") }
+        // The leave effect of the motion layer folds an inert copy of a leaving pin away. The copy is not a pin.
+        const pins = [...root.querySelectorAll("[data-slot='comment-layer-item']:not([data-draft], [data-motion=none])")].filter(item => item.querySelector("[data-slot='comment-pin']"))
+        const copy = root.querySelector("[data-slot='comment-layer-item'][data-motion=none]")
+        const entry = { at: performance.now() - start, count: pins.length, leaving: pins.some(item => item.dataset.leaving === "true"), hidden: pins.some(item => item.style.opacity === "0"), copy: Boolean(copy) }
         const last = log.at(-1)
-        if (!last || last.count !== entry.count || last.leaving !== entry.leaving) log.push(entry)
+        if (!last || last.count !== entry.count || last.leaving !== entry.leaving || last.copy !== entry.copy) log.push(entry)
       }
       record()
-      new MutationObserver(record).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-leaving"] })
+      new MutationObserver(record).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-leaving", "style"] })
     })
     assert.equal(await items.count(), 1)
     assert.match(await items.first().locator("[data-slot='comment-pin']").getAttribute("aria-label"), /Only this one shows/)
@@ -695,13 +706,14 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const log = await page.evaluate(() => window.pinLog)
     const leave = log.find(entry => entry.leaving)
     assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
-    // Shown since the send, then 180ms of pop-out.
+    // Shown since the send, then it leaves.
     assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
-    assert.equal(leave.animation, "vh-comment-mark-leave")
-    const gone = log.at(-1).at - leave.at
-    assert.ok(gone >= 150 && gone < 500, `the pop-out took ${gone}ms`)
+    assert.ok(leave.hidden && leave.copy, `the pin hid and a copy of it folded away: ${JSON.stringify(leave)}`)
+    // The page keeps the hidden pin for commentLeaveMs, while its copy folds away.
+    const gone = log.find(entry => entry.at > leave.at && entry.count === 0).at - leave.at
+    assert.ok(gone >= 120 && gone < 500, `the pin went after ${gone}ms`)
     assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")
-    await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']:not([data-draft])"), undefined, { timeout: 2000 })
+    await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']:not([data-draft])"), undefined, { timeout: 3000 })
     assert.equal(await areas(), 0)
     assert.equal(await eye.getAttribute("aria-pressed"), "true")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-4-after.png` })

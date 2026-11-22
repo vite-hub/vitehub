@@ -234,7 +234,6 @@ const config: KnipConfiguration = {
         "scripts/**/*.mjs",
         "test/**/*.test.ts",
         "test/browser/*.browser.mjs",
-        "modules/tutorials/snapshot-worker.mjs",
       ],
       ignoreDependencies: [
         /^@iconify-json\//,

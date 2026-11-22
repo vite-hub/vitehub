@@ -6,6 +6,7 @@ import postgres from "postgres"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "@vite-hub/database"
+import { createNodePostgresDatabase } from "../../database/src/runtime/node-postgres.ts"
 import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { queueUnsupportedOptionsError } from "../src/errors.ts"
@@ -378,6 +379,33 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       if (saved.QUEUE_POSTGRES_URL === undefined) delete process.env.QUEUE_POSTGRES_URL
       await expect(db.execute("select 1")).resolves.toBeDefined()
       await Reflect.get(db, "$client").end()
+    }
+  })
+
+  it("runs jobs on the connection URL of a node-postgres Database", async () => {
+    tables.push("vitehub_queue_jobs")
+    vi.stubEnv("QUEUE_POSTGRES_URL", undefined)
+    vi.stubEnv("VITEHUB_TEST_QUEUE_DATABASE_URL", url!)
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_QUEUE_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
+    const db = createNodePostgresDatabase(definition, { binding: "DB" })
+    const queue = `node_postgres_${randomUUID()}`
+    const ran: unknown[] = []
+    const config = { database: "default", driver: "postgres" } as const
+    setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
+    setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
+    try {
+      startPostgresQueue(config, async () => ({ default: { db } }))
+      expect((await dynamicQueue.send(queue, "job"))[0]).toBeUndefined()
+      await until(async () => ran, values => values.includes("job"), 8000)
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeConfig(undefined)
+      setQueueRuntimeRegistry(undefined)
+      // The Database owns its Pool. Queue leaves it open.
+      await expect(db.execute("select 1")).resolves.toBeDefined()
+      await Reflect.get(db, "$client").end()
+      vi.unstubAllEnvs()
     }
   })
 

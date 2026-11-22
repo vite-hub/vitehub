@@ -162,21 +162,25 @@ interface InternalAuthModuleOptions {
   importBase?: string
 }
 
-function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
+function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, runtimeServer?: string, serverEnv: boolean, testMode?: boolean } = { serverEnv: false }): string {
   if (!config) {
     return "export const definition = undefined\nexport const getAuthApp = () => undefined\nexport default definition\n"
   }
+  const runtimeServer = JSON.stringify(options.runtimeServer ?? privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
     options.testMode ? "export const getAuthApp = () => undefined" : 'export { useNitroApp as getAuthApp } from "nitro/app"',
     // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
     ...(options.serverEnv
       ? [
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(privateAuthImport(options.importBase ?? authPackageName, "runtime/server"))}`,
+          `import { setAuthRuntimeEnvResolver } from ${runtimeServer}`,
           `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
           "setAuthRuntimeEnvResolver(useServerEnv, definition)",
         ]
       : []),
+    // The Nuxt module guards the pages of `access.pages` that the build reads. The server stops when the Definition has others.
+    `import { checkBuiltAuthPages } from ${runtimeServer}`,
+    `checkBuiltAuthPages(definition, ${JSON.stringify(config.access.pages ?? {})})`,
     "export { definition }",
     "export default definition",
     "",
@@ -185,7 +189,7 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, 
 
 export async function writeNuxtAuthDefinition(root: string, config: ResolvedAuthViteConfig): Promise<string> {
   const file = resolve(resolveViteHubProjectRoot(root), ".vitehub/auth/definition.ts")
-  await writeFileIfChanged(file, renderAuthDefinitionModule(config))
+  await writeFileIfChanged(file, renderAuthDefinitionModule(config, { runtimeServer: ownModule(import.meta.url, "runtime/server"), serverEnv: false }))
   return file
 }
 
@@ -205,7 +209,8 @@ function renderAuthServerModule(options: { importBase?: string } = {}): string {
   return [
     `export * from ${JSON.stringify(serverImport)}`,
     `export { default } from ${JSON.stringify(serverImport)}`,
-    `export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    // Webhooks reads `findVerifiedAuthUserId` to find the verified owner of a member endpoint.
+    `export { createAuthAccessHandler, findVerifiedAuthUserId } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
     "",
   ].join("\n")
 }
@@ -279,7 +284,9 @@ function renderAuthAmbientTypes(options: { abilities?: string, client?: string, 
 /**
  * The declaration of the virtual module. It stays out of a file with imports, which would make it an augmentation of
  * a module that must already resolve. When only the bundler resolves `#vitehub/auth/server`, the tsconfig would not
- * find it and the types of everything that imports the Auth handlers would be `any`.
+ * find it and the types of everything that imports the Auth handlers would be `any`. An `export ... from` in this
+ * block must name a package: TypeScript drops one with a file path (TS2439), and the private entry of `vite-hub` is a
+ * file path. A `typeof import()` type takes any path.
  */
 function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`
@@ -287,7 +294,8 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { default } from ${JSON.stringify(serverImport)}`,
-    `  export { createAuthAccessHandler } from ${JSON.stringify(privateAuthImport(importBase, "internal/server"))}`,
+    `  export const createAuthAccessHandler: typeof import(${JSON.stringify(privateAuthImport(importBase, "internal/server"))}).createAuthAccessHandler`,
+    `  export const findVerifiedAuthUserId: typeof import(${JSON.stringify(privateAuthImport(importBase, "internal/server"))}).findVerifiedAuthUserId`,
     "}",
     "",
   ].join("\n")

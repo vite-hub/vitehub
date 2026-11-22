@@ -15,6 +15,9 @@ export type PostgresQueueDatabasesLoader = () => Promise<PostgresQueueDatabases>
 
 const postgresUrl = /^postgres(?:ql)?:\/\//i
 
+/** A Postgres Database answers this key with a function that returns its connection URL. `@vite-hub/database` sets it. */
+const databaseConnectionUrl = Symbol.for("vitehub.database.postgres.connection-url")
+
 let loadDatabases: PostgresQueueDatabasesLoader | undefined
 let closing: Promise<void> | undefined
 interface EngineState {
@@ -59,6 +62,8 @@ interface ResolvedConnection {
 /**
  * The connection of the jobs: `QUEUE_POSTGRES_URL` when it is set, else the postgres.js client of the Database that the
  * build found on Postgres. The jobs then use the connection that the Database resolves, whatever variable it reads.
+ * Another driver, such as a node-postgres Pool, cannot run the jobs, so they get a postgres.js client on the connection
+ * URL of the Database.
  */
 export async function resolvePostgresQueueConnection(
   config: { database?: string },
@@ -74,6 +79,9 @@ export async function resolvePostgresQueueConnection(
     const entry = (await databases())[config.database]
     const client: unknown = entry ? Reflect.get(entry.db, "$client") : undefined
     if (isPostgresQueueSql(client)) return { connection: { client }, key: client }
+    const readUrl: unknown = entry ? Reflect.get(entry.db, databaseConnectionUrl) : undefined
+    const databaseUrl: unknown = typeof readUrl === "function" ? readUrl() : undefined
+    if (typeof databaseUrl === "string") return { connection: { url: databaseUrl }, key: databaseUrl }
   }
   throw queueErrorDiagnostics.QUEUE_POSTGRES_MISSING_CONNECTION({ database: config.database })
 }

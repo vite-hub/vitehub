@@ -86,6 +86,10 @@ Fix each finding in the code. Each finding gives a fix and a link to its Diagnos
 
 Keep one concern per pull request. Use a clear conventional title and start the body with the user visible problem and result. Include focused validation. Do not merge, force push, or deploy without explicit authorization. Use an isolated worktree for pull request work and never remove pre existing work.
 
+Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](CONTRIBUTING.md#verify-the-changed-behavior). CI must not be the first check of your change.
+
+Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
+
 ## Review guidelines
 
 Automated reviewers read this section. The Babysitter fixes P0 and P1 findings and declines most P2 findings, so a finding below that bar only adds a review round.

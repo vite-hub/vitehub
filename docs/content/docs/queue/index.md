@@ -2,7 +2,7 @@
 title: Queue
 layout: landing
 navigation.title: Overview
-description: Send slow work to a queue so your route replies at once, and run jobs in the background on Cloudflare or Vercel.
+description: Send slow work to a queue so your route replies at once, and run jobs in the background on Node, Cloudflare, or Vercel.
 navigation.order: 1
 icon: i-lucide-list-ordered
 ---
@@ -123,7 +123,7 @@ export default defineConfig({
   :::
 
   :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#drivers"}
-  On Node, jobs run in the server process, on one instance only. Cloudflare and Vercel use Cloudflare Queues or Vercel Queues.
+  On Node, jobs run in the server process. With a Postgres Default Database, every instance shares the jobs. Without one, the default `local` driver keeps jobs on one instance. Set `driver: 'postgres'` with `QUEUE_POSTGRES_URL` to share them. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 

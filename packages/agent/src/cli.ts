@@ -1311,6 +1311,13 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: conversationsExportUsage,
     },
     {
+      description: "Show the AI emulator that answers Agent models under VITEHUB_MODELS=emulate: its rules and recent calls.",
+      name: "emulator",
+      // The emulator reader loads the gateway package, so only this command imports it.
+      run: async (args, context) => await (await import("./internal/agent-emulator-cli.ts")).runAgentEmulatorCli(args, context),
+      usage: "vitehub agent emulator [--url <url>] [--json]",
+    },
+    {
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),

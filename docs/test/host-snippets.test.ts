@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { array, object, optional, parse, picklist, string } from "valibot"
 
-import { frameworks, frameworkView } from "../modules/tutorials/build"
+import { frameworks, frameworkView } from "../../packages/docs/src/runnable/build"
 
 const docsRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = resolve(import.meta.dirname, "../../fixtures/docs-hosts")

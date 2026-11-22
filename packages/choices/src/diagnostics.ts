@@ -25,5 +25,9 @@ export const choicesDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ problem }: { problem: string }) => problem,
       fix: "Run `vitehub choices list` to find the files and exports that call `defineChoices()`, and pass one of them to `vitehub choices run`.",
     },
+    DECISIONS_TESTING_SELECTION_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
+      fix: "Pass `selectionGateway()` as the `gateway` of `defineChoices()`. Name only its groups: an option value or `null` for a group with `multiple: false`, and `{ include, exclude }` with option values for the other groups.",
+    },
   },
 })

@@ -280,6 +280,20 @@ describe("label morph", () => {
     assert.equal(await page.locator("[data-test=morph-vue]").textContent(), "Copied")
     await context.close()
   })
+
+  test("a responsive MorphText updates to plain text while hidden", async () => {
+    const { context, page } = await open({ viewport: { width: 480, height: 1400 } })
+    const selector = "[data-test=morph-vue] > [data-slot=morph-text]"
+    await page.addStyleTag({ content: `@media (max-width: 639px) { ${selector} { display: none } }` })
+    const label = page.locator(selector)
+    assert.equal(await label.isVisible(), false)
+    await page.locator("[data-test=label-toggle]").click()
+    assert.deepEqual(await label.evaluate(element => [...element.childNodes].map(node => [node.nodeType, node.textContent])), [[3, "Copied"]])
+    await page.setViewportSize({ width: 900, height: 1400 })
+    await label.waitFor({ state: "visible" })
+    assert.equal(await label.textContent(), "Copied")
+    await context.close()
+  })
 })
 
 describe("icon swap", () => {
@@ -312,6 +326,19 @@ describe("icon swap", () => {
     assert.equal(rings.at(-1), "", "the ring is gone after")
     assert.match(rings[first + Math.floor((last - first) / 5)], /^0 0 0 [\d.]+px color-mix/)
     assert.deepEqual(errors, [])
+    await context.close()
+  })
+
+  test("a press of an icon-only CopyButton squashes its SwapIcon by 15% and keeps the button still", async () => {
+    const { context, page } = await open()
+    const box = await page.locator("[data-test=copy]").boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    // The spring settles at a 15% squash of the icon.
+    await page.waitForFunction(() => document.querySelector("[data-test=copy] > [data-slot=swap-icon]")?.style.scale === "0.85", undefined, { timeout: 15_000 })
+    const own = await page.locator("[data-test=copy]").evaluate(element => getComputedStyle(element).scale)
+    await page.mouse.up()
+    assert.equal(own, "none")
     await context.close()
   })
 

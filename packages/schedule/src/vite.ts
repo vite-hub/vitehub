@@ -32,6 +32,7 @@ import type { ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import type { ViteHubInspectionPluginMetadata, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
+import type { ScheduleDurabilityInput } from "./durability.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -861,10 +862,15 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   let viteRoot: string | undefined
   let contributions: CollectedScheduleContribution[] = []
   let command: "build" | "serve" | undefined
-  const processStorageOptions = (hasPlugin: (name: string) => boolean) => ({
-    ...(hasPlugin(databaseVitePluginName) ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
-    memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
-  })
+  // Set by the `config` hook too, because the Nuxt Nitro-only replay can skip this plugin's configResolved.
+  let leaseDatabase = false
+  const processStorageOptions = (hasPlugin: (name: string) => boolean) => {
+    leaseDatabase = hasPlugin(databaseVitePluginName)
+    return {
+      ...(leaseDatabase ? { leaseDatabaseImport: internalOptions.databaseImport ?? "@vite-hub/database" } : {}),
+      memoryProcessStores: internalOptions.requireKVPluginForProcessStores && !hasPlugin("@vite-hub/kv/vite"),
+    }
+  }
 
   async function collectPluginScheduleContributions(plugins: readonly unknown[] | undefined, roots: ReturnType<typeof resolveSchedulePluginRoots>) {
     return await collectScheduleContributions(plugins, { projectRoot: roots.projectRoot, root: roots.viteRoot, serverDirs })
@@ -1116,8 +1122,15 @@ export function hubSchedule(options: ScheduleOptions = {}): ScheduleVitePlugin {
   }
   inspectable.api = { deploymentEnv: context => scheduleDeploymentEnv(discoverRegistrySchedules().length, context) }
   inspectable.vitehub = {
+    // Only the process runtime runs schedules in the server. Other hosts trigger them from their own cron. The generated
+    // runtime keeps its leases in the Default Database when the app has the Database plugin.
     durability: () => options.runtime?.driver === "process"
-      ? [{ export: "scheduleDurability", input: { driver: "process" }, module: durabilityModuleFile(import.meta.url), primitive: "schedule" }]
+      ? [{
+          export: "scheduleDurability",
+          input: { driver: "process", leases: leaseDatabase } satisfies ScheduleDurabilityInput,
+          module: durabilityModuleFile(import.meta.url),
+          primitive: "schedule",
+        }]
       : [],
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: ownModule(import.meta.url, "operations") }],
     inspect: () => ({

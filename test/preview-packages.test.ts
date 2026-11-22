@@ -76,14 +76,14 @@ describe("preview package manifests", () => {
   })
 
   it("lets a running main publish finish when main moves", async () => {
-    const workflow = await readFile(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
+    const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
     expect(workflow).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}")
   })
 
   it("runs between the fresh build and the preview publish", async () => {
-    const workflow = await readFile(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
+    const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
     const build = workflow.indexOf("- run: vp run --no-cache --filter \"./packages/*\" build")
-    const prepare = workflow.indexOf("- run: node .github/scripts/preview-packages.mjs \"$GITHUB_SHA\"")
+    const prepare = workflow.indexOf("- run: node .github/scripts/preview-packages.mjs \"$PREVIEW_SHA\"")
     const publish = workflow.indexOf("pkg-pr-new publish")
     expect(build).toBeGreaterThan(-1)
     expect(prepare).toBeGreaterThan(build)

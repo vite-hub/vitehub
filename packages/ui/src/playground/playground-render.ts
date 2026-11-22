@@ -4,6 +4,7 @@ import { useCopy } from "../components/copy-button.ts";
 import { MorphText, SwapIcon } from "../components/motion.ts";
 import { ring } from "../motion/helpers/ring.ts";
 import { icon, type WorkspaceIconName } from "../workspace/icons.ts";
+import { type WorkspaceIssue, WorkspaceIssues } from "../workspace/workspace-issues.ts";
 import {
   decodePlaygroundLink,
   encodePlaygroundLink,
@@ -32,10 +33,8 @@ export interface PlaygroundPane {
   slot?: string;
 }
 
-export interface PlaygroundIssue {
-  message: string;
-  line?: number;
-}
+/** A problem that the render found, shown by `WorkspaceIssues`. */
+export type PlaygroundIssue = WorkspaceIssue;
 
 export interface PlaygroundResult {
   html: string;
@@ -334,10 +333,7 @@ export const PlaygroundRender = defineComponent({
         ]),
         ...props.panes.map((pane, index) => h("div", { key: pane.file, "class": "vh-pg-pane", "data-file": pane.file, "hidden": active.value !== index }, editor(pane))),
         notice.value ? h("p", { class: "vh-pg-notice", role: "status" }, notice.value) : undefined,
-        h("ul", { "aria-label": "Issues", "aria-live": "polite", "class": "vh-pg-issues", "hidden": issues.value.length === 0 }, issues.value.map(issue => h("li", [
-          issue.line === undefined ? undefined : h("span", { class: "vh-pg-issue-line" }, `Line ${issue.line}`),
-          issue.message,
-        ]))),
+        h(WorkspaceIssues, { class: "vh-pg-issues", issues: issues.value }),
         // Resetting drops edits that live nowhere else, so it asks first.
         h("dialog", {
           "aria-labelledby": confirmId,
