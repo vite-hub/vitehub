@@ -61,7 +61,7 @@ them to the script.
 | `migrations-once` | Three cold starts apply the Database migrations once, and every instance can query the table. |
 | `kv-shared` | A KV value written on instance A is read on instance B. |
 | `blob-shared` | A Blob written on instance A is read on instance B, with a shared Blob store set in the config. |
-| `workflow-shared` | With OpenWorkflow on Postgres set in the config, a worker starts on every instance, and a Workflow started on A completes once and B reads its result. |
+| `workflow-shared` | With OpenWorkflow on Postgres set in the config, a Workflow started on A completes once and B reads its result. |
 | `queue-failover` | Jobs queued on A with a 5 second delay run on B or C after A stops. This check runs last, because it stops A. |
 
 ## What the instances share
@@ -76,10 +76,8 @@ starts in its own working directory, and only these stores are shared:
 - KV, through Redis at `REDIS_URL`, or the Postgres Default Database with `--no-redis`.
 - Blob, set by hand in `app/nuxt.config.ts` to one `fs` directory, as a volume
   that every instance mounts.
-- Workflow, set by hand to `driver: 'openworkflow'`. ViteHub does not start
-  an OpenWorkflow worker on Node yet, so `app/server/plugins/openworkflow-worker.ts`
-  starts one. Remove that plugin when #3839 lands, because then ViteHub starts
-  the worker.
+- Workflow, set by hand to `driver: 'openworkflow'`. The generated Workflow
+  startup plugin starts an OpenWorkflow worker in each instance.
 
 The fixture ships one migration in `app/server/databases/default/migrations/`. The
 harness does not run `vitehub database migrate`, because `migrations-once` checks that

@@ -104,9 +104,6 @@ async function workspaceConfig(specs: Record<string, string>) {
     ...specs,
     "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
-    "mdast-util-gfm-table": "2.0.0",
-    "msgpackr@^2": "2.1.0",
-    "msgpackr-extract": "3.0.4",
   })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
