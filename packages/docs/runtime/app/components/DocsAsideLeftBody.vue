@@ -478,7 +478,8 @@ function toggleGroup(pageGroup: DocsSidebarGroup<DocsAppPage>, event: Event) {
   cursor: pointer;
 }
 
-/* A folded group: the summary is its heading, and its chevron points right while the group is shut. */
+/* A folded group: the summary is its heading, and its chevron points right while the group is shut. The disclosure effect
+   of the motion layer turns the chevron when the group opens or closes. */
 .vh-docs-sidebar-fold > summary {
   cursor: pointer;
   list-style: none;
@@ -490,7 +491,6 @@ function toggleGroup(pageGroup: DocsSidebarGroup<DocsAppPage>, event: Event) {
 
 .vh-docs-sidebar-fold-icon {
   color: var(--ui-text-dimmed);
-  transition: transform 150ms ease;
 }
 
 .vh-docs-sidebar-fold:not([open]) .vh-docs-sidebar-fold-icon {
@@ -504,12 +504,6 @@ function toggleGroup(pageGroup: DocsSidebarGroup<DocsAppPage>, event: Event) {
 @media (hover: hover) {
   .vh-docs-sidebar-fold > summary:hover {
     color: var(--ui-text-highlighted);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-docs-sidebar-fold-icon {
-    transition: none;
   }
 }
 

@@ -79,6 +79,7 @@ export const CommentSelectionBar = defineComponent({
         "div",
         {
           "aria-label": "Selected text",
+          "data-motion-appear": "",
           "data-side": props.side,
           "data-slot": "comment-selection-bar",
           // A press here must not take the selection away from the page.

@@ -1,5 +1,4 @@
 import type { MotionEffect } from "../registry.ts";
-import { writeMotionStyle } from "../registry.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
@@ -21,8 +20,12 @@ type Axis = "x" | "y";
 interface Line {
   color: string;
   width: number;
-  /** True when the line is part of the divider, so it hides while the drawn line bends. */
-  own: boolean;
+  /**
+   * The element that draws the line, when the line is part of the divider: the divider itself, for its own background
+   * or a pseudo-element, or the thin child that is the line. It hides while the drawn line bends, and a grip or a label
+   * beside it in the divider stays.
+   */
+  element?: HTMLElement;
 }
 
 interface Bend {
@@ -34,6 +37,7 @@ interface Bend {
   at: number;
   spring: Spring;
   lane?: { svg: SVGSVGElement; path: SVGPathElement };
+  opacity?: { value: string; priority: string };
 }
 
 const bends = new WeakMap<HTMLElement, Bend>();
@@ -57,22 +61,26 @@ function shows(color: string): boolean {
  */
 function lineOf(handle: HTMLElement, axis: Axis): Line {
   const across = (style: CSSStyleDeclaration) => Number.parseFloat(axis === "x" ? style.width : style.height);
-  const styles = [getComputedStyle(handle), getComputedStyle(handle, "::before"), getComputedStyle(handle, "::after")];
-  for (const child of handle.children) styles.push(getComputedStyle(child));
-  for (const style of styles) {
+  const styles: Array<[CSSStyleDeclaration, HTMLElement]> = [
+    [getComputedStyle(handle), handle],
+    [getComputedStyle(handle, "::before"), handle],
+    [getComputedStyle(handle, "::after"), handle],
+  ];
+  for (const child of handle.children) if (child instanceof HTMLElement) styles.push([getComputedStyle(child), child]);
+  for (const [style, element] of styles) {
     const width = across(style);
     if (style.display !== "none" && shows(style.backgroundColor) && width > 0 && width <= 4) {
-      return { color: style.backgroundColor, width, own: true };
+      return { color: style.backgroundColor, width, element };
     }
   }
-  return { color: "var(--ui-border, var(--vh-border, currentColor))", width: 1, own: false };
+  return { color: "var(--ui-border, var(--vh-border, currentColor))", width: 1 };
 }
 
 function draw(bend: Bend, amount: number): void {
   const { handle, axis, line } = bend;
   if (Math.abs(amount) < 0.5 && !bend.spring.active) {
     bend.lane?.svg.remove();
-    writeMotionStyle(handle, { opacity: null });
+    if (line.element && bend.opacity) line.element.style.setProperty("opacity", bend.opacity.value, bend.opacity.priority);
     if (bends.get(handle) === bend) bends.delete(handle);
     return;
   }
@@ -87,10 +95,14 @@ function draw(bend: Bend, amount: number): void {
     path.style.strokeWidth = `${line.width}px`;
     svg.append(path);
     bend.lane = { svg, path };
+    if (line.element) {
+      const { style } = line.element;
+      bend.opacity = { value: style.opacity, priority: style.getPropertyPriority("opacity") };
+      style.setProperty("opacity", "0");
+    }
   }
   const { svg, path } = bend.lane;
   if (!svg.isConnected) handle.after(svg);
-  if (line.own) writeMotionStyle(handle, { opacity: "0" });
   // In CSS pixels of the handle's parent, where the line is drawn, also on a page with CSS `zoom`.
   const zoom = handle.offsetHeight ? handle.getBoundingClientRect().height / handle.offsetHeight || 1 : 1;
   const scaled = (box: DOMRect) => ({ left: box.left / zoom, top: box.top / zoom, width: box.width / zoom, height: box.height / zoom });

@@ -1999,6 +1999,33 @@ describe("Babysitter preset runtime", () => {
     } finally { await member.runtime.inbox.close(); }
   });
 
+  it("repairs an outside contributor's PR once a reviewer with verified write access approves it", async () => {
+    const approved = async (reviewer: string) => {
+      const f = await fixture(false, false, { authorAssociation: "NONE", options: { filter: {}, lifecycle: { approval: true } } });
+      const command = f.command.getMockImplementation()!;
+      f.command.mockImplementation(async (args, request) => {
+        const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+        if (path.startsWith("repos/acme/app/pulls/12/reviews")) {
+          return { stdout: JSON.stringify({ id: 7, user: { login: reviewer }, author_association: "MEMBER", state: "APPROVED", commit_id: f.pr().head.sha, submitted_at: "2026-11-19T00:00:00Z", body: "" }), stderr: "" };
+        }
+        if (path.startsWith("repos/acme/app/collaborators/")) return { stdout: JSON.stringify({ permission: path.includes("/maintainer/") ? "write" : "read" }), stderr: "" };
+        return await command(args, request);
+      });
+      return f;
+    };
+    const maintainer = await approved("maintainer");
+    try {
+      await maintainer.reconcile();
+      expect(maintainer.passes).toHaveLength(1);
+    } finally { await maintainer.runtime.inbox.close(); }
+    // A MEMBER association whose permission GitHub reports as read does not admit the PR.
+    const reader = await approved("reader");
+    try {
+      await reader.reconcile();
+      expect(reader.passes).toHaveLength(0);
+    } finally { await reader.runtime.inbox.close(); }
+  });
+
   it("merges directly and holds outside contributors for approval by default", () => {
     expect(resolveBabysitterMerge(babysitter.options.merge)).toEqual({ mode: "direct", method: "squash", ready: approvedIfOutside, foldStacks: true });
     expect(resolveBabysitterMerge({ strategy: "direct", method: "rebase" })).toEqual({ mode: "direct", method: "rebase", ready: approvedIfOutside, foldStacks: true });

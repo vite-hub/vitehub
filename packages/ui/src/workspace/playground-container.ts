@@ -26,9 +26,11 @@ import { ConnectPanel, type ConnectProviderState } from "./connect-panel.ts";
 import { useConnectStore } from "./connect-store.ts";
 import { WorkspaceBootStatus } from "./workspace-boot-status.ts";
 import { WorkspaceEditor } from "./workspace-editor.ts";
+import { WorkspaceEditorHead } from "./workspace-editor-head.ts";
 import { WorkspaceFileTree } from "./workspace-file-tree.ts";
 import { WorkspacePreview, workspacePreviewScript } from "./workspace-preview.ts";
 import { type WorkspaceLayout, WorkspaceShell, type WorkspaceTab, type WorkspaceTabItem } from "./workspace-shell.ts";
+import { type WorkspaceCursor, WorkspaceStatus } from "./workspace-status.ts";
 import { WorkspaceTerminal } from "./workspace-terminal.ts";
 
 /** An app that the container can open. A playground has a menu of them. A tutorial has one, with the files of its step. */
@@ -125,7 +127,7 @@ const zipName = (prefix: string, template: PlaygroundContainerTemplate) => prefi
 // The shared props of the container and of one boot of it.
 const sessionProps = {
   templates: { required: true as const, type: Array as PropType<readonly PlaygroundContainerTemplate[]> },
-  layout: { default: "playground", type: String as PropType<WorkspaceLayout> },
+  layout: { default: "side", type: String as PropType<WorkspaceLayout> },
   label: { default: "workspace", type: String },
   name: { default: "", type: String },
   port: { default: undefined, type: Number },
@@ -189,8 +191,10 @@ const PlaygroundSession = defineComponent({
     const selected = ref(props.selected !== undefined && props.files[props.selected] !== undefined ? props.selected : firstFile(booted, props.files));
     watch(() => props.selected, (path) => { if (path !== undefined) selected.value = path; });
     watch(selected, path => emit("update:selected", path), { immediate: true });
+    const wrap = ref(false);
+    const cursor = ref<WorkspaceCursor>({ column: 1, line: 1 });
     const previewPath = ref(booted.preview ?? "/");
-    const tab = ref<WorkspaceTab>(props.layout === "tutorial" ? "preview" : "terminal");
+    const tab = ref<WorkspaceTab>("preview");
     const booting = computed(() => workspace.status.value !== "ready" || !!workspace.failure.value || !workspace.previewUrl.value);
 
     const confirm = ref<{ title: string, label: string, action: () => void }>();
@@ -266,7 +270,7 @@ const PlaygroundSession = defineComponent({
     const tabItems = computed<WorkspaceTabItem[]>(() => {
       const connected = Object.keys(states.value).length;
       return [
-        ...props.layout === "tutorial" ? [{ label: "Preview", value: "preview" }] : [],
+        { label: "Preview", value: "preview" },
         { label: "Console", value: "terminal" },
         ...hasConnect.value ? [{ badge: connected || undefined, label: "Connect", value: "connect" }] : [],
         ...props.tabs,
@@ -329,7 +333,7 @@ const PlaygroundSession = defineComponent({
     function preview(): VNode {
       if (!booting.value) return pane("Preview", undefined, h(WorkspacePreview, { path: previewPath.value, url: workspace.previewUrl.value, "onUpdate:path": (path: string) => { previewPath.value = path; } }));
       // The checklist takes the place of the preview, so the reader can edit while the app starts.
-      return pane("Preview", props.layout === "playground" ? [h("span", { class: "vh-pc-pane-title" }, "Preview")] : undefined, h("div", { class: "vh-pc-boot" }, h(WorkspaceBootStatus, {
+      return pane("Preview", undefined, h("div", { class: "vh-pc-boot" }, h(WorkspaceBootStatus, {
         failure: workspace.failure.value,
         online: workspace.online.value,
         status: workspace.status.value,
@@ -345,15 +349,21 @@ const PlaygroundSession = defineComponent({
       const connect = props.connect;
       const shellSlots: Record<string, () => VNode | VNode[] | undefined> = {
         files: () => pane("Files", [h("span", { class: "vh-pc-pane-title" }, "Files")], h("div", { class: "vh-pc-tree" }, h(WorkspaceFileTree, {
-          modified: edited.value,
+          edited: edited.value,
           paths: paths.value,
           selected: selected.value,
           "onUpdate:selected": (path: string) => { selected.value = path; },
         })), "vh-pc-files"),
-        editor: () => pane("Editor", [
-          h("span", { class: "vh-pc-path" }, selected.value),
-          edited.value.includes(selected.value) ? h("span", { class: "vh-pc-muted" }, "Edited") : undefined,
-        ], h(WorkspaceEditor, { modelValue: source.value, path: selected.value, "onUpdate:modelValue": (value: string) => { source.value = value; } })),
+        "editor-head": () => h(WorkspaceEditorHead, { path: selected.value, wrap: wrap.value, "onUpdate:wrap": (next: boolean) => { wrap.value = next; } }),
+        editor: () => pane("Editor", undefined, h(WorkspaceEditor, {
+          modelValue: source.value,
+          path: selected.value,
+          wrap: wrap.value,
+          onCursor: (next: WorkspaceCursor) => { cursor.value = next; },
+          "onUpdate:modelValue": (value: string) => { source.value = value; },
+          "onUpdate:wrap": (next: boolean) => { wrap.value = next; },
+        })),
+        status: () => h(WorkspaceStatus, { cursor: cursor.value, path: selected.value }),
         preview,
         terminal: () => h(WorkspaceTerminal, { output: workspace.logs.value }),
         ...connect && hasConnect.value && {
@@ -366,7 +376,7 @@ const PlaygroundSession = defineComponent({
             "onCopy-command": (command: string) => void copy(command),
           })),
         },
-        ...Object.fromEntries(props.tabs.map(item => [item.value, () => slots[item.value]?.(context)])),
+        ...Object.fromEntries(props.tabs.map(item => [`tab-${item.value}`, () => slots[item.value]?.(context)])),
       };
       return h("div", { class: "vh-pc-session" }, [
         toolbar(),
@@ -410,7 +420,7 @@ export const PlaygroundContainer = defineComponent({
     templates: sessionProps.templates,
     /** The id of the template to open first, such as from `?template=`. Defaults to the first template. */
     template: { default: undefined, type: String },
-    /** `playground` puts the preview at the side. `tutorial` puts it in a tab under the editor. */
+    /** `side` puts the output at the side of the code. `guide-side` puts it over the code, for a page with its guide on the left. */
     layout: sessionProps.layout,
     /** What the reader calls this, in lowercase, such as `"playground"`. It names the Open button and the notices. */
     label: sessionProps.label,

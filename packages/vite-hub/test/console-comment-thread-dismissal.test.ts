@@ -282,7 +282,7 @@ it("keeps the thread visible when an attachment is denied and retries the author
     await wrapper.get("button[label=Retry]").trigger("click")
     await flushPromises()
     expect(wrapper.find("[role=alert]").exists()).toBe(false)
-    expect(wrapper.get("img[alt='shot.png']").attributes("src")).toBe("blob:image")
+    expect(wrapper.get("button[aria-label='Preview shot.png'] img").attributes("src")).toBe("blob:image")
     await router.push("/other")
     await flushPromises()
     expect(revoke).toHaveBeenCalledWith("blob:image")

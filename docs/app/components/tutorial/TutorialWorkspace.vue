@@ -3,7 +3,7 @@ import { PlaygroundContainer, type PlaygroundContainerTemplate, type PlaygroundC
 import { fetchSnapshot } from "@vite-hub/web-container";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import { parseCurl, requestScript } from "~/utils/runnable-tutorial";
-import { restartsDevServer, tutorialStepFiles, tutorialWorkspaceFiles } from "~~/modules/tutorials/steps";
+import { restartsDevServer, tutorialStepFiles, tutorialWorkspaceFiles } from "@vite-hub/docs/runnable";
 
 import type { TutorialActions } from "~/utils/tutorial-actions";
 
@@ -110,7 +110,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
   <PlaygroundContainer
     v-model:open="open"
     v-model:selected="selected"
-    layout="tutorial"
+    layout="guide-side"
     :templates="templates"
     :share="false"
     :port="3000"
