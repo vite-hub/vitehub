@@ -442,7 +442,6 @@ export interface ConversationExport {
 }
 
 const conversationsExport = defineOperation({
-  // `vitehub agent conversations export` writes the export and its attachments to a directory.
   cli: false,
   description: "Export one Channel conversation as Markdown or as the JSON archive, with its attachments.",
   input: v.strictObject({

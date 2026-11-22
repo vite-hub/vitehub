@@ -34,12 +34,10 @@ export interface TaskTriggers {
 const maxTriggers = 48
 const weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-// Task Scheduler codes for a task that never ran and one that runs now. They are not exit codes.
 const taskNeverRan = 267011
 const taskRunning = 267009
 const { join } = pathsFor("win32")
 
-/** An XML duration, such as `PT23H52M30S`. */
 function taskDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor(seconds % 3600 / 60)
@@ -47,29 +45,22 @@ function taskDuration(seconds: number): string {
   return `PT${hours ? `${hours}H` : ""}${minutes ? `${minutes}M` : ""}${rest || !seconds ? `${rest}S` : ""}`
 }
 
-/** `count` runs from `start`, `step` minutes apart, in minutes of the day. */
 interface Runs {
   start: number
   step: number
   count: number
 }
 
-/** One trigger for the runs. The duration ends half a step after the last run. */
 function trigger({ start, step, count }: Runs): TimeTrigger {
   if (count < 2) return { start }
   return { start, repetition: { interval: taskDuration(step * 60), duration: taskDuration((count - 1) * step * 60 + step * 30) } }
 }
 
-/**
- * Task Scheduler repeats a trigger in elapsed time. When the clocks change between the first and the last run, the
- * later runs move by the change, and the duration ends at another time of day. Such runs need one trigger per time.
- */
 function crossesChange(runs: Runs, changes: readonly ClockChange[]): boolean {
   const last = runs.start + (runs.count - 1) * runs.step
   return runs.count > 1 && changes.some(change => runs.start < change.end && last >= change.start)
 }
 
-/** The fewest triggers that start at every time of the day of the cron, and keep their times across `changes`. */
 function timeTriggers(fields: CronFields, changes: readonly ClockChange[]): TimeTrigger[] {
   const times = timesOfDay(fields)
   const single = (start: number): Runs => ({ start, step: 0, count: 1 })
@@ -110,12 +101,9 @@ export function taskTriggers(fields: CronFields, clock: { timeZone: string, chan
   if (weekdayRestricted) days.push({ kind: "week", weekdays: fields.weekdays })
   if (dayRestricted || monthRestricted) days.push({ kind: "month", days: fields.days, months: fields.months })
   if (!days.length) days.push({ kind: "day" })
-  // Only a change on a day that the cron runs can move its runs.
   const changes = clock.changes.filter(change => days.some(schedule => onDay(schedule, change)))
   const times = timesOfDay(fields)
   const step = arithmeticStep(times)
-  // A cron that runs all day at equal gaps keeps its times across a change of a multiple of the gap, when its
-  // repetition does not end each day.
   if (changes.length && runsEveryDay(fields) && step && times.length * step === 24 * 60 && changes.every(change => change.delta % step === 0)) {
     return { times: [{ start: times[0]!, repetition: { interval: taskDuration(step * 60) } }], days: [{ kind: "always" }] }
   }
@@ -134,7 +122,6 @@ function xml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;").replaceAll("'", "&apos;")
 }
 
-/** A PowerShell single-quoted string. PowerShell also reads the typographic single quotes as quotes. */
 function powerShellString(value: string): string {
   return `'${value.replace(/['\u2018\u2019\u201A\u201B]/g, "$&$&")}'`
 }
@@ -175,7 +162,6 @@ export function renderTaskWrapper(spec: OsTimerSpec, logFile: string): string {
     `$log = ${powerShellString(logFile)}`,
     ...Object.entries(spec.env).map(([name, value]) => `$env:${name} = ${powerShellString(value)}`),
     ...(spec.cwd === undefined ? [] : [`Set-Location -LiteralPath ${powerShellString(spec.cwd)}`]),
-    // Stays 1 when the program cannot start.
     "$global:LASTEXITCODE = 1",
     `& ${spec.command.map(powerShellString).join(" ")} 2>&1 | ForEach-Object { "$_" } | Out-File -LiteralPath $log -Append -Encoding utf8`,
     "exit $global:LASTEXITCODE",
@@ -209,7 +195,6 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
     "  </RegistrationInfo>",
     "  <Triggers>",
     ...triggers.days.flatMap(days => triggers.times.flatMap(time => [
-      // A time trigger starts once, and its repetition without a duration never ends.
       days.kind === "always" ? "    <TimeTrigger>" : "    <CalendarTrigger>",
       ...(time.repetition
         ? [
@@ -220,7 +205,6 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
             "      </Repetition>",
           ]
         : []),
-      // A fixed date in the past. Task Scheduler reads it in the machine's local time, with daylight saving time.
       `      <StartBoundary>2026-01-01T${pad(Math.floor(time.start / 60))}:${pad(time.start % 60)}:00</StartBoundary>`,
       "      <Enabled>true</Enabled>",
       ...(spec.randomDelaySeconds ? [`      <RandomDelay>${taskDuration(spec.randomDelaySeconds)}</RandomDelay>`] : []),
@@ -253,7 +237,6 @@ export function renderTaskXml(spec: OsTimerSpec, triggers: TaskTriggers, options
     "</Task>",
     "",
   ].join("\n")
-  // The marker names the scope: user and system tasks share the root folder, and each scope owns only its own tasks.
   const managed = `${spec.description}. Managed by ViteHub (${options.scope} scope).`
   const hash = createHash("sha256").update(render(managed)).update("\n").update(options.wrapperText).digest("hex")
   return render(`${managed} sha256:${hash}`)
@@ -270,10 +253,6 @@ export function taskDescriptionHash(description: string | undefined): string | u
   return description?.match(/sha256:([0-9a-f]{64})/)?.[1]
 }
 
-/**
- * Windows PowerShell 5.1 joins native arguments without escaping them, so a quote, an empty argument, or a trailing
- * backslash in an argument with spaces reaches the program changed.
- */
 function unsafeWindowsArgument(argument: string): string | undefined {
   if (argument === "") return "an empty argument"
   if (argument.includes("\"")) return "an argument with a double quote"
@@ -290,7 +269,6 @@ interface TaskInfo {
   nextRunTime?: string | null
 }
 
-/** Reads the JSON of the status script. */
 function parseTaskInfo(output: string): TaskInfo {
   const value: unknown = JSON.parse(output.trim() || "{}")
   if (typeof value !== "object" || value === null || !("installed" in value)) return { installed: false }
@@ -308,7 +286,6 @@ function taskInfoScript(name: string): string {
     `$task = Get-ScheduledTask -TaskName ${powerShellString(name)} -TaskPath '\\' -ErrorAction SilentlyContinue`,
     "if (-not $task) { ConvertTo-Json -Compress @{ installed = $false }; exit 0 }",
     `$info = Get-ScheduledTaskInfo -TaskName ${powerShellString(name)} -TaskPath '\\'`,
-    // Task Scheduler reports 30 November 1999 for a time that does not exist.
     "function Iso($date) { if ($date -and $date.Year -ge 2000) { $date.ToUniversalTime().ToString('o') } else { $null } }",
     "ConvertTo-Json -Compress @{ installed = $true; state = [string]$task.State; description = $task.Description; lastRunTime = (Iso $info.LastRunTime); lastTaskResult = $info.LastTaskResult; nextRunTime = (Iso $info.NextRunTime) }",
   ].join("\n")
@@ -316,7 +293,6 @@ function taskInfoScript(name: string): string {
 
 /** Task Scheduler tasks in the root folder, run as the current user or as SYSTEM. */
 export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope): OsDriver {
-  /** A task of this name that ViteHub did not install in this scope. */
   const foreign = (task: TaskInfo) => task.installed && taskOwnerScope(task.description) !== scope
   const taskResource = (name: string, task: TaskInfo) => {
     const owner = taskOwnerScope(task.description)
@@ -376,7 +352,6 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
       if (unchanged) return [undefined, { files, changed: false }]
       await host.fs.mkdir(logDir)
       await host.fs.writeFile(wrapper, wrapperText)
-      // The XML can pass the command line limit of -EncodedCommand, so the script reads it from a file.
       const xmlFile = join(root, "ViteHub", "schedules", `${spec.name}.xml`)
       await host.fs.writeFile(xmlFile, taskXml)
       const [registerError] = await run(`Register-ScheduledTask -TaskName ${spec.name}`, [
@@ -385,7 +360,6 @@ export function createTaskSchedulerDriver(host: OsHost, scope: OsScheduleScope):
       ].join("\n"))
       await host.fs.rm(xmlFile)
       if (registerError) {
-        // Leave nothing behind when the first install fails.
         if (!current.installed) await host.fs.rm(wrapper)
         return [registerError, undefined]
       }

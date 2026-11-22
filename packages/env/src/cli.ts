@@ -48,7 +48,6 @@ export interface EnvCliReport {
   stage: string
 }
 
-/** CLI discovery resolves Vite config in development mode, so the default stage matches it. */
 const defaultEnvCliStage = "development"
 
 function usage(command: EnvCliCommand): string {
@@ -102,10 +101,6 @@ function isInspection(value: unknown): value is ServerEnvInspection {
   })) }), value)
 }
 
-/**
- * Resolves the stage config and loads modules in its SSR environment. A dev server would also start every other
- * environment, such as Nitro's dev worker, and the check never uses them.
- */
 async function createStageModuleLoader(vite: typeof import("vite"), config: import("vite").InlineConfig, allowNuxtFallback = false) {
   const nitro = createCliDiscoveryNitroCloser()
   // SAFETY: Vite's WebSocket type has a private brand. The headless CLI has no socket clients.
@@ -135,9 +130,7 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     let runnable: import("vite").RunnableDevEnvironment
     if (vite.isRunnableDevEnvironment(environment)) runnable = environment
     else {
-      // Vite's default SSR environment is runnable. Nuxt's replacement uses the fallback below.
       if (!allowNuxtFallback) throw envErrorDiagnostics.ENV_R0030({ message: "The SSR environment does not support runnable imports." })
-      // Nuxt 5 gives `ssr` to Nitro. Inspect in-process with the same stage aliases and plugin transforms.
       fallback = vite.createRunnableDevEnvironment("ssr", resolved, { hot: false, options: { dev: { moduleRunnerTransform: true } } })
       await fallback.init()
       runnable = fallback
@@ -149,7 +142,6 @@ async function createStageModuleLoader(vite: typeof import("vite"), config: impo
     }
   }
   catch (error) {
-    // Initialization may fail before the environment can close. Keep the original load error.
     await close().catch(() => {})
     throw error
   }
@@ -188,8 +180,6 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
     },
   }
   return await withViteStageServer(stageVite, { ...input, env: explicitEnv }, async (server) => {
-    // The Env plugin writes this module while the stage server resolves its config.
-    // Nuxt reloads its stage-specific declarations before this server resolves config.
     const selectedPlugin = server.config.plugins.find(plugin => plugin.name === "@vite-hub/env/vite")
     const selectedAPI = v.safeParse(v.object({ resolveProjectRoot: v.function() }), selectedPlugin?.api)
     if (!selectedAPI.success) throw envErrorDiagnostics.ENV_R0027({ message: "[vitehub] The selected stage does not configure the Env plugin." })

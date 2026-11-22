@@ -6,8 +6,6 @@ export const repoRoot = resolve(import.meta.dirname, "..", "..")
 const PROVIDERS = ["cloudflare", "vercel"] as const
 type OutputProvider = typeof PROVIDERS[number]
 
-// VITEHUB_OUTPUT_PROVIDER narrows direct Vitest runs to one provider's suite.
-// Unset means both providers' outputs are required - missing output fails, never skips.
 export function providerEnabled(provider: OutputProvider): boolean {
   const selected = process.env.VITEHUB_OUTPUT_PROVIDER
   if (!selected) return true

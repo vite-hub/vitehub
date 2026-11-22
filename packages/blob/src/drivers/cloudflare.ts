@@ -65,7 +65,6 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
         IfNoneMatch: signOptions.createOnly ? "*" : undefined,
         Key: pathname,
       })
-  // The presigner signs only the headers it is told to. A signed `content-length` makes R2 reject a body of another size.
   const signableHeaders = new Set<string>()
   if (signOptions.method === "PUT") {
     if (signOptions.contentType) {

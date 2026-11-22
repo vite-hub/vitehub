@@ -1,5 +1,3 @@
-// Source text of the Sandbox Task entry script. It runs in the Sandbox without ViteHub packages, so its errors are
-// plain. The host reads the error that it writes to the output file.
 export const EXEC_STDIO_OUTPUT_MARKER = '__VITEHUB_OUTPUT__'
 
 export function createEntrySource(
@@ -84,9 +82,6 @@ export function createEntrySource(
     `  if (Object.keys(value).length > 0) return true`,
     `  const enumerableSymbols = Object.getOwnPropertySymbols(value).filter(symbol => Object.prototype.propertyIsEnumerable.call(value, symbol))`,
     `  if (enumerableSymbols.length === 0) return false`,
-    // Enumerable symbols are user data by default. Undici's Response has two`,
-    // internal symbols, but isResponse() applies an additional brand operation`,
-    // before accepting that implementation-specific shape.`,
     `  return true`,
     `}`,
     ``,
@@ -172,12 +167,7 @@ export function createEntrySource(
     `    const cloneHeadersSymbol = cloneSymbols?.find(symbol => symbol.description === 'headers')`,
     `    const cloneState = cloneStateSymbol && cloneResult[cloneStateSymbol]`,
     `    const cloneHeaders = cloneHeadersSymbol && cloneResult[cloneHeadersSymbol]`,
-    // Undici's headers symbol holds the Headers instance its branded `headers`
-    // getter returns; `get` lives on Headers.prototype, not on the instance.
     `    const undiciInternals = enumerableSymbols.length === 2 && undiciState && typeof undiciState === 'object' && Number.isInteger(undiciState.status) && 'body' in undiciState && 'headersList' in undiciState && undiciHeaders && typeof undiciHeaders === 'object' && undiciHeaders === value.headers && typeof undiciHeaders.get === 'function' && cloneSymbols?.length === 2 && cloneState && typeof cloneState === 'object' && 'headersList' in cloneState && cloneHeaders && typeof cloneHeaders === 'object' && cloneHeaders === cloneResult.headers && typeof cloneHeaders.get === 'function'`,
-    // Undici's internal symbols are enumerable, but any enumerable string field is
-    // user data and must keep the ordinary-object path (the response descriptor
-    // intentionally omits arbitrary fields).
     `    if (Object.keys(value).length > 0) return false`,
     `    if (hasEnumerableProperties(value) && !undiciInternals) return false`,
     `    return Number.isInteger(value.status) && value.status >= 0 && value.status <= 599`,

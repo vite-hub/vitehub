@@ -208,7 +208,6 @@ describe("hubMarkdownTemplate", () => {
     const root = await createRoot()
     const id = resolvedId.startsWith("/") ? join(root, resolvedId) : resolvedId
     const entry = join(root, "entry.ts")
-    // An existing source file must not override the owning plugin's generated module.
     await writeFile(join(root, "prompt.template.md"), "Wrong disk content", "utf8")
     await writeFile(entry, 'import prompt from "./prompt.template.md"\nexport default () => prompt({ name: "ViteHub" })\n', "utf8")
     const load = vi.fn((source: string) => {

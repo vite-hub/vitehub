@@ -25,7 +25,6 @@ export const postgresQueueUrlVariable = "QUEUE_POSTGRES_URL"
 /** Default directory of the local driver, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
 export const defaultLocalQueueBase = ".vitehub/data/queue"
 
-/** A self-hosted Node server has no hosted Queue, so it runs Queue Definitions in its own process. */
 function isLocalHosting(hosting: string): boolean {
   return hosting === "local" || hostFromNitroPreset(hosting) === "node"
 }
@@ -34,10 +33,8 @@ function readOwnOption(options: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(options, key) ? options[key] : undefined
 }
 
-/** The driver without `queue.driver`: the host's Queue, or on Node `postgres` with a Postgres Database, else `local`. */
 function inferDriver(hosting: string, postgresDatabase: boolean): QueueDriver {
   if (hosting.includes("cloudflare")) return "cloudflare"
-  // `resolveQueueHosting()` passes the driver of a Node server as its hosting.
   if (hosting === "postgres") return "postgres"
   if (isLocalHosting(hosting)) return postgresDatabase ? "postgres" : "local"
   return "vercel"
@@ -48,7 +45,6 @@ function resolveDriver(options: Record<string, unknown>, hosting: string, postgr
   const shared: QueueSharedOptions = typeof cache === "boolean" ? { cache } : {}
   const driver = readOwnOption(options, "driver")
 
-  // Without `driver`, Queue picks the host's driver, so the former `provider` key would be ignored silently.
   if (driver === undefined && Object.hasOwn(options, "provider")) {
     throw queueErrorDiagnostics.QUEUE_RENAMED_PROVIDER_KEY({ value: JSON.stringify(options.provider) ?? String(options.provider) })
   }
@@ -62,7 +58,6 @@ function resolveDriver(options: Record<string, unknown>, hosting: string, postgr
 
   const resolved = driver || inferDriver(hosting, postgresDatabase)
 
-  // The jobs use the connection of the Default Database, so they live where the app's data lives.
   if (resolved === "postgres") return defu(postgresDatabase ? { database: "default" } : {}, shared, { driver: "postgres" as const })
 
   if (resolved === "local") {

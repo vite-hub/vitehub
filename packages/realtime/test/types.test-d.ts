@@ -92,7 +92,6 @@ describe("realtime definition types", () => {
     expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<RealtimeRequestEvent>()
     expectTypeOf<RealtimeRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
     expectTypeOf<RealtimeRequestEvent>().toExtend<ViteHubContext>()
-    // An app's access helpers take the H3 event, as Drop's presence checks do.
     const findMember = (event: H3Event, request: Request) => event.context.member === request.headers.get("x-member")
     defineRealtime({
       document: false,

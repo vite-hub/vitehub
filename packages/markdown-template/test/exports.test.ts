@@ -12,7 +12,6 @@ it.each([
   const root = resolve(import.meta.dirname, "..")
   const declarations = new Set(["index", "portable", "file"].map(name => resolve(root, `dist/${name}.d.ts`)))
   const canonical = (path: string) => path.replace(/^.*\/node_modules\/@vite-hub\/markdown-template(?=\/)/, root)
-  // Model published declaration files without requiring a local package build.
   const host: ts.ModuleResolutionHost = {
     ...ts.sys,
     fileExists: path => declarations.has(canonical(path)) || ts.sys.fileExists(path),

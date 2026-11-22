@@ -15,7 +15,6 @@ describe("durable Response representation", () => {
       const bytes = source.subarray(7, 7 + length)
       const response = new Response(bytes)
       if (disableBuffer) {
-        // Node's Response reader needs Buffer; disable it only after reading the body.
         const read = response.arrayBuffer.bind(response)
         vi.spyOn(response, "arrayBuffer").mockImplementation(async () => {
           const body = await read()
@@ -153,7 +152,6 @@ describe("durable Response representation", () => {
   })
 
   it.each(["error", "opaque", "opaqueredirect"] as const)("preserves %s responses and rejects malformed status-zero records", async (type) => {
-    // Node cannot fetch opaque responses; model their observable filtered state.
     const original = Response.error()
     const url = type === "opaqueredirect" ? "https://example.com/manual-redirect" : ""
     Object.defineProperties(original, { type: { value: type }, url: { value: url } })

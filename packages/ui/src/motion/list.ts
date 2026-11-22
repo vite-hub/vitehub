@@ -6,13 +6,9 @@ import { writeMotionStyle } from "./registry.ts";
 import { createSpring, springs } from "./spring.ts";
 import type { Spring, SpringPreset } from "./spring.ts";
 
-// The numbers of the prototype's Duplicate stack: a copy slides out of its origin on (380, 26) and collapses back on
-// (260, 28). It is gone below 2%.
 const grow: SpringPreset = { stiffness: 380, damping: 26 };
 const fold: SpringPreset = { stiffness: 260, damping: 28 };
-// A new item without an origin grows from 90% in its slot, and a removed item folds back to 90%, the same path reversed.
 const slotScale = 0.9;
-// The prototype's dropped file that leaves toward the drop area: 320ms, ease in, down to 20%, with a 3px blur.
 const leaveDuration = 0.32;
 const leaveEasing = cubicBezier(0.5, 0, 0.75, 0);
 const ghostAttribute = "data-motion-ghost";
@@ -58,9 +54,7 @@ export interface MotionList {
 interface ItemMotion {
   x: Spring;
   y: Spring;
-  /** 0 is the start of a new item, 1 is at rest. */
   grow: Spring;
-  /** Where a new item starts, from its place: an offset and a scale. */
   from: { x: number; y: number; scale: number };
 }
 
@@ -95,7 +89,6 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
   const motions = new Map<HTMLElement, ItemMotion>();
   const ghosts = new Set<{ element: HTMLElement; stop: () => void }>();
   let snapshot = new Map<HTMLElement, Snapshot>();
-  // True while `play()` starts the springs of an item one by one, so an item at rest on one axis is not dropped.
   let starting = false;
 
   function offset(motion: ItemMotion | undefined): { x: number; y: number } {
@@ -144,7 +137,6 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
     writeMotionStyle(element, { translate: null, scale: null, opacity: null });
   }
 
-  // A spring that already moves keeps its speed: it continues from where the item is now.
   function travel(spring: Spring, from: number): void {
     const velocity = spring.velocity;
     spring.set(from);
@@ -225,7 +217,6 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
       const off = isMotionOff(container);
       const current = items(container);
       const present = new Set(current);
-      // Read every place first, then write, so the browser lays the page out once.
       const reads = current.map((element) => {
         const rect = element.getBoundingClientRect();
         const shift = offset(motions.get(element));
@@ -241,7 +232,6 @@ export function createMotionList(container: HTMLElement, options: MotionListOpti
       for (const [element, { rect }] of before) {
         if (present.has(element)) continue;
         stopItem(element);
-        // Hold to delete already sends this item toward the trash.
         if (!off && !options.movesOnly && !element.hasAttribute("data-motion-leaving")) leave(element, rect, play.target);
       }
       starting = true;

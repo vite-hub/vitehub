@@ -390,7 +390,6 @@ describe("release package artifacts", () => {
     await expect(verifyReleaseArtifacts({ manifestPath, sourceSha, workspace: root }))
       .resolves.toMatchObject({ releaseVersion: "1.2.3" })
 
-    // A required dependency still forms a cycle even if it is also an optional peer.
     envManifest.dependencies = { "@vite-hub/agent": "1.2.3" }
     await writeFile(envPath, JSON.stringify(envManifest))
     await expect(listReleasePackages(root)).rejects.toThrow("Circular public package dependency")

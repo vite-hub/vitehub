@@ -26,10 +26,6 @@ function context() {
   return { context: { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" } as NodeJS.ProcessEnv, rootDir, stderr, stdout }, stderr, stdout }
 }
 
-/**
- * A fake app: it answers the operation RPC. A result is the value of the operation. With `status`, the result is an
- * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
- */
 function devServer(result: unknown, init: { status?: number } = {}) {
   return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
@@ -39,7 +35,6 @@ function devServer(result: unknown, init: { status?: number } = {}) {
   })
 }
 
-/** The operation and input that a command sent. */
 function sentCall(fetch: ReturnType<typeof devServer>) {
   const request = fetch.mock.calls[0]?.[1]
   return { body: operationRpcRequest(request?.body), headers: new Headers(request?.headers), method: request?.method }
@@ -125,7 +120,6 @@ describe("Rate Limit review regressions", () => {
     const reset = { key: "192.0.2.1", name: "login", provider: "memory", scope: "process", status: "reset" }
     const refused = context()
     const fetch = devServer(reset)
-    // Tests run without a terminal, so nobody can answer.
     await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], refused.context, { fetch })).resolves.toBe(1)
     expect(refused.stderr.output()).toContain("was not confirmed")
     expect(refused.stderr.output()).toContain("--yes")
@@ -142,7 +136,6 @@ describe("Rate Limit review regressions", () => {
     expect(question).toHaveBeenCalledWith(expect.stringContaining("login"))
     expect(sentCall(fetch).body.operation).toBe("rate-limit.reset")
 
-    // A peek never asks.
     const peek = context()
     await expect(runRateLimitCli(["peek", "login", "192.0.2.1"], peek.context, { confirm: () => { throw new Error("must not ask") }, fetch: devServer(known) })).resolves.toBe(0)
   })

@@ -116,7 +116,6 @@ describe("seal and unseal", () => {
     vi.stubEnv("VITEHUB_SECRET", otherRoot)
     vi.stubEnv("VITEHUB_SECRET_PREVIOUS", ` unused-old-secret-of-at-least-32-characters , ${root}`)
     expect(await unseal("app:test", old)).toEqual([undefined, { id: 1 }])
-    // New values use the new secret only.
     const fresh = await seal("app:test", { id: 2 })
     vi.stubEnv("VITEHUB_SECRET_PREVIOUS", "")
     expect(await unseal("app:test", fresh)).toEqual([undefined, { id: 2 }])
@@ -146,7 +145,6 @@ describe("seal and unseal", () => {
 
   it("throws ENV_RUNTIME_VALUE_INVALID for a short secret in VITEHUB_SECRET_PREVIOUS only in unseal()", async () => {
     vi.stubEnv("VITEHUB_SECRET_PREVIOUS", `${otherRoot},short`)
-    // seal() never reads VITEHUB_SECRET_PREVIOUS, so a bad old secret does not stop new values.
     const sealed = await seal("app:test", { id: 1 })
     await expect(unseal("app:test", sealed)).rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" })
   })

@@ -12,7 +12,6 @@ import type { ConnectionsRoute } from "../src/internal/http-routes.ts";
 const origin = "http://localhost:5173";
 const base = "/_vitehub/connections";
 
-/** One request for each Connections route. A new route must add its request here. */
 const routeRequests: Record<ConnectionsRoute["id"], () => Request> = {
   action: () => new Request(`${origin}${base}`, {
     body: JSON.stringify({ action: "list" }),
@@ -41,7 +40,6 @@ function callback(state: string): Request {
   });
 }
 
-/** Put the client address that a host adapter reports in the Standard Context of the request. */
 function fromPeer(request: Request, clientAddress: string): Request {
   Object.defineProperty(request, "~standard", { value: { req: request, res: { headers: new Headers() }, runtime: { clientAddress }, vendor: "test" } });
   return request;
@@ -77,7 +75,6 @@ describe("Connections route guard contract", () => {
     const check = await checkConnectionsAccess(() => "user:owner", request, runtime);
     if (!check.access) throw new Error("Expected access.");
     expect(Object.isFrozen(check.access)).toBe(true);
-    // A copy has the same shape and brand, but the check did not create it.
     const forged: ConnectionsAccess = { ...check.access };
     await expect(route.handle(forged, base)).rejects.toMatchObject({ code: "INTERNAL_INVARIANT_FAILED" });
     expect(runtime).not.toHaveBeenCalled();
@@ -135,7 +132,6 @@ describe("Connections route guard contract", () => {
     vi.stubEnv("NODE_ENV", "development");
     const test = createTestRuntime();
     const development = createConnectionsHandler({ actor: "development", runtime: () => test.runtime });
-    // The host adapter reports the client address in the Standard Context of the request.
     const handler: ConnectionsHandler = { ...development, fetch: request => development.fetch(fromPeer(request, "127.0.0.1")) };
     expect((await handler.fetch(routeRequests.action())).status).toBe(200);
     const state = await start(handler);
@@ -202,7 +198,6 @@ describe("Connections OAuth state binding", () => {
     expect(test.provider.calls).toHaveLength(0);
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "disconnected" });
 
-    // The rejected attempt consumed the state, so the owner must start again.
     expect((await owner.fetch(callback(state))).status).toBe(400);
   });
 

@@ -16,17 +16,11 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 /** Modules that exported `http()`. `http(options)` is now `channelAdapter("http", options)`. */
 const httpModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
 
-/**
- * `vite-hub/agent/channels` is removed. Its adapters moved to `vite-hub/channels/adapters`, which re-exports
- * `@vite-hub/agent/channels`, and the names that need no Agent moved to `vite-hub/channels`. The owner path
- * `@vite-hub/agent/channels` stays.
- */
 const movedPath = "vite-hub/agent/channels"
 const adaptersPath = "vite-hub/channels/adapters"
 const channelsPath = "vite-hub/channels"
 const channelNames = new Set(["defineChannelTrigger", "ignored", "rejected", "retryLater"])
 
-/** `webhook()` and `stripe()` left the root of `vite-hub/channels` and `@vite-hub/channels` for its adapters entry. */
 const rootModules = new Set([channelsPath, "@vite-hub/channels"])
 const rootAdapterNames = new Set(["webhook", "stripe", "StripeEvent", "StripeAdapterOptions"])
 
@@ -41,7 +35,6 @@ const needle = /vite-hub\/agent\/channels|\bhttp\b|\b(?:webhook|stripe)\b|\bsecr
 const agentModules = /^(?:@?vite-hub\/(?:agent|channels)(?:\/|$)|vite-hub\/agent\/)/
 
 /** Modules that export `webhook()` and `stripe()`, whose `secret` and `signature` follow Webhooks now. */
-// The old root, the adapters entry it moved to, and the Agent entry that re-exports it.
 const webhookModules = new Set(["vite-hub/channels", "@vite-hub/channels", "vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 
 /** Signature names before they followed `defineWebhook({ signature })`. */
@@ -446,10 +439,6 @@ function reportAdapterSplit(context: FileContext, node: Node, root: string) {
   followUp(context, node, `Check for webhook and stripe exports (including their types). Import them from \`${root}/adapters\` and keep other names on \`${root}\`.`)
 }
 
-/**
- * Moves `webhook`, `stripe`, and their types from the root of `vite-hub/channels` or `@vite-hub/channels` to its
- * adapters entry. Returns the import statements that it changed.
- */
 function moveRootAdapters(context: FileContext): Set<ImportDeclaration> {
   const { block, output, program, style } = context
   const semicolon = style.semicolons ? ";" : ""
@@ -493,17 +482,11 @@ function moveRootAdapters(context: FileContext): Set<ImportDeclaration> {
   return changed
 }
 
-/**
- * Moves imports of `vite-hub/agent/channels`. A named import of only `defineChannelTrigger`, `ignored`, `retryLater`,
- * or `rejected` moves to `vite-hub/channels`. A mixed import moves to `vite-hub/channels/adapters`, and those names
- * join an import of `vite-hub/channels`. Everything else moves to `vite-hub/channels/adapters`, which has every name.
- */
 function moveImports(context: FileContext, changed: ReadonlySet<ImportDeclaration>) {
   const { block, output, program, style } = context
   const semicolon = style.semicolons ? ";" : ""
   const channelImports = new Map<string, ImportDeclaration>()
   for (const statement of program.program.body) {
-    // A statement that `moveRootAdapters()` changed takes no more names: its edited text has other bounds.
     if (statement.type !== "ImportDeclaration" || statement.source.value !== channelsPath || changed.has(statement)) continue
     if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier")) {
       channelImports.set(statement.importKind ?? "value", statement)

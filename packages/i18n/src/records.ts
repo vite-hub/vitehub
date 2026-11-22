@@ -107,7 +107,6 @@ async function review(root: string, locale: string, message: MessageRef, next: (
   const segment = diglotSegment(messageSegment(message.message, message.context))
   const file = join(root, recordPath(locale, segment.hash))
   await mkdir(dirname(file), { recursive: true })
-  // The lock covers the read, expected check and publication across CLI processes as well as in this process.
   const release = await lock(file, { realpath: false, retries: { retries: 100, minTimeout: 10, maxTimeout: 250 } })
   try {
     const transition = next(await readRecord(root, locale, segment.hash), segment)
@@ -123,7 +122,6 @@ async function review(root: string, locale: string, message: MessageRef, next: (
   }
 }
 
-/** Publish complete Diglot JSON on the same filesystem, so readers see either the old record or the new one. */
 async function publishRecord(file: string, record: TranslationRecord): Promise<void> {
   const temporary = `${file}.${randomUUID()}.tmp`
   try {
@@ -146,7 +144,6 @@ export function saveTranslation(root: string, locale: string, message: MessageRe
 /** Import an edit against its export baseline, or leave an already saved translation unchanged. */
 export function importTranslation(root: string, locale: string, message: MessageRef, text: string, input: ReviewInput & { expected: string | null }): Promise<ReviewTransition> {
   return review(root, locale, message, (current, segment) => {
-    // Repeated imports may have an older baseline. Decide whether they change anything under the same lock as edits.
     if (current && isVisible(current) && current.text === text) return { ok: false, code: "unchanged", message: "The translation is unchanged.", errors: [] }
     return editRecord(current, { ...input, segment, text })
   })

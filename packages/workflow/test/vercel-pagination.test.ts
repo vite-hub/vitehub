@@ -54,7 +54,6 @@ it("reads Vercel step pages through empty pages and ignores a final cursor", asy
 })
 
 it("reads more than one page of steps without passing the Vercel page limit", async () => {
-  // Vercel's step listing answers HTTP 400 for a page larger than 100 steps.
   const maxLimit = 100
   const stored = Array.from({ length: 250 }, (_, index) => ({ attempt: 1, status: "completed", stepId: `step-${index}`, stepName: `step ${index}` }))
   const limits: unknown[] = []

@@ -27,7 +27,6 @@ export type SandboxTaskResourceInspectionOptions = CloudflareSandboxEntrypointOp
   instanceType?: CloudflareInstanceType
 }
 
-/** The Cloudflare instance type and instance limit, as the Container resource reports them. */
 function describeCloudflareSandboxTaskSize(options: SandboxTaskResourceInspectionOptions) {
   const instanceType = options.instanceType === undefined
     ? undefined

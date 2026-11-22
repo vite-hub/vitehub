@@ -10,11 +10,8 @@ import { findUrl, hostCli, hostCliFailed, hostListFailed, isoTime, isRecord, las
 import type { SetupLink } from "../link.ts"
 import type { DeployAdapter, DeployContext, HostDeployment, HostEnv, HostEnvContext, ListDeployments } from "./host.ts"
 
-/** The first line of the `deploy.mjs` that ViteHub's Deno build writes (`packages/internal/src/build/deno-runtime-packages.ts`). */
 const runnerFirstLine = "import { spawn } from \"node:child_process\""
 
-// Deno Deploy CLI 0.0.9909 (`deno deploy --help`), recorded in test/fixtures/host-cli-help/. The CLI reads
-// DENO_DEPLOY_TOKEN from the environment.
 export async function denoAdapter(context: DeployContext, organization: string): Promise<DeployAdapter> {
   const runner = join(context.outputDir, "deploy.mjs")
   const source = await readFile(runner, "utf8").catch(() => undefined)
@@ -24,7 +21,6 @@ export async function denoAdapter(context: DeployContext, organization: string):
 
   return {
     async deploy() {
-      // The runner copies the output to a temp folder and runs `deno deploy create` or `deno deploy --prod`.
       const result = await context.run(process.execPath, [runner], { cwd: context.root, env, show: true })
       if (result.exitCode !== 0) throw hostCliFailed("node .output/deploy.mjs", result, context.secrets)
       const url = findUrl(`${result.stdout}\n${result.stderr}`, /\.deno\.(?:net|dev)$/u)
@@ -41,10 +37,6 @@ export function denoOrganization(link: SetupLink | undefined, env: NodeJS.Proces
   return organization
 }
 
-/**
- * One `KEY='value'` line for `deno deploy env load`, which parses the file with `@std/dotenv`. A single-quoted value
- * is taken as it is. A value with a quote or a line break has no safe dotenv form, so it is refused.
- */
 function dotenvLine(name: string, value: string): string {
   if (/['\r\n]/u.test(value)) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "It has a single quote or a line break, and `deno deploy env load` reads a dotenv file." }), setupExitCodes.conflict)
   return `${name}='${value}'\n`
@@ -79,8 +71,6 @@ export function denoEnv(context: HostEnvContext): HostEnv {
     },
     async setSecret(name, value, { secret }) {
       if (process.platform === "win32") throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
-      // env load infers secrecy from the key; accept only known secret suffixes without a public prefix.
-      // Omitting --non-secrets cannot force a name such as DATABASE_URL to stay secret.
       if (secret && (!/_(?:KEY|SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIALS|AUTH)$/u.test(name) || /^(?:PUBLIC|VITE|NEXT_PUBLIC|NUXT_PUBLIC|REACT_APP|EXPO_PUBLIC|GATSBY)_/u.test(name))) throw setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "deno", name, reason: "The Deno CLI cannot enforce secret storage for this name. Set it as a secret in Deno Deploy before continuing." }), setupExitCodes.conflict)
       const result = await run(["load", "/dev/stdin", "--replace", ...(secret ? [] : ["--non-secrets", name])], dotenvLine(name, value))
       if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
@@ -132,7 +122,6 @@ export const listDenoDeployments: ListDeployments = async (context, { limit, inc
       ...(live && productionUrl ? { url: productionUrl } : {}),
     } satisfies HostDeployment]
   }).slice(0, limit)
-  // The app's authoritative pointer suffices for status; Deno has no commit marker to fetch.
   if (includeLive && production && !recent.some(item => item.live)) {
     recent.push({ createdAt: "", id: production, live: true, source: "unknown", state: "ready", target: "production", ...(productionUrl ? { url: productionUrl } : {}) })
   }

@@ -22,7 +22,6 @@ beforeAll(async () => {
   rootDir = await mkdtemp(join(baseDir.pathname, "cloudflare-errors-"))
   const artifacts = await writeProviderEntries(rootDir, { driver: "cloudflare" })
   generatedSource = await readFile(artifacts.cloudflareWorkerFile, "utf8")
-  // The VM below has no ESM loader, so dynamic imports become require calls.
   generatedCode = (await transform(generatedSource, { format: "cjs", supported: { "dynamic-import": false } })).code
 })
 
@@ -32,8 +31,6 @@ afterAll(async () => {
 
 function loadGeneratedDispatcher(registry: WorkflowDefinitionRegistry) {
   const constructions = vi.fn()
-  // cloudflare:workflows is host-only. Match its two-argument constructor;
-  // a third ErrorOptions argument is ignored by the native implementation.
   class NonRetryableError extends Error {
     constructor(message: string, name = "NonRetryableError") {
       super(message)
@@ -141,7 +138,6 @@ describe("generated Cloudflare Workflow errors", () => {
     }
     else {
       expect(caught).toHaveBeenCalledExactlyOnceWith(converted)
-      // ViteHub fills in the default backoff, so Cloudflare uses the ViteHub policy and not its own defaults.
       if (boundary === "explicit step") expect(step.do).toHaveBeenCalledWith("validate", { retries: { ...stepOptions.retries, backoff: "exponential" } }, expect.any(Function))
     }
   })

@@ -18,25 +18,18 @@ function captureWebAssemblyModule(): { constructor: unknown, exports: unknown } 
   return { constructor, exports }
 }
 
-// Capture platform methods before application callbacks run. As with the other
-// platform brand checks, the host must supply intact intrinsics at import time.
-// Each capture is pure, so a bundle that never checks trace values drops it.
 const webAssemblyModule = /* @__PURE__ */ captureWebAssemblyModule()
 
 declare global {
   namespace ViteHub {
-    /** Generated declarations set `sessionResult` to the result of the app's Auth Definition. */
     interface AuthRegistry {}
   }
 }
 
-/** The user of the app's Auth Definition, with the fields of its plugins. Without generated types, a record with an `id`. */
 type AccessUser<TRegistry> = TRegistry extends { sessionResult: { user: infer TUser extends { id: string } } } ? TUser : Record<string, unknown> & { id: string }
-/** The session of the app's Auth Definition. Without generated types, a record. */
 type AccessSession<TRegistry> = TRegistry extends { sessionResult: { session: infer TSession extends object } } ? TSession : Record<string, unknown>
 
 interface AccessContext<TEvent, TSession, TUser> {
-  /** The input of the guard: the H3 event in a Nitro route, so `event.context` and helpers that take the event work. */
   event: TEvent
   request: Pick<Request, "body" | "headers" | "method" | "signal" | "url">
   session: TSession
@@ -382,7 +375,6 @@ function timestamp(value: Date | string | undefined): string {
   if (typeof value === "string") return value
   if (isRuntimeObject(value)) {
     try {
-      // Date.prototype's intrinsic methods recognize Date objects from other realms.
       return Reflect.apply(Date.prototype.toISOString, value, [])
     }
     catch (error) {
@@ -449,8 +441,6 @@ function isWebAssemblyModule(value: unknown): boolean {
   }
 }
 
-// Exact native source signatures reject user functions, bound functions and proxies.
-// This boundary uses the host Function intrinsic rather than a payload-owned method.
 function captureFunctionToString() {
   return Function.prototype.toString
 }
@@ -459,22 +449,11 @@ const intrinsicFunctionToString = /* @__PURE__ */ captureFunctionToString()
 
 function checkNativeFunctionToString(): boolean {
   try {
-    // Built-in functions have no own `prototype` property. Keep this check
-    // independent of the formatter's reported source.
     if (Object.prototype.hasOwnProperty.call(intrinsicFunctionToString, "prototype")) return false
-    // A replacement can selectively delegate calls while forging only the
-    // operation signatures below. Check immutable function metadata before
-    // accepting any formatter output; this rejects the usual forged callable
-    // even when its self-source and probe responses look native.
     if (intrinsicFunctionToString.name !== "toString" || intrinsicFunctionToString.length !== 1) return false
     if (intrinsicFunctionToString.call(intrinsicFunctionToString).replace(/\s+/g, " ") !== "function toString() { [native code] }") return false
-    // A replacement can forge native-looking source for selected functions. Probe
-    // the ordinary source and required TypeError behavior before trusting it.
     function probe() { return 1 }
     if (intrinsicFunctionToString.call(probe) !== "function probe() { return 1 }") return false
-    // Probe every operation name used below with user-defined functions. A
-    // formatter that only forges native signatures for buffer operations must
-    // still expose their ordinary source when presented with these lookalikes.
     const namedProbes = [
       function ArrayBuffer() {},
       function SharedArrayBuffer() {},
@@ -535,21 +514,13 @@ function captureSharedBufferByteLength(): (() => unknown) | undefined {
     const getter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(sample), "byteLength")?.get
     if (!isNativeBufferOperation(getter, "get byteLength")) return
     if (getter.call(sample) !== 0) return
-    // A genuine buffer getter requires the receiver's internal slot. A forged
-    // getter that returns a number for arbitrary objects must not become the
-    // shared-memory brand used for trace privacy.
-    // Probe several unrelated non-buffer receivers. A forged receiver-aware
-    // getter must reject every ordinary object before it can be cached as the
-    // shared-memory brand.
     const receiverProbes: object[] = [{}, Object.create(null)]
     for (const receiver of receiverProbes) {
       try {
         getter.call(receiver)
         return
       }
-      catch {
-        // Expected for a non-buffer receiver.
-      }
+      catch {}
     }
     return getter
   }
@@ -590,10 +561,6 @@ function isSharedArrayBuffer(value: unknown): boolean {
   if (!value || typeof value !== "object") return false
   if (sharedBufferByteLength) {
     try {
-      // When the native ordinary-buffer probes are available, prove the value
-      // has a genuine buffer internal slot before consulting the shared getter.
-      // This prevents a receiver-aware forged getter from branding arbitrary
-      // objects as shared memory.
       if (ordinaryBufferOperations) {
         Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
       }
@@ -603,8 +570,6 @@ function isSharedArrayBuffer(value: unknown): boolean {
       return false
     }
   }
-  // If native operation validation was tampered with before module load, fail closed.
-  // Treating unknown objects as shared keeps trace payloads private in that case.
   if (!ordinaryBufferOperations) {
     try {
       const prototype = Object.getPrototypeOf(value)
@@ -618,8 +583,6 @@ function isSharedArrayBuffer(value: unknown): boolean {
     }
   }
   try {
-    // The validated native DataView operation first proves a buffer internal slot.
-    // Only the validated native ArrayBuffer getter's rejection then proves shared memory.
     Reflect.construct(ordinaryBufferOperations.dataView, [value, 0, 0])
     try {
       ordinaryBufferOperations.byteLength.call(value)
@@ -1384,7 +1347,6 @@ export function createRuntimeWaitUntilController(options: {
       return flushing
     },
     waitUntil(task) {
-      // Observe rejection now. The original task stays queued so flushWaitUntil can report it.
       void task.catch(() => {})
       pending.push(task)
       options.forward?.(task)
@@ -1410,13 +1372,9 @@ function isProxy(value: object): boolean | undefined {
 function isCapabilityHandle(value: unknown): value is CapabilityHandle {
   if (typeof value !== "object" || value === null) return false
   if (capabilityHandles.has(value)) return true
-  // Node can identify proxies without invoking their traps. Structural checks
-  // cannot distinguish a proxy's fabricated descriptors from target-owned data.
   const proxy = isProxy(value)
   if (proxy === true) return false
   try {
-    // Enumerate own keys before inspecting fields so inherited fields and
-    // descriptors fabricated for keys absent from the object are not handles.
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const kind = descriptors.kind
     const implementation = descriptors.value
@@ -1425,15 +1383,8 @@ function isCapabilityHandle(value: unknown): value is CapabilityHandle {
       return false
     }
 
-    // A null prototype cannot establish ownership when proxy detection is
-    // unavailable: a proxy can fabricate both descriptors and its prototype.
-    // Fail closed for this ambiguous shape while preserving ordinary external
-    // structural handles (which use the normal object prototype).
     if (Object.getPrototypeOf(value) === null) return false
 
-    // A proxy can fabricate own descriptors for fields that are actually
-    // inherited by its target. Reject that shape while keeping structural
-    // handles supplied by other runtime copies compatible.
     let prototype = Object.getPrototypeOf(value)
     while (prototype !== null) {
       if (Object.getOwnPropertyDescriptor(prototype, "kind")

@@ -12,7 +12,6 @@ import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
 
-/** Functions whose calls declare a managed Rate Limit. They use the same counters. */
 const rateLimitGuards = ["checkRateLimit", "refundRateLimit", "requireRateLimit"] as const
 type RateLimitGuard = typeof rateLimitGuards[number]
 
@@ -41,13 +40,11 @@ function declarationError(file: string, source: string, node: { start: number },
 }
 
 interface RateLimitBindings {
-  /** Local name to the guard it binds. */
   direct: Map<string, RateLimitGuard>
   namespaces: Set<string>
 }
 
 interface RateLimitScope extends RateLimitBindings {
-  /** The `const` bindings of this scope whose value is a string or number literal. */
   constants: Map<string, string | number>
   shadows: Set<string>
 }
@@ -76,7 +73,6 @@ function resolveDirectGuard(name: string, scopes: RateLimitScope[]): RateLimitGu
   return undefined
 }
 
-/** The literal value of the `const` that `name` reads in this scope, or `undefined` for any other binding. */
 function resolveConstant(name: string, scopes: RateLimitScope[]): string | number | undefined {
   for (let index = scopes.length - 1; index >= 0; index -= 1) {
     const scope = scopes[index]!
@@ -95,7 +91,6 @@ function resolveNamespace(name: string, scopes: RateLimitScope[]): boolean {
   return false
 }
 
-/** The guard that a call invokes, or `undefined` when the callee is not a Rate Limit guard. */
 function rateLimitGuardOf(callee: ESTree.CallExpression["callee"], scopes: RateLimitScope[]): RateLimitGuard | undefined {
   if (callee.type === "Identifier") return resolveDirectGuard(callee.name, scopes)
   if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !resolveNamespace(callee.object.name, scopes)) return
@@ -321,7 +316,6 @@ function staticString(expression: ESTree.Expression): string | undefined {
   if (value.type === "TemplateLiteral" && value.expressions.length === 0) return value.quasis[0]?.value.cooked ?? value.quasis[0]?.value.raw
 }
 
-/** A string or number literal, or an identifier that reads a `const` with one. */
 function staticScalar(expression: ESTree.Expression, scopes: RateLimitScope[]): string | number | undefined {
   const value = unwrapStaticExpression(expression)
   if (value.type === "Literal" && typeof value.value === "number") return value.value
@@ -342,7 +336,6 @@ function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, scopes
       throw declarationError(file, source, property, `\`${guard}()\` options cannot use object spreads.`)
     }
     const name = staticPropertyName(property)
-    // `key` and the text of the `429` error are runtime values.
     if (name === "key" || guard === "requireRateLimit" && (name === "message" || name === "code")) continue
     if (!name || !rateLimitPolicyKeys.has(name)) {
       throw declarationError(file, source, property, `\`${guard}()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)

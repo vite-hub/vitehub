@@ -29,10 +29,8 @@ import type { DeployHost, DeployRun, HostEnv, HostEnvContext, HostEnvTarget } fr
 import type { SetupLink } from "./link.ts"
 import type { SetupProject } from "./project.ts"
 
-/** The stage that a deploy without `--preview` reads. */
 const defaultStage = "production"
 
-/** The host CLI tokens. They are never values to push, and no output may show them. */
 const tokenNames = ["CLOUDFLARE_API_TOKEN", "VERCEL_TOKEN", "NETLIFY_AUTH_TOKEN", "DENO_DEPLOY_TOKEN"]
 
 const hostEnvs: Record<DeployHost, (context: HostEnvContext) => HostEnv> = {
@@ -42,12 +40,10 @@ const hostEnvs: Record<DeployHost, (context: HostEnvContext) => HostEnv> = {
   vercel: vercelEnv,
 }
 
-/** Hosts without a preview environment: a Worker has one set of secrets, and ViteHub deploys Deno to production only. */
 const noPreview: ReadonlySet<DeployHost> = new Set(["cloudflare", "deno"])
 
 interface EnvArgs {
   host?: DeployHost
-  /** `--to github`: write the Actions secrets of a GitHub repository instead of the host variables. */
   github?: { repo?: string, environment?: string }
   stage: string
   only: string[]
@@ -146,7 +142,6 @@ function linkedTarget(links: Awaited<ReturnType<typeof readSetupLinks>>, host: D
   return selected.link
 }
 
-/** The names and the env folder of the last build for `host`. Builds first when there is no build output for `host`. */
 async function readNames(project: SetupProject, host: DeployHost, context: ViteHubCliContext): Promise<BuildOutput> {
   try {
     return await readBuildOutput(project.root, host)
@@ -160,14 +155,12 @@ async function readNames(project: SetupProject, host: DeployHost, context: ViteH
   return await readBuildOutput(project.root, host)
 }
 
-/** Plain vars set by the build rather than uploaded as secrets. */
 async function configVarNames(host: DeployHost, outputDir: string): Promise<Set<string>> {
   return new Set(host === "cloudflare" ? await wranglerVarNames(outputDir) : [])
 }
 
 interface EnvTarget {
   host: DeployHost
-  /** The host project name, or the build name for `--to github` without a link. */
   name: string
   stage: string
   target?: HostEnvTarget
@@ -175,11 +168,9 @@ interface EnvTarget {
   project: SetupProject
   entries: DeploymentEnvEntry[]
   configVars: Set<string>
-  /** Vite's resolved `envDir` of the build, or `false` when the app loads no env file. */
   envDir: string | false
   hostEnv: HostEnv
   run: DeployRun
-  /** Values that no output may show. Push adds the values that it reads. */
   secrets: string[]
 }
 
@@ -199,16 +190,11 @@ async function openTarget(args: EnvArgs, command: string, context: ViteHubCliCon
   const { env: entries, envDir, outputDir } = await readNames(project, host, context)
   const configVars = await configVarNames(host, outputDir)
   const secrets = hostTokens(context.env)
-  // The runner reads `secrets` at each run, so values that push adds later are redacted too.
   const run = createDeployRun(context.stderr, secrets)
   const hostEnv = hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: project.root, run, secrets, target })
   return { configVars, entries, envDir, host, hostEnv, name: link.project.name, project, run, secrets, stage: args.stage, target }
 }
 
-/**
- * GitHub is a destination, not a host: the names come from the build of the linked host (or `--host`), and the stage
- * only picks the local `.env.<stage>` file. Names that GitHub reserves (`GITHUB_*`) drop out of each entry.
- */
 async function openGitHubTarget(args: EnvArgs, options: NonNullable<EnvArgs["github"]>, project: SetupProject, command: string, context: ViteHubCliContext): Promise<EnvTarget> {
   const selected = selectSetupLink(await readSetupLinks(project.root), args.host)
   if ("ambiguous" in selected) throw hostRequired(selected.ambiguous, `${command} --to github`)
@@ -248,7 +234,6 @@ function matchesPrefix(entry: DeploymentEnvEntry, name: string): boolean {
   return !!entry.prefix && name.startsWith(entry.prefix) && name.length > entry.prefix.length
 }
 
-/** True when one of `names` sets the entry: one of its names, or a name with its prefix. */
 function isSet(entry: DeploymentEnvEntry, names: ReadonlySet<string>): boolean {
   return entry.names.some(name => names.has(name)) || [...names].some(name => matchesPrefix(entry, name))
 }
@@ -284,7 +269,6 @@ function targetLabel(output: { host: DeployHost, project: string, stage: string,
   return `${output.project} on ${output.host}, stage ${output.stage}${output.target === output.stage ? "" : ` (${output.target})`}`
 }
 
-/** The flags that name the destination again, for a hint or a rerun. */
 function destinationFlags(output: { host: DeployHost, stage: string, github?: GitHubEnvDestination }): string[] {
   return [
     ...(output.github ? ["--to github", `--repo ${output.github.repository}`, `--host ${output.host}`, ...(output.github.environment ? [`--environment ${output.github.environment}`] : [])] : [`--host ${output.host}`]),
@@ -326,17 +310,14 @@ interface LocalValue {
   value: string
   source: EnvValueSource
   encrypted: boolean
-  /** Every env file that the value reads: its own file, and the files of the names that it expands with `$NAME`. */
   files: string[]
 }
 
-/** An env file as output names it: relative to the project root, such as `config/.env.production`. */
 function fileSource(root: string, path: string): EnvValueSource {
   const folder = relative(root, dirname(path))
   return `${folder ? `${folder}/` : ""}.env${basename(path).slice(".env".length)}`
 }
 
-/** Trace the same replacements and iteration order as Vite's patched dotenv-expand. */
 function expandedFiles(raw: Map<string, { path: string, value: string }>, env: NodeJS.ProcessEnv): Map<string, Set<string>> {
   const parsed = Object.fromEntries([...raw].map(([name, file]) => [name, file.value]))
   const files = new Map([...raw].map(([name, file]) => [name, new Set([file.path])]))
@@ -348,7 +329,6 @@ function expandedFiles(raw: Map<string, { path: string, value: string }>, env: N
       files.set(name, new Set())
       continue
     }
-    // Snapshot values before this key is expanded, as dotenv-expand does.
     const values = { ...parsed, ...env }
     const regex = /(?<!\\)\${([^{}]+)}|(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)/g
     const seen = new Set<string>()
@@ -360,7 +340,6 @@ function expandedFiles(raw: Map<string, { path: string, value: string }>, env: N
       const operator = expression.match(/(:\+|\+|:-|-)/)?.[0]
       const parts = operator ? expression.split(operator) : [expression]
       const key = parts.shift()!
-      // Even a conditional reads the referenced value. Shell values carry no file.
       if (env[key] === undefined) {
         for (const path of files.get(key) ?? []) sources.add(path)
       }
@@ -369,7 +348,6 @@ function expandedFiles(raw: Map<string, { path: string, value: string }>, env: N
       const replacement = alternate ? undefined : values[key]
       result = result.replace(template, replacement && !seen.has(replacement) ? replacement : fallback)
       if (result === parsed[key]) break
-      // Replacements can form new references, including across the replacement boundary.
       regex.lastIndex = 0
     }
     parsed[name] = result.replace(/\\\$/g, "$")
@@ -387,7 +365,6 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
   const raw = new Map<string, { path: string, value: string }>()
   const paths = envDir === false ? [] : [".env", ".env.local", `.env.${stage}`, `.env.${stage}.local`].map(file => join(envDir, file))
   for (const path of paths) {
-    // Vite reads regular files and follows symlinks.
     if (!(await stat(path).catch(() => undefined))?.isFile()) continue
     for (const [name, value] of Object.entries(parseEnv(await readFile(path, "utf8")))) {
       if (value !== undefined) raw.set(name, { path, value })
@@ -399,12 +376,10 @@ export async function readLocalEnvValues(root: string, envDir: string | false, s
   }
   const files = expandedFiles(raw, env)
   const vite = await import("vite")
-  // Vite expands `$NAME` references. With the prefix "", loadEnv also returns every variable of the shell.
   const loaded = await withViteStageEnvironment(env, async () => loadAllEnv(vite.loadEnv, stage, envDir))
   const values = new Map<string, LocalValue>()
   for (const [name, value] of Object.entries(loaded)) {
     if (value === "") continue
-    // A shell value of a name wins without expansion.
     if (env[name] !== undefined) values.set(name, { encrypted: false, files: [], source: "process", value })
     else {
       const own = raw.get(name)
@@ -421,17 +396,11 @@ interface PlannedValue {
   name: string
   value: string
   source: EnvValueSource
-  /** The env files that the value reads. See `LocalValue`. */
   files: readonly string[]
   secret: boolean
   encrypted: boolean
 }
 
-/**
- * The value of each entry: the first name in read order that has a local value, and every local name of a prefix.
- * `onHost` keeps what the host has: an entry with one of its names on the host keeps that alias, and a prefix entry
- * skips only the members that the host has.
- */
 function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<string, LocalValue>, only: readonly string[], onHost: ReadonlySet<string> = new Set()): { planned: PlannedValue[], skipped: EnvPushOutput["skipped"] } {
   const wanted = only.length ? new Set(only) : undefined
   const unknown = only.filter(name => !entries.some(entry => entry.names.includes(name) || matchesPrefix(entry, name)))
@@ -458,11 +427,6 @@ function planPush(entries: readonly DeploymentEnvEntry[], values: ReadonlyMap<st
   return { planned: [...planned.values()], skipped }
 }
 
-/**
- * True when `directory` or a parent folder looks like a git repository, or `GIT_DIR` names one: a `.git` file, as in a
- * worktree, or a `.git` folder with `HEAD`. It does not ask git, because git reports a broken repository the same way
- * as no repository, and a broken one must refuse.
- */
 function inGitRepository(directory: string, env: NodeJS.ProcessEnv): boolean {
   if (env.GIT_DIR) return true
   for (let current = directory; ; current = dirname(current)) {
@@ -472,7 +436,6 @@ function inGitRepository(directory: string, env: NodeJS.ProcessEnv): boolean {
   }
 }
 
-/** What git says about one env file, by its real path. Throws when git cannot answer. */
 async function gitFileState(file: string, label: string, run: DeployRun, env: NodeJS.ProcessEnv): Promise<"tracked" | "ignored" | "unignored"> {
   const failed = (reason: string) => setupFailure(cliErrorDiagnostics.SETUP_ENV_GIT_FAILED({ file: label, reason }), setupExitCodes.error)
   const git = async (args: string[]) => {
@@ -483,7 +446,6 @@ async function gitFileState(file: string, label: string, run: DeployRun, env: No
       throw failed(error instanceof Error ? error.message : String(error))
     }
   }
-  // `--error-unmatch` exits with 1 for an untracked file, and `check-ignore` with 1 for a file that is not ignored.
   const tracked = await git(["ls-files", "--error-unmatch", "--", basename(file)])
   if (tracked.exitCode === 0) return "tracked"
   if (tracked.exitCode !== 1) throw failed(tracked.stderr.trim() || `git ls-files exited with ${tracked.exitCode}`)
@@ -493,12 +455,6 @@ async function gitFileState(file: string, label: string, run: DeployRun, env: No
   throw failed(ignored.stderr.trim() || `git check-ignore exited with ${ignored.exitCode}`)
 }
 
-/**
- * Refuses a secret whose value reads an env file that git tracks, or that git does not ignore: pushing it would hide
- * that the secret is in git, or that the next commit can add it. It checks every file that the value reads, through
- * `$NAME` expansion too, by its real path, so a symlink to a tracked file does not pass. When git cannot answer inside a
- * repository, it refuses. A file outside any git repository passes with a warning, since git cannot commit it.
- */
 async function assertUntracked(planned: readonly PlannedValue[], root: string, run: DeployRun, env: NodeJS.ProcessEnv, stderr: ViteHubCliContext["stderr"]): Promise<void> {
   const byFile = new Map<string, string[]>()
   for (const item of planned) {
@@ -508,7 +464,6 @@ async function assertUntracked(planned: readonly PlannedValue[], root: string, r
       byFile.set(real, [...new Set([...byFile.get(real) ?? [], item.name])])
     }
   }
-  // Real paths on both sides, so a symlinked project folder gives a short label.
   const realRoot = await realpath(root).catch(() => root)
   for (const [file, names] of byFile) {
     const label = relative(realRoot, file)
@@ -527,7 +482,6 @@ async function assertUntracked(planned: readonly PlannedValue[], root: string, r
   }
 }
 
-/** Replaces each encrypted value with its plaintext. The private keys and the plaintext join the values that output redacts. */
 async function decryptPlanned(planned: readonly PlannedValue[], root: string, env: NodeJS.ProcessEnv, secrets: string[]): Promise<PlannedValue[]> {
   const encrypted = planned.filter(item => item.encrypted)
   const { keys, values } = await decryptEnvValues(root, encrypted.map(item => ({ file: item.source, name: item.name, value: item.value })), env)
@@ -535,7 +489,6 @@ async function decryptPlanned(planned: readonly PlannedValue[], root: string, en
   return planned.map((item) => {
     const value = values.get(item.name)
     if (value === undefined) return item
-    // A decrypted value is a secret to redact, even when its declaration is plain.
     secrets.push(value)
     return { ...item, value }
   })
@@ -556,7 +509,6 @@ function pushRerun(args: EnvArgs): string {
   return ["vitehub env push", ...(args.host ? [`--host ${args.host}`] : []), ...github, ...(args.stage === defaultStage ? [] : [`--stage ${args.stage}`]), ...args.only.map(name => `--only ${name}`), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
-/** Short plain values, such as "1", would hide host output that has nothing to do with them. */
 function addRedactions(planned: readonly PlannedValue[], secrets: string[]): void {
   for (const item of planned) if (item.secret || item.value.length >= 4) secrets.push(item.value)
 }
@@ -602,7 +554,6 @@ async function runPush(args: EnvArgs, context: ViteHubCliContext): Promise<numbe
   return setupExitCodes.done
 }
 
-/** The name that ViteHub derives its own keys from. A deploy can generate it, because no one else has to know it. */
 const appSecretName = "VITEHUB_SECRET"
 
 /** What `vitehub deploy --json` prints in `env`. Names only, never a value. */
@@ -676,8 +627,6 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const output: DeployEnvOutput = { checked: entryNames(entries), missing: [], pushed: [], stage }
   if (!entries.length) return { apply: async () => {}, output, upload: {} }
 
-  // Wrangler inherits omitted secrets from the latest upload, which may be a preview.
-  // Re-supply every remote secret from this stage rather than trusting that inheritance.
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
   const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
   const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
@@ -689,7 +638,6 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
       const local = values.get(name)
       if (local && !stored.some(item => item.name === name)) stored.push({ name, secret: true, ...local })
     }
-    // Even an undeclared or optional remote secret would otherwise inherit the other stage's value.
     const unavailable = [...onHost].filter(name => !values.has(name))
     if (unavailable.length) {
       throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)

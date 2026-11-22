@@ -128,8 +128,6 @@ export function toResultError<TCode extends string, TData>(
  * Return runtime errors as `[error, undefined]`. Throw definition and config errors.
  */
 export function defineErrors<const TCodes extends ErrorCodes>(options: DefineErrorsOptions<TCodes>): ErrorCatalog<TCodes>
-// The loop cannot build the mapped catalog type, so the overload above states it.
-// Each code gets the Nostics handle for that code wrapped by `toResultError`, plus `is`.
 export function defineErrors(options: DefineErrorsOptions<ErrorCodes>): object {
   const diagnostics = defineDiagnostics({ codes: options.codes, docsBase: options.docs })
   const codes = new Set(Object.keys(options.codes))

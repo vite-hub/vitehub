@@ -10,11 +10,8 @@ import { createMotionList, type MotionList as MotionListController } from "../mo
 export const MotionList = defineComponent({
   name: "MotionList",
   props: {
-    /** The element of the list, such as `ul` or `ol`. */
     tag: { default: "div", type: String },
-    /** Where a new item comes from, such as the row that it duplicates. Gets the new item. */
     origin: { default: undefined, type: Function as PropType<(item: HTMLElement) => Element | null | undefined> },
-    /** Where a removed item goes, such as the trash. */
     target: { default: undefined, type: Function as PropType<() => Element | null | undefined> },
   },
   setup(props, { slots }) {

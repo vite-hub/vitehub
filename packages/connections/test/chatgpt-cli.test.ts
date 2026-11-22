@@ -70,7 +70,6 @@ it("signs in through the browser callback and transfers a protected file without
 })
 
 it("says at sign-in when the app has no Codex for the ChatGPT gateway", async () => {
-  // Outside the repository, so no workspace package resolves @openai/codex.
   const root = await mkdtemp(join(tmpdir(), "chatgpt-codex-"))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const connection = { actions: [], credential: "chatgpt", chatgpt: { hostId: "urn:uuid:host", plan: "enabled" }, name: "chatgpt", provider: "chatgpt", scopes: { declared: [], granted: [], missing: [] }, status: "connected" }
@@ -83,7 +82,6 @@ it("says at sign-in when the app has no Codex for the ChatGPT gateway", async ()
   }
   const warning = "Codex is not installed in this app, so an Agent with the ChatGPT gateway cannot answer. Run `pnpm add @openai/codex`, then restart the server. The gateway does not use a codex command from PATH.\n"
   expect(await inspect("http://127.0.0.1:4741")).toBe(warning)
-  // A remote app has its own packages.
   expect(await inspect("https://app.example.com")).toBe("")
   await mkdir(join(root, "node_modules/@openai/codex/bin"), { recursive: true })
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "app", private: true }))

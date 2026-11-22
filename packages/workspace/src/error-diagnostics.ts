@@ -120,7 +120,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `Set \`store: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
         : "Set `store.driver` to \"local\", \"memory\", \"github\", \"cloudflare\", or \"vercel\", or pass a Store object.",
     },
-    // History errors. `history.deleteRef()` throws them before it changes the Store.
+    // History errors.
     WORKSPACE_DEFAULT_REF_DELETE: {
       why: "`history.deleteRef()` cannot delete `main` or the ref that the Workspace working tree follows.",
       fix: "Delete another ref, such as the ref of one run. To remove files from the working ref, commit without them. To remove the whole Workspace history, call `delete()` on the Blob + Database Store.",

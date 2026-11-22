@@ -1,6 +1,3 @@
-// The subjects of the label, icon, count, and ring helpers on the motion page: a UButton whose label and icon change
-// with state as the prototype's Publish button does, CopyButton, a count, and plain elements that the Chromium test
-// drives through `window.motionText`.
 import UButton from "@nuxt/ui/components/Button.vue";
 import { h, ref } from "vue";
 import type { VNode } from "vue";
@@ -20,7 +17,6 @@ const loading = ref(false);
 
 const publishLabels = { idle: "Publish", busy: "Publishing", done: "Published" } as const;
 
-// The prototype's timing: Publishing for 1500ms, Published for 1600ms, both slowed at ¼×.
 async function publish(event: MouseEvent): Promise<void> {
   if (phase.value !== "idle") return;
   const button = event.currentTarget;

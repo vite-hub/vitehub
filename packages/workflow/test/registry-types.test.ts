@@ -49,7 +49,6 @@ describe("generated Workflow types", () => {
       const program = ts.createProgram([entry, declaration], {
         allowImportingTsExtensions: true, allowJs, module: ts.ModuleKind.NodeNext,
         noEmit: true, noUncheckedIndexedAccess: true, skipLibCheck: false, strict: true, target: ts.ScriptTarget.ESNext,
-        // Use the distribution's real barrels without building its unrelated integrations.
         paths: {
           "vite-hub/workflow": [resolve(import.meta.dirname, "../../vite-hub/src/workflow.ts")],
         },

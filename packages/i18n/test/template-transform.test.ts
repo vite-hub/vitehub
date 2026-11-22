@@ -18,7 +18,6 @@ describe("production template descriptors", () => {
     }
     const server = compileTemplate({ ...template, ssr: true, ssrCssVars: [] })
     expect(server.errors).toEqual([])
-    // Vue emits an SSR branch and a VNode fallback branch for render-function components.
     expect(server.code.match(/Slot fallback/g)).toHaveLength(2)
     const browser = compileTemplate(template)
     expect(browser.errors).toEqual([])

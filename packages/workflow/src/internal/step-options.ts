@@ -13,7 +13,6 @@ const optionNames = ["retries", "timeout"] as const
  */
 export async function readWorkflowStepOptions(file: string): Promise<WorkflowStepOptions> {
   const source = await readFile(file, "utf8")
-  // Most step files have no options, so they skip the parser.
   if (!/\b(?:retries|timeout)\b/.test(source)) return {}
   const { dynamic, exportNames, scanModule, staticValue } = await import("@vite-hub/internal/build/scan-module")
   const exported = optionNames.filter(name => exportNames(source, file).includes(name))

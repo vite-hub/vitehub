@@ -31,10 +31,8 @@ function encodeBase64(bytes: Uint8Array): string {
     }
     const encoded: string[] = []
     let chunk: number[] = []
-    // The intrinsic iterator reads native slots and validates detached buffers.
     for (const byte of Reflect.apply(Uint8Array.prototype.values, bytes, [])) {
       chunk.push(byte)
-      // Whole three-byte groups avoid padding between chunks. Keep each call below argument limits.
       if (chunk.length === 12_288) {
         encoded.push(btoa(String.fromCharCode(...chunk)))
         chunk = []
@@ -48,7 +46,6 @@ function encodeBase64(bytes: Uint8Array): string {
   }
 }
 
-/** JSON inspection accepts JSON values and represents bigint values as decimal strings. */
 function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === "bigint") return value.toString()
   if (value === null || typeof value === "string" || typeof value === "boolean") return value

@@ -19,10 +19,6 @@ function isRunning(pid: number): boolean {
   }
 }
 
-/**
- * One folder per test process under `<root>/.vitehub/test`. A test runner can stop its workers without an exit event,
- * so each process also deletes the folders of processes that no longer run.
- */
 function processTemporaryRoot(root: string): Promise<string> {
   const existing = processRoots.get(root)
   if (existing) return existing

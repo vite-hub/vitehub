@@ -2,9 +2,6 @@ import { isMotionOff } from "./layer.ts";
 import { prefersReducedMotion } from "./reduced-motion.ts";
 import { onEachFrame } from "./spring.ts";
 
-// The numbers of the prototype's drop zone: a dot every 14px, 0.9px round at rest and 16% strong. A dot within 110px of
-// the file grows by up to 1.9px, gets up to 70% stronger, and leans up to 3px toward it. The pull follows the file at
-// 15% a frame, each dot at 20% a frame, at 60 frames a second.
 const gap = 14;
 const reach = 110;
 const lean = 3;
@@ -30,13 +27,11 @@ export interface DropField {
 interface Dot {
   x: number;
   y: number;
-  /** How much the file pulls this dot, from 0 to 1. */
   pull: number;
 }
 
 const carriesFiles = (event: DragEvent) => [...event.dataTransfer?.types ?? []].includes("Files");
 
-/** A rate per frame at 60 frames a second, for a step of `seconds`. */
 const rate = (perFrame: number, seconds: number) => 1 - (1 - perFrame) ** (seconds * 60);
 
 /**
@@ -74,7 +69,6 @@ export function createDropField(field: HTMLElement, options: DropFieldOptions = 
     }
   }
 
-  // Draws one frame. Returns true while a dot still moves.
   function draw(seconds: number): boolean {
     if (!context) return false;
     const ratio = devicePixelRatio || 1;

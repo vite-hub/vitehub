@@ -32,7 +32,6 @@ const packageDir = computePackageDir(import.meta.url)
 const packageRequire = createRequire(resolve(packageDir, "package.json"))
 const resolvePackageDependency = (specifier: string) => packageRequire.resolve(specifier)
 
-/** `@vercel/queue` and `@vercel/functions` are optional peers. A Vercel build needs both in the app. */
 function resolveVercelDependency(specifier: "@vercel/functions" | "@vercel/queue") {
   try {
     return packageRequire.resolve(specifier)
@@ -76,15 +75,9 @@ function resolveOutputQueueConfig(queue: QueueOptions | undefined, hosting: stri
   return normalizeQueueOptions(queue, { hosting, postgresDatabase }) || false
 }
 
-/**
- * The Queue configuration that the generated server installs. `vite dev` runs in Node, where Cloudflare and Vercel
- * cannot deliver jobs, so it runs them with the local driver and the delivery rules of the driver of the build.
- * A build keeps the configured driver.
- */
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
   if (queueConfig.driver === "local") return { ...queueConfig, development }
-  // A postgres build runs its jobs with the local driver too, so `vite dev` needs no Postgres database.
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
@@ -191,8 +184,6 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     ...(cloudflareGlobals ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
     ...(localRuntime ? ["  startLocalQueue(queueConfig)", "  nitro.hooks.hook('close', closeLocalQueues)"] : []),
-    // The workers start after the registry is set, and drain their running jobs when Nitro closes.
-    // The jobs use the postgres.js client of the Database, so they connect as the Database does.
     ...(postgresRuntime ? [
       postgresDatabase
         ? `  startPostgresQueue(queueConfig, () => import(${JSON.stringify(databaseImport)}).then(module => module.databases))`
@@ -233,7 +224,6 @@ export async function writeQueueNitroIntegration(rootDir: string, queue: QueueOp
   const pluginFile = resolve(rootDir, generatedQueueNitroPlugin)
   const middlewareFile = resolve(rootDir, generatedQueueNitroMiddleware)
   const queueConfig = resolveOutputQueueConfig(typeof queue === "undefined" ? {} : queue, hosting, database.postgres === true)
-  // Check Cloudflare names in dev too, so a name collision fails before the first build.
   const queueDefinitions = cloudflareQueues && queueConfig !== false && queueConfig.driver === "cloudflare"
     ? createCloudflareQueueDefinitionNames(definitions, queueConfig.namePrefix)
     : {}
@@ -297,8 +287,6 @@ export function createVercelQueueConsumerRoutes(definitions: DiscoveredQueueDefi
       throw queueErrorDiagnostics.QUEUE_NAME_COLLISION({ first: existing.name, resolved: route, second: definition.name })
     }
     routes.set(route, definition)
-    // Nitro emits one function directory for the route, so the consumer group
-    // must use that function path (without the old standalone nested segment).
     const consumer = sanitizeVercelConsumerName(`${route.slice(1)}.func`)
     return {
       consumer,

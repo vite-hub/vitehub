@@ -2,7 +2,6 @@ import type { KVPageOptions, KVListPage } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
 
-// Check existence before INCR because an existing zero must keep its current expiry.
 export const redisIncrementScript = `
 local existed = redis.call('EXISTS', KEYS[1])
 local current = redis.call('GET', KEYS[1])
@@ -127,9 +126,7 @@ export function createRedisKeyLister(provider: string, scan: (cursor: string, ma
 }
 
 interface PortableCursor {
-  /** The next cursor returned by SCAN, never a cursor whose batch was already read. */
   cursor: string
-  /** Keys from that batch that have not been returned yet. */
   keys: string[]
 }
 

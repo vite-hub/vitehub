@@ -88,7 +88,6 @@ describe("schedule provider output", () => {
     const retainedSourcesDir = join(rootDir, ".vitehub", "retained", "sources")
     const retainedHandler = join(retainedSourcesDir, "cleanup.schedule.ts")
     await mkdir(retainedSourcesDir, { recursive: true })
-    // The handler names its published file, so publication copies that file into the Netlify output.
     const publishedHandler = join(rootDir, ".vitehub", "schedule", "sources", "cleanup.schedule.ts")
     const source = (value: string) => `import { defineSchedule } from '@vite-hub/schedule'; export default defineSchedule({ cron: '0 0 * * *', handler: () => ['${value}', ${JSON.stringify(publishedHandler)}] })`
     await writeFile(retainedHandler, source("previous"))
@@ -358,7 +357,6 @@ describe("schedule provider output", () => {
     const outputFiles = (await readdir(distDir)).filter(file => file.endsWith(".js"))
     const output = (await Promise.all(outputFiles.map(file => readFile(join(distDir, file), "utf8")))).join("\n")
 
-    // Provider outputs bundle with the Rolldown of the app's Vite, so the package needs no esbuild.
     expect(output).not.toMatch(/["']esbuild["']/)
   })
 
@@ -1149,7 +1147,6 @@ describe("schedule provider output", () => {
       ["sunday", "0 20 * * 0", "UTC"],
       ["weekdays", "0 4 * * 1-5", "UTC"],
       ["list", "0 9 * * 1,3,5", "UTC"],
-      // 01:30 on Monday in Tokyo is 16:30 on Sunday in UTC.
       ["tokyo", "30 1 * * 1", "Asia/Tokyo"],
     ]) {
       await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
@@ -1169,7 +1166,6 @@ describe("schedule provider output", () => {
       "30 16 * * SUN",
       "0 4 * * MON,TUE,WED,THU,FRI",
     ])
-    // Vercel and Netlify read standard weekday numbers.
     expect(JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8")).crons).toContainEqual({
       path: "/api/vitehub/schedules/vercel/tokyo",
       schedule: "30 16 * * 0",
@@ -1184,7 +1180,6 @@ describe("schedule provider output", () => {
       ["0 4 * * MON,TUE,WED,THU,FRI", "2026-11-23T04:00:00Z"],
       ["0 9 * * MON,WED,FRI", "2026-11-23T09:00:00Z"],
       ["30 16 * * SUN", "2026-11-22T16:30:00Z"],
-      // Cloudflare reads this as Sunday, so it is not the Monday Schedule.
       ["0 4 * * 1-5", "2026-11-22T04:00:00Z"],
     ]) {
       await cloudflareHandler.scheduled({ cron, scheduledTime: Date.parse(scheduledTime!) }, {}, { waitUntil: vi.fn() })
@@ -1220,7 +1215,6 @@ describe("schedule provider output", () => {
     expect(netlifyModule.config.schedule).toBe("0 6,7 * * *")
     vi.useFakeTimers({ toFake: ["Date"] })
     try {
-      // Winter: 07:00Z is 08:00 in Madrid. A late call still runs the 07:00Z occurrence.
       for (const now of ["2026-01-15T06:00:04Z", "2026-01-15T07:02:31Z"]) {
         vi.setSystemTime(new Date(now))
         expect((await netlifyModule.default(new Request("https://schedule.example"))).status).toBe(204)

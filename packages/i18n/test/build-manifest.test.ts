@@ -128,7 +128,6 @@ describe("build message snapshots", () => {
     await entered.promise
     const server = await collect("ssr", "Server message")
     const second = hook(plugin.writeBundle!).call(server as never, {} as never, {})
-    // Let the second writer run while the first writer is held at the filesystem boundary.
     await new Promise<void>(done => setImmediate(done))
     release.resolve()
     await Promise.all([first, second])
@@ -182,7 +181,6 @@ describe("build message snapshots", () => {
       expect(Object.values(manifest.environments.client!).map(message => message.message).sort()).toEqual(["Cached message", "New message"])
       const assets = await import("node:fs/promises").then(fs => fs.readdir(join(root, "dist/assets")))
       const chunks = await Promise.all(assets.map(file => readFile(join(root, "dist/assets", file), "utf8")))
-      // Check the current catalog chunks, using their imports from the current entry (old hashed assets may remain).
       const app = chunks.find(code => code.includes("console.log"))!
       const currentCatalogs = assets.filter(file => app.includes(file))
       const catalogs = await Promise.all(currentCatalogs.map(file => readFile(join(root, "dist/assets", file), "utf8")))

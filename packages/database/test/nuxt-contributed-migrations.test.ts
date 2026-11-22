@@ -95,7 +95,6 @@ interface LoadedNuxt {
   options: { _layers: Array<{ config: { rootDir?: string, serverDir?: string }, cwd?: string }>, rootDir: string, serverDir: string, vite: { plugins?: unknown[] } }
 }
 
-/** Loads the app as `vitehub database generate` does, so the build checks of the Nuxt module do not run. */
 async function loadApp(root: string) {
   const { loadNuxt } = await import(pathToFileURL(join(dirname(nuxtPackage), "kit.js")).href) as { loadNuxt: (options: Record<string, unknown>) => Promise<LoadedNuxt> }
   const nuxt = await loadNuxt({ cwd: root, dev: false, overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true }, ready: true })

@@ -16,7 +16,6 @@ vi.mock("#vitehub/kv/config", () => ({
   },
 }))
 
-// The driver imports the package entry, so both share the store resolved from the mocked config.
 vi.mock("@vite-hub/kv", async () => await import("../src/index.ts"))
 
 function createNamespace() {
@@ -87,7 +86,6 @@ describe("KV unstorage driver", () => {
       expect(await kv.set("settings", { theme: "dark" })).toEqual([undefined, undefined])
       await storage.setItem("cache:nitro:functions:stars:repo.json", { value: 42 }, { ttl: 5 })
 
-      // Workers KV refuses an expirationTtl under 60 seconds, so unstorage raises it.
       expect(namespace.puts.at(-1)).toMatchObject({ key: "nitro-cache:nitro:functions:stars:repo.json", options: { expirationTtl: 60 } })
       expect(await storage.getItem("cache:nitro:functions:stars:repo.json")).toEqual({ value: 42 })
       expect(await storage.hasItem("cache:nitro:functions:stars:repo.json")).toBe(true)
@@ -115,7 +113,6 @@ describe("KV unstorage driver", () => {
     const namespace = createNamespace()
     const storage = createStorage()
     storage.mount("cache", createKVStorageDriver({ base: "nitro-cache" }))
-    // A PNG's signature: 0x89 and the bytes after it aren't valid UTF-8, so reading them as text would mangle them.
     const bytes = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xC3])
 
     await runWithActiveCloudflareEnv({ KV: namespace }, async () => {

@@ -623,7 +623,6 @@ type AuthCheck =
   | { authorization: CoreAuthorization, response?: undefined }
   | { authorization?: undefined, response: Response }
 
-/** A refused check. The refusal goes on the request's wide event as `auth`. */
 function reject(input: AuthRequestInput, response: Response): AuthCheck {
   logRefusal(input, response)
   return { response }

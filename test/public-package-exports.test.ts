@@ -54,17 +54,11 @@ describe("public package export contracts", () => {
     for (const info of packageInfos) {
       const path = `packages/${info.name}/package.json`
       const subpaths = Object.keys(readPackageManifest(info.name).exports || {})
-      // The checked-in `exports` map is the reviewed list of public subpaths. `vp pack` rewrites it from the build
-      // entries, so a build that adds or drops a subpath fails here until the rewritten manifest is staged.
       const checkedIn = parse(packageManifestSchema, JSON.parse(execFileSync("git", ["show", `:${path}`], { cwd: repoRoot, encoding: "utf8" })))
       expect(subpaths, `the build rewrote the exports of ${path}`).toEqual(Object.keys(checkedIn.exports || {}))
-      // A wildcard would publish the private modules that generated code imports by file path (`ownModule()` in
-      // `@vite-hub/internal/build/paths`).
       expect(subpaths.filter(subpath => subpath.includes("*")), `${path} exports a wildcard`).toEqual([])
-      // Package implementation subpaths have one spelling: `internal/*`.
       expect(subpaths.filter(subpath => /(?:^|\/)_internal(?:\/|$)/.test(subpath)), `${path} exports an _internal subpath`).toEqual([])
     }
-    // The framework distribution does not re-export generated owner modules. Owner plugins import them by path.
     expect(Object.keys(readPackageManifest("vite-hub").exports || {}).filter(subpath => /^\.\/internal(?:\/|$)/.test(subpath))).toEqual([])
   })
 
@@ -149,7 +143,6 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("ui")
     const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
     for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
-      // The ui-sdk drag handle loads on first render, not when MarkdownEditor is imported.
       if (peer === "@tiptap/extension-drag-handle" || peer === "@tiptap/extension-drag-handle-vue-3") {
         expect(contract?.optionalRuntimePeers).not.toContain(peer)
       } else {
@@ -236,7 +229,6 @@ describe("public package export contracts", () => {
     const manifest = readPackageManifest("realtime")
     const packConfig = readFileSync(join(packageDir("realtime"), "vite.config.ts"), "utf8")
 
-    // The editor and its document model come from the app's Tiptap and Yjs, which the package manager installs as peers.
     for (const dependency of ["@tiptap/core", "@tiptap/pm", "yjs"]) {
       expect(manifest.peerDependencies?.[dependency], `realtime should take ${dependency} from the app`).toEqual(expect.any(String))
       expect(manifest.dependencies?.[dependency]).toBeUndefined()
@@ -245,9 +237,6 @@ describe("public package export contracts", () => {
       expect(manifest.dependencies?.[dependency], `realtime should install ${dependency}`).toEqual(expect.any(String))
       expect(manifest.devDependencies?.[dependency]).toBeUndefined()
     }
-    // @tiptap/y-tiptap imports prosemirror-transform without declaring it.
-    // Keep this runtime closure self-contained for isolated consumers while
-    // leaving the shared ProseMirror and Yjs peer constructors external.
     expect(packConfig).toContain("/^@tiptap\\/(?:extension-collaboration|y-tiptap)/")
     expect(packConfig).toContain("prosemirror-(?:model|state|transform|view)")
   })
@@ -267,16 +256,12 @@ describe("public package export contracts", () => {
   it("keeps Cloudflare Worker declarations out of the vite-hub install", () => {
     const manifest = readPackageManifest("vite-hub")
     expect(manifest.dependencies?.["@cloudflare/workers-types"], "vite-hub should not install @cloudflare/workers-types").toBeUndefined()
-    // `cloudflare-types.d.ts` only needs the global Worker declarations, which every 4.x and 5.x release has. npm stops
-    // with ERESOLVE when the app already installs a version that the optional peer range does not accept.
     expect(manifest.peerDependencies?.["@cloudflare/workers-types"]).toBe(">=4")
     expect(manifest.peerDependenciesMeta?.["@cloudflare/workers-types"]?.optional).toBe(true)
   })
 
   it("declares H3 for Blob serve authorization callbacks", () => {
     const source = readFileSync(join(packageDir("blob"), "src/types.ts"), "utf8")
-    // Generated authorized serve routes are H3 handlers, so callbacks can use the app's H3 helpers.
-    // Keep the declaration dependency available even for consumers without a Nitro installation.
     expect(readPackageManifest("blob").dependencies?.h3).toBeDefined()
     expect(source).toContain("export type BlobServeAuthorize = AccessAuthorize<H3Event>")
     expect(source).toContain("export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize<H3Event>")
@@ -295,7 +280,6 @@ describe("public package export contracts", () => {
   })
 
   it("bundles private workspace packages into every published dist", () => {
-    // npm has no private packages, so an import of one fails in the consumer's install (`Cannot find package`).
     const privateNames = listWorkspacePackageInfos(repoRoot).filter(info => info.private).map(info => info.packageName.replace("/", "\\/"))
     const privateImport = new RegExp(`(?:\\bfrom|\\bimport|\\brequire\\s*\\()\\s*["'](${privateNames.join("|")})(?:\\/[^"']*)?["']`, "g")
     const found = packageInfos.flatMap(info => walkFiles(join(packageDir(info.name), "dist"), { extensions: new Set(["cjs", "js", "mjs", "ts", "mts", "cts", "vue"]) })

@@ -96,7 +96,6 @@ export function normalizeTraceAttributes(
     delete source["content.omitted"]
   }
   if (content === "metadata") {
-    // Keep accessor-backed content in the omission record without reading it.
     const accessors = properties.filter(([key, descriptor]) => !("value" in descriptor) && isTraceContentAttributeKey(key))
     if (accessors.length) {
       const omitted = new Set(Array.isArray(source["content.omitted"]) ? source["content.omitted"] : [])

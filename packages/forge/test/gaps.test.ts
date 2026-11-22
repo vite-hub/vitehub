@@ -105,7 +105,6 @@ interface RecordedCall {
   path: string
 }
 
-/** A GitHub fake that answers `routes` by `METHOD path` and records each call. */
 function githubRoutes(routes: Record<string, (call: RecordedCall) => Response>) {
   const calls: RecordedCall[] = []
   const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {

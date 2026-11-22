@@ -124,7 +124,6 @@ it.skipIf(process.platform === "win32")("aborts an execution tree even when a de
     await expect(result).rejects.toMatchObject({ name: "AbortError" })
     expect(pid).toBeGreaterThan(0)
     if (process.platform === "linux") {
-      // A killed orphan can remain a zombie until the system reaps it.
       const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "")
       expect(stat === "" || stat.includes(") Z ")).toBe(true)
     }

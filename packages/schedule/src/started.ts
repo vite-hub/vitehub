@@ -62,7 +62,6 @@ function isFiveFieldCron(cron: string): boolean {
   }
 }
 
-/** Reads the options once at the boundary. The returned record is what the store keeps. */
 function parseOptions(name: string, options: unknown): Result<StartedSchedule, StartedScheduleErrorCode> {
   if (!isPlainObject(options)) return invalid("pass an object with `at` or `cron`.")
   const unknownKey = Object.keys(options).find(key => !optionKeys.has(key))

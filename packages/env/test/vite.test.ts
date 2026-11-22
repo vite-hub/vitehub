@@ -871,7 +871,6 @@ describe("Vite plugin", () => {
   it("serializes generated files while preserving same-root Env configurations", async () => {
     const root = await temporaryDirectory("vitehub-env-same-root-")
     const plugin = hubEnv()
-    // A ViteHub feature declares Server Env for each configuration, as Agent Channels do.
     const resolve = (key: string) => resolveConfig({
       [VITEHUB_ENV_SERVER]: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) },
       configFile: false,
@@ -897,7 +896,6 @@ describe("Vite plugin", () => {
   it("regenerates Env after completed same-root configuration reuse", async () => {
     const root = await temporaryDirectory("vitehub-env-sequential-root-")
     const plugin = hubEnv()
-    // A ViteHub feature declares Server Env for each configuration, as Agent Channels do.
     const resolve = (key: string) => resolveConfig({
       [VITEHUB_ENV_SERVER]: { [key]: env({ source: env.source(`${key.toUpperCase()}_TOKEN`) }) },
       configFile: false,
