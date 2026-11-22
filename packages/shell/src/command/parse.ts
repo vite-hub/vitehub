@@ -103,8 +103,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const toIndex = createSourceIndex(command)
-  const scanned = withoutHeredocBodies(file, command, toIndex)
-  if (scanned === undefined || stripLineContinuations(scanned).commentContinuation) {
+  if (withoutHeredocBodies(file, command, toIndex) === undefined) {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const leaves: StatementLeaf[] = []
@@ -118,7 +117,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
   for (const { negated, stmt, separator } of leaves) {
     const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
     const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
-    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd))).text
+    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
     segments.push({
       command: raw,
       followsPipe,
@@ -216,7 +215,6 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
 
 function stripLineContinuations(command: string) {
   let result = ""
-  let commentContinuation = false
   let quote: "'" | "\"" | undefined
   let ansiCQuoted = false
   let escaped = false
@@ -225,10 +223,7 @@ function stripLineContinuations(command: string) {
     const char = command[index]!
     if (comment) {
       result += char
-      if (char === "\n") {
-        comment = false
-        if (command[index - 1] === "\\") commentContinuation = true
-      }
+      if (char === "\n") comment = false
       continue
     }
     if (escaped) {
@@ -271,5 +266,5 @@ function stripLineContinuations(command: string) {
     }
     result += char
   }
-  return { commentContinuation, text: result }
+  return result
 }
