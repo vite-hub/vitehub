@@ -212,13 +212,16 @@ export async function buildTutorialSnapshots(input: {
   await mkdir(snapshotsDir, { recursive: true })
   await rm(workDir, { recursive: true, force: true })
 
-  const plans = await Promise.all(input.tutorials.map(async (tutorial) => {
+  const allPlans = await Promise.all(input.tutorials.map(async (tutorial) => {
     const source = readManifest(await readFile(resolve(input.fixturesDir, tutorial.fixture, "package.json"), "utf8"))
     const devServer = devServerInDevDependencies(source)
     if (devServer) throw docsErrorDiagnostics.DOCS_RUNNABLE_DEV_SERVER_MISSING({ fixture: tutorial.fixture, name: devServer })
     const local = Object.entries(source.dependencies).filter(([, specifier]) => specifier.startsWith("workspace:")).map(([name]) => name)
     return { tutorial, source, local, packages: closure(local) }
   }))
+  // A fixture without dependencies, such as a plain Node server, has no node_modules to snapshot. Its workspace
+  // starts without one.
+  const plans = allPlans.filter(plan => Object.keys(plan.source.dependencies).length > 0)
   // The tutorials share most of their workspace packages, so build and pack each package once for all of them.
   const packed = [...new Set(plans.flatMap(plan => plan.packages))]
   if (workspaceRoot && packed.length > 0) {
