@@ -5,6 +5,10 @@ import { dirname, resolve } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { workspacePageSlug } from "../src/runnable/workspaces.ts"
+
+import type { WorkspaceContentPage } from "../src/runnable/workspaces.ts"
+
 const templates = vi.hoisted(() => new Map<string, () => string | Promise<string>>())
 vi.mock("@nuxt/kit", () => ({
   addTemplate: (template: { filename: string, getContents: () => string | Promise<string> }) => { templates.set(template.filename, template.getContents) },
@@ -36,7 +40,7 @@ type Hook = (...args: never[]) => unknown
 function fakeNuxt(options: { dev?: boolean, prepare?: boolean, baseURL?: string } = {}) {
   const hooks = new Map<string, Hook>()
   const nuxt = {
-    options: { rootDir: dir, dev: options.dev ?? false, _prepare: options.prepare ?? false, app: { baseURL: options.baseURL ?? "/" }, routeRules: {} },
+    options: { rootDir: dir, srcDir: resolve(dir, "app"), dev: options.dev ?? false, _prepare: options.prepare ?? false, app: { baseURL: options.baseURL ?? "/" }, routeRules: {} },
     hook: (name: string, hook: Hook) => { hooks.set(name, hook) },
   }
   return { nuxt, hooks, options: nuxt.options }
@@ -56,7 +60,7 @@ const runnable = {
 const snapshot = { parts: ["first-kv.abc.0.bin"], sha256: "abc" }
 const served = { parts: ["/_tutorials/snapshots/first-kv.abc.0.bin"], sha256: "abc" }
 /** The pages of the docs site, as the docs module lists them from the manifest. */
-const pages = [{ path: "/docs/kv", layout: "tutorial" }, { path: "/docs/guide", layout: "article" }]
+const pages: WorkspaceContentPage[] = [{ path: "/docs/kv", layout: "tutorial" }, { path: "/docs/guide", layout: "article" }]
 const content = {
   pages: () => pages,
   read: (path: string) => pages.some(page => page.path === path) ? readFileSync(resolve(dir, `content${path}.md`), "utf8") : undefined,
@@ -127,6 +131,76 @@ describe("docs.runnable", () => {
     await opted.hooks.get("app:templates")!()
     // Dev calls the hook on each change, and the snapshots build once.
     expect(buildTutorialSnapshots).toHaveBeenCalledOnce()
+  })
+
+  it("writes one module per learn and playground page, and their loaders", async () => {
+    await write("content/docs/try/lesson.md", `---\ntitle: Lesson\nlayout: learn\nfixture: kv\n---\n::tutorial-step{title="Add the route"}\n${fence}ts [server/api/kv.get.ts]\nexport default () => 1\n${fence}\n::\n`)
+    await write("fixtures/kv/package.json", JSON.stringify({ name: "kv", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("fixtures/kv/server/api/kv.get.ts", "export default () => 1\n")
+    await write("examples/hello/package.json", JSON.stringify({ name: "hello", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("examples/page/index.html", "<h1>Hi</h1>\n")
+    await write("app/render.ts", "export default files => ({ html: files['index.html'] })\n")
+    await write("app/components/playground/PlaygroundTabMessages.vue", "<template><p /></template>\n")
+    const hello = { id: "hello", label: "Hello", dir: "examples/hello" }
+    const sitePages: WorkspaceContentPage[] = [
+      { path: "/docs/try/lesson", layout: "learn", workspace: { fixture: "kv", guide: "top" } },
+      { path: "/docs/try/playground", layout: "playground", workspace: { examples: [hello], tabs: [{ value: "messages", label: "Messages" }], port: 4000 } },
+      { path: "/docs/try/render", layout: "playground", workspace: { examples: [{ id: "page", label: "Page", dir: "examples/page" }], render: "app/render.ts" } },
+    ]
+    const siteContent = { pages: () => sitePages, read: (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8") }
+    const lessonSlug = workspacePageSlug("/docs/try/lesson")
+    const playgroundSlug = workspacePageSlug("/docs/try/playground")
+    const renderSlug = workspacePageSlug("/docs/try/render")
+    buildTutorialSnapshots.mockResolvedValue({ [lessonSlug]: snapshot })
+    const { nuxt, hooks } = fakeNuxt()
+    const { workspaces } = await setupDocsRunnable({}, { nuxt, content: siteContent })
+    await hooks.get("app:templates")!()
+
+    expect(workspaces).toContain(`"/docs/try/lesson": () => import("./workspaces/${lessonSlug}.mjs"),`)
+    expect(workspaces).toContain(`"/docs/try/render": () => import("./workspaces/${renderSlug}.mjs"),`)
+    const lesson = await templates.get(`docs/workspaces/${lessonSlug}.mjs`)!()
+    expect(lesson).toContain(`"layout":"learn"`)
+    expect(lesson).toContain(`"guide":"top"`)
+    expect(lesson).toContain(`"title":"Add the route"`)
+    expect(await templates.get("runnable-tutorials.mjs")!()).toBe("export const runnableTutorials = []\n")
+    const playground = await templates.get(`docs/workspaces/${playgroundSlug}.mjs`)!()
+    expect(playground).toContain(`"id":"hello"`)
+    expect(playground).toContain(`"snapshotOf":"${lessonSlug}"`)
+    expect(playground).toContain(JSON.stringify(served))
+    expect(playground).toContain(`"port":4000`)
+    expect(playground).toContain(`component: () => import(${JSON.stringify(resolve(dir, "app/components/playground/PlaygroundTabMessages.vue"))})`)
+    const render = await templates.get(`docs/workspaces/${renderSlug}.mjs`)!()
+    expect(render).toContain(`"files":{"index.html":"<h1>Hi</h1>\\n"}`)
+    expect(render).toContain(`data.render = () => import(${JSON.stringify(resolve(dir, "app/render.ts"))})`)
+    expect(await templates.get("learn-facts.mjs")!()).toContain(`"/docs/try/lesson":{"steps":1`)
+  })
+
+  it("keeps local private files out of every workspace module", async () => {
+    await write("content/docs/try/lesson.md", `---\ntitle: Lesson\nlayout: learn\nfixture: kv\n---\n::tutorial-step{title="Add the route"}\n${fence}ts [server/api/kv.get.ts]\nexport default () => 1\n${fence}\n::\n`)
+    await write("fixtures/kv/package.json", JSON.stringify({ name: "kv", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("fixtures/kv/server/api/kv.get.ts", "export default () => 1\n")
+    await write("examples/hello/package.json", JSON.stringify({ name: "hello", dependencies: { "vite-hub": "^1.0.0" } }))
+    await write("examples/page/index.html", "<h1>Hi</h1>\n")
+    await write("app/render.ts", "export default files => ({ html: files['index.html'] })\n")
+    const secrets = [".env", ".env.local", "server/.env.production", ".dev.vars", "nested/.dev.vars.staging", ".npmrc", "certs/server.pem", "certs/server.key"]
+    for (const root of ["fixtures/kv", "examples/hello", "examples/page"]) {
+      for (const file of secrets) await write(`${root}/${file}`, "TOKEN=private-value\n")
+      await write(`${root}/.env.example`, "TOKEN=\n")
+    }
+    const sitePages: WorkspaceContentPage[] = [
+      { path: "/docs/try/lesson", layout: "learn", workspace: { fixture: "kv" } },
+      { path: "/docs/try/playground", layout: "playground", workspace: { examples: [{ id: "hello", label: "Hello", dir: "examples/hello" }] } },
+      { path: "/docs/try/render", layout: "playground", workspace: { examples: [{ id: "page", label: "Page", dir: "examples/page" }], render: "app/render.ts" } },
+    ]
+    const siteContent = { pages: () => sitePages, read: (path: string) => readFileSync(resolve(dir, `content${path}.md`), "utf8") }
+    const { nuxt } = fakeNuxt()
+    await setupDocsRunnable({}, { nuxt, content: siteContent })
+
+    for (const path of ["/docs/try/lesson", "/docs/try/playground", "/docs/try/render"]) {
+      const module = await templates.get(`docs/workspaces/${workspacePageSlug(path)}.mjs`)!()
+      expect(module).not.toContain("private-value")
+      expect(module).toContain(`".env.example":"TOKEN=\\n"`)
+    }
   })
 
   it("asks for a pnpm workspace when a fixture uses one", async () => {

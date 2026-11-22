@@ -3,16 +3,19 @@ import { basename, resolve } from "node:path"
 
 import { addTemplate, addTypeTemplate } from "@nuxt/kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { invariantError } from "@vite-hub/internal/invariant"
 
 import { buildRunnableTutorial, noWorkspaceVersions, readWorkspaceVersions } from "./build.ts"
 import { tutorialPageFacts } from "./learn.ts"
 import { buildPlaygroundTemplates, snapshotSources } from "./playground.ts"
 import { buildTutorialSnapshots, readTutorialSnapshots, tutorialSnapshotInputs } from "./snapshots.ts"
+import { checkWorkspacePage, learnLessonSource, pageExamples, playgroundExampleSources, renderExamples, workspacePageModule, workspacePages, workspacePageSlug, workspaceTabComponent } from "./workspaces.ts"
 
 import type { RunnableTutorialSource } from "./build.ts"
 import type { PlaygroundTemplateSource } from "./playground.ts"
 import type { TutorialSnapshot, TutorialSnapshots } from "./snapshots.ts"
 import type { RunnableTutorialData } from "./steps.ts"
+import type { WorkspaceContentPage, WorkspacePage } from "./workspaces.ts"
 
 export type DocsRunnableLesson = RunnableTutorialSource
 export type DocsRunnableExample = PlaygroundTemplateSource
@@ -24,9 +27,15 @@ export interface DocsRunnableOptions {
    * is a folder in it. The npm lockfile that pins its snapshot sits beside it as `<folder>.package-lock.json`.
    */
   fixtures?: string
-  /** Lessons that run in the reader's browser. The lesson text is a docs page with `::tutorial-step` blocks. */
+  /**
+   * @deprecated Give each lesson a page with `layout: learn` instead, which sets its `fixture` in the frontmatter. This
+   * list is for an app page that renders the workspace itself and imports `#build/runnable-tutorials.mjs`.
+   */
   lessons?: DocsRunnableLesson[]
-  /** Starting apps of the playground, in menu order. */
+  /**
+   * @deprecated List the examples in the frontmatter of a page with `layout: playground` instead. This list is for an
+   * app page that renders the workspace itself and imports `#build/playground-templates.mjs`.
+   */
   examples?: DocsRunnableExample[]
   /**
    * A docs page, such as `/docs/getting-started/installation`, whose code blocks give the version of a file before the
@@ -47,14 +56,14 @@ interface NitroConfig {
 
 /** Only the host fields used here: Nuxt and @nuxt/kit can load different compatible schema versions. */
 interface RunnableNuxt {
-  options: { rootDir: string, dev: boolean, app: { baseURL: string }, routeRules?: Record<string, unknown> }
+  options: { rootDir: string, srcDir: string, dev: boolean, app: { baseURL: string }, routeRules?: Record<string, unknown> }
   hook: (name: "app:templates", callback: () => Promise<void> | undefined) => unknown
 }
 
 /** The pages of the docs site, as the docs module reads them from `dir` or `sources`. */
 export interface RunnableDocsContent {
-  /** The URL and the layout of each page. */
-  pages: () => readonly { path: string, layout?: string }[]
+  /** The URL, the layout, and the workspace fields of each page. */
+  pages: () => readonly WorkspaceContentPage[]
   /** The Markdown of the page at a URL, or nothing when the site has no page there. */
   read: (path: string) => string | undefined
 }
@@ -65,22 +74,34 @@ const baseURL = "/_tutorials"
 /**
  * Runnable lessons and playground examples.
  *
+ * The pages with `layout: learn` and `layout: playground` are the lessons and the examples. Their frontmatter is the
+ * only list. `lessons` and `examples` of the options add more, for app pages that render a workspace themselves. Both
+ * share one snapshot build, so a lesson and an example with the same dependencies share one snapshot.
+ *
  * At build time this reads each lesson and its fixture, and writes:
- * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes.
- * - `#build/playground-templates.mjs`: the files of each example, read from its fixture.
- * - `#build/learn-facts.mjs`: the step count and reading time of each page with `layout: tutorial`.
+ * - `#build/docs/workspaces/<page>.mjs`: the workspace data of each `learn` and `playground` page. The result's
+ *   `workspaces` is the source of `#docs/workspaces`, which loads them by page path.
+ * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes, for `lessons`.
+ * - `#build/playground-templates.mjs`: the files of each example of `examples`, read from its fixture.
+ * - `#build/learn-facts.mjs`: the step count and reading time of each page with `layout: tutorial` or `layout: learn`.
  * - `/_tutorials/snapshots/<slug>.<hash>.<part>.bin`: the `node_modules` of the workspace, so the browser skips
  *   `npm install`. An example with the dependencies of a lesson mounts the snapshot of that lesson. `nuxt build` writes
  *   them, pinned by the lockfile beside each fixture. `nuxt dev` reuses the last ones while their dependencies match
  *   (`tutorialSnapshotInputs`). Set `TUTORIAL_SNAPSHOTS=1` to build them in development, or `TUTORIAL_SNAPSHOTS=0` to
  *   skip them in a build. Without them the workspace installs. `nuxi prepare` never builds them.
  */
-export async function setupDocsRunnable(options: DocsRunnableOptions, input: { nuxt: RunnableNuxt, content: RunnableDocsContent }): Promise<void> {
+export async function setupDocsRunnable(options: DocsRunnableOptions, input: { nuxt: RunnableNuxt, content: RunnableDocsContent }): Promise<{ workspaces: string }> {
   const { nuxt, content } = input
   const rootDir = nuxt.options.rootDir
-  const lessons = options.lessons ?? []
-  const examples = options.examples ?? []
   const fixturesDir = resolve(rootDir, options.fixtures ?? "fixtures")
+  const pages = workspacePages(content.pages())
+  for (const page of pages) checkWorkspacePage(page, { rootDir, srcDir: nuxt.options.srcDir, fixturesDir })
+  const learnPages = pages.filter(page => page.layout === "learn")
+  const containerPages = pages.filter(page => page.layout === "playground" && !page.workspace.render)
+  const renderPages = pages.filter(page => page.layout === "playground" && page.workspace.render)
+  const pageLessons = learnPages.map(learnLessonSource)
+  const lessons = [...options.lessons ?? [], ...pageLessons]
+  const examples = [...options.examples ?? [], ...containerPages.flatMap(page => playgroundExampleSources(page, rootDir))]
   const workspaceRoot = options.pnpmWorkspace === undefined ? undefined : resolve(rootDir, options.pnpmWorkspace)
   const versions = workspaceRoot ? await readWorkspaceVersions(workspaceRoot) : noWorkspaceVersions
 
@@ -128,29 +149,46 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   const served = (snapshot: TutorialSnapshot | undefined) => snapshot && { ...snapshot, parts: snapshot.parts.map(part => `${partsBase}${basename(part)}`) }
   const snapshotOf = (slug: string, all: TutorialSnapshots | undefined) => served(all?.[slug])
 
+  const currentTutorials = async () => (nuxt.options.dev ? await build() : tutorials).map(tutorial => ({ ...tutorial, snapshot: snapshotOf(tutorial.slug, snapshots) }))
+  const currentTemplates = async () => (nuxt.options.dev ? await buildTemplates() : templates).map(template => ({ ...template, snapshot: snapshotOf(template.snapshotOf, snapshots) }))
+  const configLessons = new Set((options.lessons ?? []).map(lesson => lesson.slug))
+  const configExamples = new Set((options.examples ?? []).map(example => example.id))
   addTemplate({
     filename: "runnable-tutorials.mjs",
     write: true,
-    // The lesson or the fixture can change in development, so read them again on each write.
-    getContents: async () => {
-      const data = (nuxt.options.dev ? await build() : tutorials).map(tutorial => ({ ...tutorial, snapshot: snapshotOf(tutorial.slug, snapshots) }))
-      return `export const runnableTutorials = ${JSON.stringify(data)}\n`
-    },
+    getContents: async () => `export const runnableTutorials = ${JSON.stringify((await currentTutorials()).filter(tutorial => configLessons.has(tutorial.slug)))}\n`,
   })
   addTemplate({
     filename: "playground-templates.mjs",
     write: true,
-    getContents: async () => {
-      const data = (nuxt.options.dev ? await buildTemplates() : templates).map(template => ({ ...template, snapshot: snapshotOf(template.snapshotOf, snapshots) }))
-      return `export const playgroundTemplates = ${JSON.stringify(data)}\n`
-    },
+    getContents: async () => `export const playgroundTemplates = ${JSON.stringify((await currentTemplates()).filter(template => configExamples.has(template.id)))}\n`,
   })
+
+  const pageModule = async (page: WorkspacePage): Promise<string> => {
+    const port = page.workspace.port ?? 3000
+    if (page.layout === "learn") {
+      const slug = workspacePageSlug(page.path)
+      const tutorial = (await currentTutorials()).find(candidate => candidate.slug === slug)
+      if (!tutorial) throw invariantError(`the lesson of ${page.path} was built`)
+      return workspacePageModule({ layout: "learn", tutorial, guide: page.workspace.guide ?? "side", port, preview: page.workspace.preview })
+    }
+    const tabs = (page.workspace.tabs ?? []).map(tab => ({ ...tab, file: workspaceTabComponent(nuxt.options.srcDir, tab.value) }))
+    if (page.workspace.render) {
+      return workspacePageModule({ layout: "playground", examples: await renderExamples(page, rootDir), port }, { render: resolve(rootDir, page.workspace.render), tabs })
+    }
+    return workspacePageModule({ layout: "playground", examples: pageExamples(page, await currentTemplates()), port }, { tabs })
+  }
+  const pageFile = (page: WorkspacePage) => `docs/workspaces/${workspacePageSlug(page.path)}.mjs`
+  for (const page of [...learnPages, ...containerPages, ...renderPages]) {
+    addTemplate({ filename: pageFile(page), write: true, getContents: () => pageModule(page) })
+  }
+
   addTemplate({
     filename: "learn-facts.mjs",
     write: true,
     getContents: () => {
-      const facts = Object.fromEntries(content.pages().filter(page => page.layout === "tutorial").flatMap((page) => {
-        const markdown = content.read(page.path)
+      const facts = Object.fromEntries(content.pages().filter(page => page.layout === "tutorial" || page.layout === "learn").flatMap((page) => {
+        const markdown = content.read(page.layout === "learn" ? page.workspace?.lesson ?? page.path : page.path)
         return markdown === undefined ? [] : [[page.path, tutorialPageFacts(markdown)]]
       }))
       return `export const learnFacts = ${JSON.stringify(facts)}\n`
@@ -176,4 +214,11 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroConfig) => {
     nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL, dir: assetsDir }]
   }])
+
+  return { workspaces: docsWorkspacesSource(pages) }
+}
+
+/** The source of `#docs/workspaces`: a loader of the page module of each workspace page, by page path. */
+export function docsWorkspacesSource(pages: readonly WorkspacePage[]): string {
+  return `export default {\n${pages.map(page => `  ${JSON.stringify(page.path)}: () => import(${JSON.stringify(`./workspaces/${workspacePageSlug(page.path)}.mjs`)}),`).join("\n")}\n}\n`
 }

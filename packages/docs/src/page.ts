@@ -1,8 +1,8 @@
-import { docsManifestPages, docsPanelOf, docsPanelPages, isDocsPath } from "./navigation.ts"
+import { docsManifestPages, docsPanelOf, docsPanelPages, isDocsPath, isDocsWorkspaceLayout } from "./navigation.ts"
 
 import type { DocsDocument } from "./markdown.ts"
 import type { DocsPageFrontmatter } from "./schema.ts"
-import type { DocsManifest, DocsPage, DocsSection } from "./types.ts"
+import type { DocsManifest, DocsPage, DocsPageWorkspace, DocsSection } from "./types.ts"
 
 export interface DocsPageLink {
   path: string
@@ -42,6 +42,7 @@ export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage
 export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, path: string, file: string }): DocsPage {
   const navigation = frontmatter.navigation === false ? undefined : frontmatter.navigation
   const layout = frontmatter.layout ?? "article"
+  const workspace = isDocsWorkspaceLayout(layout)
   return {
     id: at.id,
     path: at.path || "/",
@@ -58,8 +59,9 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(frontmatter.tutorial ? { tutorial: frontmatter.tutorial } : {}),
     ...(frontmatter.codePanel ? { codePanel: true } : {}),
     ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
-    sidebar: frontmatter.sidebar ?? true,
-    toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home"),
+    ...(workspace ? { workspace: workspaceOf(frontmatter) } : {}),
+    sidebar: frontmatter.sidebar ?? (workspace ? "collapsed" : true),
+    toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home" && !workspace),
     kind: navigation?.kind ?? null,
     group: navigation?.group ?? null,
     navigation: frontmatter.navigation !== false,
@@ -67,6 +69,11 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(navigation?.panel && at.id !== "index" && at.file.endsWith("/index.md") ? { panel: true as const } : {}),
     order: navigation?.order ?? Number.MAX_SAFE_INTEGER,
   }
+}
+
+function workspaceOf(frontmatter: DocsPageFrontmatter): DocsPageWorkspace {
+  const { examples, tabs, render, port, fixture, guide, lesson, preview } = frontmatter
+  return { examples, tabs, render, port, fixture, guide, lesson, preview }
 }
 
 /**

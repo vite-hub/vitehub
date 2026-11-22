@@ -14,13 +14,18 @@ export interface PlaygroundTemplateSource {
   /** The `?template=` value and the id in share links. */
   id: string
   label: string
-  description: string
-  /** The folder in the fixtures folder, so an example and a lesson can share one copy of the code. */
+  description?: string
+  /** The heading of the example in the examples menu. */
+  group?: string
+  /**
+   * The folder in the fixtures folder, so an example and a lesson can share one copy of the code. An absolute path,
+   * such as the `dir` of a `layout: playground` example, works too.
+   */
   fixture: string
   /** The file that the editor opens first. */
-  open: string
+  open?: string
   /** The path that the preview opens when the dev server is ready. */
-  preview: string
+  preview?: string
 }
 
 /**
@@ -28,7 +33,8 @@ export interface PlaygroundTemplateSource {
  *
  * A snapshot holds the `dependencies` of a fixture. An example whose fixture has the same dependencies as the fixture
  * of a lesson names that lesson in `snapshotOf`, so the playground mounts the same snapshot and the browser keeps one
- * copy. Any other example names `playground-<id>`, and `snapshotSources` adds a snapshot for it.
+ * copy. Any other example names `playground-<id>` of the first example with its dependencies, and `snapshotSources`
+ * adds a snapshot for it.
  */
 export async function buildPlaygroundTemplates(input: {
   fixturesDir: string
@@ -38,13 +44,18 @@ export async function buildPlaygroundTemplates(input: {
 }): Promise<Omit<PlaygroundTemplate, "snapshot">[]> {
   const manifest = (fixture: string) => readFile(resolve(input.fixturesDir, fixture, "package.json"), "utf8").catch(() => undefined)
   const tutorialKeys = await Promise.all(input.tutorials.map(async tutorial => ({ slug: tutorial.slug, key: dependencyKey(await manifest(tutorial.fixture)) })))
-  return Promise.all(input.examples.map(async (source) => {
-    const key = dependencyKey(await manifest(source.fixture))
+  const read = await Promise.all(input.examples.map(async (source) => {
     const files = await readTree(resolve(input.fixturesDir, source.fixture))
     if (files["package.json"]) files["package.json"] = resolveManifest(files["package.json"], input.versions)
-    const snapshotOf = tutorialKeys.find(tutorial => tutorial.key === key)?.slug ?? `playground-${source.id}`
-    return { id: source.id, label: source.label, description: source.description, open: source.open, preview: source.preview, files, snapshotOf }
+    return { source, files, key: dependencyKey(await manifest(source.fixture)) }
   }))
+  const shared = new Map(tutorialKeys.toReversed().map(tutorial => [tutorial.key, tutorial.slug]))
+  return read.map(({ source, files, key }) => {
+    const snapshotOf = shared.get(key) ?? `playground-${source.id}`
+    shared.set(key, snapshotOf)
+    const { id, label, description, group, open, preview } = source
+    return { id, label, description, group, open, preview, files, snapshotOf }
+  })
 }
 
 /** The lessons, and a source for each example that shares no snapshot with a lesson. */

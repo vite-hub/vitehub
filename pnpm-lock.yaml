@@ -2427,6 +2427,9 @@ importers:
       nuxt:
         specifier: catalog:nuxt
         version: nuxt-nightly@5.0.0-2611052317-a04317f(588955649d2a62f37ec36d9f6b5e5e0a)
+      playwright-core:
+        specifier: catalog:browser
+        version: 1.63.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -2484,6 +2487,12 @@ importers:
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../../shell
+      '@vite-hub/ui':
+        specifier: workspace:*
+        version: link:../../ui
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../../web-container
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../../workflow
