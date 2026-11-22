@@ -326,11 +326,11 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 `createKVScheduleRunStore.createRun`, `createKVScheduleRunStore.createAttempt`, `createKVScheduleRunStore.readSnapshot`, `createKVScheduleRunStore.listAttempts` in `packages/schedule/src/runtime/store.ts`.
 
-**Context:** KV key order is not a contract, so history needs the `schedule-run-index` and `schedule-run-attempt-index` keys to sort, filter, and limit runs without reading every record. Until #5153 the index was best effort: a failed index write was ignored, and every listing read and backfilled the unindexed records, up to 1,000, then failed with SCHEDULE_HISTORY_INCOMPLETE. The index exists since 2026-10-02, and ViteHub is 0.x.
+**Context:** KV key order is not a contract, so history needs metadata to sort, filter, and limit runs without loading every full record. The old index was best effort: a failed index write could leave history and restart recovery with an unindexed record. Putting metadata in index keys also made the keys too long for fs-lite even when the records fit.
 
-**Decision:** The index is required. createRun and createAttempt write the index key before the record, so a failed index write fails the call and leaves no record. listRuns and listAttempts read only indexed records, and skip an index key whose record is missing. There is no fallback scan.
+**Decision:** Each record has one required index key, shorter than its record key. The index value holds the sort and filter metadata. Creates write the index first; a failed index write leaves no record, and retrying the ID replaces any orphaned metadata. The first listing after upgrade builds missing indexes from retained records and marks the upgrade complete only after it succeeds.
 
-**Consequences:** A KV store must accept the index keys. A run or attempt written before 2026-10-02 that no listing has backfilled since does not show in the history; getRun and getAttempt still read it. A crash between the two writes leaves an index key without a record, which listings skip.
+**Consequences:** Later listings read compact index values in batches and fetch only selected record payloads. They skip index entries without records. A failed upgrade rejects the listing and can be retried rather than silently dropping history or stopped attempts from restart recovery.
 
 ## Registry invalidation covers Nitro's environment graph
 

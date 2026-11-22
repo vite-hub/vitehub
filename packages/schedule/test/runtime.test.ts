@@ -665,6 +665,10 @@ describe("Manual Schedule runs", () => {
 })
 
 describe("KV Schedule Run Store", () => {
+  function payloadReads(get: { mock: { calls: [string][] } }) {
+    return get.mock.calls.filter(([key]) => /[/:]schedule-run(?:s|-attempts)[/:]/.test(key))
+  }
+
   it("reads only attempts for the requested run and sees another store's writes", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
@@ -675,15 +679,15 @@ describe("KV Schedule Run Store", () => {
     }
     const get = vi.spyOn(kvStore, "get")
     expect((await store.listAttempts("target/run%")).map(attempt => attempt.id)).toEqual(["opaque/attempt%_0", "opaque/attempt%_1"])
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(payloadReads(get)).toHaveLength(2)
     await createKVScheduleRunStore({ kvStore }).createAttempt({ id: "external/attempt%", runId: "target/run%",
       createdAt, startedAt: createdAt, updatedAt: createdAt, status: "running" })
     get.mockClear()
     expect(await store.listAttempts("target/run%")).toHaveLength(3)
-    expect(get).toHaveBeenCalledTimes(3)
+    expect(payloadReads(get)).toHaveLength(3)
     get.mockClear()
     expect(await store.listAttempts("target/run")).toEqual([])
-    expect(get).not.toHaveBeenCalled()
+    expect(payloadReads(get)).toHaveLength(0)
   })
 
   it("fails a create and writes no record when its index write fails", async () => {
@@ -702,7 +706,7 @@ describe("KV Schedule Run Store", () => {
     expect(await kvStore.keys()).toEqual([])
   })
 
-  it("limits provider reads to the newest matching indexed run keys", async () => {
+  it("limits payload reads to the newest matching indexed run keys", async () => {
     const kvStore = createTestKVStore()
     const store = createKVScheduleRunStore({ kvStore })
     for (let index = 0; index < 100; index++) {
@@ -718,7 +722,7 @@ describe("KV Schedule Run Store", () => {
     const get = vi.spyOn(kvStore, "get")
     const runs = await store.listRuns({ scheduleId: "digest_with_underscore", limit: 10 })
     expect(runs).toHaveLength(10)
-    expect(get).toHaveBeenCalledTimes(10)
+    expect(payloadReads(get)).toHaveLength(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
   })
@@ -741,16 +745,16 @@ describe("KV Schedule Run Store", () => {
       scheduleRunStore: reopened,
     })
     await controller.close()
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     get.mockClear()
     const query = { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 }
     expect((await reopened.listRuns(query)).map(run => run.id)).toEqual(["srun_static_opaque/%_1000"])
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     get.mockClear()
     expect(await reopened.listRunsBatch!([query, { ...query, idPrefix: "absent_" }])).toEqual([
       [expect.objectContaining({ scheduledAt: new Date("2026-01-01T16:40:00.000Z") })], [],
     ])
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
   })
 
   it.each(["memory", "kv"])("filters run ID prefixes before applying limits in the %s store", async (kind) => {
@@ -784,7 +788,7 @@ describe("KV Schedule Run Store", () => {
 
     const [latest] = await store.listRuns({ scheduleId: "reconcile", limit: 1 })
     expect(latest?.scheduledAt.toISOString()).toBe("2026-01-01T16:40:00.000Z")
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(1)
     expect((await store.listAttempts("srun_static_reconcile_2026-01-01T16:40:00.000Z")).map(attempt => attempt.id)).toEqual(["attempt/1"])
   })
 
@@ -794,7 +798,7 @@ describe("KV Schedule Run Store", () => {
     const scheduledAt = new Date("2026-05-23T09:00:00.000Z")
     await store.createRun({ id: "run-1", scheduleId: "actual", target: "report", scheduledAt,
       createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
-    await kvStore.set(`vitehub:schedule/schedule-run-index-other/run-1/other/${scheduledAt.toISOString()}`, true)
+    await kvStore.set("vitehub:schedule/run-index-other/run-1", { scheduleId: "other", scheduledAt: scheduledAt.getTime() })
 
     expect(await store.listRuns({ scheduleId: "other" })).toEqual([])
     expect((await store.listRuns({ scheduleId: "actual" })).map(run => run.id)).toEqual(["run-1"])
@@ -807,11 +811,12 @@ describe("KV Schedule Run Store", () => {
       await store.createRun({ id: `srun_static_${scheduleId}`, scheduleId, target: "report", scheduledAt,
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
     }
+    await store.listRuns({ limit: 0 })
     const decode = vi.spyOn(globalThis, "decodeURIComponent")
     try {
       const results = await store.listRunsBatch!(["alpha", "beta", "gamma"].map(scheduleId => ({ scheduleId, limit: 1 })))
       expect(results.map(runs => runs[0]?.scheduleId)).toEqual(["alpha", "beta", "gamma"])
-      expect(decode).toHaveBeenCalledTimes(12)
+      expect(decode).toHaveBeenCalledTimes(3)
     }
     finally {
       decode.mockRestore()
@@ -843,7 +848,7 @@ describe("KV Schedule Run Store", () => {
       expect(results[5]).toHaveLength(3)
       expect(results[5]?.every(run => run.scheduledAt.getUTCMinutes() === 7)).toBe(true)
       expect(results.slice(6).map(runs => runs.length)).toEqual([32, 8, 16, 0])
-      expect(get).toHaveBeenCalledTimes(32)
+      expect(payloadReads(get)).toHaveLength(32)
       expect(clone.mock.calls.length).toBeLessThanOrEqual(32 + results.flat().length)
       results[0]![0]!.error!.message = "changed"
       results[0]![0]!.scheduledAt.setUTCFullYear(2000)
@@ -851,7 +856,7 @@ describe("KV Schedule Run Store", () => {
       expect(results[4]?.[0]?.scheduledAt.getUTCFullYear()).toBe(2026)
       get.mockClear()
       expect((await store.listRunsBatch!([{ scheduleId: "alpha", limit: 1 }]))[0]?.[0]?.id).toBe("srun_static_alpha_opaque%_7")
-      expect(get).toHaveBeenCalledTimes(1)
+      expect(payloadReads(get)).toHaveLength(1)
     }
     finally {
       clone.mockRestore()
@@ -868,18 +873,19 @@ describe("KV Schedule Run Store", () => {
           createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
       }
     }
+    await store.listRuns({ limit: 0 })
     const keys = vi.spyOn(kvStore, "keys")
     const get = vi.spyOn(kvStore, "get")
     const queries = ["alpha", "beta"].map(scheduleId => ({ scheduleId, limit: 1 }))
     const results = await store.listRunsBatch!(queries)
     expect(results.map(runs => runs[0]?.id)).toEqual(["opaque%_alpha_19", "opaque%_beta_19"])
-    expect(keys).toHaveBeenCalledTimes(2)
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(keys).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(2)
     keys.mockClear()
     get.mockClear()
     await store.listRunsBatch!(queries)
-    expect(keys).toHaveBeenCalledTimes(2)
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(keys).toHaveBeenCalledTimes(1)
+    expect(payloadReads(get)).toHaveLength(2)
     const scheduledAt = new Date("2026-02-01T00:00:00Z")
     await createKVScheduleRunStore({ kvStore }).createRun({ id: "external_newest", scheduleId: "alpha", target: "report", scheduledAt,
       createdAt: scheduledAt, updatedAt: scheduledAt, status: "pending", attemptCount: 0 })
@@ -947,7 +953,7 @@ describe("KV Schedule Run Store", () => {
     const originalSet = kvStore.set.bind(kvStore)
     const set = vi.spyOn(kvStore, "set")
     set.mockImplementation(async (key, value) => {
-      if (key.includes("/schedule-run-index/")) {
+      if (key.includes("/run-index/")) {
         if (published) await originalSet(key, value)
         throw new Error("index unavailable")
       }
@@ -966,8 +972,42 @@ describe("KV Schedule Run Store", () => {
     expect(await store.getRun(failed.id)).toBeUndefined()
     expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([run])
     set.mockRestore()
-    await store.createRun(failed)
-    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([failed])
+    await store.createRun({ ...failed, scheduledAt: new Date("2026-05-22T09:00:00.000Z") })
+    expect(await store.listRuns({ scheduleId: "actual", limit: 1 })).toEqual([run])
+  })
+
+  it("replaces the parent index when a failed attempt ID is reused", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const originalSet = kvStore.set.bind(kvStore)
+    const set = vi.spyOn(kvStore, "set").mockImplementation(async (key, value) => {
+      if (key.includes("/schedule-run-attempts/")) throw new Error("record unavailable")
+      await originalSet(key, value)
+    })
+    const at = new Date("2026-05-23T09:00:00Z")
+    const attempt = { id: "retry", runId: "run-1", createdAt: at, startedAt: at, updatedAt: at, status: "running" } as const
+    await expect(store.createAttempt(attempt)).rejects.toThrow("record unavailable")
+    set.mockRestore()
+    await store.createAttempt({ ...attempt, runId: "run-2" })
+    expect(await store.listAttempts("run-1")).toEqual([])
+    expect(await store.listAttempts("run-2")).toEqual([expect.objectContaining({ id: attempt.id })])
+  })
+
+  it("retries a failed legacy upgrade and does not rescan after success", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    const at = "2026-07-11T09:00:00.000Z"
+    await kvStore.set("vitehub:schedule/schedule-runs/legacy", {
+      id: "legacy", scheduleId: "daily", target: "daily", scheduledAt: at,
+      createdAt: at, updatedAt: at, status: "running", attemptCount: 1,
+    })
+    const set = vi.spyOn(kvStore, "set").mockRejectedValueOnce(new Error("index unavailable"))
+    await expect(store.listRuns()).rejects.toThrow("index unavailable")
+    expect(await kvStore.has("vitehub:schedule/indexes-v2")).toBe(false)
+    expect(await store.listRuns()).toEqual([expect.objectContaining({ id: "legacy" })])
+    set.mockClear()
+    expect(await createKVScheduleRunStore({ kvStore }).listRuns()).toHaveLength(1)
+    expect(set).not.toHaveBeenCalled()
   })
 
   it("matches the ScheduleRunStore run and attempt contract and round-trips dates and errors", async () => {

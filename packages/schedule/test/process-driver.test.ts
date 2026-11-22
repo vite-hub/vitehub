@@ -1,14 +1,18 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createHostedKVStorage } from "../../kv/src/runtime/hosted-storage.ts"
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
 import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { readScheduleConsoleRecords } from "../src/runtime/console.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
-import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
+import { createKVScheduleRunStore, createMemoryScheduleRunStore, joinKey } from "../src/runtime/store.ts"
 
 import type { ProcessScheduleEntry, ProcessWakeContext, ProcessWakeDriver, ProcessWakeDriverOptions } from "../src/internal/process-wake-runtime.ts"
 import type { ScheduleDefinition } from "../src/types.ts"
@@ -33,6 +37,75 @@ afterEach(() => {
 })
 
 describe("Process Schedule Runtime", () => {
+  it("runs and records attempts for a long Schedule name on fs-lite", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-schedule-"))
+    const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+    const scheduleRunStore = createKVScheduleRunStore({ kvStore: {
+      delete: key => storage.removeItem(key),
+      get: key => storage.getItem(key),
+      has: key => storage.hasItem(key),
+      keys: key => storage.getKeys(key),
+      set: (key, value) => storage.setItem(key, value),
+    } })
+    const name = "a".repeat(154)
+    const handler = vi.fn()
+    try {
+      const controller = await installProcessScheduleRuntime({
+        now: () => new Date("2026-07-11T09:00:20.000Z"),
+        registry: { [name]: async () => ({ cron: "0 9 * * *", handler }) },
+        scheduleRunStore,
+      })
+      try {
+        await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+      }
+      finally {
+        await controller.close()
+      }
+      const [run] = await scheduleRunStore.listRuns({ scheduleId: name })
+      expect(run?.status).toBe("succeeded")
+      expect(await scheduleRunStore.listAttempts(run!.id)).toHaveLength(1)
+    }
+    finally {
+      await storage.dispose()
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+
+  it("recovers a retained run and attempt without legacy indexes", async () => {
+    const data = new Map<string, unknown>()
+    const scheduleRunStore = createKVScheduleRunStore({ kvStore: {
+      delete: key => data.delete(key),
+      get: <T,>(key: string) => data.get(key) as T | undefined,
+      has: key => data.has(key),
+      keys: (base = "") => [...data.keys()].filter(key => key.startsWith(base)),
+      set: (key, value) => { data.set(key, value) },
+    } })
+    const at = "2026-07-11T09:00:00.000Z"
+    const runId = `srun_static_daily_${at}`
+    data.set(joinKey("vitehub:schedule", "schedule-runs", runId), {
+      id: runId, scheduleId: "daily", target: "daily", scheduledAt: at,
+      createdAt: at, updatedAt: at, startedAt: at, status: "running", attemptCount: 1,
+    })
+    data.set(joinKey("vitehub:schedule", "schedule-run-attempts", "interrupted"), {
+      id: "interrupted", runId, createdAt: at, updatedAt: at, startedAt: at, status: "running",
+    })
+    const handler = vi.fn()
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 120_000,
+      now: () => new Date("2026-07-11T09:01:20.000Z"),
+      registry: { daily: async () => ({ cron: "0 9 * * *", handler }) },
+      scheduleRunStore,
+    })
+    try {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    }
+    finally {
+      await controller.close()
+    }
+    expect(await scheduleRunStore.getAttempt("interrupted")).toMatchObject({ status: "failed" })
+    expect(await scheduleRunStore.getRun(runId)).toMatchObject({ status: "succeeded" })
+  })
+
   it("runs a due Static Schedule and records the run", async () => {
     vi.useFakeTimers()
     const now = new Date("2026-07-11T09:00:20.000Z")

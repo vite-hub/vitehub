@@ -13,5 +13,5 @@ export function checkQueueHandlerResponse(value: unknown): void {
 
 function discardUnreadBody(body: ReadableStream | null): void {
   if (!body || body.locked) return
-  body.cancel().catch((error: unknown) => console.debug("[vitehub:queue] The Queue handler response body could not be cancelled.", error))
+  body.cancel().catch(() => console.debug("[vitehub:queue] The Queue handler response body could not be cancelled."))
 }
