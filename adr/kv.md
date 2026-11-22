@@ -222,6 +222,26 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Consequences:** Concurrent opens corrupt or lose the layout.
 
+## fs-lite converts a plain unstorage fs-lite folder when it opens a store
+
+`migrateKeys` in `packages/kv/src/runtime/fs-lite.ts`.
+
+**Context:** The `nuxthub` codemod tells users to copy NuxtHub's `.data/kv` into `.vitehub/data/kv` or `.vitehub/data/kv-cloudflare/<binding>` with `cp -R`. That folder uses the plain unstorage fs-lite layout, where `a:b` is the file `a/b`, as ViteHub did before `key-` file names. `nuxthub-contracts.test.ts` covers the copy. Legacy files can have any name and content, but they cannot create hard links.
+
+**Decision:** On the first open, move the root's files and folders into the layout workspace, then link each one to its `key-` name. Find the layout record only when it is a hard link to the marker inside its workspace.
+
+**Consequences:** Without the conversion, copied NuxtHub keys are unreadable. If the record were found by name only, a legacy key file with the record's name could take over the layout. The conversion and the identity check can go once the codemod writes `key-` files itself.
+
+## fs-lite reads throw the errors that unstorage returns as values
+
+`driver.getItem`, `driver.getItemRaw` in `packages/kv/src/runtime/fs-lite.ts`.
+
+**Context:** unstorage's node-fs `readFile` with `ignoreNotfound` returns every error other than ENOENT and EISDIR instead of throwing it, so the unstorage fs-lite driver resolves an EACCES or EIO as the value. This is still the case in unstorage 2.0.0-beta.0 and on unjs/unstorage main.
+
+**Decision:** Throw a value that is an `Error`.
+
+**Consequences:** Without the check, a read error is stored in the cache or returned to the app as a value. Remove it when unstorage throws these errors.
+
 ## fs-lite operations serialize under the layout lock
 
 `synchronized`, `writeExpiry`, `live`, `method wrappers` in `packages/kv/src/runtime/fs-lite.ts`.
@@ -261,6 +281,16 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Mirror its rules.
 
 **Consequences:** get() after setIfAbsent returns another shape; deleteIfEquals never matches.
+
+## KV's build marks unstorage drivers as side-effect free
+
+`pack treeshake.moduleSideEffects` in `packages/kv/vite.config.ts`.
+
+**Context:** unstorage's root declarations import the options of every driver (unjs/unstorage#721), so a KV declaration file pulls in the optional SDK types of drivers KV does not use.
+
+**Decision:** Return `false` for `unstorage/drivers/*` and leave every other module's `sideEffects` metadata alone.
+
+**Consequences:** Without it, KV's declarations reference optional SDK types that do not resolve in an app without those SDKs. When unstorage ships the fix, bump the catalog, delete the override, and check that the built `.d.ts` files name no optional SDK types.
 
 ## Base64 chunks are multiples of 3 bytes
 
