@@ -193,7 +193,7 @@ const packageWorkspaces = Object.fromEntries(
 const config: KnipConfiguration = {
   include: ["files", "dependencies", "unlisted", "unresolved", "binaries", "catalog"],
   exclude: ["optionalPeerDependencies"],
-  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
+  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**", "packages/docs/playground/examples/**", "packages/docs/playground/fixtures/**"],
   compilers: {
     css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
       .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
@@ -256,6 +256,7 @@ const config: KnipConfiguration = {
         ...appEntries("packages/docs/playground"),
         "app/components/**/*.vue",
         "app/utils/*.ts",
+        "app/playground/*.ts",
         "scripts/*.mjs",
         "illustrations/*.mjs",
         ".claude/skills/illustration-isometric-mono/scripts/*.mjs",

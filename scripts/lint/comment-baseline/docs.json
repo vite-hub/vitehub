@@ -85,7 +85,7 @@
   "docs/app/utils/highlight.ts": 4,
   "docs/app/utils/host-config.ts": 17,
   "docs/app/utils/learn-catalog.ts": 10,
-  "docs/app/utils/runnable-tutorial.ts": 5,
+  "docs/app/utils/runnable-tutorial.ts": 2,
   "docs/app/utils/tutorial-actions.ts": 5,
   "docs/evals/agent-docs/run.mjs": 7,
   "docs/modules/diagnostics/catalog.ts": 28,
