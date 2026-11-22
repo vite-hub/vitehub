@@ -24,22 +24,23 @@ export async function parseShell(text: string, options?: ShOptions): Promise<Fil
 
 async function loadParser(): Promise<ShellParser> {
   const shSyntax: Partial<typeof import("sh-syntax")> & Pick<typeof import("sh-syntax"), "getProcessor"> = await import("sh-syntax")
-  const wasm = await bundledWasmModule()
+  const { importError, module: wasm } = await bundledWasmModule()
   if (!wasm) {
-    if (!shSyntax.parse) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE()
+    if (!shSyntax.parse) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE({ cause: importError })
     return shSyntax.parse
   }
   const processor = shSyntax.getProcessor((imports: Record<string, unknown>) => WebAssembly.instantiate(wasm, imports))
   return (text, options) => processor(text, options)
 }
 
-async function bundledWasmModule(): Promise<object | undefined> {
+async function bundledWasmModule(): Promise<{ importError?: unknown, module?: object }> {
+  let wasm: unknown
   try {
-    const wasm = await (await import("sh-syntax/main.wasm?module")).default
-    if (wasm instanceof Uint8Array) return await WebAssembly.compile(wasm)
-    return wasm instanceof WebAssembly.Module ? wasm : undefined
+    wasm = await (await import("sh-syntax/main.wasm?module")).default
   }
-  catch {
-    return undefined
+  catch (importError) {
+    return { importError }
   }
+  if (wasm instanceof Uint8Array) return { module: await WebAssembly.compile(wasm) }
+  return { module: wasm instanceof WebAssembly.Module ? wasm : undefined }
 }

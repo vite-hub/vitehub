@@ -9,15 +9,15 @@ vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
 const fake = vi.hoisted(() => {
   const state = {
-    disk: new Map<string, string>(),
+    disk: new Map<string, string | Uint8Array>(),
     directories: new Set<string>(),
     autoReady: true,
     failNext: false,
     ready: undefined as ((url: string) => void) | undefined,
     serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
-    exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void }[],
+    exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void, reject: (error: Error) => void }[],
     output: [] as ReadableStreamDefaultController<string>[],
-    mountFiles: undefined as Record<string, string> | undefined,
+    mountFiles: undefined as Record<string, string | Uint8Array> | undefined,
     releaseBoot: undefined as (() => void) | undefined,
     statusListener: undefined as ((status: WebContainerStatus) => void) | undefined,
   };
@@ -26,7 +26,7 @@ const fake = vi.hoisted(() => {
 
 vi.mock("../src/index.ts", () => ({
   checkWebContainerSupport: () => ({ supported: true }),
-  async bootWebContainer(options: { files: Record<string, string>, onStatus: (status: WebContainerStatus) => void }) {
+  async bootWebContainer(options: { files: Record<string, string | Uint8Array>, onStatus: (status: WebContainerStatus) => void }) {
     fake.statusListener = options.onStatus;
     fake.mountFiles = { ...options.files };
     for (const [path, contents] of Object.entries(options.files)) {
@@ -68,8 +68,9 @@ vi.mock("../src/index.ts", () => ({
       async run(command: unknown, options: { env?: Record<string, string> } = {}) {
         if (fake.failNext) { fake.failNext = false; throw new Error("spawn failed"); }
         let resolve: (code: number) => void = () => {};
-        const exit = new Promise<number>((done) => { resolve = done; });
-        fake.exits.push({ command, env: options.env, resolve });
+        let reject: (error: Error) => void = () => {};
+        const exit = new Promise<number>((done, fail) => { resolve = done; reject = fail; });
+        fake.exits.push({ command, env: options.env, resolve, reject });
         if (command !== "install" && fake.autoReady) fake.ready?.("https://preview.example");
         return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { fake.output.push(controller); controller.enqueue(`$ ${String(command)}\n`); } }) };
       },
@@ -135,6 +136,42 @@ describe("useWebContainer", () => {
     wrapper.unmount();
   });
 
+  it("mounts the assets next to the files, and keeps them out of files and edits", async () => {
+    const weights = new Uint8Array([0, 1, 254, 255]);
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a" }, assets: { "model/weights.bin": weights } });
+    await flushPromises();
+    expect(fake.mountFiles).toEqual({ "a.txt": "a", "model/weights.bin": weights });
+    expect(fake.mountFiles?.["model/weights.bin"]).toBe(weights);
+    expect(workspace.files.value).toEqual({ "a.txt": "a" });
+
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ "b.txt": "b" }, { mode: "replace" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ "b.txt": "b", "model/weights.bin": weights });
+    expect(workspace.modified.value).toEqual(["a.txt", "b.txt"]);
+    wrapper.unmount();
+  });
+
+  it("keeps asset paths out of the text files, at boot, in edits, and through Reset", async () => {
+    const weights = new Uint8Array([0, 1, 254, 255]);
+    const assets = { "weights.bin": weights, "model/data.bin": weights };
+    const { workspace, wrapper } = mountWorkspace({ files: { "a.txt": "a", "weights.bin": "shadow", "model": "file" }, assets });
+    await flushPromises();
+    expect(fake.mountFiles).toEqual({ "a.txt": "a", ...assets });
+    expect(workspace.files.value).toEqual({ "a.txt": "a" });
+
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ "weights.bin": "text", "model/data.bin/x.txt": "x", "b.txt": "b" });
+    expect(workspace.files.value).toEqual({ "a.txt": "a", "b.txt": "b" });
+    expect(fake.disk.get("weights.bin")).toBe(weights);
+    expect(fake.disk.get("model/data.bin")).toBe(weights);
+
+    await workspace.reset();
+    expect(Object.fromEntries(fake.disk)).toEqual({ "a.txt": "a", ...assets });
+    wrapper.unmount();
+  });
+
   it("reports an install failure with its exit code, and retries the install", async () => {
     const { workspace, wrapper } = mountWorkspace({ env: () => ({ OPENAI_API_KEY: "sk-test" }), files: { "a.txt": "a" } });
     await flushPromises();
@@ -154,6 +191,35 @@ describe("useWebContainer", () => {
     expect(fake.exits[2]?.env).toEqual({ OPENAI_API_KEY: "sk-test" });
     expect(workspace.previewUrl.value).toBe("https://preview.example");
     wrapper.unmount();
+  });
+
+  it("reports a dev server whose exit rejects, and leaves no unhandled rejection after unmount", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const running = mountWorkspace({ files: {}, install: false });
+      await flushPromises();
+      fake.releaseBoot?.();
+      await flushPromises();
+      fake.exits[0]?.reject(new Error("Process aborted"));
+      await flushPromises();
+      expect(running.workspace.failure.value).toMatchObject({ kind: "server", error: new Error("Process aborted") });
+      running.wrapper.unmount();
+
+      const torn = mountWorkspace({ files: {}, install: false });
+      await flushPromises();
+      fake.releaseBoot?.();
+      await flushPromises();
+      torn.wrapper.unmount();
+      fake.exits[1]?.reject(new Error("Process aborted"));
+      await flushPromises();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(torn.workspace.failure.value).toBeUndefined();
+      expect(unhandled).not.toHaveBeenCalled();
+    }
+    finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   it("reports a stopped dev server and restarts it", async () => {

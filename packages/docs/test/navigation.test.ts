@@ -266,6 +266,10 @@ describe("docs home links", () => {
     expect(docsStartPage(withIntro, "")).toBeNull()
   })
 
+  it("skips a start link to a playground or a lesson, so the start section opens its own page", () => {
+    expect(docsStartPage(vitehub, { section: "getting-started", links: [{ to: "/learn/first-agent" }, { to: "/playground" }] })).toBeNull()
+  })
+
   it("opens the first listed page of a section without an Overview", () => {
     expect(docsSectionHome(section("kv"))).toBe("/docs/kv")
     const guides = small.sections.find(candidate => candidate.id === "guides")

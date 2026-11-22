@@ -151,9 +151,11 @@ async function localSocket(
       cleanup()
       try {
         socket.close()
+        reject(browserProviderError("cdp", "connect to the browser"))
       }
-      catch {}
-      reject(browserProviderError("cdp", "connect to the browser"))
+      catch (cause) {
+        reject(browserProviderError("cdp", "connect to the browser", { cause }))
+      }
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })

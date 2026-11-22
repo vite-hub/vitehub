@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { learnFacts } from "#build/learn-facts.mjs";
-import { playgroundTemplates } from "#build/playground-templates.mjs";
-import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import { buildLearnCatalog, filterQuickstarts, learnMeta } from "~/utils/learn-catalog";
+
+import type { DocsPageResponse } from "@vite-hub/docs";
 
 // Get started lists this page, so it opens in the docs layout with the sidebar.
 definePageMeta({ layout: "docs" });
@@ -11,9 +11,17 @@ const title = "Learn ViteHub";
 const description = "Build your first ViteHub app in the browser, then add one primitive at a time to your own app.";
 useSeoMeta({ title, ogTitle: title, description, ogDescription: description });
 
-const catalog = buildLearnCatalog({ sections: useDocsManifest().sections, runnable: runnableTutorials, facts: learnFacts });
+const manifest = useDocsManifest();
+const workspacePages = manifest.pages.filter(page => page.layout === "learn" || page.layout === "playground").sort((a, b) => a.order - b.order);
+const { data: workspaces } = await useAsyncData("learn:workspaces", () => Promise.all(workspacePages.map(page => $fetch<DocsPageResponse>(`/api/_docs/page${page.path}.json`))));
+const pages = (workspaces.value ?? []).map(response => response.page);
+const lessons = pages.flatMap(page => page.layout === "learn" ? [{ path: page.path, lesson: page.workspace?.lesson ?? page.path }] : []);
+const playground = pages.find(page => page.layout === "playground");
+const examples = playground?.workspace?.examples ?? [];
+const exampleLink = (id: string) => playground && `${playground.path}?example=${encodeURIComponent(id)}`;
+
+const catalog = buildLearnCatalog({ sections: manifest.sections, runnable: lessons, facts: learnFacts });
 const first = catalog.browser[0];
-const templates = playgroundTemplates.map(template => ({ id: template.id, label: template.label, description: template.description }));
 
 const search = ref("");
 const quickstarts = computed(() => filterQuickstarts(catalog.quickstarts, search.value));
@@ -95,20 +103,20 @@ const quickstartCount = computed(() => quickstarts.value.reduce((count, group) =
       </div>
     </section>
 
-    <!-- Playground templates: one primitive each, running at once. -->
-    <section class="vh-learn-section" aria-labelledby="learn-playground">
+    <!-- Playground examples: one primitive each, running at once. -->
+    <section v-if="examples.length" class="vh-learn-section" aria-labelledby="learn-playground">
       <header class="vh-learn-section-header">
         <h2 id="learn-playground" class="vh-learn-h2">Try a primitive in the playground</h2>
         <p class="vh-learn-lead">Open a small app that uses one primitive, change the code, and see the result. No lesson, no setup.</p>
       </header>
       <UPageGrid as="ul">
         <UPageCard
-          v-for="template in templates"
-          :key="template.id"
+          v-for="example in examples"
+          :key="example.id"
           as="li"
-          :to="template.id === templates[0]?.id ? '/playground' : `/playground?template=${template.id}`"
-          :title="template.label"
-          :description="template.description"
+          :to="exampleLink(example.id)"
+          :title="example.label"
+          :description="example.description"
         />
       </UPageGrid>
     </section>
