@@ -258,9 +258,9 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** Live processes could write state after the rollback.
 
-**Decision:** Stop processes, roll back initialized state, then release the lease. When initialization fails, `destroyFailedSession` tries cleanup three times, 250 ms apart. If all three fail, `open()` throws an `AggregateError` with the initialization error and the last cleanup error, and an unref'ed timer continues retrying cleanup until it succeeds.
+**Decision:** Order: destroy, then rollback, then release the lease.
 
-**Consequences:** A later open can acquire the lease after a transient cleanup failure clears. Failed rollback keeps the lease; once rollback succeeds, release retries do not repeat it. The retry timer does not keep the host process alive.
+**Consequences:** State corruption from processes that outlive the rollback.
 
 ## Spawn fence with no await before launch
 
@@ -398,56 +398,6 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Context:** return() waits for a pending next().
 
-**Decision:** Call abort.abort() first. return() may then reject with the abort error; only that error is ignored. Any other failure rejects `cancel()`, or errors the open streams when the pump stops.
+**Decision:** Call abort.abort() first.
 
 **Consequences:** Stop hangs.
-
-## Cloudflare readiness and transient failures are read from the error message
-
-`canRetryCloudflareRequest` (`notStartedMessage`, `transientMessage`) in `packages/sandbox/src/internal/cloudflare-failure.ts`.
-
-**Context:** A Container that is still starting, a lost Workers RPC connection, and a Durable Object reset all reach the Worker as plain errors. Cloudflare Containers and the Durable Object runtime give no status code or flag for "not ready yet", and `@cloudflare/sandbox` over Workers RPC gives none for "safe to retry". Only the message tells them apart.
-
-**Decision:** Match the known messages with two regexes and use them only for the retry policy in "Cloudflare retry policy".
-
-**Consequences:** A changed Cloudflare message turns a retryable failure into a hard failure, never the other way round. Remove the regexes when Cloudflare exposes a typed not-ready flag (Containers / Durable Objects) and a retryable flag on Sandbox SDK errors; both need an upstream report.
-
-## The Vercel plan timeout limit is read from the error message
-
-`vercelTimeoutLimit` in `packages/sandbox/src/task/runtime/providers/vercel.ts`.
-
-**Context:** When a Sandbox Task asks for a timeout above the plan maximum, the Vercel Sandbox API answers with a plain 400 and no error code. The limit is only in the message ("`timeout` restricted to ...").
-
-**Decision:** Match that message and throw `SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT` with the matched limit and the original error as `cause`. Any other error is rethrown unchanged.
-
-**Consequences:** If Vercel rewords the message, users get the raw 400 instead of the diagnostic. Remove the match when the Vercel Sandbox API returns an error code for this case; that needs an upstream report to Vercel.
-
-## @cloudflare/sandbox is resolved with mlly and worker conditions
-
-`resolveModule` in `packages/sandbox/src/task/cloudflare.ts`.
-
-**Context:** `@cloudflare/sandbox` 1.0.3 exports only the `import` condition, so `require.resolve` fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. Upstream issue cloudflare/sandbox-sdk#1053 tracks it and is still open.
-
-**Decision:** Resolve the package and the Durable Object module with mlly `resolvePathSync` and the conditions `workerd`, `worker`, `import`, `default`. A failed resolution throws `SANDBOX_TASK_R0003` with the resolution error as `cause`.
-
-**Consequences:** Keep the `workerd` and `worker` conditions so the build picks the Worker entry. When cloudflare/sandbox-sdk#1053 ships `require` or `default` exports, `resolveModule` can use `createRequire(import.meta.url).resolve`.
-
-## The former sandboxTask `provider` key throws SANDBOX_TASK_RENAMED_PROVIDER_KEY
-
-`normalizeSandboxTaskOptions` in `packages/sandbox/src/task/internal/runtime-preparation.ts`.
-
-**Context:** `provider` was renamed to `driver`. An untyped config that still passes `provider` would otherwise fall through to the inferred driver and run the Task somewhere the user did not choose. Queue and workflow have the same check (see `adr/queue.md`).
-
-**Decision:** An options object with `provider` and no `driver` throws `SANDBOX_TASK_RENAMED_PROVIDER_KEY`.
-
-**Consequences:** The `driver-key` codemod in `packages/codemods` rewrites the key. Remove the check together with the queue and workflow checks in the next major release, once the codemod has been out for one.
-
-## Response detection accepts a second undici copy by its internal shape
-
-`isResponse`, `hasEnumerableProperties` in the `createEntrySource` template in `packages/sandbox/src/task/runtime/entry-script.injected.ts`.
-
-**Context:** A Task handler can return a `Response` built by a different undici copy than Node's global one, for example a bundled or pinned `undici` dependency. The native `Response.prototype` getters brand-check only the realm's own class, so they reject that Response, and `instanceof` fails too. A plain object can also look like a Response (`status`, `headers`, `clone`, `arrayBuffer`), and it must travel as an ordinary object with its own fields.
-
-**Decision:** Accept a native Response by the native getters. Accept a foreign one only when it has exactly undici's two enumerable internal symbols (`state` with `headersList`, and `headers`), and its `clone()` has the same shape. Any other object with enumerable own properties stays an ordinary object.
-
-**Consequences:** The test "preserves a Response from another realm across the child process" loads a second undici copy and covers this. An undici release that changes its internal symbols turns its Responses into ordinary objects, and that test fails first. Remove the shape check when Sandbox Tasks require the global `Response`.
