@@ -362,4 +362,22 @@ describe("WebContainer lifecycle", () => {
     await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
     expect(app.status.stage).toBe("ready")
   })
+
+  it.each(["install", "dev"] as const)("leaves no unhandled rejection when teardown aborts %s", async (command) => {
+    const { exited } = fixture()
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const app = await bootWebContainer()
+      const run = await app.run(command)
+      app.teardown()
+      exited.reject(new Error("Process aborted"))
+      await expect(run.exit).rejects.toThrow("Process aborted")
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
 })
