@@ -68,6 +68,8 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
     const { copy } = useCopy();
     const workspace = useWebContainer({
       files,
+      // Binary files mount with each boot. An example with other assets opens in a new run, see `keeps`.
+      assets: booted.assets,
       immediate: false,
       port: options.port,
       // The browser frame of the preview reads the page address and goes Back and Forward through this script.
@@ -129,6 +131,7 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       setFiles: (next, setOptions) => workspace.setFiles(next, setOptions),
       // The installed dependencies still fit when the files of the boot and of the editor keep the manifest of the example.
       keeps: next => sameManifest
+        && next.assets === booted.assets
         && options.snapshot?.(next) === snapshot
         && workspace.files.value["package.json"] === opened.files?.["package.json"]
         && (snapshot !== undefined || next.files?.["package.json"] === bootManifest),

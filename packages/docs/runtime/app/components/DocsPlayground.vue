@@ -30,7 +30,7 @@ const fallback = examples[0]!
 
 const load = props.data.render
 const runner: WorkspaceRunner = load
-  ? render(async files => (await load()).default(files))
+  ? render(async (files, context) => (await load()).default(files, context))
   : webContainer({ port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
 // Each tab draws the component of its `value`, which reads the workspace through `useWorkspace()`.
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))

@@ -45,6 +45,11 @@ export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WebContainerFiles;
   /**
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. They are not in `files`, so
+   * edits, `modified`, and `setFiles()` never touch them.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /**
    * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
    * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
    */
@@ -325,7 +330,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       written = { ...files.value };
       try {
         const target = await bootWebContainer({
-          files: written,
+          files: { ...options.assets, ...written },
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
           previewScript: options.previewScript,

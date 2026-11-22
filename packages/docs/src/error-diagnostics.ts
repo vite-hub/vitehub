@@ -129,6 +129,10 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ dir, page }: { dir: string, page: string }) => `The docs page ${page} runs the folder ${dir}, which does not exist.`,
       fix: "Set `dir` of each example in `examples` to a folder of the app relative to the app root, or set `fixture` of a learn page to a folder in the `docs.runnable.fixtures` folder (`fixtures` by default).",
     },
+    DOCS_WORKSPACE_READONLY_MISSING: {
+      why: ({ dir, example, page, path }: { dir: string, example: string, page: string, path: string }) => `The example ${example} of the docs page ${page} marks ${path} read-only, but ${dir} has no text file at that path.`,
+      fix: "Set each path in `readonly` to a text file of the example's `dir`, relative to that folder, such as `model.ts`. Binary files, such as `weights.bin`, are never editable, so leave them out.",
+    },
     DOCS_WORKSPACE_RENDER_MISSING: {
       why: ({ file, page }: { file: string, page: string }) => `The docs page ${page} renders with ${file}, which does not exist.`,
       fix: "Set `render` to a module relative to the app root, such as `app/playground/render.ts`, whose default export takes the files and returns `{ html }`.",

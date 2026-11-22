@@ -26,6 +26,8 @@ export interface PlaygroundTemplateSource {
   open?: string
   /** The path that the preview opens when the dev server is ready. */
   preview?: string
+  /** The paths of the files that the editor does not let the reader change. */
+  readonly?: string[]
 }
 
 /**
@@ -45,16 +47,16 @@ export async function buildPlaygroundTemplates(input: {
   const manifest = (fixture: string) => readFile(resolve(input.fixturesDir, fixture, "package.json"), "utf8").catch(() => undefined)
   const tutorialKeys = await Promise.all(input.tutorials.map(async tutorial => ({ slug: tutorial.slug, key: dependencyKey(await manifest(tutorial.fixture)) })))
   const read = await Promise.all(input.examples.map(async (source) => {
-    const files = await readTree(resolve(input.fixturesDir, source.fixture))
+    const { files, assets } = await readTree(resolve(input.fixturesDir, source.fixture))
     if (files["package.json"]) files["package.json"] = resolveManifest(files["package.json"], input.versions)
-    return { source, files, key: dependencyKey(await manifest(source.fixture)) }
+    return { source, files, assets, key: dependencyKey(await manifest(source.fixture)) }
   }))
   const shared = new Map(tutorialKeys.toReversed().map(tutorial => [tutorial.key, tutorial.slug]))
-  return read.map(({ source, files, key }) => {
+  return read.map(({ source, files, assets, key }) => {
     const snapshotOf = shared.get(key) ?? `playground-${source.id}`
     shared.set(key, snapshotOf)
-    const { id, label, description, group, open, preview } = source
-    return { id, label, description, group, open, preview, files, snapshotOf }
+    const { id, label, description, group, open, preview, readonly } = source
+    return { id, label, description, group, open, preview, readonly, files, ...Object.keys(assets).length ? { assets } : {}, snapshotOf }
   })
 }
 

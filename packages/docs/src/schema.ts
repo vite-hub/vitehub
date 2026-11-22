@@ -25,6 +25,11 @@ export interface DocsPlaygroundExample {
   open?: string
   /** The path that the preview opens when the dev server is ready. Defaults to `/`. */
   preview?: string
+  /**
+   * Text files of `dir` that the editor does not let the reader change, such as `["model.ts"]`. Code can still change
+   * them. A path that is not a text file of `dir` fails the build with `DOCS_WORKSPACE_READONLY_MISSING`.
+   */
+  readonly?: string[]
 }
 
 /** An output tab of a `layout: playground` page. */
@@ -164,6 +169,7 @@ const exampleFields: Fields<DocsPlaygroundExample> = {
   dir: z.string(),
   open: z.string().optional(),
   preview: z.string().startsWith("/").optional(),
+  readonly: z.array(z.string()).optional(),
 }
 
 const pageFields: Fields<DocsPageFrontmatter> = {
