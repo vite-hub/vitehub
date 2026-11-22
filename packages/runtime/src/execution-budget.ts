@@ -84,8 +84,6 @@ function createBudgetNode(parent?: BudgetNode): BudgetNode {
     cleanups: new Set(),
     children: new Set(),
     ...(parent ? { parent } : {}),
-    // A child created after its parent was released must not acquire fresh
-    // timers or listeners. Its cleanup registration below runs immediately.
     disposed: parent?.disposed ?? false,
   }
   if (!parent?.disposed) parent?.children.add(node)
@@ -110,7 +108,6 @@ function disposeBudgetNode(node: BudgetNode): void {
   node.parent?.children.delete(node)
 }
 
-/** Listen once and release the listener when the budget aborts, is exhausted elsewhere, or is disposed. */
 function listenUntilReleased(signal: AbortSignal, onAbort: () => void, node: BudgetNode, releaseSignals: AbortSignal[]): void {
   if (node.disposed) return
   signal.addEventListener("abort", onAbort, { once: true })
@@ -172,8 +169,6 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     const sharedReason = state.sharedController.signal.reason
     if (state.controller.signal.aborted && !isExecutionBudgetExceededError(stateReason)) state.controller.signal.throwIfAborted()
     if (controller.signal.aborted && !isExecutionBudgetExceededError(controllerReason)) controller.signal.throwIfAborted()
-    // A child created after its parent was disposed is inert: it must not
-    // observe a caller signal that was supplied after disposal.
     if (!node.disposed && externalSignal?.aborted && !isExecutionBudgetExceededError(externalSignal.reason)) externalSignal.throwIfAborted()
     if (state.sharedController.signal.aborted) {
       if (isExecutionBudgetExceededError(sharedReason)) throw sharedReason
@@ -225,7 +220,6 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         else if (!childController.signal.aborted) listenUntilReleased(options.signal, () => abortChild(options.signal?.reason), childNode, releaseSignals)
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
-      // An inherited deadline (including a tie) still cancels its owner's subtree.
       const childDeadlineController = deadlineAt === limits.deadlineAt ? deadlineController : childController
       if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, childNode, state.sharedController.signal)
       return createBudget(state, {

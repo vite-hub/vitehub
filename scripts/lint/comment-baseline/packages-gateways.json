@@ -1,0 +1,4 @@
+{
+  "packages/gateways/src/ai-sdk.ts": 4,
+  "packages/gateways/test/ai-sdk-openai-chat.test.ts": 1
+}

@@ -1875,7 +1875,6 @@ describe("hubSandboxTask", () => {
       await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} }, { command: "serve", mode: "development" })
       const nitroAliases = createSandboxTaskNitroLifecycle(plugin)().alias as Record<string, string>
       const providerLoaderAlias = nitroAliases["#vitehub-sandbox-task-provider-loader"]!
-      // Nitro resolves each alias to a real path once, before Vite resolves its config.
       const nitroProviderLoader = await realpath(providerLoaderAlias).catch(() => providerLoaderAlias)
       await configResolved({ root: rootDir, resolve: { alias: [] } })
       return { configResolved, nitroProviderLoader }

@@ -1,4 +1,3 @@
-// The one module of @vite-hub/ui that runs @vite-hub/web-container. The other parts only render its state.
 import { checkWebContainerSupport, type WebContainerStage } from "@vite-hub/web-container";
 import type { Connect, ConnectProviderName } from "@vite-hub/web-container/connect";
 import { type UseWebContainerReturn, useWebContainer } from "@vite-hub/web-container/vue";
@@ -54,15 +53,11 @@ function runState(workspace: UseWebContainerReturn): WorkspaceRunState {
  */
 export function webContainer(options: WebContainerRunnerOptions = {}): WebContainerRunner {
   const current = shallowRef<UseWebContainerReturn>();
-  // A page runs one WebContainer at a time. A new run boots only after the run before it stopped, so a fast switch
-  // between examples never starts a second boot while the first one is still running.
   let queue: Promise<void> = Promise.resolve();
 
   function start({ example: booted, files, showTab }: Parameters<WorkspaceRunner["start"]>[0]): WorkspaceRun {
     const snapshot = options.snapshot?.(booted);
     const bootManifest = booted.files?.["package.json"];
-    // A snapshot holds the dependencies of the example. Files with another package.json, such as from a share link,
-    // mount it and then install the difference.
     const sameManifest = files["package.json"] === bootManifest;
     const store = useConnectStore();
     const { copy } = useCopy();
@@ -72,7 +67,6 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       assets: booted.assets,
       immediate: false,
       port: options.port,
-      // The browser frame of the preview reads the page address and goes Back and Forward through this script.
       previewScript: workspacePreviewScript,
       env: options.connect && store.env(options.connect),
       ...snapshot && { snapshot, install: sameManifest ? false : "install" },
@@ -94,11 +88,9 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       disposed = true;
       workspace.teardown();
       if (current.value === workspace) current.value = undefined;
-      // A boot in flight tears its container down when it ends. The next run waits for that.
       void (booting ?? turn).then(release, release);
     });
 
-    // Tokens stay in this tab. They reach the app only as environment variables, so a new token restarts the server.
     watch(() => store.credentials.value, () => {
       if (workspace.container.value && workspace.status.value === "ready") void workspace.restart();
     });
@@ -129,7 +121,6 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
     return {
       files: workspace.files,
       setFiles: (next, setOptions) => workspace.setFiles(next, setOptions),
-      // The installed dependencies still fit when the files of the boot and of the editor keep the manifest of the example.
       keeps: next => sameManifest
         && next.assets === booted.assets
         && options.snapshot?.(next) === snapshot
@@ -138,17 +129,14 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       async open(next, nextFiles) {
         opened = next;
         previewPath.value = next.preview ?? "/";
-        // A failed write is in the terminal. The files on disk are not the example's, so the server does not start again.
         try { await workspace.setFiles(nextFiles, { mode: "replace" }); }
         catch { return; }
-        // The Vite config can differ, so the dev server starts again.
         await workspace.restart();
       },
       tabs,
       panel(tab) {
         if (tab === "preview") {
           if (!starting.value) return h(WorkspacePreview, { path: previewPath.value, url: workspace.previewUrl.value, "onUpdate:path": (path: string) => { previewPath.value = path; } });
-          // The checklist takes the place of the preview, so the reader can edit while the app starts.
           return h("div", { class: "vh-workspace-boot" }, h(WorkspaceBootStatus, {
             failure: workspace.failure.value,
             online: workspace.online.value,

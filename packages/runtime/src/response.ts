@@ -34,7 +34,6 @@ function prototypeMethod(constructor: { prototype: object }, key: string): Calla
   return typeof value === "function" ? value : undefined
 }
 
-// Captured at import. Pure, so a bundle that never reads a Blob or an ArrayBuffer here drops the reads.
 const blobTypeGetter = /* @__PURE__ */ prototypeGetter(Blob, "type")
 const blobStreamMethod = /* @__PURE__ */ prototypeMethod(Blob, "stream")
 
@@ -78,8 +77,6 @@ function getBlobMethods(value: unknown): BlobMethods | undefined {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined
   try {
     if (typeof blobTypeGetter !== "function" || typeof blobStreamMethod !== "function") return undefined
-    // The intrinsic accessor establishes the Blob internal-slot brand before
-    // consulting the value's realm-specific stream method.
     const type = String(Reflect.apply(blobTypeGetter, value, []))
     const body = () => streamBody(() => Reflect.apply(blobStreamMethod!, value, []) as ReadableStream)
     return { type, body }
@@ -161,8 +158,6 @@ export function isResponse(value: unknown): value is Response {
   if (!isRuntimeObject(value)) return false
   try {
     if (Object.prototype.toString.call(value) !== "[object Response]") return false
-    // Calling a native prototype operation performs the internal-slot brand check;
-    // a configurable tag and a handful of methods are not sufficient to spoof it.
     const headers = Object.getOwnPropertyDescriptor(Response.prototype, "headers")?.get?.call(value)
     if (!headers) return false
     Array.from(Headers.prototype.entries.call(headers))
@@ -225,14 +220,10 @@ export function isSerializedResponse(value: unknown): value is SerializedRespons
   if (record.url !== undefined) return false
   if (typeof record.status !== "number" || !Number.isInteger(record.status) || record.status < 200 || record.status > 599) return false
   if (typeof record.statusText !== "string" || !isSerializedHeaderEntries(record.headers)) return false
-  // Responses with these status codes cannot carry a body. Reject malformed
-  // records before deserialization would pass bytes to the native constructor.
-  // atob ignores ASCII whitespace, so whitespace-only legacy data has no bytes.
   if ([204, 205, 304].includes(record.status) && (/[^\t\n\f\r ]/.test(body.data) || body.isNull === false)) return false
   const headers = record.headers
   if (!isBase64(body.data)) return false
   try {
-    // Keep validation aligned with the native constructor used by deserialization.
     new Response(null, {
       headers: headers.map(([name, headerValue]): [string, string] => [name, headerValue]),
       status: record.status,
@@ -259,7 +250,6 @@ function isSerializedHeaderEntries(value: unknown): value is readonly (readonly 
 
 function isBase64(value: string): boolean {
   const compact = value.replace(/[\t\n\f\r ]/g, "")
-  // Match atob's optional padding without a repeated group that overflows on large bodies.
   const unpadded = compact.length % 4 === 0 ? compact.replace(/={1,2}$/, "") : compact
   return unpadded.length % 4 !== 1 && !/[^A-Za-z0-9+/]/.test(unpadded)
 }
@@ -274,7 +264,6 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
-  // deserializeResponse validates the record before reaching this permissive decoder.
   if (typeof Buffer !== "undefined") return Buffer.from(value, "base64")
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
@@ -282,8 +271,6 @@ function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes
 }
 
-// The Web API cannot construct opaque responses. Use the native status-zero,
-// null-body response and preserve the durable type and visible URL on it and its clones.
 function createStatusZeroResponse(type: NonNullable<SerializedResponse["type"]>, url = ""): Response {
   const response = Response.error()
   if (type !== "error") {

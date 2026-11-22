@@ -47,7 +47,6 @@ export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly
       const redirect = page.redirect ?? page.meta?.redirect
       if (own.length || redirect !== undefined) {
         const layoutFile = typeof layout === "string" ? layouts[layout]?.file : undefined
-        // A child with the same path, such as `index.vue` in a folder, renders instead of its parent alone.
         for (const path of paths) routes.set(path, {
           path,
           files: layoutFile ? [layoutFile, ...files] : files,
@@ -65,7 +64,6 @@ export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly
 interface RouteGraph {
   report: BundleEnvironmentReport
   byFile: Map<string, BundleEnvironmentReport["chunks"][number]>
-  /** The files that hold each module. */
   holders: Map<string, string[]>
   startup: string[]
 }
@@ -83,7 +81,6 @@ function graphOf(report: BundleEnvironmentReport): RouteGraph {
   }
 }
 
-/** The JavaScript files that a first visit loads: the startup files and the component files with their static imports. */
 function routeFiles(graph: RouteGraph, source: BundleRouteSource): Set<string> {
   const files = new Set(graph.startup)
   const pending = source.components.flatMap(id => graph.holders.get(id) ?? [])

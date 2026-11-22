@@ -149,7 +149,6 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   const served = (snapshot: TutorialSnapshot | undefined) => snapshot && { ...snapshot, parts: snapshot.parts.map(part => `${partsBase}${basename(part)}`) }
   const snapshotOf = (slug: string, all: TutorialSnapshots | undefined) => served(all?.[slug])
 
-  // The lesson or the fixture can change in development, so the templates read them again on each write.
   const currentTutorials = async () => (nuxt.options.dev ? await build() : tutorials).map(tutorial => ({ ...tutorial, snapshot: snapshotOf(tutorial.slug, snapshots) }))
   const currentTemplates = async () => (nuxt.options.dev ? await buildTemplates() : templates).map(template => ({ ...template, snapshot: snapshotOf(template.snapshotOf, snapshots) }))
   const configLessons = new Set((options.lessons ?? []).map(lesson => lesson.slug))
@@ -166,7 +165,6 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
     getContents: async () => `export const playgroundTemplates = ${JSON.stringify((await currentTemplates()).filter(template => configExamples.has(template.id)).map(({ assets: _assets, ...template }) => template))}\n`,
   })
 
-  // One module per page, so a page loads only its own files.
   const pageModule = async (page: WorkspacePage): Promise<string> => {
     const port = page.workspace.port ?? 3000
     if (page.layout === "learn") {
@@ -191,7 +189,6 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
     write: true,
     getContents: () => {
       const facts = Object.fromEntries(content.pages().filter(page => page.layout === "tutorial" || page.layout === "learn").flatMap((page) => {
-        // A learn page counts the steps of its lesson.
         const markdown = content.read(page.layout === "learn" ? page.workspace?.lesson ?? page.path : page.path)
         return markdown === undefined ? [] : [[page.path, tutorialPageFacts(markdown)]]
       }))

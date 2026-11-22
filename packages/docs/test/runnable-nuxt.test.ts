@@ -157,9 +157,7 @@ describe("docs.runnable", () => {
     expect(lesson).toContain(`"layout":"learn"`)
     expect(lesson).toContain(`"guide":"top"`)
     expect(lesson).toContain(`"title":"Add the route"`)
-    // A page lesson is not one of the `docs.runnable` lessons.
     expect(await templates.get("runnable-tutorials.mjs")!()).toBe("export const runnableTutorials = []\n")
-    // The example has the dependencies of the lesson, so it mounts the snapshot of the lesson.
     const playground = await templates.get("docs/workspaces/docs-try-playground.mjs")!()
     expect(playground).toContain(`"id":"hello"`)
     expect(playground).toContain(`"snapshotOf":"docs-try-lesson"`)

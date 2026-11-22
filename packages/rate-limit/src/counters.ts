@@ -38,11 +38,9 @@ export type RateLimitResetInspection =
   | (RateLimitCounterTarget & { scope: RateLimitCounterScope, status: "reset" })
   | (RateLimitCounterTarget & { reason: string, status: "unavailable" | "unsupported" })
 
-/** Reason that Cloudflare counters are not readable. The binding exposes only `limit({ key })`. */
 const cloudflareRateLimitCounterUnsupportedReason = "The Cloudflare Rate Limiting binding exposes only limit(), which consumes a token. It cannot read or reset a counter."
 
 const unusedReason = "No request used this Rate Limit in this process since it started, so no counter exists."
-/** A `kv` counter is shared, but the policy that names its window comes from the requests of this process. */
 const unusedKVReason = "No request used this Rate Limit in this process since it started, so this process does not know its window. Other processes can still have a counter."
 
 function unavailableReason(cause: unknown): string {
@@ -60,7 +58,6 @@ function assertTarget(name: string, key: string): void {
 
 function limitersFor(target: RateLimitCounterTarget): RateLimiter[] | undefined {
   const limiters = listRuntimeRateLimiters(target.name)
-  // On Cloudflare, only a Rate Limit whose window counts in KV has a limiter in this process.
   return target.provider === "cloudflare" && limiters.length === 0 ? undefined : limiters
 }
 
@@ -106,6 +103,5 @@ export async function resetRateLimit(name: string, key: string): Promise<RateLim
     if (result.status === "unsupported") return { ...target, reason: result.reason, status: "unsupported" }
     if (result.status === "unavailable") return { ...target, reason: unavailableReason(result.cause), status: "unavailable" }
   }
-  // No limiter exists only for memory here, so the counter scope is the process.
   return { ...target, scope: limiters[0]?.capabilities.scope ?? "process", status: "reset" }
 }

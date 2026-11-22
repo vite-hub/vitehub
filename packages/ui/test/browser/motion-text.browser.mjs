@@ -1,11 +1,3 @@
-// The label, icon, count, and ring helpers of `@vite-hub/ui/motion` in Chromium, on the motion page `motion/`. It reads
-// the width, the letters, the digits, and the ring of each change frame by frame.
-//
-// Run: pnpm --filter @vite-hub/ui test:motion
-//
-// Record mode: MOTION_RECORD=<dir> also records each change at ¼×. MOTION_PROTOTYPE=<file> adds the same change from the
-// prototype HTML file, and MOTION_TODAY=<dir> the motion page of a checkout before this change, to compare. It needs
-// ffmpeg.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
@@ -22,9 +14,7 @@ import { vitehubTheme } from "../../src/theme.ts"
 
 const nuxtUIRequire = createRequire(fileURLToPath(import.meta.resolve("@nuxt/ui/vite")))
 
-// The page of another checkout loads Nuxt UI and its Vue plugin from that checkout, so both see the same packages.
 async function serve(root, from) {
-  // The ESM entry of `name` (and `subpath`) as installed for `from`.
   const entry = (name, subpath, dir) => {
     const root = realpathSync(join(dir, "node_modules", name))
     const exports = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).exports
@@ -38,7 +28,6 @@ async function serve(root, from) {
   const ui = await load("@nuxt/ui", "./vite")
   const iconify = from ? createRequire(entry("@nuxt/ui", "./vite", from)).resolve("@iconify/vue") : nuxtUIRequire.resolve("@iconify/vue")
   const server = await createServer({
-    // The other checkout may share its node_modules, so its optimized dependencies go to a folder of their own.
     ...from ? { cacheDir: join(root, ".vite-today") } : {},
     configFile: false,
     logLevel: "warn",
@@ -76,7 +65,6 @@ async function open(options = {}, csp) {
   return { context, errors, page }
 }
 
-// The first visit can reload the page while Vite optimizes dependencies, so warm it up before the tests.
 {
   const page = await browser.newPage()
   await page.goto(base)
@@ -84,7 +72,6 @@ async function open(options = {}, csp) {
   await page.close()
 }
 
-/** Runs `read` on `selector` on every frame until `stop()`, and returns the values with their time in ms. */
 async function sample(page, selector, read) {
   await page.evaluate(({ selector, read }) => {
     const element = document.querySelector(selector)
@@ -105,7 +92,6 @@ async function sample(page, selector, read) {
   return { stop: () => page.evaluate(() => window.stopSample()) }
 }
 
-/** Waits until the element holds plain text again, the end of a morph or a roll. */
 function settled(page, selector) {
   return page.waitForFunction(selector => {
     const element = document.querySelector(selector)
@@ -219,7 +205,6 @@ describe("label morph", () => {
     const trace = await sample(page, label, element => [Number.parseFloat(getComputedStyle(element).width), element.textContent])
     await page.locator("[data-test=publish]").click()
     await page.waitForFunction(selector => document.querySelector(selector).querySelector("[data-motion-glyphs]"), label)
-    // The accessible name and the text are the new label at once.
     assert.equal(await page.getByRole("button", { name: "Publishing" }).count(), 1)
     await settled(page, label)
     await page.waitForTimeout(50)
@@ -228,7 +213,6 @@ describe("label morph", () => {
     const changed = values.findIndex(([, [, text]]) => text !== "Publish")
     assert.ok(values.slice(changed).every(([, [, text]]) => text === "Publishing"), "the text reads Publishing from the first frame of the change")
     assert.ok(Math.max(...widths) - Math.min(...widths) > 10, `the width grows, from ${Math.min(...widths)} to ${Math.max(...widths)}`)
-    // A jump would move the whole difference in one frame.
     assert.ok(maxStep(widths) < 6, `the width moves at most ${maxStep(widths)}px in one frame: ${widths.map(w => w.toFixed(1)).join(" ")}`)
     const natural = await page.locator(label).evaluate(element => Number.parseFloat(getComputedStyle(element).width))
     assert.ok(Math.abs(widths.at(-1) - natural) < 0.5, `it ends at ${widths.at(-1)}, the natural width is ${natural}`)
@@ -239,7 +223,6 @@ describe("label morph", () => {
 
   test("letters type in order, 55ms apart, with a short blur", async () => {
     const { context, page } = await open()
-    // At ¼× the 55ms steps are 220ms, so a busy machine does not blur them.
     await page.locator("[data-test=speed]").click()
     await page.evaluate(() => window.motionText.morphText(document.querySelector("[data-test=morph]"), "Publishing"))
     await page.evaluate(() => {
@@ -260,7 +243,6 @@ describe("label morph", () => {
     })
     await page.waitForFunction(() => window.typed, undefined, { timeout: 20_000 })
     const { seen, blurs } = await page.evaluate(() => window.typed)
-    // "Publish" stays, so "i", "n", "g" type in.
     const times = [7, 8, 9].map(index => seen[index])
     assert.ok(times.every((time, index) => index === 0 || time > times[index - 1]), `the letters come in order: ${times}`)
     const gaps = times.slice(1).map((time, index) => time - times[index])
@@ -501,7 +483,6 @@ if (recordDir) {
   })
 }
 
-/** Clicks the subject and records it at ¼×: each frame that Chromium paints, as a video and one tiled image. */
 async function record({ name, url, selector, click, hold, cssRate, prototype }) {
   const context = await browser.newContext({ viewport: { width: 1600, height: 1400 }, permissions: ["clipboard-read", "clipboard-write"] })
   const page = await context.newPage()
@@ -518,7 +499,6 @@ async function record({ name, url, selector, click, hold, cssRate, prototype }) 
       }
     }, click)
   }
-  // The body draws at twice its size, so scroll by its drawn box.
   await element.evaluate(node => node.scrollIntoView({ block: "center" }))
   if (prototype) {
     await element.evaluate((node) => {
@@ -528,13 +508,11 @@ async function record({ name, url, selector, click, hold, cssRate, prototype }) 
     })
   }
   else if (cssRate) {
-    // The page before this change animates with CSS only, so the browser slows it, and so do its timers through the layer.
     const cdp = await context.newCDPSession(page)
     await cdp.send("Animation.enable")
     await cdp.send("Animation.setPlaybackRate", { playbackRate: 0.25 })
     await page.evaluate(() => document.querySelector("[data-test=speed]")?.click())
   }
-  // The speed button is in a hidden row, so the page clicks it.
   else await page.evaluate(() => document.querySelector("[data-test=speed]").click())
   await page.mouse.move(0, 0)
   await page.waitForTimeout(600)

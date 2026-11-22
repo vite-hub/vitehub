@@ -29,7 +29,6 @@ function validateCron(cron: unknown): asserts cron is string {
   }
 }
 
-/** The `defineSchedule(cron, handler, options)` form was removed. Name the object form in the error. */
 const positionalFormMessage = "`defineSchedule(cron, handler)` was removed. Pass one object: `defineSchedule({ cron: \"0 9 * * *\", handler })`, with `manual` and `timeZone` in the same object."
 
 export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput<TResult> & { cron: string }): ScheduleDefinition<TResult> & { cron: string }
@@ -52,7 +51,6 @@ export function defineSchedule<TResult = unknown>(input: ScheduleDefinitionInput
     throw scheduleErrorDiagnostics.SCHEDULE_C0004({ message: `\`defineSchedule()\` does not support the "${unknownKey}" option.` })
   }
 
-  // Without `cron`, the Schedule runs only when code starts it with `startSchedule()`.
   const hasCron = Object.hasOwn(input, "cron")
   if (hasCron) validateCron(input.cron)
   else if (input.timeZone !== undefined) {

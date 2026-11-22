@@ -19,7 +19,6 @@ export const ACCESS_TOKEN = "access-token-secret-1"
 export const REFRESH_TOKEN = "refresh-token-secret-1"
 export const CLIENT_SECRET = "client-secret-value"
 
-/** The test provider declares `account` and `apis`, so tests can read them without a check. */
 export type TestProvider = ConnectionProvider<{ mail: MailApi }> & Required<Pick<ConnectionProvider<{ mail: MailApi }>, "account" | "apis">>
 
 export function testProvider(): TestProvider {
@@ -50,7 +49,6 @@ export function testProvider(): TestProvider {
 export interface FakeProvider {
   calls: Array<{ body?: string, headers: Headers, method: string, url: string }>
   fetch: typeof fetch
-  /** Access tokens that the API accepts. */
   valid: Set<string>
   tokenResponses: Array<{ body: Record<string, unknown>, status?: number }>
 }
@@ -63,7 +61,6 @@ export function fakeProvider(): FakeProvider {
       const body = init?.body === undefined || init.body === null ? undefined : String(init.body)
       provider.calls.push({ ...(body === undefined ? {} : { body }), headers: new Headers(init?.headers), method: init?.method ?? "GET", url })
       if (url === "https://auth.example.com/token") {
-        // Give concurrent callers a chance to overlap.
         await new Promise(resolve => setTimeout(resolve, 5))
         const next = provider.tokenResponses.shift() ?? { body: { error: "invalid_grant" }, status: 400 }
         return Response.json(next.body, { status: next.status ?? 200 })
@@ -91,7 +88,6 @@ export function mailConnection(access?: Record<string, ConnectionAccessRule<Conn
 
 export function createStore(): ConnectionStore {
   const client = createClient({ url: ":memory:" })
-  // The test runtime clock is fixed in the past, so age-based activity pruning would drop its events.
   return createDatabaseConnectionStore({ activityRetention: false, db: drizzle({ client: client }), encryptionKeys: [new Uint8Array(32).fill(3)] })
 }
 
@@ -109,7 +105,6 @@ export function createTestRuntime(definition: ConnectionDefinition | (() => Prom
   return { now, provider, runtime, store }
 }
 
-/** Run the authorization code flow against the fake provider. */
 export async function connect(test: TestRuntime, token: Record<string, unknown> = {}): Promise<void> {
   const { state } = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
   test.provider.tokenResponses.push({
@@ -118,7 +113,6 @@ export async function connect(test: TestRuntime, token: Record<string, unknown> 
   await test.runtime.complete({ actor: "user:owner", code: "code-1", state })
 }
 
-/** The approval id that `CONNECTIONS_APPROVAL_REQUIRED` and `CONNECTIONS_EXECUTION_UNKNOWN` name in `why`. */
 export function approvalIdOf(error: unknown): string {
   const why = error instanceof Error ? String(Reflect.get(error, "why") ?? "") : ""
   const id = /(?:Request|Approval): (approval_[\w-]+)\./.exec(why)?.[1]

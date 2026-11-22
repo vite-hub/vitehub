@@ -42,7 +42,6 @@ describe("vitehub status", () => {
   it("reads the host from config without loading it", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
-      // Running this config would set the flag and throw.
       "vite.config.ts": `globalThis.__vitehubEvaluated = true\nthrow new Error("boom")\n${viteConfig(`{ host: "cloudflare", kv: true }`)}`,
     })
 
@@ -164,7 +163,6 @@ describe("vitehub status", () => {
       "package.json": pnpmManifest,
     })
     const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
-    // Comments and Connections turn on Database. Unresolved discovery leaves features without a key unknown.
     expect(feature(json, "comments")).toMatchObject({ enabled: "off", reason: "config" })
     expect(feature(json, "database").enabled).toBe("off")
   })
@@ -217,7 +215,6 @@ describe("vitehub status", () => {
       "package.json": JSON.stringify({ packageManager: "yarn@4.0.0" }),
       "vite.config.ts": viteConfig("{ schedule: true }"),
     })
-    // Yarn PnP installs a resolver hook; use Node's hook API to exercise that boundary.
     const hooks = registerHooks({
       resolve(specifier, context, nextResolve) {
         if (specifier === "@vite-hub/schedule" && context.parentURL === pathToFileURL(join(root, "package.json")).href) {
@@ -292,7 +289,6 @@ describe("vitehub status", () => {
 
   it("lists the install command for a missing owner package", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ schedule: true, database: true }") })
-    // drizzle-orm has no `./package.json` export, so the check reads the folder instead of resolving the package.
     const installed = await createProject({
       "node_modules/@vite-hub/schedule/package.json": "{}",
       "node_modules/drizzle-orm/package.json": JSON.stringify({ exports: { ".": "./index.js" }, name: "drizzle-orm" }),
@@ -301,7 +297,6 @@ describe("vitehub status", () => {
     })
     const issuers = new Set([root, installed].map(directory => pathToFileURL(join(directory, "package.json")).href))
     const packageDirs = [root, installed].map(directory => `${pathToFileURL(join(directory, "node_modules")).href}/`)
-    // CI's NODE_PATH can expose workspace dependencies to otherwise empty fixtures.
     const hooks = registerHooks({
       resolve(specifier, context, nextResolve) {
         const result = nextResolve(specifier, context)

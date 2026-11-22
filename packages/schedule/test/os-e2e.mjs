@@ -1,18 +1,7 @@
-// Installs a real OS timer with @vite-hub/schedule/os, waits until the operating system scheduler runs it, and
-// removes it again. CI runs it on Linux (systemd), macOS (launchd) and Windows (Task Scheduler) in both scopes:
-//
-//   node packages/schedule/test/os-e2e.mjs --scope user
-//   node packages/schedule/test/os-e2e.mjs --scope user --moved-home
 //   node packages/schedule/test/os-e2e.mjs --scope user --percent-home
-//   sudo -E env PATH="$PATH" node packages/schedule/test/os-e2e.mjs --scope system
-//
-// `--moved-home` runs with HOME under a symbolic link and an XDG_CONFIG_HOME that the systemd user manager does not
-// have. launchd prints the real path of a plist, and the user manager reads units from its own folder only.
 //
 // `--percent-home` runs with HOME, USERPROFILE and LOCALAPPDATA under a folder named `pct %PATH% home`. Task Scheduler
 // expands `%NAME%` in the arguments of a task, so the wrapper path must not appear there.
-//
-// Build @vite-hub/schedule first. The script changes the machine: it always uninstalls the timer it made.
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
@@ -34,12 +23,10 @@ const name = `os-e2e-${randomBytes(4).toString("hex")}`
 const dir = mkdtempSync(join(tmpdir(), "vitehub-os-e2e-"))
 const marker = join(dir, "marker.txt")
 const logDir = join(dir, "logs")
-// No spaces and no double quotes: the argument passes through systemd, launchd, and a PowerShell wrapper unchanged.
 const command = [process.execPath, "-e", "require('node:fs').appendFileSync(process.argv[1],process.env.VITEHUB_OS_E2E+'\\n')", marker]
 const target = { scope }
 
 if (values["moved-home"]) {
-  // On macOS the temporary folder is already under /var, a link to /private/var.
   mkdirSync(join(dir, "real-home"))
   symlinkSync(join(dir, "real-home"), join(dir, "home"), "dir")
   process.env.HOME = join(dir, "home")
@@ -67,7 +54,6 @@ function install(env) {
   return installOsSchedule(name, { cron: "* * * * *" }, { command, scope, env, logDir })
 }
 
-/** Runs a command and returns its exit code and output. It never throws for a non-zero exit. */
 async function probe(file, args) {
   try {
     const { stdout, stderr } = await run(file, args, { windowsHide: true })
@@ -78,7 +64,6 @@ async function probe(file, args) {
   }
 }
 
-/** The OS command that prints the unit, or fails when the OS does not know it. */
 async function osKnows() {
   if (process.platform === "linux") {
     const user = scope === "user" ? ["--user"] : []
@@ -109,7 +94,6 @@ async function diagnose(unit) {
   }
 }
 
-// Cleanup runs until uninstall succeeds, also when the first install fails half way.
 let removed = false
 let unit
 try {
@@ -122,7 +106,6 @@ try {
   assert.equal(unit.scope, scope)
   assert.equal(unit.changed, true, "a first install must report changed: true")
   assert.ok(unit.files.length > 0, "install must report the files it owns")
-  // The log file is owned by the install too, but the first run creates it.
   for (const file of unit.files.filter(file => !file.endsWith(".log"))) assert.ok(existsSync(file), `installed file is missing: ${file}`)
   step(`files: ${unit.files.join(", ")}`)
   if (unit.linger !== undefined) step(`linger: ${unit.linger}`)
@@ -143,7 +126,6 @@ try {
   let status
   while (true) {
     status = unwrap(await unit.status(), "status")
-    // A run can start between the first and the last install. Wait for a run with the env of the last one.
     if (status.lastExitCode === 0 && existsSync(marker) && /^2$/m.test(readFileSync(marker, "utf8"))) break
     if (Date.now() - started > waitMs) {
       assert.fail(`the OS scheduler did not run ${name} with exit code 0 in ${waitMs / 1000} s`)

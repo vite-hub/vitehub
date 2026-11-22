@@ -2139,9 +2139,11 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")).rejects.toThrow()
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       expect(webhookRoute).toContain("export function startDiscordGateways()")
-      expect(webhookRoute).toContain("abortSignal: controller.signal")
+      expect(webhookRoute).toContain("createDiscordGatewayHandler(agent)")
+      expect(webhookRoute).toContain(`import { createDiscordGatewayHandler, hasDiscordGatewayChannel, runDiscordGatewayListeners } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
+      expect(webhookRoute).toContain("abortSignal, durationMs: discordGatewayDurationMs")
       expect(webhookRoute).toContain("process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS")
-      expect(webhookRoute).toContain("if (signal.aborted) return Promise.resolve()")
+      expect(webhookRoute).toContain("return runDiscordGatewayListeners(")
       expect(webhookRoute).not.toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -8277,11 +8279,11 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
-  it("forwards Discord Gateway events to the registered webhook id", async () => {
+  it.each([200, 204])("forwards Discord Gateway events to the registered webhook id and preserves status %i", async (status) => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
-    const startGatewayListener = vi.fn(async () => Response.json({ ok: true }))
+    const startGatewayListener = vi.fn(async () => new Response(null, { status }))
     const adapter = {
       ...createTestChatAdapter(),
       name: "discord",
@@ -8306,7 +8308,7 @@ describe("server helpers", () => {
       webhookUrl: (webhook) => `https://example.com/_vitehub/agents/support/webhooks/${webhook}`,
     })
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(status)
     expect(startGatewayListener).toHaveBeenCalledWith(
       expect.objectContaining({ waitUntil: expect.any(Function) }),
       undefined,

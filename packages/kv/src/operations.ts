@@ -6,15 +6,12 @@ import { kvDevMaximumListLimit } from "./results.ts"
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./runtime/operations.ts"
 
-// The runtime module imports the KV storage of the app, which only exists in the Nitro runtime. The operations load it
-// when they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 const store = v.optional(v.pipe(v.string(), v.check(name => name.trim() !== "", "Name a store.")))
 const key = v.string()
 
 function defineKVOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The stores answer for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "kv", user: false })
 }
 
@@ -55,7 +52,6 @@ const set = defineKVOperation<{ key: string, store?: string, ttl?: number, value
   description: "Write the value of one key. A string, or any JSON value.",
   input: v.object({ key, store, ttl: v.optional(v.pipe(v.number(), v.finite(), v.gtValue(0))), value: v.unknown() }),
   kind: "write",
-  // A value can be larger than the default request limit of a call.
   maxRequestBytes: 4 * 1_024 * 1_024,
   name: "kv.set",
   run: async input => await (await runtime()).runKVOperation("set", input) as KVDevSetResult,

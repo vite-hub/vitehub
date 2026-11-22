@@ -10,7 +10,6 @@ import { type AnyOperation, createOperationRegistry, defineOperation, operationE
 import { runViteHubCli } from "../src/index.ts"
 import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
 
-/** The private key of the CLI. The app keeps its public key in `VITEHUB_CONSOLE_KEY_CI`. */
 const cliPrivateKey = (await createConsoleKeyPair()).privateKey
 
 const list = defineOperation({
@@ -95,7 +94,6 @@ function stream() {
 
 const operationList = [list, remove, failing, rich, digest]
 
-// A dev server that runs the operations of the fixture plugin.
 function server(origin = "http://localhost:5173", headers: Record<string, string> = {}, operations: readonly AnyOperation[] = operationList) {
   const registry = createOperationRegistry([{ operations }])
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -184,7 +182,6 @@ describe("generated operation commands", () => {
     expect(unknown.stderr).toContain("Unknown ViteHub CLI command: work jobs drop")
     expect((await run(["work", "jobs"], options)).code).toBe(1)
 
-    // A destructive command in a group keeps the confirmation rule.
     const refused = await run(["work", "jobs", "clear"], { ...options, fetch: server("http://localhost:5173", {}, operations) })
     expect(refused.code).toBe(1)
     expect(refused.stderr).toContain("CLI_R0004")
@@ -214,7 +211,6 @@ describe("generated operation commands", () => {
     const confirmed = await run(["reports", "delete", "r1", "--yes"])
     expect(confirmed.code).toBe(0)
     expect(new Headers(confirmed.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("confirmed")
-    // The operation says which calls only read.
     const dryRun = await run(["reports", "delete", "r1", "--dry-run"])
     expect(dryRun.code).toBe(0)
     expect(new Headers(dryRun.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("required")
@@ -474,14 +470,10 @@ describe("generated operation commands", () => {
 
   it("reads every kind of input from flags", async () => {
     const sent = async (...args: string[]) => operationRpcRequest((await run(["reports", "rich", ...args])).fetch.mock.calls[0]![1]!.body).input
-    // JSON for objects, unknown values, and lists of objects.
     expect(await sent("--body", '{"a":[1]}', "--items", '[{"id":"x"}]')).toEqual({ body: { a: [1] }, items: [{ id: "x" }] })
-    // A nullable value takes the literal null.
     expect(await sent("--label", "null", "--count", "null")).toEqual({ count: null, label: null })
     expect(await sent("--label", "text", "--count", "3")).toEqual({ count: 3, label: "text" })
-    // A string or number union stays a string.
     expect(await sent("--mixed", "12")).toEqual({ mixed: "12" })
-    // Lists of numbers parse each item.
     expect(await sent("--scores", "1,2", "--scores", "3")).toEqual({ scores: [1, 2, 3] })
     const wrong = await run(["reports", "rich", "--limit", "1.5"])
     expect(wrong.stderr).toContain("--limit must be a whole number")

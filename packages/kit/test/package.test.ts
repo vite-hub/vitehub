@@ -19,13 +19,11 @@ const manifest: {
 
 describe("@vite-hub/kit package contract", () => {
   it("installs ui-sdk and nothing else", () => {
-    // The package exists so that headless parts do not install the dependencies of @vite-hub/ui (CodeMirror, xterm, Shiki).
     expect(Object.keys(manifest.dependencies).sort()).toEqual(["@ui-sdk/core", "@ui-sdk/vue"]);
     expect(Object.keys(manifest.peerDependencies).sort()).toEqual(["@nuxt/kit", "@nuxt/schema", "nuxt", "vue"]);
   });
 
   it("has 7 entries or fewer", () => {
-    // `./styles/default.scoped.css` goes when the Console has no Nuxt UI left, and the kit is back to 6.
     expect(Object.keys(manifest.exports).length).toBeLessThanOrEqual(7);
   });
 
@@ -37,7 +35,6 @@ describe("@vite-hub/kit package contract", () => {
   it("ships the patched web.css inside default.css, not an import of the npm file", () => {
     const packed = readFileSync(new URL("../dist/styles/default.css", import.meta.url), "utf8");
     expect(packed).not.toContain('@import "@ui-sdk');
-    // Rules that only the workspace patch of @ui-sdk/core adds.
     expect(packed).toContain('[data-slot="input-group"]');
     expect(packed).toContain("--ui-radius-popup");
   });
@@ -64,7 +61,6 @@ describe("@vite-hub/kit package contract", () => {
     });
     expect(outside).toEqual([]);
     expect([...atRules].filter((name) => !["container", "font-face", "keyframes", "layer", "media", "property", "supports"].includes(name))).toEqual([]);
-    // The same declarations as default.css, and the one that gives the scope root the page's color-scheme.
     const declarations = (root: Root) => {
       let count = 0;
       root.walkDecls(() => {
@@ -80,10 +76,6 @@ describe("@vite-hub/kit package contract", () => {
   }, 60_000);
 });
 
-/**
- * The selector matches the scope root or an element inside it: a compound with `.ui-sdk`, then a `>` or descendant
- * combinator. After that step, a sibling combinator (`+`, `~`) stays inside the root, as in `.ui-sdk a + b`.
- */
 function onScopeRoot(selector: SelectorPart): boolean {
   let scoped = false;
   let inside = false;

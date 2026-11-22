@@ -66,7 +66,7 @@ describe("root typecheck task environment", () => {
       wrapper.kill("SIGKILL")
       if (phasePid) {
         try { process.kill(-phasePid, "SIGKILL") }
-        catch { /* The process group has already exited. */ }
+        catch { }
       }
       await closed.catch(() => {})
     }

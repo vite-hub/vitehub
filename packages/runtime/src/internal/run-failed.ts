@@ -16,7 +16,6 @@ export const runFailedEventNames: readonly RunFailedEventName[] = ["invocation.f
 
 export type RunFailedListener = (event: RunFailedEvent) => unknown
 
-// Every copy of this package in one process shares the listeners, so a primitive bundled twice still reaches them.
 const listenersKey = Symbol.for("vitehub.runtime.runFailedListeners")
 
 function listeners(): Set<RunFailedListener> {
@@ -32,7 +31,6 @@ export function onRunFailed(listener: RunFailedListener): () => void {
   }
 }
 
-/** Long messages, such as a stack in a message, are cut to this many characters. */
 const maxMessageLength = 2000
 
 /** The message and code of a thrown value. */
@@ -40,7 +38,6 @@ export function toRunFailedError(error: unknown): RunFailedError {
   const record = typeof error === "object" && error !== null ? error : undefined
   let message: string
   let code: unknown
-  // A thrown value can have a getter that throws, or no string form at all.
   try {
     const value: unknown = record && "message" in record ? Reflect.get(record, "message") : error
     message = typeof value === "string" ? value : String(value)

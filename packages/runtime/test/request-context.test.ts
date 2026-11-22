@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest"
 import { getRuntimeContext, getStandardContext } from "../src/index.ts"
 import { installStandardContext, sendPreparedResponse } from "../src/internal/h3.ts"
 
-/** A Request as Nitro 3 and srvx pass it to a Fetchable handler on Cloudflare. */
 function cloudflareRequest(url: string) {
   const env = { BUCKET: "request bucket" }
   const waitUntil = vi.fn()

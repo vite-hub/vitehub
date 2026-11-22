@@ -10,7 +10,6 @@ import type { ConsoleDatabase } from "../src/projects.ts"
 const state = vi.hoisted(() => ({ db: undefined as unknown }))
 
 vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: state.db }) }))
-// Every request is Ada's session in her team.
 vi.mock("vite-hub/auth/server", () => ({
   withAuthorization: (_required: boolean, handler: (request: Request, authorization: unknown) => Promise<Response>) => (request: Request) =>
     handler(request, { session: { activeOrganizationId: "t-ada" }, user: { email: "ada@example.com", id: "u-ada", name: "Ada" } }),
@@ -81,7 +80,6 @@ describe("Console forward budget", () => {
     expect(retryAfter).toBeGreaterThanOrEqual(1)
     expect(retryAfter).toBeLessThanOrEqual(60)
     expect(await limited.json()).toMatchObject({ code: "CONSOLE_FORWARD_RATE_LIMITED", fix: expect.stringContaining("Retry-After"), status: 429 })
-    // The limited call never reached the app.
     expect(sent).toHaveLength(forwardBudget.limit)
 
     expect((await call(other.id)).status).toBe(200)

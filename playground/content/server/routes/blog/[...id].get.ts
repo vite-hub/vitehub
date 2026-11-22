@@ -6,7 +6,6 @@ import { contentField } from "vite-hub/content/client"
 import content from "../../content"
 import { attributes, escape, renderHead } from "../../html"
 
-// The site's own components for the ones that posts declare in server/content.ts.
 const renderMarkdown = createHtmlRenderer({
   components: {
     alert: async ([, attributes, ...children], { render }) =>
@@ -15,9 +14,6 @@ const renderMarkdown = createHtmlRenderer({
   },
 })
 
-// A post with head tags from contentHead(): the post's seo() values, then its own fields, then the settings. Guests
-// read the published post. The Console side browser renders the draft, and the edits on its screen, through the same
-// `posts.get()`. `contentField()` marks what an editor can click in that preview.
 export default defineHandler(async (event) => {
   const id = getRouterParam(event, "id") ?? ""
   const posts = content.collection("posts")

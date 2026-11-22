@@ -4,7 +4,6 @@ import { timeZoneOffsetMinutes } from "../runtime/due.ts"
 
 const dayMs = 24 * 60 * 60_000
 const dayMinutes = 24 * 60
-// Two years cover every offset of a time zone's current rules. Each daylight saving period lasts longer than one day.
 const sampledDays = 2 * 366
 const utcCronCache = new Map<string, string | undefined>()
 
@@ -60,8 +59,6 @@ function expandCron(cron: string, offsets: readonly number[]): string {
   const time = `${renderField(minutes, 60, { field: minuteField, values: parsed.minutes })} ${renderField(hours, 24, { field: hourField, values: parsed.hours })}`
   const [dayShift] = dayShifts
   if (dayShifts.size === 1 && dayShift === 0) return `${time} ${dayField} ${monthField} ${weekdayField}`
-  // Shift a weekday list when every local time moves to the same UTC day. Otherwise wake every day, and let the runtime
-  // check the local date.
   if (dayShifts.size === 1 && dayField === "*" && monthField === "*" && weekdayField !== "*") {
     const weekdays = new Set(parsed.weekdays.map(weekday => (weekday + dayShift! + 7) % 7))
     return `${time} * * ${renderField(weekdays, 7, { field: weekdayField, values: [] })}`

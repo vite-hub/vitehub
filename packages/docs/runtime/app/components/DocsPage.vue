@@ -21,8 +21,6 @@ const { page } = response
 const isRoot = page.path === manifest.root?.path
 // A page that `start.links` lists opens inside the start section, like the pages of a section.
 const isStartLink = isDocsStartLink(useDocsConfig(), page.path)
-// A `playground` or `learn` page fills the docs shell with its workspace, whose data the build wrote. A Content
-// preview of a new such page has no data yet, so it shows as an article.
 const loadWorkspace = isDocsWorkspaceLayout(page.layout) ? workspaces[page.path] : undefined
 const workspace = loadWorkspace && (await loadWorkspace()).default
 // Content previews can change a page's layout or add a home page after the manifest was built.

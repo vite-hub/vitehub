@@ -66,7 +66,6 @@ it("resolves the Connection status and never rejects", async () => {
   await expect(useConnection("mail").status()).resolves.toBe("disconnected")
   await connect(test)
   await expect(useConnection("mail").status()).resolves.toBe("connected")
-  // A store that cannot open and a Connection that does not exist both count as disconnected.
   setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, store: () => Promise.reject(new Error("no store")) })
   await expect(useConnection("mail").status()).resolves.toBe("disconnected")
   await expect(useConnection("missing" as string).status()).resolves.toBe("disconnected")

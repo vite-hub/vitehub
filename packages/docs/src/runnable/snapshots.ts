@@ -219,8 +219,6 @@ export async function buildTutorialSnapshots(input: {
     const local = Object.entries(source.dependencies).filter(([, specifier]) => specifier.startsWith("workspace:")).map(([name]) => name)
     return { tutorial, source, local, packages: closure(local) }
   }))
-  // A fixture without dependencies, such as a plain Node server, has no node_modules to snapshot. Its workspace
-  // starts without one.
   const plans = allPlans.filter(plan => Object.keys(plan.source.dependencies).length > 0)
   // The tutorials share most of their workspace packages, so build and pack each package once for all of them.
   const packed = [...new Set(plans.flatMap(plan => plan.packages))]

@@ -138,7 +138,6 @@ describe("queue job operations", () => {
     base = await mkdtemp(join(tmpdir(), "vitehub-queue-jobs-"))
     vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "warn").mockImplementation(() => {})
-    // The config that the generated plugin installs in `vite dev` for a Cloudflare app.
     const config = { base, ...(development ? { development } : {}), driver: "local", rules: "cloudflare" } as const
     setQueueRuntimeConfig(config, createLocalQueueRuntimeClient)
     setQueueRuntimeRegistry({ welcome: async () => ({ handler }) })
@@ -148,7 +147,6 @@ describe("queue job operations", () => {
   it("lists a dead job with its error, shows its payload, retries it, and clears jobs", async () => {
     let fail = true
     const handler = vi.fn(async () => {
-      // A `ViteHubError` keeps its code and message in the report. Other errors report a fixed message.
       if (fail) throw new ViteHubError("WELCOME_REJECTED", "Mailer rejected the address.")
     })
     await installDev(handler)
@@ -156,7 +154,6 @@ describe("queue job operations", () => {
     const sent = await run("queue.send", { payload: { email: "ada@example.com" }, queue: "welcome" }) as { messageId: string, provider: string }
     expect(sent).toMatchObject({ messageId: expect.stringMatching(/^queue_/), provider: "local" })
     const id = sent.messageId
-    // Cloudflare rules: 4 attempts, and a retry runs at once.
     await vi.waitFor(async () => {
       expect(await run("queue.jobs-list", {})).toMatchObject({ jobs: [{ attempts: 4, id, state: "dead" }] })
     })

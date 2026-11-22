@@ -1,7 +1,5 @@
 import { defineConfig } from "vitest/config"
 
-// Test configs that several packages share. A package with other needs keeps its own `vitest.config.ts`.
-
 export const nodeTests = defineConfig({
   test: {
     environment: "node",

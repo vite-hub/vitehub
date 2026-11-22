@@ -167,7 +167,6 @@ describe("hubRateLimit", () => {
     expect(hints).toMatchObject({ version: 1, command: "build", hints: [{ code: "RATE_LIMIT_MEMORY_PER_PROCESS", docs: "https://vitehub.dev/docs/rate-limit/diagnostics/rate_limit_memory_per_process" }] })
     expect(hints.hints[0].fix).toContain("rateLimit.driver")
 
-    // The next standalone build, without the in-memory Rate Limit, starts an empty report.
     await rm(join(root, "upload.ts"))
     await configResolved(hubRateLimit({ driver: "memory" }))
     expect(JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8")).hints).toEqual([])
@@ -563,7 +562,6 @@ describe("hubRateLimit", () => {
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016", message: expect.stringContaining("supports only 10s and 1m windows") })
       await expect(serve(hubRateLimit({ driver: "cloudflare" }), { root }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
-      // vitehub({ host: "cloudflare" }) records its host and runs memory in dev.
       await expect(serve(hubRateLimit({ driver: "cloudflare" }), { [VITEHUB_FEATURES]: { rateLimit: { driver: "memory" } }, root, [VITEHUB_DEPLOYMENT_HOST]: "cloudflare" }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
     })
@@ -596,7 +594,6 @@ describe("hubRateLimit", () => {
       await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"driver":"memory"}')
       const warn = vi.fn()
       const build = serve(hubRateLimit({ driver: "cloudflare" }), { ...config, command: "build", logger: { warn } })
-      // A build that counts in memory cannot keep a strict limit across server processes.
       if (enforcement === "strict") return await expect(build).rejects.toMatchObject({ code: "RATE_LIMIT_MEMORY_STRICT_UNSUPPORTED" })
       await build
       expect(warn).toHaveBeenCalledWith(expect.stringContaining("counts requests in the memory of each server process"))

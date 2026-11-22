@@ -19,8 +19,6 @@ const MAX_BODY_BYTES = 64 * 1024;
 const STATE_COOKIE = "vitehub_connection_state";
 const MAX_APPROVAL_COUNT_PAGES = 10_000;
 
-// Discovery preserves filesystem-valid characters, including symbols such as `+`.
-// Keep management validation in step with the generated registry.
 const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.check(value => value === value.trim(), "Connection names cannot start or end with whitespace."));
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 const actionSchema = v.variant("action", [
@@ -69,7 +67,6 @@ export function json(body: unknown, status = 200, headers: Record<string, string
   });
 }
 
-/** HTTP status of a Connections failure. */
 const errorStatuses: Partial<Record<ConnectionsCatalogCode, number>> = {
   CONNECTIONS_APPROVAL_REQUIRED: 409,
   CONNECTIONS_DENIED: 403,
@@ -94,13 +91,7 @@ export function errorResponse(error: unknown): Response {
 
 const unknownHostMessage = "The request host is not an origin of vitehub({ publicUrl }).";
 
-/**
- * The same-origin check of the action route. It accepts the public origin from `vitehub({ publicUrl })`
- * and the origin of the request URL that the server sees, when its host is the public host. Behind a TLS-terminating proxy without a public
- * URL, the server can see `http:` while the browser sends an `https:` Origin.
- */
 function originRejection(request: Request, agentName?: string): Response | undefined {
-  // A configured URL binds the check, so the request Host cannot widen it.
   const expected = resolvePublicUrl({ agentName, request });
   if (!expected) return json({ error: managementErrorBody("CONNECTIONS_ORIGIN_REJECTED", unknownHostMessage) }, 403);
   const origin = request.headers.get("origin");
@@ -170,7 +161,6 @@ const connect: ConnectionsRoute = {
     const returnTo = requestReturnPath(request);
     const failure = (message: string, status: number, code?: string) =>
       page({ code, message, outcome: "error", returnTo, status, title: "Connection failed" });
-    // A foreign page must not start a flow in the name of the signed-in manager.
     if (request.headers.get("sec-fetch-site") === "cross-site")
       return failure("Start the connection from this application.", 403);
     let connectionName: string;
@@ -181,7 +171,6 @@ const connect: ConnectionsRoute = {
     }
     const connection = v.safeParse(name, connectionName);
     if (!connection.success) return failure("The Connection name is invalid.", 400, "CONNECTIONS_INVALID_REQUEST");
-    // The provider redirects the browser, so the callback uses the public origin, not the one behind a proxy.
     const publicOrigin = resolvePublicUrl({ agentName: access.agentName, request });
     if (!publicOrigin) return failure(unknownHostMessage, 403, "CONNECTIONS_ORIGIN_REJECTED");
     const authorization = await runtime().authorize({
@@ -192,7 +181,6 @@ const connect: ConnectionsRoute = {
     const secure = publicOrigin.startsWith("https:") ? "; Secure" : "";
     const headers = new Headers({ "cache-control": "no-store", location: authorization.url });
     headers.append("set-cookie", `${STATE_COOKIE}=${authorization.state}; Path=${base}; HttpOnly; SameSite=Lax; Max-Age=600${secure}`);
-    // The callback page returns to the Console page that started the flow.
     headers.append(
       "set-cookie",
       returnTo
@@ -216,8 +204,6 @@ const callback: ConnectionsRoute = {
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
     const providerError = url.searchParams.get("error");
-    // The state must come from a start request in this browser, by the same manager.
-    // `complete()` consumes the state and checks the manager that started the flow.
     if (!state || (!code && !providerError) || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
       return failure(
         "Connection failed",

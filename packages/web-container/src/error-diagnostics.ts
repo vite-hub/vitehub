@@ -1,11 +1,9 @@
 import { defineDiagnostics } from "nostics"
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// The browser entries, the Vite plugin, and the snapshot builder use this catalog. nostics has no imports and loads in browsers.
 export const webContainerErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/web-container/diagnostics",
   codes: {
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     WEB_CONTAINER_CONNECT_PROVIDER_UNKNOWN: {
       why: ({ choices, name }: { choices: string, name: string }) => `Unknown connect provider "${name}". Use one of: ${choices}.`,
       fix: "Pass only the provider names that the message lists as keys of `defineConnect()`.",

@@ -135,7 +135,6 @@ it("commits and comments as the bot of its GitHub App without a configured ident
     const access: unknown = Reflect.get(channel, Symbol.for("vitehub.agent.forgeAccess"))
     if (typeof access !== "function") throw new Error("The host channel has no forge access.")
     await expect(access({}, { repository: "quiverdk/portal" })).resolves.toEqual({ token: "app-token", identity: bot })
-    // The App's identity is read once.
     expect(requests.filter(path => path === "/app")).toHaveLength(1)
 
     const fallbackChannel = createGitHubHost({

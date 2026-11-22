@@ -36,7 +36,6 @@ function getErrorMessage(error: unknown) {
   return String(error)
 }
 
-/** The handler command may still write its output when the Cloudflare request failed after it could reach the Container. */
 function mayHaveRunCloudflareExec(error: unknown) {
   const metadata = readSandboxTaskErrorMetadata(error)
 
@@ -48,7 +47,6 @@ function mayHaveRunCloudflareExec(error: unknown) {
 
   if (metadata?.code !== 'SANDBOX_R0088')
     return false
-  // An overloaded Durable Object or a Container that is not ready never received the command.
   const failure = readCloudflareFailure(error)
   return !failure.overloaded && !failure.coldStart
 }
@@ -117,8 +115,6 @@ export function extractSandboxTaskOutputFromExecution(execution?: { stdout?: str
 
     const lineStart = stream.lastIndexOf('\n', markerOffset) + 1
     const lineEnd = stream.indexOf('\n', markerOffset)
-    // Keep the first marker in the final matching line, matching the former
-    // reverse-line scan without allocating an array for the whole stream.
     const markerIndex = stream.indexOf(EXEC_STDIO_OUTPUT_MARKER, lineStart)
     return stream.slice(markerIndex + EXEC_STDIO_OUTPUT_MARKER.length, lineEnd < 0 ? stream.length : lineEnd)
   }
@@ -291,9 +287,6 @@ export async function readExecOutputWithRecovery(
 
   try {
     const output = await sandbox.readFile(outputPath, { signal })
-    // A complete output file belongs to this execution. Preserve malformed
-    // envelopes so the caller can report the invalid contract instead of
-    // replacing the useful diagnostic with recovery failure.
     if (isCompleteSandboxTaskOutput(output))
       return output
   }

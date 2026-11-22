@@ -17,7 +17,6 @@ import type { LeaseSqlClient, LeaseStore } from "../src/lease.ts"
 const execFileAsync = promisify(execFile)
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
-/** Unwraps a `[error, data]` result, so a store failure fails the test with its cause. */
 function ok<T>([error, data]: [unknown, T]): T {
   if (error) throw error
   return data
@@ -25,9 +24,7 @@ function ok<T>([error, data]: [unknown, T]): T {
 
 interface Target {
   name: string
-  /** A store on a fresh, empty lease table. */
   store(): Promise<LeaseStore>
-  /** Separate stores on one fresh table, each with its own connection, as separate processes have. */
   stores?(count: number): Promise<LeaseStore[]>
 }
 
@@ -57,8 +54,6 @@ const targets: Target[] = [
 ]
 
 function libsqlClient(file: string): LeaseSqlClient {
-  // Separate libSQL clients in one process run their statements one at a time, so they never meet SQLITE_BUSY. A local
-  // libSQL file client is for one process only; the cross-process tests use node:sqlite.
   const client = createClient({ url: `file:${file}` })
   cleanups.push(async () => client.close())
   return { dialect: "sqlite", query: async (sql, args) => (await client.execute({ sql, args })).rows }
@@ -175,7 +170,6 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
     cleanups.push(() => sql.end(), () => blocker.end(), () => observer.end())
     await sql.unsafe(`drop table if exists ${leaseTable}`)
     const store = createSqlLeaseStore({ dialect: "postgresql", query: async (text, params) => await sql.unsafe(text, params) })
-    // Warm the store and its sweep before holding the row lock. Keep the expired row for the upsert case.
     const original = ok(await store.acquire("blocked-job", { ttl: 30 }))!
     if (operation === "acquire") await sql.unsafe(`update ${leaseTable} set expires_at = 0 where "key" = 'blocked-job'`)
     const [connection] = await sql.unsafe("select pg_backend_pid() as pid")
@@ -183,7 +177,6 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
     let pending: Promise<unknown> | undefined
     try {
       await blocker.unsafe(`select "key" from ${leaseTable} where "key" = 'blocked-job' for update`)
-      // Longer than the first lease, so a renew that changes nothing cannot pass.
       const ttl = 60
       const result = (async () => {
         if (operation === "acquire") return ok(await store.acquire("blocked-job", { ttl }))
@@ -191,14 +184,11 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
         return original
       })()
       pending = result
-      // Confirm that the actual lease statement is blocked, rather than relying on a client-side start time.
       await expect.poll(async () => {
         const [row] = await observer.unsafe("select cardinality(pg_blocking_pids($1)) > 0 as blocked", [connection!.pid])
         return row!.blocked
       }).toBe(true)
       await observer.unsafe("select pg_sleep(0.7)")
-      // The lease statement gets the row lock only after this commit. Compare against this database clock reading, not
-      // the time of a later read, so a slow runner cannot fail the check.
       const [released] = await blocker.unsafe("select (extract(epoch from clock_timestamp()) * 1000)::bigint as now")
       await blocker.unsafe("commit")
 
@@ -218,8 +208,6 @@ describe.skipIf(!postgresUrl)("Postgres lease lock waits", () => {
 })
 
 describe("node:sqlite lease store across processes", () => {
-  // Only separate processes contend for the SQLite lock. A local libSQL file client is not tested here: after
-  // SQLITE_BUSY it can lose writes that it reported as done, so the README limits it to one process.
   type Outcome = { error: string, cause: string } | { id: string } | null
   const fixture = fileURLToPath(new URL("./fixtures/lease-sqlite-process.ts", import.meta.url))
 
@@ -242,7 +230,6 @@ describe("node:sqlite lease store across processes", () => {
     expect(free.filter(outcome => outcome && "error" in outcome)).toEqual([])
     const first = free.filter(outcome => outcome && "id" in outcome)
     expect(first).toHaveLength(1)
-    // Read the committed row from another connection, so a write that SQLite rolled back cannot pass.
     expect(ok(await store.get("nightly"))).toMatchObject(first[0]!)
 
     const crashed = ok(await store.acquire("leader", { ttl: 0.2, owner: "crashed" }))!

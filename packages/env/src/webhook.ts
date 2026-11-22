@@ -11,7 +11,7 @@ import type { StandardSchemaV1 } from "./schema.ts"
 const webhookErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
-    // Runtime errors. `verifyWebhook()` returns them as `[error, undefined]`.
+    // Runtime errors.
     ENV_WEBHOOK_BODY_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_webhook_body_invalid",
       why: "The webhook has a valid signature, but its body is not JSON, or a GitHub form delivery has no JSON `payload` field.",
@@ -91,7 +91,6 @@ function verifySignature(options: VerifyWebhookOptions, secret: string, header: 
   return verifyViteHubHmacSignature(secret, header, body, options)
 }
 
-// GitHub signs the raw form body and puts the JSON in its `payload` field when the webhook content type is form.
 function webhookJson(options: VerifyWebhookOptions, headers: Headers, text: string): string | null {
   if (options.provider !== "github" || !headers.get("content-type")?.toLowerCase().startsWith("application/x-www-form-urlencoded")) return text
   return new URLSearchParams(text).get("payload")
@@ -130,7 +129,6 @@ export async function verifyWebhook(event: RequestEvent, options: VerifyWebhookO
   const header = request.headers.get(headerName)
   if (!header) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]
   const body = new Uint8Array(await request.arrayBuffer())
-  // Check every secret, so the time does not show which secret matched.
   let valid = false
   for (const secret of secrets) valid = await verifySignature(options, secret, header, body) || valid
   if (!valid) return [webhookErrors.ENV_WEBHOOK_SIGNATURE_INVALID({ header: headerName, name }), undefined]

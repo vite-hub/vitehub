@@ -19,13 +19,10 @@ export const webhookDeliveries = sqliteTable("vitehub_webhook_deliveries", {
   id: text("id").primaryKey(),
   webhook: text("webhook").notNull(),
   owner: text("owner"),
-  /** The debounce key. `null` for a webhook without a debounce and for a redelivery: those rows never collapse. */
   key: text("key"),
   event: text("event").notNull(),
-  /** The JSON text that the receiver gets, byte for byte. */
   body: text("body").notNull(),
   revision: integer("revision").notNull(),
-  /** How many sends this delivery collapses. The receiver gets it in `x-vitehub-events`. */
   count: integer("count").notNull(),
   state: text("state", { enum: states }).notNull(),
   attempts: integer("attempts").notNull(),
@@ -217,7 +214,6 @@ async function guarded<T>(action: string, run: () => Promise<T>): Promise<T> {
     return await run()
   }
   catch (cause) {
-    // A missing Database is its own error, with its own fix.
     if (webhooksErrors.is(cause)) throw cause
     throw webhooksErrors.WEBHOOKS_STORE_FAILED({ action, cause })
   }
@@ -259,7 +255,6 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
               updatedAt: sql`excluded.updated_at`,
               revision: sql`${t.revision} + 1`,
               count: sql`${t.count} + 1`,
-              // A new body starts a new set of attempts.
               attempts: 0,
             },
           }).returning({ id: t.id, revision: t.revision, count: t.count })
@@ -267,7 +262,6 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
       return row
     }),
     recordOnce: send => guarded("store a delivery", async () => {
-      // A delivery that goes dead between the insert and the read leaves no row. Try once more.
       for (let attempt = 0; attempt < 2; attempt++) {
         const inserted = await db().all(sql`
           INSERT INTO vitehub_webhook_deliveries (id, webhook, owner, key, event, body, revision, count, state, attempts, due_at, created_at, updated_at)
@@ -320,7 +314,6 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
         .where(and(eq(t.id, claim.id), eq(t.state, "sending"), eq(t.attempts, claim.attempts)))
     }),
     failed: (claim, result, now, dead) => guarded("mark a failed attempt", async () => {
-      // One statement, so a send that inserts a newer pending row cannot race the check.
       const next = dead
         ? sql<WebhookDeliveryState>`'dead'`
         : sql<WebhookDeliveryState>`CASE WHEN ${t.key} IS NOT NULL AND EXISTS (SELECT 1 FROM vitehub_webhook_deliveries AS newer WHERE newer.webhook = ${t.webhook} AND newer.key = ${t.key} AND newer.state = 'pending') THEN 'cancelled' ELSE 'pending' END`
@@ -329,7 +322,6 @@ export function createDrizzleWebhookStore(database: WebhooksDatabase | (() => We
         .where(and(eq(t.id, claim.id), eq(t.state, "sending"), eq(t.attempts, claim.attempts)))
         .returning({ state: t.state })
       if (row?.state === "cancelled") {
-        // The newer pending send stands for this one too.
         await db().update(t).set({ count: sql`${t.count} + ${claim.count}` }).where(and(eq(t.webhook, claim.webhook), eq(t.key, claim.key ?? ""), eq(t.state, "pending")))
       }
       return row?.state

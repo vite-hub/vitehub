@@ -5,7 +5,6 @@ import { createJustBashDriver } from "../src/providers/just-bash.ts"
 import { createWritableWorkspaceFs, workspaceMountPoint } from "../src/workspace/index.ts"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
-// Workspace stores accept trailing separators and return canonical entry paths.
 class DirectoryWorkspace extends MemoryWorkspace {
   override stat(path: string) {
     return super.stat(path.replace(/\/+$/, ""))

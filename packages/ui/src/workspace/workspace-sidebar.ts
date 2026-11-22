@@ -16,15 +16,10 @@ const tabbable = "a[href], button:not([disabled]), input:not([disabled]), select
 export const WorkspaceSidebar = defineComponent({
   name: "WorkspaceSidebar",
   props: {
-    /** Whether the sidebar is open. Use `v-model:open`. */
     open: { default: false, type: Boolean },
-    /** The id of the panel. Give the same one to `sidebar-id` of `WorkspaceBar`. */
     id: { default: undefined, type: String },
-    /** The name of the panel for screen readers. */
     label: { default: "Sidebar", type: String },
-    /** The buttons at the bottom, in this order. */
     actions: { default: () => ["reset", "download", "copy-link"], type: Array as PropType<readonly WorkspaceSidebarAction[]> },
-    /** Set it to `true` for a moment after the link is copied. The button then says so and rings. */
     copied: { default: false, type: Boolean },
   },
   emits: {
@@ -54,9 +49,7 @@ export const WorkspaceSidebar = defineComponent({
     watch(() => props.open, (open) => {
       if (open) return enter();
       const active = document.activeElement;
-      // Focus goes back only when it was in the panel. After a click outside, it stays where the reader clicked.
       const inside = !active || active === document.body || !!panel.value?.contains(active);
-      // A sidebar that mounted open has no earlier focus to restore, so focus goes to the button that controls it.
       const target = previous?.isConnected && previous !== document.body
         ? previous
         : document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(id())}"]`);
@@ -78,7 +71,6 @@ export const WorkspaceSidebar = defineComponent({
     }
     onMounted(() => {
       document.addEventListener("pointerdown", outside, true);
-      // A sidebar that mounts open takes focus too. The watcher above runs only on a change.
       if (props.open) enter();
     });
     onBeforeUnmount(() => document.removeEventListener("pointerdown", outside, true));

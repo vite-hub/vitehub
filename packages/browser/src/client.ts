@@ -290,7 +290,6 @@ class BrowserSessionImpl<TConnection> implements BrowserSession<TConnection> {
       try {
         const rollback = this.pendingControllerRelease
         if (rollback) {
-          // Rollback must finish while its provider connection is still available.
           await rollback.release()
         }
         if (!this.resourceReleased) {

@@ -28,7 +28,6 @@ async function bundleEntry(rootDir: string, source: string): Promise<string> {
   return outfile
 }
 
-/** A package that loads an optional peer on first use, as `@vite-hub/source/mcp` loads `@modelcontextprotocol/sdk`. */
 async function writeOptionalPeerLoader(rootDir: string): Promise<void> {
   await writePackage(rootDir, "source-like", `export const loadClient = () => import("mcp-sdk-like/client/index.js")\n`, {
     peerDependencies: { "mcp-sdk-like": "^1.0.0" },
@@ -36,7 +35,6 @@ async function writeOptionalPeerLoader(rootDir: string): Promise<void> {
   })
 }
 
-/** Bundles an entry that loads `@vite-hub/kv` lazily from a package, as `@vite-hub/agent` does, and imports it. */
 async function bundleAgentLikeEntry(rootDir: string): Promise<{ loadKV: () => Promise<{ kv: string }> }> {
   await writePackage(rootDir, "agent-like", `export const loadKV = () => import("@vite-hub/kv")\n`)
   await writeFile(join(rootDir, "entry.js"), `export { loadKV } from "agent-like"\n`)

@@ -27,7 +27,6 @@ function productionDependencies(entry: LockEntry | undefined): [string, string][
     .map(([name, dependency]) => [name, typeof dependency === "string" ? dependency : dependency.version])
 }
 
-/** Every version of every package that installing `importer` from npm brings in, keyed by package name. */
 function installedVersions(lockfile: Lockfile, importer: string): Map<string, Set<string>> {
   const versions = new Map<string, Set<string>>()
   const seen = new Set<string>()
@@ -56,17 +55,12 @@ describe("AI SDK packages", () => {
     const lockfile = await readLockfile()
     const versions = installedVersions(lockfile, "packages/agent")
     expect(versions.has("ai")).toBe(true)
-    // Two versions of one package are two copies in every Agent server bundle. Import AI SDK internals that `ai`
-    // re-exports, such as `createGateway`, from `ai` instead of pinning the package next to it.
     const duplicates = [...versions].filter(([name, set]) => name.startsWith("@ai-sdk/") && set.size > 1)
       .map(([name, set]) => `${name}: ${[...set].sort().join(", ")}`)
     expect(duplicates).toEqual([])
   })
 
   it("pins the AI SDK packages of @vite-hub/agent to the versions that its AI SDK dependencies pin", async () => {
-    // The lockfile above holds one copy, but a fresh install resolves each range again. `ai` pins @ai-sdk/provider, so
-    // a range such as ^4.0.24 next to it installs the newest 4.0.x as a second copy. A `languageModel()` model then
-    // has the newer LanguageModelV4 type and no longer fits the Driver's `LanguageModel`.
     const lockfile = await readLockfile()
     const { catalogs }: Catalogs = parseAllDocuments(await readFile(resolve(repoRoot, "pnpm-workspace.yaml"), "utf8")).at(-1)?.toJS()
     const manifest: Manifest = JSON.parse(await readFile(resolve(repoRoot, "packages/agent/package.json"), "utf8"))

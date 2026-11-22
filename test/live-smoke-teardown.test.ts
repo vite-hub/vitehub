@@ -98,7 +98,6 @@ describe("live smoke teardown", () => {
       if (path === "/queues" && method === "GET") return ok([{ queue_id: "q-1", queue_name: `${prefix}-queue-welcome-email` }])
       if (path === "/queues/q-1/consumers" && method === "GET") return ok([...consumers].map(id => ({ consumer_id: id, script: prefix, type: "worker" })))
       if (path === "/queues/q-1/consumers/c-1" && method === "DELETE") { consumers.delete("c-1"); return ok(null) }
-      // What Cloudflare answers while the Worker still consumes or binds the Queue.
       if (path === `/workers/scripts/${prefix}` && method === "DELETE") {
         return consumers.size ? { status: 403, body: { success: false, errors: [{ code: 10064, message: "Cannot delete this Worker as it is a consumer for a Queue." }] } } : ok(null)
       }

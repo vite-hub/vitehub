@@ -27,7 +27,6 @@ export function emailProviderError(
   })
 }
 
-// Check the fields that the client reads, so an Error from another realm also matches.
 export function isEmailProviderError(value: unknown): value is EmailProviderError {
   if (typeof value !== "object" || value === null) return false
   const error = value as Partial<EmailProviderError>

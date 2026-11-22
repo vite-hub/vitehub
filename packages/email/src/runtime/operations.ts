@@ -8,7 +8,6 @@ import type { EmailPreview } from "../preview.ts"
 import type { EmailOutboxList } from "./console.ts"
 import type { EmailOutboxMessage } from "./outbox.ts"
 
-/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const operationStatus = { EMAIL_OUTBOX_DISABLED: 409, EMAIL_OUTBOX_MESSAGE_NOT_FOUND: 404 } as const
 
 function withStatus<TError extends { code: keyof typeof operationStatus }>(error: TError): TError {

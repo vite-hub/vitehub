@@ -5,9 +5,6 @@ export function isProcessRunning(pid: number): boolean {
     return true
   }
   catch (error) {
-    // `kill(pid, 0)` reports EPERM when the process exists but belongs to a
-    // user this process cannot inspect. Treat that as alive so the drain
-    // client can continue through the status endpoint.
     try {
       return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EPERM"
     }

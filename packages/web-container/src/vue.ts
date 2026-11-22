@@ -118,7 +118,6 @@ export interface UseWebContainerReturn {
   teardown: () => void;
 }
 
-/** The browser globals that the composable reads. This package compiles without the DOM library. */
 interface BrowserWindow {
   navigator: { onLine: boolean };
   addEventListener(type: "online" | "offline", listener: () => void): void;
@@ -157,7 +156,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   const container = shallowRef<ViteHubWebContainer>();
   const previewUrl = ref<string>();
   const logs = shallowRef<WebContainerLogs>(Object.assign([], { offset: 0 }));
-  // The server renders online. The browser state applies with the boot, after mount in a component.
   const online = ref(true);
 
   const modified = computed(() => {
@@ -166,7 +164,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
     return [...paths].filter(path => initial[path] !== current[path]).sort();
   });
 
-  // Bound the buffer before batching, including output that arrives between flushes.
   const logLimit = 64 * 1024;
   const logChunkLimit = 1000;
   const retainedLogs: string[] = [];
@@ -191,25 +188,21 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
         retainedLength -= excess;
       }
     }
-    // Copy once per flush rather than once per process chunk.
     flushTimer ??= setTimeout(() => {
       flushTimer = undefined;
       logs.value = Object.assign([...retainedLogs], { offset: logEnd - retainedLength });
     }, 32);
   }
 
-  // What the container has on disk. Edits made before mount differ from it and are written when mount ends.
   let written: WebContainerFiles = {};
   let writes: Promise<void> = Promise.resolve();
   let booting: Promise<void> | undefined;
   let devRun: WebContainerRun | undefined;
-  // The port of the running dev server: its `env.PORT`, else `port`, else 3000, the `PORT` that `bootWebContainer()` sets.
   let devPort: number | undefined;
   let serverActive = false;
   let recovery = Promise.resolve();
   let disposed = false;
 
-  /** Writes `files` to the container. Rejects when a write fails. A later call tries the remaining writes again. */
   function sync(): Promise<void> {
     const pending = writes.then(async () => {
       const target = fs.value;
@@ -226,7 +219,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
           directory = parentDirectory(directory);
         }
       }
-      // Remove empty owned directories from the leaves up before replacing them with a file.
       for (const directory of [...conflictingDirectories].sort((a, b) => b.length - a.length)) {
         await target.rm(directory, { force: true });
       }
@@ -343,7 +335,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
               };
               previewUrl.value = undefined;
             }
-            // Only an explicit recovery action clears a failure, not a late status update.
             status.value = failure.value ? "error" : next.stage;
             steps.value = next.steps;
           },

@@ -44,7 +44,6 @@ export interface UseCollectionReturn<TCollection extends AnyCollection> {
   refresh: () => Promise<CollectionPage<CollectionClientItem<TCollection>> | undefined>
 }
 
-/** Thrown by the default requester when a Collection route answers with an error status. */
 class CollectionRequestError extends Diagnostic {
   readonly status: number
 
@@ -105,7 +104,6 @@ export class CollectionAccessError extends Diagnostic {
   } {
     return {
       code: this.code,
-      // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
       data: undefined,
       docs: this.docs,
       fix: this.fix,

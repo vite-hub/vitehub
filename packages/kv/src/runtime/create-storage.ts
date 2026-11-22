@@ -25,8 +25,6 @@ export function createKVStorage(driver: Driver & { validateBatch?: (items: Param
   storage.clear = async (base, options = {}) => {
     const prefix = normalizeKVListPrefix(base)
     if (!prefix) return clear("", options)
-    // unstorage clear(base) selects mounted stores, not keys in the root store, so give the prefix to the driver.
-    // Every KV driver deletes only the keys that start with `prefix`, as text: "user" also clears "users:1".
     if (driver.clear) return driver.clear(prefix, options)
     const keys = (await storage.getKeys("", options)).filter(key => key.startsWith(prefix))
     for (let offset = 0; offset < keys.length; offset += removeBatchSize) {
@@ -37,7 +35,6 @@ export function createKVStorage(driver: Driver & { validateBatch?: (items: Param
     async getMany(keys, options = {}) {
       if (!Array.isArray(keys)) throw kvErrorDiagnostics.KV_INVALID_BATCH({ operation: "getMany" })
       if (keys.length === 0) return []
-      // unstorage reads `bytes`, `blob`, and `stream` values one key at a time, without a limit, so this limits them.
       if (!driver.getItems || isRawType(options.type)) return mapWithLimit(keys, key => storage.getItem(key, options))
       const entries = await storage.getItems(keys, options)
       if (entries.length !== keys.length) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The batch read returned another number of values than keys." })
@@ -45,7 +42,6 @@ export function createKVStorage(driver: Driver & { validateBatch?: (items: Param
     },
     async setMany(entries, options) {
       if (!Array.isArray(entries)) throw kvErrorDiagnostics.KV_INVALID_BATCH({ operation: "setMany" })
-      // Like set() calls in order, the last entry of a key wins. `undefined` deletes the key, as set() does.
       const latest = new Map<string, StorageValue | undefined>()
       for (const { key, value } of entries) {
         const normalized = normalizeKey(key)
@@ -60,7 +56,6 @@ export function createKVStorage(driver: Driver & { validateBatch?: (items: Param
       }
       if (driver.validateBatch) {
         await driver.validateBatch([], removals, options)
-        // Let unstorage serialize values exactly as it will for the actual write.
         const validateBatch = driver.validateBatch
         const validation = createStorage({ driver: { ...driver, setItems: items => validateBatch(items, removals, options) } })
         await validation.setItems(writes, options)

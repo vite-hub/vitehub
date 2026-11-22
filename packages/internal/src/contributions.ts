@@ -158,7 +158,6 @@ export async function collectContributions(
   const candidates: object[] = []
   await flattenPlugins(plugins ?? [], candidates, new Set())
   const collected = new Map<string, { contribution: CollectedContribution, identity: string }>()
-  // Factories see the flat plugin list, as Database contributions do, so they can read sibling plugins.
   const context: ContributionContext = { ...options.context, plugins: candidates }
 
   for (const plugin of candidates) {

@@ -11,7 +11,6 @@ const examples: WorkspaceExample[] = [{
   },
 }];
 
-// The app runs in a WebContainer. The page needs cross-origin isolation, so other pages show a notice instead.
 const runner = webContainer({ port: 3000 });
 </script>
 

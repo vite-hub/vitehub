@@ -75,7 +75,6 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      // previewKVValue() catches it and shows the value as text, so no reader sees this error.
       throw invariantError("JSON has no bigint without `toJSON()`")
     }
 
@@ -99,7 +98,6 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       return serialize(boxed, depth, arrayValue, key)
     }
-    // previewKVValue() catches it and shows the value as text, so no reader sees this error.
     if (ancestors.has(object)) throw invariantError("JSON has no circular value")
     if (seen.has(object)) editable = false
     seen.add(object)

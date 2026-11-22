@@ -4,7 +4,6 @@ import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkflowStartDelay } from "../types.ts"
 
-/** The largest time that a JavaScript Date can hold. */
 const maximumTime = 8_640_000_000_000_000
 
 function isDate(value: unknown): value is Date {

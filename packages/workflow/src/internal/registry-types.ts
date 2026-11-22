@@ -22,7 +22,6 @@ function importSpecifier(file: string, target: string): string {
  */
 export function createWorkflowTypes(file: string, definitions: DiscoveredWorkflowDefinition[], importBase = "@vite-hub/workflow"): string {
   const registryEntries = definitions.flatMap((definition) => {
-    // A folder of step files without `index.ts` passes each step result to the next step, so its payload is unknown.
     if (!sourceFilePattern.test(definition.handler)) return [`    ${JSON.stringify(definition.name)}: import(${JSON.stringify(importBase)}).WorkflowDefinition<unknown>`]
     const moduleType = `typeof import(${JSON.stringify(importSpecifier(file, definition.handler))})`
     return [

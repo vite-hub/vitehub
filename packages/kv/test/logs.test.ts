@@ -5,7 +5,6 @@ import createDatabaseKVDriver from "../src/runtime/database.ts"
 
 import type { KVSqlClient } from "../src/runtime/database.ts"
 
-/** A SQLite client that answers every statement with no rows. The expiry sweep fails while `failing` is true. */
 function sweepClient(): { client: KVSqlClient, failing: { value: boolean }, sweeps: () => number } {
   let sweeps = 0
   const failing = { value: true }
@@ -49,7 +48,6 @@ describe("KV failures in logs", () => {
       clock.mockReturnValue(now + minutes * 61_000)
       await driver.setItem!("session:ada", "1", {})
       await vi.waitFor(() => expect(sweeps()).toBe(count))
-      // The sweep logs after its statement fails.
       await new Promise(resolve => setTimeout(resolve, 0))
     }
 
@@ -83,7 +81,6 @@ describe("KV failures in logs", () => {
 
     await driver.setItem!("session:ada", "1", {})
     await vi.waitFor(() => expect(sweeps()).toBe(1))
-    // The sweep logs and ends after its statement fails.
     await new Promise(resolve => setTimeout(resolve, 0))
     clock.mockReturnValue(now + 61_000)
     await driver.setItem!("session:ada", "1", {})

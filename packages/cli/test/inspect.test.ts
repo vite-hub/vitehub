@@ -336,7 +336,6 @@ describe("vitehub inspect resources", () => {
 })
 
 describe("vitehub inspect routes", () => {
-  // A real Vite config: Vite runs each plugin's config hook, and the CLI reads the merged Nitro handlers.
   async function createRoutesProject() {
     const tempDir = await createTempDir()
     const rootDir = join(tempDir, "app")

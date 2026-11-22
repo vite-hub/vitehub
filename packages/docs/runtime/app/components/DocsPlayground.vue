@@ -7,16 +7,12 @@ import { docsAppPath } from "#docs/navigation"
 import type { DocsWorkspaceData } from "#docs/runnable"
 import type { DocsPageResponse } from "@vite-hub/docs"
 
-// A `layout: playground` page: the apps of `examples` in a workspace that fills the page. Without `render`, they run
-// in a WebContainer. With it, the page renders the files to HTML itself.
 const props = defineProps<{ response: DocsPageResponse, data: Exclude<DocsWorkspaceData, { layout: "learn" }> }>()
 const route = useRoute()
 const router = useRouter()
 const { page } = props.response
 const { appBase } = useDocsConfig()
 
-// Examples with the same dependencies share one snapshot function, so the runner switches between them without a new
-// boot. A lesson with those dependencies uses the same cache name, so the browser keeps one copy of the parts.
 const snapshots = new Map<string, WorkspaceSnapshot>()
 const snapshotOf = new Map<string, string>()
 const examples: WorkspaceExample[] = props.data.examples.map(({ snapshot: prebuilt, snapshotOf: key, ...example }) => {
@@ -32,16 +28,13 @@ const load = props.data.render
 const runner: WorkspaceRunner = load
   ? render(async (files, context) => (await load()).default(files, context))
   : webContainer({ port: props.data.port, snapshot: example => snapshots.get(snapshotOf.get(example.id) ?? "") })
-// Each tab draws the component of its `value`, which reads the workspace through `useWorkspace()`.
 const tabs = (props.data.tabs ?? []).map(tab => ({ value: tab.value, label: tab.label, component: defineAsyncComponent(async () => (await tab.component()).default) }))
 const tabItems = tabs.map(({ value, label }) => ({ value, label }))
 
-// `?example=` opens an example. Older links use `?template=`.
 const queried = [route.query.example, route.query.template].find(value => typeof value === "string" && examples.some(example => example.id === value))
 const example = typeof queried === "string" ? queried : undefined
 const open = ref(false)
 
-/** The address keeps the open example. A share link no longer matches the files, so its hash goes. */
 function keep(id: string) {
   void router.replace({ query: { ...route.query, example: id === fallback.id ? undefined : id, template: undefined }, hash: "" })
 }

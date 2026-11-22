@@ -7,7 +7,6 @@ export function githubRepository(remote: string | undefined): string | undefined
   return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
 }
 
-/** The pull request that the CI or host builds, when it names one. */
 function pullRequestOf(env: Record<string, string | undefined>): number | undefined {
   const value = env.VERCEL_GIT_PULL_REQUEST_ID
     || (env.PULL_REQUEST === "true" ? env.REVIEW_ID : undefined)

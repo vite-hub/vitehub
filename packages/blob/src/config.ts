@@ -376,7 +376,6 @@ function resolveExplicitStore(
   }
 }
 
-/** The options of each driver. `driver` and `remote` are options of every store. */
 const blobDriverOptions: Record<BlobStoreConfig["driver"], readonly string[]> = {
   "azure": ["accountKey", "accountName", "connectionString", "container", "defaultUrlExpiresIn", "endpoint", "publicBaseUrl", "sasToken"],
   "cloudflare": ["accessKeyId", "accountId", "binding", "bucketName", "defaultUrlExpiresIn", "jurisdiction", "publicBaseUrl", "secretAccessKey"],
@@ -388,19 +387,13 @@ const blobDriverOptions: Record<BlobStoreConfig["driver"], readonly string[]> = 
   "vercel": ["access", "allowOverwrite", "downloadTimeoutMs", "token"],
 }
 
-/** A store without `driver` reads these when the host picks the Cloudflare or the Netlify driver. */
 const inferredBlobStoreOptions: Partial<Record<BlobStoreConfig["driver"], readonly string[]>> = {
   "cloudflare": ["binding", "bucketName", "jurisdiction"],
   "netlify-blobs": ["name"],
 }
 
-/**
- * A config object that a variable or another file builds skips TypeScript's check of unknown keys. A store without
- * `driver` ignores a driver option, such as `token` of a Vercel store, so Blob throws for every unknown key.
- */
 function assertKnownBlobStoreKeys(store: object, driver: BlobStoreConfig["driver"] | undefined, path: string, extra: readonly string[] = [], inferredKeys: readonly string[] = []): void {
   const known = new Set(["driver", "remote", ...extra, ...(driver ? blobDriverOptions[driver] : inferredKeys)])
-  // An option set to `undefined` is the same as an omitted one.
   const key = Object.keys(store).find(name => !known.has(name) && Reflect.get(store, name) !== undefined)
   if (key === undefined) return
   const drivers = (Object.keys(blobDriverOptions) as BlobStoreConfig["driver"][]).filter(name => blobDriverOptions[name].includes(key))
@@ -611,7 +604,6 @@ export function normalizeBlobOptions(
   const { serve: _serve, images: _images, ...storeOptions } = options || {}
 
   if (hasStoresConfig(options)) {
-    // With `stores`, each store holds its own driver options.
     const extra = Object.keys(options).find(key => key !== "stores" && !moduleOptions.includes(key) && Reflect.get(options, key) !== undefined)
     if (extra !== undefined) throw blobErrorDiagnostics.BLOB_UNKNOWN_STORE_OPTION({ drivers: [], key: extra, path: "blob" })
     const resolvedStores = Object.fromEntries(

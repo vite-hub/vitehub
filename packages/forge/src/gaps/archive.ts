@@ -21,10 +21,8 @@ export async function forgeArchive(provider: ForgeProvider, repo: RepoRef, optio
   const owner = encodeURIComponent(repo.owner)
   const name = encodeURIComponent(repo.name)
   const ref = options.ref.split("/").map(encodeURIComponent).join("/")
-  // Anonymous API calls share a limit of 60 an hour. Public github.com archives on codeload do not count against it.
   const path = provider.authKind === "anonymous" && provider.baseUrl.replace(/\/+$/, "") === "https://api.github.com"
     ? `https://codeload.github.com/${owner}/${name}/tar.gz/${ref}`
-    // The API answers with a signed redirect to codeload. The provider follows it and drops its credentials on the other origin.
     : `/repos/${owner}/${name}/tarball/${ref}`
   const response = await provider.request("GET", path, { raw: true, signal: options.signal })
   return response.body

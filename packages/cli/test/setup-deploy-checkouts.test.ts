@@ -14,18 +14,12 @@ import type { SetupDeployOutput, SetupError } from "../src/setup/index.ts"
 
 type DeployJson = SetupDeployOutput & { error?: SetupError, rerun?: string }
 
-/** The answer to the deploy question in a terminal. */
 const terminal = vi.hoisted(() => ({ answer: "n" }))
 vi.mock("node:readline/promises", () => ({ createInterface: () => ({ close: () => {}, question: async () => terminal.answer }) }))
 
 const cloudflareEnv = { CLOUDFLARE_ACCOUNT_ID: "acc-1", CLOUDFLARE_API_TOKEN: "cf-token-1" }
 const remote = "https://docs.example.com"
 
-/**
- * A small stand-in for `@vite-hub/workspace/checkout`, resolved from the project's node_modules as deploy resolves the
- * real one. The status reads `conflicts` of the lock. Pull writes the remote files and updates the lock. Push pulls
- * again, then commits with `workspace.commit`, both through the call that deploy passes.
- */
 const fakeCheckoutModule = `import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
@@ -106,14 +100,12 @@ const checkoutPackage = {
   "node_modules/@vite-hub/workspace/package.json": JSON.stringify({ exports: { "./checkout": "./checkout.js" }, name: "@vite-hub/workspace", type: "module" }),
 }
 
-/** The fake checkout module, which also writes `imported` next to itself when it loads. */
 const markedCheckoutPackage = {
   ...checkoutPackage,
   "node_modules/@vite-hub/workspace/checkout.js": `import { writeFileSync as mark } from "node:fs"\nmark(new URL("./imported", import.meta.url), "")\n${fakeCheckoutModule}`,
 }
 const importMarker = (root: string) => join(root, "node_modules/@vite-hub/workspace/imported")
 
-/** Runs `fn` as if stdin and stderr were a terminal, so deploy asks its question. */
 async function inTerminal<T>(fn: () => Promise<T>): Promise<T> {
   const before = { stderr: process.stderr.isTTY, stdin: process.stdin.isTTY }
   process.stdin.isTTY = true
@@ -132,15 +124,11 @@ function lock(entry: Record<string, unknown> = {}): string {
 }
 
 interface Workspace {
-  /** What the fake app answers to `workspace.changes`. */
   changes?: { head: string | null, files: Array<{ path: string, content: string }>, conflicts?: string[] }
-  /** Files inherited by a new ref, pulled after its first commit. */
   after?: Workspace["changes"]
-  /** What the fake app answers to `workspace.commit`. */
   commit?: { ok: true, value: { revision?: { id: string, parentId?: string | null } } } | { ok: false, code: string, message: string, fix?: string }
 }
 
-/** A fake deployed app that serves the Workspace operations, and records each request with the host calls before it. */
 function workspaceApp(hosts: Awaited<ReturnType<typeof fakeHosts>>, workspace: Workspace = {}) {
   const requests: Array<{ url: string, operation: string, hostCallsBefore: number }> = []
   let committed = false
@@ -184,7 +172,6 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
       changed: ["vitehub.lock", "content/news.md"],
       results: [{ pull: { files: [{ action: "added", path: "news.md" }], from: "r1", head: "r2", ref: "main", workspace: "docs" }, pushed: ["guide.md"], ref: "main", revision: "r3", workspace: "docs" }],
     })
-    // The push runs after the host deploy, against the remote that the lock names.
     expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.changes", "workspace.commit"])
     expect(app.requests[0]!.hostCallsBefore).toBe(0)
     const deployCalls = (await hosts.calls()).length

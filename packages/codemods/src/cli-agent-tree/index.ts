@@ -3,7 +3,6 @@ import { rewriteCliCalls } from "../shared/cli-calls.ts"
 import type { CliCall } from "../shared/cli-calls.ts"
 import type { Codemod, CodemodContext, CodemodResult } from "../types.ts"
 
-/** One `vitehub agent` tree: the old namespace and command, and the words that replace them. */
 const renames: ReadonlyArray<[string, readonly string[], string]> = [
   ["agents", ["list", "invoke"], "agent"],
   ["invocations", ["cancel", "undo", "capabilities", "workspace"], "agent invocations"],
@@ -71,7 +70,6 @@ function rewrite({ command, words }: CliCall): string {
   return command
 }
 
-/** Agent calls that the codemod leaves for a person, with what to do. */
 function manual(line: string): string | undefined {
   if (/\bvitehub\s+(?:agents\s+status\b|agent\s+get\b.*--agent\b)/.test(line)) return inspectionFollowUp
   if (/\bvitehub\s+invocations\s+delete\b/.test(line)) return "Select the same Console app explicitly with `vitehub agent invocations delete <id> --url <app>`; without --url the new command deletes from the journal file. Add --yes for a noninteractive script."

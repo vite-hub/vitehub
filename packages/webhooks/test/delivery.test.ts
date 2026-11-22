@@ -49,13 +49,11 @@ interface Received {
 }
 
 const secret = "whsec_test_secret"
-// The token stands for the T3 relay token in the URL. No error or stored field may hold it.
 const token = "relay-token-9f2c"
 
 let server: Server
 let receiverUrl: string
 let received: Received[] = []
-// The status of each next answer. When empty, the receiver answers 200.
 let statuses: number[] = []
 let engine: LocalQueueEngine
 let base: string
@@ -80,7 +78,6 @@ beforeAll(async () => {
   const client = createClient({ url: ":memory:" })
   await client.executeMultiple(`${webhooksTables.join(";\n")};`)
   base = await mkdtemp(join(tmpdir(), "vitehub-webhooks-"))
-  // The local Queue provider, as `vite dev` and a Node server run it. Retries come after 50 ms, not 1, 2, and 4 seconds.
   const queueDefinition = { handler: ({ payload }: { payload: unknown }) => deliverWebhookWake(payload), concurrency: 4 }
   engine = createLocalQueueEngine({
     base,
@@ -164,13 +161,11 @@ describe("sendWebhook", () => {
       expect(error).toBeUndefined()
       ids.push(sent!.id)
     }
-    // Every send of the window is the same delivery.
     expect(new Set(ids).size).toBe(1)
     const [, pending] = await listPendingWebhookDeliveries({ webhook: "t3" })
     expect(pending).toEqual([expect.objectContaining({ id: ids[0], state: "pending", revision: 5, count: 5, body: { comment: 5 } })])
     expect(received).toHaveLength(0)
     await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 5_000 })
-    // The older wakes find a newer revision or a sent delivery, so nothing else arrives.
     await new Promise(resolve => setTimeout(resolve, 1_500))
     expect(received).toHaveLength(1)
     expect(JSON.parse(received[0]!.body)).toEqual({ comment: 5 })
@@ -205,7 +200,6 @@ describe("sendWebhook", () => {
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(received).toHaveLength(4)
 
-    // A receiver that is down: the error names the failure, not the address or the token.
     const closed = createServer()
     await new Promise<void>(resolve => closed.listen(0, "127.0.0.1", resolve))
     const address = closed.address()
@@ -239,7 +233,6 @@ describe("sendWebhook", () => {
     const [cancelError, cancelledDelivery] = await cancelWebhookDelivery(cancelled!.id)
     expect(cancelError).toBeUndefined()
     expect(cancelledDelivery).toMatchObject({ state: "cancelled" })
-    // A cancelled delivery is not pending, so its wake and a flush do nothing.
     const [notPending] = await flushWebhookDelivery(cancelled!.id)
     expect(notPending).toMatchObject({ code: "WEBHOOKS_DELIVERY_NOT_PENDING" })
     expect((await listPendingWebhookDeliveries({ webhook: "hourly" }))[1]).toEqual([])

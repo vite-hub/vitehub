@@ -4,7 +4,6 @@ import { createProject, isolateProjectPackages, pnpmManifest, runSetup, viteConf
 
 const lock = JSON.stringify({ version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft" } } })
 
-/** A stand-in for `@vite-hub/workspace/checkout`, installed in the project. */
 const workspacePackage = {
   "node_modules/@vite-hub/workspace/package.json": JSON.stringify({ name: "@vite-hub/workspace", type: "module", exports: { "./checkout": "./checkout.js" } }),
   "node_modules/@vite-hub/workspace/checkout.js": [

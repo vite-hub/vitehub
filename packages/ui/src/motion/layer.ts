@@ -153,7 +153,6 @@ function onKeyUp(event: KeyboardEvent): void {
   if (event.key === " " || event.key === "Enter") end("key");
 }
 
-// The changes of content in one batch of records, by element, for the `content` hook of effects.
 function collectContent(records: MutationRecord[], effects: MotionEffect[]): void {
   const watching = effects.filter(effect => effect.content);
   if (!watching.length) return;
@@ -176,11 +175,9 @@ function collectContent(records: MutationRecord[], effects: MotionEffect[]): voi
   }
   for (const [element, change] of changes) {
     if (!element.isConnected) continue;
-    // A node that the batch added and removed again, such as a text that Vue wrote twice, is not part of the change.
     const added = change.added.filter(node => !change.removed.includes(node));
     const removed = change.removed.filter(node => !change.added.includes(node));
     const texts = change.texts;
-    // The old text is known when the change replaced every child, as `textContent =` does, or changed its one text node.
     let oldText: string | undefined;
     const children = [...element.childNodes];
     if (removed.length && children.every(node => added.includes(node))) oldText = removed.map(node => node.textContent ?? "").join("");
@@ -253,7 +250,6 @@ function onMutations(batch: MutationRecord[]): void {
   }
 }
 
-// The observer watches added elements only when an effect has an `enter` or a `content` hook, and text only for `content`.
 function observe(root: MotionRoot, observer: MutationObserver): void {
   const content = listMotionEffects().some(effect => effect.content);
   observer.observe(root, {

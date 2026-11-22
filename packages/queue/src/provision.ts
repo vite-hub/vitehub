@@ -6,7 +6,6 @@ import type { DiscoveredQueueDefinition } from "./types.ts"
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
-/** Provision State category for Cloudflare Queue names, keyed by Queue Definition name. Config never reads it, because Queue names come from Definitions. */
 const QUEUE_CLOUDFLARE_PROVISION_CATEGORY = "queue"
 
 interface CloudflareQueue {
@@ -57,7 +56,6 @@ export function createQueueProvisionStep(
       const queues = resolveDefinitions().map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
       if (!queues.length) return []
 
-      // The Queues list accepts `page` but documents no page size, so result_info decides when to stop.
       const listed = await listCloudflarePages(request, "/queues", { parse: parseQueues })
       const existing = new Set(listed.map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 

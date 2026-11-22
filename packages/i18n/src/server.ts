@@ -25,7 +25,6 @@ export type { SourceMessage, SourceMessages } from "./manifest.ts"
 
 type HeaderBag = { get(name: string): string | null }
 
-/** The parts of an H3 2 event that the server scope reads. */
 interface RequestEvent {
   context?: Record<string, unknown>
   req?: { headers?: HeaderBag } | unknown
@@ -97,11 +96,9 @@ export function installI18nServer(nitroApp: NitroAppLike, options: I18nServerOpt
   ;(globalThis as typeof globalThis & { [stateKey]?: ServerState })[stateKey] = { options, live }
   const messagesOf = (locale: string): Messages => live ? live.messages(locale) : options.messages[locale] ?? {}
 
-  // `setLocale()` in server code switches the request instance, so it loads from the server messages.
   const catalogs = Object.fromEntries(options.config.locales.map(locale => [locale, async () => ({ messages: messagesOf(locale) })]))
   configureI18n({ ...options.config, catalogs })
   const byRequest = new WeakMap<object, I18n>()
-  // Server code keeps the source text of each message. A message without a translation compiles it once here.
   const compiled = new Map<string, ReturnType<typeof compileMessage>>()
   const compile = (message: string) => {
     let result = compiled.get(message)
@@ -121,7 +118,6 @@ export function installI18nServer(nitroApp: NitroAppLike, options: I18nServerOpt
     if (event.req && typeof event.req === "object") byRequest.set(event.req, instance)
     byRequest.set(event, instance)
     if (!live) return
-    // Nitro waits for this promise, so a request after a publish reads the new revision.
     const revision = live.revision
     return live.refresh().then(() => {
       if (live.revision !== revision) instance.loadAndActivate({ locale: instance.locale, messages: messagesOf(instance.locale) })
@@ -223,32 +219,26 @@ async function recordsAt(workspace: TranslationsWorkspace, ref: string, locales:
 }
 
 function applyReview(current: TranslationRecord | undefined, transition: ReviewTransition): TranslationRecord | ResultError<"I18N_INVALID_TRANSLATION"> {
-  // `save()` permits an omitted editor; Diglot's review functions take a string.
   if (transition.ok) return { ...transition.record, by: transition.record.by || undefined }
-  // Repeated saves keep the current text's provenance, editor, and review stamps.
   if (transition.code === "unchanged" && current) return current
   return i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem: transition.message })
 }
 
-/** The record that `save()` writes, or the error of a review step that Diglot refuses. */
 function nextRecord(
   current: TranslationRecord | undefined,
   input: SaveTranslationInput,
   { segment, by, at }: { segment: ReturnType<typeof diglotSegment>, by: string, at: string },
 ): TranslationRecord | ResultError<"I18N_INVALID_TRANSLATION"> {
-  // Diglot rejects empty text. Clearing a translation uses its rejected state to restore the fallback.
   if (input.translation === "") {
     const record = current ?? createRecord({ segment, text: input.source, origin: "human", by: by || undefined, updatedAt: at })
     return applyReview(record, rejectRecord(record, { by, at }))
   }
   if (input.review === "machine") {
-    // Only new machine text changes provenance or resets review.
     if (current?.text === input.translation) return current
     return createRecord({ ...current, segment, text: input.translation, origin: "mt", review: "none", by: by || undefined, updatedAt: at, verifiedBy: undefined, rejectedBy: undefined })
   }
   const edit = () => applyReview(current, editRecord(current, { segment, text: input.translation, by, at, maxLength: false }))
   if (input.review !== "verified") return edit()
-  // A changed verified save edits the text first, then verifies it.
   const record = current?.text === input.translation ? current : edit()
   if (record instanceof Error) return record
   return applyReview(record, verifyRecord(record, { segment, by, at }))
@@ -326,7 +316,6 @@ export function useTranslations(): Translations {
     async save(input) {
       const entry = match(input.locale)
       if (!entry) return [unknown(input.locale), undefined]
-      // An empty translation clears the record instead of replacing its text.
       const problem = input.translation === "" ? undefined : translationProblem(input.source, input.translation)
       if (problem) return [i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem }), undefined]
       const workspace = writable(state)

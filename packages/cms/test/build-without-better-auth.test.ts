@@ -7,7 +7,6 @@ import type { Plugin } from "vite"
 
 const entry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
 
-// An app without `better-auth` gets a module with no exports in its place, as Vite does for a missing optional peer.
 const missingBetterAuth: Plugin = {
   name: "missing-better-auth",
   enforce: "pre",

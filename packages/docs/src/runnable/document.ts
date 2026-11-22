@@ -1,4 +1,3 @@
-// Shared by the build and the browser, so this file imports nothing from Node.
 import type { DocsDocument } from "../markdown.ts"
 
 type DocsNode = DocsDocument["nodes"][number]

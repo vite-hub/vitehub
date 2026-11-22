@@ -63,7 +63,6 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
     return created.result?.id
   }
   catch (error) {
-    // Another run created the namespace after this plan listed it.
     if (!isProvisionRequestError(error) || error.kind !== "conflict") throw error
     const id = (await listNamespaceIds(request)).get(title)
     if (!id) throw error
@@ -71,7 +70,6 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
   }
 }
 
-// Groups Cloudflare KV Stores without a configured namespace id by namespace name.
 function planStoresByNamespace(options: KVOptions | undefined, env: Record<string, string | undefined>): Map<string, string[]> {
   const kv = resolveKVViteConfig(options, { env, hosting: "cloudflare" }).kv
   const storesByNamespace = new Map<string, string[]>()
@@ -98,7 +96,6 @@ export function createKVCloudflareProvisionStep(resolveOptions: () => KVOptions 
     recordedState(context) {
       return [{
         category: KV_CLOUDFLARE_PROVISION_CATEGORY,
-        // A store with a configured namespace id still declares its key, so its recorded id is never offered for deletion.
         declared: cloudflareStoreNames(resolveOptions(), context.env),
         deleteHint: ({ id }) => isShellSafeProvisionValue(id)
           ? `run \`wrangler kv namespace delete --namespace-id ${id}\``

@@ -33,7 +33,6 @@ describe("driver-key", () => {
   })
 
   it("renames the drivers of a vitehub object in a file that a config file imports", async () => {
-    // strata builds its options in `build/host-profile.ts` and passes them as `vitehub: hostProfile.vitehub`.
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-driver-key-"))
     try {
       await writeFile(join(cwd, "nuxt.config.ts"), "import { createHostProfile } from './build/host-profile.js'\nconst hostProfile = createHostProfile()\nexport default defineNuxtConfig({ vitehub: hostProfile.vitehub })\n")
@@ -53,7 +52,6 @@ describe("driver-key", () => {
         "",
       ].join("\n")
       await writeFile(join(cwd, "build/host-profile.ts"), profile("cloudflare-r2", "cloudflare-kv-binding"))
-      // A file that no config file imports keeps its `vitehub` key.
       await writeFile(join(cwd, "fixture.ts"), "export const fixture = { vitehub: { kv: { driver: 'cloudflare-kv-binding' } } }\n")
       const { result } = await runCodemod("driver-key", { cwd, dryRun: true })
       expect(result.edits.map(edit => [edit.path, edit.after])).toEqual([["build/host-profile.ts", profile("cloudflare", "cloudflare")]])

@@ -42,7 +42,6 @@ describe("Browser optional peer bundle", () => {
       cwd: new URL("..", import.meta.url),
     })
     await promisify(execFile)("tar", ["-xzf", archive, "-C", packedRoot])
-    // Packing excludes installed dependencies such as nostics.
     await symlink(new URL("../node_modules", import.meta.url), join(packedRoot, "node_modules"), "junction")
   })
   afterAll(async () => {
@@ -52,7 +51,6 @@ describe("Browser optional peer bundle", () => {
   it("loads no esbuild in the Vite entry", async () => {
     const output = await readFile(new URL(`../${"dist"}/vite.js`, import.meta.url), "utf8")
 
-    // The build helpers bundle with the Rolldown of the app's Vite, and load it only when they bundle an entry.
     expect(output).not.toMatch(/["']esbuild["']/)
   })
 

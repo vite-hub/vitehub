@@ -19,7 +19,6 @@ const LIVE_SHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 interface Route {
   fixture: string
   status?: number
-  /** Changes the recorded body, such as to put in the commit of a temp repository. */
   edit?: (text: string) => string
 }
 
@@ -33,7 +32,6 @@ async function fixture(name: string): Promise<string> {
   return await readFile(join(import.meta.dirname, "fixtures/host-api", name), "utf8")
 }
 
-/** A fetch that answers `METHOD url` (without the query) from a recorded response, and records each request. */
 function hostApi(routes: Record<string, Route>): { fetch: typeof fetch, requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = []
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -105,7 +103,6 @@ function git(root: string, args: string[]): string {
   return execFileSync("git", ["-c", "user.name=ViteHub", "-c", "user.email=test@vitehub.dev", "-c", "commit.gpgsign=false", ...args], { cwd: root, encoding: "utf8", env: gitEnv }).trim()
 }
 
-/** A project in a temp git repository under /dev/shm, with `commits` commits. Returns the root and each commit sha. */
 async function gitProject(host: Host, commits: number): Promise<{ root: string, shas: string[] }> {
   const root = await mkdtemp(join(process.platform === "linux" ? "/dev/shm" : (process.env.TMPDIR ?? "/tmp"), "vitehub-deployments-"))
   gitDirs.push(root)
@@ -124,7 +121,6 @@ async function gitProject(host: Host, commits: number): Promise<{ root: string, 
   return { root, shas }
 }
 
-/** The Cloudflare versions fixture with the live version marked with `sha`. */
 function liveCommit(sha: string): (text: string) => string {
   return text => text.replaceAll(LIVE_SHA, sha)
 }
@@ -578,7 +574,6 @@ describe("vitehub status live", () => {
     expect(down.exitCode).toBe(0)
     expect(down.json).toMatchObject({ live: null, liveReason: "host-error" })
 
-    // A host that never answers until the request is aborted.
     const hang: typeof fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal!.reason))
     })

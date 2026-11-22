@@ -21,7 +21,6 @@ export interface DiscoveredCollection {
   route: boolean
 }
 
-/** The initializers of top-level `const`, `let`, and `var` declarations named `name`, with their declaration kind. */
 function declarationInitializers(module: ScannedModule, name: string, exportedOnly: boolean) {
   return module.program.body.flatMap((statement) => {
     const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : exportedOnly ? undefined : statement
@@ -34,7 +33,6 @@ function declarationInitializers(module: ScannedModule, name: string, exportedOn
 
 const viteHubSourceSpecifier = /^(?:@vite-hub\/source|vite-hub\/source)(?:\/|$)/
 
-/** Checks binding targets, including nested destructuring, without treating property keys or defaults as bindings. */
 function bindsCollectionFactory(binding: Node): boolean {
   switch (binding.type) {
     case "Identifier": return binding.name === "defineCollection"
@@ -46,11 +44,6 @@ function bindsCollectionFactory(binding: Node): boolean {
   }
 }
 
-/**
- * True when `defineCollection` in this module is ViteHub's factory: imported from a ViteHub Source entry, or not
- * declared in the module at all (an auto-import). A local function or an import from elsewhere with that name can
- * return any Collection, so its options say nothing about the route.
- */
 function callsViteHubFactory(module: ScannedModule): boolean {
   for (const statement of module.program.body) {
     if (statement.type === "ImportDeclaration") {
@@ -65,7 +58,6 @@ function callsViteHubFactory(module: ScannedModule): boolean {
   return true
 }
 
-/** The local binding that `export { local as exportName }` exports, without a module source. */
 function exportedLocalName(module: ScannedModule, exportName: string): string | undefined {
   for (const statement of module.program.body) {
     if (statement.type !== "ExportNamedDeclaration" || statement.source || statement.exportKind === "type") continue
@@ -76,27 +68,19 @@ function exportedLocalName(module: ScannedModule, exportName: string): string | 
   }
 }
 
-/**
- * Finds the `defineCollection(...)` call that initializes the named export. An initializer with more than one call,
- * such as a conditional, has no known call: the scanner cannot know which branch runs.
- */
 function findCollectionDefinitionCall(source: string, exportName: string, file: string): CollectionDefinitionCall | undefined {
-  // Collection files may use TypeScript syntax whatever their extension, such as a `.mjs` file from generated types.
   const module = scanModule(source, `${file}.ts`)
   const calls = findCalls(module, ["defineCollection"])
   const factory = callsViteHubFactory(module)
   const callIn = ({ init, constant }: { init: Expression, constant: boolean }) => {
     const matches = calls.filter(call => call.start >= init.start && call.end <= init.end)
     const [call] = matches
-    // Only a `const` keeps its initializer: a later `var` declaration or an assignment can export another value.
     return matches.length === 1 && call ? { call, exported: factory && constant && unwrapExpression(init) === call } : undefined
   }
   for (const initializer of declarationInitializers(module, exportName, true)) {
     const call = callIn(initializer)
     if (call) return call
   }
-  // Named exports may also re-export a local binding (`export { articles }`). Resolve that binding so route metadata
-  // stays attached to the Collection that discovery imports.
   const localName = exportedLocalName(module, exportName)
   if (localName === undefined) return
   for (const initializer of declarationInitializers(module, localName, false)) {
@@ -107,15 +91,9 @@ function findCollectionDefinitionCall(source: string, exportName: string, file: 
 
 interface CollectionDefinitionCall {
   call: CallExpression
-  /** True when the export is the value that ViteHub's `defineCollection()` returns from this call. */
   exported: boolean
 }
 
-/**
- * True only for a literal `route: false` in the options of the exported `defineCollection()` call. A spread or a
- * computed key after it can set `route` again when the module runs, so the route stays. Any other form keeps the route,
- * and `defineCollectionHandler()` answers 404 at request time when the Collection has `route: false`.
- */
 function collectionRouteDisabled(definition: CollectionDefinitionCall | undefined): boolean {
   if (!definition?.exported) return false
   const options = argumentExpression(definition.call.arguments[1] ?? definition.call.arguments[0])

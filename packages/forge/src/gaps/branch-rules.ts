@@ -4,11 +4,6 @@ import { forgeDiagnostics } from "../error-diagnostics.ts"
 import { forgeErrorStatus } from "../provider.ts"
 import { isRecord, repositoryPath } from "./github.ts"
 
-// Gap: forges `BranchRules` has no required workflows, ruleset merge methods or classic protection source
-// (https://github.com/danielroe/forges/issues/294).
-// Gap: forges `repos.branchRules()` rejects when GitHub refuses rulesets to a private repository on a plan without them
-// (https://github.com/danielroe/forges/issues/293).
-
 /** What GitHub branch rules ask for beyond `BranchRules` from `provider.repos.branchRules()`. */
 export interface GitHubBranchRuleDetails {
   /** An active ruleset requires workflows, which cannot be reduced to check names. */
@@ -68,7 +63,6 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
       if (checks.enforcement_level !== "everyone" && checks.enforcement_level !== "non_admins" && checks.enforcement_level !== "off") {
         throw invalid("Classic protection response has an unsupported enforcement level.")
       }
-      // `contexts` repeats the check names without their App binding. forges falls back to it when `checks` is empty or absent.
       const bound = Array.isArray(checks.checks) ? checks.checks : []
       if (checks.enforcement_level === "off" && (checks.contexts.length > 0 || bound.length > 0)) {
         throw invalid("Disabled classic checks contain required-check data.")
@@ -77,8 +71,6 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
         throw invalid("Branch summary omits required-check integration bindings.")
       }
     }
-    // forges reads classic required checks from the branch summary, which needs only Contents read access.
-    // The protection endpoint needs admin access; without it, forges warns with `insufficient_scope`.
     classicSource = rules.warnings?.some(warning => warning.code === "insufficient_scope") ? "branch-summary" : "protection-endpoint"
   }
   else if (protection !== undefined && protection.enabled !== false) throw invalid("Branch protection summary is incomplete.")

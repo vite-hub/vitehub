@@ -10,8 +10,6 @@ import type { TutorialActions } from "~/utils/tutorial-actions";
 type Files = Record<string, string>;
 type Tutorial = (typeof runnableTutorials)[number];
 
-// The steps of a lesson on top of Workspace: Solve, and the files of each step. Reset in the bar goes back to the
-// start of the step.
 const props = defineProps<{
   tutorial: Tutorial
   /** The current step, from 0. */
@@ -29,12 +27,10 @@ const stepFiles = (index: number, state: "start" | "solution"): Files => tutoria
 const prebuilt = props.tutorial.snapshot;
 const snapshot = prebuilt && (() => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${props.tutorial.slug}`, sha256: prebuilt.sha256 }));
 
-// The files that the lesson last loaded. The workspace marks a path whose contents differ from them as an edit.
 const baseline = shallowRef<Files>(stepFiles(props.step, "start"));
 const examples = computed<WorkspaceExample[]>(() => [
   { id: props.tutorial.slug, label: props.tutorial.title, files: baseline.value, preview: "/api/health" },
 ]);
-// The fixtures run `vite --port 3000`. Nitro starts dev workers on other ports first, and they are not the app.
 const runner = webContainer({ port: 3000, snapshot: () => snapshot || undefined });
 type Container = NonNullable<typeof runner.workspace.value>;
 

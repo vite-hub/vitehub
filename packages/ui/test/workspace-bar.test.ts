@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { defineComponent, h, nextTick, type PropType } from "vue";
 import { groupExamples, WorkspaceBar, type WorkspaceExample, WorkspaceExamples, WorkspaceSidebar, WorkspaceStart } from "../src/workspace.ts";
 
-// Nuxt UI stand-ins: a button, a menu that lists its items as buttons, and an icon.
 type Item = { label: string, type?: string, checked?: boolean, description?: string, onSelect?: () => void };
 const UButton = defineComponent({
   props: { label: { default: undefined, type: String } },

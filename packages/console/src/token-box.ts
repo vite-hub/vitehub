@@ -6,7 +6,6 @@
 
 export const consoleSecretVariable = "VITEHUB_CONSOLE_SECRET"
 
-/** A shorter secret is easy to guess. `openssl rand -hex 32` makes one of 64 characters. */
 const minimumSecretLength = 32
 const sealedPrefix = "v1."
 const encoder = new TextEncoder()

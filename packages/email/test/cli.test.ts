@@ -33,10 +33,6 @@ function context(root = rootDir) {
   return { context: { cwd: root, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" } as NodeJS.ProcessEnv, rootDir: root, stderr, stdout }, stderr, stdout }
 }
 
-/**
- * A fake app: it answers the operation RPC. A result is the value of the operation. With `status`, the result is an
- * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
- */
 function devServer(result: unknown, init: { status?: number } = {}) {
   return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => {
     const status = init.status ?? 200
@@ -46,7 +42,6 @@ function devServer(result: unknown, init: { status?: number } = {}) {
   })
 }
 
-/** The operation and input that a command sent. */
 function sentCall(fetch: ReturnType<typeof devServer>) {
   const request = fetch.mock.calls[0]?.[1]
   return { body: operationRpcRequest(request?.body), headers: new Headers(request?.headers), method: request?.method }

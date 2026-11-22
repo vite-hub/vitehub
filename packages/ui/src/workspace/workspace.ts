@@ -187,46 +187,29 @@ const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1
 const zipName = (prefix: string, example: WorkspaceExample) => prefix ? `${prefix}-${example.id}` : example.id;
 
 const workspaceProps = {
-  /** The examples to open. More than one shows an examples menu. */
   examples: { required: true as const, type: Array as PropType<readonly WorkspaceExample[]> },
-  /** Runs the files: `webContainer()` or `render()`. */
   runner: { required: true as const, type: Object as PropType<WorkspaceRunner> },
-  /** The id of the open example, such as from `?example=`. Defaults to the first example. Use `v-model:example`. */
   example: { default: undefined, type: String },
-  /** The file in the editor. Use `v-model:selected`. */
   selected: { default: undefined, type: String },
-  /** The steps of a lesson. They put the guide and the steps menu in the workspace. */
   steps: { default: () => [], type: Array as PropType<readonly WorkspaceStep[]> },
-  /** The current step, from 0. Use `v-model:step`. */
   step: { default: undefined, type: Number },
-  /** Where the guide goes: `top` over the code, or `side` in a column. Without steps, `side` puts the output over the code. */
   guide: { default: undefined, type: String as PropType<"top" | "side"> },
-  /** More output tabs, after the tabs of the runner. Each one shows the slot with the name of its `value`. */
   tabs: { default: () => [], type: Array as PropType<readonly WorkspaceTabItem[]> },
-  /** Copy link and Download, and opening `#code=` links. */
   share: { default: true, type: Boolean },
-  /** The start of the zip name. The example id follows it, as in `vitehub-kv.zip`. */
   name: { default: "", type: String },
-  /** Shows the examples as cards on a first visit, before any run starts or any snapshot loads. A share link skips them and opens its files. */
   start: { default: false, type: Boolean },
-  /** What the reader calls this, in lowercase, such as `"playground"`. It names the region, the Open button, and the notices. */
   label: { default: "workspace", type: String },
-  /** Whether the workspace shows, for a runner that only desktops start. Set it to `true` to show it on a tablet. Use `v-model:open`. */
   open: { default: false, type: Boolean },
 };
 
 type WorkspaceProps = Readonly<ExtractPropTypes<typeof workspaceProps>>;
 
-/** One run of the workspace. `Workspace` mounts a new one when an example cannot open in the current run. */
 const WorkspaceSession = defineComponent({
   name: "WorkspaceSession",
   props: {
     config: { required: true, type: Object as PropType<WorkspaceProps> },
-    /** The example that this run starts with. */
     booted: { required: true, type: Object as PropType<WorkspaceExample> },
-    /** The files to start with: the files of the example, or of a share link. */
     files: { required: true, type: Object as PropType<WorkspaceFiles> },
-    /** A notice over the workspace, such as for a share link. */
     notice: { default: undefined, type: String },
     step: { default: 0, type: Number },
   },
@@ -250,7 +233,6 @@ const WorkspaceSession = defineComponent({
     const run = config.runner.start({ example: props.booted, files: { ...props.files }, showTab, show: showFile });
 
     const current = shallowRef(props.booted);
-    // The page can give new files for the open example, such as a lesson for its next step.
     const example = computed(() => config.examples.find(item => item.id === current.value.id) ?? current.value);
     const edited = computed(() => diff(filesOf(example.value), run.files.value));
     const paths = computed(() => Object.keys(run.files.value).sort());
@@ -272,7 +254,6 @@ const WorkspaceSession = defineComponent({
     }
 
     async function load(next: WorkspaceExample) {
-      // Other dependencies or another snapshot need a new run.
       if (!run.keeps(next)) return emit("remount", next);
       current.value = next;
       const files = filesOf(next);
@@ -290,8 +271,6 @@ const WorkspaceSession = defineComponent({
       guard(title, "Discard changes", () => void load(example.value));
     }
 
-    // Copy link writes the share link. A link that chat apps would cut says so, in place of a toast. The `template`
-    // key of the link stays, so older links open.
     const { copy, copied } = useCopy();
     const problem = ref<string>();
     async function copyLink(button?: EventTarget | null) {
@@ -312,12 +291,10 @@ const WorkspaceSession = defineComponent({
     const context: WorkspaceContext = { edited, example, files: run.files, guard, run, runner: config.runner, setFile, show, showTab };
     provide(contextKey, context);
     provideWorkspaceFileOpener({ show });
-    // The run and the runner keep their refs, so the slots can pass them on.
     const slotProps: WorkspaceSlotProps = reactive({ ...context, run: markRaw(run), runner: markRaw(config.runner) });
 
     const source = computed({
       get: () => run.files.value[selected.value] ?? "",
-      // A failed write shows in the output, and the next edit writes the file again.
       set: value => void setFile(selected.value, value).catch(() => {}),
     });
 
@@ -352,7 +329,6 @@ const WorkspaceSession = defineComponent({
             : undefined,
           actions: () => [
             slots["bar-actions"]?.(slotProps),
-            // With a sidebar, Reset, Download and Copy link sit at its bottom instead.
             hasSidebar ? undefined : h(UButton, { color: "neutral", disabled: edited.value.length === 0, icon: "i-lucide-rotate-ccw", label: "Reset", variant: "ghost", onClick: reset }),
             ...config.share && !hasSidebar
               ? [
@@ -452,7 +428,6 @@ export const Workspace = defineComponent({
   name: "Workspace",
   props: workspaceProps,
   emits: {
-    /** The reader opened an example, or discarded the changes to one. */
     "update:example": (id: string) => typeof id === "string",
     "update:selected": (path: string) => typeof path === "string",
     "update:step": (step: number) => Number.isInteger(step),
@@ -464,13 +439,9 @@ export const Workspace = defineComponent({
     const root = ref<HTMLElement>();
     const first = () => props.examples.find(item => item.id === props.example) ?? props.examples[0]!;
 
-    // `id` changes when the files need a new run, such as for an example with other dependencies. Only share links pin
-    // files. A deferred run or a download reads the current files of its example.
     const session = shallowRef<{ id: number, example: WorkspaceExample, files?: WorkspaceFiles }>();
     const active = computed(() => props.examples.find(item => item.id === session.value?.example.id) ?? session.value?.example ?? first());
     const link = ref<"restored" | "invalid">();
-    // The start screen shows until the reader picks an example. No run starts and no snapshot loads before the pick. A
-    // share link never shows it.
     const starting = ref(props.start);
     const localStep = ref(props.step ?? 0);
     watch(() => props.step, (step) => { if (step !== undefined) localStep.value = step; });
@@ -485,7 +456,6 @@ export const Workspace = defineComponent({
     }
 
     let restoration = 0;
-    /** A `#code=…` link holds files. They open on their example. */
     async function restore() {
       const request = ++restoration;
       const code = props.share ? readPlaygroundHash(location.hash) : undefined;
@@ -506,7 +476,6 @@ export const Workspace = defineComponent({
     onBeforeUnmount(() => window.removeEventListener("hashchange", restore));
 
     function opened(example: WorkspaceExample) {
-      // The share link no longer matches the files.
       link.value = undefined;
       emit("update:example", example.id);
     }
@@ -517,7 +486,6 @@ export const Workspace = defineComponent({
       starting.value = false;
       opened(example);
       boot(example);
-      // The picked card or menu item is gone, so focus moves to the bar of the workspace.
       await nextTick();
       root.value?.querySelector<HTMLElement>(".vh-ws-topbar .vh-ws-examples-button, .vh-ws-topbar button[aria-label='More actions']")?.focus();
     }
@@ -537,7 +505,6 @@ export const Workspace = defineComponent({
 
     const requested = ref(props.open);
     watch(() => props.open, (open) => { requested.value = open; });
-    // A desktop runner starts on its own only on desktops, on a tap on tablets, and never on phones.
     const shown = computed(() => {
       if (!session.value || supported.value !== true) return false;
       if (!props.runner.desktop) return true;
@@ -561,14 +528,12 @@ export const Workspace = defineComponent({
     }
 
     function gate(): VNode {
-      // A runner that any device runs waits only for mount.
       if (!props.runner.desktop) {
         return h("div", { class: "vh-workspace-gate", "data-state": "pending" }, h("div", { class: "vh-workspace-placeholder" }, [
           h("div", { class: "vh-workspace-placeholder-bar" }),
           h("p", { class: "vh-workspace-muted" }, `Starting the ${props.label}`),
         ]));
       }
-      // Before mount the page cannot know the device, so CSS shows the phone card or the placeholder by width.
       const state = device.value === "pending" ? "pending"
         : device.value === "phone" ? "phone"
           : supported.value === false ? "unsupported"

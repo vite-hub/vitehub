@@ -47,9 +47,7 @@ export const WorkspaceExamples = defineComponent({
   name: "WorkspaceExamples",
   props: {
     examples: { required: true, type: Array as PropType<readonly WorkspaceExample[]> },
-    /** The id of the open example, or `null` before the first pick. Use `v-model`. */
     modelValue: { default: undefined, type: [String, null] as PropType<string | null> },
-    /** The word before the name of the open example on the button. */
     label: { default: "Example", type: String },
   },
   emits: {
