@@ -258,7 +258,7 @@ export interface CommentListCursor {
 }
 
 /** By id, or by number inside its scope, as `?comment=<n>` names it. */
-export type CommentGetInput = { id: string } | { scope: string, n: number }
+export type CommentGetInput = { threadId: string } | { scope: string, n: number }
 
 export interface CommentCreateInput {
   subject: CommentSubject

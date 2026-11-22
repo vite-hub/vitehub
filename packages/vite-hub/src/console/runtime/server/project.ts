@@ -1,4 +1,4 @@
-import { runOperation } from "@vite-hub/internal/operations"
+import { operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { allowedConsoleSections, consoleOperationGranted, readConsoleOperationUser } from "./access.ts"
@@ -7,7 +7,7 @@ import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
 
-import type { OperationContext } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationContext, OperationKind } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
@@ -34,6 +34,15 @@ export interface ConsoleProjectBuild {
   }
 }
 
+/** One operation as the ViteHub MCP shows it to an Agent: what it does and the input it takes. */
+export interface ConsoleOperationReference {
+  name: string
+  kind: OperationKind
+  description: string
+  /** The JSON Schema of the input. */
+  input: Record<string, unknown>
+}
+
 /** The answer of `project.get`: what this project runs, and what this caller may use in it. */
 export interface ConsoleProject {
   /** The version of this answer. A Console stops when the major version is one that it does not know. */
@@ -51,6 +60,11 @@ export interface ConsoleProject {
   /** The installed operations that the caller may call. Each call checks its section again. */
   operations: string[]
   /**
+   * Each operation of `operations` with its kind, description, and input, for the ViteHub MCP, so an Agent sends the
+   * right fields on the first call. The Console page and the CLI do not get it.
+   */
+  reference?: ConsoleOperationReference[]
+  /**
    * What the Console page shows in its rail and Overview, the answer of `sections.list`, so the page opens the project
    * with one call. The CLI and the ViteHub MCP do not get it.
    */
@@ -67,20 +81,21 @@ export async function readConsoleProject(context: OperationContext & { access: C
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
   const registry = consoleOperationRegistry()
-  const operations = registry.list()
+  const callable = registry.list()
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
     // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)
-    .map(operation => operation.name)
+  const operations = callable.map(operation => operation.name)
+  const reference = access.surface === "mcp" ? callable.map(operationReference) : undefined
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
   const comments = sections.includes("comments") && operations.includes("comments.list")
     ? await countOpenComments(registry, context)
     : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(navigation ? { navigation } : {}) }
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(reference ? { reference } : {}), ...(navigation ? { navigation } : {}) }
 }
 
 async function countOpenComments(registry: ReturnType<typeof consoleOperationRegistry>, context: OperationContext & { access: ConsoleAccess }): Promise<{ open: number } | undefined> {
@@ -89,4 +104,9 @@ async function countOpenComments(registry: ReturnType<typeof consoleOperationReg
   if (!result.ok) return undefined
   const threads = v.safeParse(v.array(v.object({ status: v.string() })), result.value)
   if (threads.success) return { open: threads.output.filter(thread => thread.status === "open").length }
+}
+
+function operationReference(operation: AnyOperation): ConsoleOperationReference {
+  const { $schema: _schema, ...input } = operationInputJsonSchema(operation)
+  return { name: operation.name, kind: operation.kind, description: operation.description, input }
 }

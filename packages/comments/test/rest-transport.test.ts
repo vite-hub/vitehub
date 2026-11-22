@@ -65,9 +65,9 @@ describe("createRestTransport", () => {
 
     expect((await ada.list({ subject })).map(thread => thread.id)).toEqual([created.id])
     expect(await ada.list({ subject: { kind: "drop", id: "7" } })).toEqual([])
-    expect(await ada.get({ id: created.id })).toMatchObject({ id: created.id })
+    expect(await ada.get({ threadId: created.id })).toMatchObject({ id: created.id })
     expect(await ada.get({ scope: "drop:42", n: 1 })).toMatchObject({ id: created.id })
-    expect(await ada.get({ id: "thread_missing" })).toBeNull()
+    expect(await ada.get({ threadId: "thread_missing" })).toBeNull()
 
     expect(await ada.users({ query: "Be", threadId: created.id })).toEqual([{ id: "ben", name: "Ben" }])
     expect(await ada.resolve({ threadId: created.id })).toMatchObject({ status: "resolved", resolvedBy: { id: "ada" } })
@@ -151,7 +151,7 @@ describe("createRestTransport", () => {
       await reloaded.outbox.retry()
       await vi.waitFor(() => expect(reloaded.outbox.entries).toHaveLength(0))
       expect(reply).toHaveBeenCalledTimes(2)
-      expect((await rest.get({ id: threadId }))?.messages).toHaveLength(2)
+      expect((await rest.get({ threadId }))?.messages).toHaveLength(2)
     } finally {
       clock.mockRestore()
     }
