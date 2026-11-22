@@ -146,7 +146,6 @@ describe("Workspace with render()", () => {
     await flushPromises();
     expect(seen[0]).toBe(pixel);
     expect([...seen[0]!]).toEqual([0x89, 0x50, 0x00, 0xff]);
-    // The assets never reach the tree or the editor.
     expect(Object.keys(box.context!.files)).toEqual(["index.html", "footer.html"]);
     const editor = () => wrapper.findComponent({ name: "WorkspaceEditor" });
     const head = () => wrapper.findComponent(WorkspaceEditorHead);
@@ -155,7 +154,6 @@ describe("Workspace with render()", () => {
 
     const [footer, missing] = wrapper.get("[data-tab='issues']").findAll("button.vh-ws-issue-file");
     expect(footer!.text()).toBe("footer.html:1");
-    // A file the run does not have stays closed.
     await missing!.trigger("click");
     expect(head().props("path")).toBe("index.html");
     await footer!.trigger("click");
@@ -163,7 +161,6 @@ describe("Workspace with render()", () => {
     expect(head().props("readonly")).toBe(true);
     expect(editor().props("readonly")).toBe(true);
 
-    // useWorkspace().setFile still writes a read-only file.
     await box.context!.setFile("footer.html", "<footer>Changed</footer>");
     expect(box.context!.files["footer.html"]).toBe("<footer>Changed</footer>");
     expect(box.context!.edited).toEqual(["footer.html"]);

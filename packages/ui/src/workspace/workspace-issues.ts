@@ -28,7 +28,6 @@ export const WorkspaceIssues = defineComponent({
     empty: { default: undefined, type: String },
   },
   emits: {
-    /** The reader clicked the file of an issue. `Workspace` opens it in the editor. */
     show: (path: string) => typeof path === "string",
   },
   setup(props, { emit }) {

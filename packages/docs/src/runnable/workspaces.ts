@@ -62,7 +62,6 @@ export function playgroundExampleSources(page: WorkspacePage, rootDir: string): 
   }))
 }
 
-/** Whether `path` is a text file that `readTree(dir)` reads: inside `dir`, not generated, and valid UTF-8. */
 function isTextFileOf(dir: string, path: string): boolean {
   const parts = path.split("/")
   if (isAbsolute(path) || path.includes("\\") || parts.some(part => part === "" || part === "." || part === ".." || isIgnoredEntry(part))) return false
@@ -116,8 +115,6 @@ export function pageExamples(page: WorkspacePage, templates: readonly Playground
   return templates.filter(template => template.id.startsWith(prefix)).map(template => ({ ...template, id: template.id.slice(prefix.length) }))
 }
 
-// Turns the base64 of the binary files back into bytes when the page module loads. `Uint8Array.fromBase64` is not in
-// every browser yet.
 const decodeAssets = [
   `const bytes = text => Uint8Array.from(atob(text), char => char.charCodeAt(0))`,
   `for (const example of data.examples) {`,

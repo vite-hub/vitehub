@@ -63,7 +63,6 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
     const { copy } = useCopy();
     const workspace = useWebContainer({
       files,
-      // Binary files mount with each boot. An example with other assets opens in a new run, see `keeps`.
       assets: booted.assets,
       immediate: false,
       port: options.port,

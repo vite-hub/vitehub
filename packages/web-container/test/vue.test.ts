@@ -145,7 +145,6 @@ describe("useWebContainer", () => {
 
     fake.releaseBoot?.();
     await flushPromises();
-    // A replace only removes the files it tracks, so the asset stays on disk.
     await workspace.setFiles({ "b.txt": "b" }, { mode: "replace" });
     expect(Object.fromEntries(fake.disk)).toEqual({ "b.txt": "b", "model/weights.bin": weights });
     expect(workspace.modified.value).toEqual(["a.txt", "b.txt"]);

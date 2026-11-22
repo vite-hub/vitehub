@@ -13,7 +13,6 @@ export const WorkspaceEditorHead = defineComponent({
   props: {
     /** The path of the open file, such as `src/components/Greeting.vue`. */
     path: { required: true, type: String },
-    /** Whether the reader cannot edit the file. Give the same value to `WorkspaceEditor`. */
     readonly: { default: false, type: Boolean },
     /** Whether the editor wraps long lines. Use `v-model:wrap`, and give the same value to `WorkspaceEditor`. */
     wrap: { default: false, type: Boolean },

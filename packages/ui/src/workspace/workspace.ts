@@ -227,8 +227,6 @@ const WorkspaceSession = defineComponent({
 
     const tab = ref<WorkspaceTab>();
     const showTab = (next: WorkspaceTab) => { tab.value = next; };
-    // The run starts before the editor state exists, so it opens files through this function. A path that the run
-    // does not have, such as in an issue of older files, keeps the open file.
     const showFile = (path: string) => { if (run.files.value[path] !== undefined) show(path); };
     const run = config.runner.start({ example: props.booted, files: { ...props.files }, showTab, show: showFile });
 
@@ -298,7 +296,6 @@ const WorkspaceSession = defineComponent({
       set: value => void setFile(selected.value, value).catch(() => {}),
     });
 
-    // The open example decides, so a lesson that gives new files for its next step can change the list.
     const locked = computed(() => example.value.readonly?.includes(selected.value) ?? false);
 
     const layout = computed<WorkspaceLayout>(() => {

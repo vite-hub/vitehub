@@ -161,7 +161,6 @@ export async function setupDocsRunnable(options: DocsRunnableOptions, input: { n
   addTemplate({
     filename: "playground-templates.mjs",
     write: true,
-    // JSON has no bytes, so the binary files of an example stay in the page modules of workspace pages.
     getContents: async () => `export const playgroundTemplates = ${JSON.stringify((await currentTemplates()).filter(template => configExamples.has(template.id)).map(({ assets: _assets, ...template }) => template))}\n`,
   })
 
