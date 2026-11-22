@@ -114,12 +114,11 @@ export interface CodeEditor {
 }
 
 /**
- * Alt+Z, as in VS Code. On a Mac, Option+Z types a character such as `Ω`, so a key that is not a letter falls back to
- * the physical Z key.
+ * Match the layout's Z key or the US Mac Option+Z chord (`Ω` on `KeyZ`). A physical `KeyZ` alone can be a typing key.
  */
 function isToggleWrap(event: KeyboardEvent): boolean {
   if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  return /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() === "z" : event.code === "KeyZ";
+  return event.key.toLowerCase() === "z" || (event.key === "Ω" && event.code === "KeyZ");
 }
 
 export function createCodeEditor(options: CodeEditorOptions): CodeEditor {
