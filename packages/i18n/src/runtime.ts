@@ -118,13 +118,24 @@ function readLiveCatalog(body: unknown): { revision: string, messages: Messages 
 }
 
 async function liveMessages(live: string, locale: string): Promise<Messages> {
+  let response: Response
+  try {
+    response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
+  }
+  catch (cause) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_UNAVAILABLE({ cause, locale, route: live }))
+    return {}
+  }
+  if (!response.ok) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_UNAVAILABLE({ locale, route: live, status: response.status }))
+    return {}
+  }
   let body: unknown
   try {
-    const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
-    if (!response.ok) return {}
     body = await response.json()
   }
-  catch {
+  catch (cause) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_INVALID({ cause, locale, route: live }))
     return {}
   }
   const catalog = readLiveCatalog(body)

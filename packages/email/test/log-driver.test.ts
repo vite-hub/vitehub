@@ -11,7 +11,7 @@ import { hubEmail } from "../src/vite.ts"
 
 import type { EmailDefinition, EmailMessage } from "../src/types.ts"
 
-type ConfigHook = (config: Record<string, unknown>, env?: { command: "build" | "serve", mode: string }) => Promise<unknown>
+type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []

@@ -31,6 +31,10 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ locale, route }: { locale: string, route: string }) => `The live catalog \`${route}/${locale}.json\` answered with a body that is not \`{ revision, messages }\` with compiled messages, so the page uses the catalog of the build.`,
       fix: "ViteHub serves this route when `i18n.workspace` is set. Open the URL and check that no proxy, middleware, or route of the app answers the same path with another body.",
     },
+    I18N_LIVE_CATALOG_UNAVAILABLE: {
+      why: ({ locale, route, status }: { locale: string, route: string, status?: number }) => `The live catalog \`${route}/${locale}.json\` ${status === undefined ? "did not answer" : `answered with status ${status}`}, so the page uses the catalog of the build.`,
+      fix: "ViteHub serves this route when `i18n.workspace` is set. Open the URL, and check the server log and the network. `error.cause` has the fetch error.",
+    },
     // Runtime errors.
     I18N_INVALID_TRANSLATION: {
       why: ({ problem }: { problem: string }) => `The translation was not saved. ${problem}`,

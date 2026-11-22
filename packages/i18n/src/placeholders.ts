@@ -22,9 +22,20 @@ function placeholders(message: CompiledMessage): string[] {
   return [...names].sort()
 }
 
-/** The arguments such as `{name}` and the tags such as `<0>` of an ICU message, sorted. Throws for invalid ICU. */
-export function messagePlaceholders(message: string): string[] {
-  return placeholders(compileMessageOrThrow(message))
+function compile(message: string): CompiledMessage | Error {
+  try {
+    return compileMessageOrThrow(message)
+  }
+  catch (error) {
+    if (error instanceof Error) return error
+    throw error
+  }
+}
+
+/** The arguments such as `{name}` and the tags such as `<0>` of an ICU message, sorted, or the parse error for invalid ICU. */
+export function messagePlaceholders(message: string): string[] | Error {
+  const compiled = compile(message)
+  return compiled instanceof Error ? compiled : placeholders(compiled)
 }
 
 const maxTagPaths = 256
@@ -89,13 +100,8 @@ function richTextProblem(source: CompiledMessage, translation: CompiledMessage):
 
 /** Why a translation does not fit its source text, or `undefined` when it fits. */
 export function translationProblem(source: string, translation: string): string | undefined {
-  let compiled: CompiledMessage
-  try {
-    compiled = compileMessageOrThrow(translation)
-  }
-  catch (error) {
-    return `It is not valid ICU MessageFormat: ${(error as Error).message}`
-  }
+  const compiled = compile(translation)
+  if (compiled instanceof Error) return `It is not valid ICU MessageFormat: ${compiled.message}`
   const sourceMessage = compileMessageOrThrow(source)
   const expected = placeholders(sourceMessage)
   const actual = placeholders(compiled)

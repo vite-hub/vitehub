@@ -41,12 +41,8 @@ export function similarity(left: string, right: string): number {
 }
 
 function placeholders(text: string): string | undefined {
-  try {
-    return messagePlaceholders(text).join()
-  }
-  catch {
-    return undefined
-  }
+  const names = messagePlaceholders(text)
+  return names instanceof Error ? undefined : names.join()
 }
 
 /**

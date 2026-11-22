@@ -211,33 +211,23 @@ export function summarizeEmailOutboxMessage(
   }
 }
 
+const uninspectableFailure = "Email delivery failed with an uninspectable error."
+
+function inspectQuietly<T>(read: () => T): T | undefined {
+  try {
+    return read()
+  }
+  catch {
+    return undefined
+  }
+}
+
 function failedDelivery(error: unknown): EmailOutboxDelivery {
-  let shape: ReturnType<typeof getViteHubErrorShape> | undefined
-  try {
-    shape = getViteHubErrorShape(error)
-  }
-  catch {}
-  let code: string | undefined = shape?.code
-  if (code === undefined) {
-    try {
-      const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
-      code = coded.success ? coded.output.code : undefined
-    }
-    catch {}
-  }
-  let message: string
-  try {
-    message = error instanceof Error ? error.message : String(error)
-  }
-  catch {
-    message = "Email delivery failed with an uninspectable error."
-  }
-  try {
-    message = redactInspectionText(message)
-  }
-  catch {
-    message = "Email delivery failed with an uninspectable error."
-  }
+  const code = getViteHubErrorShape(error)?.code ?? inspectQuietly(() => {
+    const coded = v.safeParse(v.object({ code: v.optional(v.string()) }), error)
+    return coded.success ? coded.output.code : undefined
+  })
+  const message = inspectQuietly(() => redactInspectionText(error instanceof Error ? error.message : String(error))) ?? uninspectableFailure
   return { error: { ...optional("code", code), message }, status: "failed" }
 }
 
