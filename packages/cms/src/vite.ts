@@ -194,7 +194,7 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
         }
       },
       async workspaces(context: WorkspaceContributionContext) {
-        const projectRoot = context.projectRoot ?? context.root
+        const projectRoot = context.projectRoot
         const otherPlugins = await pluginsWithoutCms(context.plugins)
         const databaseRoot = databaseDiscoveryRoot(otherPlugins, projectRoot)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")

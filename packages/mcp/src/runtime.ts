@@ -76,13 +76,18 @@ function toolError(text: string): McpToolResult {
 
 const elicitationCodes = new Set(["MCP_ELICITATION_CLIENT_UNSUPPORTED", "MCP_ELICITATION_HOST_UNSUPPORTED"])
 
+function isClientError(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false
+  const status = Number(Reflect.get(error, "status"))
+  return status >= 400 && status < 500
+}
+
 function failure(name: string, error: unknown): McpToolResult {
   if (error instanceof Error && elicitationCodes.has(error.name)) {
     const fix = Reflect.get(error, "fix")
     return toolError(`${error.name}: ${error.message}${typeof fix === "string" ? ` ${fix}` : ""}`)
   }
-  const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
-  if (status >= 400 && status < 500 && error instanceof Error) return toolError(error.message)
+  if (isClientError(error)) return toolError(error.message)
   console.error(`[vitehub] MCP tool ${name} failed:`, error)
   return toolError(`${name} failed on the server.`)
 }
@@ -193,8 +198,7 @@ function toMcpTool(listed: Omit<McpTool, "handler">, definition: McpToolDefiniti
 
 function methodFailure(kind: "prompt" | "resource", name: string, error: unknown): unknown {
   if (mcpMethodRpcCode(error) !== undefined) return error
-  const status = Number(Reflect.get(Object(error), "status") ?? Reflect.get(Object(error), "statusCode"))
-  if (status >= 400 && status < 500 && error instanceof Error) return mcpArgumentsInvalid(error.message, error)
+  if (isClientError(error)) return mcpArgumentsInvalid(error.message, error)
   console.error(`[vitehub] MCP ${kind} ${name} failed:`, error)
   return mcpMethodFailed(name, error)
 }
@@ -340,6 +344,10 @@ function bearerToken(request: Request): string | undefined {
   return /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
 }
 
+async function cancelRequestBodyQuietly(request: Request): Promise<void> {
+  await request.body?.cancel().catch(() => undefined)
+}
+
 function unauthorized(request: Request, route: string, error: { code: string, message: string }): Response {
   const metadata = resourceMetadata(request, route)
   const invalid = error.code === "AUTH_MCP_TOKEN_INVALID"
@@ -385,7 +393,7 @@ export function createMcpHandler(options: McpHandlerOptions): (event: H3Event) =
         const token = error.code === "AUTH_MCP_TOKEN_INVALID" && verifyToken ? bearerToken(request) : undefined
         caller = token ? await verifyToken?.({ event, token }) : undefined
         if (!caller) {
-          await request.body?.cancel().catch(() => undefined)
+          await cancelRequestBodyQuietly(request)
           return unauthorized(request, options.route, token ? { code: "AUTH_MCP_TOKEN_INVALID", message: "The token is not an access token of this server, and verifyToken did not accept it." } : error)
         }
       }
