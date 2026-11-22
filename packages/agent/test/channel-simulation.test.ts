@@ -14,7 +14,7 @@ import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { agentChannelOperations } from "../src/operations.ts"
-import { createChannelWebhookRouteHandler, createDiscordGatewayHandler, createDiscordGatewayRouteHandler, runDiscordGatewayListeners } from "../src/server/internal.ts"
+import { createChannelWebhookRouteHandler, createDiscordGatewayHandler, createDiscordGatewayRouteHandler, hasDiscordGatewayChannel, runDiscordGatewayListeners } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 import type { AgentRunContext } from "../src/index.ts"
@@ -402,7 +402,7 @@ describe("simulated chat Channels", () => {
   it("runs the Gateway listener of a simulated Discord Channel once in a Node process", async () => {
     const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
     const handler = createDiscordGatewayHandler(agent)
-    const firstRun = Promise.withResolvers<Response | null>()
+    let firstRun: Promise<Response | null> | undefined
     let runs = 0
     const stop = runDiscordGatewayListeners({
       support: (abortSignal) => {
@@ -410,18 +410,29 @@ describe("simulated chat Channels", () => {
           void stop()
           return Promise.resolve(null)
         }
-        const result = handler(new Request("http://vitehub.local/_vitehub/agents/support/discord/gateway"), { abortSignal, durationMs: 1 })
-        void result.then(firstRun.resolve, firstRun.reject)
-        return result
+        firstRun = handler(new Request("http://vitehub.local/_vitehub/agents/support/discord/gateway"), { abortSignal, durationMs: 1 })
+        return firstRun
       },
     })
     try {
-      await expect(firstRun.promise).resolves.toBeNull()
+      await vi.waitFor(() => expect(firstRun).toBeDefined())
+      await expect(firstRun).resolves.toBeNull()
       await new Promise(resolve => setTimeout(resolve, 50))
     } finally {
       await stop()
     }
     expect(runs).toBe(1)
+  })
+
+  it("keeps no Discord Gateway listener open for a simulated Discord Channel", () => {
+    const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
+    expect(hasDiscordGatewayChannel(agent)).toBe(false)
+  })
+
+  it("keeps a Discord Gateway listener open for a Discord Channel when simulation is off", () => {
+    delete process.env[channelSimulationEnv]
+    expect(hasDiscordGatewayChannel(defineAgent({ channels: { discord: discord({ adapter: true }) }, driver: { run: () => "ok" } }))).toBe(true)
+    expect(hasDiscordGatewayChannel(defineAgent({ channels: { discord: discord({ adapter: true, messages: false }) }, driver: { run: () => "ok" } }))).toBe(false)
   })
 
   it("leaves Channels alone when simulation is off", () => {
