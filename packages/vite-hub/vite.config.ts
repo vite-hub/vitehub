@@ -9,6 +9,8 @@ import { end, parseProgram, start } from "@vite-hub/internal/ast";
 
 import frameworkPackageManifest from "./package.json" with { type: "json" };
 
+const motionCoreAlias = { "@vite-hub/ui/motion/core": resolve(import.meta.dirname, "../ui/src/motion-core.ts") };
+
 const manifestStringLeavesSchema: v.GenericSchema<unknown, string[]> = v.lazy(() =>
   v.union([
     v.pipe(
@@ -160,7 +162,7 @@ const runtimeEntries = [
   // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
   // session request.
   "src/console/runtime/server/page-auth.ts",
-  "src/console/runtime/server/page-session.ts",
+  "src/console/runtime/server/page-tools-route.ts",
   "src/console/runtime/server/site-session.ts",
 ];
 
@@ -524,6 +526,7 @@ export default defineConfig({
         { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "src/ui/theme.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
+        { from: "templates/cloudflare-app-types.d.ts", to: "dist" },
         { from: "templates/cloudflare-workers.d.ts", to: "dist" },
       ],
       deps: {
@@ -548,7 +551,10 @@ export default defineConfig({
               if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
               const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
               for (const file of files) {
-                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
+                const source = readFileSync(resolve(root, file));
+                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
+                // Also publish it at `node_modules/vite-hub/dist/skills/<name>/`, where `npx skills add` and agents find it.
+                this.emitFile({ type: "asset", fileName: `skills/${name}/${file}`, source });
               }
               return { name, description, files };
             });
@@ -643,7 +649,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/page-auth"];
-          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tools-route"];
           delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
@@ -719,6 +725,7 @@ export default defineConfig({
     {
       // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
       // own build, so it shares no chunk with the server code.
+      alias: motionCoreAlias,
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page/loader": "src/page/loader.ts" },
@@ -741,6 +748,7 @@ export default defineConfig({
     },
     {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).
+      alias: motionCoreAlias,
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "page/pill": "src/page/pill.ts" },

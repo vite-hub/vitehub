@@ -16,7 +16,6 @@ const Contact = v.object({
   message: v.pipe(v.string(), v.minLength(5, "Write a little more.")),
 })
 
-// The usage of ui-sdk: a native <form>, and a Field with an Input for each control, matched by `name`.
 const ContactForm = defineComponent({
   setup() {
     const { submit, errors, sent, error, pending, clear } = useFormAction("contact")
@@ -65,7 +64,6 @@ function mount(store: FormsStore = createMemoryFormsStore()) {
   const input = (name: string) => host.querySelector<HTMLInputElement>(`input[name="${name}"]`)!
   const fill = async (values: Record<string, string>) => {
     for (const [name, value] of Object.entries(values)) {
-      // The prototype setter, as typing does: ui-sdk reads a write through the instance as a change by code.
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input(name), value)
       input(name).dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }))
     }
@@ -92,9 +90,7 @@ describe("useFormAction", () => {
     expect(error("seats")).toBe("Ten seats at most.")
     expect(error("message")).toBe("Write a little more.")
     expect(input("seats").getAttribute("aria-invalid")).toBe("true")
-    // The error describes its control, so focus reads it.
     expect(input("seats").getAttribute("aria-describedby")).toContain(input("seats").closest("[data-slot=field]")!.querySelector("[data-slot=field-error]")!.id)
-    // The first field with an error in page order, not in the order of the issues.
     expect(document.activeElement).toBe(input("seats"))
   })
 
@@ -151,7 +147,6 @@ describe("FormHoneypot", () => {
     input.value = "bot"
     input.dispatchEvent(new InputEvent("input", { bubbles: true }))
     expect(trap.value).toBe("bot")
-    // The app renders the typed value before it resets the field, as after a send.
     await nextTick()
     trap.value = ""
     await nextTick()

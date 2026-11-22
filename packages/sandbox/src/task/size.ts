@@ -17,7 +17,6 @@ export interface CloudflareCustomInstanceType {
 
 export type CloudflareInstanceType = string | CloudflareCustomInstanceType
 
-// https://developers.cloudflare.com/containers/platform-details/limits/
 const cloudflareInstanceTypes = [
   { name: 'lite', vcpu: 1 / 16, memoryMib: 256 },
   { name: 'basic', vcpu: 1 / 4, memoryMib: 1024 },
@@ -27,18 +26,15 @@ const cloudflareInstanceTypes = [
   { name: 'standard-4', vcpu: 4, memoryMib: 12288 },
 ] as const
 
-// Older names that Wrangler still accepts.
 const cloudflareInstanceTypeAliases: Record<string, string> = { dev: 'lite', standard: 'standard-1' }
 
 /** Same memory as the 2 vCPU default of Vercel. `lite` has too little memory for a package install. */
 export const defaultCloudflareInstanceType = 'standard-1'
 
-// Vercel gives 2048 MiB of memory for each vCPU. https://vercel.com/docs/vercel-sandbox/pricing
 const vercelMemoryPerVcpu = 2048
 const vercelMaxVcpus = 32
 
 function readPositiveNumber(options: SandboxTaskSizeOptions & { maxInstances?: number }, key: 'cpu' | 'memory' | 'maxInstances', integer = false) {
-  // Config files are not type-checked, so the value can be any JSON value.
   const value: unknown = options[key]
   if (value === undefined)
     return undefined
@@ -84,7 +80,6 @@ export function resolveCloudflareSandboxTaskInstanceType(options: SandboxTaskSiz
 export function assertCloudflareInstanceTypeFits(instanceType: CloudflareInstanceType, options: SandboxTaskSizeOptions, className: string) {
   const { cpu, memory } = readSandboxTaskSize(options)
   const size = describeCloudflareInstanceType(instanceType)
-  // Wrangler validates names it knows. ViteHub cannot compare a name it does not know.
   if (!size || (size.vcpu >= (cpu ?? 0) && size.memoryMib >= (memory ?? 0)))
     return
   throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_CLOUDFLARE_INSTANCE_TYPE_TOO_SMALL({ className, instanceType: size.label, size: formatRequest(cpu, memory) })

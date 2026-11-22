@@ -12,6 +12,7 @@ import { createServer } from "vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 
 import { createEmail } from "../src/client.ts"
+import { renderEmailMarkdown } from "../src/markdown.ts"
 import { EMAIL_DEFINITION_ID, hubEmail, hubEmailOptionalPeerResolver, resolveEmailTemplateModulePath } from "../src/vite.ts"
 
 const tempDirs: string[] = []
@@ -259,7 +260,6 @@ describe("hubEmail", () => {
       return JSON.parse(await readFile(configFile, "utf8")).send_email
     }
 
-    // Nitro lists the module config entries before the project's Wrangler file entries.
     await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }] }))
     await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }])
 
@@ -315,7 +315,7 @@ describe("hubEmail", () => {
     const template = join(root, "server", "emails", "monthly-recap.md")
     const nestedTemplate = join(root, "server", "emails", "monthly-recap", "index.mjs", "detail.md")
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
-    await writeFile(template, "Hello {{name}}")
+    await writeFile(template, "Hello there")
     await writeFile(nestedTemplate, "Nested detail")
     const plugin = hubEmail({ driver: "cloudflare" })
 
@@ -348,7 +348,6 @@ describe("hubEmail", () => {
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    // Only an app with templates bundles the Markdown renderer.
     expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
@@ -356,7 +355,7 @@ describe("hubEmail", () => {
         "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"),
       })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Hello {{name}}")
+      .toContain("Hello there")
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"), "utf8"))
       .toContain("Nested detail")
     await rm(template)
@@ -372,10 +371,34 @@ describe("hubEmail", () => {
       .toThrow("is not valid")
   })
 
+  it("stops the build for a template written before `data.` bindings, and names the file", async () => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "analysis-error.md")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, "Strata could not complete the run for `{{ repoPath }}`.\n\n```text\n{{ errorMessage }}\n```\n\n[Open the analysis]({{ resultUrl }})\n")
+    const plugin = hubEmail({ driver: "log" })
+
+    const error = await plugin.api.prepareTypes({ projectRoot: root }).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ code: "EMAIL_TEMPLATE_SYNTAX_INVALID", message: expect.stringContaining("server/emails/analysis-error.md") })
+    expect((error as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA" })
+
+    for (const source of ["`{{ repoPath }}`", "`{{ data.repoPath }}`"]) {
+      await writeFile(file, source)
+      await expect(plugin.api.prepareTypes({ projectRoot: root })).rejects.toMatchObject({
+        code: "EMAIL_TEMPLATE_SYNTAX_INVALID",
+        cause: { code: "MARKDOWN_TEMPLATE_BINDING_IN_CODE" },
+      })
+    }
+
+    await writeFile(file, "Strata could not complete the run for **{{ data.repoPath }}**.\n")
+    await plugin.api.prepareTypes({ projectRoot: root })
+    expect(await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")).toContain("\"repoPath\": string | number | boolean")
+  })
+
   it("materializes templates before Cloudflare builds", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
-    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello there")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({
       driver: "cloudflare",
@@ -393,7 +416,7 @@ describe("hubEmail", () => {
     await resolvePlugin(plugin, root)
 
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-      .toContain("Hello {{name}}")
+      .toContain("Hello there")
     const buildStart = functionHook(plugin.buildStart, "buildStart")
     const addWatchFile = vi.fn()
     await buildStart.call({ addWatchFile })
@@ -421,7 +444,7 @@ describe("hubEmail", () => {
   it("exposes its generated definition to directly composed Vercel Workflows", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
-    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello {{name}}")
+    await writeFile(join(root, "server", "emails", "monthly-recap.md"), "Hello there")
     await symlink(join(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), process.platform === "win32" ? "junction" : "dir")
     const workflow = hubWorkflow({ driver: "vercel" })
     const server = await createServer({
@@ -449,7 +472,7 @@ describe("hubEmail", () => {
       })
       expect(contributions[1]).toMatchObject({ bundleAlias: contributions[0]?.bundleAlias })
       await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
-        .resolves.toContain("Hello {{name}}")
+        .resolves.toContain("Hello there")
     }
     finally {
       await server.close()
@@ -474,7 +497,6 @@ describe("hubEmail", () => {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
       const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
       await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
-      // Stop development refreshes before removing the source tree to simulate deployment.
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
@@ -488,7 +510,6 @@ describe("hubEmail", () => {
   })
 
   it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
-    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await Promise.all([
@@ -531,7 +552,6 @@ describe("hubEmail", () => {
     try {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
-      // Vite's plugin container normalizes the hook's /@fs// prefix to /@fs/.
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
         .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
     }
@@ -578,7 +598,6 @@ describe("hubEmail", () => {
       watcher.emit("change", template)
       let closed = false
       closing = Promise.resolve(functionHook(plugin.closeBundle, "closeBundle")()).then(() => { closed = true })
-      // The paused rebuild must keep the close hook pending.
       await Promise.resolve()
       expect(closed).toBe(false)
       for (const event of ["add", "change", "unlink"]) expect(watcher.listenerCount(event)).toBe(0)
@@ -671,6 +690,18 @@ describe("hubEmail", () => {
     await expect(stat(join(root, ".vitehub", "email", "templates"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it("builds templates with preserved Markdown attributes and renders those attributes to HTML", async () => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "status.md")
+    const source = "![Logo](/logo.png){:class=\"logo\"}\n\n# Status {:class=\"notice\"}"
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, source)
+    await hubEmail({ driver: "log" }).api.prepareTypes({ projectRoot: root })
+    const { html } = await renderEmailMarkdown(source)
+    expect(html).toMatch(/<img\b[^>]* class="logo"/)
+    expect(html).toMatch(/<h1\b[^>]* class="notice"/)
+  })
+
   it("serializes template refreshes and leaves relative references literal", async () => {
     const root = await createTempProject()
     const templatesRoot = join(root, "server", "emails")
@@ -733,6 +764,15 @@ describe("hubEmail", () => {
     ]))
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("@../shared/missing.md")
+
+    await writeFile(template, "Hello {{ userName }}")
+    handlers.get("change")?.(template)
+    await vi.waitFor(() => {
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("server/emails/monthly-recap.md"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("userName"))
+      expect(logError).toHaveBeenCalledWith(expect.stringContaining("{{ data.name }}"))
+    }, { timeout: 5_000 })
   }, 15_000)
 
   it("uses the development Nitro preset instead of the deployment target", async () => {

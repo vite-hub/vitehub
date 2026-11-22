@@ -80,7 +80,6 @@ export function getWorkflowProviderReason(error: unknown): string | undefined {
   return reason.length > maxReasonLength ? `${reason.slice(0, maxReasonLength - 1)}…` : reason
 }
 
-/** `vite dev` installs the run history. Elsewhere, `NODE_ENV` says whether the app runs a development server. */
 function isDevelopment(): boolean {
   return Boolean(getWorkflowDevRecorder()) || globalThis.process?.env?.NODE_ENV === "development"
 }

@@ -10,7 +10,6 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { seal, unseal } from "../src/index.ts"
 
 const root = "workers-seal-root-secret-at-least-32-characters"
-// The published runtime, bundled the way a Workers build bundles it: worker conditions, Node builtins left to nodejs_compat.
 async function bundleWorker(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "vitehub-seal-worker-"))
   try {

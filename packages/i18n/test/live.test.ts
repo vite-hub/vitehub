@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
-import { toResponse } from "@vite-hub/runtime"
+import { toResponse } from "@vite-hub/runtime/internal/response"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
@@ -18,7 +18,6 @@ import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/
 
 import type { WritableTranslationsWorkspace } from "../src/live.ts"
 
-/** A Workspace history in memory: each ref is a list of revisions with a full file set. */
 function memoryWorkspace() {
   const revisions = new Map<string, Record<string, string>>()
   const heads = new Map<string, string>()
@@ -97,7 +96,6 @@ describe("Workspace records", () => {
       head = revision.id
       await live.refresh()
       expect(live.revision).toBe(revision.id)
-      // Invalid records keep the build or source fallback, as file-backed records do.
       expect(live.messages("es")).toEqual({ ...snapshot, [deploy.id]: compileMessage(translation) })
       expect(live.clientMessages("es")).toEqual({ [deploy.id]: compileMessage(translation) })
     }
@@ -257,7 +255,6 @@ describe("translations in a Workspace", () => {
     const translations = useTranslations()
     const commit = store.workspace.history.commit
     store.workspace.history.commit = async (options) => {
-      // Another save lands between the head read and this commit.
       store.workspace.history.commit = commit
       await commit({ ...options, onHeadConflict: undefined, message: "Other save" })
       return await commit(options)

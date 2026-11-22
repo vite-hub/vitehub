@@ -21,7 +21,7 @@ import type { ForgeKind } from "./internal/forge-kind.ts"
 import { loadForge } from "./internal/forge-module.ts"
 import { agentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
-import { defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
+import { channelDeliveryFinishEffectsContextKey, defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
 import { isResponse } from "./internal/response.ts"
@@ -122,16 +122,22 @@ import {
 import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, parseDuration, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext, parseDuration, resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl, encodeRouteSegment } from "@vite-hub/runtime/internal/console"
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 import type { Duration } from "@vite-hub/runtime"
 import { serverVariable } from "./internal/server-variable.ts"
-import type { Adapter, AdapterPostableMessage, FileUpload } from "chat"
+import type { Adapter, AdapterPostableMessage, CardElement, FileUpload } from "chat"
 import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { ChannelAdapter, ChannelDefinition, ChannelEvent, ChannelHandler, WebhookChannelAdapter } from "@vite-hub/channels"
+import { ignored } from "@vite-hub/channels"
+export { ignored, rejected, retryLater } from "@vite-hub/channels"
+export { stripe, webhook } from "@vite-hub/channels/adapters"
+export type { StripeAdapterOptions, StripeEvent } from "@vite-hub/channels/adapters"
 
 export const messageChannelTitleSupportContextKey = "channel.delivery.supportsTitle"
 
@@ -275,17 +281,23 @@ type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
 type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
   AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>
 
+/** The GitHub user or App bot that a github() Channel App commits and comments as. */
+export interface GitHubAppIdentity { login: string, appId?: number, email?: string }
+
+type GitHubAppAccess = { token: string, identity?: GitHubAppIdentity }
+
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   /**
    * Custom forge token source. Use it instead of minting an App installation token, for example with a host-managed
    * credential. It receives the target `repository`, and `minLifetime`, the milliseconds the token must stay valid.
+   * Return `{ token, identity }` to use the identity selected with that token instead of the App defaults.
    */
-  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | undefined | Promise<string | undefined>)
+  token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal, minLifetime?: number }) => string | GitHubAppAccess | undefined | Promise<string | GitHubAppAccess | undefined>)
   /**
-   * Trusted identity of the host's authenticated GitHub user or App. Provider Drivers and the `git()` Capability
-   * commit as `login` with `email`.
+   * Trusted identity of the host's authenticated GitHub user or App, or a function that resolves it. Provider Drivers
+   * and the `git()` Capability commit as `login` with `email`.
    */
-  identity?: { login: string, appId?: number, email?: string }
+  identity?: GitHubAppValue<GitHubAppIdentity | undefined, TRuntimeConfig>
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -619,11 +631,16 @@ export type GitHubPullRequestTriggerEventName = "issue_comment" | "pull_request_
 
 /** The GitHub delivery that a pull request trigger matched. */
 export interface GitHubPullRequestTriggerEvent {
-  event: GitHubPullRequestTriggerEventName
-  /** The GitHub delivery ID from `x-github-delivery`. The queue runs each delivery ID once. */
+  /** `"server"` when server code started the trigger with `sendChannelTrigger()`. */
+  event: GitHubPullRequestTriggerEventName | "server"
+  /**
+   * The GitHub delivery ID from `x-github-delivery`. The queue runs each delivery ID once.
+   * For `"server"`, the trigger name and the `id` of the send, such as `"upkeep:wake-1"`.
+   */
   deliveryId?: string
+  /** For `"server"`, the identity paired with the token or resolved from `app.identity`, or an empty `login`. */
   actor: { login: string, id?: number, type?: string, association?: string }
-  /** The comment or review body. */
+  /** The comment or review body, or the `body` of a server send. */
   body?: string
   /** The comment or review page. */
   url?: string
@@ -678,6 +695,10 @@ export type GitHubPullRequestTriggerDefinition<TRuntimeConfig extends AgentRunti
 /**
  * A trigger of the `github()` Channel that runs on comments and reviews of pull requests. Put it in the Channel's
  * `triggers`. The webhook queue runs `invoke` once per matching delivery.
+ *
+ * Server code starts it on one pull request with
+ * `sendChannelTrigger("github", name, { pullRequest: { repository: "owner/repo", number }, id?, body? })`.
+ * The run waits for the pull request's queue slot, as a delivery does, and `invoke` gets `event: "server"`.
  */
 export function githubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
@@ -1897,22 +1918,24 @@ async function githubAppForge<TRuntimeConfig extends AgentRuntimeConfig>(
   })
 }
 
-async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
+async function githubAppInstallationAccess<TRuntimeConfig extends AgentRuntimeConfig>(
   app: true | GitHubAppOptions<TRuntimeConfig>,
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
   repository?: string,
   signal?: AbortSignal,
   minLifetime?: number,
-) {
+): Promise<GitHubAppAccess> {
   const options = githubAppOptions(app) || {}
   if (options.token) {
-    const token = typeof options.token === "function" ? await options.token(context, {
+    const access = typeof options.token === "function" ? await options.token(context, {
       repository: repository ?? ("effect" in context ? githubCommandFromEffect(context)?.repository : undefined),
       signal,
       ...(minLifetime === undefined ? {} : { minLifetime }),
     }) : options.token
-    return requiredString(token, 'token')
+    return typeof access === "object"
+      ? { token: requiredString(access.token, "token"), identity: access.identity }
+      : { token: requiredString(access, "token") }
   }
   const configured = installation
     // SAFETY: Presence of the effect discriminator establishes the delivery-effect context variant.
@@ -1926,11 +1949,32 @@ async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeCon
     ...(signal ? { signal } : {}),
     ...(minLifetime === undefined ? {} : { minLifetime }),
   })
-  if (!error) return minted.token
+  if (!error) return { token: minted.token }
   const status = forgeErrorStatus(error.cause)
   if (status !== undefined) throw agentDiagnostics.AGENT_R0350({ message: `[vitehub] GitHub delivery effect failed with ${status}.`, cause: error })
   if ((await loadForge()).isForgeResponseError(error.cause)) throw agentDiagnostics.AGENT_R0349({ message: "[vitehub] GitHub App installation token response did not include token.", cause: error })
   throw error
+}
+
+async function githubPullRequestAccess<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: GitHubAppContext<TRuntimeConfig>,
+  installation?: number,
+  repository?: string,
+  signal?: AbortSignal,
+  minLifetime?: number,
+): Promise<GitHubAppAccess | undefined> {
+  const env = await githubEnv(context)
+  const token = cleanSecret(env.token)
+  const fallback = token ? { token } : undefined
+  if (!app) return fallback
+  try {
+    return await githubAppInstallationAccess(app, context, installation, repository, signal, minLifetime)
+  }
+  catch (error) {
+    if (fallback) return fallback
+    throw error
+  }
 }
 
 async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -1938,19 +1982,8 @@ async function githubPullRequestMetadataToken<TRuntimeConfig extends AgentRuntim
   context: GitHubAppContext<TRuntimeConfig>,
   installation?: number,
   repository?: string,
-  signal?: AbortSignal,
-  minLifetime?: number,
 ) {
-  const env = await githubEnv(context)
-  const token = cleanSecret(env.token)
-  if (!app) return token
-  try {
-    return await githubAppInstallationToken(app, context, installation, repository, signal, minLifetime)
-  }
-  catch (error) {
-    if (token) return token
-    throw error
-  }
+  return (await githubPullRequestAccess(app, context, installation, repository))?.token
 }
 
 async function githubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -2047,7 +2080,6 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
   const options = githubAppOptions(app) || {}
-  if (options.identity) return options.identity
   const forge = await githubAppForge(options, context)
   const [error, identity] = await forge.app(signal ? { signal } : {})
   if (!error) return { appId: identity.id }
@@ -2059,12 +2091,13 @@ async function githubAppIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
 
 async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>(
   provider: ForgeProvider,
-  token: string,
+  access: GitHubAppAccess,
   app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
   context: GitHubAppContext<TRuntimeConfig>,
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
-  const configured = githubAppOptions(app)?.identity
+  const scoped = "identity" in access
+  const configured = scoped ? access.identity : await resolveGithubAppOption(githubAppOptions(app)?.identity, context)
   if (configured?.appId) return configured
   try {
     return await forgeIdentity(provider, { kind: "token" })
@@ -2076,11 +2109,12 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
   if (
     // The Actions token, passed as VITEHUB_GITHUB_TOKEN, acts as github-actions[bot].
     processEnv?.GITHUB_ACTIONS === "true"
-    && processEnv.GITHUB_TOKEN === token
+    && processEnv.GITHUB_TOKEN === access.token
   ) {
     return { login: "github-actions[bot]" }
   }
-  if (app) return githubAppIdentity(app, context, signal)
+  if (configured) return configured
+  if (app && !scoped) return githubAppIdentity(app, context, signal)
   throw agentDiagnostics.AGENT_R0356({ message: "[vitehub] GitHub Agent activity could not resolve the authenticated identity." })
 }
 
@@ -2369,13 +2403,13 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
         const hostProvider = services ? await githubActivityAwait(services.provider(context, fetcher), deadline) : undefined
         const apiBaseUrl = hostProvider?.baseUrl || githubApiBaseUrl
         const commentsTarget = `${apiBaseUrl}/repos/${target.repository}/issues/${target.issue}`
-        const token = services ? services.kind : await githubActivityAwait(githubPullRequestMetadataToken(app, context, target.installationId, target.repository, deadline), deadline)
-        if (!token) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
+        const access = services ? { token: services.kind } : await githubActivityAwait(githubPullRequestAccess(app, context, target.installationId, target.repository, deadline), deadline)
+        if (!access) throw agentDiagnostics.AGENT_R0359({ message: "[vitehub] GitHub Agent activity requires GitHub authentication." })
         deadline = githubActivityDeadline(context.abortSignal)
         deadline.throwIfAborted()
         const publication = async () => {
-          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
-          const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, token, app, context, deadline)
+          const provider = hostProvider || await (await loadForge()).forgeProvider({ forge: "github", baseUrl: apiBaseUrl, token: access.token, fetch: forgeChannelFetch(fetcher), userAgent: options.userAgent })
+          const identity = services ? await githubActivityAwait(forgeIdentity(provider, { kind: "token" }), deadline) : await githubActivityIdentity(provider, access, app, context, deadline)
           const activityKey = `${githubActivityIdentityKey(identity)}\0${commentsTarget}`
           const runId = githubActivityRunId(context.activity.agentName || "", context.activity.runId)
           const activeRuns = githubActivityActiveRuns.get(activityKey) || new Set<string>()
@@ -2537,6 +2571,11 @@ async function deliveryArtifactFiles<TRuntimeConfig extends AgentRuntimeConfig>(
   return files
 }
 
+/** A Chat SDK card is a plain object with `type: "card"`. The adapter draws or rejects its children. */
+function isCardElement(value: unknown): value is CardElement {
+  return isRecord(value) && value.type === "card" && Array.isArray(value.children)
+}
+
 async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
@@ -2581,7 +2620,8 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   const originalFinalText = context.effect.intent === chatFinalReplyIntent ? undefined : chatFinalReplyText(context.context)
   const finalText = originalFinalText === undefined ? undefined : formatChannelCitationText(originalFinalText)
   const payload = context.effect.payload
-  const textOnly = !artifacts.length && (!isRecord(payload) || (payload.attachments === undefined && payload.files === undefined))
+  const card = isRecord(payload) && isCardElement(payload.card) ? payload.card : undefined
+  const textOnly = !artifacts.length && !card && (!isRecord(payload) || (payload.attachments === undefined && payload.files === undefined))
   if (!stream && textOnly && finalText !== undefined && body?.trim() === finalText) {
     setMessageChannelDeliveredReplyBody(context, body)
     setMessageChannelDeferredReplyTrace(context, (callback) => {
@@ -2596,12 +2636,14 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
   if (body !== undefined) body = formatChannelCitationText(body)
   body = rewriteDeliveryArtifactMarkdown(replyBodyWithLinkArtifacts(body, artifacts), artifacts)
   setMessageChannelDeliveredReplyBody(context, body)
-  if (!body && !attachments.length && !files.length) return
-  const message: AgentChatMessage = {
-    markdown: body || "",
-    ...(attachments.length ? { attachments } : {}),
-    ...(files.length ? { files } : {}),
-  }
+  if (!body && !attachments.length && !files.length && !card) return
+  const message: AgentChatMessage = card
+    ? { card, ...(body ? { fallbackText: body } : {}), ...(files.length ? { files } : {}) }
+    : {
+        markdown: body || "",
+        ...(attachments.length ? { attachments } : {}),
+        ...(files.length ? { files } : {}),
+      }
   const chat = context.finish
     ? chatFinishExtensionFromUnknown(context.finish.extensions.get("chat")) || chatFinishExtension(context.input)
     : undefined
@@ -3448,31 +3490,6 @@ function isResolver(value: unknown): value is { resolve: (context: AgentCallback
   return isRecord(value) && typeof value.resolve === "function"
 }
 
-/**
- * Acknowledges a webhook that the Channel does not handle, such as an event type it does not use.
- * Answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry.
- */
-export function ignored(reason: string): Response {
-  return Response.json({ accepted: false, ok: true, reason })
-}
-
-/**
- * Answers a webhook that the Channel cannot take yet, such as when a dependency is down.
- * Answers HTTP 503 with `{ accepted: false, ok: false, reason }`. The sender retries it, and so does the webhook queue
- * when a queued delivery's trigger returns it on replay.
- */
-export function retryLater(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 503 })
-}
-
-/**
- * Refuses a webhook that the Channel will never handle, such as a malformed payload.
- * Answers HTTP 400 with `{ accepted: false, ok: false, reason }`. A queued delivery settles as rejected and is not retried.
- */
-export function rejected(reason: string): Response {
-  return Response.json({ accepted: false, ok: false, reason }, { status: 400 })
-}
-
 function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequestRunContext | undefined {
   return githubPullRequestRunContextFromUnknown(input)
 }
@@ -3640,12 +3657,8 @@ async function githubPullRequestTriggerEvent<TRuntimeConfig extends AgentRuntime
   if (!head?.sha) {
     // Comment deliveries do not include the head commit.
     try {
-      const appOptions = app ? githubAppOptions(app) || {} : {}
-      const token = await githubPullRequestMetadataToken(app, context, command.installationId, command.repository)
-      const { forgeProvider } = await loadForge()
-      const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
-      const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository: command.repository, number: command.issueNumber })
-      if (isRecord(read.raw) && isRecord(read.raw.head)) head = read.raw.head
+      const { pullRequest: read } = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+      if (isRecord(read.head)) head = read.head
     }
     catch (error) {
       console.error(`[vitehub] Could not read the head commit of ${command.repository}#${command.issueNumber}.`, error)
@@ -3686,8 +3699,7 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   context: AgentChannelTriggerContext<TRuntimeConfig>,
   pullRequestTriggers: Record<string, GitHubPullRequestTriggerOptions<TRuntimeConfig>>,
   command: GitHubPullRequestCommand & { trigger: string },
-  input: unknown,
-  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  readEvent: () => Promise<GitHubPullRequestTriggerEvent>,
 ): Promise<Response | GitHubPullRequestTriggerInput> {
   if (!Object.hasOwn(pullRequestTriggers, command.trigger)) return ignored(`pull request trigger "${command.trigger}" no longer exists`)
   // The Channel delivery journal records which trigger ran and how it answered.
@@ -3695,7 +3707,7 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
   const record = (event: Omit<AgentChannelDeliveryEventInput, "trigger">) => delivery?.event({ ...event, trigger: command.trigger }).catch(() => undefined)
   await record({ type: "trigger.started" })
   try {
-    const event = await githubPullRequestTriggerEvent(input, command, app, context)
+    const event = await readEvent()
     const triggerContext = {
       ...context,
       trigger: { ...context.trigger, id: `${context.trigger.channelId}.${command.trigger}` as const, name: command.trigger },
@@ -3719,6 +3731,214 @@ async function runGitHubPullRequestTrigger<TRuntimeConfig extends AgentRuntimeCo
 /** The command whose request is the trigger's `prompt`, when it returned one. */
 function githubPullRequestTriggerRequest(command: GitHubPullRequestCommand, input: GitHubPullRequestTriggerInput | undefined): GitHubPullRequestCommand {
   return input?.prompt ? { ...command, body: input.prompt } : command
+}
+
+interface GitHubPullRequestTriggerSend {
+  pullRequest: { repository: string, number: number }
+  id?: string
+  body?: string
+}
+
+function githubPullRequestTriggerSend(trigger: string, value: unknown): GitHubPullRequestTriggerSend {
+  const pullRequest = isRecord(value) && isRecord(value.pullRequest) ? value.pullRequest : undefined
+  const repository = maybeString(pullRequest?.repository)
+  const number = pullRequest?.number
+  const id = isRecord(value) ? value.id : undefined
+  const body = isRecord(value) ? value.body : undefined
+  if (
+    !repository || !/^[^/\s]+\/[^/\s]+$/.test(repository)
+    || typeof number !== "number" || !Number.isSafeInteger(number) || number < 1
+    || (id !== undefined && (typeof id !== "string" || !id.trim()))
+    || (body !== undefined && typeof body !== "string")
+  ) {
+    throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_INPUT_INVALID({ trigger })
+  }
+  return {
+    pullRequest: { repository, number },
+    ...(typeof id === "string" ? { id } : {}),
+    ...(typeof body === "string" ? { body } : {}),
+  }
+}
+
+async function readGitHubPullRequest<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  context: AgentCallbackContext<TRuntimeConfig>,
+  repository: string,
+  number: number,
+  installationId?: number,
+): Promise<{ pullRequest: Record<string, unknown>, access: GitHubAppAccess | undefined }> {
+  const appOptions = app ? githubAppOptions(app) || {} : {}
+  const access = await githubPullRequestAccess(app, context, installationId, repository)
+  const { forgeProvider } = await loadForge()
+  const provider = await forgeProvider({ forge: "github", baseUrl: appOptions.apiBaseUrl, token: access?.token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
+  const read = await forgePullRequest(provider, { forge: "github", instance: provider.instance, repository, number })
+  return { pullRequest: isRecord(read.raw) ? read.raw : {}, access }
+}
+
+function githubPullRequestServerPayload(command: GitHubPullRequestCommand, pullRequest: Record<string, unknown>): GitHubIssueCommentPayload {
+  return {
+    issue: {
+      html_url: pullRequest.html_url,
+      labels: pullRequest.labels,
+      number: command.issueNumber,
+      pull_request: { html_url: pullRequest.html_url, url: command.pullRequestUrl },
+      title: pullRequest.title,
+    },
+    number: command.issueNumber,
+    // SAFETY: The payload type lists GitHub pull request fields as unknown, and this is GitHub's pull request object.
+    pull_request: asUnknownBoundary(pullRequest) as GitHubIssueCommentPayload["pull_request"],
+    repository: { full_name: command.repository, name: command.repo, owner: { login: command.owner } },
+  }
+}
+
+function githubPullRequestServerEvent(command: GitHubPullRequestCommand, pullRequest: Record<string, unknown>): GitHubPullRequestTriggerEvent {
+  const head = isRecord(pullRequest.head) ? pullRequest.head : undefined
+  const url = maybeString(pullRequest.html_url)
+  const title = maybeString(pullRequest.title)
+  const author = isRecord(pullRequest.user) ? maybeString(pullRequest.user.login) : undefined
+  const headSha = maybeString(head?.sha)
+  const headRef = maybeString(head?.ref)
+  const baseRef = isRecord(pullRequest.base) ? maybeString(pullRequest.base.ref) : undefined
+  return {
+    event: "server",
+    ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+    actor: command.actor,
+    ...(command.body ? { body: command.body } : {}),
+    pullRequest: {
+      repository: command.repository,
+      number: command.issueNumber,
+      ...(url ? { url } : {}),
+      apiUrl: command.pullRequestUrl,
+      ...(title ? { title } : {}),
+      ...(author ? { author } : {}),
+      ...(headSha ? { headSha } : {}),
+      ...(headRef ? { headRef } : {}),
+      ...(baseRef ? { baseRef } : {}),
+    },
+    payload: githubPullRequestServerPayload(command, pullRequest),
+  }
+}
+
+const githubServerSendAcceptedAtKey = "githubServerSendAcceptedAt"
+
+function githubPullRequestServerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
+  name: string,
+  trigger: GitHubPullRequestTriggerOptions<TRuntimeConfig>,
+  options: GitHubPullRequestCommentEventOptions<TRuntimeConfig>,
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+  activity: GitHubChannelActivityOptions<TRuntimeConfig> | undefined,
+): AgentChannelTriggerDefinition<TRuntimeConfig> & { [githubPullRequestTriggerKey]: GitHubPullRequestTriggerOptions<TRuntimeConfig> } {
+  const closed = () => options.ignored?.("pull_request_closed") || ignored("pull_request_closed")
+  return {
+    webhooks: [],
+    [githubPullRequestTriggerKey]: trigger,
+    async invoke(context, value): Promise<AgentTriggerInvokeResult> {
+      const send = githubPullRequestTriggerSend(name, value)
+      const { number } = send.pullRequest
+      const { pullRequest, access } = await readGitHubPullRequest(app, context, send.pullRequest.repository, number)
+      if (pullRequest.state === "closed") return closed()
+      const base = isRecord(pullRequest.base) && isRecord(pullRequest.base.repo) ? pullRequest.base.repo : undefined
+      const repository = maybeString(base?.full_name) ?? send.pullRequest.repository
+      const appOptions = app ? githubAppOptions(app) : undefined
+      const identity = access && "identity" in access ? access.identity : await resolveGithubAppOption(appOptions?.identity, context)
+      const login = identity?.login ?? ""
+      const [owner = "", repo = ""] = repository.split("/")
+      const command: GitHubPullRequestCommand = {
+        action: "server",
+        actor: { login, ...(login ? { type: "Bot" } : {}) },
+        args: "",
+        body: send.body ?? "",
+        command: "",
+        commentId: maybeNumber(pullRequest.id) ?? number,
+        deliveryId: `${name}:${send.id ?? randomUUID()}`,
+        event: "pull_request",
+        issueNumber: number,
+        owner,
+        pullRequestUrl: maybeString(pullRequest.url) ?? `${(appOptions?.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "")}/repos/${repository}/pulls/${number}`,
+        repo,
+        repository,
+        trigger: name,
+      }
+      const pullRequestContext = githubPullRequestRunContext(command, {
+        ...options,
+        threadId: options.threadId || maybeString(pullRequest.html_url) || command.pullRequestUrl,
+      }, githubPullRequestServerPayload(command, pullRequest))
+      const run = githubPullRequestRunMetadata(pullRequestContext, context.trigger.channelId)
+      if (activity) {
+        run.activity = {
+          links: [await githubActivitySessionLink(context, run.runId, activity)].filter(link => link !== undefined),
+          target: { issue: number, repository },
+        }
+      }
+      return {
+        input: { context: { github: command, pullRequest: pullRequestContext, [githubServerSendAcceptedAtKey]: Date.now() } },
+        run,
+        webhook: {
+          concurrencyGroup: `${repository}#${number}`,
+          concurrencyLimit: githubPullRequestReconcileConcurrencyLimit(options.reconcile),
+          deliveryId: command.deliveryId!,
+        },
+      }
+    },
+    async prepare(context, accepted) {
+      const command = githubCommandFromUnknown(accepted.input.context?.github)
+      const stored = githubPullRequestRunContextFromUnknown(accepted.input.context?.pullRequest)
+      if (!command || !stored) throw agentDiagnostics.AGENT_GITHUB_PULL_REQUEST_TRIGGER_QUEUED_INPUT_INVALID({ trigger: name })
+      const pullRequestKey = `${command.repository}#${command.issueNumber}`
+      let abortSignal: AbortSignal | undefined
+      if (options.reconcile && context.channelState) {
+        const { agentInvocationId } = await import("./invocations.ts")
+        const agentName = context.agentName || context.agentIdentity?.name
+        abortSignal = trackReconcileRun(context.channelState, pullRequestKey, () => agentInvocationId(accepted.run?.runId ?? command.deliveryId!, agentName))
+      }
+      const settle = (response: Response) => {
+        releaseReconcileRun(abortSignal)
+        return response
+      }
+      try {
+        const branch = options.reconcile ? await pullRequestBranchEventsSince(context.channelState, pullRequestKey, maybeNumber(accepted.input.context?.[githubServerSendAcceptedAtKey])) : {}
+        if (branch.closed) return settle(closed())
+        if (branch.push && githubPullRequestHeadMoves(options.reconcile) === "cancel") return settle(options.ignored?.("head_moved") || ignored("head_moved"))
+        const { pullRequest } = await readGitHubPullRequest(app, context, command.repository, command.issueNumber, command.installationId)
+        if (pullRequest.state === "closed") return settle(closed())
+        const triggerInput = await runGitHubPullRequestTrigger(context, { [name]: trigger }, { ...command, trigger: name }, async () => githubPullRequestServerEvent(command, pullRequest))
+        if (isResponse(triggerInput)) return settle(triggerInput)
+        const metadata = await githubPullRequestMetadata(app, context, command, options)
+        const refreshed = {
+          ...stored,
+          pullRequest: {
+            apiUrl: stored.pullRequest.apiUrl,
+            htmlUrl: stored.pullRequest.htmlUrl,
+            labels: stored.pullRequest.labels,
+            number: stored.pullRequest.number,
+            source: stored.pullRequest.source,
+            title: stored.pullRequest.title,
+            ...metadata,
+          },
+        }
+        const commandInput = pullRequestCommandInput(githubPullRequestTriggerRequest(command, triggerInput), refreshed, options.ci)
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        return {
+          ...accepted.input,
+          ...triggerInput,
+          ...commandInput,
+          ...(branch.push ? { prompt: `${pullRequestBranchMovedNotice(branch.push)}\n\n${commandInput.prompt}` } : {}),
+          ...(abortSignal ? { abortSignal } : {}),
+          context: {
+            ...accepted.input.context,
+            ...triggerInput.context,
+            github: command,
+            pullRequest: refreshed,
+            ...(finishEffects ? { [channelDeliveryFinishEffectsContextKey]: [finishEffects] } : {}),
+          },
+        }
+      }
+      catch (error) {
+        releaseReconcileRun(abortSignal)
+        throw error
+      }
+    },
+  }
 }
 
 function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -3748,7 +3968,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           }
           let triggerInput: GitHubPullRequestTriggerInput | undefined
           if (acceptedCommand.trigger) {
-            const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, input, app)
+            const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...acceptedCommand, trigger: acceptedCommand.trigger }, () => githubPullRequestTriggerEvent(input, acceptedCommand, app, context))
             if (isResponse(result)) return { ...accepted, webhook: { ...ownership, rehydrate: () => result } }
             triggerInput = result
           }
@@ -3876,7 +4096,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         } : undefined
         let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger && !ownership) {
-          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, () => githubPullRequestTriggerEvent(pullRequestInput, command, app, context))
           if (isResponse(result)) return result
           triggerInput = result
         }
@@ -3961,7 +4181,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         if (!reconciled && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         let triggerInput: GitHubPullRequestTriggerInput | undefined
         if (command.trigger) {
-          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, pullRequestInput, app)
+          const result = await runGitHubPullRequestTrigger(context, pullRequestTriggers, { ...command, trigger: command.trigger }, () => githubPullRequestTriggerEvent(pullRequestInput, command, app, context))
           if (isResponse(result)) return result
           triggerInput = result
         }
@@ -4103,7 +4323,7 @@ function validateChannelHistoryDefinition(kind: string, history: unknown, trigge
 
 /**
  * The adapter of a platform that has no built-in one, such as your own Chat SDK adapter, for
- * `defineChannel({ adapter })` from `vite-hub/channels`. `message.methods` become calls on `event.message` in Agent
+ * `defineChannel({ adapter })`, from `vite-hub/channels/adapters`. `message.methods` become calls on `event.message` in Agent
  * hooks. A method receives the Channel context first; `context.message` is the data that the trigger returned.
  *
  * @example
@@ -4223,7 +4443,11 @@ function assertWebhookRegistrationNames(owner: string, webhooks: unknown): void 
   }
 }
 
-/** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */
+/**
+ * A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. It is the same
+ * trigger as `defineChannelTrigger()` from `vite-hub/channels`, typed without the module augmentation, so Agent code
+ * and presets get these types also when a program loads two copies of the Agent types.
+ */
 export function defineChannelTrigger<
   TInput,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -4347,6 +4571,7 @@ export function agentChannelFromDefinition<TRuntimeConfig extends AgentRuntimeCo
   const handlers: Record<string, ChannelHandler> = {}
   const triggers: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>> = {}
   for (const [name, target] of Object.entries(on)) {
+    if (typeof target !== "function") assertWebhookRegistrationNames(`${adapter.kind}.${name}`, (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks)
     if (typeof target === "function") handlers[name] = target as ChannelHandler
     else if (isWebhookAdapter(adapter) && (target as AgentChannelTriggerDefinition<TRuntimeConfig>).webhooks === undefined) {
       // Event names can contain dots and other characters that Agent trigger IDs cannot use.
@@ -4430,7 +4655,7 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
         artifacts: app?.artifacts,
         fetch: app?.fetch,
         statusContext: app?.statusContext,
-        token: context => githubAppInstallationToken(appOptions, context),
+        token: async context => (await githubAppInstallationAccess(appOptions, context)).token,
         userAgent: app?.userAgent,
       })
     : undefined
@@ -4447,6 +4672,10 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     triggers: {
       ...githubEventTriggers(pullRequest, appOptions, openedActivityDefinition, activity && activity !== true ? activity : undefined, undefined, pullRequestTriggers),
       ...options.triggers,
+      ...Object.fromEntries(Object.entries(pullRequestTriggers).map(([name, trigger]) => [
+        name,
+        githubPullRequestServerTrigger(name, trigger, pullRequestOptions, appOptions, activity ? activity === true ? {} : activity : undefined),
+      ])),
     },
     webhooks: githubWebhookDefaults(options.webhooks, appOptions),
   })
@@ -4454,11 +4683,11 @@ export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
     // The Agent's git transport, pull request checkout, Driver, and forge() Capability use the App token.
     const access: ForgeAccess = async (context, scope) => {
       // SAFETY: the Agent passes the callback context of its own runtime configuration.
-      const token = await githubPullRequestMetadataToken(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
-      if (!token) return undefined
-      const identity = app?.identity
+      const access = await githubPullRequestAccess(appOptions, context as AgentCallbackContext<TRuntimeConfig>, undefined, scope.repository, scope.signal, scope.minLifetime)
+      if (!access) return undefined
+      const identity = "identity" in access ? access.identity : await resolveGithubAppOption(app?.identity, context as AgentCallbackContext<TRuntimeConfig>)
       return {
-        token,
+        token: access.token,
         baseUrl: app?.apiBaseUrl,
         ...(identity?.login ? { identity: { login: identity.login, ...(identity.email ? { email: identity.email } : {}) } } : {}),
       }

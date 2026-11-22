@@ -1,10 +1,9 @@
 import { defineErrors } from "@vite-hub/runtime"
 
-// Keep published codes stable. Keep the codes of each group in alphabetical order.
 export const webhooksErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/webhooks/diagnostics",
   codes: {
-    // Definition and build errors. They throw.
+    // Definition and build errors.
     WEBHOOKS_CONTRIBUTION_INVALID: {
       why: ({ plugin }: { plugin: string }) => `The Vite plugin ${plugin} sets \`vitehub.webhooks\`, but not to \`{ memberEndpoints: true, reason }\` or a function that returns it.`,
       fix: "Set `vitehub.webhooks` to `{ memberEndpoints: true, reason: \"...\" }`, or to a function that returns it, or `undefined` when the feature is off.",
@@ -42,7 +41,7 @@ export const webhooksErrors = /*#__PURE__*/ defineErrors({
       fix: "Turn on `queue` in `vitehub()`, or remove the files of `server/webhooks/`.",
     },
 
-    // Runtime errors. `sendWebhook()` and the delivery functions return them as `[error, undefined]`.
+    // Runtime errors.
     WEBHOOKS_BODY_INVALID: {
       why: ({ webhook }: { webhook: string }) => `The body for the webhook ${webhook} is not JSON data.`,
       fix: "Pass a plain object, an array, a string, a number, a boolean, or `null`. Convert a `Date` to an ISO string and a `bigint` to a string first.",

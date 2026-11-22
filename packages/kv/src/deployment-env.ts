@@ -13,13 +13,11 @@ function entry(names: readonly string[]): DeploymentEnvEntry {
 
 function storeEntries(store: ResolvedKVStoreConfig): DeploymentEnvEntry[] {
   if (store.driver === "upstash") {
-    // A masked value is read at runtime from the Vercel or Upstash names. A literal value reads no variable.
     return [
       ...store.url === maskedRuntimeValue ? [entry(upstashUrlEnvNames)] : [],
       ...store.token === maskedRuntimeValue ? [entry(upstashTokenEnvNames)] : [],
     ]
   }
-  // `env:NAME` reads that variable when the store starts. A literal URL reads none.
   if (store.driver === "redis" && store.url.startsWith("env:")) return [entry([store.url.slice("env:".length)])]
   return []
 }

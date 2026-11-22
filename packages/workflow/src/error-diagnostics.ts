@@ -6,8 +6,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: WORKFLOW_B0001, WORKFLOW_R0002, WORKFLOW_R0007, WORKFLOW_C0018, WORKFLOW_C0019, WORKFLOW_R0016, and WORKFLOW_R0031 to WORKFLOW_R0035.
 export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/workflows/diagnostics",
   codes: {
@@ -15,7 +13,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ name }: { name: string }) => `[vitehub] The Agent Workflow ${JSON.stringify(name)} is not a discovered Agent, so OpenWorkflow workers cannot run its turns.`,
       fix: "Move the Agent to server/agents/, so that the build adds its Workflow to the registry that every OpenWorkflow worker loads. To run it without a Workflow, call runAgent().",
     },
-    // Runtime errors. `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, and `resumeWorkflow()` return them as `[error, undefined]`, with `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID`, `WORKFLOW_OPERATION_UNSUPPORTED`, `WORKFLOW_START_DELAY_INVALID`, and `WORKFLOW_R0014`.
+    // Runtime errors.
     WORKFLOW_PROVIDER_OPERATION_FAILED: {
       why: ({ operation, provider, reason }: WorkflowProviderFailure): string => `The ${provider} Workflow provider failed during ${operation}.${reason ? ` ${reason}` : ""}`,
       fix: ({ acknowledgement }: WorkflowProviderFailure): string => acknowledgement === "unknown"
@@ -28,7 +26,7 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `id` from the options of `startWorkflow()`. Store the `id` of the run that it returns.",
     },
 
-    // Operation errors. The `workflow.*` operations of the CLI, the Console, and Agents throw them with an HTTP status.
+    // Operation errors.
     WORKFLOW_DEFINITION_NOT_FOUND: {
       why: ({ available, workflow }: { available?: string, workflow?: string }) => workflow === undefined ? "Workflow definition was not found." : `Unknown Workflow: ${workflow}.${available ?? ""}`,
       fix: "Pass the name of a Workflow Definition, the file name in `server/workflows/` without the extension.",
@@ -286,9 +284,31 @@ export const workflowErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ value }: { value: string }) => `\`workflow.provider\` is ${value}. ViteHub renamed this key to \`driver\`, and it does not read \`provider\`, so Workflow would not use the driver you chose.`,
       fix: ({ value }: { value: string }) => `Set \`workflow: { driver: ${value} }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`,
     },
+    WORKFLOW_ROOT_STEP_SIGNAL: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`signal.wait()\` in its root step. Only a folder Workflow can wait for a signal: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
+      fix: "A single-file Workflow runs as one step, so a replay after the wait would run the code before the wait again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.request-transcript.ts`, and call `signal.wait()` between the steps.",
+    },
     WORKFLOW_ROOT_STEP_SLEEP: {
       why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep()\` in its root step. Only a folder Workflow can sleep: move it to \`server/workflows/${name}/index.ts\` and put the work in numbered step files.`,
       fix: "A single-file Workflow runs as one step, so a replay after a sleep would run the code before the sleep again. Move the handler to `server/workflows/<name>/index.ts`, put each side effect in a numbered step file such as `01.charge.ts`, and call `context.sleep()` between the steps.",
+    },
+    WORKFLOW_SIGNAL_NOT_WAITING: {
+      why: ({ run }: { run: string }) => `[vitehub] No run waits for this signal token. The run ${JSON.stringify(run)} has not reached \`signal.wait()\` yet, it got the signal already, or it ended.`,
+      fix: "Retry later when the run can still be before its `signal.wait()`, for example by answering a webhook with a 5xx status so the sender retries. Check the run with `getWorkflowRun()`. An inline run in `vite dev` waits in memory, so a restart of the dev server loses it.",
+      data: ({ run }: { run: string }): { run: string } => ({ run }),
+    },
+    WORKFLOW_SIGNAL_TIMEOUT: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} waited one year for a signal, and no \`resumeWorkflow()\` call sent it.`,
+      fix: "Call `resumeWorkflow(signal.token, value)` within one year. To stop waiting sooner, cancel the run with `cancelWorkflow()`.",
+    },
+    WORKFLOW_SIGNAL_TOKEN_INVALID: {
+      why: ({ provider }: { provider: string }) => `[vitehub] \`resumeWorkflow()\` got a token that \`context.createSignal()\` did not make for the ${provider} Workflow provider of this app.`,
+      fix: "Pass the `token` of `context.createSignal()` from a run of this app, as it is. A token from another provider, such as an inline run in `vite dev`, does not resume a deployed run.",
+      data: ({ provider }: { provider: string }): { provider: string } => ({ provider }),
+    },
+    WORKFLOW_SIGNAL_VERCEL_UNSUPPORTED: {
+      why: ({ name }: { name: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.createSignal()\`. Signals do not work on Vercel yet.`,
+      fix: "Run the Workflow on Cloudflare or OpenWorkflow to wait for a signal. On Vercel, a `native` entry can wait with `defineHook()` from the Workflow DevKit, and `resumeWorkflow()` resumes its hook token.",
     },
     WORKFLOW_SLEEP_DURATION_INVALID: {
       why: ({ name, value }: { name: string, value: string }) => `[vitehub] The Workflow ${JSON.stringify(name)} called \`context.sleep(${value})\`. A sleep takes a duration such as \`'30 seconds'\` or \`'1 day'\`, a number of milliseconds that is 0 or more, or a valid \`Date\`.`,

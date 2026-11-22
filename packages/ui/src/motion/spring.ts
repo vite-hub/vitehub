@@ -43,6 +43,8 @@ export interface Spring {
 /** Called on each frame with the new value and its speed, and once more with the target when the spring settles. */
 export type SpringFrame = (value: number, velocity: number) => void;
 
+export type FrameStep = (seconds: number) => boolean | void;
+
 interface SpringState {
   value: number;
   velocity: number;
@@ -53,6 +55,7 @@ interface SpringState {
 }
 
 const live = new Map<SpringState, number>();
+const steps = new Set<FrameStep>();
 let revision = 0;
 let watchingReducedMotion = false;
 let frameId = 0;
@@ -71,12 +74,13 @@ export function getMotionSlowFactor(): number {
   return slowFactor;
 }
 
-// One frame of every live spring. The time step is at most 32ms, so a tab that comes back does not throw a spring far
+// One frame of every live spring and frame step. The time step is at most 32ms, so a tab that comes back does not throw a spring far
 // past its target. Each step runs in 6 parts, as the prototype does, so stiff springs stay stable.
 function frame(time: number): void {
   const step = Math.min(0.032, lastTime ? (time - lastTime) / 1000 : 0.016) / slowFactor;
   lastTime = time;
   const batch = Array.from(live);
+  const frameSteps = Array.from(steps);
   for (const [spring, queued] of batch) {
     if (live.get(spring) !== queued) continue;
     if (spring.tween) {
@@ -101,7 +105,10 @@ function frame(time: number): void {
     }
     spring.frame(spring.value, spring.velocity);
   }
-  if (live.size) frameId = requestAnimationFrame(frame);
+  for (const run of frameSteps) {
+    if (steps.has(run) && run(step) === false) steps.delete(run);
+  }
+  if (live.size || steps.size) frameId = requestAnimationFrame(frame);
   else {
     frameId = 0;
     lastTime = 0;
@@ -118,6 +125,15 @@ function settle(spring: SpringState): void {
 function start(spring: SpringState): void {
   live.set(spring, ++revision);
   if (!frameId) frameId = requestAnimationFrame(frame);
+}
+
+export function onEachFrame(step: FrameStep): () => void {
+  const run: FrameStep = seconds => step(seconds);
+  steps.add(run);
+  if (!frameId) frameId = requestAnimationFrame(frame);
+  return () => {
+    steps.delete(run);
+  };
 }
 
 function settleMovement(reduced: boolean): void {

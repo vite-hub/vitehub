@@ -69,6 +69,8 @@ export interface ForgeAppIdentity {
   id: number
   slug: string
   login: string
+  /** The bot's commit email, such as `41898282+my-app[bot]@users.noreply.github.com`. GitHub links these commits to the App. */
+  email: string
 }
 
 /** The `forges` provider of one Forge. A GitHub provider also has `graphql()`. */
@@ -135,7 +137,6 @@ function readGitHubApp(env: ForgeEnvSource): GitHubAppConfig | undefined {
 
 function requestFailed(operation: string, cause: unknown, signal: AbortSignal | undefined) {
   if (signal?.aborted) throw abortError(signal)
-  // A GitHub App lookup wraps the HTTP error in a diagnostic.
   const status = forgeErrorStatus(cause) ?? (isRuntimeDiagnostic(cause) ? forgeErrorStatus(cause.cause) : undefined)
   return forgeErrors.FORGE_REQUEST_FAILED({ cause, operation, ...(status === undefined ? {} : { status }) })
 }
@@ -196,7 +197,6 @@ export function useForge<TKind extends ForgeKind = "github">(options: UseForgeOp
       }
       catch (cause) {
         if (signal?.aborted) throw abortError(signal)
-        // installation() throws FORGE_R0001 for a missing installation, with the HTTP error as its cause.
         const lookup = isRuntimeDiagnostic(cause) && cause.code === "FORGE_R0001"
         const status = lookup ? forgeErrorStatus(cause.cause) : undefined
         if (lookup && (status === undefined || status === 404)) return [forgeErrors.FORGE_APP_NOT_INSTALLED({ cause, repository }), undefined]

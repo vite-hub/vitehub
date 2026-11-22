@@ -67,7 +67,6 @@ describe("getHostBinding", () => {
   it("prefers the bindings of the request event", () => {
     host.__env__ = { ASSETS: "global" }
     const request = Object.assign(new Request("https://example.com"), { runtime: { cloudflare: { env: { ASSETS: "request" } } } })
-    // An H3 2 event without the Standard Context plugin has the host bindings on `req.runtime`.
     expect(getHostBinding("ASSETS", { req: request })).toEqual([undefined, "request"])
   })
 
@@ -83,7 +82,6 @@ describe("getHostBinding", () => {
 
   it("falls back to the active bindings when the event has none", () => {
     host.__env__ = { DB: "global" }
-    // A Node dev event has no Cloudflare runtime.
     expect(getHostBinding("DB", { req: new Request("https://example.com") })).toEqual([undefined, "global"])
   })
 })

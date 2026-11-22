@@ -1,14 +1,10 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { createSourceFile, getLeadingCommentRanges, getTrailingCommentRanges, ScriptTarget } from "typescript"
 import { describe, expect, it } from "vitest"
 import { repoRoot, walkFiles } from "./utils/repo"
 import type { Node } from "typescript"
 
-/**
- * The rules of the ViteHub design system (docs/DESIGN.md) that code can check. The theme in @vite-hub/ui draws focus,
- * colors, and tabs once, so the surfaces that use it must not set their own.
- */
 const surfaces = [
   "packages/vite-hub/src/console",
   "packages/docs/runtime",
@@ -20,22 +16,19 @@ const surfaces = [
   "playground",
 ]
 
-// The theme itself, generated images, and files whose colors are data, such as brand logos.
 const allowed = [
   "packages/ui/theme.css",
-  // The kit tokens are the colors of its style families, as theme.css is for @vite-hub/ui.
   "packages/kit/src/styles/tokens.css",
   "packages/ui/src/theme.ts",
   "packages/docs/runtime/app/components/OgImage/",
   "packages/vite-hub/src/console/runtime/components/invocation/internal/brand-icons.ts",
-  // The pages that the server renders before the Console app loads copy the tokens of theme.css, and a test keeps them equal.
   "packages/vite-hub/src/console/standalone-page.ts",
   "docs/app/data/brand-colors.ts",
+  // The brand colors of the languages, for the file icons of the workspace parts.
+  "packages/ui/src/workspace/file-icons.ts",
   "docs/app/examples/",
 ]
 
-// A kit style family is a theme for headless parts that have no Nuxt UI theme to draw focus, so it draws the one focus
-// ring itself. It must still take every color from the tokens.
 const focusThemes = ["packages/kit/src/styles/"]
 
 const ignoreDirs = new Set([".nuxt", ".output", ".vitehub", ".vitest-tmp", "dist", "node_modules"])
@@ -49,13 +42,9 @@ interface Finding {
 }
 
 const rules: Array<{ rule: string, pattern: RegExp }> = [
-  // A Tailwind class that draws focus: an outline or a ring under a focus variant.
   { rule: "focus class", pattern: /(?:^|[\s"'`[])(?:[\w-]+:)*(?:focus|focus-visible|focus-within|has-focus-visible|group-focus-visible|peer-focus-visible)(?::[\w[\]&>=-]+)*:(?:outline|ring)(?:-[\w/[\]().-]+)?(?=[\s"'`\]]|$)/ },
-  // A CSS rule that draws focus.
   { rule: "focus css", pattern: /:focus(?:-visible|-within)?\b[^{]*\{[^}]*(?:outline|box-shadow)\s*:/ },
-  // A color literal, also inside a Tailwind arbitrary value such as `shadow-[0_1px_rgb(0_0_0/4%)]`. Colors come from the theme tokens.
   { rule: "color literal", pattern: /(?<![\w&/-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b(?![\w-])|(?:\b|(?<=_))(?:rgb|rgba|hsl|hsla|oklch)\(\s*\d/ },
-  // A tab strip built by hand. UTabs has the keyboard behavior and the theme's underline.
   { rule: "hand-made tabs", pattern: /role=["']tab(?:list)?["']|role:\s*["']tab(?:list)?["']/ },
 ]
 
@@ -78,7 +67,6 @@ const motionSurfaces = [
   ...surfaces,
   "packages/ui/theme.css",
   "packages/ui/comment-marks.css",
-  "packages/ui/icon-swap.css",
   "packages/kit/src",
   "packages/internal/src/runtime",
   "packages/comments/src",
@@ -89,52 +77,24 @@ const motionExempt = [
   // The motion layer itself.
   "packages/ui/src/motion/",
   "packages/ui/src/motion.ts",
-  // The scenes of the docs hero figures draw their own story in a stage with `data-motion="none"`, as a canvas does.
-  "docs/app/utils/hero-figure/",
-  "docs/app/assets/hero-figure.css",
 ]
 
-type Wave = "W2" | "W3" | "W4" | "W5"
-
 /**
- * Hand-written motion that exists today, by file, with the wave of the motion plan that moves it onto the layer or a
- * helper. A new spot in a listed file fails, and a removed spot fails until its count goes down. W5 empties this list.
+ * Own-motion figures: surfaces that draw their own picture, as a canvas or a chart does, and are not controls. Each sets
+ * `data-motion="none"` on its root (docs/design/motion.md), so the motion layer skips it, and the rule skips its files.
+ * A control, a label, a list, or a disclosure next to a figure still gets its motion from the layer. Keep this list as
+ * short as the truth allows, and give each entry its reason.
  */
-const motionAllowlist: Record<string, { count: number, wave: Wave }> = {
-  // W4: the Progress helper replaces the upload bar.
-  "packages/vite-hub/src/console/runtime/components/console-media-uploads.vue": { count: 1, wave: "W4" },
-  // W5: the docs site and @vite-hub/docs.
-  "docs/app/assets/main.css": { count: 2, wave: "W5" },
-  "docs/app/components/content/HeroFigure.vue": { count: 2, wave: "W5" },
-  "docs/app/components/content/SupportMatrix.vue": { count: 1, wave: "W5" },
-  "docs/app/components/landing/AgentStory.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/Closing.vue": { count: 4, wave: "W5" },
-  "docs/app/components/landing/Hero.vue": { count: 2, wave: "W5" },
-  "docs/app/components/landing/InstallCommand.vue": { count: 1, wave: "W5" },
-  "docs/app/components/landing/Portability.vue": { count: 4, wave: "W5" },
-  "packages/docs/runtime/app/components/DocsAsideLeftBody.vue": { count: 1, wave: "W5" },
-  "packages/docs/runtime/app/components/content/PageList.vue": { count: 2, wave: "W5" },
-  // W5: the Console.
-  "packages/vite-hub/src/console/runtime/client/styles.css": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-app.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-auth-chart.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-auth.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-search-palette.vue": { count: 3, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-sidebar.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-toaster.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/console-usage-chart.vue": { count: 1, wave: "W5" },
-  "packages/vite-hub/src/console/runtime/components/invocation/invocation.css": { count: 10, wave: "W5" },
-  "packages/vite-hub/src/console/standalone-page.ts": { count: 2, wave: "W5" },
-  // W5: @vite-hub/ui parts, the page pill and tools, and the comments overlay.
-  "packages/comments/src/overlay/styles.ts": { count: 5, wave: "W5" },
-  "packages/internal/src/runtime/page-pill.ts": { count: 12, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-loader.ts": { count: 7, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-shared.ts": { count: 2, wave: "W5" },
-  "packages/internal/src/runtime/page-tools-window.ts": { count: 1, wave: "W5" },
-  "packages/ui/comment-marks.css": { count: 7, wave: "W5" },
-  "packages/ui/icon-swap.css": { count: 1, wave: "W5" },
-  "packages/ui/styles.css": { count: 32, wave: "W5" },
-}
+const ownMotionFigures: Array<{ path: string, reason: string }> = [
+  {
+    path: "docs/app/utils/hero-figure/",
+    reason: "The hero figure of a primitive page plays a timeline of the primitive's story (code runs, rows appear, jobs retry) in a `role=\"img\"` stage with `data-motion=\"none\"`. Nothing in it is a control. Its caption and its pause button are outside the stage and use the layer.",
+  },
+  {
+    path: "docs/app/assets/hero-figure.css",
+    reason: "The styles of the same hero figure scenes.",
+  },
+]
 
 const motionProperty = /^(?:transform|translate|scale|rotate|all|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path|grid-template-(?:rows|columns)|flex-basis)$/
 const motionDeclaration = /(?:^|[\s;{])(?:transform|translate|scale|rotate|(?:min-|max-)?(?:width|height)|inset|top|right|bottom|left|margin(?:-\w+)?|clip-path)\s*:/
@@ -294,7 +254,7 @@ function scanMotionSurfaces(): Finding[] {
     const root = join(repoRoot, surface)
     for (const file of surface.endsWith(".css") ? [root] : walkFiles(root, { ignoreDirs }).filter(file => sourceFile.test(file))) {
       const path = relative(repoRoot, file)
-      if (!path.endsWith(".test.ts") && !motionExempt.some(prefix => path.startsWith(prefix))) files.add(path)
+      if (!path.endsWith(".test.ts") && ![...motionExempt, ...ownMotionFigures.map(figure => figure.path)].some(prefix => path.startsWith(prefix))) files.add(path)
     }
   }
   const texts: Array<[string, string]> = [...files].sort().map(path => [path, readFileSync(join(repoRoot, path), "utf8")])
@@ -313,7 +273,6 @@ function withoutComments(file: string, text: string): string {
     for (const child of node.getChildren(source)) visit(child)
   }
   visit(source)
-  // Keep offsets and newlines so findings still point to the original source.
   let result = text
   for (const [start, end] of ranges) {
     result = result.slice(0, start) + text.slice(start, end).replace(/[^\r\n]/g, " ") + result.slice(end)
@@ -324,7 +283,6 @@ function withoutComments(file: string, text: string): string {
 function scanSource(file: string, text: string): Finding[] {
   const findings: Finding[] = []
   const source = withoutComments(file, text)
-  // CSS rules can span lines, so the focus css rule reads the whole file and reports the line where the rule starts.
   for (const { rule, pattern } of rules) {
     const global = new RegExp(pattern.source, `${pattern.flags}g`)
     for (const match of source.matchAll(global)) {
@@ -362,22 +320,15 @@ describe("design rules", () => {
 
   describe("hand-written motion", () => {
     const motion = scanMotionSurfaces()
-    const byFile = new Map<string, Finding[]>()
-    for (const finding of motion) byFile.set(finding.file, [...byFile.get(finding.file) ?? [], finding])
 
-    it("has no hand-written motion outside the motion layer and the allowlist", () => {
-      const found = [...byFile].filter(([file]) => !motionAllowlist[file]).flatMap(([, list]) => list).map(finding => `${finding.file}:${finding.line} ${finding.text}`)
+    it("has no hand-written motion outside the motion layer and the own-motion figures", () => {
+      const found = motion.map(finding => `${finding.file}:${finding.line} ${finding.text}`)
       expect(found, `${found.length} × hand-written motion. Use the motion layer of @vite-hub/ui/motion or a motion helper. See docs/design/motion.md.\n${found.join("\n")}`).toEqual([])
     })
 
-    it("keeps each allowlisted file at its count", () => {
-      const wrong = Object.entries(motionAllowlist).flatMap(([file, { count }]) => {
-        const list = byFile.get(file) ?? []
-        if (list.length > count) return [`${file}: ${list.length} spots, the allowlist has ${count}. Do not add motion by hand.\n${list.map(finding => `  ${finding.line} ${finding.text}`).join("\n")}`]
-        if (list.length < count) return [`${file}: ${list.length} spots, the allowlist has ${count}. Lower the count${list.length ? "" : " or remove the file"}.`]
-        return []
-      })
-      expect(wrong, wrong.join("\n")).toEqual([])
+    it("lists only own-motion figures that exist, each with its reason", () => {
+      const wrong = ownMotionFigures.filter(figure => !existsSync(join(repoRoot, figure.path)) || !figure.reason.trim()).map(figure => figure.path)
+      expect(wrong, `Remove or explain these own-motion figures:\n${wrong.join("\n")}`).toEqual([])
     })
 
     const keyframes = collectKeyframes([["fixture.css", "@keyframes fade { from { opacity: 0 } } @keyframes rise { from { transform: translateY(4px) } } @keyframes turn { to { transform: rotate(1turn) } }"]])

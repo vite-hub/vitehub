@@ -39,7 +39,6 @@ async function passkeyAssertion() {
 }
 `
 
-// The page runs in the browser. It sends only the parameters that the provider signed back to the provider.
 export const oauthPageScript = `
 const params = new URLSearchParams(location.search);
 const $ = selector => document.querySelector(selector);

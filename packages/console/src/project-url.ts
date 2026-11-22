@@ -1,4 +1,4 @@
-import { normalizeConsoleProjectUrl } from "@vite-hub/runtime"
+import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 
 /**
  * The Console server fetches the URLs of linked projects. A person who links a project must not make it fetch an
@@ -31,7 +31,6 @@ export function isPrivateHost(hostname: string): boolean {
   if (v4) return isPrivateIpv4(v4)
   if (!host.startsWith("[")) return false
   const v6 = host.slice(1, -1)
-  // An IPv4 address inside IPv6, such as ::ffff:127.0.0.1, which the URL parser writes as ::ffff:7f00:1.
   const mapped = /^::ffff:([\da-f]{1,4}):([\da-f]{1,4})$/.exec(v6)
   if (mapped) {
     const high = Number.parseInt(mapped[1]!, 16)
@@ -47,7 +46,6 @@ export function isPrivateHost(hostname: string): boolean {
  */
 export function parseProjectUrl(input: string, options: { allowPrivate: boolean }): { url: string } | { error: string } {
   const value = input.trim()
-  // A host without a scheme, such as `app.example.com`, means https.
   const url = normalizeConsoleProjectUrl(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`)
   if (!url) return { error: `"${value}" is not a project URL. Use the https:// URL of the app, such as https://app.example.com.` }
   const { hostname } = new URL(url)

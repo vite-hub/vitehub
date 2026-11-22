@@ -253,6 +253,7 @@ async function createBuildLoaderStore(workspace: string, store: WorkspaceStore, 
           }
         })
       })
+      if (property === "writeFiles") return undefined
       return Reflect.get(target, property, target)?.bind(target)
     },
   })
@@ -269,7 +270,7 @@ export function createWorkspaceStore(definition: WorkspaceDefinition): Workspace
 
 type TrackLifecycleOperation = <T>(operation: Promise<T>) => Promise<T>
 
-const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream"])
+const STORE_MUTATIONS = new Set(["mkdir", "rebase", "removeEmptyDirectory", "rm", "setMeta", "snapshot", "writeFile", "writeFileConditional", "writeFileStream", "writeFiles"])
 
 function createAbortFencedStore(store: WorkspaceStore, abortSignal: AbortSignal) {
   const active = new Set<Promise<unknown>>()

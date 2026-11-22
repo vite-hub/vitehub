@@ -131,7 +131,6 @@ it.skipIf(process.platform !== "linux")("preserves keys when copying a store wit
     await rm(destination, { recursive: true, force: true })
   }
 }, async (base) => {
-  // Force a suffixed record and migrate both nested and literal-percent legacy keys before copying.
   await writeFile(join(base, ".unstorage-tmp-vitehub-layout-v1"), "legacy record")
   await mkdir(join(base, "a"))
   await writeFile(join(base, "a", "b"), "colon")
@@ -225,7 +224,6 @@ it.each(["", "-1"])("does not trust legacy values that imitate a layout record%s
       await mkdir(join(base, ...parts.slice(0, -1)), { recursive: true })
       await writeFile(join(base, ...parts), value)
     }
-    // Matching marker contents do not prove that this is migration state.
     await writeFile(join(base, workspace, ".unstorage-tmp-vitehub-record"), workspace)
   })
 })
@@ -348,7 +346,6 @@ it("waits for migration before cleaning up an unpublished workspace", () => with
   }
   interruption.rename = async (source) => {
     if (source !== candidate) return
-    // Pause after the winning initializer's directory scan. Let the loser fail publication and retry.
     publishing = false
     waitingForRetry = true
     publish.resolve()

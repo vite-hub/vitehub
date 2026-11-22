@@ -28,7 +28,6 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-/** An app root without Queue files, and a package directory outside it that ships one Queue module. */
 async function createProject() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-contributed-"))
   const packageDir = await mkdtemp(join(tmpdir(), "vitehub-queue-contributor-"))
@@ -44,7 +43,6 @@ async function createProject() {
   return { module, root }
 }
 
-/** The Vite plugin of an owner package, such as a webhooks package, that adds one Queue Definition. */
 function contributor(module: string, seen: QueueContributionContext[] = []): QueueContributingPlugin {
   return {
     name: "@acme/webhooks",
@@ -82,7 +80,6 @@ describe("contributed Queue Definitions", () => {
     expect(nitroPlugin).toContain('"driver": "local"')
     expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
 
-    // Run the generated registry as the Nitro plugin does.
     const jobs: Array<{ at: number, payload: unknown }> = []
     vi.stubGlobal("__contributedQueueJobs", jobs)
     const { default: generated } = await import(/* @vite-ignore */ pathToFileURL(registryFile).href) as { default: QueueDefinitionRegistry }

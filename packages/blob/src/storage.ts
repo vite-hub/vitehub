@@ -2,6 +2,7 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 
 import { blobError, blobHttpError, blobResult } from "./errors.ts"
 import { createUploadHandler, handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -17,7 +18,7 @@ import type { Result } from "@vite-hub/runtime"
 import type { BlobDeletePrefixOptions, BlobDeletePrefixResult, BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobObject, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
-import { attachmentDisposition, isActiveContentType } from "./internal/active-content.ts"
+import { downloadDisposition, isActiveContentType } from "./internal/active-content.ts"
 import { matchesETag, parseByteRange, selectByteRange } from "./internal/serve-request.ts"
 import { edgeCacheKey, keepInEdgeCache, matchEdgeCache } from "./internal/edge-cache.ts"
 import isBlob from "./internal/is-blob.ts"
@@ -224,6 +225,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   warnRemoteStore(hostDriver.options, store)
   const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
+  function logCacheFailure(op: string, message: string, error: unknown, fallback: () => void, request?: Request) {
+    logFailure({ field: "blob", fields: { op, store, driver: hostDriver.name }, message, error, ...(request ? { request } : {}) }, fallback)
+  }
   async function clearDerived(pathname: string) {
     try {
       const prefix = await derivedCachePrefix(driver.canonicalPathname?.(pathname) ?? pathname)
@@ -237,7 +241,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (paths.length) await driver.delete(paths)
     }
     catch (error) {
-      console.error("[vitehub/blob] Derived cache cleanup failed", error)
+      logCacheFailure("derived-cache-cleanup", "Blob derived cache cleanup failed", error, () => console.error("[vitehub/blob] Derived cache cleanup failed", error))
     }
   }
   // Lists every object first, then deletes, so a provider cursor never skips keys that a delete moved.
@@ -397,6 +401,9 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (options.method === "PUT" && options.maxSize !== undefined && blobSizeToBytes(options.maxSize) === undefined) {
         throw blobErrorDiagnostics.BLOB_R0039({ message: `\`maxSize\` must be a size such as "8MB". Received ${JSON.stringify(options.maxSize)}.` })
       }
+      if (options.method === "PUT" && options.contentLength !== undefined && !(Number.isSafeInteger(options.contentLength) && options.contentLength >= 0)) {
+        throw blobErrorDiagnostics.BLOB_SIGN_CONTENT_LENGTH_INVALID()
+      }
       if (!driver.sign) {
         throw blobErrorDiagnostics.BLOB_R0025({ message: `Blob driver "${driver.name}" does not support signed requests.` })
       }
@@ -446,9 +453,8 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
   function responseHeaders(options: BlobServeResponseOptions, normalizedPath: string): Headers {
     const headers = new Headers(options.headers)
     headers.set("Cache-Control", options.cacheControl ?? headers.get("Cache-Control") ?? "private, no-cache")
-    if (options.download !== undefined && options.download !== false) {
-      headers.set("Content-Disposition", attachmentDisposition(options.download === true ? normalizedPath : options.download))
-    }
+    const disposition = downloadDisposition(normalizedPath, options.download)
+    if (disposition) headers.set("Content-Disposition", disposition)
     return headers
   }
   // The cache lookup applied Blob's range and `If-None-Match` rules using object metadata. Other headers come from this
@@ -576,7 +582,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
 
         const cached = cachePath
           ? await driver.get(cachePath).catch((error) => {
-            console.error("[vitehub/blob] Transform cache read failed", error)
+            logCacheFailure("transform-cache-read", "Blob transform cache read failed", error, () => console.error("[vitehub/blob] Transform cache read failed", error), request)
             return null
           })
           : null
@@ -619,7 +625,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
                   if (!await driver.head(normalizedPath)) await driver.delete([key])
                 }
                 catch (error) {
-                  console.error("[vitehub/blob] Transform cache write failed", error)
+                  logCacheFailure("transform-cache-write", "Blob transform cache write failed", error, () => console.error("[vitehub/blob] Transform cache write failed", error), request)
                 }
               }
               return derived

@@ -15,6 +15,9 @@ export type PostgresQueueDatabasesLoader = () => Promise<PostgresQueueDatabases>
 
 const postgresUrl = /^postgres(?:ql)?:\/\//i
 
+/** A Postgres Database answers this key with a function that returns its connection URL. `@vite-hub/database` sets it. */
+const databaseConnectionUrl = Symbol.for("vitehub.database.postgres.connection-url")
+
 let loadDatabases: PostgresQueueDatabasesLoader | undefined
 let closing: Promise<void> | undefined
 interface EngineState {
@@ -24,7 +27,6 @@ interface EngineState {
   workers: boolean
 }
 
-// Clients with the same configuration share delivery. Direct producers with other configurations only send.
 const engines = new Map<string, EngineState>()
 const retiring = new Set<Promise<void>>()
 type EngineConfig = { database?: string, development?: boolean }
@@ -54,13 +56,14 @@ function startWorkers(state: EngineState, engine: PostgresQueueEngine) {
 
 interface ResolvedConnection {
   connection: PostgresQueueConnection
-  /** The URL, or the client of the Database. A Database can replace its client when its environment changes. */
   key: object | string
 }
 
 /**
  * The connection of the jobs: `QUEUE_POSTGRES_URL` when it is set, else the postgres.js client of the Database that the
  * build found on Postgres. The jobs then use the connection that the Database resolves, whatever variable it reads.
+ * Another driver, such as a node-postgres Pool, cannot run the jobs, so they get a postgres.js client on the connection
+ * URL of the Database.
  */
 export async function resolvePostgresQueueConnection(
   config: { database?: string },
@@ -76,6 +79,9 @@ export async function resolvePostgresQueueConnection(
     const entry = (await databases())[config.database]
     const client: unknown = entry ? Reflect.get(entry.db, "$client") : undefined
     if (isPostgresQueueSql(client)) return { connection: { client }, key: client }
+    const readUrl: unknown = entry ? Reflect.get(entry.db, databaseConnectionUrl) : undefined
+    const databaseUrl: unknown = typeof readUrl === "function" ? readUrl() : undefined
+    if (typeof databaseUrl === "string") return { connection: { url: databaseUrl }, key: databaseUrl }
   }
   throw queueErrorDiagnostics.QUEUE_POSTGRES_MISSING_CONNECTION({ database: config.database })
 }
@@ -83,7 +89,6 @@ export async function resolvePostgresQueueConnection(
 function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngine> {
   assertOpen()
   const state = engineState(config)
-  // Serialize resolution too: concurrent sends must not replace each other's engine.
   const pending = (state.pending?.catch(() => {}) ?? Promise.resolve()).then(async () => {
     assertOpen()
     const { connection, key } = await resolvePostgresQueueConnection(config)
@@ -99,7 +104,6 @@ function usePostgresQueueEngine(config: EngineConfig): Promise<PostgresQueueEngi
       load: loadQueueDefinition,
       missing: missingQueueDefinitionError,
       queues: listQueueDefinitionNames,
-      // Workers must follow Database replacement even without a local send or job operation.
       refreshConnection: async () => { await usePostgresQueueEngine(config) },
     })
     state.current = { engine, key }
@@ -147,7 +151,6 @@ export function closePostgresQueues(): Promise<void> {
     const states = [...engines.values()]
     for (const state of states) state.workers = false
     setQueueRuntimeJobStore(undefined)
-    // Admission is closed before queued resolutions resume, so these sets cannot acquire new engines or retirements.
     await Promise.all(states.map(state => state.pending?.catch(() => {})))
     await Promise.all([...states.map(state => state.current?.engine.close()), ...retiring])
     engines.clear()

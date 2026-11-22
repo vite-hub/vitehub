@@ -1,0 +1,99 @@
+/* The stylesheet of the lists page: Tailwind, Nuxt UI, the ViteHub theme, and the styles of the parts. */
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "../../../theme.css";
+@import "../../../styles.css";
+@source "../../../src/theme.ts";
+@source "./lists.ts";
+@source "../../../../vite-hub/src/console/runtime/components/console-media-uploads.vue";
+
+body {
+  margin: 0;
+}
+
+.page {
+  display: grid;
+  gap: 24px;
+  padding: 24px;
+  max-width: 720px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.row > h2 {
+  width: 100%;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ui-text-muted);
+}
+
+.files {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file,
+.card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-bg);
+  color: var(--ui-text-highlighted);
+  font: 500 13px/1 var(--font-sans, sans-serif);
+}
+
+.progress-card {
+  display: grid;
+  width: 380px;
+  height: auto;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.card-title {
+  margin: 0;
+}
+
+.drop {
+  width: 400px;
+  height: 200px;
+}
+
+.hold-stage {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px;
+}
+
+.file-card {
+  width: 200px;
+}
+
+.dim {
+  color: var(--ui-text-dimmed);
+  font-weight: 400;
+}
+
+.uploads-stage {
+  position: relative;
+  width: 360px;
+  height: 260px;
+  border: 1px dashed var(--ui-border);
+  border-radius: 8px;
+}

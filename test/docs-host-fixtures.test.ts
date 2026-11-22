@@ -64,9 +64,6 @@ function ownProcess(child: ChildProcess, context: FixtureTestContext) {
   const stop = () => stopping ||= (async () => {
     try {
       if (process.platform === "win32") {
-        // Windows taskkill only owns a live parent tree. Unlike a POSIX process
-        // group, it cannot reliably reclaim descendants after that parent exits.
-        // The bounded close wait below reports any inherited pipes left open.
         if (child.pid && child.exitCode === null && child.signalCode === null) {
           await new Promise<void>((resolve, reject) => {
             execFile("taskkill", ["/pid", String(child.pid), "/t", "/f"], { timeout: 5_000, windowsHide: true }, (error) => {
@@ -78,7 +75,6 @@ function ownProcess(child: ChildProcess, context: FixtureTestContext) {
       }
       else if (signalGroup("SIGTERM")) {
         await new Promise(resolve => setTimeout(resolve, 250))
-        // Descendants can ignore SIGTERM after their parent has already exited.
         signalGroup("SIGKILL")
       }
       await new Promise<void>((resolve, reject) => {
@@ -116,7 +112,6 @@ async function run(command: string, args: string[], context: FixtureTestContext,
   try {
     const result = await new Promise<{ code: number | null, signal: NodeJS.Signals | null }>((resolve, reject) => {
       child.once("error", reject)
-      // POSIX process-group cleanup also owns descendants retaining stdout.
       child.once("exit", (code, signal) => resolve({ code, signal }))
     })
     context.signal.throwIfAborted()
@@ -263,7 +258,6 @@ describe("host documentation fixtures", () => {
 
     try {
       await cp(join(fixturesRoot, host), appRoot, { recursive: true })
-      // These snippets run inside an ESM application, like the documented scaffold.
       await writeFile(join(appRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
       await mkdir(join(appRoot, "src"), { recursive: true })
@@ -300,7 +294,7 @@ describe("host documentation fixtures", () => {
       .sort()
 
     expect(builtHosts).toEqual([...hostFixtures].sort())
-    expect(contracts.filter(contract => contract.verification === "json")).toHaveLength(4)
+    expect(contracts.filter(contract => contract.verification === "json")).toHaveLength(5)
     expect(contracts.every(contract => !contract.fixture.startsWith("../") && !contract.page.startsWith("../"))).toBe(true)
 
     for (const contract of contracts.filter(contract => contract.verification === "json")) {

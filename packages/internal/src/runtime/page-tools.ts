@@ -1,6 +1,6 @@
 import { pageToolsHtmlTransform, scriptPolicyNonce } from "./page-tools-html.ts"
 import { readViteHubPageAccount, viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsHintCookie, viteHubPageToolsInlineScript, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, viteHubPageToolsWanted, withViteHubBase } from "./page-tools-shared.ts"
-import { forwardedRequestOrigin } from "./request-origin.ts"
+import { forwardedRequestOrigin, matchesPublicOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageAccount, ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -47,6 +47,8 @@ interface PageToolsState {
   apps: WeakMap<object, object>
   installed: WeakSet<object>
   bases: WeakMap<object, string>
+  // Optional: a copy of this module from an older release may have made the slot without it.
+  origins?: WeakMap<object, readonly string[]>
   grants?: Map<string, ViteHubPageGrant>
   siteVisitor?: ViteHubSiteVisitorReader
   // Optional: a copy of this module from an older release may have made the slot without it.
@@ -152,6 +154,11 @@ export function viteHubSiteVisitorReader(): ViteHubSiteVisitorReader | undefined
   return state().siteVisitor
 }
 
+/** Whether the app serves its page tools on the origin of the request. Every origin counts for an app without `origins`. */
+function servesOrigin(nitroApp: object, request: Request): boolean {
+  return matchesPublicOrigin(request, state().origins?.get(nitroApp) ?? [])
+}
+
 /** The path of a URL below the app base. A path outside the base stays as it is. */
 function pathBelow(base: string, pathname: string): string {
   return base && (pathname === base || pathname.startsWith(`${base}/`)) ? pathname.slice(base.length) || "/" : pathname
@@ -182,6 +189,8 @@ export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
 function pageAddition(nitroApp: object, request: Request, base: string): "loader" | "bootstrap" | undefined {
   const url = new URL(request.url)
   if ((state().tools.get(nitroApp)?.size ?? 0) === 0 || !isPagePath(url, base)) return undefined
+  // The prerenderer asks on a made-up origin. A host serves the prerendered page on the public origin.
+  if (!request.headers.has("x-nitro-prerender") && !servesOrigin(nitroApp, request)) return undefined
   return viteHubPageToolsWanted(url.search, request.headers.get("cookie") ?? "") ? "loader" : "bootstrap"
 }
 
@@ -196,12 +205,13 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 }
 
 /**
- * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
+ * Answers `GET <base>/_vitehub/page/tools`: the tools whose `allowed` check passes for this visitor, in registration
  * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
  * each tool `script` path gets it. When at least one tool is allowed, the answer also has the `account` of a signed-in
  * visitor, from the reader of `registerViteHubPageAccount()`. An anonymous visitor never gets one. It sets the hint cookie to `1` when at least one tool is allowed, and to `0` when
  * none is, so a signed-in person without access does not ask again on each page. A tool whose check throws is not
- * allowed. Requests from other sites get 403 and run no check.
+ * allowed. Requests from other sites get 403 and run no check. An origin that the app does not serve its page tools on
+ * gets 404.
  */
 export async function respondViteHubPageSession(nitroApp: object, request: Request): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -210,6 +220,9 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
   const origin = request.headers.get("origin")
   if ((origin && origin !== forwardedRequestOrigin(request)) || request.headers.get("sec-fetch-site") === "cross-site") {
     return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_CROSS_ORIGIN", why: "The page tools session answers the site's own pages only." } }, { status: 403 })
+  }
+  if (!servesOrigin(nitroApp, request)) {
+    return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_ORIGIN", why: "The page tools answer only on the public URL of the app." } }, { status: 404 })
   }
   const registered = [...state().tools.get(nitroApp)?.values() ?? []]
   const checks = await Promise.all(registered.map(async (tool) => {
@@ -233,8 +246,8 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
 }
 
 /**
- * The route of `GET /_vitehub/page/session`: a Fetchable (https://fetchable.org). Nitro 3 binds each Request to its
- * app in `installViteHubPageTools()`, so the route finds the tools of that app.
+ * The route of `GET /_vitehub/page/tools`: a Fetchable (https://fetchable.org). `installViteHubPageTools()` binds
+ * each Request to its app in Nitro's `request` hook, so the route finds the tools of that app.
  */
 export const viteHubPageSessionHandler: { fetch(request: Request): Promise<Response> } = {
   async fetch(request) {
@@ -357,6 +370,12 @@ function transformPage(response: Response, tag: () => string, personal: boolean)
 export interface ViteHubPageToolsInstallOptions {
   /** The app base, such as `/portal/` from the Vite `base`. The loader tag uses it. Default: the root. */
   base?: string
+  /**
+   * The origins that serve the page tools, such as `["https://shop.example.com"]` from `vitehub({ publicUrl })`. Pages
+   * on another hostname of the same deployment get no pill, and the page tools route answers 404 there. Default: every
+   * origin.
+   */
+  origins?: readonly string[]
 }
 
 /**
@@ -367,13 +386,25 @@ export interface ViteHubPageToolsInstallOptions {
  * static assets, still shows the pill. Call it from each owner's Nitro plugin: it installs once per app, whatever the
  * number of calls. It reads that app's registry and configured base on each request, so plugin order does not matter.
  * It wraps `nitroApp.fetch`, the Web entry that every preset and the prerenderer call. The tag uses `options.base`.
+ * It binds each request to the app in Nitro's `request` hook too, since another wrapper of `fetch` may pass a copy of
+ * the request inward, such as the `security` policy of `vite-hub` on Node.js.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
   const { installed, bases } = state()
   if (options.base !== undefined) bases.set(nitroApp, viteHubBasePath(options.base))
+  if (options.origins !== undefined) (state().origins ??= new WeakMap()).set(nitroApp, options.origins)
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
+
+  // The hook gets the `event.req` that the routes get, even when an inner wrapper of `fetch` copied the request.
+  const hooks: unknown = Reflect.get(nitroApp, "hooks")
+  const hook: unknown = hooks && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
+  if (hook instanceof Function) {
+    Reflect.apply(hook, hooks, ["request", (event: { req?: unknown } | undefined) => {
+      if (event?.req instanceof Request) state().apps.set(event.req, nitroApp)
+    }])
+  }
 
   const fetch: unknown = Reflect.get(nitroApp, "fetch")
   if (fetch instanceof Function) {

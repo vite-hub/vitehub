@@ -76,6 +76,8 @@ export default defineAuth({
 
 The plugin also adds a column for each `additionalFields` entry of `user`, `session`, `account`, and `verification`, and the tables and columns of `twoFactor()`, `username()`, `anonymous()`, `phoneNumber()`, `lastLoginMethod()`, `apiKey()` from `@better-auth/api-key`, and `stripe()` from `@better-auth/stripe` when the Definition module, or a file that it imports with a relative path, imports and calls them. It writes them to `.vitehub/auth/schema.ts` with `createAuthSqliteSchema()` or `createAuthPostgresSchema()`. Write `additionalFields` inline with a literal `type`, or Auth fails with `AUTH_C0055`. Tables of other plugins go in the Database Definition. When the SQLite Database has some of the tables already, for example an app that wrote the Better Auth tables itself, the plugin reads them from the snapshot of the latest migration, and `createAuthSqliteSchema(options, existing)` keeps their column defaults, unique keys, indexes, and foreign keys. The next migration then adds columns, tables, and indexes and rebuilds no table, so the drop of a rebuild cannot delete the rows that reference `user` or `organization`. The tables of `authSqliteSchema` and `authPostgresSchema` have typed columns. Before it opens the Database, the adapter compares the tables and columns that the options need with the Database, and fails with `AUTH_C0056` for a missing one or for model or field remapping.
 
+Use `useDatabase().schema` to query the generated plugin tables and your `additionalFields`. The generated SQLite column types also reflect the migration snapshot's nullability and defaults. Use `authSqliteSchema` and `authPostgresSchema` for foreign keys to core tables such as `user` and `organization`.
+
 ## Delete an account
 
 ```ts
@@ -475,18 +477,18 @@ export default defineAbilities({
 A rule gets the signed-in user, then its arguments, and returns at once. `true` allows. `false` and a code refuse with `403`, and `deny(code, { status, details })` with another 4xx status. A signed-out visitor gets `401` with the code `signed-out` before the rule runs, except in a `guest()` rule, where `user` is `null`. The Vite plugin serves the file as `#vitehub/auth/abilities` and registers its type in `.vitehub/types/auth.d.ts`, so ability names and arguments type-check.
 
 - Server: `requireAbility(event, name, ...args)` from `@vite-hub/auth/server` returns the checked `{ request, session, user }`, or throws `AbilityError`. H3 2 sends it with the rule's status and `{ code, details }` in `data`. `can(event, name, ...args)` returns a boolean.
-- Vue: `useAbility().can(name, ...args)`, `useAbility().cannot(name, ...args)`, `<Can do="posts.edit" :with="post">`, and `<Cannot>` from `@vite-hub/auth/vue`. They give no answer (`undefined`, or no content) until the session is known. `<Can>` and `<Cannot>` take the one argument of a rule in `with`, the list of any other rule in `args` (`:args="[from, to]"`), and `pending` to show nothing while data loads. The arguments go to the rule as they are, the same as on the server. `<Can>` renders the `#denied` slot with `{ code, details }` when the rule refuses. `<Cannot>` renders its default slot with `{ code, details }` only when the rule refuses. The Nuxt module auto-imports all of them.
+- Vue: `useAbility().can(name, ...args)`, `useAbility().cannot(name, ...args)`, and `<AuthPermission check="posts.edit" :args="[post]">` from `@vite-hub/auth/vue`. The component renders `#allowed` or `#denied` with `{ code, details }`. Default content is shorthand for `#allowed`; a named `#allowed` takes precedence. Neither slot renders until the session is known or while `pending` is true. All rules use an `args` tuple, checked against the rule signature. Nuxt registers the component only when the app or a layer has `shared/abilities.ts`, and an app component with the same name wins. Set `components: { prefix: "Custom" }` in `defineAuth()` to register `<CustomAuthPermission>`. Prefixes follow Nuxt's component prefix rules, which drop the prefix words that the name starts with: `MyAuth` registers `<MyAuthPermission>`.
 - Vue pages: `await useAbility().authorize(name, ...args)` throws when the rule refuses, with the status and `{ code, details }` data of `requireAbility()`. In Nuxt, the error is fatal and shows the error page. Without Nuxt, it is an `AbilityError`. In the browser, except while Nuxt hydrates, it sends one `/get-session` request for the current session. On the server, a session that the server could not read counts as signed out.
 
-Nuxt uses the Auth Definition's base path for the shared browser client. In other Vue apps, call `provideAuthClient(client)` from `@vite-hub/auth/vue` in a parent component's setup to share a custom client with descendant Auth composables and `<Can>`. You can also pass a client directly to `useAbility(client)`.
+Nuxt uses the Auth Definition's base path for the shared browser client. In other Vue apps, call `provideAuthClient(client)` from `@vite-hub/auth/vue` in a parent component's setup to share a custom client with descendant Auth composables and `<AuthPermission>`. You can also pass a client directly to `useAbility(client)`.
 
 `requireAuthorization(event, authorize)` checks inside the handler, and `withAuthorization()` wraps it. Use them for checks that need only the user. A rule that needs data the handler loads belongs in `shared/abilities.ts`.
 
 ## Nuxt: server session and page guard
 
-In Nuxt, the server reads the session only for a page that needs it: a page with an `auth` guard, or a page whose components call `useUserSession()` or `useAbility()`, or render `<Can>`. It reads the session once for each page request, waits for it before it renders those components, settles their refs as soon as it has the session, so an async `setup()` can wait for `ready`, and sends it to the browser in the page payload, without the session token. `useUserSession()` starts from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A call outside a component, such as in a plugin or a route middleware, cannot make the server wait, so on the server it starts pending unless the page guard already read the session. To protect a page, use the `auth` page guard. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.
+In Nuxt, the server reads the session only for a page that needs it: a page with an `auth` guard, or a page whose components call `useUserSession()` or `useAbility()`, or render `<AuthPermission>`. It reads the session once for each page request, waits for it before it renders those components, settles their refs as soon as it has the session, so an async `setup()` can wait for `ready`, and sends it to the browser in the page payload, without the session token. `useUserSession()` starts from it, so a signed-in page renders signed in on the server and does not flash signed out while Better Auth loads. A call outside a component, such as in a plugin or a route middleware, cannot make the server wait, so on the server it starts pending unless the page guard already read the session. To protect a page, use the `auth` page guard. A request without a session cookie skips the lookup, so pages for signed-out visitors do not load Better Auth. A prerendered or cached page was rendered without the visitor's cookie, so its session counts as unknown.
 
-The browser downloads Better Auth's client only when the page uses it. The Auth composables come the same way: with a page that calls them or renders `<Can>`, or when the browser opens a page with an `auth` guard. The Auth plugin in the app entry is about 2 KB gzipped. Nuxt prefetches neither on other pages.
+The browser downloads Better Auth's client only when the page uses it. The Auth composables come the same way: with a page that calls them or renders `<AuthPermission>`, or when the browser opens a page with an `auth` guard. The Auth plugin in the app entry is about 2 KB gzipped. Nuxt prefetches neither on other pages.
 
 The server session lookup, the page guard, and the auto-imported composables use the Auth Definition's `basePath`, below Nuxt's `app.baseURL`.
 
@@ -511,7 +513,8 @@ const { data: sessions } = await useAsyncData("sessions", async () => {
 | `'user'` or `true` | Visitors with a session | `access.signIn` (default `/login`), with `?redirect=<the page>`. A provider opens `<basePath>/sign-in`. |
 | `'guest'` | Visitors without a session, such as on the login page | `access.afterSignIn` (default `/`) |
 | `{ only, redirectTo }` | `only` is `'user'` or `'guest'` | `redirectTo` |
-| `false` or unset | Everyone | |
+| `false` | Everyone | |
+| Not set | The mode of the most specific `access.pages` pattern, or everyone if no pattern matches | |
 
 ```ts
 // server/auth.ts
@@ -522,11 +525,28 @@ export default defineAuth({
 })
 ```
 
+To guard pages from the Auth Definition, map route patterns to `'user'`, `'guest'`, or `false` in `access.pages`. The Nuxt module reads it at build time and adds the guard to the `appMiddleware` route rule of each pattern, so the server render and navigation in the browser send the visitor to the same page. The most specific pattern wins, `false` removes the guard of a wider pattern, and `definePageMeta({ auth })` of a page wins over all patterns. A key has static segments, `:name`, and a last `/**`. Optional, repeated, and regex params stop the build with `AUTH_PAGE_ROUTES_INVALID`, because Nuxt then orders patterns by position and not by how specific they are. So do two keys that match the same pages, such as keys that differ only in param names, letter case, or percent-encoding.
+
+The build also stops with `AUTH_PAGE_ROUTES_INVALID` when `access.pages` applies a `'user'` guard to `access.signIn` or to a `redirectTo` for signed-out visitors. A guest-only page can still redirect signed-in users to a `'user'` page.
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
+export default defineAuth({
+  access: { pages: { "/dashboard/**": "user", "/dashboard/pricing": false, "/login": "guest" } },
+})
+```
+
+On client navigation, the guard reads the session, so Better Auth can extend an active session and the guard sees each sign-in and sign-out. On the first navigation during hydration, the guard can reuse a signed-in session from the server for the same guarded page, but not for a prerendered or cached page. A signed-out server response still needs a browser read: cookies scoped to the Auth endpoint may not reach the page request. Only the latest navigation decides: when a newer navigation starts before the session read answers, the guard ignores the answer. The guard never redirects a page to itself.
+
 On client navigation, the guard reads the session into the same state as `useUserSession()`. When the guard finds that the session ended, such as after a sign-out in another tab, every component shows the visitor as signed out before the redirect.
 
 The guard runs when the route changes. On a `'user'` page, `signOut()` of `useUserSession()` sends the visitor to its sign-in page, with `?redirect=<the page>`. `redirectTo` takes priority. With provider sign-in and no `redirectTo`, Nuxt shows a signed-out page instead of starting OAuth again: even `/` might be protected. Pass `signOut({ redirectTo: '/goodbye' })` to send the visitor to a public page of your choice. Other pages stay open by default.
 
 The page guard decides where the browser goes. Protect data in server routes with `withAuth()`, `requireAuth()`, or `access.routes`. Read [Protect pages in Nuxt](https://vitehub.dev/docs/auth/protect-pages) for the full task.
+
+The Nitro build fails with `AUTH_GUARDED_PAGE_CACHED` when a route rule caches or prerenders a page that `definePageMeta({ auth })` guards: `swr`, `cache`, `isr`, `prerender`, or `static`. The page guard runs when the server renders the page, so a cached page serves the render of one visitor to all visitors. Set `cache: false` or `prerender: false` on the guarded pattern to turn off a wider rule. The check reads `<page>/_payload.json` as a separate path, so use a pattern such as `'/dashboard/**'` that matches the page and its payload. A public page with a static path, such as `/users/public`, may be cached when the route rule key is that exact path or its `/_payload.json`. A guest page, such as the login page, may be prerendered, and a path with `ssr: false` is not checked. With `access.pages`, a path whose most specific key is `false` may be cached, and a path whose most specific key is `'guest'` may be prerendered. The check reads `auth` when `definePageMeta()` sets it to a literal value. The module adds `auth` to Nuxt's `experimental.extraPageMetaExtractionKeys` for this.
 
 ## GitHub organization membership
 
@@ -627,6 +647,10 @@ Apps that install `vite-hub` call `hub.signIn()` from `setupViteHubTest()`. In a
 - Use `authDatabase()` and apply its migration, configure another Better Auth database adapter, or use `stateless()` for social sign-in without a database.
 - Protect application routes and the Console endpoint explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
+
+## Auth outcomes in request logs
+
+With the evlog Nitro module registered, each request's wide event gets an `auth` field: `{ outcome, path?, provider?, status?, code?, userId? }`. `outcome` is `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, such as a failed OAuth callback that the browser only sees as a redirect with `?error=`, and `refused` for a refusal of an Auth guard. `code` is Better Auth's error code, the OAuth `error`, or `SIGNED_OUT` / `FORBIDDEN`. Better Auth's warnings and errors also go on the event; the app's own `logger` option still gets every message. The event never holds an email address, a token, or a URL query. Without evlog, nothing is set. See [Server API](https://vitehub.dev/docs/auth/server-api#see-auth-outcomes-on-each-request).
 
 ## Passwords in a WebContainer
 

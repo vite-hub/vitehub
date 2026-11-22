@@ -18,6 +18,11 @@ export interface CloudflareWorkflowEvent {
   payload?: unknown
 }
 
+/** The `step` of a Cloudflare Workflow: the ViteHub step runner names, and `waitForEvent()`. */
+export interface CloudflareWorkflowStep extends Omit<WorkflowProviderStep, "waitForSignal"> {
+  waitForEvent?: (name: string, options: { timeout?: string, type: string }) => Promise<{ payload?: unknown }>
+}
+
 export interface RunCloudflareWorkflowOptions {
   config: false | ResolvedWorkflowOptions | undefined
   createNonRetryableError?: (error: Error) => Error
@@ -25,10 +30,15 @@ export interface RunCloudflareWorkflowOptions {
   event: CloudflareWorkflowEvent
   name: string
   registry: WorkflowDefinitionRegistry
-  step?: WorkflowProviderStep
+  step?: CloudflareWorkflowStep
 }
 
-/** The Cloudflare errors that a step already made. They pass the run boundary as they are, not wrapped again. */
+export function cloudflareSignalEventType(signal: string): string {
+  return `vitehub-${signal}`
+}
+
+const cloudflareSignalTimeout = "365 days"
+
 const cloudflareNonRetryableErrors = new WeakSet<object>()
 
 function translateNonRetryableError(
@@ -42,17 +52,14 @@ function translateNonRetryableError(
 }
 
 function wrapCloudflareWorkflowStep(
-  step: WorkflowProviderStep | undefined,
+  step: CloudflareWorkflowStep | undefined,
   createNonRetryableError: RunCloudflareWorkflowOptions["createNonRetryableError"],
   env: CloudflareWorkerEnv,
   runtimeEvent: () => unknown,
 ): WorkflowProviderStep | undefined {
   if (!step?.do) return step
-  // Cloudflare passes `step` as an RPC stub. Call its methods directly: `step.sleep.bind(step)`
-  // is a remote call that sends the stub away and disposes it.
   return {
     async do<TResult>(name: string, options: WorkflowStepOptions, run: () => TResult | Promise<TResult>): Promise<TResult> {
-      // Cloudflare reads `retries` and `timeout` as they are. ViteHub fills in its default retries, not Cloudflare's.
       return await step.do!(name, resolveWorkflowStepOptions(name, options), async () => await runWithActiveCloudflareEnv(env, async () => await runWithWorkflowRuntimeEvent(runtimeEvent(), async () => {
         try {
           return await run()
@@ -64,6 +71,9 @@ function wrapCloudflareWorkflowStep(
     },
     ...(step.sleep ? { sleep: async (name: string, milliseconds: number) => await step.sleep!(name, milliseconds) } : {}),
     ...(step.sleepUntil ? { sleepUntil: async (name: string, date: Date) => await step.sleepUntil!(name, date) } : {}),
+    ...(step.waitForEvent
+      ? { waitForSignal: async (name: string) => (await step.waitForEvent!(name, { timeout: cloudflareSignalTimeout, type: cloudflareSignalEventType(name) })).payload }
+      : {}),
   }
 }
 
@@ -80,8 +90,6 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       throw workflowErrorDiagnostics.WORKFLOW_R0015({ message: `Missing workflow definition: ${name}` })
     }
 
-    // A delayed start sleeps first. A sleeping instance does not count toward the concurrency limit. On replay, the
-    // finished sleep returns at once.
     const { payload, startAt } = fromCloudflareStartParams(event?.payload)
     if (startAt !== undefined) {
       if (!step?.sleepUntil) throw createWorkflowError({ code: "WORKFLOW_OPERATION_UNSUPPORTED", details: { operation: "delay", provider: "cloudflare" } })
@@ -99,7 +107,6 @@ export async function runCloudflareWorkflow({ config, createNonRetryableError, e
       }, definition))
     }
     catch (error) {
-      // Cloudflare retries each step on its own. An error that leaves `run()` ends the instance as errored.
       if (id && hasRunFailedListeners() && !definition.internalAgentWorkflow && !definition.internalAgentInvocationRecovery) {
         try {
           if (providerStep?.do) {

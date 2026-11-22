@@ -5,6 +5,8 @@ import { copyFile, lstat, mkdir, open, opendir, readdir, readFile, rename, rm, s
 import { dirname, relative, resolve, sep } from "node:path"
 import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
+
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
@@ -15,6 +17,14 @@ interface FsMultipartState {
   contentType?: string
   customMetadata?: Record<string, string>
   pathname: string
+}
+
+const loggedFsFailures = new Set<string>()
+
+function logFsFailure(op: string, message: string, error: unknown, fallback: () => void): void {
+  if (loggedFsFailures.has(op)) return
+  loggedFsFailures.add(op)
+  logFailure({ field: "blob", fields: { op, driver: "fs" }, message, error }, fallback)
 }
 
 const uploadIdPattern = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/
@@ -297,7 +307,7 @@ async function readCopiedMetadata(root: string, pathname: string, path: string, 
   // before the sidecar is published, so readers also check its recorded hash.
   if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
     await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
-      console.error("[vitehub/blob] Filesystem metadata re-key failed", error)
+      logFsFailure("fs-metadata-rekey", "Blob filesystem metadata re-key failed", error, () => console.error("[vitehub/blob] Filesystem metadata re-key failed", error))
     })
   }
   return metadata
@@ -464,7 +474,7 @@ async function readEntry(root: string, pathname: string, sidecars = sidecarIndex
         if (!bytes || version !== await currentVersion(path)) continue
         contentHash = sha256(bytes)
         await writeHash(root, pathname, { contentHash, fileVersion: version }).catch((error) => {
-          console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+          logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
         })
       }
       const hash = contentHash
@@ -653,7 +663,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     const published = await stat(publishedPath, { bigint: true })
     if (written && published.dev === written.dev && published.ino === written.ino && published.size === written.size && published.mtimeNs === written.mtimeNs) {
       await writeHash(root, pathname, { contentHash, fileVersion: fileVersion(published) }).catch((error) => {
-        console.error("[vitehub/blob] Filesystem hash cache write failed", error)
+        logFsFailure("fs-hash-cache-write", "Blob filesystem hash cache write failed", error, () => console.error("[vitehub/blob] Filesystem hash cache write failed", error))
       })
     }
     const entry = await readEntry(root, pathname)

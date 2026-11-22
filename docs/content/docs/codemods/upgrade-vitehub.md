@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, and `cli-get-list`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -56,7 +56,7 @@ The former forms fail with `QUEUE_INVALID_DEFINITION`, `SCHEDULE_C0007`, `SANDBO
 
 ## vitehub-options
 
-`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits every `vite.config.*` and `nuxt.config.*` in the app:
+`vitehub()` is the only place for config, and `logs` is its own key. `vitehub-options` edits `vite.config.*` and `nuxt.config.*` in the app and follows options passed from a direct relative import, such as `vitehub: createHostProfile().vitehub`. It leaves unrelated objects alone and reports a manual follow-up when it cannot trace an options expression to an object literal:
 
 ```bash [Terminal]
 npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
@@ -204,7 +204,7 @@ The report lists what the codemod leaves: `getAgent()` and the root helpers that
 
 ## driver-key
 
-`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and the old driver names:
+`driver` is the only key that selects the backend of a resource. An old key fails with a `*_RENAMED_*_KEY` error that names `driver`. `driver-key` renames the old keys and driver names in config files, in calls that take these options, and in options it can trace through a direct relative import. A driver literal with an explicit type constraint other than `as const` needs a manual migration:
 
 ```bash [Terminal]
 npx @vite-hub/codemods driver-key [dir] [--dry-run]
@@ -388,15 +388,16 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 ## channels
 
-`channels` replaces the removed Agent `http()` adapter. Use `webhook()` from `vite-hub/channels` for an HTTP sender. Use `channelAdapter("http", options)` from `vite-hub/agent/channels` to keep the Channel kind and State.
+`channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. The adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
 
 ```bash [Terminal]
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
 ```diff [server/agents/support.ts]
--import { http, slack } from 'vite-hub/agent/channels'
-+import { channelAdapter, slack } from 'vite-hub/agent/channels'
+-import { defineChannelTrigger, http, slack } from 'vite-hub/agent/channels'
++import { channelAdapter, slack } from 'vite-hub/channels/adapters'
++import { defineChannelTrigger } from 'vite-hub/channels'
 
  export default defineAgent({
 -  channels: { portal: http({ route: true }), slack: slack() },
@@ -404,7 +405,31 @@ npx @vite-hub/codemods channels [dir] [--dry-run]
  })
 ```
 
-The codemod rewrites direct calls without options or with a literal Boolean `route` option. Import paths stay the same. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+It also moves `webhook`, `stripe`, and their types from `vite-hub/channels` to `vite-hub/channels/adapters` in named imports, re-exports, and module loads that only use those adapters. The report flags namespace uses and mixed loads that need a manual split. Namespace imports, re-exports, `import()` calls, and mock paths of the removed Agent facade move to `vite-hub/channels/adapters`. The report lists each mock because helpers that moved to `vite-hub/channels` are not mocked there. The owner path `@vite-hub/agent/channels` stays.
+
+The codemod rewrites `http()` calls without options or with a literal Boolean `route` option. The report flags references, typed or complex calls, namespace imports, dynamic loads, re-exports of `http`, and mocks for manual review. To preserve the kind on a typed route, use `channelAdapter("http", options)` and type callback parameters explicitly. Use `webChat()` only if changing the kind is acceptable.
+
+It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
+
+```diff [server/channels/portal.ts]
+ webhooks: {
+   secretHeader: 'x-hub-signature-256',
+-  secretToken: process.env.GITHUB_WEBHOOK_SECRET,
+-  signature: 'github-sha256',
++  secret: 'GITHUB_WEBHOOK_SECRET',
++  signature: 'github',
+ },
+```
+
+| Old | New |
+| --- | --- |
+| `secretToken: process.env.X` | `secret: 'X'` |
+| `secretToken: () => …` | `secret: () => …` |
+| `'github-sha256'`, `'stripe-sha256'` | `'github'`, `'stripe'` |
+| `{ preset: 'hmac-sha256', … }` | `{ type: 'hmac-sha256', … }` |
+| `toleranceSeconds: 600` | `tolerance: '600s'` |
+
+A direct Server Env read, such as `useServerEnv().github.webhookSecret`, moves into a function. Existing resolvers stay intact. The report lists expressions the codemod cannot classify and asks you to check secret strings on `stripe()` or with an old signature. Move any hard-coded secret to a server variable and set `secret` to its name. A `secretToken` string stays unchanged and the definition fails with `AGENT_WEBHOOK_OPTION_RENAMED` until you migrate it.
 
 It also moves webhook secrets and signatures to the names of [Webhooks](/docs/webhooks). A string `secret` is the name of the server variable that holds the secret, in `webhook()`, `stripe()`, and every `webhooks` registration of `channelAdapter()` and `defineChannelTrigger()`:
 
@@ -583,3 +608,29 @@ The codemod updates simple shell invocations. It skips scripts and steps with co
 -    "check:env": "vitehub env status --url https://app.example.com"
 +    "check:env": "vitehub env list --json --url https://app.example.com"
 ```
+
+## cli-agent-tree
+
+`cli-agent-tree` moves the Agent commands of the `vitehub` calls in `package.json` scripts, `.github/workflows/*.yml`, and `*.sh` files under `vitehub agent`:
+
+```bash [Terminal]
+npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
+```
+
+| Old | New |
+| --- | --- |
+| `vitehub agents list`, `vitehub agents invoke <agent>` | `vitehub agent list`, `vitehub agent invoke <agent>` |
+| `vitehub agents status --agent <name>`, `vitehub agent get --agent <name>` | `vitehub agent get <name>` |
+| `vitehub invocations list\|get\|cancel\|undo\|delete\|capabilities\|workspace` | `vitehub agent invocations …` |
+| `vitehub conversations export` | `vitehub agent conversations export` |
+
+```diff [package.json]
+-    "agent:status": "vitehub agents status --agent support --url https://app.example.com"
++    "agent:status": "vitehub agent get support --url https://app.example.com"
+```
+
+The codemod leaves old Console deletes untouched. Migrate them by hand to `vitehub agent invocations delete <id> --url <app>` and pass the same app. Without `--url`, this command deletes from the journal file. Add `--yes` to confirm in a script.
+
+Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
+
+Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` alone for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.

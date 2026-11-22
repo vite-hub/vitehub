@@ -16,6 +16,7 @@ import { createAgentEvalInclude, discoverAgentEvalFiles } from "./discovery.ts"
 import { agentDevLoopDiscoveryFetch, isCompatibleAgentDevServerRoot } from "./internal/agent-dev-loop-cli.ts"
 import { runAgentInfoCli } from "./internal/agent-info-cli.ts"
 import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
+import { runAgentStateCli } from "./internal/agent-state-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
 import { conversationsExportUsage, runConversationsExportCli } from "./internal/conversations-cli.ts"
@@ -1292,10 +1293,10 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
   const evalFiles = discoverAgentEvalFiles(evalRoots)
   const features: AgentCliContributor["namespaces"][number]["features"] = [
     {
-      description: "Inspect a discovered Agent through a running Vite Development Server.",
+      description: "Inspect a discovered Agent through the Dev Loop or the app's Console.",
       name: "get",
       run: async (args, context) => await runAgentInfoCli(args, context),
-      usage: "vitehub agent get [--agent <name>] [--json]",
+      usage: "vitehub agent get [name] [--url <app>] [--dev] [--json]",
     },
     {
       description: "Talk to a discovered Agent through a running Vite Development Server.",
@@ -1304,10 +1305,29 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
       usage: "vitehub agent dev [message...] [--agent <name>]",
     },
     {
+      description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
+      name: "conversations",
+      run: async (args, context) => await runAgentConversationsCli(args, context),
+      usage: conversationsExportUsage,
+    },
+    {
+      description: "Show the AI emulator that answers Agent models under VITEHUB_MODELS=emulate: its rules and recent calls.",
+      name: "emulator",
+      // The emulator reader loads the gateway package, so only this command imports it.
+      run: async (args, context) => await (await import("./internal/agent-emulator-cli.ts")).runAgentEmulatorCli(args, context),
+      usage: "vitehub agent emulator [--url <url>] [--json]",
+    },
+    {
       description: "Inspect an application's durable Agent Invocation journal.",
       name: "invocations",
       run: async (args, context) => await runAgentInvocationsCli(args, context),
-      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|delete|prune|compact> [id] [--url <url>] [--json]",
+      usage: "vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [--url <url>] [--json]",
+    },
+    {
+      description: "Move Chat State keys that an explicit `messages.state` wrote without a scope to their Channel scope.",
+      name: "state",
+      run: async (args, context) => await runAgentStateCli(args, context),
+      usage: "vitehub agent state migrate --agent <name> --channel <adapter>[=<channel>]... [--url <libsql-url>] [--apply]",
     },
   ]
   if (evalFiles.length) {
@@ -1336,7 +1356,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         description: "External Channel registration workflows.",
         features: [
           {
-            description: "Download one deployed Channel conversation and its attachments. `conversations export --format json --output <directory>` writes the same archive.",
+            description: "Download one deployed Channel conversation and its attachments. `agent conversations export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               envDir: options?.envDir,
@@ -1362,20 +1382,17 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         ],
         name: "channels",
       },
-      {
-        description: "Export Channel conversations.",
-        features: [
-          {
-            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
-            name: "export",
-            run: async (args, context) => await runConversationsExportCli(args, context),
-            usage: conversationsExportUsage,
-          },
-        ],
-        name: "conversations",
-      },
     ],
   }
+}
+
+async function runAgentConversationsCli(args: string[], context: Parameters<typeof runConversationsExportCli>[1]): Promise<number> {
+  const [command, ...rest] = args
+  if (command === "export") return await runConversationsExportCli(rest, context)
+  const stream = command === undefined || command === "-h" || command === "--help" ? context.stdout : context.stderr
+  if (command !== undefined && stream === context.stderr) stream.write(`Unknown command: vitehub agent conversations ${command}.\n`)
+  stream.write(`Usage: ${conversationsExportUsage}\n`)
+  return stream === context.stdout ? 0 : 1
 }
 
 export { runAgentInfoCli, runAgentInvocationsCli }

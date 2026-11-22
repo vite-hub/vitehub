@@ -1,7 +1,11 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
+    // The page pill and the page tools take the motion layer from the `@vite-hub/ui` sources and bundle it.
+    // `@vite-hub/ui` depends on `@vite-hub/comments`, which depends on this package, so this package cannot depend on it.
+    alias: { "@vite-hub/ui/motion/core": fileURLToPath(new URL("../ui/src/motion-core.ts", import.meta.url)) },
     deps: {
       // The scanner uses the oxc parser that the consumer's Vite ships. Packages that bundle
       // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
@@ -94,6 +98,7 @@ export default defineConfig({
       "src/runtime/page-tools-loader.ts",
       "src/runtime/page-tools-shared.ts",
       "src/runtime/random.ts",
+      "src/runtime/request-log.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
       "src/runtime/user-agent.ts",

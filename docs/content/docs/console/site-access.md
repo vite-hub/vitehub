@@ -80,7 +80,7 @@ hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
 // https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
 ```
 
-`hostedConsoleUrl()` builds a link to one Console page of a project, as `consoleInvocationUrl()` and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both. It throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` for a project URL and `RUNTIME_CONSOLE_PATH_INVALID` for a path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
+`hostedConsoleUrl()` builds a link to one Console page of a project, as Agent invocation links and GitHub pull request comments do. The first argument is the app origin with any base path, such as `https://app.example.com/portal`, and the second a Console path that starts with one `/`, such as `/kv` or `/agents/<agent>/invocations/<id>`. It encodes both. It throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` for a project URL and `RUNTIME_CONSOLE_PATH_INVALID` for a path that the Console refuses. A self-hosted Console takes its origin as a third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
 
 The link opens that page of your team's app with that URL, or Home when your team has not linked it.
 
@@ -110,6 +110,8 @@ export default defineConsoleAuthorize((context) => {
 An `authorize` that returns `true` for every context shows the link to every visitor, so check `context.via` first.
 
 The pill shows only when the page has a hint: `?vitehub` in the URL, the `vitehub-tools=1` cookie of an earlier visit, or a new app Auth session. Without Auth on a development server, open a page with `?vitehub` once. A page on `http:` with a non-loopback host, such as a LAN address, has no **Console** segment, because the Console cannot open that URL.
+
+When you set `vitehub({ publicUrl })`, a build shows the pill only on that origin. Another hostname of the same deployment, such as a domain that serves user uploads, gets no pill, and `/_vitehub` and the page tools route answer `404` there. Other ViteHub routes, such as `/_vitehub/rpc`, Realtime, Channels, and webhooks, answer on every hostname. A `localhost` or `127.0.0.1` host and a development server always get the pill.
 
 The link adds the [page tools script](/docs/comments/configure#turn-comment-mode-on-and-off) to every HTML page, about 320 bytes inline. To leave the link and the script out, set `pill: false`:
 

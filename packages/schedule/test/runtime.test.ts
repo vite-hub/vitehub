@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
+import { deserializeResponse, serializeResponse } from "@vite-hub/runtime/internal/response"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule } from "../src/runtime.ts"
 import { onRunFailed } from "@vite-hub/runtime/internal/run-failed"
@@ -34,7 +34,6 @@ function createTestKVStore(): ScheduleKVStorage {
   }
 }
 
-/** Like unstorage: `/` and `:` both separate key segments, and listed keys use `:`. */
 function createColonKVStore(): ScheduleKVStorage {
   const store = createTestKVStore()
   const normalize = (key: string) => key.replaceAll("/", ":")
@@ -480,7 +479,6 @@ describe("Schedule Run bookkeeping", () => {
       name: "report",
       scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
     })
-    // Capture the rejection without asking the test reporter to inspect the thrown value.
     const rejected = await execution.then(() => false, error => error === thrown)
     const [run] = await getScheduleRunStore().listRuns()
     expect(run).toMatchObject({
@@ -745,7 +743,6 @@ describe("KV Schedule Run Store", () => {
       }
     }
     const get = vi.spyOn(kvStore, "get")
-    // Reopen the existing index: no migration or record scan should be needed.
     const reopened = createKVScheduleRunStore({ kvStore })
     const controller = await installProcessScheduleRuntime({
       now: () => new Date("2026-01-01T16:41:20.000Z"),
@@ -779,7 +776,6 @@ describe("KV Schedule Run Store", () => {
         createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
     }
     if (kind === "kv") {
-      // The bounded legacy fallback must apply the same filter after backfilling.
       for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.delete(key)
     }
     expect((await store.listRuns({ scheduleId: "daily", idPrefix: "srun_static_", limit: 1 })).map(run => run.id)).toEqual(["srun_static_newer"])
@@ -921,7 +917,6 @@ describe("KV Schedule Run Store", () => {
       expect(results[5]?.every(run => run.scheduledAt.getUTCMinutes() === 7)).toBe(true)
       expect(results.slice(6).map(runs => runs.length)).toEqual([32, 8, 16, 0])
       expect(get).toHaveBeenCalledTimes(32)
-      // Retained payloads are decoded once, then copied only for matching output records.
       expect(clone.mock.calls.length).toBeLessThanOrEqual(32 + results.flat().length)
       results[0]![0]!.error!.message = "changed"
       results[0]![0]!.scheduledAt.setUTCFullYear(2000)
@@ -1010,7 +1005,6 @@ describe("KV Schedule Run Store", () => {
     }
     expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id)).toEqual(ids)
     if (kind === "kv") {
-      // Existing records remain readable when they predate the index.
       for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index")) await kvStore.delete(key)
       expect((await store.listRuns({ scheduleId: "actual", limit: 10 })).map(run => run.id).sort()).toEqual(ids.toSorted())
     }

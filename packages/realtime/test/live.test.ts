@@ -9,7 +9,8 @@ import { defineRealtimeEditor } from "../src/editor.ts"
 import { createRealtimeYDoc, readRealtimeYDoc } from "../src/document.ts"
 import { readRealtimeStatus } from "../src/layout.ts"
 import { defineRealtime } from "../src/definition.ts"
-import { createRealtimeHandler, realtimeRoomKey, refreshRealtimeDocument, resolveRealtimeDefinition } from "../src/server.ts"
+import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
+import { realtimeRoomKey, resolveRealtimeDefinition } from "../src/internal/server.ts"
 import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
@@ -40,7 +41,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** Clients may send one document update per 50 ms. */
 async function pace(): Promise<void> {
   await vi.advanceTimersByTimeAsync(60)
 }
@@ -150,7 +150,6 @@ describe("custom document adapters", () => {
       expect(client.doc.getMap("fields").toJSON()).toEqual({ slug: "hello", title: "" })
       expect(readRealtimeStatus(client.doc).issues).toEqual([{ field: "title", message: "Title is required", path: [] }])
     }
-    // The merge is a server write: it does not schedule another save.
     await vi.advanceTimersByTimeAsync(20_000)
     expect(memory.adapter.save).toHaveBeenCalledOnce()
     first.close()
@@ -197,10 +196,6 @@ describe("custom document adapters", () => {
   })
 })
 
-/**
- * Stub codec that loses a construct: blocks starting with `::` (an undeclared component) are
- * dropped. It also writes `- ` for a `* ` list marker and drops the final newline.
- */
 function createLossyEditor() {
   const { calls, editor: base } = createStubEditor()
   const blocks = (markdown: string) => markdown.replace(/\n+$/, "").split("\n\n")
@@ -283,7 +278,6 @@ describe("editor codec guard", () => {
     expect(client.controls[0]).toMatchObject({ access: "write" })
     expect(paragraphs(client.doc)).toEqual(["- item", "Text"])
 
-    // An edit that is undone leaves the canonical form: no save, no rewrite of `* item`.
     await pace()
     appendParagraph(client.doc, "Typo")
     await pace()
@@ -294,7 +288,6 @@ describe("editor codec guard", () => {
     expect(memory.adapter.save).not.toHaveBeenCalled()
     expect(readRealtimeStatus(client.doc)).toMatchObject({ digest: "v1", error: null })
 
-    // A real edit saves the codec's form and keeps the final newline.
     appendParagraph(client.doc, "More")
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
@@ -310,7 +303,6 @@ describe("editor codec guard", () => {
     const client = await server.connect("page")
     await settle()
     await pace()
-    // The stub codec splits paragraphs on blank lines, so this paragraph reads back as two.
     appendParagraph(client.doc, "one\n\ntwo")
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
@@ -342,13 +334,11 @@ describe("editor versions", () => {
     const key = realtimeRoomKey("docs", "page")
     expect(sql.documents.get(key)).toMatchObject({ digest: "v1", epoch })
 
-    // The same version restores the persisted room and its seed.
     const same = await createTestServer(liveDefinition(memory.adapter, { editor: versioned("1") }), { durable: sql }).connect("page", { editor: "1", epoch })
     expect(same.controls[0]).toEqual({ type: "session", access: "write", epoch })
     same.close()
     await settle()
 
-    // A new version cannot trust the Yjs state of the old schema: the room seeds from the Markdown with a new epoch.
     const upgraded = createTestServer(liveDefinition(memory.adapter, { editor: versioned("2") }), { durable: sql })
     const stale = await upgraded.connect("page", { editor: "2", epoch })
     expect(stale.controls).toEqual([{ type: "reset", epoch: expect.not.stringMatching(epoch), reason: "stale" }])
@@ -374,7 +364,6 @@ describe("editor versions", () => {
       expect(paragraphs(client.doc)).toEqual(["Start"])
     }
 
-    // An older schema deletes the nodes it does not know when it renders. The room drops those writes.
     await pace()
     old.doc.getXmlFragment("body").delete(0, 1)
     appendParagraph(unversioned.doc, "Vandalism")
@@ -382,7 +371,6 @@ describe("editor versions", () => {
     await settle()
     expect(paragraphs(current.doc)).toEqual(["Start"])
     expect(memory.adapter.save).not.toHaveBeenCalled()
-    // The connection stays open, so it keeps receiving the room's updates instead of reconnecting in a loop.
     expect(old.closed).toBeUndefined()
     appendParagraph(current.doc, "Live")
     expect(paragraphs(old.doc)).toEqual(["Live"])
@@ -460,7 +448,6 @@ describe("saves that do not fit the schema", () => {
       return outer
     }],
   ])("refuses to save %s and keeps the room dirty", async (_, element) => {
-    // The built-in kit reads JSON that does not fit its schema as an empty document.
     const memory = createMemoryAdapter({ page: { body: "Start\n" } })
     const server = createTestServer({ access: "public", document: memory.adapter })
     const client = await server.connect("page")
@@ -522,10 +509,8 @@ describe("re-seeding", () => {
     }
     const secondEpoch = ana.controls.at(-1)!.epoch
     expect(secondEpoch).not.toBe(firstEpoch)
-    // Ana still holds her unsaved paragraph locally; the reset event hands it to the UI.
     expect(paragraphs(ana.doc)).toEqual(["Original", "Unsaved by Ana"])
 
-    // A client that ignores the reset and reconnects with its old seed is refused, not merged.
     const stale = await server.connect("page", { doc: ana.doc, epoch: firstEpoch })
     expect(stale.controls).toEqual([{ type: "reset", epoch: secondEpoch, reason: "stale" }])
     expect(stale.closed?.code).toBe(4409)
@@ -580,7 +565,6 @@ describe("re-seeding", () => {
     await settle()
     expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: "weather" })
 
-    // A schema change reads the same file, with the same digest, as an image reference.
     memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" } } })
     const refreshed = await server.post("page", "refresh")
     await expect(refreshed.json()).resolves.toEqual({ digest: "v1", reseeded: false })
@@ -589,7 +573,6 @@ describe("re-seeding", () => {
     expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" } })
     expect(memory.adapter.save).not.toHaveBeenCalled()
 
-    // The refreshed fields are the clean baseline: changing a field and changing it back saves nothing.
     await pace()
     client.doc.getMap("fields").set("hero", "edited")
     await pace()
@@ -598,7 +581,6 @@ describe("re-seeding", () => {
     await settle()
     expect(memory.adapter.save).not.toHaveBeenCalled()
 
-    // A field that starts to load as null is added too.
     memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" }, icon: null } })
     await server.post("page", "refresh")
     await settle()
@@ -741,7 +723,6 @@ describe("identity and authorization", () => {
 
     const { response } = await server.connect("page")
     const hooks = (response as Response & { crossws?: { open?: unknown, upgrade?: (request: Request) => unknown } }).crossws
-    // crossws upgrades a response without hooks into a silent socket; only an upgrade hook can refuse it.
     expect(response.status).toBe(401)
     expect(hooks?.open).toBeUndefined()
     const refusal = await hooks?.upgrade?.(new Request("https://example.com"))
@@ -853,7 +834,6 @@ describe("room authorities", () => {
     await settle()
     expect(memory.adapter.save).toHaveBeenCalledOnce()
 
-    // A clean, released room reopens from its live state without another load.
     const again = await server.connect("page")
     await settle()
     expect(paragraphs(again.doc)).toEqual(["Start", "Edit"])
@@ -875,7 +855,6 @@ describe("room authorities", () => {
     client.close()
     await settle()
 
-    // The leave save failed: the Durable Object kept the unsaved Yjs state and marked it dirty.
     const key = realtimeRoomKey("docs", "page")
     expect(sql.documents.get(key)).toMatchObject({ digest: "v1", dirty: 1, epoch })
 
@@ -920,7 +899,6 @@ describe("room authorities", () => {
     const persisted = persistedBytes()
     expect(sql.documents.get(realtimeRoomKey("docs", "dirty"))).toMatchObject({ dirty: 1 })
 
-    // A schema change reads both stored files, with the same digests, as image references.
     for (const id of ["clean", "dirty"]) memory.store.set(id, { ...memory.store.get(id)!, fields: { hero: { pathname: "art/weather.webp" } } })
     const restarted = createTestServer(definition, { durable: sql })
     const reopened = await restarted.connect("clean")
@@ -960,7 +938,6 @@ describe("room authorities", () => {
 
       await expect(response.text()).resolves.toBe("forwarded")
     }
-    // Nitro's Cloudflare entry sends every WebSocket upgrade to the instance named "server".
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 
@@ -1020,7 +997,6 @@ describe("adapter seams for live documents", () => {
     const viewer = await server.connect("page", { headers: { "x-user": "viewer" } })
     const ben = await server.connect("page", { headers: { "x-user": "ben" } })
     await settle()
-    // A read-only client does not hold the room.
     expect(hold).toHaveBeenLastCalledWith(expect.anything(), { users: [{ id: "ana", name: "ANA" }, { id: "ben", name: "BEN" }] })
     await vi.advanceTimersByTimeAsync(60_000)
     await settle()
@@ -1034,7 +1010,6 @@ describe("adapter seams for live documents", () => {
     expect(release).not.toHaveBeenCalled()
     ben.close()
     await settle()
-    // The last writer leaving saves the room first, then releases it.
     expect(memory.store.get("page")!.body).toBe("Start\n\nBen")
     expect(release).toHaveBeenCalledOnce()
     expect(memory.adapter.save.mock.invocationCallOrder[0]!).toBeLessThan(release.mock.invocationCallOrder[0]!)
@@ -1069,7 +1044,6 @@ describe("adapter seams for live documents", () => {
   })
 
   it("refreshes an open clean room from the server and leaves a dirty one to its next save", async () => {
-    // Rooms of earlier tests stay registered in this process.
     Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const server = createTestServer(liveDefinition(memory.adapter))
@@ -1092,7 +1066,6 @@ describe("adapter seams for live documents", () => {
     expect(fresh.closed).toBeUndefined()
     await vi.advanceTimersByTimeAsync(2_000)
     await settle()
-    // The save conflicts with the outside write, which wins and re-seeds the room.
     expect(fresh.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
     expect(memory.store.get("page")!.body).toBe("Agent again")
   })
@@ -1118,7 +1091,6 @@ describe("adapter seams for live documents", () => {
   it("finds the Durable Object binding of the running Worker", async () => {
     const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
     const scope = globalThis as { __env__?: Record<string, unknown> }
-    // Nitro's Cloudflare entry stores the request's bindings here.
     scope.__env__ = { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } }
     try {
       await expect(refreshRealtimeDocument("content", "posts/hello")).resolves.toBe(true)
@@ -1130,8 +1102,6 @@ describe("adapter seams for live documents", () => {
   })
 
   it("leaves a room it can see to the Durable Object that owns it", async () => {
-    // Workerd may run the Durable Object in the Worker's isolate: its rooms are visible here, but their sockets belong
-    // to the Durable Object's requests, so a reset from this request would never reach them.
     Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const server = createTestServer(liveDefinition(memory.adapter))
@@ -1148,7 +1118,6 @@ describe("adapter seams for live documents", () => {
 
   it("accepts workerd's binding, whose methods are on its class, and rejects methods from an arbitrary prototype", async () => {
     const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
-    // Workerd's binding: no own methods, a branded class prototype, and no global DurableObjectNamespace.
     class DurableObjectNamespace {
       get(_id: unknown) { return { fetch } }
       idFromName(name: string) { return { name } }
@@ -1157,7 +1126,6 @@ describe("adapter seams for live documents", () => {
     await expect(refreshRealtimeDocument("docs", "page", { durableObjects: new DurableObjectNamespace() })).resolves.toBe(true)
     expect(fetch).toHaveBeenCalledOnce()
 
-    // Client requests reach the Durable Object through the same binding.
     const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
     class ForwardingNamespace {
       get(_id: unknown) { return { fetch: forward } }

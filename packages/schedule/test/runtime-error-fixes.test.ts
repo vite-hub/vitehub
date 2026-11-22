@@ -5,7 +5,6 @@ import { createMemoryScheduleRunStore } from "../src/runtime.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { normalizeScheduleRuntimeError } from "../src/runtime/static.ts"
 
-/** The runtime codes that Schedule output, runtimes, and run stores can raise. */
 const runtimeCodes = [
   "SCHEDULE_R0003", "SCHEDULE_R0004", "SCHEDULE_R0005", "SCHEDULE_R0006", "SCHEDULE_R0022",
   "SCHEDULE_R0023", "SCHEDULE_R0024", "SCHEDULE_R0025", "SCHEDULE_R0026", "SCHEDULE_R0027",

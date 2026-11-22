@@ -2,7 +2,9 @@ import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
 import { isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
-import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
+import { createTraceEventLog, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console"
+import { isTraceContentAttributeKey } from "@vite-hub/runtime/internal/trace"
 import { emitRunFailed, toRunFailedError } from "@vite-hub/runtime/internal/run-failed"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
@@ -2134,13 +2136,18 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   }
   // A lazy store opens once, outside the bound of the operation that comes first.
   let opening: Promise<void> | undefined
+  let storeReady = false
   const storeOpen = options.store.open
-  const openStore = storeOpen && (async () => {
-    const task = opening ??= Promise.resolve().then(() => storeOpen.call(options.store)).catch((error: unknown) => {
+  const startStoreOpen = storeOpen && (() => opening ??= Promise.resolve().then(() => storeOpen.call(options.store))
+    .then(() => {
+      storeReady = true
+    })
+    .catch((error: unknown) => {
       opening = undefined
       throw error
-    })
-    const result = await boundedStoreOperation(() => task, STORE_OPEN_TIMEOUT_MS, true)
+    }))
+  const openStore = startStoreOpen && (async () => {
+    const result = await boundedStoreOperation(startStoreOpen, STORE_OPEN_TIMEOUT_MS, true)
     if (result === storeOperationTimedOut) throw agentDiagnostics.AGENT_INVOCATION_STORE_TIMEOUT({ step: "store open", ms: STORE_OPEN_TIMEOUT_MS })
   })
   const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
@@ -2155,7 +2162,6 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
     }
     return boundedStoreOperation(operation, timeoutMs, propagateErrors)
   }
-  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => storeOperation(operation, timeoutMs)
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
     const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
@@ -2233,6 +2239,29 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (unconfirmedWarned) return
         unconfirmedWarned = true
         console.warn(`[vitehub] Agent Invocation ${JSON.stringify(recordId)} continues without a confirmed ${operation}. Its journal record can be missing or stale until a retry succeeds.`)
+      }
+      let startedWithoutStore = false
+      if (openStore) {
+        try {
+          await openStore()
+        }
+        catch (error) {
+          if (strict || bindOptions.driverAtMostOnce) {
+            if (agentDiagnostics.is(error) && error.code === "AGENT_INVOCATION_STORE_TIMEOUT") throw error
+            throw agentDiagnostics.AGENT_INVOCATION_STORE_OPEN_FAILED({ cause: error })
+          }
+          startedWithoutStore = true
+          warnUnconfirmed("store open")
+        }
+      }
+      const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) =>
+        !openStore || storeReady ? boundedStoreOperation(operation, timeoutMs) : Promise.resolve(undefined)
+      const retryStoreOpen = () => {
+        if (!opening) void startStoreOpen?.().catch(() => undefined)
+      }
+      const registerRecovery = (task: Promise<unknown>) => {
+        if (startedWithoutStore) void task.catch(() => undefined)
+        else registerAgentInvocationRecovery(context, task)
       }
       let claimId = createInvocationId()
       let claimConfirmed = false
@@ -2712,7 +2741,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (capabilityId && observedCapabilityIds.size < MAX_CAPABILITY_IDS) observedCapabilityIds.add(capabilityId)
         if (finished) {
           if (!boundToTerminalRecord && recoverableOutcomeObservation(observation)) {
-            registerAgentInvocationRecovery(context, persistLateObservation(observation))
+            registerRecovery(persistLateObservation(observation))
           }
           return
         }
@@ -2906,7 +2935,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             const recoveries = terminalObservationRecoveries.splice(0)
             const observations = terminalRetryObservations.splice(0)
             if (recoveries.length > 0 || observations.length > 0) {
-              registerAgentInvocationRecovery(context, Promise.all([
+              registerRecovery(Promise.all([
                 ...recoveries.map(recover => recover()),
                 ...observations.map(persistLateObservation),
               ]).then(() => undefined))
@@ -2924,6 +2953,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 const timer = setTimeout(resolve, TERMINAL_RETRY_INTERVAL_MS)
                 unrefTimer(timer)
               })
+              retryStoreOpen()
               await finishOnce()
             }
             if (!finished) {
@@ -2947,7 +2977,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             }
           })
           terminalRetry = retry
-          registerAgentInvocationRecovery(context, retry.then(() => undefined))
+          registerRecovery(retry)
         },
         async running() {
           if (finished) return false
@@ -2992,10 +3022,11 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 unrefTimer(timer)
               })
               if (finished) return
+              retryStoreOpen()
               if (await markRunning()) return
             }
           })()
-          registerAgentInvocationRecovery(context, runningRetry)
+          registerRecovery(runningRetry)
           return false
         },
         startsUnconfirmed() {
@@ -3035,7 +3066,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               })
             }
           })()
-          registerAgentInvocationRecovery(context, retry)
+          registerRecovery(retry)
           return true
         },
         async setAnnotations(annotations) {
@@ -3177,7 +3208,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           throw agentDiagnostics.AGENT_R0974({ message: `[vitehub] Cancellation was recorded for Agent Invocation ${JSON.stringify(id)}, but its Driver dispatch state could not be verified within five seconds.` })
         }
         await new Promise<void>(resolve => setTimeout(resolve, CANCELLATION_VERIFICATION_INTERVAL_MS))
-        const summary = await boundedStore(() => store.getSummary(id), Math.min(storeTimeoutMs, Math.max(0, verificationDeadline - Date.now())))
+        const summary = await storeOperation(() => store.getSummary(id), Math.min(storeTimeoutMs, Math.max(0, verificationDeadline - Date.now())))
         if (summary && summary !== storeOperationTimedOut) current = summary
       }
       if (!current) return missingResult

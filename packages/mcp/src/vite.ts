@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { normalizeNitroPreset } from "@vite-hub/internal/deployment"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
@@ -36,12 +37,14 @@ export interface McpVitePluginOptions extends McpOptions {
   }
 }
 
-export type McpVitePlugin = Plugin & { vitehub: ViteHubInspectionPluginMetadata }
+export type McpVitePlugin = Plugin & {
+  nitro: { name: string, setup(nitro: { options: { dev: boolean, preset: string } }): void }
+  vitehub: ViteHubInspectionPluginMetadata
+}
 
 export const MCP_VITE_PLUGIN_NAME = "@vite-hub/mcp/vite"
 
 const generatedDir = ".vitehub/nitro/mcp"
-// MCP 2025-11-25 tool names: 1 to 128 characters of letters, digits, `_`, `-`, and `.`.
 const toolName = /^[\w.-]{1,128}$/
 
 /** Lists the tool files in `mcp/tools/` of each server directory. */
@@ -56,7 +59,6 @@ export function discoverMcpTools(options: { rootDir: string, serverDirs?: readon
   return tools
 }
 
-/** Lists the prompt files in `mcp/prompts/` or the resource files in `mcp/resources/` of each server directory. */
 function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: string, serverDirs?: readonly string[] }): DiscoveredMcpTool[] {
   const serverDirs = options.serverDirs ? [...options.serverDirs] : [resolve(options.rootDir, "server")]
   return discoverDefinitions<DiscoveredMcpTool>(kind === "prompts" ? "MCP prompt" : "MCP resource", [createDirectoryDefinitionSource(`server-mcp-${kind}`, serverDirs, `mcp/${kind}`)])
@@ -64,7 +66,6 @@ function discoverMcpFiles(kind: "prompts" | "resources", options: { rootDir: str
 
 const hooksExtensions = [".ts", ".mts", ".js", ".mjs"]
 
-/** The `mcp.ts` hooks module of the server directories, if there is one. */
 function discoverMcpHooks(options: { rootDir: string, serverDirs: readonly string[] }): string | undefined {
   const files = options.serverDirs.flatMap(directory => hooksExtensions.map(extension => resolve(directory, `mcp${extension}`))).filter(file => existsSync(file))
   if (files.length > 1) {
@@ -85,13 +86,11 @@ function discoverAll(options: { rootDir: string, serverDirs: readonly string[] }
   return { tools: discoverMcpTools(options), prompts: discoverMcpFiles("prompts", options), resources: discoverMcpFiles("resources", options), ...(hooks ? { hooks } : {}) }
 }
 
-/** A relative `import()` type specifier that resolves under NodeNext and bundler resolution: `mcp.ts` becomes `mcp.js`. */
 function typeImportSpecifier(from: string, file: string): string {
   const path = relative(from, file).replace(/\.([cm]?)ts$/, ".$1js")
   return path.startsWith(".") ? path : `./${path}`
 }
 
-/** Gives handlers the type of the value that `resolveCaller` of `server/mcp.ts` returns. */
 function renderTypes(typesFile: string, hooks: string | undefined): string {
   if (!hooks) return "export {}\n"
   return [
@@ -116,9 +115,18 @@ function packageName(projectRoot: string): string | undefined {
   return typeof name === "string" && name ? name : undefined
 }
 
+const oneProcessPresets = new Set(["bun", "deno-server", "node", "node-middleware", "node-server"])
+
+function elicitationUnsupportedHost({ dev, preset }: { dev: boolean, preset: string }): string | undefined {
+  if (dev) return undefined
+  const normalized = normalizeNitroPreset(preset)
+  return oneProcessPresets.has(normalized) ? undefined : normalized
+}
+
 interface RenderOptions extends Pick<McpOptions, "instructions" | "serverInfo"> {
   auth: boolean | "optional"
   authMcp: string
+  elicitationUnsupportedHost: string | undefined
   name: string
   only?: "public"
   publicRoute: string | undefined
@@ -147,6 +155,7 @@ function renderHandler(files: McpDefinitionFiles, options: RenderOptions): strin
     ...options.publicRoute ? [`  publicRoute: ${JSON.stringify(options.publicRoute)},`] : [],
     ...options.instructions === undefined ? [] : [`  instructions: ${JSON.stringify(options.instructions)},`],
     ...options.serverInfo === undefined ? [] : [`  serverInfo: ${JSON.stringify(options.serverInfo)},`],
+    ...options.elicitationUnsupportedHost ? [`  elicitationUnsupportedHost: ${JSON.stringify(options.elicitationUnsupportedHost)},`] : [],
     field("tools", "tool"),
     ...files.prompts.length ? [field("prompts", "prompt")] : [],
     ...files.resources.length ? [field("resources", "resource")] : [],
@@ -196,18 +205,19 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
   let projectRoot = process.cwd()
   let serverDirs: string[] = []
   let base = ""
+  let unsupportedHost: string | undefined
 
   const handlerFile = () => resolve(projectRoot, generatedDir, "handler.ts")
   const publicHandlerFile = () => resolve(projectRoot, generatedDir, "public.ts")
   const typesFile = () => resolve(projectRoot, ".vitehub/types/mcp.d.ts")
   const name = () => options.name ?? packageName(projectRoot) ?? "app"
-  const server = { instructions: options.instructions, serverInfo: options.serverInfo }
+  const server = () => ({ instructions: options.instructions, serverInfo: options.serverInfo, elicitationUnsupportedHost: unsupportedHost })
   const write = (writer: (file: string, contents: string) => unknown) => {
     const files = discoverAll({ rootDir: projectRoot, serverDirs })
     const publicPath = publicRoute ? `${base}${publicRoute}` : undefined
-    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server, publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
+    const written = [writer(handlerFile(), renderHandler(files, { auth, ...imports, ...server(), publicRoute: publicPath, name: name(), route: `${base}${route}` }))]
     written.push(writer(typesFile(), renderTypes(typesFile(), files.hooks)))
-    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server, publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
+    if (publicRoute) written.push(writer(publicHandlerFile(), renderHandler(files, { auth: false, ...imports, ...server(), publicRoute: publicPath, name: name(), only: "public", route: `${base}${publicRoute}` })))
     return written
   }
   const fields = (kind: "prompts" | "resources" | "tools") => [
@@ -243,6 +253,13 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
         }, inspector("prompts"), inspector("resources")],
       }),
     },
+    nitro: {
+      name: MCP_VITE_PLUGIN_NAME,
+      setup({ options }) {
+        unsupportedHost = elicitationUnsupportedHost(options)
+        write(writeFileIfChangedSync)
+      },
+    },
     config(config) {
       projectRoot = resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
       // SAFETY: ViteHub writes this string-array metadata through its shared Vite config contract.
@@ -250,7 +267,6 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       serverDirs = configured ?? [resolve(projectRoot, "server")]
       const kit = createNitroServerKit((config as { nitro?: unknown }).nitro)
       base = typeof kit.config.baseURL === "string" ? kit.config.baseURL.replace(/\/+$/, "") : ""
-      // Nitro reads the generated files when it starts, so they exist before its config hook runs.
       write(writeFileIfChangedSync)
       // With `auth: true`, the route checks the access token of each request. `auth: false` and `"optional"` serve tools
       // without a token, so the app's Auth access routes still guard the route.
@@ -260,13 +276,11 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))
-        // Route-less Nitro 3 middleware also runs outside baseURL, where OAuth discovery must be served.
         kit.addHandler({ handler: discoveryFile, middleware: true }, "start")
       }
       ;(config as { nitro?: unknown }).nitro = kit.config
     },
     configureServer(server) {
-      // A new or removed tool, prompt, or resource file changes the imports of the server entry. Nitro reloads it from disk.
       const refresh = (file: string) => {
         if (!isDefinitionFile(file, serverDirs)) return
         Promise.all(write(writeFileIfChanged)).catch(error => server.config.logger.error(String(error)))

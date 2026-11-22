@@ -1,13 +1,11 @@
 import { createCloudflareProvisionClient, isShellSafeProvisionValue, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
-import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
-import type { CollectedQueueContribution } from "./contributions.ts"
+import type { DiscoveredQueueDefinition } from "./types.ts"
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
-/** Provision State category for Cloudflare Queue names, keyed by Queue Definition name. Config never reads it, because Queue names come from Definitions. */
 const QUEUE_CLOUDFLARE_PROVISION_CATEGORY = "queue"
 
 interface CloudflareQueue {
@@ -27,16 +25,15 @@ function parseQueues(value: unknown): CloudflareQueue[] {
 }
 
 export function createQueueProvisionStep(
-  resolveRootDir: () => string,
+  resolveDefinitions: () => DiscoveredQueueDefinition[],
   resolveNamePrefix: () => string | undefined = () => undefined,
-  resolveContributions: () => readonly CollectedQueueContribution[] = () => [],
 ): ProvisionStep {
   return {
     id: "queue:cloudflare-queues",
     provider: "cloudflare",
     recordedState() {
       const namePrefix = resolveNamePrefix()
-      const queues = new Map(discoverQueueDefinitions({ contributions: resolveContributions(), rootDir: resolveRootDir() }).map(definition => [definition.name, getCloudflareQueueName(definition.name, namePrefix)]))
+      const queues = new Map(resolveDefinitions().map(definition => [definition.name, getCloudflareQueueName(definition.name, namePrefix)]))
       return [{
         category: QUEUE_CLOUDFLARE_PROVISION_CATEGORY,
         declared: [...queues.keys()],
@@ -56,10 +53,9 @@ export function createQueueProvisionStep(
 
       const request = createCloudflareProvisionClient(config, context.fetch)
       const namePrefix = resolveNamePrefix()
-      const queues = discoverQueueDefinitions({ contributions: resolveContributions(), rootDir: resolveRootDir() }).map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
+      const queues = resolveDefinitions().map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
       if (!queues.length) return []
 
-      // The Queues list accepts `page` but documents no page size, so result_info decides when to stop.
       const listed = await listCloudflarePages(request, "/queues", { parse: parseQueues })
       const existing = new Set(listed.map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 

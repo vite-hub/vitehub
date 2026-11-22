@@ -29,26 +29,16 @@ A WebContainer needs `SharedArrayBuffer`, so the page that boots it must send `C
 
 ```ts
 import { defineConfig } from "vite"
-import { hubWebContainer } from "@vite-hub/web-container/vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [hubWebContainer({ routes: ["/playground/**"] })],
+  plugins: [vitehub({ webContainer: { routes: ["/playground/**"] } })],
 })
 ```
 
-The plugin sets the headers in `vite dev` and `vite preview`. `/playground` matches that path only. `/playground/**` matches it and every path below it.
+In Nuxt, set `vitehub: { webContainer: { routes: ["/playground/**"] } }` in `nuxt.config.ts`.
 
-In production, set the same headers with Nitro route rules:
-
-```ts fragment
-import { webContainerHeaders } from "@vite-hub/web-container/vite"
-
-export default defineNitroConfig({
-  routeRules: {
-    "/playground/**": { headers: webContainerHeaders },
-  },
-})
-```
+ViteHub sends the headers in `vite dev`, in `vite preview`, and from the built server through Nitro route rules. `/playground` matches that path only. `/playground/**` matches it and every path below it. In Nuxt, a link into or out of these routes loads a new document, because a page keeps the headers it loaded with.
 
 ## Boot an app and open its preview
 
@@ -209,7 +199,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 ## Inspect
 
-Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`docs/modules/tutorials/snapshots.ts`).
+Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`packages/docs/src/runnable/snapshots.ts`).
 
 ## Test
 

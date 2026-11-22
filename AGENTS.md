@@ -17,22 +17,13 @@ Before you design, change, review, or document anything in this repository, read
 - Preserve other people's changes. Inspect collisions before editing.
 - Ask before production work, deployments, live databases, or maintainer servers.
 - A direct request to fix, implement, commit, or open a pull request is authorization for that action.
+- Report what changed, what you verified, and what remains unverified, in prose.
 
 ## Project language
 
 ViteHub has Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Use these names consistently. Runtime policy belongs in its owner package. Console code may inspect runtime behavior but must not own it.
 
 Use Better Auth as a reference for composability and UnJS as a reference for host independent runtime behavior. Build primitives that developers should not recreate. Product specific workflows belong in consumers when they can be composed from ViteHub primitives.
-
-## Code map
-
-- `packages/vite-hub/src/`: framework distribution, discovery, generated output, and host integration
-- `packages/agent/src/`: Agent Definitions, Drivers, Invocations, and Capabilities
-- `packages/runtime/src/`: shared runtime contracts
-- `packages/workspace/src/`, `packages/source/src/`: file trees, access, and mounted Sources
-- `packages/*/src/`: each Server Primitive or integration
-- `docs/`: documentation and the first party website
-- `fixtures/`, `test/consumer/`, `test/output/`: consumer and generated output proof
 
 ## Native first
 
@@ -62,6 +53,10 @@ Use the web platform before JavaScript, and JavaScript before a dependency. A na
 
 `test/native-first.test.ts` checks the parts that code can check: no date library in a package manifest, no polyfill CDN, and `document.execCommand("copy")` only in the CopyButton fallback for pages that are not a secure context.
 
+## Comments
+
+Write no comments. Name the code so it needs none. Record a non-obvious decision in the area's log in [adr/](adr/README.md), and file an issue for a workaround. The `vitehub/no-comments` lint rule (`scripts/lint/comments.mjs`) keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. Existing comments are allowed up to the per-file count in `scripts/lint/comment-baseline/`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
+
 ## Diagnostic codes
 
 Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INCOMPLETE`, and put its key in alphabetical order among the codes of its catalog group, so concurrent pull requests edit different lines. Published numbered codes, such as `AUTH_C0068`, keep their names. Write the `why` and `fix` in the catalog: the docs build writes the code's page. Put more text in `docs/diagnostics/<CODE>.md`. `test/diagnostic-codes.test.ts` checks these rules.
@@ -70,26 +65,7 @@ Name a new catalog code `<PREFIX>_<WHAT_FAILED>`, such as `AUTH_FORWARD_AUTH_INC
 
 Read the nearest package README. Trace contract changes from configuration through generated output, runtime behavior, and consumers. Check every affected host, provider, and configuration form.
 
-From a clean checkout, install the Node version required by `package.json` and the Deno version in [`.deno-version`](.deno-version). Use the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/) for Deno. Then install the workspace dependencies and check the contributor tools:
-
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm exec vp run preflight
-```
-
-`preflight` checks the pinned Deno version. Run it before the full verification gate so a missing or different Deno installation is clear as a setup issue.
-
-Run focused checks for the files you changed. The package `typecheck` and `test` scripts build the package and its workspace dependencies first. For one test file, build with the cached Vite+ target, then run Vitest from the package directory. Do not run repository wide suites unless the task needs them.
-
-```sh
-corepack pnpm install --frozen-lockfile
-corepack pnpm --dir packages/vite-hub run typecheck
-corepack pnpm --dir packages/vite-hub run test
-corepack pnpm exec vp run --cache -t vite-hub#build && corepack pnpm --dir packages/vite-hub exec vp test test/<file>.test.ts
-corepack pnpm exec vp run verify
-```
-
-Use the affected package name in vp targets and its directory in pnpm --dir commands. For example, use @vite-hub/agent#build as the vp target and packages/agent as the --dir path. The verify command is the full local gate and needs the Deno version in .deno-version.
+Set up the checkout and pick focused checks with [CONTRIBUTING.md](CONTRIBUTING.md#set-up-a-checkout). The package `typecheck` and `test` scripts build their workspace dependencies first. Run the repository-wide `vp run verify` only when the task needs it.
 
 ### Doctor
 
@@ -106,11 +82,13 @@ The task compares with the merge base of `origin/main`. Set `VITE_DOCTOR_SINCE` 
 
 Fix each finding in the code. Each finding gives a fix and a link to its Diagnostic Code page. Do not suppress a finding to make the check pass. If the code is correct and the finding is wrong for one line, add a `doctor-disable-next-line <rule> -- <reason>` or a `// SAFETY:` comment. Write a reason that is true only for that line. Do not copy a reason from a different line. Name the rule ID, such as `typescript/evidence/no-chained-type-assertions`, not the Diagnostic Code. Doctor reports a directive that suppresses nothing (`DOC0036`) or names an unknown rule (`DOC0037`). Delete these directives. `--fix` deletes them for you. When the reason that you delete explains why the code is safe, keep it as a `// SAFETY:` comment. Doctor's instructions for agents are in [`node_modules/vite-doctor/docs/skills/doctor/SKILL.md`](node_modules/vite-doctor/docs/skills/doctor/SKILL.md).
 
-Report what changed, why, what you verified, and any remaining uncertainty. Keep the response in normal prose. Return JSON, HTML, or other machine formats only when the user explicitly asks for that format.
-
 ## Pull requests
 
 Keep one concern per pull request. Use a clear conventional title and start the body with the user visible problem and result. Include focused validation. Do not merge, force push, or deploy without explicit authorization. Use an isolated worktree for pull request work and never remove pre existing work.
+
+Before each push, run `corepack pnpm exec vp check --no-fmt <lintable changed files>` if any changed files can be linted. For each changed package, run the `typecheck` and `test` scripts it defines. For changes those commands do not cover, use the relevant focused checks under [Verify the changed behavior](CONTRIBUTING.md#verify-the-changed-behavior). CI must not be the first check of your change.
+
+Push each fix to the branch of the open pull request for that change. Open a new pull request only for a new concern.
 
 ## Review guidelines
 

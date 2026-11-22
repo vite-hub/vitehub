@@ -1,9 +1,6 @@
 import { defineAgent } from "vite-hub/agent"
 import { content } from "vite-hub/agent/capabilities"
 
-// Translates one English docs page into Spanish. `server/queues/translate.ts` runs it after a change to the English page,
-// with the source digest of the English version to translate. It saves with that `sourceDigest`, so Content records
-// that version as `derivedFrom`, and a translation of an older version shows as stale.
 export default defineAgent({
   runtime: false,
   driver: {
@@ -17,7 +14,6 @@ export default defineAgent({
       "If the save returns WORKSPACE_CONFLICT, someone else saved the Spanish page. Start again at step 1, which reads both pages again. Do not save more than twice.",
     ].join("\n"),
   },
-  // The Agent acts as a CMS `editor`: it reads and saves drafts, and it cannot publish.
   capabilities: [content({
     collections: ["docs"],
     operations: ["read", "write"],

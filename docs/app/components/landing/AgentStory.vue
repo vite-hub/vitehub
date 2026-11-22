@@ -94,10 +94,10 @@ function lineState(file: (typeof files)[number], line: number) {
       <div class="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
         <NuxtLink
           :to="agentStory.tutorialPath"
-          class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted"
+          class="inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted"
         >
           Build your first Agent
-          <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
+          <UIcon name="i-lucide-arrow-right" class="size-4 shrink-0" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           :to="agentStory.route.to"
@@ -210,10 +210,6 @@ function lineState(file: (typeof files)[number], line: number) {
 @media (hover: hover) and (pointer: fine) {
   .story-note-link:hover .story-note-label {
     text-decoration-color: currentcolor;
-  }
-
-  .group:hover .landing-cta-arrow {
-    transform: translateX(0.25rem);
   }
 }
 

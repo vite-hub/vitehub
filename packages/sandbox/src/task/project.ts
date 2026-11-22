@@ -154,7 +154,6 @@ function pnpmPatchPaths(manifest: PackageManifest) {
 }
 
 async function parsePnpmWorkspacePatchPaths(source: string) {
-  // Loaded on demand: every `vite` start imports this module, and few apps have a Sandbox project with a pnpm workspace.
   const { parse: parseYaml } = await import('yaml')
   const workspace: unknown = parseYaml(source)
   const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined

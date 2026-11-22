@@ -30,7 +30,6 @@ describe("forwardProjectRequest", () => {
     const [url, init] = send.mock.calls[0]!
     expect(String(url)).toBe("https://app.example.com/portal/_vitehub/rpc?x=1")
     const headers = new Headers(init?.headers)
-    // The app verifies the signature with the public key of the link, over the exact bytes that it receives.
     const keys = readConsolePublicKeys({ VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC: pair.publicKey })
     if (!(keys instanceof Map)) throw new Error(keys.message)
     const sent = new Uint8Array(await new Response(init?.body).arrayBuffer())
@@ -63,7 +62,7 @@ describe("forwardProjectRequest", () => {
     "/_vitehub/mcp",
     "/_vitehub/api/env/manage",
     "/_vitehub/env/manage",
-    "/_vitehub/page/session",
+    "/_vitehub/page/tools",
     "/_vitehub/auth/manage",
     "/_vitehub/rpc/__call",
     "/api/users",
@@ -149,7 +148,6 @@ describe("forwardProjectRequest", () => {
   })
 
   it("names Cloudflare Access when it sends the call to its sign-in page", async () => {
-    // What a Cloudflare Access application answers for POST /_vitehub/rpc without an Access session.
     const send = upstream(new Response("302 Found", {
       headers: {
         "location": "https://acme.cloudflareaccess.com/cdn-cgi/access/login/app.example.com?kid=1&redirect_url=%2Fportal%2F_vitehub%2Frpc",

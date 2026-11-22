@@ -4,14 +4,8 @@ import html from "comark/plugins/html"
 import type { ComarkParseTokensState, ComarkPlugin, ElementNode } from "comark"
 
 const openTag = /^(\s*<\s*[A-Za-z][\w:-]*)(\s+[\s\S]*?)?(\s*\/?>\s*)$/
-// Same attribute grammar as Comark's HTML attribute reader.
 const attribute = /([:\w.-]+)(\s*=\s*)?(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))?/g
 
-/**
- * Comark 0.8 decodes HTML attribute values with the body decoder, so `&copy=2` becomes `©=2`.
- * Browsers leave that reference alone inside attributes. Escape `&` before Comark decodes,
- * so the template receives the authored value and applies attribute decoding itself.
- */
 const rawHtmlAttributes = defineComarkPlugin(() => ({
   name: "vitehub-raw-html-attributes",
   markdownItPost(state: ComarkParseTokensState) {
@@ -40,12 +34,6 @@ function escapeAttributeValues(tag: string): string {
 
 const comarkHtml = html({ markdown: false })
 
-/**
- * Comark 0.8 lifts a paragraph whose only child is an HTML element out to a block element, so
- * `<policy>Use it.</policy>` renders with its body on separate lines. It only lifts paragraphs that
- * start with an HTML token; a leading empty text token keeps authored inline HTML inline. This runs
- * before Comark converts HTML blocks to paragraphs, so those keep their block layout.
- */
 const inlineHtml: ComarkPlugin = {
   ...comarkHtml,
   markdownItPost(state) {
@@ -63,7 +51,8 @@ export const htmlPlugins: ComarkPlugin[] = [inlineHtml, rawHtmlAttributes()]
 
 export const parserOptions = { autoClose: false, autoUnwrap: false, linkify: false, plugins: [...htmlPlugins, binding()] }
 
-const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+/** HTML tags whose text the renderer keeps as written. */
+export const literalHtmlTags: ReadonlySet<string> = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
 
 /** Whether authored HTML children are reparsed as Markdown by the template renderer. */
 export function hasMarkdownHtmlChildren([tag, attrs, ...children]: ElementNode): boolean {

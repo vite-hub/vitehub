@@ -94,7 +94,20 @@ export async function summarizeRun(log: string) {
 
 ## Ask questions
 
-`gateway.ask(state, questions, options?)` sends typed questions to [TypeSafe Jev](https://typesafe.ai). Only `vercel()`, `typesafe()`, and `cloudflare()` have it. It needs `advocaat`, the TypeSafe client:
+`gateway.ask(state, questions, options?)` sends typed questions to [TypeSafe Jev](https://typesafe.ai). Only `vercel()`, `typesafe()`, and `cloudflare()` have it. It needs `advocaat`, the TypeSafe client.
+
+Pick the builder by the answer that you want. The answer types come from the questions.
+
+| You want | Write | You get |
+| --- | --- | --- |
+| Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
+| The probability of yes | `ask.chance(instructions, { true?, false? })` | `{ chance }`, from `0` to `1`. |
+| One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
+| One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
+| A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. Pass the map to `gateway.ask()`, or spread it into your questions. |
+
+For `ask.switch()` and `ask.choice()`, `criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
 
 ```ts [label.ts]
 import { ask, typesafe } from 'vite-hub/gateways'
@@ -116,17 +129,6 @@ answers.category.confidence // 0 to 1
 answers.recurring // boolean
 ```
 
-The answer types come from the questions:
-
-| Builder | Answer |
-| --- | --- |
-| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
-| `ask.switch(instructions, criteria)` | The selected label only. |
-| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
-| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
-| `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
-
 `gateway.ask()` returns `[error, answers]`. A rejected key returns [`GATEWAYS_R0008`](/docs/gateways/limits-and-errors#gateways_r0008), and a provider that still fails after the retries returns [`GATEWAYS_R0009`](/docs/gateways/limits-and-errors#gateways_r0009). In a route, `return toResponse(error)` from `vite-hub/runtime` answers 503 or 502. A missing key or a question that the `ask` builders did not make throws.
 
 `options` takes `signal` to cancel the requests, and `onUsage`, which gets the `model`, `provider`, and token `usage` of each request. [Limits](/docs/gateways/limits-and-errors#limits) gives the size limit and the retries.
@@ -146,6 +148,32 @@ if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 ```
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
+### Test without a key
+
+`scriptedAsk(script)` from `vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. Build the answers with `answers`, so they pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from 'vite-hub/gateways'
+import { answers, scriptedAsk } from 'vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+calls[0]?.state // 'MERCADONA 23.10 -34.90 EUR'
+```
+
+| Helper | Answer |
+| --- | --- |
+| `answers.choice(question, label, probability?)` | `label` gets `probability` (default `1`), and the other labels share the rest. The chosen label must tie for or have the highest probability. |
+| `answers.score(question, level, probability?)` | `level` gets `probability` (default `1`), with the `score`, `ratio`, and `legend` that Jev returns. |
+| `answers.chance(probability)` | `{ chance }`. |
+| `answers.first(question)` | The first label, level `0`, or yes. |
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option, zero by default. Pass `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` to return a rejected key or a failing provider instead, with the same public message as a real gateway.
 
 ## Custom gateways
 

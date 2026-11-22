@@ -1,5 +1,6 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { readOldMigrationsLayout } from "../internal/migrations-layout.ts"
+import { migrationParts } from "../internal/migration-sql.ts"
 
 import type { Client, InStatement, InValue, ResultSet, Transaction, TransactionMode } from "@libsql/client"
 
@@ -23,7 +24,7 @@ export function createTestDatabaseClient(root: string, migrationsDir: string): C
       // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
       const { readMigrationFiles } = await import("drizzle-orm/migrator")
       for (const migration of readMigrationFiles({ migrationsFolder })) {
-        await client.migrate(migration.sql.filter(statement => statement.trim()))
+        await client.migrate(migration.sql.flatMap(part => migrationParts(part, "sqlite")))
       }
     }
     return client

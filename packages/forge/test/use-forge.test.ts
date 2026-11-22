@@ -17,10 +17,6 @@ interface FakeRequest {
   authorization: string | undefined
 }
 
-/**
- * A local GitHub API. It checks the RS256 signature of each App JWT with the App's public key, as GitHub does,
- * mints installation tokens, and reports which installation can reach each repository.
- */
 class FakeGitHub {
   readonly appId = "123"
   readonly privateKey: string
@@ -60,6 +56,10 @@ class FakeGitHub {
         this.minted++
         return reply(201, { token: `ghs_${tokens![1]}_${this.minted}`, expires_at: new Date(Date.now() + 3_600_000).toISOString() })
       }
+      if (path === "/users/acme-bot%5Bbot%5D") {
+        if (request.headers.authorization) return reply(401, { message: "A JSON web token could not be decoded" })
+        return reply(200, { id: 900, login: "acme-bot[bot]" })
+      }
       if (path === "/repos/acme/web") {
         if (!request.headers.authorization?.startsWith("Bearer ghs_42_")) return reply(401, { message: "Bad credentials" })
         return reply(200, { full_name: "acme/web" })
@@ -90,7 +90,6 @@ class FakeGitHub {
 
 let github: FakeGitHub
 
-// Installation tokens are cached per App and private key, so each test gets a new App.
 beforeEach(async () => {
   github = new FakeGitHub()
   await github.start()
@@ -135,10 +134,8 @@ describe("useForge() with a GitHub App", () => {
   it("uses the installation of the call before the routing, and mints a token that lasts minLifetime", async () => {
     const forge = useForge({ baseUrl: github.url, env: appEnv({ VITEHUB_GITHUB_INSTALLATION_ID: "7", VITEHUB_GITHUB_APP_OWNER: "acme" }) })
 
-    // A webhook delivery names its installation, so no lookup and no routing.
     await expect(forge.token({ repository: "acme/web", installation: 55 })).resolves.toMatchObject([undefined, { token: "ghs_55_1" }])
     await expect(forge.token({ installation: 55, minLifetime: 30 * 60_000 })).resolves.toMatchObject([undefined, { token: "ghs_55_1" }])
-    // The cached token expires within the hour, so a two-hour lifetime mints a new one.
     await expect(forge.token({ installation: 55, minLifetime: 2 * 3_600_000 })).resolves.toMatchObject([undefined, { token: "ghs_55_2" }])
     expect(github.count("GET", "/repos/acme/web/installation")).toBe(0)
     expect(github.count("POST", "/app/installations/7/access_tokens")).toBe(0)
@@ -153,7 +150,6 @@ describe("useForge() with a GitHub App", () => {
 
     await expect(forge.token({ repository: "acme/web" })).resolves.toMatchObject([undefined, { token: "ghs_7_1" }])
     await expect(forge.token({ repository: "other/api" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_9_/) }])
-    // An owner without a configured installation uses GitHub's lookup, not the fixed installation of `acme`.
     await expect(forge.token({ repository: "third/app" })).resolves.toMatchObject([undefined, { token: expect.stringMatching(/^ghs_11_/) }])
     expect(github.count("GET", "/repos/third/app/installation")).toBe(1)
     expect(github.count("GET", "/repos/other/api/installation")).toBe(0)
@@ -196,9 +192,12 @@ describe("useForge() with a GitHub App", () => {
     expect(github.requests.at(-1)?.authorization).toBe("Bearer ghs_42_1")
   })
 
-  it("names the App and its bot user", async () => {
-    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app())
-      .resolves.toEqual([undefined, { id: 123, slug: "acme-bot", login: "acme-bot[bot]" }])
+  it("names the App, its bot user, and the bot's commit email, once per App", async () => {
+    const identity = { id: 123, slug: "acme-bot", login: "acme-bot[bot]", email: "900+acme-bot[bot]@users.noreply.github.com" }
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    await expect(useForge({ baseUrl: github.url, env: appEnv() }).app()).resolves.toEqual([undefined, identity])
+    expect(github.count("GET", "/app")).toBe(1)
+    expect(github.count("GET", "/users/acme-bot%5Bbot%5D")).toBe(1)
   })
 
   it("returns FORGE_APP_NOT_INSTALLED when the App cannot reach the repository", async () => {

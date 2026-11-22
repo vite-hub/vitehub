@@ -64,7 +64,6 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
-/** The cause of `QUEUE_PROVIDER_FAILED` when Vercel rejects jobs of a batch. `results` has each job's result in input order. */
 function batchRejected(results: readonly VercelQueueBatchSendResult[]) {
   const failed = results.filter(result => result.status === "failed").length
   return Object.assign(queueErrorDiagnostics.QUEUE_VERCEL_BATCH_REJECTED({ failed, total: results.length }), { results })
@@ -92,7 +91,6 @@ function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE
   catch (cause) {
     return invalidVercelSendResponse(cause)
   }
-  // `@vercel/queue` returns `messageId: null` when it accepts a message for deferred processing (HTTP 202).
   if (messageId === null) return [undefined, undefined]
   if (typeof messageId !== "string" || !messageId || messageId.length > 128 || messageId.trim() !== messageId) {
     return invalidVercelSendResponse(value)
@@ -162,7 +160,6 @@ export async function createVercelQueueClient(provider: VercelQueueDriverOptions
       const normalized = normalizeQueueEnqueueInput(payload, options)
       const optionsError = queueUnsupportedOptionsError(normalized.options, "vercel")
       if (optionsError) return [optionsError, undefined]
-      // Vercel takes whole seconds.
       const [timeError, times] = readQueueTimes(normalized.options, "ceil")
       if (timeError) return [timeError, undefined]
 

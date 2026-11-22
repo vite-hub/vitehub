@@ -8,7 +8,6 @@ import type { GitHubFileCommit, GitHubHistoryOptions, GitHubPullRequest } from "
 
 /** `@vite-hub/forge`, an optional peer. A GitHub Source loads it on its first request. */
 export async function loadForge(): Promise<typeof import("@vite-hub/forge")> {
-  // The import stays in the try, so esbuild leaves it for run time when the app did not install Forge.
   try {
     return await import("@vite-hub/forge")
   }
@@ -54,16 +53,9 @@ export interface GitHubClient {
   pullPaths: (number: number, token: string | undefined) => Promise<string[] | undefined>
 }
 
-/** GitHub lists at most this many files in a compare response. */
 const compareFileLimit = 300
-/** GitHub lists at most 3,000 files of a pull request, 100 on each page. */
 const pullFilePages = 30
-/**
- * `changedPaths()` reads the files of each commit between the two commits, up to this many commits. More commits read
- * every page again.
- */
 const compareCommitLimit = 20
-/** Commit requests of `changedPaths()` that run at once. */
 const compareCommitConcurrency = 4
 
 /** The Server Env token: `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN`. */
@@ -99,7 +91,6 @@ function fileCommit(repo: string, item: unknown): GitHubFileCommit {
   }
 }
 
-/** Undefined when GitHub answers that the ref does not exist: 404, or 422 for an unknown commit SHA. */
 async function missingAsUndefined<T>(load: () => Promise<T>): Promise<T | undefined> {
   try {
     return await load()
@@ -153,7 +144,6 @@ export function createGitHubClient(repo: string): GitHubClient {
     return isRecord(value) && isNonEmptyString(value.full_name) ? value.full_name : null
   }
 
-  /** A pull request from `/pulls/<number>` or `/commits/<sha>/pulls`. The list has `merged_at` but no `merged`. */
   function pullRequest(data: unknown, number: number): { sha: string, pull: GitHubPullRequest } {
     if (!isRecord(data) || !Number.isSafeInteger(number) || !isRecord(data.head) || !isRecord(data.base) || !isNonEmptyString(data.head.sha) || !isNonEmptyString(data.head.ref) || !isNonEmptyString(data.base.ref)) {
       throw malformed(repo, "pull request")
@@ -184,13 +174,11 @@ export function createGitHubClient(repo: string): GitHubClient {
         { signal },
       )).data))
       if (data === undefined) return
-      // An older API answered a partial name with the list of branches that start with it. Only an exact match counts.
       if (Array.isArray(data)) return
       if (!isRecord(data) || !isRecord(data.object) || !isNonEmptyString(data.object.sha)) throw malformed(repo, "branch")
       return data.object.sha
     },
     async commit(sha, token, signal) {
-      // contents.resolveRef() returns a full SHA without a request, so read the commit to know that it exists.
       const data = await missingAsUndefined(() => request(sha, "commit", token, signal, async (client, repoRef) => (await client.request<unknown>(
         "GET",
         `${repoPath(repoRef)}/commits/${encodeURIComponent(sha)}`,
@@ -248,7 +236,6 @@ export function createGitHubClient(repo: string): GitHubClient {
         return await download(token)
       }
       catch (error) {
-        // An authenticated archive uses the API limit. A public repository is still on codeload without a token.
         const status = githubErrorStatus(error)
         if (!token || (status !== 403 && status !== 429)) throw error
         return await download(undefined)
@@ -266,14 +253,11 @@ export function createGitHubClient(repo: string): GitHubClient {
         return { content: file.content, sha: file.sha }
       }
       catch (error) {
-        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422
-        // (https://github.com/danielroe/forges/issues/292).
         if (githubErrorStatus(error) !== 422) throw error
         throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) expected ${JSON.stringify(path)} to be a file, but GitHub returned a directory or another entry type.`, { cause: error })
       }
     },
     async metadata(path, ref, token, signal) {
-      // contents.getFile() cannot tell a directory from a file, so read the contents entry directly.
       const entry = await request(ref, "content", token, signal, async (client, repoRef) => (await client.request<unknown>(
         "GET",
         `/repos/${encodeURIComponent(repoRef.owner)}/${encodeURIComponent(repoRef.name)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`,
@@ -353,8 +337,6 @@ export function createGitHubClient(repo: string): GitHubClient {
       }
       const changed = paths(data.files ?? [], "compare")
       if (!changed) return
-      // The compare files are the net change, so a file that a commit edits and a later one reverts is not in them.
-      // With more than one commit, the files of each commit name every file that a commit touched.
       const commits: unknown = data.commits ?? []
       const total: unknown = data.total_commits ?? 0
       if (!Array.isArray(commits) || typeof total !== "number") throw malformed(repo, "compare")

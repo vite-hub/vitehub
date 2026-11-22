@@ -25,7 +25,6 @@ const driverErrorSchema = v.custom<Error>((value) => {
   return nativeError && v.is(v.object({ message: v.string(), name: v.string() }), value)
 })
 
-// A driver returns a Result: `[undefined, value]` or `[error, undefined]`.
 const driverOutcomeSchema = v.pipe(
   v.array(v.unknown()),
   v.length(2),
@@ -165,7 +164,6 @@ function isRateLimiterOptions(value: unknown): value is CreateRateLimiterOptions
   }
 }
 
-// A prototype must not set a policy field, so read only own properties.
 function ownOption(options: CreateRateLimiterOptions, key: "enforcement" | "failure" | "limit" | "window"): unknown {
   return Object.hasOwn(options, key) ? Reflect.get(options, key) : undefined
 }
@@ -241,7 +239,6 @@ const rateLimitDiagnosticCodes = new Set([
   "RATE_LIMIT_B0002",
   "RATE_LIMIT_B0003",
   "RATE_LIMIT_B0004",
-  // parseDuration() from @vite-hub/runtime reads `window`.
   "RUNTIME_DURATION_INVALID",
 ])
 

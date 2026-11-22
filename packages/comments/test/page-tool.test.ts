@@ -13,7 +13,7 @@ const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square
 function site(can: { read: boolean, comment: boolean }, realtime = false) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     const path = new URL(String(input), location.href).pathname
-    if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
+    if (path === "/_vitehub/page/tools") return Response.json({ tools: [tool] })
     if (path === "/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })
     }

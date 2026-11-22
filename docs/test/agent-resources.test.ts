@@ -73,6 +73,10 @@ describe("public ViteHub skill", () => {
     expect(description).toContain("server primitives and Runtime Helpers");
     expect(description).toContain("Agent Definitions");
     expect(description).toContain("Provider Output");
+    expect(description).toContain("before you write auth, migration");
+
+    expect(skill).toContain("## 2. Look up the built-in first");
+    expect(skill).toContain("extends: ['auto', 'vitehub/recommended']");
 
     const openai = readFileSync(resolve(skillRoot, "agents/openai.yaml"), "utf8");
     expect(openai).toContain("Use $vitehub");
@@ -107,6 +111,15 @@ describe("public ViteHub skill", () => {
     }
   });
 
+  it("names only vite-hub subpaths that the package exports", () => {
+    const skill = readFileSync(resolve(skillRoot, "SKILL.md"), "utf8");
+    const manifest: { exports: Record<string, unknown> } = JSON.parse(readFileSync(resolve(docsRoot, "../packages/vite-hub/package.json"), "utf8"));
+    const subpaths = [...new Set([...skill.matchAll(/from `vite-hub\/([^`]+)`/g)].map(match => match[1]))];
+
+    expect(subpaths.length).toBeGreaterThan(5);
+    for (const subpath of subpaths) expect(Object.keys(manifest.exports), subpath).toContain(`./${subpath}`);
+  });
+
   it("keeps published agent resources free of private filesystem paths", () => {
     const files = [...readFiles(skillRoot), ...readFiles(aiResourcesRoot)];
 
@@ -135,7 +148,7 @@ describe("skills() documentation", () => {
   it("documents an inspectable path and missing-file smoke test", () => {
     const page = readFileSync(skillsCapabilityPage, "utf8");
 
-    expect(page).toContain("pnpm vitehub agent get --agent support --json");
+    expect(page).toContain("pnpm vitehub agent get support --json");
     expect(page).toContain("select(.id == \"skills\") | .metadata");
     expect(page).toContain("'::skill{path=\"skills/review\"}'");
     expect(page).toContain("'::'");

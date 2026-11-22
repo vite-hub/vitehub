@@ -1,18 +1,15 @@
-// Boots a real WebContainer in headless Chromium through the built package, so it needs network access to StackBlitz.
-// Run: pnpm --filter @vite-hub/web-container test:browser
 import assert from "node:assert/strict"
 import { fileURLToPath } from "node:url"
 import { test } from "node:test"
 import { chromium } from "playwright-core"
 import { createServer } from "vite"
 
-import { hubWebContainer } from "../../dist/vite.js"
+import { webContainerVitePlugin } from "../../dist/vite.js"
 
 const port = Number(process.env.WEB_CONTAINER_TEST_PORT ?? 4793)
 const root = fileURLToPath(new URL("./page", import.meta.url))
 const distEntry = fileURLToPath(new URL("../../dist/index.js", import.meta.url))
 
-// A Node http app with no dependencies. It reads its greeting from the per-process env.
 const files = {
   "package.json": JSON.stringify({ name: "tiny", private: true, type: "module", scripts: { dev: "node server.js" } }),
   "server.js": [
@@ -24,7 +21,6 @@ const files = {
   ].join("\n"),
 }
 
-// A ViteHub app from npm. In `vite dev`, Nitro starts workers on random ports before Vite listens.
 const viteHubFiles = {
   ".npmrc": "legacy-peer-deps=true\n",
   "package.json": JSON.stringify({
@@ -49,7 +45,7 @@ async function startPage(t) {
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
-    plugins: [hubWebContainer({ routes: ["/**"] })],
+    plugins: [webContainerVitePlugin({ routes: ["/**"] })],
     resolve: { alias: { "@vite-hub/web-container": distEntry } },
     root,
     server: { host: "127.0.0.1", port, strictPort: true },
@@ -106,7 +102,6 @@ test("boots a WebContainer, runs a Node app, reads its preview, and remounts a s
     }
   }, files)
 
-  // The preview origin only answers inside a frame of the page that booted the container, like a docs preview pane.
   const previewStarted = performance.now()
   await page.evaluate((url) => {
     const frame = document.createElement("iframe")

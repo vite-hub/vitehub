@@ -10,7 +10,6 @@ import type { ConsoleDatabase } from "../src/projects.ts"
 const state = vi.hoisted(() => ({ db: undefined as unknown, sessionUser: undefined as { id: string, name: string, email: string } | undefined, sessionTeam: "" }))
 
 vi.mock("vite-hub/database", () => ({ useDatabase: () => ({ db: state.db }) }))
-// A request without an API key uses the session of `state.sessionUser`, or answers 401 without one.
 vi.mock("vite-hub/auth/server", () => ({
   withAuthorization: (_required: boolean, handler: (request: Request, authorization: unknown) => Promise<Response>) => async (request: Request) => state.sessionUser
     ? handler(request, { session: { activeOrganizationId: state.sessionTeam }, user: state.sessionUser })
@@ -101,7 +100,6 @@ describe("Console env values", () => {
       expect(problem.code).toBe("CONSOLE_ENV_VALUES_OFF")
       expect(problem.message).toContain("does not store env values")
       expect(problem.message).toContain("VITEHUB_CONSOLE_ENV_VALUES=1")
-      // Every Console runs this code, so the message speaks about this Console only, not about console.vitehub.dev.
       expect(problem.message).not.toContain("console.vitehub.dev")
     }
     expect(readConsoleEnvConfig({})).toEqual({ state: "off" })
@@ -131,7 +129,6 @@ describe("Console env values", () => {
     expect(await revealed.json()).toEqual({ stage: "production", values: { API_TOKEN: `${canary}-2` } })
     expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/staging/reveal`, {})).json()).toEqual({ stage: "staging", values: { DATABASE_URL: "libsql://db" } })
 
-    // The value is encrypted at rest.
     expect(JSON.stringify((await client.execute("select * from vitehub_env_secrets")).rows)).not.toContain(canary)
 
     expect((await call(owner, "DELETE", `/api/projects/${app.id}/env/production/API_TOKEN`)).status).toBe(204)
@@ -151,7 +148,6 @@ describe("Console env values", () => {
     const events = await activity(created.key, app.id, "production", "API_TOKEN")
     expect(events.map(event => [event.action, event.outcome, event.operation, event.actor.kind, event.actor.id, event.target?.id])).toEqual([
       ["remove", "succeeded", "console.delete", "user", "u-ada", undefined],
-      // The reveal writes `started` before it reads the value, and `succeeded` before the value leaves.
       ["resolve", "succeeded", "console.reveal", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
       ["resolve", "started", "console.reveal", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
       ["replace", "succeeded", "console.set", "agent", `api-key:${created.apiKey.id}`, "u-ada"],
@@ -190,7 +186,6 @@ describe("Console env values", () => {
     const outside = await call(scoped, "POST", `/api/projects/${other.id}/env/production/reveal`, {})
     expect(outside.status).toBe(404)
     expect(await outside.text()).not.toContain(canary)
-    // Bob owns another team. His key for that team does not open Ada's projects.
     const otherTeam = (await key("u-bob", undefined, "t-other")).key
     expect((await call(otherTeam, "GET", `/api/projects/${other.id}/env/production`)).status).toBe(404)
     expect((await call("vhk_unknown", "GET", `/api/projects/${other.id}/env/production`)).status).toBe(401)
@@ -220,12 +215,10 @@ describe("Console env values", () => {
     expect(info).toHaveBeenCalledWith(expect.stringContaining("sealed 2 values again"))
     expect(JSON.stringify((await client.execute("select payload from vitehub_env_secrets order by key")).rows)).not.toBe(sealedWithOld)
 
-    // Without the old key, every value still reads.
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEYS", "")
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", next)
     expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).json()).toEqual({ stage: "production", values: { API_TOKEN: canary } })
     expect(await (await call(owner, "POST", `/api/projects/${other.id}/env/staging/reveal`, {})).json()).toEqual({ stage: "staging", values: { DATABASE_URL: "libsql://db" } })
-    // The old key alone no longer opens them.
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", envKey)
     expect(await (await call(owner, "POST", `/api/projects/${app.id}/env/production/reveal`, {})).json()).toMatchObject({ code: "CONSOLE_ENV_KEY_MISSING" })
   })
@@ -235,7 +228,6 @@ describe("Console env values", () => {
     const owner = (await key("u-ada")).key
     await call(owner, "PUT", `/api/projects/${app.id}/env/production/API_TOKEN`, { value: canary })
     vi.stubEnv("VITEHUB_CONSOLE_ENV_KEY", "f".repeat(64))
-    // A value that the current key sealed, which the reveal of every value reads before API_TOKEN fails.
     await call(owner, "PUT", `/api/projects/${app.id}/env/production/ANOTHER`, { value: "another-value-1b2c" })
 
     for (const body of [{ names: ["API_TOKEN"] }, {}]) {
@@ -250,7 +242,6 @@ describe("Console env values", () => {
         ok: false,
         status: 500,
       })
-      // No value leaves when one of them cannot be opened.
       expect(text).not.toContain(canary)
       expect(text).not.toContain("another-value-1b2c")
     }
@@ -264,7 +255,6 @@ describe("Console env values", () => {
       ["replace", "succeeded"],
     ])
     expect(events[0]!.operationId).toBe(events[1]!.operationId)
-    // ANOTHER opened, but its value did not leave, so its reveal did not succeed either.
     expect((await activity(owner, app.id, "production", "ANOTHER")).map(event => [event.action, event.outcome])).toEqual([
       ["resolve", "failed"],
       ["resolve", "started"],

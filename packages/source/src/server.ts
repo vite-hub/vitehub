@@ -23,7 +23,6 @@ export interface CollectionHandlerOptions {
   withAuthorization?: CollectionAuthorizationGuard
 }
 
-/** The query of a request URL. A parameter that the URL repeats becomes an array, as in H3's `getQuery()`. */
 function requestQuery(request: Request): Record<string, string | string[]> {
   const query = new Map<string, string | string[]>()
   for (const [key, value] of new URL(request.url).searchParams) {
@@ -56,7 +55,6 @@ function collectionQuery(query: Record<string, string | string[] | undefined>): 
   return Object.fromEntries(Object.entries(query).filter(([key]) => key !== "cursor" && key !== "limit"))
 }
 
-/** An error Response with the `status` and `message` fields of an H3 error body. */
 function errorResponse(status: number, message: string): Response {
   return Response.json({ status, message }, { status })
 }
@@ -85,7 +83,6 @@ function serializeCollectionPage(value: unknown): unknown {
 }
 
 function isCallable(value: unknown): value is (...args: never[]) => unknown {
-  // Callable HTMLDDA browser values report undefined without being undefined.
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
@@ -119,13 +116,10 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
   options: CollectionHandlerOptions = {},
 ): CollectionHandler {
   assertCollection(collection)
-  // The build reads only a literal `route: false`. For any other form it writes the route, and the route answers 404.
   if (collection.route === false) return { fetch: async () => errorResponse(404, "Not Found") }
-  // Fail closed: a Collection object that does not say who can read it gets no route.
   const { authorize } = assertCollectionAccess(collection)
   const { withAuthorization } = options
   if (authorize && !withAuthorization) {
-    // Fail closed: without Auth, the route cannot read a session.
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
   const handlePage = async (request: Request): Promise<Response> => {

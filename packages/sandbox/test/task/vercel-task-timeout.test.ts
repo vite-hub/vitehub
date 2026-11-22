@@ -6,11 +6,6 @@ const vercel = vi.hoisted(() => ({
   handlerStarted: false,
 }))
 
-/**
- * A fake Vercel VM. Its clock starts at `create`, like the real one, and every setup
- * call takes `setupLatency`. Once the VM timeout passes, Vercel stops the VM: the
- * running command ends with exit code 143 and its output file is gone.
- */
 vi.mock("@vercel/sandbox", () => ({
   Sandbox: {
     async create(options: { timeout?: number }) {
@@ -90,7 +85,6 @@ describe("Vercel Sandbox Task timeout", () => {
 
     let response: Awaited<ReturnType<typeof runSandboxTaskRuntime>> | undefined
     const pending = runSandboxTaskRuntime("slow").then(result => (response = result))
-    // Wait for real setup I/O before advancing the execution deadline.
     await vi.waitFor(() => expect(vercel.handlerStarted).toBe(true), { timeout: 3_000 })
     expect(response).toBeUndefined()
     await vi.advanceTimersByTimeAsync(300_000)

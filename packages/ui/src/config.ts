@@ -1,7 +1,8 @@
 import type { App, ComputedRef, InjectionKey, MaybeRefOrGetter, Plugin } from "vue";
 import { computed, inject, toValue } from "vue";
 import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
-import { installMotion } from "./motion/layer.ts";
+import { vRing } from "./components/motion.ts";
+import { installMotion } from "./motion/install.ts";
 
 export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 
@@ -25,10 +26,16 @@ export interface ViteHubUIIconOptions {
   arrowUp?: string;
   /** Resolve on a comment thread. */
   check?: string;
+  /** The previous picture of an image preview. */
+  chevronLeft?: string;
+  /** The next picture of an image preview. */
+  chevronRight?: string;
   /** Close a comment thread, an image preview, or remove an attachment. */
   close?: string;
   copy?: string;
   copyCheck?: string;
+  /** The spinner of `CopyButton` while its text loads. */
+  loading?: string;
   /** Open the original of an image preview. */
   external?: string;
   /** An attachment that is not an image. */
@@ -86,9 +93,12 @@ const defaultIcons: Required<ViteHubUIIconOptions> = {
   arrowLeft: "i-lucide-arrow-left",
   arrowUp: "i-lucide-arrow-up",
   check: "i-lucide-check",
+  chevronLeft: "i-lucide-chevron-left",
+  chevronRight: "i-lucide-chevron-right",
   close: "i-lucide-x",
   copy: "i-lucide-copy",
   copyCheck: "i-lucide-check",
+  loading: "i-lucide-loader-circle",
   external: "i-lucide-external-link",
   file: "i-lucide-file",
   plus: "i-lucide-plus",
@@ -131,6 +141,7 @@ export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
       if (options.icons) app.provide(iconsKey, options.icons);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
       if (options.motion !== false && typeof document !== "undefined") app.onUnmount(installMotion());
+      app.directive("ring", vRing);
     },
   };
 }

@@ -169,3 +169,27 @@ describe("vitehub agent invocations without --url", () => {
     }
   })
 })
+
+describe("vitehub agent invocations through the Console of the app", () => {
+  it("lists capabilities and reads one Invocation Workspace", async () => {
+    const app = localApp({ console: operation => operation === "invocations.capabilities" ? { capabilities: [{ name: "fetch" }] } : { files: [] } })
+    const capabilities = await run(["capabilities", "--agent", "support", "--url", "http://localhost:3000"], app.fetch)
+    expect(capabilities).toEqual({ exitCode: 0, stderr: "", stdout: `${JSON.stringify({ capabilities: [{ name: "fetch" }] }, null, 2)}\n` })
+    expect((await run(["workspace", "ainv_1", "--path", "README.md", "--ref=main", "--revision", "rev_1", "--cursor", "next", "--history", "false", "--url", "http://localhost:3000"], app.fetch)).exitCode).toBe(0)
+    expect(app.calls.map(call => call.operation)).toEqual(["invocations.capabilities", "invocations.workspace"])
+    expect(operationRpcRequest(vi.mocked(app.fetch).mock.calls[1]?.[1]?.body).input).toEqual({ cursor: "next", history: false, id: "ainv_1", path: "README.md", ref: "main", revision: "rev_1" })
+    expect((await run(["workspace", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("workspace requires an invocation id")
+  })
+
+  it("deletes through the Console only after a question or --yes", async () => {
+    const app = localApp({ console: () => ({ deleted: true }) })
+    const refused = await run(["delete", "ainv_1", "--url", "http://localhost:3000"], app.fetch)
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("run it again with --yes")
+    expect(app.calls).toEqual([])
+    expect(await run(["delete", "ainv_1", "--url", "http://localhost:3000", "--yes"], app.fetch)).toEqual({ exitCode: 0, stderr: "", stdout: "Deleted ainv_1.\n" })
+    expect(app.calls.map(call => call.operation)).toEqual(["invocations.delete"])
+    expect((await run(["list", "--yes", "--url", "http://localhost:3000"], app.fetch)).stderr).toContain("--yes is only supported for delete")
+  })
+
+})

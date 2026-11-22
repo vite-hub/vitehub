@@ -22,7 +22,7 @@ import { getSandboxTaskFeatureDriver } from './module-types'
 import type { AgentSandboxTaskConfig, SandboxTaskDefinitionOptions } from './module-types'
 import { getSandboxTaskProjectSourceFiles, resolveSandboxTaskProject, type SandboxTaskProject } from './project'
 import { resolveCloudflareSandboxTaskInstanceType, resolveVercelSandboxTaskVcpus } from './size'
-import { createSandboxTaskTypeTemplateContents } from './type-template'
+import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from './type-template'
 import type { DiscoveredSandboxTaskDefinition } from './discovery'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -87,7 +87,7 @@ function createSandboxTaskManifest(aliasPath: string, typeTemplate: string): Fea
       { name: 'SandboxTaskRunResult', as: 'SandboxTaskRunResult', from: '@vite-hub/sandbox/task', type: true },
     ],
     typeTemplate: {
-      filename: 'runtime/sandbox-task.d.ts',
+      filename: sandboxTaskTypeTemplateFilename,
       contents: typeTemplate,
     },
   }
@@ -240,13 +240,7 @@ export async function createSandboxTaskFeaturePlan(
     discoveredDefinitionOptions.rootDir || process.cwd(),
   )
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
-  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions.map((definition) => {
-    return {
-      handler: definition.handler,
-      kind: definition.kind,
-      name: definition.name,
-    }
-  })))
+  const manifest = createSandboxTaskManifest(paths.aliasPath, createSandboxTaskTypeTemplateContents(definitions))
   const {
     bundleAlias,
     featureImports = manifest.imports,
@@ -277,7 +271,6 @@ export async function createSandboxTaskFeaturePlan(
     },
   }))
   const providerLoaderTarget = resolveSandboxTaskProviderLoaderTarget(defaultProviderName, deps)
-  // Reject a size that the driver cannot give at build time, not at the first run.
   if (defaultProvider?.driver === 'cloudflare')
     resolveCloudflareSandboxTaskInstanceType(defaultProvider)
   else if (defaultProvider?.driver === 'vercel')
@@ -323,7 +316,6 @@ export async function createSandboxTaskFeaturePlan(
       ...(providerLoaderTarget
         ? [{
             key: 'sandbox-task-provider-loader',
-            // Nitro resolves its aliases to real paths once at startup, so this file stays outside the runtime generations.
             filename: 'sandbox-task-provider-loader.mjs',
             contents: createSandboxTaskProviderLoaderContents(providerLoaderTarget),
           }]

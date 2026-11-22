@@ -66,7 +66,6 @@ describe("server scope", () => {
         return `${getLocale()}:${translate({ id: "greeting", message: "Hello" })}`
       })
     }
-    // `setLocale()` in a route switches only that request, with the compiled messages of the locale.
     const switched = { req: new Request("http://app.test/"), context: {} }
     expect(await context.run(switched, async () => {
       for (const hook of hooks) hook(switched)
@@ -76,7 +75,6 @@ describe("server scope", () => {
     const languages = Array.from({ length: 30 }, (_, index) => ["en", "es", "pt-BR"][index % 3]!)
     expect(await Promise.all(languages.map(handle))).toEqual(languages.map(language => `${language}:${{ en: "Hello", es: "Hola", "pt-BR": "Olá" }[language]}`))
 
-    // Server code keeps the source text. In production, Lingui has no compiler of its own, so the server adds one.
     const nodeEnv = process.env.NODE_ENV
     process.env.NODE_ENV = "production"
     const untranslated = { req: new Request("http://app.test/", { headers: { "accept-language": "es" } }), context: {} }
@@ -85,7 +83,6 @@ describe("server scope", () => {
       return translate({ id: "missing", message: "{count, plural, one {# agent} other {# agents}}", values: { count: 2 } })
     })).toBe("2 agents")
     process.env.NODE_ENV = nodeEnv
-    // Independent requests can change locale concurrently without superseding each other.
     const switchRequest = (language: string) => {
       const event = { req: new Request("http://app.test/"), context: {} }
       return context.run(event, async () => {
@@ -109,7 +106,6 @@ describe("runtime", () => {
     vi.stubGlobal("document", page)
     vi.stubGlobal("navigator", { languages })
     try {
-      // `createI18n()` initializes a Vite app with this browser selection and activation.
       await activateLocale(getI18n(), resolveBrowserLocale(config))
       expect(getLocale()).toBe(locale)
       expect(translate({ id: "greeting", message: "Hello" })).toBe(locale === "es" ? "Hola" : "Hello")

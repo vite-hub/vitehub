@@ -19,6 +19,7 @@ import {
   readResolvedSourceFile,
   searchMaterializedStore,
   statVirtualSourcePath,
+  type SourceSnapshotScope,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
@@ -282,7 +283,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return matched
   }
 
-  async function ensurePrepared(sourceKey: string, path?: string) {
+  async function ensurePrepared(sourceKey: string, path?: SourceSnapshotScope) {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     if (source.materialize === "startup" && completedSources.has(sourceKey)) {
@@ -395,7 +396,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     return await current
   }
 
-  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true, path?: string): Promise<void> {
+  async function ensureMaterialized(sourceKey: string, verifyRootOwnership = true, path?: SourceSnapshotScope): Promise<void> {
     const source = sources.find(item => item.key === sourceKey)
     if (!source) return
     // File reads can validate overlapping root Sources per path and fall through to a lazy Source.
@@ -444,8 +445,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     if (!isDescriptorPath(normalized)) {
       for (const source of await getLazySourcesForPath(normalized)) {
         if (source.materialize !== "startup" || isExcludedWorkspacePath(source.mountPath, options.exclude)) continue
-        await ensurePrepared(source.key)
-        if (!usesLiveProvider(source)) await ensureMaterialized(source.key)
+        await ensurePrepared(source.key, { directory: normalized })
+        if (!usesLiveProvider(source)) await ensureMaterialized(source.key, true, { directory: normalized })
       }
     }
     const storeEntries = isDescriptorPath(normalized) ? [] : await store.list(path, options)

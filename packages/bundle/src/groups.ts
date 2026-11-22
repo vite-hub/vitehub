@@ -9,7 +9,6 @@ const frameworkPackages = new Set(["@unhead/vue", "nuxt-nightly", "@vue/reactivi
 export function moduleId(id: string, root: string, packages: Map<string, string | undefined> = new Map()): string {
   const clean = id.replace(/\\/g, "/").replace(/\?.*$/, "").replace(/^\0/, "")
   const rootPath = root.replace(/\\/g, "/").replace(/\/$/, "")
-  // Nuxt names its templates `virtual:nuxt:<encoded path>`.
   const nuxtTemplate = clean.match(/^virtual:nuxt:(.+)$/)
   if (nuxtTemplate) {
     return moduleId(decodeURIComponent(nuxtTemplate[1]!), rootPath, packages)
@@ -19,7 +18,6 @@ export function moduleId(id: string, root: string, packages: Map<string, string 
   const nodeModules = clean.lastIndexOf("/node_modules/")
   if (nodeModules >= 0) {
     const rest = clean.slice(nodeModules + "/node_modules/".length)
-    // `node_modules/.cache` holds generated output, such as a Nuxt buildDir, not a package.
     if (!rest.startsWith(".")) return `node_modules/${rest}`
   }
   const withinRoot = windows ? clean.toLowerCase().startsWith(`${rootPath.toLowerCase()}/`) : clean.startsWith(`${rootPath}/`)
@@ -32,7 +30,7 @@ export function moduleId(id: string, root: string, packages: Map<string, string 
           const manifest: unknown = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
           if (manifest && typeof manifest === "object" && typeof Reflect.get(manifest, "name") === "string") name = Reflect.get(manifest, "name")
         }
-        catch { /* An unknown outside file keeps its absolute path. */ }
+        catch { }
         packages.set(dir, name)
       }
       const name = packages.get(dir)
@@ -54,11 +52,9 @@ function packageName(path: string): string {
 export function moduleGroup(id: string): { name: string, kind: BundleGroupKind } {
   if (id.startsWith("node_modules/")) {
     const rest = id.slice("node_modules/".length)
-    // A Nuxt buildDir under `node_modules/.cache` is still `.nuxt`.
     if (rest.startsWith(".")) return { name: rest.includes("/.nuxt/") ? ".nuxt" : `node_modules/${packageName(rest)}`, kind: "generated" }
     const name = packageName(rest)
     if (name === "vite-hub") {
-      // `vite-hub` bundles its features into `dist/<feature>/...` and `dist/<feature>-<hash>.js`.
       const feature = rest.split("/")[2]?.replace(/\.js$/, "").replace(/-[\w-]{8}$/, "")
       return { name: feature && feature !== "index" ? `vite-hub/${feature}` : "vite-hub", kind: "vitehub" }
     }
@@ -66,7 +62,6 @@ export function moduleGroup(id: string): { name: string, kind: BundleGroupKind }
     if (frameworkPackages.has(name) || name.startsWith("@nuxt/") || name.startsWith("@unhead/")) return { name, kind: "framework" }
     return { name, kind: "dependency" }
   }
-  // `#nitro/virtual/handlers` becomes `#nitro/virtual`, `virtual:vitehub-routes` stays as it is.
   if (id.startsWith("#")) return { name: id.split("/").slice(0, 2).join("/"), kind: "generated" }
   if (id.startsWith("/") || /^[a-z]:\//i.test(id)) return { name: "outside the project", kind: "dependency" }
   if (/^[\w-]+:/.test(id)) return { name: id.split("/")[0]!, kind: "generated" }

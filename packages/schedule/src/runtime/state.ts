@@ -6,7 +6,6 @@ import { isRecordOrFunction as isObjectRecord } from "@vite-hub/internal/object"
 import type { OccurrenceClaims } from "./claims.ts"
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore, StartedScheduleStore } from "../types.ts"
 
-/** The cron and time zone of a Schedule that the Process Runtime runs. */
 type ProcessScheduleTimingRecord = Pick<ScheduleDefinition, "cron" | "timeZone">
 
 interface HostScheduleInventory {
@@ -22,6 +21,8 @@ export interface StartedScheduleRuntime {
   checkedThrough?: number
   /** Occurrences that another process held at a tick, by run id. The next tick tries them again. */
   held?: Map<string, { scheduledAt: Date, scheduleId: string }>
+  /** The cause that each failing started Schedule last logged, by id. A held occurrence fails again each tick. */
+  failing?: Map<string, string>
   /** Schedule Definitions without `cron`, by name. */
   registry: ScheduleDefinitionRegistry
   store: StartedScheduleStore

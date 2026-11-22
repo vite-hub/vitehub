@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { requestLog } from "@vite-hub/internal/runtime/request-log"
 
 /** The database work of one request, as its wide event shows it under `database`. */
 export interface DatabaseRequestStats {
@@ -16,21 +17,10 @@ interface RequestStatsState {
   since: number
 }
 
-interface RequestLogger {
-  set: (fields: Record<string, unknown>) => void
-}
-
 // One store per runtime, also when the bundle holds more than one copy of this module.
 const storageKey = Symbol.for("vitehub.database.request-stats")
 const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
 const storage = (runtimeGlobal[storageKey] ||= new AsyncLocalStorage<RequestStatsState>()) as AsyncLocalStorage<RequestStatsState>
-
-/** The evlog request logger on a Nitro v3 event (`event.req.context.log`), when the app registers evlog. */
-function requestLogger(event: unknown): RequestLogger | undefined {
-  const log: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(Object(event), "req")), "context")), "log")
-  const set: unknown = log && Reflect.get(Object(log), "set")
-  return typeof set === "function" ? { set: fields => Reflect.apply(set, log, [fields]) } : undefined
-}
 
 /**
  * Nitro middleware: runs the rest of the request with its own database stats, and sets them on the request's wide event
@@ -38,7 +28,7 @@ function requestLogger(event: unknown): RequestLogger | undefined {
  * Work that continues after the response, such as `waitUntil()`, is not counted.
  */
 export function runWithDatabaseRequestStats(event: unknown, next: () => unknown): unknown {
-  const log = requestLogger(event)
+  const log = requestLog(event)
   if (!log) return next()
   const state: RequestStatsState = { stats: { calls: 0, ms: 0, maxConcurrent: 0 }, inFlight: 0, since: 0 }
   const report = () => {

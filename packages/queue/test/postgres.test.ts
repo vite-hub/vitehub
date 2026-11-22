@@ -6,6 +6,7 @@ import postgres from "postgres"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "@vite-hub/database"
+import { createNodePostgresDatabase } from "../../database/src/runtime/node-postgres.ts"
 import { createPostgresDatabase } from "../../database/src/runtime/postgres.ts"
 
 import { queueUnsupportedOptionsError } from "../src/errors.ts"
@@ -20,8 +21,6 @@ import type { ChildProcess } from "node:child_process"
 import type { PostgresQueueEngine, PostgresQueueEngineOptions } from "../src/providers/postgres.ts"
 import type { QueueDefinition, QueueJob } from "../src/types.ts"
 
-// Opt-in: `docker run --rm -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:17`, then
-// `VITEHUB_TEST_POSTGRES_URL=postgres://postgres:pw@127.0.0.1:5432/postgres vp test test/postgres.test.ts`.
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
 const workerFile = resolve(import.meta.dirname, "fixtures/postgres-queue-worker.ts")
 
@@ -118,7 +117,6 @@ describe("postgres Queue connection", () => {
   it("does not read DATABASE_URL", async () => {
     await expect(resolvePostgresQueueConnection({}, undefined, { DATABASE_URL: "postgres://other/unrelated" }))
       .rejects.toMatchObject({ code: "QUEUE_POSTGRES_MISSING_CONNECTION" })
-    // A SQLite Database has no postgres.js client.
     await expect(resolvePostgresQueueConnection({ database: "default" }, async () => ({ default: { db: {} } }), {}))
       .rejects.toMatchObject({ code: "QUEUE_POSTGRES_MISSING_CONNECTION" })
     await expect(resolvePostgresQueueConnection({ database: "default" }, postgresDatabases, { QUEUE_POSTGRES_URL: "libsql://jobs" }))
@@ -147,7 +145,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const [, nullSent] = await client.send(null)
     const [, emptySent] = await client.send(undefined)
     await until(async () => ran.length, count => count === 3)
-    // The handler gets the message ID that send() returned.
     expect(ran.find(job => job.id === sent?.messageId)).toEqual({ attempts: 1, id: sent?.messageId, payload: { hello: "world" } })
     expect(ran.find(job => job.id === nullSent!.messageId)?.payload).toBeNull()
     expect(ran.find(job => job.id === emptySent!.messageId)?.payload).toBeUndefined()
@@ -214,7 +211,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     }
     const consumer = engine({ handler, load: async () => ({ concurrency: 2, handler }), lockSeconds: 1, table: name })
     await consumer.status()
-    // Fail only renewals; claims and completion writes still work.
     await sql!.unsafe(`create function ${name}_reject_renew() returns trigger language plpgsql as $$
       begin
         if new.status = 'running' and new.attempts = old.attempts then
@@ -228,7 +224,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       await consumer.start()
       await createPostgresQueueClient(consumer, "jobs").send({})
       await until(async () => started.length, count => count > 0)
-      // Several polls after the claim expires must not start the same job again locally.
       await new Promise(resolve => setTimeout(resolve, 1500))
       expect(errors).toHaveBeenCalledWith(expect.stringContaining("cannot renew"), expect.any(Error))
       expect(started).toHaveLength(1)
@@ -271,7 +266,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       await consumer.start()
       await createPostgresQueueClient(consumer, "jobs").send({})
       await until(async () => started, value => value)
-      // A newer claim can belong to the same named worker. The attempt identifies the delivery.
       await sql!`update ${sql!(name)} set attempts = 2, locked_until = now() + interval '60 seconds'`
       await new Promise(resolve => setTimeout(resolve, 500))
       gate.resolve()
@@ -313,7 +307,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     expect(batch![2]!.messageId).toBe(first?.messageId)
     expect(await producer.jobs()).toHaveLength(2)
     expect((await producer.job(first!.messageId!))?.payload).toEqual({ n: 1 })
-    // Another Queue Definition has its own keys.
     const [, other] = await createPostgresQueueClient(producer, "other").send({}, { delay: "1m", idempotencyKey: "order-1" })
     expect(other?.messageId).not.toBe(first?.messageId)
   })
@@ -357,7 +350,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
   it("runs jobs on the connection of a Database whose URL comes from another variable", async () => {
     const saved = { DATABASE_URL: process.env.DATABASE_URL, QUEUE_POSTGRES_URL: process.env.QUEUE_POSTGRES_URL }
     tables.push("vitehub_queue_jobs")
-    // An unrelated DATABASE_URL on a closed port: Queue must not use it.
     process.env.DATABASE_URL = "postgres://nobody:nothing@127.0.0.1:1/unrelated"
     delete process.env.QUEUE_POSTGRES_URL
     process.env.VITEHUB_TEST_QUEUE_DATABASE_URL = url
@@ -373,7 +365,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       await client.send({ n: 2 }, { delay: "1m" })
       await until(async () => ran.length, count => count === 1, 10_000)
       expect(ran[0]?.payload).toEqual({ n: 1 })
-      // The Drizzle client returns timestamps as text. The job list still has ISO times.
       const store = await getQueueRuntimeJobStore()
       expect(store?.base).toBe(`postgres://${new URL(url!).hostname}:${new URL(url!).port}${new URL(url!).pathname} (table vitehub_queue_jobs)`)
       const [pending] = await store!.jobs()
@@ -386,9 +377,35 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       Object.assign(process.env, saved)
       if (saved.DATABASE_URL === undefined) delete process.env.DATABASE_URL
       if (saved.QUEUE_POSTGRES_URL === undefined) delete process.env.QUEUE_POSTGRES_URL
-      // The Database owns its client. Queue leaves it open.
       await expect(db.execute("select 1")).resolves.toBeDefined()
       await Reflect.get(db, "$client").end()
+    }
+  })
+
+  it("runs jobs on the connection URL of a node-postgres Database", async () => {
+    tables.push("vitehub_queue_jobs")
+    vi.stubEnv("QUEUE_POSTGRES_URL", undefined)
+    vi.stubEnv("VITEHUB_TEST_QUEUE_DATABASE_URL", url!)
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_QUEUE_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
+    const db = createNodePostgresDatabase(definition, { binding: "DB" })
+    const queue = `node_postgres_${randomUUID()}`
+    const ran: unknown[] = []
+    const config = { database: "default", driver: "postgres" } as const
+    setQueueRuntimeRegistry({ [queue]: async () => ({ handler: (job: QueueJob) => void ran.push(job.payload) }) })
+    setQueueRuntimeConfig(config, createPostgresQueueRuntimeClient)
+    try {
+      startPostgresQueue(config, async () => ({ default: { db } }))
+      expect((await dynamicQueue.send(queue, "job"))[0]).toBeUndefined()
+      await until(async () => ran, values => values.includes("job"), 8000)
+    }
+    finally {
+      await closePostgresQueues()
+      setQueueRuntimeConfig(undefined)
+      setQueueRuntimeRegistry(undefined)
+      // The Database owns its Pool. Queue leaves it open.
+      await expect(db.execute("select 1")).resolves.toBeDefined()
+      await Reflect.get(db, "$client").end()
+      vi.unstubAllEnvs()
     }
   })
 
@@ -418,7 +435,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
 
       if (refresh === "job operation") await (await getQueueRuntimeJobStore())!.jobs()
       if (refresh === "worker poll") {
-        // Another instance enqueues, so no local send or job operation can refresh this worker.
         const producer = engine({ connection: { client: sql! }, table: "vitehub_queue_jobs" })
         await createPostgresQueueClient(producer, queue).send("external")
         await until(async () => ran, values => values.includes("external"), 8000)
@@ -536,7 +552,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       expect(nextRuns[0]).toMatchObject({ attempts: 2, id: sent!.messageId })
       gate.resolve()
       await new Promise(resolve => setTimeout(resolve, 100))
-      // A late completion from the closed worker cannot acknowledge the replacement claim.
       expect(await next.job(sent!.messageId!)).toMatchObject({ attempts: 2, state: "running" })
       nextGate.resolve()
       await until(() => next.jobs(), jobs => jobs.length === 0)
@@ -563,7 +578,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const read = async () => (await sql!<{ distinct: number, total: number }[]>`select count(*)::int as total, count(distinct key)::int as distinct
       from ${sql!(`${name}_runs`)} where phase = 'done'`)[0]!
     await until(read, value => value.distinct === 1000, 60_000)
-    // Wait for a late second run, if any.
     await new Promise(resolve => setTimeout(resolve, 1000))
     expect(await read()).toEqual({ distinct: 1000, total: 1000 })
     const [{ starts }] = await sql!<{ starts: number }[]>`select count(*)::int as starts from ${sql!(`${name}_runs`)} where phase = 'start'`
@@ -572,7 +586,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
       where phase = 'done' group by worker order by worker`
     expect(byWorker.map(row => row.worker)).toEqual(["a", "b", "c"])
     for (const row of byWorker) expect(row.count).toBeGreaterThan(0)
-    // SIGTERM drains and exits cleanly.
     for (const worker of workers) worker.kill("SIGTERM")
     expect(await Promise.all(workers.map(exitCode))).toEqual([0, 0, 0])
   }, 120_000)
@@ -591,7 +604,6 @@ describe.skipIf(!url)("postgres Queue provider", () => {
     const killedAt = Date.now()
     await startWorker("second", name, 2)
     await until(runs, rows => rows.some(row => row.phase === "done"), 20_000)
-    // The claim of the killed worker lasts 2 seconds from its last renewal.
     expect(Date.now() - killedAt).toBeLessThan(10_000)
     expect(await runs()).toEqual([
       { attempts: 1, phase: "start", worker: "first" },

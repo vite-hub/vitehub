@@ -33,7 +33,6 @@ export interface EnvStoreRotation {
   /** Values that the current key already sealed, or that a concurrent write replaced. */
   skipped: number;
 }
-/** A stored value: `v2:<keyId>:<iv>:<ciphertext>`, or a legacy `<iv>:<ciphertext>` without a key id. */
 const storedPayloadPattern = new RegExp(`^(?:v2:[a-f0-9]{16}:)?${sealedPayloadPattern.source.slice(1, -1)}$`);
 const identifier = v.pipe(
   v.string(),
@@ -81,7 +80,6 @@ const revisionRow = v.object({ revision: identifier });
 const listRow = v.object({ key: identifier, revision: identifier, updated_at: timestamp, preview: v.nullable(v.string()) });
 const namespaceRow = v.object({ namespace: v.string() });
 
-/** Create the Env tables when they are missing. Each store and `listDatabaseEnvNamespaces()` calls it first. */
 async function createEnvTables(db: EnvDatabase): Promise<void> {
   await db.run(
     sql`CREATE TABLE IF NOT EXISTS vitehub_env_secrets (namespace TEXT NOT NULL, key TEXT NOT NULL, payload TEXT NOT NULL, revision TEXT NOT NULL, updated_at TEXT NOT NULL, preview TEXT, PRIMARY KEY (namespace, key))`,
@@ -161,7 +159,6 @@ export function createDatabaseEnvStore(options: {
         );
       return await unsealWithKey(match.key, additionalData, payload.slice(20));
     }
-    // A legacy value has no key id. Try the current key, then each previous key.
     let failure: unknown;
     for (const candidate of await keys()) {
       try {
@@ -207,7 +204,6 @@ export function createDatabaseEnvStore(options: {
         }
         const value = await unseal(stored.key, stored.revision, stored.payload);
         const payload = await seal(stored.key, stored.revision, value);
-        // The row must still hold the value that was read. A write in between wins and already uses the current key.
         const written = await options.db.all(
           sql`UPDATE vitehub_env_secrets SET payload = ${payload} WHERE namespace = ${namespace} AND key = ${stored.key} AND revision = ${stored.revision} AND payload = ${stored.payload} RETURNING key`,
         );

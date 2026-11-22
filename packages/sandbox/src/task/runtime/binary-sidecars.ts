@@ -1,4 +1,4 @@
-import { deserializeResponse, isSerializedResponse } from '@vite-hub/runtime'
+import { deserializeResponse, isSerializedResponse } from '@vite-hub/runtime/internal/response'
 import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import type { TaskSandbox } from './task-sandbox'
 

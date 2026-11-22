@@ -33,7 +33,6 @@ function getProcess(): {
   return globalThis.process
 }
 
-/** Registers every Workflow Definition of the registry on the OpenWorkflow client, before a worker copies them. */
 async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOptions) {
   const config = options.config ?? getWorkflowRuntimeConfig()
   if (!config || config.driver !== "openworkflow") {
@@ -43,7 +42,6 @@ async function prepareOpenWorkflowWorker(options: CreateOpenWorkflowWorkerOption
   const registry = options.registry ?? getWorkflowRuntimeRegistry() ?? {}
 
   setWorkflowRuntimeConfig(config)
-  // Startup already installed this registry. Keep its resolved definitions and pending request loads on retries.
   if (registry !== getWorkflowRuntimeRegistry()) setWorkflowRuntimeRegistry(registry)
 
   const runtime = await getOpenWorkflowRuntime(config)
@@ -203,8 +201,6 @@ export interface InstallOpenWorkflowOptions {
   databaseUrl?: () => string | undefined
 }
 
-// Literal specifiers let the server bundler include OpenWorkflow. `.output` has no `node_modules`, so the variable
-// import of the default importer cannot load it there.
 const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>>> = {
   "openworkflow": () => import("openworkflow"),
   "openworkflow/postgres": () => import("openworkflow/postgres"),
@@ -213,10 +209,6 @@ const bundledOpenWorkflowModules: Readonly<Record<string, () => Promise<unknown>
 }
 
 const openWorkflowStartDelayMs = 500
-/**
- * Errors that a new attempt cannot fix, because the configuration must change first. `WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE` is not one: a
- * pool that is full with other traffic when the server starts gives a second connection later.
- */
 const permanentSetupErrorCodes = new Set(["WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING", "WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED"])
 
 function hasPermanentSetupError(error: unknown): boolean {
@@ -230,16 +222,11 @@ function hasPermanentSetupError(error: unknown): boolean {
 const openWorkflowStartMaxDelayMs = 30_000
 
 interface ActiveOpenWorkflowInstall {
-  /** Detaches the runtime cache of the module evaluation that acquired the backend. */
   detachRuntimes(): () => Promise<void>
-  /** Resolves when the stopped worker finished the runs that it executes. */
   finished(): Promise<void>
-  /** Stops claiming runs. It does not wait for the runs that the worker executes. */
   release(): Promise<void>
 }
 
-// `vite dev` runs the startup plugin again after a server file changes, in the same process. The install is kept on
-// `globalThis` so the next install finds it even when the module is evaluated again.
 const activeInstallKey = Symbol.for("vitehub.workflow.openworkflow.install")
 
 function replaceActiveInstall(next: ActiveOpenWorkflowInstall): ActiveOpenWorkflowInstall | undefined {
@@ -309,7 +296,6 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
     if (!worker) return
     const current = worker
     worker = undefined
-    // `stop()` stops claiming runs at once, then waits for the runs that the worker executes.
     stopped = Promise.resolve().then(() => current.stop()).catch(report)
   }
   const finished = () => stopped
@@ -317,20 +303,15 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
 
   started = (async () => {
     if (previous) {
-      // The OpenWorkflow client keeps the definitions that it registered, so a fresh runtime takes the changed ones.
-      // The old backend stays open until the old worker finishes its runs.
       await previous.release()
       const closeRuntimes = previous.detachRuntimes()
       void previous.finished().then(closeRuntimes).catch(report)
     }
-    // Inline and Agent Workflows never enter OpenWorkflow storage. Drain an old dev worker above, but do not
-    // resolve storage or start a replacement when the last discovered Workflow has been removed.
     if (Object.keys(getWorkflowRuntimeRegistry() ?? {}).length === 0) return false
     try {
       logDefaultStorage()
     }
     catch (error) {
-      // Invalid storage configuration. Dispatch and the worker setup report it too.
       report(error)
     }
     if (closing.signal.aborted || config.worker === false) return false
@@ -345,7 +326,6 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
       }
       catch (error) {
         report(error)
-        // The worker stays off. The error says what to change; the next deploy starts it.
         if (hasPermanentSetupError(error)) return false
         const wait = Math.min(openWorkflowStartDelayMs * 2 ** (attempt - 1), openWorkflowStartMaxDelayMs)
         console.warn(`[vitehub:workflow] The OpenWorkflow worker did not start (attempt ${attempt}). It tries again in ${wait} ms.`)
@@ -355,7 +335,6 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
     return false
   })()
 
-  // Several servers that each keep runs in their own file look like one server that loses runs, so say it at boot.
   function logDefaultStorage(): void {
     if (!config || describeOpenWorkflowStorage(config).source !== "default") return
     console.warn("[vitehub:workflow] OpenWorkflow keeps runs in .vitehub/data/openworkflow.sqlite.db on this host. Other server instances do not see them. To share runs, add a Postgres Default Database, or set OPENWORKFLOW_POSTGRES_URL.")
@@ -363,8 +342,6 @@ export function installOpenWorkflow(app: OpenWorkflowWorkerApp, options: Install
 
   onShutdown(app, "workflow.openworkflow-worker", async ({ signal }) => {
     await release()
-    // A run that does not finish before the drain budget ends keeps its lease. Another worker takes it when the
-    // lease ends.
     await Promise.race([
       finished(),
       new Promise<void>(resolve => signal.addEventListener("abort", () => resolve(), { once: true })),

@@ -20,12 +20,12 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/markdown-editor` | `MarkdownEditor`, with Tiptap | Uploads and where the Markdown is saved |
 | `@vite-hub/ui/workspace` | A live app in the browser: editor, terminal, preview, boot checklist, Connect, and `PlaygroundContainer`, with CodeMirror and xterm | Files, tokens, and the cross-origin isolated route |
 | `@vite-hub/ui/motion` | The motion layer: press, toggle, select, drag, and appear motion by role, the shared spring engine, and reduced motion. No Vue, so a plain TypeScript page or a shadow root can use it | Nothing: `createViteHubUI()` and the Nuxt module install it |
+| `@vite-hub/ui/motion/core` | The same layer, where `installMotion(root, { effects })` runs only the effects that you list, such as `pressEffect`, so a small script bundles only those | Which effects the script runs |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 | `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
 | `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
-| `@vite-hub/ui/icon-swap.css` | The copy and check icon cross-fade of `CopyButton` in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the button with its data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
 
@@ -77,9 +77,11 @@ The menus run each item's `kind`, such as `{ kind: "heading", level: 2 }`, throu
 
 ## Run an app in the browser
 
-The workspace parts render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
+The workspace parts render a live app next to a docs page: a tutorial with the lesson in a column on the left, or a playground. `useWebContainer()` from [`@vite-hub/web-container/vue`](../web-container/README.md) runs the app in a WebContainer, and the parts render its state. The page that boots it must be cross-origin isolated, as the [WebContainer docs](https://vitehub.dev/docs/web-container/get-started#make-the-page-cross-origin-isolated) show.
 
-`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "tutorial" | "playground"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+`@vite-hub/ui/workspace` exports `WorkspaceShell` (with `layout: "side" | "guide-top" | "guide-side"`), `WorkspaceFileTree` (a `FileTree` with a dot on modified files), `WorkspaceEditor` (CodeMirror 6 with the Pierre colors of `FileView`), `WorkspaceTerminal` (xterm.js), `WorkspacePreview` (the preview in a browser frame: Back, Forward, Reload, the page address, a Desktop, Tablet, and Phone width switch, and Open in new tab), `WorkspaceBootStatus` (the boot checklist with live times), `BrowserSupportNotice`, `ConnectPanel`, `ConnectProviderRow`, and `useConnectStore()`, which connect the reader's accounts, and `PlaygroundContainer` with `usePlaygroundDevice()`, a complete playground built from these parts. The entry is not in the root barrel. CodeMirror and xterm load when the editor or the terminal mounts.
+
+The code side has four parts for the slots of `WorkspaceShell`: `WorkspaceFileTree` takes the edited paths as `edited`, a list or a set, and draws a type icon per file and a dot per edited file. `WorkspaceEditorHead` shows the path as a breadcrumb and a wrap button. `WorkspaceEditor` takes `v-model:wrap`, which Alt+Z toggles, and emits `cursor`. `WorkspaceStatus` shows the cursor, the language from `workspaceLanguage(path)`, and the indentation.
 
 `PlaygroundRender`, a playground that renders files in the page, is in the root `@vite-hub/ui`. See [Render files in the page](#render-files-in-the-page). `@vite-hub/ui/playground` has the share links and zips: `encodePlaygroundLink()`, `decodePlaygroundLink()`, `readPlaygroundHash()`, `playgroundUrl()`, `zipFiles()`, and `downloadZip()`.
 
@@ -127,11 +129,11 @@ const templates = [
 </template>
 ```
 
-- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"playground"` or `"tutorial"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
+- Props: `templates` (one or more, each `{ id, label, files, description?, open?, preview?, snapshot? }`), `template` (the id to open first), `layout` (`"side"`, the default, or `"guide-side"`), `label` (the lowercase name in the Open button and the cards, default `"workspace"`), `name` (the start of the zip name), `port`, `connect`, `tabs`, `share` (default `true`), `v-model:selected`, and `v-model:open`.
 - Templates with the same `snapshot` function switch in place. Another snapshot, or an edited `package.json`, boots a new workspace.
 - Slots: `#toolbar` adds buttons before Download, `#banner` shows under the toolbar, and each tab of `tabs` shows the slot with its `value`. These slots get `{ workspace, template, edited, show, showTab, guard }`, and `@context` gives the same object to code outside the container. `#intro` and `#fallback` show around the card when the workspace does not show.
 - It emits `update:template` when the reader opens a template or discards the changes to one.
-- A tutorial gives one template with the files of its step, sets `layout="tutorial"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
+- A tutorial gives one template with the files of its step, sets `layout="guide-side"` and `:share="false"`, adds Solve in `#toolbar`, and writes the next step through `workspace.setFiles()`. A change to the files of the open template moves the edit baseline, so the next step starts with no edits.
 
 ```vue
 <script setup lang="ts">
@@ -148,7 +150,7 @@ const source = computed({
 </script>
 
 <template>
-  <WorkspaceShell v-model:tab="tab" layout="tutorial">
+  <WorkspaceShell v-model:tab="tab" layout="side">
     <template #editor><WorkspaceEditor v-model="source" path="server.js" /></template>
     <template #preview><WorkspacePreview :url="workspace.previewUrl.value" /></template>
     <template #terminal><WorkspaceTerminal :output="workspace.logs.value" /></template>
@@ -169,12 +171,20 @@ const source = computed({
 ```
 
 - `useWebContainer()` returns the state that the parts take: `status`, `steps`, `failure`, `files`, `modified`, `previewUrl`, `logs`, and `online`. Its [README](../web-container/README.md#run-it-from-vue) lists the options. Pass `env: useConnectStore().env(connect)` to give the dev server the reader's tokens.
-- `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the preview at the side and the other tabs under the editor. `tabs` sets the tabs and their order, with a label and an optional `badge` each, and each tab shows the slot with its `value`. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `WorkspaceShell` has the slots `#bar`, `#files`, `#editor-head`, `#editor`, `#status`, `#guide`, `#terminal`, `#preview`, `#connect`, and `#overlay`. Preview, Terminal, and Connect are tabs in the output pane. The layout puts the panes in place:
+  - `side` (default): the code on the left and the output at the side, with a draggable line between them.
+  - `guide-top`: the `#guide` pane over the code, with a draggable line between them, and the output at the side.
+  - `guide-side`: the `#guide` pane on the left is up to 360px wide and takes at most half the available width. On the right, the output takes 40% at the top and the code sits under it.
+- The `#bar` slot is 44px high. The `#editor-head` row and the output tab bar are 32px high, so their bottom lines align. The `#status` line is 24px high. The draggable lines also move with the arrow keys, Home, and End. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
+- `tabs` sets the tabs and their order, with a label and an optional `badge` each. For custom tabs, use `#tab-<value>` (for example, `#tab-status`). A slot named by the value alone still works if it is not a layout slot and does not start with `tab-`.
 - The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe. The page cannot read the address or the history of that cross-origin frame either, so pass `previewScript: workspacePreviewScript` to `useWebContainer()`. The script reports the address of each preview page, and Back and Forward work. Without it, the bar shows the path that it opened, and Back and Forward stay disabled. `PlaygroundContainer` passes it.
 - The width switch of `WorkspacePreview` shows the page at 768 (Tablet) or 390 (Phone) CSS pixels in a `DeviceFrame`, scaled down to fit the pane. Desktop fills the pane. Use `v-model:device`, or let it keep the last width in localStorage.
 - `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations. `description` replaces the text for a tutorial with what the reader of your page can do instead.
+- The learn parts fill the `#guide` and `#bar` slots of a lesson. `WorkspaceGuide` shows the position and title of the step, your rendered Markdown in its default slot (it never parses Markdown), and Back and Next at the bottom of the pane. `WorkspaceSteps` is the steps menu with Previous and Next for the bar. Bind both with `v-model:step`. `WorkspaceTask` is the task box of a step. `WorkspaceFileLink` opens its `path` through the opener of `provideWorkspaceFileOpener({ show })` and emits `open`. `WorkspaceIssues` lists `{ message, line? }` issues, and `PlaygroundRender` uses it. See [Workspace guide](https://vitehub.dev/docs/ui/workspace-guide).
 
-The demo page in `test/browser/page` shows every part in the tutorial layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+The demo page in `test/browser/page` shows every part in the `guide-side` layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
+
+`pnpm --filter @vite-hub/ui test:workspace-parts` mounts the parts on a fake WebContainer in headless Chromium at 1280x760 and checks their sizes against the design. Each part is a file in `test/browser/workspace-parts/fixtures` and its checks are a file in `test/browser/workspace-parts/checks`. Set `WORKSPACE_PARTS_SCREENSHOTS=<dir>` to save a screenshot of each part.
 
 ## Render files in the page
 
@@ -294,7 +304,7 @@ Controls get the same motion from what a person does with them, not from code of
 
 - Turn the layer off for one subtree with `data-motion="none"`, such as a canvas or an animated figure that draws its own motion.
 - Turn it off for the app with `createViteHubUI({ motion: false })`.
-- Without Vue, call it yourself. Pass a shadow root to watch the state attributes inside it too:
+- Without Vue, call it yourself. With no argument it covers the document. A surface on someone else's page, such as a bar in a shadow root, passes its host element and its shadow roots instead, so the page around it does not move:
 
 ```ts
 import { installMotion } from "@vite-hub/ui/motion";
@@ -303,6 +313,48 @@ const host = document.createElement("div");
 document.body.append(host);
 const uninstall = installMotion(host.attachShadow({ mode: "open" }));
 ```
+
+That brings every effect. A script with its own small bundle, such as a toolbar that you put on other pages, takes `installMotion` from `@vite-hub/ui/motion/core` and lists the effects it runs, so the others stay out of the bundle:
+
+```ts
+import { appearEffect, installMotion, pressEffect } from "@vite-hub/ui/motion/core";
+
+const bar = document.createElement("div");
+document.body.append(bar);
+const uninstall = installMotion(bar.attachShadow({ mode: "open" }), { effects: [pressEffect, appearEffect] });
+```
+
+Four parts move with the helpers of the motion layer, for events that only the component knows:
+
+- `MotionList` replaces `<TransitionGroup>`. Render keyed items in its slot: neighbors spring to their new place, a new item grows from `origin` (the row it duplicates) or from its slot, and a removed item folds away.
+- `Progress` shows work that runs: `value` from 0 to 1 fills the bar with a head, `null` shows a wave while the total is not known, and `done` draws a dot into a check. It has `role="progressbar"` and `aria-valuenow`.
+- `DropField` is a label around a file input. The dots behind its text lean toward a dragged file. A click and the keyboard open the file picker. It emits `files`.
+- `HoldToDelete` is a button that deletes when it is held. It emits `delete` (hide the item), shows Undo for `undoFor` ms (emits `undo`), and only then calls `commit`. Unmounting it during the Undo window commits. A click from a screen reader asks `confirm` first.
+
+```vue
+<MotionList tag="ul">
+  <li v-for="file in files" :key="file.id">{{ file.name }}</li>
+</MotionList>
+<Progress :value="upload.progress" :done="upload.done" label="Upload cover.png" />
+<HoldToDelete :commit="() => removeFile(file.id)" @delete="hidden = true" @undo="hidden = false" />
+```
+
+Without Vue, `createMotionList`, `createProgress`, `createDropField`, and `createHoldToDelete` from `@vite-hub/ui/motion` do the same on any element.
+
+### Labels, icons, counts, and rings
+
+The layer also morphs what changes with state. When the label of a `UButton` changes, such as `:label="loading ? 'Publishing' : 'Publish'"`, its letters change one at a time and the button's width follows with a spring. When Vue draws another icon into the button's leading or trailing icon, such as the spinner of `loading`, the old icon blurs out and the spinner draws its stroke in. The app only changes the label and the icon. With `@nuxt/icon` in CSS mode an icon is a class, which the layer does not watch, so the icon changes at once there; use `SwapIcon` in the button's `leading` slot.
+
+For everything else, use the component or the helper:
+
+| Vue | Helper in `@vite-hub/ui/motion` | Use it for |
+| --- | --- | --- |
+| `<MorphText :text="copied ? 'Copied' : 'Copy link'" />` | `morphText(element, text)` | A label outside a `UButton` |
+| `<SwapIcon :name="icon" enter="draw" />` | `swapIcon(container, icon, { exit, enter })` | An icon that says what happened: `exit: "right"` for an arrow that leaves the way it points, `enter: "draw"` for a check or a spinner |
+| `<RollNumber :value="count" />` | `rollNumber(element, value, format?)` | A count: only the changed digits roll, up when it grows, down when it shrinks |
+| `<UButton v-ring="saved" />` | `ring(element)` | A finished action, such as saved or copied: a ring in the border color grows once and fades |
+
+`CopyButton` uses all of them. Each helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text for screen readers the whole time and holds plain text again at the end. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
 
 The entry also has the spring engine (`createSpring`, `springs.snappy`, `springs.soft`), reduced motion (`prefersReducedMotion`, `onReducedMotionChange`, `forceReducedMotion`), `setMotionSlowFactor(4)` to watch an effect at ¼×, and `defineMotionEffect` to add an effect for a role. The motion page in `test/browser/motion/` renders every role; `pnpm --filter @vite-hub/ui test:motion` checks it in Chromium, and `MOTION_RECORD=<dir>` records each press at ¼×.
 

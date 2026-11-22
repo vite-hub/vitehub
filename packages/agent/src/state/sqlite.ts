@@ -14,6 +14,7 @@ import type { AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQue
 
 import type { Lock, QueueEntry } from "chat"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { startWalCheckpointer } from "../internal/sqlite-wal-checkpointer.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -1116,6 +1117,7 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
   let client: LibsqlAgentStateClient | undefined
   let writeKey: string | LibsqlAgentStateClient | undefined
   let synchronousNormal = false
+  let stopCheckpoints: (() => Promise<void>) | undefined
   const openClient = async () => {
     if (options.client) return options.client
     const filePath = libsqlFilePath(options.url)
@@ -1161,11 +1163,15 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
           writeKey = await realpath(path).catch(async () => join(await realpath(dirname(path)), basename(path)))
         }
         client ||= await serializeLibsqlWrite(writeKey, openClient)
+        if (synchronousNormal && typeof writeKey === "string") stopCheckpoints ??= startWalCheckpointer(writeKey)
         if (options.url === ":memory:" || /^file:/i.test(options.url || "")) writeKey ??= client
       },
       async disconnect() {
         const closing = client
         client = undefined
+        const stopping = stopCheckpoints
+        stopCheckpoints = undefined
+        await stopping?.()
         await serializeLibsqlWrite(writeKey, async () => {
           if (ownsClient) await closing?.close?.()
         })

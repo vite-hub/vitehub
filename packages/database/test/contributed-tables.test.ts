@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveDBViteConfig } from "../src/config.ts"
 import { collectDatabaseContributions, resolveDatabaseContributionTargets, resolveDefaultDatabase } from "../src/contributions.ts"
 import { inspectDatabaseDefinitions } from "../src/inspect.ts"
+import { assertContributedTablesGenerated } from "../src/internal/contributed-tables-check.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 import { hubDatabase } from "../src/vite.ts"
 
@@ -508,4 +509,157 @@ describe("contributed tables at runtime", () => {
       await server.close()
     }
   }, 30_000)
+})
+
+describe("contributed tables at build time", () => {
+  const drizzleKit = join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs")
+  const migrationsPath = "server/databases/default/migrations"
+
+  async function kitGenerate(config: Awaited<ReturnType<typeof generate>>, name: string, ...options: string[]) {
+    await execFileAsync(process.execPath, [drizzleKit, "generate", "--config", config.generatedDrizzleConfigFile, "--name", name, ...options], { cwd: config.rootDir })
+    const dir = join(config.rootDir, migrationsPath)
+    const folder = (await readdir(dir)).find(folder => folder.endsWith(`_${name}`))
+    if (!folder) throw new Error(`Drizzle Kit did not generate ${name}`)
+    return folder
+  }
+  async function failure(check: Promise<void>) {
+    const error: unknown = await check.then(() => undefined, (rejection: unknown) => rejection)
+    return { code: Reflect.get(Object(error), "code"), fix: String(Reflect.get(Object(error), "fix")), why: String(Reflect.get(Object(error), "why")) }
+  }
+
+  it("fails the build until a migration adds a table or column that the package added", async () => {
+    const rootDir = await createProject()
+    const audit = (columns: string) => writeProjectFile(rootDir, "vendor/audit.ts", [
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      `export default { auditLog: sqliteTable('audit_log', { ${columns} }) }`,
+      "",
+    ].join("\n"))
+    const module = await audit("id: text('id').primaryKey()")
+    const config = await generate(rootDir, contributions({ definition: { module }, name: "audit", plugin: "audit/vite" }))
+    expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
+      code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
+      why: expect.stringContaining("the table \"audit_log\" from \"audit\""),
+    })
+    await execFileAsync(process.execPath, [drizzleKit, "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+
+    await audit("id: text('id').primaryKey(), requestId: text('request_id')")
+    expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
+      code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
+      why: expect.stringContaining("the column \"request_id\" of the table \"audit_log\""),
+      fix: expect.stringContaining("vitehub database generate"),
+    })
+    await execFileAsync(process.execPath, [drizzleKit, "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+
+    const dir = join(rootDir, migrationsPath)
+    const oldest = (await readdir(dir)).sort()[0]!
+    await rm(join(dir, oldest, "migration.sql"))
+    expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
+      code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
+      why: expect.stringContaining(`${oldest}/migration.sql`),
+      fix: expect.stringContaining("Restore the missing `migration.sql`"),
+    })
+  }, 60_000)
+
+  it("reconstructs Postgres deltas and preserves exact schema, table and column names", async () => {
+    const rootDir = await createProject({ "server/databases/default.ts": ["export default defineDatabase({ dialect: 'postgresql', schema: {} })"] })
+    const audit = (table: string, request = "") => writeProjectFile(rootDir, "vendor/audit.ts", [
+      "import { pgSchema, pgTable, text } from 'drizzle-orm/pg-core'",
+      "const feature = pgSchema('feature')",
+      `export default { auditLog: ${table}, notes: pgTable('notes', { id: text('id'), ${request} }) }`,
+    ].join("\n"))
+    const module = await audit("pgTable('AuditLog', { id: text('id') })")
+    const config = await generate(rootDir, contributions({ definition: { module }, dialect: "postgresql", name: "audit" }))
+    await kitGenerate(config, "baseline")
+    await audit("pgTable('AuditLog', { id: text('id') })", "title: text('title')")
+    const update = await kitGenerate(config, "update")
+    expect(JSON.parse(await readFile(join(rootDir, migrationsPath, update, "snapshot.json"), "utf8"))).toMatchObject({ type: "diff" })
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+
+    await audit("pgTable('AuditLog', { id: text('id'), requestId: text('request_id') })", "title: text('Title')")
+    const missingColumns = await failure(assertContributedTablesGenerated(config))
+    expect(missingColumns.why).toContain("the column \"request_id\" of the table \"AuditLog\"")
+    expect(missingColumns.why).toContain("the column \"Title\" of the table \"notes\"")
+    for (const [declaration, name] of [["feature.table('AuditLog', { id: text('id') })", "feature.AuditLog"], ["pgTable('auditlog', { id: text('id') })", "auditlog"]]) {
+      await audit(declaration!, "title: text('title')")
+      expect((await failure(assertContributedTablesGenerated(config))).why).toContain(`the table "${name}"`)
+    }
+  }, 60_000)
+
+  it("combines independent SQLite migrations and stops asserting schema after custom SQL", async () => {
+    const rootDir = await createProject()
+    const audit = (column: string, notesColumn: string) => writeProjectFile(rootDir, "vendor/audit.ts", [
+      "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'",
+      `export default { auditLog: sqliteTable('audit_log', { id: text('id'), ${column} }), events: sqliteTable('events', { id: text('id'), ${notesColumn} }) }`,
+    ].join("\n"))
+    const module = await audit("", "")
+    const config = await generate(rootDir, contributions({ definition: { module }, name: "audit" }))
+    await kitGenerate(config, "baseline")
+
+    const dir = join(rootDir, migrationsPath)
+    const requestId = "requestId: text('request_id')"
+    const title = "title: text('title')"
+    await audit(requestId, "")
+    const first = await kitGenerate(config, "request")
+    await rename(join(dir, first), join(rootDir, first))
+    await audit("", title)
+    const second = await kitGenerate(config, "title")
+    await rename(join(dir, second), join(dir, "20991230235900_title"))
+    await rename(join(rootDir, first), join(dir, first))
+    await audit(requestId, title)
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+
+    await rm(join(dir, "20991230235900_title"), { recursive: true })
+    const custom = await kitGenerate(config, "custom", "--custom")
+    await writeFile(join(dir, custom, "migration.sql"), "ALTER TABLE events ADD COLUMN title text;\n")
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+  }, 60_000)
+
+  it("uses Wrangler order to distinguish earlier and later flat D1 migrations", async () => {
+    const rootDir = await createProject()
+    const config = await generate(rootDir, [])
+    const baseline = await kitGenerate(config, "baseline")
+    const d1 = resolveDBViteConfig({ driver: "cloudflare" }, rootDir, { contributions: { tables: contributions(historyContribution) } })!
+    await writeProjectFile(rootDir, `${migrationsPath}/d1-migrations.json`, JSON.stringify({ [baseline]: "0001_baseline.sql" }))
+    const flat = await writeProjectFile(rootDir, `${migrationsPath}/0000_legacy.sql`, "SELECT 1;\n")
+    expect((await failure(assertContributedTablesGenerated(d1))).why).toContain("the table \"history_refs\"")
+    await rename(flat, join(rootDir, migrationsPath, "0002_custom.sql"))
+    await expect(assertContributedTablesGenerated(d1)).resolves.toBeUndefined()
+  }, 60_000)
+
+  it("does not check a Database whose newest migration has no snapshot", async () => {
+    const rootDir = await createProject()
+    const config = await generate(rootDir)
+    await writeProjectFile(rootDir, "server/databases/default/migrations/0001_history.sql", "CREATE TABLE history_refs (workspace text PRIMARY KEY, head text);\n")
+    await expect(assertContributedTablesGenerated(config)).resolves.toBeUndefined()
+  })
+
+  it("fails while a contributed SQL migration is not in the migrations folder", async () => {
+    const rootDir = await createProject()
+    await writeProjectFile(rootDir, "vendor/migrations/0001_backfill.sql", "UPDATE notes SET title = 'untitled' WHERE title IS NULL;\n")
+    const config = resolveDBViteConfig(undefined, rootDir, { contributions: { tables: [], uses: [{ migrations: join(rootDir, "vendor/migrations"), name: "backfill", plugin: "backfill/vite" }] } })!
+    expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
+      code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
+      why: expect.stringContaining("the migration 0001_backfill.sql from \"backfill\""),
+    })
+    const folder = "20261120000000_backfill_0001_backfill"
+    await mkdir(join(rootDir, migrationsPath, folder), { recursive: true })
+    expect(await failure(assertContributedTablesGenerated(config))).toMatchObject({
+      code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED",
+      why: expect.stringContaining(`${folder}/migration.sql`),
+      fix: expect.stringContaining("Restore the missing `migration.sql`"),
+    })
+  })
+
+  it("runs the check from the Vite build", async () => {
+    const rootDir = await createProject()
+    await generate(rootDir)
+    const plugin = hubDatabase()
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [historyContribution] } }
+    // SAFETY: hubDatabase returns a Vite plugin whose configResolved and buildStart properties are hook handlers.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "build", plugins: [contributor], resolve: { alias: [] }, root: rootDir })
+    // SAFETY: As above.
+    await expect(Reflect.apply(plugin.buildStart as () => Promise<void>, { environment: {} }, [])).rejects.toMatchObject({ code: "DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED" })
+  })
 })

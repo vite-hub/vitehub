@@ -442,12 +442,7 @@ export interface ConversationExport {
 }
 
 const conversationsExport = defineOperation({
-  cli: {
-    command: "export",
-    format: (output: ConversationExport) => output.text,
-    namespace: "conversations",
-    positional: ["agent", "channel", "thread"],
-  },
+  cli: false,
   description: "Export one Channel conversation as Markdown or as the JSON archive, with its attachments.",
   input: v.strictObject({
     agent: text,

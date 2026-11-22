@@ -1,0 +1,172 @@
+/**
+ * The part of evlog's request logger that ViteHub packages write to. `set` adds fields to the request's wide event,
+ * `warn` and `error` also raise its level. ViteHub does not depend on evlog: an app that registers evlog gives each
+ * request one of these.
+ */
+export interface RequestLog {
+  set: (fields: Record<string, unknown>) => void
+  warn: (message: string, fields?: Record<string, unknown>) => void
+  error: (error: Error | string, fields?: Record<string, unknown>) => void
+}
+
+function isRequestLog(value: unknown): value is RequestLog {
+  return value !== null && typeof value === "object"
+    && typeof Reflect.get(value, "set") === "function"
+    && typeof Reflect.get(value, "warn") === "function"
+    && typeof Reflect.get(value, "error") === "function"
+}
+
+function contextLog(value: unknown): unknown {
+  const context: unknown = value !== null && typeof value === "object" ? Reflect.get(value, "context") : undefined
+  return context !== null && typeof context === "object" ? Reflect.get(context, "log") : undefined
+}
+
+/**
+ * The evlog request logger of a request, or `undefined` when the app does not register evlog. Pass a Nitro v3 event
+ * (evlog sets `event.req.context.log`) or its `Request` (`request.context.log`).
+ */
+export function requestLog(input: unknown): RequestLog | undefined {
+  const request: unknown = input !== null && typeof input === "object" ? Reflect.get(input, "req") : undefined
+  const log = contextLog(request) ?? contextLog(input)
+  return isRequestLog(log) ? log : undefined
+}
+
+/** The part of evlog's standalone logger that ViteHub uses. evlog's `createLogger` fits it. */
+export interface StandaloneLogger {
+  info: (message: string) => void
+  warn: (message: string) => void
+  error: (error: Error | string) => void
+  emit: () => unknown
+}
+
+/** Keeps a promise alive after the work that made it, such as a Worker's `waitUntil()`. */
+export type WaitUntil = (promise: Promise<unknown>) => void
+
+/**
+ * What the `vitehub()` Nitro plugin gives ViteHub packages when the app registers evlog's Nitro module: evlog's
+ * `createLogger` and `isEnabled`, and `drain`, which sends an emitted event to the app's `evlog:drain` hooks.
+ */
+export interface EvlogBridge {
+  createLogger: (fields: Record<string, unknown>, options?: { waitUntil?: WaitUntil }) => StandaloneLogger
+  drain?: (event: unknown) => unknown
+  /** `false` when the app turned evlog off with `enabled: false`. ViteHub packages then print to the console. */
+  isEnabled?: () => boolean
+}
+
+/**
+ * The `Symbol.for()` key of the bridge on `globalThis`. Every bundled copy of this module and the Nitro plugin that
+ * `vitehub()` generates use the same key.
+ */
+export const evlogBridgeKey = "vitehub.evlog"
+
+type BridgeGlobal = typeof globalThis & { [key: symbol]: unknown }
+
+function isEvlogBridge(value: unknown): value is EvlogBridge {
+  return value !== null && typeof value === "object" && typeof Reflect.get(value, "createLogger") === "function"
+}
+
+/** The evlog bridge of this process, or `undefined` when the app does not register evlog. */
+export function evlogBridge(): EvlogBridge | undefined {
+  const runtime: BridgeGlobal = globalThis
+  const bridge = runtime[Symbol.for(evlogBridgeKey)]
+  return isEvlogBridge(bridge) ? bridge : undefined
+}
+
+/** Sets or removes the evlog bridge of this process. Tests call it. */
+export function setEvlogBridge(bridge: EvlogBridge | undefined): void {
+  const runtime: BridgeGlobal = globalThis
+  if (bridge) runtime[Symbol.for(evlogBridgeKey)] = bridge
+  else delete runtime[Symbol.for(evlogBridgeKey)]
+}
+
+function activeBridge(): EvlogBridge | undefined {
+  const bridge = evlogBridge()
+  try {
+    return bridge && bridge.isEnabled?.() !== false ? bridge : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * One log event of a ViteHub package: `{ action: field, message, [field]: fields }`, such as `field: "blob"`. The
+ * message is a fixed text. `error` only gives `code`: its message and stack can hold paths, names, or values.
+ */
+export interface PrimitiveLogEvent {
+  field: string
+  fields: Record<string, unknown>
+  level: "info" | "warn" | "error"
+  message: string
+  error?: unknown
+  /**
+   * Also puts the Error, with its message and stack, on the event. Only for an error that the app's own code threw and
+   * that a request's wide event would show the same way, such as a failed Schedule handler.
+   */
+  withError?: boolean
+  /** Keeps evlog's drains alive after the work that logged, such as a Worker's `waitUntil()`. */
+  waitUntil?: WaitUntil
+}
+
+/**
+ * A short name for the cause of a failure, safe to put in a log field: the string `code` of the error, such as
+ * `ENOSPC` or a ViteHub diagnostic code, else its class name. Never the message, which can hold paths or values.
+ */
+export function errorCode(error: unknown): string | undefined {
+  if (error === null || typeof error !== "object") return undefined
+  const code: unknown = Reflect.get(error, "code")
+  if (typeof code === "string" && code) return code
+  const name: unknown = Reflect.get(error, "name")
+  return typeof name === "string" && name && name !== "Error" ? name : undefined
+}
+
+/**
+ * Emits one evlog event of its own, outside a request's wide event. The event also reaches the app's `evlog:drain`
+ * hooks. Returns `false` when the app does not register evlog or turned it off, and never throws.
+ */
+export function emitLogEvent(event: PrimitiveLogEvent): boolean {
+  const bridge = activeBridge()
+  if (!bridge) return false
+  try {
+    const log = bridge.createLogger({ action: event.field, message: event.message, [event.field]: event.fields }, event.waitUntil ? { waitUntil: event.waitUntil } : undefined)
+    if (event.level === "error") log.error(event.withError && event.error instanceof Error ? event.error : event.message)
+    else log[event.level](event.message)
+    const emitted = log.emit()
+    if (emitted && bridge.drain) {
+      const drained = Promise.resolve().then(() => bridge.drain?.(emitted)).catch((error: unknown) => {
+        console.error("[evlog] drain failed:", error)
+      })
+      event.waitUntil?.(drained)
+    }
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * Logs a failure that the caller survives, with a fixed message and the `code` of the error. With the evlog request
+ * logger of `request`, it replaces `[field]` on the request's wide event and adds a warning. Pass `request` only when the
+ * request has not answered yet: evlog drops fields after it emits the wide event. Otherwise it emits an event of its
+ * own. Without evlog, or with evlog off, it calls `fallback`, which prints to the server console as before. It never
+ * throws.
+ */
+export function logFailure(failure: Omit<PrimitiveLogEvent, "level" | "withError"> & { level?: "warn" | "error", request?: unknown }, fallback: () => void): void {
+  const code = errorCode(failure.error)
+  const fields = { ...failure.fields, ...(code ? { code } : {}) }
+  const log = failure.request !== undefined && activeBridge() ? requestLog(failure.request) : undefined
+  if (log) {
+    try {
+      log.set({ [failure.field]: false })
+      log.warn(failure.message, { [failure.field]: fields })
+      return
+    }
+    catch {}
+  }
+  if (emitLogEvent({ ...failure, fields, level: failure.level ?? "warn" })) return
+  try {
+    fallback()
+  }
+  catch {}
+}

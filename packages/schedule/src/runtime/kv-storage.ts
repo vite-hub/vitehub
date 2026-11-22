@@ -31,7 +31,6 @@ export function createScheduleKVStorage(kvStore: ViteHubKVStorage): ScheduleKVSt
       return value ?? false
     },
     async keys(base) {
-      // `keys(base)` lists the keys below `base`, so the KV text prefix ends with a separator.
       const [error, value] = await kvStore.list({ prefix: base && !/[:/\\]$/.test(base) ? `${base}:` : base })
       if (error) throw error
       return value?.keys ?? []

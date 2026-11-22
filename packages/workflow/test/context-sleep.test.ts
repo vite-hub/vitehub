@@ -16,7 +16,6 @@ import { unwrap } from "./unwrap.ts"
 const rootStepSleep = { code: "WORKFLOW_ROOT_STEP_SLEEP", message: expect.stringContaining("folder Workflow") }
 const calls: string[] = []
 
-/** A single-file Workflow: the handler runs in the root step. */
 const napInRootStep = defineWorkflow<undefined>({ handler: async ({ payload: _payload, ...context }) => {
   calls.push("before")
   await context.sleep("1 second")
@@ -24,7 +23,6 @@ const napInRootStep = defineWorkflow<undefined>({ handler: async ({ payload: _pa
   return "rested"
 } })
 
-/** A folder Workflow orchestrator: the generated registry entry sets `rootStep: false`. */
 function folderWorkflow<TPayload>(handler: (context: WorkflowExecutionContext<TPayload>) => Promise<string>): WorkflowDefinition<TPayload, string> {
   return { rootStep: false, handler }
 }
@@ -101,7 +99,6 @@ describe("Cloudflare", () => {
     })
     await expect(run(record)).rejects.toMatchObject(rootStepSleep)
 
-    // Cloudflare replays a finished step from its stored result, as structured clone.
     const replay: WorkflowProviderStep = { do: async <T>() => structuredClone(recorded) as T, sleep: async () => {} }
     await expect(run(replay)).rejects.toMatchObject(rootStepSleep)
     expect(calls).toEqual(["before"])
@@ -243,7 +240,6 @@ describe("OpenWorkflow (SQLite)", () => {
       status: "completed",
       steps: [{ name: "sleep-1", status: "completed", sleepUntil: sleeping.steps![0]!.sleepUntil }],
     })
-    // OpenWorkflow runs the orchestrator again from the start after the sleep. Code outside step files runs again.
     expect(calls).toEqual(["before", "before", "after"])
   })
 
@@ -256,7 +252,6 @@ describe("OpenWorkflow (SQLite)", () => {
     await tick()
     const sleeping = await unwrap(getWorkflowRun("folderNapTwice", started.id))
     expect(sleeping).toMatchObject({ status: "running", steps: [{ name: "sleep-1", status: "completed" }, { name: "sleep-2", status: "running" }] })
-    // OpenWorkflow keeps a wake time to the millisecond. It is the date, not "now" plus a duration of a later replay.
     expect(Math.abs(sleeping.steps![1]!.sleepUntil!.getTime() - until.getTime())).toBeLessThan(50)
 
     await delay(Math.max(0, until.getTime() - Date.now()) + 100)

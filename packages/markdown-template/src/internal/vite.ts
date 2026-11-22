@@ -1,6 +1,6 @@
 import { markdownTemplateErrorDiagnostics } from "../error-diagnostics.ts"
 
-export { inferMarkdownTemplateDataType } from "./data-type.ts"
+export { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "./data-type.ts"
 export type { MarkdownTemplateDataType } from "./data-type.ts"
 
 export const markdownTemplateFileSuffix = ".template.md"
@@ -8,7 +8,6 @@ export const markdownTemplateModuleQuery = "markdown-template"
 export const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
 
 export function parseMarkdownTemplateRequest(id: string): { path: string } | undefined {
-  // Match the exact suffix supported by the generated ambient module types.
   if (id.includes("#")) return
   const queryIndex = id.indexOf("?")
   const path = id.split("?", 1)[0]!

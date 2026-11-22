@@ -1,6 +1,8 @@
-import { hostedConsoleOrigin } from "@vite-hub/runtime"
+import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { viteHubPageToolAllows } from "@vite-hub/internal/runtime/page-tools"
+import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
+import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
@@ -22,6 +24,9 @@ import type { ConsoleRoute } from "./request.ts"
  * On a development server, and for a visitor whom the Console page tool already allows, the route goes to the page at
  * once. Another visitor goes to the ViteHub Console first, which signs them in when needed and sends them back with a
  * one-time Site access link.
+ *
+ * Like the pill, the route answers only on the origins of `vitehub({ publicUrl })`, when it is set. Another hostname of
+ * the same deployment, such as a content origin, gets 404.
  *
  * The route sets a state cookie, and the Console passes the state to `site.link`. The link then works only in the
  * browser that started here, so a link that someone else made cannot sign this browser in as them. The browser keeps
@@ -127,6 +132,7 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
     throw consoleRequestError(405, "Open /_vitehub in the browser.")
   }
   const development = isConsoleDevelopmentRuntime()
+  if (!development && !matchesPublicOrigin(request, configuredPublicOrigins())) throw consoleRequestError(404, "ViteHub serves /_vitehub only on the public URL of the app.")
   const origin = development ? new URL(request.url).origin : appOrigin(request)
   const target = siteEntryTarget(request, origin)
   if (!target) throw consoleRequestError(404, "ViteHub serves this path itself, and nothing answered it. Open the page and follow a link to /_vitehub from it.")

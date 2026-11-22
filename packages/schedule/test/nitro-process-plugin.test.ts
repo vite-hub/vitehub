@@ -7,7 +7,7 @@ import { transform } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { hubSchedule } from "../src/vite.ts"
-import { normalizeScheduleRuntimeError } from "../src/runtime/static.ts"
+import { logScheduleRuntimeError, normalizeScheduleRuntimeError } from "../src/runtime/static.ts"
 
 interface RuntimeController {
   close: () => Promise<void> | void
@@ -22,6 +22,7 @@ interface PluginHarness {
   createKVScheduleRunStore: () => object
   definePlugin: <T>(plugin: T) => T
   installProcessScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
+  logScheduleRuntimeError: typeof logScheduleRuntimeError
   normalizeScheduleRuntimeError: typeof normalizeScheduleRuntimeError
   onShutdown: (app: NitroAppHarness, name: string, drain: () => unknown) => void
 }
@@ -61,7 +62,7 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
 
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
-    "const { createKVScheduleRunStore, definePlugin, installProcessScheduleRuntime, normalizeScheduleRuntimeError, onShutdown } = globalThis.__vitehubSchedulePluginHarness",
+    "const { createKVScheduleRunStore, definePlugin, installProcessScheduleRuntime, logScheduleRuntimeError, normalizeScheduleRuntimeError, onShutdown } = globalThis.__vitehubSchedulePluginHarness",
     "const scheduleKVStorage = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")
@@ -77,6 +78,7 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
     createKVScheduleRunStore: () => ({}),
     definePlugin: plugin => plugin,
     installProcessScheduleRuntime,
+    logScheduleRuntimeError,
     normalizeScheduleRuntimeError,
     onShutdown: (app, _name, drain) => {
       app.hooks.hook("close", async () => {
@@ -257,7 +259,6 @@ describe("generated Nitro Process Runtime files", () => {
     }
     const files = ["plugin.ts", "static-registry.js", "static-registry.d.ts"].map(file => join(root, ".vitehub", "nitro", "schedule", file))
 
-    // The dev server writes the files first. A `vitehub` command then loads the same project while the server watches them.
     await configure()
     const written = new Date("2020-01-01T00:00:00Z")
     await Promise.all(files.map(file => utimes(file, written, written)))

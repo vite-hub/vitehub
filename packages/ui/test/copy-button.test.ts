@@ -30,7 +30,7 @@ function useClipboard(writeText: (text: string) => Promise<void>) {
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 }
 
-function mountButton(props: InstanceType<typeof CopyButton>["$props"], plugins: ReturnType<typeof createViteHubUI>[] = []) {
+function mountButton(props: InstanceType<typeof CopyButton>["$props"] & { disabled?: boolean }, plugins: ReturnType<typeof createViteHubUI>[] = []) {
   return mount(() => h(CopyButton, props), { attachTo: document.body, global: { components: { UButton: ButtonStub }, plugins } });
 }
 
@@ -42,6 +42,15 @@ afterEach(() => {
 });
 
 describe("CopyButton", () => {
+  it("keeps an explicit disabled attribute while idle", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    useClipboard(writeText);
+    const button = mountButton({ value: "text", disabled: true }).get<HTMLButtonElement>("button").element;
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("is an icon-only ghost button named Copy, with the theme copy icon", () => {
     const wrapper = mountButton({ value: "pnpm test" });
     const button = wrapper.get("[data-slot=copy-button]");
@@ -61,13 +70,17 @@ describe("CopyButton", () => {
     expect(wrapper.get("button").attributes("icon")).toBe("i-ph-copy");
   });
 
-  it("shows its own resting icon, and the theme check after a copy", async () => {
+  it("shows its own resting icon, and the theme check and copiedLabel after a copy", async () => {
     useClipboard(() => Promise.resolve());
     const wrapper = mountButton({ value: "https://vitehub.dev", icon: "i-lucide-link", label: "Copy link" });
-    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-link");
+    expect(wrapper.get("button").attributes()).toMatchObject({ icon: "i-lucide-link", label: "Copy link" });
     await wrapper.get("button").trigger("click");
     await flushPromises();
-    expect(wrapper.get("button").attributes("icon")).toBe("i-lucide-check");
+    expect(wrapper.get("button").attributes()).toMatchObject({ icon: "i-lucide-check", label: "Copied" });
+    const custom = mountButton({ value: "x", label: "Copy link", copiedLabel: "Link copied" });
+    await custom.get("button").trigger("click");
+    await flushPromises();
+    expect(custom.get("button").attributes("label")).toBe("Link copied");
   });
 
   it("copies a string, shows the check for 2 seconds, and announces it", async () => {
@@ -100,12 +113,11 @@ describe("CopyButton", () => {
     let resolve: (text: string) => void = () => {};
     const wrapper = mountButton({ value: () => new Promise<string>((done) => (resolve = done)) });
     await wrapper.get("button").trigger("click");
-    // The text loads first, so the button shows the loading icon until it is ready.
-    expect(wrapper.get("button").attributes("loading")).toBe("true");
+    expect(wrapper.get("button").attributes("disabled")).toBe("");
     resolve("from a promise");
     await flushPromises();
     expect(writeText).toHaveBeenLastCalledWith("from a promise");
-    expect(wrapper.get("button").attributes("loading")).toBe("false");
+    expect(wrapper.get("button").attributes("disabled")).toBeUndefined();
   });
 
   it("keeps the copy icon and announces the failure when the clipboard refuses", async () => {
@@ -175,20 +187,21 @@ describe("CopyButton", () => {
     await vi.waitFor(() => expect(dialog.querySelector(":scope > [data-slot=live-announcer]")?.textContent).toBe("Copied"));
   });
 
-  it("keeps both icons in one stack and toggles data-copied for `duration` ms", async () => {
+  it("swaps its one icon slot to the check for `duration` ms, and draws the check in", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     useClipboard(() => Promise.resolve());
     const wrapper = mount(() => h(CopyButton, { value: "x", duration: 500 }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
-    const icons = () => wrapper.findAll("[data-slot=copy-button-icon] > [data-icon]").map((icon) => [icon.attributes("data-icon"), icon.get("svg").attributes("data-name"), icon.get("svg").classes().join(" ")]);
-    const stack = [["copy", "i-lucide-copy", "size-4 shrink-0"], ["check", "i-lucide-check", "size-4 shrink-0"]];
-    expect(wrapper.get("[data-slot=copy-button-icon]").attributes("aria-hidden")).toBe("true");
-    expect(icons()).toEqual(stack);
+    const shown = () => {
+      const icon = wrapper.findAll("[data-slot=swap-icon] > [data-icon-key] > svg").at(-1)!;
+      return [icon.attributes("data-name"), icon.classes().join(" ")];
+    };
+    expect(wrapper.get("[data-slot=swap-icon]").attributes("aria-hidden")).toBe("true");
+    expect(shown()).toEqual(["i-lucide-copy", "size-4 shrink-0"]);
 
     await wrapper.get("button").trigger("click");
     await flushPromises();
-    // The same two icons stay, so the CSS cross-fades them; only the attribute on the button changes.
     expect(wrapper.get("button").attributes("data-copied")).toBe("");
-    expect(icons()).toEqual(stack);
+    expect(shown()).toEqual(["i-lucide-check", "size-4 shrink-0"]);
 
     vi.advanceTimersByTime(499);
     await flushPromises();
@@ -196,18 +209,21 @@ describe("CopyButton", () => {
     vi.advanceTimersByTime(1);
     await flushPromises();
     expect(wrapper.get("button").attributes("data-copied")).toBeUndefined();
-    expect(icons()).toEqual(stack);
+    expect(shown()).toEqual(["i-lucide-copy", "size-4 shrink-0"]);
   });
 
-  it("shows the button's loading icon instead of the stack while the text loads", async () => {
+  it("shows a turning spinner in the icon slot while the text loads", async () => {
     useClipboard(() => Promise.resolve());
     let resolve: (text: string) => void = () => {};
     const wrapper = mount(() => h(CopyButton, { value: () => new Promise<string>((done) => (resolve = done)) }), { attachTo: document.body, global: { components: { UButton: SlotButtonStub, UIcon: IconStub } } });
+    const shown = () => wrapper.findAll("[data-slot=swap-icon] > [data-icon-key] > svg").at(-1)!;
     await wrapper.get("button").trigger("click");
-    expect(wrapper.find("[data-slot=copy-button-icon]").exists()).toBe(false);
+    await flushPromises();
+    expect(shown().attributes("data-name")).toBe("i-lucide-loader-circle");
+    expect(shown().classes()).toContain("animate-spin");
     resolve("loaded");
     await flushPromises();
-    expect(wrapper.find("[data-slot=copy-button-icon]").exists()).toBe(true);
+    expect(shown().attributes("data-name")).toBe("i-lucide-check");
     expect(wrapper.get("button").attributes("data-copied")).toBe("");
   });
 
@@ -226,7 +242,7 @@ describe("CopyButton", () => {
     await wrapper.get("button").trigger("click");
     // The text is ready, so the click writes the string at once, with no loading icon.
     expect(writeText).toHaveBeenCalledWith("# Page");
-    expect(wrapper.get("button").attributes("loading")).toBe("false");
+    expect(wrapper.get("button").attributes("disabled")).toBeUndefined();
     await flushPromises();
     expect(load).toHaveBeenCalledOnce();
     expect(wrapper.get("button").attributes("data-copied")).toBe("");

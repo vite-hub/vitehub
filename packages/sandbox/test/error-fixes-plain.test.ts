@@ -3,7 +3,6 @@ import { expect, it } from "vitest"
 import { sandboxErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { sshLaunch } from "../src/ssh.ts"
 
-/** The codes that replaced plain errors in the SSH runner, the Cloudflare log stream, and the trusted host. */
 const codes = [
   "SANDBOX_CLOUDFLARE_LOG_STREAM_FAILED",
   "SANDBOX_SSH_DRAIN_TIMEOUT_INVALID",
@@ -13,7 +12,6 @@ const codes = [
 ] as const
 
 it.each(codes)("gives %s a fix and its own docs page", (code) => {
-  // Each code takes its own params. One object that has all of them fits every code.
   const create = sandboxErrorDiagnostics[code] as (params: { detail: string, problem: "host" }) => Error & { docs?: string, fix?: string }
   const error = create({ detail: "exit", problem: "host" })
   expect(error.fix).toMatch(/\S/)

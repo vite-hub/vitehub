@@ -54,7 +54,6 @@ describe("Cloudflare KV binding", () => {
   })
 
   it("finds the binding after the Nitro middleware installs the request's env", async () => {
-    // `vite dev` with the workerd runner gives only the request its env. Nitro does not set a global env there.
     const { default: middleware } = await import("../src/runtime/cloudflare-request-env.ts")
     const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
@@ -63,7 +62,6 @@ describe("Cloudflare KV binding", () => {
       await runWithActiveCloudflareEnv(undefined, async () => {
         middleware({ req: { runtime: { cloudflare: { env: { KV: namespace } } } } })
         await storage.setItem("theme", "dark")
-        // A Node dev runner gives no env. The middleware keeps the env that is active.
         middleware({ req: { runtime: { name: "node" } } })
         await expect(storage.getItem("theme")).resolves.toBe("dark")
       })
@@ -172,7 +170,6 @@ describe("Cloudflare KV binding", () => {
 })
 
 describe("Cloudflare KV cursors across isolates", () => {
-  // A paged namespace that behaves like Cloudflare: it rejects cursors it did not issue.
   function createPagedNamespace(keys: string[]) {
     const namespace = createNamespace()
     namespace.list = async ({ cursor, limit = 1_000 }: { cursor?: string, limit?: number }) => {
@@ -192,7 +189,6 @@ describe("Cloudflare KV cursors across isolates", () => {
     const page = await runWithActiveCloudflareEnv({ KV: binding }, () => first.listKeys({ limit: 1 }))
     expect(page).toMatchObject({ keys: ["a"], cursor: expect.stringMatching(/^vhc1:/) })
 
-    // A new isolate loads the module again, with an empty cursor registry.
     vi.resetModules()
     const fresh = await import("../src/runtime/cloudflare-kv.ts")
     const second = fresh.createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage

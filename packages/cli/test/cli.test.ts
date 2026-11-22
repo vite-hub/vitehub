@@ -16,7 +16,6 @@ import { setupCommandNames } from "@vite-hub/internal/operations"
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 import type { ProvisionContext } from "@vite-hub/internal/provision"
 
-/** A host CLI runner for a machine without a `wrangler login`, so no test reads a real login. */
 const noHostCli: HostCliRun = async () => ({ exitCode: 1, stdout: "" })
 
 const directories: string[] = []
@@ -157,6 +156,33 @@ export default ({ mode }) => ({
     }
   })
 
+  it("passes the root selected by Vite's config environment to commands", async () => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await mkdir(join(rootDir, "web"))
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default {
+  root: process.env.NODE_ENV === "development" ? "web" : "wrong",
+  plugins: [{
+    name: "root-contributor",
+    vitehub: { cli: { namespaces: [{ name: "probe", features: [{ name: "root", run(args, context) { context.stdout.write(context.rootDir); return 0 } }] }] } },
+  }],
+}
+`)
+    const stdout = stream()
+    const stderr = stream()
+
+    vi.stubEnv("NODE_ENV", undefined)
+    try {
+      expect(await runViteHubCli({ args: ["probe", "root"], cwd: rootDir, stderr, stdout })).toBe(0)
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+    expect(stderr.output()).toBe("")
+    expect(stdout.output()).toBe(join(rootDir, "web"))
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()
@@ -178,7 +204,6 @@ export default ({ mode }) => ({
     await writeFile(join(packageDir, "package.json"), JSON.stringify({ type: "module", version: "0.0.0-preview.1174" }))
     await symlink(resolve(import.meta.dirname, "../node_modules"), join(packageDir, "node_modules"), "dir")
 
-    // The vite-hub bin calls runViteHubCliEntrypoint() the same way.
     const entry = join(packageDir, "bin.mjs")
     await writeFile(entry, `import { runViteHubCliEntrypoint } from "./dist/index.js"\nrunViteHubCliEntrypoint()\n`)
     const { stderr, stdout } = await execFileAsync(process.execPath, [entry, "--version"], {
@@ -498,7 +523,6 @@ export default ({ mode }) => ({
 
   it.each([
     { args: ["inspect", "definitions"], expectedExitCode: 0, feature: "definitions", loadsConfig: 1 },
-    // Provision loads the config only after it reads `--host`.
     { runHostCli: noHostCli, args: ["provision", "run"], expectedExitCode: 1, feature: "run", loadsConfig: 0 },
   ])("reserves built-in namespaces from runtime features ($args)", async ({ args, expectedExitCode, feature, loadsConfig }) => {
     const runtime = vi.fn(() => 42)
@@ -551,7 +575,6 @@ export default ({ mode }) => ({
     expect(stdout.output()).toContain("Usage: vitehub database <feature>")
     expect(migrate).toHaveBeenCalledWith(["--help"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
 
-    // A feature that only the project contributes, and a run without help, load the project.
     expect(await runViteHubCli({ args: ["database", "custom", "--help"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
     expect(await runViteHubCli({ args: ["database", "migrate"], cwd: "/app", helpNamespaces, loadConfig, stderr, stdout })).toBe(0)
     expect(loadConfig).toHaveBeenCalledTimes(2)
@@ -799,7 +822,6 @@ export default ({ mode }) => ({
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({}))
     const hostsSeen: Array<[string | undefined, string | undefined, string]> = []
-    // A config that picks its store with `detectHost()` declares the Cloudflare resource only on a Cloudflare build.
     const loadConfig = vi.fn(async (_root: string, command: "build" | "serve") => {
       hostsSeen.push([process.env.VITEHUB_HOST, process.env.VITEHUB_HOST_SOURCE, command])
       return { plugins: process.env.VITEHUB_HOST === "cloudflare" ? [provisionPlugin(apply)] : [], root: rootDir, vitehubConfigResolved: true as const }
@@ -1071,7 +1093,6 @@ export default {
     })).resolves.toBe(0)
   })
 
-  // Boots a real Nuxt app, which takes more than the default 5 s on a busy machine.
   it.each([
     { stage: undefined, vite: {}, directory: undefined },
     { stage: "production", vite: {}, directory: "." },
@@ -1130,7 +1151,6 @@ export default function (_options, nuxt) {
     })
   })
 
-  // Vite reads DEBUG when it is first imported, so the CLI runs in its own process.
   it("prints no env value with DEBUG=vite:env when it loads a Nuxt --stage config", { timeout: 60_000 }, async () => {
     const rootDir = await createTempDir()
     const canary = "stage-secret-canary-7f3a"

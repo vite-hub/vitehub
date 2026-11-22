@@ -11,7 +11,7 @@ import { promisify } from "node:util"
 import { invariant } from "@vite-hub/internal/invariant"
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
-import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
+import { forgeErrorStatus, forgeGitAuthHeader, forgeGitCredentials, forgeProvider, githubAppCredentials, githubInstallationFor, isForgeResponseError, type GitHubAppCredentials, type GitHubAppDelivery, type GitHubAppRepository, type GitHubProvider } from "@vite-hub/forge"
 import { prepareGitHubPullRequestWorkspace, preparePersistentGitHubPullRequestWorkspace, type GitHubWorkspaceReuse } from "./checkout.ts"
 import { commitGitHubPullRequestWorkspace, type GitHubRepairCommit } from "./repair.ts"
 
@@ -34,11 +34,18 @@ export interface GitHubHostCredentialContext {
   signal: AbortSignal
 }
 
+/** The GitHub user or App bot that commits and comments for the host. */
+export interface GitHubHostIdentity { appId?: number, email?: string, login?: string }
+
 export interface GitHubHostOptions {
   credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>
   /** A `fetch` for Forge requests, for tests and runtimes without a global one. */
   fetch?: typeof fetch
-  identity?: { appId?: number, email?: string, login?: string }
+  /**
+   * Commit author and comment owner. Default: the GitHub App bot of the App credentials, such as
+   * `my-app[bot]` with its noreply email. Set it for a token without an App.
+   */
+  identity?: GitHubHostIdentity
   maxBuffer?: number
   /** Forge request timeout in milliseconds. Default 60000. */
   timeout?: number
@@ -60,6 +67,8 @@ export interface GitHubHostAccess {
 }
 
 export interface GitHubHostPullRequest {
+  /** Base branch. With it, `push()` tells `beforePush` whether every new commit outside the base is the host's. */
+  baseRef?: string
   headRef?: string
   headRepository?: string
   headSha: string
@@ -77,8 +86,19 @@ export interface GitHubHostCheckout extends GitHubHostAccess {
    */
   prepareWorkspace(target: string, options?: { restoreInstructions?: boolean, reuse?: boolean, reason?: string, complete?: boolean }): Promise<{ reused: boolean, reason: GitHubWorkspaceReuse } | void>
   commitRepair(target: string, input: GitHubRepairCommit, options?: { verifyDependencies?: boolean }): Promise<string>
-  push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
+  push(target?: string, options?: { signal?: AbortSignal, beforePush?: (head?: string, lineage?: GitHubHostPushLineage) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> }): Promise<string>
   signal: AbortSignal
+}
+
+/** How a pushed head relates to the head it replaces. */
+export interface GitHubHostPushLineage {
+  /** The pull request head that the push replaces. The pushed head descends from it. */
+  parent: string
+  /**
+   * Every commit that the push adds, apart from commits on the base branch, is one that `commitRepair()`
+   * made in this checkout. A provider that fetches and merges someone else's commits makes this `false`.
+   */
+  hostOnly: boolean
 }
 
 export interface GitHubHostCheckoutOptions {
@@ -102,6 +122,12 @@ export interface GitHubHostAccessOptions extends GitHubHostCheckoutOptions {
   /** Mint a new App installation token when the cached one expires within this many milliseconds. */
   minLifetime?: number
   repository?: string
+  /**
+   * Repository whose App installation mints the token, when it is not `repository`. Git still sends the
+   * token only to `repository`. A fork without the App uses its base repository's installation, whose
+   * token may push to the fork's branch while its author allows edits by maintainers.
+   */
+  installationRepository?: string
 }
 
 /** A GitHub rate limit that the response headers of this host's Forge requests reported. */
@@ -169,7 +195,6 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     installations: Object.fromEntries(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id])),
   }
   const installations = new Map<string, number>()
-  let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
   const installation = async (repository: string, signal?: AbortSignal) => {
     signal?.throwIfAborted()
@@ -195,26 +220,33 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
     /** Sends one App webhook delivery again. */
     redeliver: (id: string, signal?: AbortSignal): Promise<void> => client.redeliver(id, signal),
     /** The App bot's login and noreply email, used as the commit author. */
-    async identity(): Promise<{ appId: number, login: string, email: string }> {
-      identity ??= (async () => {
-        const { id: appId, login } = await client.app().catch((error: unknown) => {
-          const status = forgeErrorStatus(error)
-          if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
-          if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
-          throw error
-        })
-        const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
-        const user = await provider.users.get(login).catch(() => undefined)
-        return { appId, login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
-      })()
-      identity.catch(() => { identity = undefined })
-      return await identity
+    async identity(): Promise<Required<GitHubHostIdentity>> {
+      return await appIdentity(client)
     },
   }
 }
 
 function tokenKey(token: string): string {
   return `token:${createHash("sha256").update(token).digest("base64url")}`
+}
+
+async function appIdentity(client: GitHubAppCredentials, signal?: AbortSignal): Promise<Required<GitHubHostIdentity>> {
+  const { id: appId, login, email } = await client.app(signal).catch((error: unknown) => {
+    if (signal?.aborted) throw abortError(signal.reason)
+    const status = forgeErrorStatus(error)
+    if (status !== undefined) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_REQUEST_FAILED({ status, cause: error })
+    if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_RESPONSE_INVALID({ cause: error })
+    throw error
+  })
+  return { appId, login, email }
+}
+
+/** The App lookup or token request for a repository answered 404: the App is not installed there. */
+function notInstalled(error: unknown): boolean {
+  for (let cause = error, depth = 0; cause instanceof Error && depth < 4; cause = cause.cause, depth++) {
+    if (forgeErrorStatus(cause) === 404) return true
+  }
+  return false
 }
 
 function owner(repository: string): string {
@@ -264,7 +296,7 @@ async function waitForCaller<T>(promise: Promise<T>, options: GitHubHostCheckout
 export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
   const checkoutScope = new AsyncLocalStorage<GitHubHostAccess & { path: string }>()
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024
-  const identity = options.identity ?? {}
+  let appBot: Required<GitHubHostIdentity> | undefined
   const rateLimits = new Map<string, GitHubHostRateLimit>()
 
   /** Record the rate limit headers of each Forge response, keyed by credential and resource. */
@@ -304,22 +336,29 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     }
   }
 
+  async function appBotIdentity(appId: number, privateKey: string, signal?: AbortSignal): Promise<Required<GitHubHostIdentity>> {
+    appBot = await appIdentity(githubAppCredentials({ appId, privateKey, userAgent: options.userAgent }), signal)
+    return appBot
+  }
+
   function fallbackToken(config: GitHubHostCredentials): string {
     const configured = secret(config.token)?.trim()
     if (!configured) throw presetsErrorDiagnostics.PRESETS_GITHUB_AUTH_MISSING()
     return configured
   }
 
-  async function scopedAccess(input: GitHubHostAccessOptions): Promise<GitHubHostAccess & { credentialKey: string }> {
-    const config = await credentials({ repository: input.repository, signal: input.signal })
+  async function scopedAccess(input: GitHubHostAccessOptions, commits = true) {
+    const installationRepository = input.installationRepository ?? input.repository
+    const config = await credentials({ repository: installationRepository, signal: input.signal })
     const appId = String(config.appId || "").trim()
     const installationId = String(config.installationId || "").trim()
     const appOwner = String(config.owner || "").trim().toLowerCase()
     const privateKey = secret(config.privateKey)?.trim().replace(/\\n/g, "\n") || ""
     const appValues = [appId, installationId, privateKey]
-    const repositoryOwner = input.repository ? owner(input.repository) : undefined
+    const repositoryOwner = installationRepository ? owner(installationRepository) : undefined
     let token: string
     let credentialKey: string
+    let identity = options.identity ?? {}
 
     if (appValues.some(Boolean)) {
       if (!appValues.every(Boolean)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_CREDENTIALS_INCOMPLETE()
@@ -343,6 +382,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (isForgeResponseError(error)) throw presetsErrorDiagnostics.PRESETS_GITHUB_APP_TOKEN_MISSING({ cause: error })
           throw error
         }
+        if (commits && !options.identity) identity = await appBotIdentity(numericAppId, privateKey, input.signal)
       }
     }
     else {
@@ -376,24 +416,43 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
       env.GIT_AUTHOR_EMAIL = identity.email
       env.GIT_COMMITTER_EMAIL = identity.email
     }
-    return { env, credentialKey, token }
+    return { env, credentialKey, token, identity }
   }
 
-  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
+  async function commitAccess(input: GitHubHostAccessOptions) {
     const operation = controlledOperation(input)
     try {
-      const { env, token } = await scopedAccess({ ...input, signal: operation.signal, timeout: undefined })
-      return { env, token }
+      return await scopedAccess({ ...input, signal: operation.signal, timeout: undefined })
     }
     finally {
       operation.close()
     }
   }
 
+  async function access(input: GitHubHostAccessOptions = {}): Promise<GitHubHostAccess> {
+    const { env, token } = await commitAccess(input)
+    return { env, token }
+  }
+
+  /**
+   * Access to a fork head: the fork's own App installation, or the base repository's when the App is not
+   * installed on the fork. The base's token pushes to the fork only while its author allows edits by maintainers.
+   */
+  async function headAccess(input: GitHubHostAccessOptions, base: string): Promise<GitHubHostAccess> {
+    if (!input.repository || input.repository === base) return await access(input)
+    try {
+      return await access(input)
+    }
+    catch (error) {
+      if (input.signal?.aborted || !notInstalled(error)) throw error
+      return await access({ ...input, installationRepository: base })
+    }
+  }
+
   async function forge(input: GitHubHostForgeOptions = {}): Promise<GitHubProvider> {
     const operation = controlledOperation(input)
     try {
-      const auth = await scopedAccess({ repository: input.repository, signal: operation.signal })
+      const auth = await scopedAccess({ repository: input.repository, signal: operation.signal }, false)
       return await forgeProvider({
         forge: "github",
         token: auth.token,
@@ -507,7 +566,7 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           if (pullRequest.headRef) {
             // Fetch the source branch: GitHub's synthetic pull refs can lag a push.
             const sourceRepository = pullRequest.headRepository ?? pullRequest.repository
-            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await access({ refresh: true, repository: sourceRepository, signal: operation.signal })
+            const sourceAuth = sourceRepository === pullRequest.repository ? baseAuth : await headAccess({ refresh: true, repository: sourceRepository, signal: operation.signal }, pullRequest.repository)
             await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", `https://github.com/${sourceRepository}.git`, `refs/heads/${pullRequest.headRef}`], { ...commandOptions, env: { ...env, ...sourceAuth.env } })
             await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "checkout", ...checkoutMode, "-B", pullRequest.headRef, "FETCH_HEAD"], commandOptions)
           }
@@ -540,8 +599,30 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
         ? await preparePersistentGitHubPullRequestWorkspace(checkout, target, { reuse: options.reuse, reason: options.reason, signal: operation.signal })
         : await prepareGitHubPullRequestWorkspace(checkout, target, { restoreInstructions: options.restoreInstructions, signal: operation.signal })
       let pushHead = pullRequest.headSha
-      const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
-      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
+      // Commits that commitRepair() created here. A pushed head whose new commits are all in this set is the host's own work.
+      const hostCommits = new Set<string>()
+      const commitRepair = async (target: string, input: GitHubRepairCommit, commitOptions?: { verifyDependencies?: boolean }) => {
+        const before = (await exec("git", ["-C", target, "rev-parse", "HEAD"], commandOptions)).stdout.trim()
+        const head = await commitGitHubPullRequestWorkspace(target, input, { expectedHead: pushHead, signal: operation.signal, identity: env, verifyDependencies: commitOptions?.verifyDependencies })
+        if (head !== before) hostCommits.add(head)
+        return head
+      }
+      const hostOnly = async (head: string, parent: string, signal: AbortSignal): Promise<boolean> => {
+        if (!hostCommits.size) return false
+        let base: string[] = []
+        if (pullRequest.baseRef) {
+          try {
+            await exec("git", ["-C", checkout, ...fetchConfig, "fetch", "--no-tags", "--", "origin", `refs/heads/${pullRequest.baseRef}`], { ...commandOptions, signal })
+            base = ["^FETCH_HEAD"]
+          }
+          catch {
+            if (signal.aborted) throw abortError(signal.reason)
+          }
+        }
+        const added = (await exec("git", ["-C", checkout, "rev-list", head, `^${parent}`, ...base], { ...commandOptions, signal })).stdout.split("\n").filter(Boolean)
+        return added.length > 0 && added.every(commit => hostCommits.has(commit))
+      }
+      const push = async (target: string = checkout, options: { signal?: AbortSignal, beforePush?: (head?: string, lineage?: GitHubHostPushLineage) => void | Promise<void>, afterPush?: (head: string) => void | Promise<void> } = {}) => {
         const signal = options.signal ? AbortSignal.any([operation.signal, options.signal]) : operation.signal
         signal.throwIfAborted()
         const expectedHead = pushHead
@@ -566,13 +647,9 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
           await exec("git", ["-C", checkout, "-c", "protocol.file.allow=always", "-c", "uploadpack.packObjectsHook=", "fetch", "--no-tags", "--", await realpath(target), head], readOptions)
         }
         await exec("git", ["-C", checkout, "merge-base", "--is-ancestor", expectedHead, head], { ...commandOptions, signal })
-        const refreshed = await access({
-          refresh: true,
-          repository: pullRequest.headRepository,
-          signal,
-        })
+        const refreshed = await headAccess({ refresh: true, repository: pullRequest.headRepository, signal }, pullRequest.repository)
         signal.throwIfAborted()
-        await options.beforePush?.(head)
+        await options.beforePush?.(head, { parent: expectedHead, hostOnly: await hostOnly(head, expectedHead, signal) })
         await exec("git", ["-C", checkout, "-c", "core.hooksPath=/dev/null", "push", "--no-verify", `--force-with-lease=refs/heads/${pullRequest.headRef}:${expectedHead}`, "--", pushUrl, `${head}:refs/heads/${pullRequest.headRef}`], {
           env: { ...process.env, ...refreshed.env },
           maxBuffer,
@@ -597,18 +674,20 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
 
   const host: GitHubHost = {
     identity() {
-      return identity.login?.trim() || undefined
+      return (options.identity ?? appBot)?.login?.trim() || undefined
     },
     appId() {
-      return identity.appId
+      return (options.identity ?? appBot)?.appId
     },
     channel(channelOptions = {}) {
-      const login = host.identity()
       return github({
         ...channelOptions,
         app: {
-          token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login, appId: host.appId?.(), ...(identity.email ? { email: identity.email } : {}) } } : {}),
+          token: async (_context, scope) => {
+            const { token, identity: { login, appId, email } } = await commitAccess(scope)
+            const name = login?.trim()
+            return { token, identity: name ? { login: name, appId, email } : undefined }
+          },
         },
       })
     },

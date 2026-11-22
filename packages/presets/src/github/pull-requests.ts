@@ -4,7 +4,8 @@ import { presetsErrorDiagnostics } from "../error-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { createHash } from "node:crypto";
 import { invariantError } from "@vite-hub/internal/invariant";
-import { consoleInvocationUrl, resolvePublicUrl } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { consoleInvocationUrl } from "@vite-hub/runtime/internal/console";
 import type { GitHubHost } from "./host.ts";
 
 export type PullRequestFeedback = {

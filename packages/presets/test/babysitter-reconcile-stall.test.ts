@@ -39,7 +39,11 @@ it("stops a reconcile whose GitHub read never answers, names the step, and lets 
     const reconcile = () => runtime.reconcile("test", { track: async work => await work });
 
     // Without the stall bound this await never settles, and the process host never starts another reconcile.
-    await expect(reconcile()).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_RECONCILE_STALLED" });
+    const stalling = reconcile();
+    await vi.waitFor(() => expect(runtime.scheduler()).toMatchObject({ status: "ok", running: { reason: "test", step: "bootstrap", subject: repository } }));
+    await expect(stalling).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_RECONCILE_STALLED" });
+    expect(runtime.scheduler()).toMatchObject({ status: "stalled", lastStall: { step: "bootstrap", subject: repository, count: 1 } });
+    expect(runtime.scheduler().running).toBeUndefined();
     await vi.waitFor(() => expect(events).toHaveBeenCalledWith("babysitter.reconcile.stalled", expect.objectContaining({
       reason: "test", step: "bootstrap", subject: repository, active_owners: [], ready: 0,
     })));
@@ -48,6 +52,7 @@ it("stops a reconcile whose GitHub read never answers, names the step, and lets 
     const stalledCalls = calls.length;
     await reconcile();
     expect(calls.slice(stalledCalls).some(call => call.path === "/graphql")).toBe(true);
+    expect(runtime.scheduler()).toMatchObject({ status: "ok", lastFinishedAt: expect.any(String), lastStall: { step: "bootstrap", count: 1 } });
 
     // The stopped reconcile ends at its next step when its read finally answers, so it claims nothing.
     const before = calls.length;
@@ -68,6 +73,32 @@ async function testRuntime(options: Partial<Parameters<typeof createBabysitterRu
     agent, github, inboxPath: ":memory:", repositories: [repository], concurrency: 1, activityAuthors: [], stallMs: 200, ...options,
   });
 }
+
+it("counts stalls in a row and reports a loop that finishes no reconcile as silent", async () => {
+  const runtime = await testRuntime({ admission: () => new Promise(() => {}) });
+  try {
+    const reconcile = () => runtime.reconcile("test", { track: async work => await work });
+    await expect(reconcile()).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_RECONCILE_STALLED" });
+    await expect(reconcile()).rejects.toMatchObject({ code: "PRESETS_BABYSITTER_RECONCILE_STALLED" });
+    expect(runtime.scheduler()).toMatchObject({ status: "stalled", lastStall: { step: "admission", count: 2 } });
+  } finally {
+    await runtime.inbox.close();
+  }
+
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const quiet = await testRuntime();
+  try {
+    expect(quiet.scheduler()).toEqual({ status: "ok" });
+    vi.setSystemTime(Date.now() + 200 + 60_001);
+    expect(quiet.scheduler()).toEqual({ status: "silent" });
+    expect(quiet.scheduler(false)).toEqual({ status: "ok" });
+    await quiet.reconcile("test", { track: async work => await work });
+    expect(quiet.scheduler()).toMatchObject({ status: "ok", lastFinishedAt: expect.any(String) });
+  } finally {
+    vi.useRealTimers();
+    await quiet.inbox.close();
+  }
+});
 
 it("takes a fresh built-in admission sample after a stall", async () => {
   const first = deferred<{ reason: string }>();

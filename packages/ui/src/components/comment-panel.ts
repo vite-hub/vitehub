@@ -1,5 +1,6 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
+import { RollNumber } from "./motion.ts";
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useCommentAttachments } from "../internal/comment-attachments.ts";
@@ -248,17 +249,27 @@ export const CommentPanel = defineComponent({
 
     const list = () => {
       const counts = state.counts.value;
+      // Open and Resolved are a choice of one of two, so they are a radio group: arrow keys move the choice, and the
+      // select effect of the motion layer moves the soft background to the new one.
       const filter = (value: CommentStatus, label: string, count: number) =>
         h(UButton, {
-          "aria-pressed": String(status.value === value),
+          "aria-checked": String(status.value === value),
           color: "neutral",
           "data-slot": "comment-panel-filter",
           "data-state": status.value === value ? "on" : "off",
-          label: `${label} ${count}`,
           onClick: () => setStatus(value),
+          onKeydown: (event: KeyboardEvent) => {
+            if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+            event.preventDefault();
+            const group = (event.currentTarget as HTMLElement).closest("[role=radiogroup]");
+            setStatus(value === "open" ? "resolved" : "open");
+            void nextTick(() => group?.querySelector<HTMLElement>("[role=radio][aria-checked=true]")?.focus());
+          },
+          role: "radio",
           size: "xs",
+          tabindex: status.value === value ? 0 : -1,
           variant: status.value === value ? "soft" : "ghost",
-        });
+        }, { default: () => [`${label} `, h(RollNumber, { value: count })] });
       const empty = state.status.value === "loading" && state.threads.value.length === 0
         ? "Loading comments."
         : state.status.value === "error"
@@ -267,7 +278,7 @@ export const CommentPanel = defineComponent({
       return [
         h("header", { "data-slot": "comment-panel-header" }, [
           h("h2", { "data-slot": "comment-panel-title" }, props.title),
-          h("div", { "aria-label": "Filter comments", "data-slot": "comment-panel-filters", role: "group" }, [
+          h("div", { "aria-label": "Filter comments", "data-slot": "comment-panel-filters", role: "radiogroup" }, [
             filter("open", "Open", counts.open),
             filter("resolved", "Resolved", counts.resolved),
           ]),

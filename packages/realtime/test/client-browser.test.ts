@@ -10,7 +10,6 @@ import manifest from "../package.json" with { type: "json" }
 
 afterEach(() => vi.unstubAllGlobals())
 
-/** Imports a module from a `data:` URL, where nothing resolves a bare or relative import. */
 async function importAlone(path: string): Promise<typeof RealtimeClient> {
   const code = await readFile(new URL(`../${path}`, import.meta.url), "utf8")
   return import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`)
@@ -44,7 +43,6 @@ class FakeSocket {
 
 describe("prebuilt browser client", () => {
   it("is one module with no imports", async () => {
-    // The data: URL import is what proves it: the normal build imports yjs and y-websocket, which cannot load that way.
     await expect(importAlone(manifest.exports["./client"].default)).rejects.toThrow()
     const client = await importAlone(manifest.exports["./client/browser.js"].default)
     expect(typeof client.connectRealtimeRoom).toBe("function")

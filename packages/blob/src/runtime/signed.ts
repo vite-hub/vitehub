@@ -2,7 +2,7 @@ import { defineHandler } from "nitro/h3"
 
 import type { EventHandlerWithFetch } from "h3"
 
-import { blobSignedRoute, rejectTooLarge, verifyFsRequest } from "../internal/fs-sign.ts"
+import { blobSignedRoute, rejectSize, rejectTooLarge, verifyFsRequest } from "../internal/fs-sign.ts"
 import { blob } from "./storage.ts"
 
 type RouteRequest = Request & { context?: { params?: { _?: string } } }
@@ -23,23 +23,35 @@ export async function handleSignedBlobRequest(request: Request): Promise<Respons
   const verified = await verifyFsRequest(request, signedPath(request))
   if (verified instanceof Response) return verified
   const storage = blob.store(verified.store)
-  if (verified.method === "GET") return storage.serve(request, verified.path)
+  if (verified.method === "GET") return storage.serve(request, verified.path, verified.download ? { download: verified.download } : {})
 
-  const { maxSize } = verified
+  const { contentLength, maxSize } = verified
   let tooLarge = false
+  let wrongSize = false
   let size = 0
-  // A body without `Content-Length` can still grow past `maxSize`. Stop reading it there.
-  const body = request.body && maxSize !== undefined
-    ? request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+  const body = maxSize !== undefined || contentLength !== undefined
+    ? (request.body ?? new Blob([]).stream()).pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
           size += chunk.byteLength
-          if (size <= maxSize) return controller.enqueue(chunk)
-          tooLarge = true
-          controller.error(new RangeError("The body is larger than the signed Blob link accepts."))
+          if (contentLength !== undefined && size > contentLength) {
+            wrongSize = true
+            return controller.error(new RangeError("The body is larger than the signed Blob link binds."))
+          }
+          if (maxSize !== undefined && size > maxSize) {
+            tooLarge = true
+            return controller.error(new RangeError("The body is larger than the signed Blob link accepts."))
+          }
+          controller.enqueue(chunk)
+        },
+        flush(controller) {
+          if (contentLength === undefined || size === contentLength) return
+          wrongSize = true
+          controller.error(new RangeError("The body is smaller than the signed Blob link binds."))
         },
       }))
     : request.body ?? ""
   const [error, object] = await storage.put(verified.path, body, verified.contentType ? { contentType: verified.contentType } : {})
+  if (wrongSize && contentLength !== undefined) return rejectSize(contentLength)
   if (tooLarge && maxSize !== undefined) return rejectTooLarge(maxSize)
   if (error) throw error
   return new Response(null, { headers: object.httpEtag ? { ETag: object.httpEtag } : {} })

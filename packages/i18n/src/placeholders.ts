@@ -5,13 +5,11 @@ import type { CompiledMessage } from "@lingui/message-utils/compileMessage"
 function collect(message: CompiledMessage, names: Set<string>): void {
   for (const token of message) {
     if (typeof token === "string") {
-      // Lingui keeps `<Trans>` tags such as `<0>` and `</0>` as text.
       for (const match of token.matchAll(/<\/?(\d+)\/?>/g)) names.add(`<${match[1]}>`)
       continue
     }
     const [name, , format] = token
     names.add(`{${name}}`)
-    // Plural and select forms are messages too. Their text is not a placeholder.
     if (format && typeof format === "object") {
       for (const [key, choice] of Object.entries(format)) if (key !== "offset" && Array.isArray(choice)) collect(choice as CompiledMessage, names)
     }
@@ -31,7 +29,6 @@ export function messagePlaceholders(message: string): string[] {
 
 const maxTagPaths = 256
 
-/** Tag sequences for each rendered ICU branch, bounded before further expansion. Equal branches count once. */
 function tagPaths(message: CompiledMessage): Set<string> | undefined {
   let paths = new Set([""])
   for (const token of message) {

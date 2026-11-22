@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { memory } from "files-sdk/memory"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
+import { createDriver as createCloudflareDriver } from "../src/drivers/cloudflare.ts"
 import { createFilesSdkDriver } from "../src/drivers/files-sdk.ts"
 import { createDriver as createGcsDriver } from "../src/drivers/gcs.ts"
 import { createDriver as createS3Driver } from "../src/drivers/s3.ts"
@@ -68,6 +69,22 @@ describe("signed requests on files-sdk drivers", () => {
     expect(Object.fromEntries(Object.entries(signed!.headers).map(([name, value]) => [name.toLowerCase(), value]))).toMatchObject({ "content-type": "audio/mpeg" })
   })
 
+  it("binds a download name to an S3 read", async () => {
+    const [error, signed] = await s3Storage("https://cdn.example").sign("users/a/source.mp3", { download: "Interview.mp3", expiresIn: 60, method: "GET" })
+
+    expect(error).toBeUndefined()
+    const url = new URL(signed!.url)
+    expect(url.searchParams.get("response-content-disposition")).toBe("attachment; filename=\"Interview.mp3\"; filename*=UTF-8''Interview.mp3")
+    expect(url.searchParams.get("X-Amz-Signature")).toBeTruthy()
+  })
+
+  it("refuses contentLength instead of signing an upload of any size", async () => {
+    const [error, signed] = await s3Storage().sign("a.txt", { contentLength: 4, expiresIn: 60, method: "PUT" })
+
+    expect(signed).toBeUndefined()
+    expect(error?.cause).toMatchObject({ code: "BLOB_R0025", message: expect.stringContaining("cannot bind `contentLength`") })
+  })
+
   it("refuses createOnly uploads instead of signing a request that can overwrite", async () => {
     const [error, signed] = await s3Storage().sign("a.txt", { createOnly: true, expiresIn: 60, method: "PUT" })
 
@@ -104,5 +121,33 @@ describe("signed requests on files-sdk drivers", () => {
 
     expect(readError?.cause).toMatchObject({ message: expect.stringContaining("has no expiring read URL") })
     expect(uploadError?.cause).toMatchObject({ message: expect.stringContaining("has no signed upload URL") })
+  })
+})
+
+describe("signed requests on the R2 HTTP driver", () => {
+  const storage = () => createBlobStorage(createCloudflareDriver({
+    accountId: "account",
+    accessKeyId: "access-key",
+    binding: "BLOB",
+    bucketName: "private-audio",
+    driver: "cloudflare",
+    secretAccessKey: "secret-key",
+  }))
+
+  it("signs the exact size of an upload, so R2 rejects a body of another size", async () => {
+    const [error, signed] = await storage().sign("users/a/source.mp3", { contentLength: 1_048_576, contentType: "audio/mpeg", createOnly: true, expiresIn: 900, method: "PUT" })
+
+    expect(error).toBeUndefined()
+    expect(signed?.headers).toEqual({ "Content-Type": "audio/mpeg", "If-None-Match": "*" })
+    const url = new URL(signed!.url)
+    expect(url.hostname).toBe("private-audio.account.r2.cloudflarestorage.com")
+    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toEqual(expect.arrayContaining(["content-length", "content-type"]))
+  })
+
+  it("binds the download name to a read", async () => {
+    const [error, signed] = await storage().sign("users/a/source.mp3", { download: "Interview 3.mp3", expiresIn: 600, method: "GET" })
+
+    expect(error).toBeUndefined()
+    expect(new URL(signed!.url).searchParams.get("response-content-disposition")).toBe("attachment; filename=\"Interview 3.mp3\"; filename*=UTF-8''Interview%203.mp3")
   })
 })

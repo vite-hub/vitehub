@@ -4,7 +4,7 @@ import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
 import type { NodeHandler, NodeRenderData, State } from "comark/render"
 
-import { resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
+import { assertBindingRoot, resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
 import { hasMarkdownHtmlChildren, htmlPlugins, parserOptions } from "./parser.ts"
@@ -35,7 +35,6 @@ const urlAttributesByTag = new Map([
   ["track", new Set(["src"])],
   ["video", new Set(["poster", "src"])],
 ])
-// Comark normalizes SVG image tags to img nodes.
 const svgUrlAttributes = new Set(["a", "animate", "feimage", "image", "use"])
 
 export async function renderMarkdownTemplate(template: string, options: RenderMarkdownTemplateOptions = {}): Promise<string> {
@@ -50,7 +49,6 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   const parseOptions = { ...parserOptions, plugins: [...parserOptions.plugins, ...(options.plugins ?? [])] }
   const tree = await parseMarkdown(prepared.template, parseOptions)
   const data = snapshotTemplateData(options.data ?? {})
-  // Comark resolves attributes before custom handlers; only our path resolver may read caller data.
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
   const renderAuthoredHtml = async (node: ElementNode, state: State, parent: ElementNode | undefined, childPolicy: "preserve" | "markdown") => {
     const [tag, attrs, ...children] = node
@@ -61,10 +59,8 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     const content = childPolicy === "markdown" && hasMarkdownHtmlChildren(node)
       ? (await parseMarkdown(children.join(""), parseOptions)).nodes
       : rawBlockTags.has(tag) && attrs.$?.block === 1 && typeof children[0] === "string"
-        // Comark keeps the line break after `<script>`, and its HTML renderer adds another one.
         ? [children[0].replace(/^\r?\n/, ""), ...children.slice(1)]
         : children
-    // Preserve SVG ancestry across descendants; foreignObject children use HTML semantics.
     const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
     try {
       return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
@@ -76,6 +72,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   return prepared.restore((await renderMarkdown(tree, {
     components: {
       Binding: async (node, state, parent) => {
+        if (typeof node[1][":value"] === "string") assertBindingRoot(node[1][":value"])
         rejectLinkDestinationBinding(node, parent)
         return state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true)
       },
@@ -100,7 +97,6 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         if (typeof value !== "string") {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
-        // Fragments are parsed without bindings and rendered without template components.
         const fragment = await parseMarkdown(value, { ...parseOptions, plugins: [...htmlPlugins, ...(options.plugins ?? [])] })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
@@ -138,10 +134,6 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   })).trim())
 }
 
-/**
- * Comark does not parse `[label]({{ data.url }})` as a link. It keeps the brackets as text around the binding, and the
- * output shows the escaped brackets and a bare URL. Reject that form and name the attribute syntax.
- */
 function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined): void {
   if (!parent) return
   const siblings = parent.slice(2)
@@ -151,17 +143,14 @@ function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | u
   if (index < 1 || typeof before !== "string" || typeof after !== "string") return
   const destination = before.match(/\]\(\s*$/)
   if (!destination || !/^(?:\s+(?:"[\s\S]*"|'[\s\S]*'|\([\s\S]*\)))?\s*\)/.test(after)) return
-  // Element siblings, such as emphasis in the label, cannot contain the label brackets.
   const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
   const labelText = text.slice(0, text.length - destination[0].length + 1)
   const label = labelStart(labelText)
-  // Images and partial destinations keep their existing behavior.
   if (label === undefined || text[label - 1] === "!") return
   const path = String(node[1][":value"])
   throw diagnostics.MARKDOWN_TEMPLATE_R0033({ message: `[vitehub] Markdown template binding "{{ ${path} }}" cannot be a Markdown link destination. Use [label](){:href="${path}"}.` })
 }
 
-/** Returns the matching unescaped opening `[` in the label text. */
 function labelStart(text: string): number | undefined {
   let depth = 0
   for (let index = text.length - 1; index >= 0; index--) {
@@ -175,8 +164,6 @@ function labelStart(text: string): number | undefined {
     depth--
     if (depth === 0) return index
   }
-  // Comark drops the escape marker from an escaped closing bracket. If that
-  // leaves an extra closing bracket, retain the only plausible label opener.
   const opener = text.lastIndexOf("[")
   return opener >= 0 && !isEscaped(text, opener) ? opener : undefined
 }
@@ -188,8 +175,6 @@ function isEscaped(text: string, index: number): boolean {
 }
 
 function rejectBoundEventHandlers(source: Record<string, unknown>): void {
-  // Comark's security plugin treats on* attributes as HTML sinks. Keep
-  // template data out of those sinks while preserving authored static markup.
   for (const key of Object.keys(source)) {
     if (!key.startsWith(":")) continue
     const attribute = key.slice(1).toLowerCase()
@@ -200,9 +185,6 @@ function rejectBoundEventHandlers(source: Record<string, unknown>): void {
 }
 
 async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>, source: Record<string, unknown>, svgContext = false): Promise<Record<string, unknown>> {
-  // `srcdoc` is an HTML parser sink. Escaping its value only moves the markup
-  // into the iframe document, where the browser parses and executes it. Keep
-  // template data out of this sink while preserving authored static markup.
   for (const key of Object.keys(source)) {
     if (key.startsWith(":") && key.slice(1).toLowerCase() === "srcdoc") {
       throw diagnostics.MARKDOWN_TEMPLATE_R0030({ message: `[vitehub] Markdown template binding "${String(source[key])}" cannot target the HTML srcdoc sink.` })

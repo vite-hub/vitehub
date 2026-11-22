@@ -17,8 +17,11 @@ export interface GitHubAppCredentials {
   ): Promise<{ token: string, expiresAt: Date }>
   /** GET /repos/{repository}/installation with the app JWT. */
   installation(repository: string, signal?: AbortSignal): Promise<number>
-  /** GET /app. */
-  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string }>
+  /**
+   * GET /app, and GET /users/{login} for the bot user's noreply `email`, the commit email that GitHub links to the
+   * App. Cached per App: an App's identity does not change.
+   */
+  app(signal?: AbortSignal): Promise<{ id: number, slug: string, login: string, email: string }>
   /**
    * Every repository that the App's installations can access, from `GET /app/installations` and
    * `GET /installation/repositories`, all pages. Suspended installations are skipped.
@@ -65,9 +68,9 @@ export interface GitHubAppInput {
 }
 
 const appProviders = new Map<string, Promise<ForgeProvider>>()
-// Weak keys keep token retention bounded by the 128 cached providers.
 const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
 const appProviderLimit = 128
+const appIdentities = new Map<string, ReturnType<typeof appIdentity>>()
 const fetchIds = new WeakMap<typeof fetch, number>()
 let nextFetchId = 0
 
@@ -87,10 +90,6 @@ function appProviderKey(input: GitHubAppInput, installationId: string): string {
     .digest("hex")
 }
 
-/**
- * One App provider per installation, so `refresh` replaces the token of that installation only.
- * App-level requests use the entry with an empty installation ID.
- */
 function appProvider(input: GitHubAppInput, installationId = "", refresh = false): Promise<ForgeProvider> {
   const key = appProviderKey(input, installationId)
   if (refresh) appProviders.delete(key)
@@ -112,6 +111,21 @@ function positiveId(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined
 }
 
+async function appIdentity(input: GitHubAppInput) {
+  const provider = await appProvider(input)
+  const response = await provider.request<unknown>("GET", "/app")
+  const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
+  const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
+  if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
+  if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
+  const login = `${slug}[bot]`
+  const { github } = await import("forges/github")
+  const userId = await github({ ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}), ...(input.fetch ? { fetch: input.fetch } : {}), userAgent: input.userAgent ?? "vitehub" })
+    .request<unknown>("GET", `/users/${encodeURIComponent(login)}`)
+    .then(user => positiveId(isRecord(user.data) ? user.data.id : undefined), () => undefined)
+  return { verified: userId !== undefined, identity: { id, slug, login, email: userId ? `${userId}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` } }
+}
+
 /**
  * GitHub App credentials. App providers are cached per API base, App, private key, user agent,
  * fetch function, and installation, so installation tokens are minted once and reused until they expire.
@@ -123,10 +137,6 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
       if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
-      // forges 0.3.1 installations.token() takes a signal (https://github.com/danielroe/forges/pull/195), but it reuses a
-      // cached token until 60 s before expiry, with no minimum lifetime option, and its abort only stops this caller's
-      // wait, not the shared request. Not reported upstream yet. Keep JWT signing in the provider and pass cancellation
-      // through its transport.
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
         "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
       ), options.signal)
@@ -152,13 +162,19 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       }
     },
     async app(signal) {
-      const provider = await withSignal(appProvider(input), signal)
-      const response = await provider.request<unknown>("GET", "/app", { signal })
-      const id = positiveId(isRecord(response.data) ? response.data.id : undefined)
-      const slug = isRecord(response.data) && typeof response.data.slug === "string" ? response.data.slug : undefined
-      if (!id) throw forgeResponseError("GitHub App metadata did not include an ID.")
-      if (!slug) throw forgeResponseError("GitHub App response did not include a slug.")
-      return { id, slug, login: `${slug}[bot]` }
+      const key = appProviderKey(input, "")
+      let pending = appIdentities.get(key)
+      if (!pending) {
+        const lookup = appIdentity(input)
+        const evict = () => {
+          if (appIdentities.get(key) === lookup) appIdentities.delete(key)
+        }
+        void lookup.then(({ verified }) => { if (!verified) evict() }, evict)
+        appIdentities.set(key, lookup)
+        pending = lookup
+        if (appIdentities.size > appProviderLimit) appIdentities.delete(appIdentities.keys().next().value!)
+      }
+      return (await withSignal(pending, signal)).identity
     },
     async repositories(signal) {
       const provider = await withSignal(appProvider(input), signal)
@@ -176,10 +192,8 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const provider = await withSignal(appProvider(input), signal)
       const attempts: GitHubAppDelivery[] = []
       let cursor: string | undefined
-      // Pages are newest first. Stop at the first page that reaches past `since`.
       for (let page = 0; page < 200; page++) {
         const response = await provider.request("GET", "/app/hook/deliveries", { query: { per_page: 100, ...cursor ? { cursor } : {} }, signal, raw: true })
-        // Delivery IDs exceed 2^53, so JSON numbers lose digits. Read them as strings.
         const data: unknown = JSON.parse((await new Response(response.body).text()).replace(/"id":\s*(\d+)/g, '"id":"$1"'))
         const items = Array.isArray(data) ? data.flatMap(delivery) : []
         attempts.push(...items)
@@ -192,7 +206,6 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       for (const item of recent) {
         if (delivered.has(item.guid)) continue
         const seen = failed.get(item.guid)
-        // Redeliver the newest attempt: GitHub keeps its payload longest.
         failed.set(item.guid, seen ? { ...seen.deliveredAt > item.deliveredAt ? seen : item, attempts: seen.attempts + 1 } : item)
       }
       return [...failed.values()].sort((a, b) => a.deliveredAt - b.deliveredAt)

@@ -14,9 +14,10 @@ import { forgeBranchRules, forgeErrorStatus, forgeMerge, MergeBlockedError, Rate
 import { prepareGitHubRepairBase } from "../github/index.ts";
 import type { GitHubConflictResolution } from "../github/index.ts";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, githubWorkspaceInstallError, isGitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect, readGitHubDependencyStatus } from "../github/index.ts";
-import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
+import { resolvePublicUrl } from "@vite-hub/runtime";
+import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context";
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts";
-import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace";
+import { resolveRegisteredWorkspaceDefinition } from "@vite-hub/workspace/runtime";
 import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/internal/node";
 import { activeProviderSandbox, agentSettings, createMessage, defineAgent, runAgent, publishAgentActivity, withoutForgeAccess } from "@vite-hub/agent";
 import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
@@ -45,6 +46,7 @@ import { readBabysitterFeedback } from "./feedback.ts";
 import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks, type GitHubRequiredCheckPolicy } from "../github/index.ts";
+import { approvalReviewers } from "./approval.ts";
 import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, checksStillRunning, conflictOnlyBlockers, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, severeReviewSettled, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
@@ -186,6 +188,20 @@ function isProviderFailure(error: unknown): boolean {
 /** A provider failure this soon after dispatch gives the daily pass back. A longer pass did real work. */
 const providerFailureReleaseMs = 10 * 60_000;
 
+/**
+ * Whether the reconcile loop still makes progress, for the health route. `stalled`: the last reconcile
+ * waited longer than `stallMs` and was stopped. `silent`: no reconcile finished for `stallMs` plus one
+ * minute while the host accepts work.
+ */
+export interface BabysitterSchedulerHealth {
+  status: "ok" | "stalled" | "silent";
+  /** The reconcile that runs now and the step it waits on. */
+  running?: { reason: string; step: string; subject?: string; startedAt: string; stepAt: string };
+  lastFinishedAt?: string;
+  /** The last stopped reconcile, and how many reconciles in a row were stopped. */
+  lastStall?: { at: string; step: string; subject?: string; count: number };
+}
+
 /** Own one durable PR inbox and its repair passes inside a process host. */
 export interface BabysitterRuntime {
   inbox: PullRequestInbox;
@@ -197,6 +213,8 @@ export interface BabysitterRuntime {
     accepting?: () => boolean,
   ): Promise<void>;
   workload(): { running: number };
+  /** Reconcile liveness. Pass `accepting: false` while the host drains, so a quiet loop is not reported as silent. */
+  scheduler(accepting?: boolean): BabysitterSchedulerHealth;
   /**
    * Makes the next reconcile check the default branch of the delivery's repository when the delivery
    * is a failed push run of a watched workflow there. Returns whether it did.
@@ -216,6 +234,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   assertBabysitterAgent(baseAgent);
   const presetOptions = baseAgent.options;
   const filter = resolveBabysitterLifecycleFilter(presetOptions.filter, presetOptions.lifecycle);
+  const approvalAdmission = presetOptions.lifecycle?.approval === true;
   const merge = resolveBabysitterMerge(presetOptions.merge);
   const github = options.github;
   const hostIdentity = github.identity()?.trim();
@@ -239,6 +258,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     ...(options.inboxStorage ? { storage: options.inboxStorage, scope: options.inboxScope ?? options.agentName ?? baseAgent.name ?? "babysitter" } : { path: options.inboxPath }),
     repositories: () => repositorySource.known(),
     filter,
+    admitApproved: approvalAdmission,
     activityAuthors,
     activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
@@ -389,6 +409,39 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     const { provider } = await forge(repository, signal);
     return (await retryTransient(() => provider.request<unknown>("GET", `/${path}`, { signal }), signal)).data;
   }
+
+  const writerAnswers = new Map<string, { writer: boolean; at: number }>();
+  /**
+   * The reviewers that approval counts as maintainers: those whose association claims write access and
+   * whose repository permission confirms it. An organization member with read access is `MEMBER` too.
+   * Each answer stays for ten minutes.
+   */
+  async function verifiedWriters(snapshot: Pick<Snapshot, "repository" | "reviews" | "pr">, signal?: AbortSignal): Promise<Set<string>> {
+    const repository = snapshot.repository.toLowerCase();
+    const writers = new Set<string>();
+    for (const login of approvalReviewers(snapshot)) {
+      const key = `${repository}:${login}`;
+      let answer = writerAnswers.get(key);
+      if (!answer || answer.at < Date.now() - 10 * 60_000) {
+        const permission = await readOnePage(`repos/${repository}/collaborators/${encodeURIComponent(login)}/permission`, signal).catch((error: unknown) => {
+          if (forgeErrorStatus(error) === 404) return undefined;
+          throw error;
+        });
+        answer = { writer: isRuntimeRecord(permission) && ["admin", "maintain", "write"].includes(String(permission.permission)), at: Date.now() };
+        if (writerAnswers.size > 1000) writerAnswers.clear();
+        writerAnswers.set(key, answer);
+      }
+      if (answer.writer) writers.add(login);
+    }
+    return writers;
+  }
+
+  /** `eligible()` with the approval evidence that admits a PR through `lifecycle.approval`. */
+  async function eligibleNow(repository: string, pr: Snapshot["pr"], snapshot: Snapshot | undefined, signal?: AbortSignal): Promise<boolean> {
+    if (pullRequestInbox.eligible(repository, pr)) return true;
+    if (!approvalAdmission || !snapshot) return false;
+    return pullRequestInbox.eligible(repository, pr, snapshot, await verifiedWriters(snapshot, signal));
+  }
   const freshnessReader: BaseFreshnessReader = {
     rest: (path, signal, key) => readRest(path, key ? `.${key}[]` : ".[]", signal),
     page: readOnePage,
@@ -491,6 +544,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   async function updateBranch(owner: Record<string, unknown>, repository: string, number: number, head: string, signal: AbortSignal, pr: unknown, { reopenFork = true } = {}): Promise<boolean> {
     // GitHub refuses App pushes to a fork, so a fork head gets its fresh CI run from a reopen.
     if (reopenFork && isForkHead(pr, repository)) return await reopenForkPullRequest(owner, repository, number, head, signal);
+    // An approval of `head` carries over to the merge that GitHub writes for the host.
+    if (approvalAdmission) await pullRequestInbox.registerHostUpdate(repository, number, head);
     try {
       // forges has no branch update, so this uses the provider request escape hatch.
       const { provider } = await forge(repository, signal);
@@ -512,9 +567,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           schedulerEvent("babysitter.branch.update_failed", { ...owner, reason: "merges API fallback: head changed" });
           return false;
         }
-        await provider.request("POST", `/repos/${repository}/merges`, {
+        const merged = (await provider.request<unknown>("POST", `/repos/${repository}/merges`, {
           body: { base: branches.head, head: branches.base, commit_message: `Merge ${branches.base} into ${branches.head}` }, signal,
-        });
+        })).data;
+        // A push between the ref read and the merge makes another commit the merge's first parent.
+        const parent = isRuntimeRecord(merged) && Array.isArray(merged.parents) && isRuntimeRecord(merged.parents[0]) ? merged.parents[0].sha : undefined;
+        if (approvalAdmission && parent === head && isRuntimeRecord(merged) && hasRuntimeType(merged.sha, "string") && /^[a-f\d]{40}$/i.test(merged.sha)) {
+          await pullRequestInbox.registerHostUpdate(repository, number, head, merged.sha);
+        }
         return true;
       } catch (fallback) {
         await noteForgeQuota(fallback, "merge-base-into-head");
@@ -1117,7 +1177,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (decision.ready && merge.ready) {
       const callback = merge.ready;
       const head = decision.head;
-      const ready = await boundedMergeReady(() => callback({ repository, number, head, snapshot: structuredClone(snapshot), requiredChecks: evaluation.state }), signal);
+      const writers = await verifiedWriters(snapshot, signal);
+      const ready = await boundedMergeReady(() => callback({ repository, number, head, snapshot: structuredClone(snapshot), requiredChecks: evaluation.state, writers }), signal);
       if (signal.aborted) return "blocked";
       if (ready !== true) decision = { ready: false, reason: ready };
     }
@@ -1555,12 +1616,14 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!head) return false;
     const callback = merge.ready;
     try {
+      const writers = await verifiedWriters(snapshot);
       return await boundedMergeReady(() => callback({
         repository: snapshot.repository,
         number: snapshot.number,
         head,
         snapshot: structuredClone(snapshot),
         requiredChecks,
+        writers,
       })) === true;
     } catch (error) {
       schedulerEvent("babysitter.direct_merge.skipped", {
@@ -1770,6 +1833,23 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
    * one reconcile at a time, so one await that never settles stops every later claim.
    */
   interface ReconcileTick { reason: string; startedAt: number; step: string; subject?: string; stepAt: number }
+  const createdAt = Date.now();
+  let runningTick: ReconcileTick | undefined;
+  let lastFinishedAt: number | undefined;
+  let lastStall: { at: number; step: string; subject?: string; count: number } | undefined;
+  let stallsInRow = 0;
+
+  function scheduler(accepting = true): BabysitterSchedulerHealth {
+    const now = Date.now();
+    const iso = (time: number) => new Date(time).toISOString();
+    const silent = accepting && now - (lastFinishedAt ?? createdAt) > stallMs + 60_000;
+    return {
+      status: stallsInRow ? "stalled" : silent ? "silent" : "ok",
+      ...runningTick ? { running: { reason: runningTick.reason, step: runningTick.step, ...runningTick.subject ? { subject: runningTick.subject } : {}, startedAt: iso(runningTick.startedAt), stepAt: iso(runningTick.stepAt) } } : {},
+      ...lastFinishedAt ? { lastFinishedAt: iso(lastFinishedAt) } : {},
+      ...lastStall ? { lastStall: { at: iso(lastStall.at), step: lastStall.step, ...lastStall.subject ? { subject: lastStall.subject } : {}, count: lastStall.count } } : {},
+    };
+  }
 
   async function stallSnapshot(tick: ReconcileTick) {
     const now = Date.now();
@@ -1821,6 +1901,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     let timer: ReturnType<typeof setTimeout> | undefined;
     const stalled = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
+        stallsInRow += 1;
+        lastStall = { at: Date.now(), step: tick.step, ...tick.subject ? { subject: tick.subject } : {}, count: stallsInRow };
+        if (runningTick === tick) runningTick = undefined;
         const error = presetsErrorDiagnostics.PRESETS_BABYSITTER_RECONCILE_STALLED({ step: tick.subject ? `${tick.step} (${tick.subject})` : tick.step, minutes: Math.round((Date.now() - startedAt) / 60_000) });
         reject(error);
         controller.abort(error);
@@ -1828,10 +1911,16 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }, stallMs);
       timer.unref?.();
     });
+    runningTick = tick;
     try {
       await Promise.race([reconcileTick(reason, context, isAccepting, step, signal), stalled]);
     } finally {
       clearTimeout(timer);
+      if (!signal.aborted) {
+        lastFinishedAt = Date.now();
+        stallsInRow = 0;
+        if (runningTick === tick) runningTick = undefined;
+      }
     }
   }
 
@@ -2310,7 +2399,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             await pullRequestInbox.release(inboxClaim);
             return;
           }
-          if (!pullRequestInbox.eligible(repository, inboxClaim.snapshot.pr)) {
+          if (!await eligibleNow(repository, inboxClaim.snapshot.pr, inboxClaim.snapshot, passSignal)) {
             await pullRequestInbox.finish(inboxClaim, {
               text: "PR closed or outside the configured filter.",
               terminal: true,
@@ -2553,6 +2642,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           workspaceRun.base = pullRequest.baseRefOid;
           await github.withPullRequestCheckout(
             {
+              baseRef: pullRequest.baseRefName,
               headRef: pullRequest.headRefName,
               headRepository: pullRequest.headRepository?.nameWithOwner,
               headSha: pullRequest.headRefOid,
@@ -2758,8 +2848,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 commentPrefix: "<!-- vitehub-babysitter-repair:repair -->\n",
                 signal: abortSignal,
                 autoMerge: merge.mode === "auto" && stackParent === undefined,
-                eligible: (current) =>
-                  pullRequestInbox.eligible(repository, normalizePullRequest(current)),
+                eligible: async (current) =>
+                  await eligibleNow(repository, normalizePullRequest(current), await pullRequestInbox.get(repository, number), abortSignal),
                 checkDependencies: async () => {
                   await assertLease();
                   if (presetOptions.install === false) return { current: true, changedInputs: [], reason: "Host dependency installation is disabled." };
@@ -2832,11 +2922,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   try {
                     const result = await prepared.push(providerDirectory, {
                       signal: abortSignal,
-                      beforePush: async head => {
+                      beforePush: async (head, lineage) => {
                         const current = await assertLease(); await assertRepairBase();
                         const window = await repairPushWindow(current, await requiredCheckState(current), current.pr?.mergeable === false);
                         if (window && !window.allowed) throw presetsErrorDiagnostics.PRESETS_DAILY_PUSH_BUDGET_SPENT({ count: window.count, nextAt: new Date(window.nextAt).toISOString() });
-                        if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head)) {
+                        if (head && !await pullRequestInbox.registerProspectivePush({ ...inboxClaim, generation: current.generation, snapshot: current }, head, lineage)) {
                           throw new DOMException("Publication candidate lease changed.", "AbortError");
                         }
                         // The host supplies its exact validated local Git head.
@@ -3034,7 +3124,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const workerChannel = withoutForgeAccess(github.channel({
                 activity: activityEnabled,
                 // The Channel filter would require both author rules and compare logins exactly.
-                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, filter), workspace: false },
+                // With approval admission the inbox decides the author: it claims an outside PR only while an approval covers its head.
+                pullRequest: { filter: { ...filter, author: undefined, authorAssociation: undefined, actor: undefined }, when: context => matchesBabysitterPullRequestFilter(context, approvalAdmission ? { ...filter, author: undefined, authorAssociation: undefined } : filter), workspace: false },
               }));
               // Keep the base Agent's configured Workspace sources, loaders, and
               // instruction bindings while replacing the checkout-owned fields.
@@ -3445,7 +3536,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     track(batch);
   }
 
-  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, workload, observeMainRepair };
+  return { inbox: pullRequestInbox, repositories: repositorySource, reconcile, scheduler, workload, observeMainRepair };
 }
 
 function fixedOrSource(repositories: readonly string[] | BabysitterRepositories): BabysitterRepositories {

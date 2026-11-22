@@ -26,11 +26,13 @@ import { findContentEntry } from "@vite-hub/source/vite"
 import { vitehubTheme } from "@vite-hub/ui/theme"
 import { sizeOf } from "comark-zoom/size"
 import { defu } from "defu"
+import { formatDiagnostic } from "nostics"
 import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
+import { setupDocsRunnable, type DocsRunnableOptions } from "./runnable/nuxt.ts"
 import { checkDocsLinks, docsLinkError, docsLinkExclusion, docsOutputFile, type DocsLinkCheckOptions } from "./check-links.ts"
 import { checkDocsContent, docsAppPageLinks, docsContentLinkProblems, docsContentSeoLocation } from "./content-check.ts"
 import { docsDevFilesModule, docsFilesModule } from "./files.ts"
@@ -39,6 +41,7 @@ import { docsAppPath, docsIndexedPages, docsManifestPages, docsPageIcon, docsPag
 import { docsContentSource } from "./agent-copy.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { docsRedirectError, docsRedirectProblems, docsRedirects, docsServerRoutes, type DocsRouteRule, type DocsServerRoute } from "./redirects.ts"
+import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { docsSeoError, docsSeoHints, docsSeoProblems, docsSitemapPaths, readDocsSeoPage, type DocsSeoPage } from "./seo-audit.ts"
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi, type DocsThemeUi } from "./theme.ts"
 import { docsThemeCss } from "./theme-css.ts"
@@ -53,6 +56,7 @@ import type { DocsManifest, DocsPage } from "./types.ts"
 
 export type { DocsThemeScope } from "./theme.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
+export type { DocsRunnableExample, DocsRunnableLesson, DocsRunnableOptions } from "./runnable/nuxt.ts"
 
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
@@ -94,7 +98,9 @@ export interface DocsModuleOptions {
   components?: string
   /**
    * URL prefix whose folders are sections in the rail. Defaults to `/docs` when the content folder has a `docs/` folder,
-   * and to `/` when it has none, so the docs are the whole site. Mapped sources default to `/docs`.
+   * and to `/` when it has none, so the docs are the whole site. With `sources`, the default is always `/docs`.
+   * If the site has pages but none are at or below the default base, setup warns with `DOCS_BASE_EMPTY`.
+   * Set `base: '/docs'` to keep those pages standalone without the warning.
    */
   base?: string
   site?: DocsSiteOptions
@@ -185,6 +191,13 @@ export interface DocsModuleOptions {
    * `examples`, so `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue` beside its source.
    */
   examples?: string
+  /**
+   * Lessons and playground examples that run in the reader's browser, in a WebContainer. Each one runs an app from the
+   * fixtures folder. The build writes `#build/runnable-tutorials.mjs`, `#build/playground-templates.mjs`,
+   * `#build/learn-facts.mjs`, and a `node_modules` snapshot of each app at `/_tutorials/snapshots/` under the app base.
+   * Each lesson names its page by URL, so the page can come from `dir` or from `sources`.
+   */
+  runnable?: DocsRunnableOptions
 }
 
 /** `llms` of the docs module options. */
@@ -437,6 +450,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     let read = await readDocsContent(manifestOptions)
     let manifest = read.manifest
+    if (sources && options.base === undefined) {
+      const pages = docsManifestPages(manifest)
+      const firstPage = pages[0]
+      if (firstPage && !pages.some(page => isDocsPath(page.path, base))) {
+        useLogger("@vite-hub/docs").warn(formatDiagnostic(docsErrorDiagnostics.DOCS_BASE_EMPTY({ base, path: firstPage.path })))
+      }
+    }
     /**
      * Resolves when development has read the content after a change. Nuxt generates the app again when a file is added
      * or removed, and the manifest templates wait for this read, so that run does not write the old pages.
@@ -451,8 +471,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       contentReadDone = undefined
     }
     const afterContentRead = (source: () => string): string | Promise<string> => contentReadDone ? contentRead.then(source) : source()
-    /** Copies the pages of each Content Source into the build, where the server and the agent copies read them. */
+    let sourcePages = new Map<string, string>()
     function writeSources(files: DocsContentSnapshot["files"]) {
+      sourcePages = new Map(files.map(file => [`${file.source}/${file.file}`, file.markdown]))
       rmSync(sourcesDir, { force: true, recursive: true })
       for (const file of files) {
         const target = join(sourcesDir, file.source, file.file)
@@ -463,7 +484,20 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     writeSources(read.files)
     /** The Markdown of a page, from the content folder or from the copy of its Content Source. */
     const pageFile = (page: DocsPage): string => join(page.source ? sourceDirs![Number(page.source.slice(5))]! : contentDir, page.file)
-    const readPage = (page: DocsPage): string => readFileSync(pageFile(page), "utf8")
+    const readPage = (page: DocsPage): string => sourcePages.get(`${page.source}/${page.file}`) ?? readFileSync(pageFile(page), "utf8")
+    if (options.runnable) {
+      // Lessons read their pages by URL, from `dir` or `sources`, so a lesson can live in any Content Source.
+      await setupDocsRunnable(options.runnable, {
+        nuxt,
+        content: {
+          pages: () => docsManifestPages(manifest),
+          read: (path) => {
+            const page = docsManifestPages(manifest).find(page => page.path === normalizeDocsPath(path))
+            return page && readPage(page)
+          },
+        },
+      })
+    }
     /**
      * Content renders the agent copy of each page on request. `rawMarkdown` is a function of the app's build, so it runs
      * here, and the server reads each page that it changed from `docs/agent/<source>/<file>`. `nuxi build` empties the
@@ -608,11 +642,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       write: true,
       getContents: () => `export default {\n${panelFiles.map(({ path, file }) => `  ${JSON.stringify(path)}: () => import(${JSON.stringify(file)}),\n`).join("")}}\n`,
     }).dst
-    // Nuxt prefetches every dynamic import when the browser is idle. A reader opens one panel at most, so the others
-    // would download for nothing.
-    nuxt.hook("build:manifest", (chunks) => {
-      for (const [key, chunk] of Object.entries(chunks)) if (/docs[/\\]panels[/\\]\d+\.mjs$/.test(decodeURIComponent(key))) chunk.prefetch = false
-    })
     addTemplate({ filename: "docs/panels.d.mts", write: true, getContents: () => `import type { DocsPanelLoaders } from "@vite-hub/docs"\ndeclare const panels: DocsPanelLoaders\nexport default panels\n` })
     addTemplate({ filename: "docs/app-manifest.d.mts", getContents: () => `import type { DocsAppPage, DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest<DocsAppPage>\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
@@ -903,6 +932,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // the reader points at it or focuses it instead, unless the app chose when links prefetch.
     if (!nuxt.options._layers.some(layer => layer.config.experimental?.defaults?.nuxtLink?.prefetchOn))
       nuxt.options.experimental.defaults.nuxtLink.prefetchOn = { visibility: false, interaction: true }
+    // Nuxt also prefetches every lazy chunk of the app when the browser is idle: the CMS editor, every comark block, and
+    // the panels, about 500 kB gzip on each page. A page loads the chunks that it renders, and a link loads its page when
+    // the reader points at it.
+    nuxt.hook("build:manifest", (chunks) => {
+      for (const chunk of Object.values(chunks)) chunk.prefetch = false
+    })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addPlugin({ src: join(runtime, "app/plugins/icon-stroke.ts"), mode: "all" })

@@ -117,7 +117,6 @@ export const vitehubTheme = {
       footer: "px-4 py-3 sm:px-4",
     },
   },
-  // Menus open many times a day, so they appear at once. Floating surfaces use the 12px Geist radius and its layered shadow.
   dropdownMenu: {
     slots: {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
@@ -130,6 +129,11 @@ export const vitehubTheme = {
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
       label: "text-xs font-medium text-muted",
       itemDescription: "text-clip whitespace-normal",
+    },
+  },
+  editorSuggestionMenu: {
+    slots: {
+      content: "data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   empty: {
@@ -169,7 +173,7 @@ export const vitehubTheme = {
     ],
     slots: {
       base: "pointer-coarse:text-base",
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   inputNumber: {
@@ -198,13 +202,18 @@ export const vitehubTheme = {
     },
   },
   // Dialogs: 12px radius and a layered shadow. The top stays in place, so content that grows below a field moves
-  // nothing above it.
   modal: {
     variants: {
       // Nuxt UI sets the backdrop color in this variant, so it goes here to win over Nuxt UI's gray wash.
       overlay: {
         true: {
           overlay: "bg-black/40 dark:bg-black/60",
+        },
+      },
+      transition: {
+        true: {
+          overlay: "data-[state=open]:animate-none data-[state=closed]:animate-none",
+          content: "data-[state=open]:animate-none data-[state=closed]:animate-none",
         },
       },
       fullscreen: {
@@ -226,7 +235,7 @@ export const vitehubTheme = {
   },
   popover: {
     slots: {
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
   },
   select: {
@@ -246,6 +255,11 @@ export const vitehubTheme = {
       itemTrailingIcon: "size-3.5 opacity-75",
       content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
     },
+    variants: {
+      position: {
+        popper: { content: "data-[state=open]:animate-none data-[state=closed]:animate-none" },
+      },
+    },
   },
   selectMenu: {
     defaultVariants: {
@@ -258,8 +272,18 @@ export const vitehubTheme = {
     ],
     slots: {
       base: "pointer-coarse:text-base",
-      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-xl ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
     },
+  },
+  slideover: {
+    variants: {
+      transition: {
+        true: {
+          overlay: "data-[state=open]:animate-none data-[state=closed]:animate-none",
+        },
+      },
+    },
+    compoundVariants: [{ transition: true, class: { content: "data-[state=open]:animate-none data-[state=closed]:animate-none" } }],
   },
   // The motion layer of `@vite-hub/ui/motion` moves the knob, so it has no transition of its own. As in the prototype of
   // docs/design/motion.md, the knob is smaller while the switch is off and lands larger when it turns on.
@@ -309,9 +333,14 @@ export const vitehubTheme = {
       root: "rounded-xl ring-0 shadow-(--vh-shadow-floating)",
     },
   },
+  toaster: {
+    slots: {
+      base: "animate-none! transition-none",
+    },
+  },
   tooltip: {
     slots: {
-      content: "rounded-md ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md",
+      content: "rounded-md ring-0 bg-(--vh-floating) shadow-(--vh-shadow-floating) backdrop-blur-md data-[state=delayed-open]:animate-none data-[state=instant-open]:animate-none data-[state=closed]:animate-none",
     },
   },
 };

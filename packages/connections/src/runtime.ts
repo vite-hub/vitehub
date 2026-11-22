@@ -46,15 +46,11 @@ const REFRESH_LEASE_MS = 60_000
 const REFRESH_WAIT_MS = 30_000
 const AUTHORIZATION_TTL_MS = 10 * 60_000
 const APPROVAL_EXECUTION_TTL_MS = 5 * 60_000
-// Visible ASCII only, so the key is a valid header value.
 const API_KEY_PATTERN = /^[\x21-\x7e]{1,8192}$/
-// The approval grant of a write requested while the provider `fallback` key was in use.
-// Stored grants use random 43-character ids, so the two never match.
 const FALLBACK_GRANT = "fallback"
 
 interface StoredToken {
   chatgpt?: v.InferOutput<typeof chatgptTokenMetadata>
-  /** The client that ViteHub registered for this grant. Refresh and revocation use the same client. */
   client?: { id: string, key: string, secret?: string }
   grantId?: string
   accountId?: string
@@ -89,7 +85,6 @@ interface CallContext {
   approved?: boolean
   approvedGrantId?: string
   definition: ConnectionDefinition
-  /** The `agent:` actors whose rules an Agent actor inherits through `extends`, nearest first. */
   inherited?: readonly string[]
   name: string
   options: UseConnectionOptions
@@ -109,7 +104,6 @@ interface ProviderRequest {
   write: boolean
 }
 
-/** A stored approval input. Typed methods store their input; `fetch` stores the request. */
 type ApprovalInput =
   | { input: unknown, kind: "method" }
   | { body?: string, headers?: Record<string, string>, kind: "fetch", method: string, redirect?: RequestInit["redirect"], url: string }
@@ -193,19 +187,16 @@ const apiKeyVerificationSchema = v.union([
   v.object({ account: v.optional(v.object({ email: v.optional(v.string()), id: v.pipe(v.string(), v.minLength(1)) })) }),
 ])
 const sealedValueSchema = v.object({ unseal: v.function() })
-// A replayed approval decides with the inherited actors that the Agent runtime vouched for when it was requested.
 const inheritedActorsSchema = v.optional(v.array(v.pipe(v.string(), v.startsWith("agent:"), v.minLength(7), v.maxLength(518))))
 const approvalInputSchema = v.variant("kind", [
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, input: v.unknown(), kind: v.literal("method") }),
   v.object({ grantId: v.optional(v.string()), inherited: inheritedActorsSchema, body: v.optional(v.string()), headers: v.optional(v.record(v.string(), v.string())), kind: v.literal("fetch"), method: v.string(), redirect: v.optional(v.picklist(["error", "follow", "manual"])), url: v.string() }),
 ])
 
-/** A provider that ViteHub completes from its MCP endpoint's authorization server. */
 function isDiscovered(provider: ConnectionProvider): boolean {
   return provider.mcp !== undefined && (!provider.authorizationEndpoint || !provider.tokenEndpoint || provider.clientId === undefined)
 }
 
-/** An OAuth provider with its endpoints and client, ready for one flow. */
 interface OAuthClient {
   account?: ConnectionProvider["account"]
   authorizationEndpoint: string
@@ -215,15 +206,12 @@ interface OAuthClient {
   clientSecret?: string
   id: string
   identityScopes?: readonly string[]
-  /** The secret key of the client that ViteHub registered. A rejection forgets it. */
   registered?: string
-  /** The RFC 8707 resource of a discovered MCP server. Authorization and token requests name it. */
   resource?: string
   revocationEndpoint?: string
   tokenEndpoint: string
 }
 
-/** The `state` of a flow that the Console started starts with this, so its callback knows it needs no app session. */
 const CONSOLE_STATE_PREFIX = "console_"
 
 /** Whether a `state` belongs to a flow that a signed Console call started with `authorize({ via: "console" })`. */
@@ -280,7 +268,6 @@ async function readResponse(response: Response): Promise<unknown> {
   }
 }
 
-/** A Connection Definition, or a keyed definition with `instances`. */
 type ConnectionModule = ConnectionDefinition | ConnectionInstancesDefinition
 
 function isConnectionModule(value: unknown): value is ConnectionModule {
@@ -290,11 +277,9 @@ function isConnectionModule(value: unknown): value is ConnectionModule {
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const fetchProvider = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
-  // Runtime-owned requests refuse redirects on Workers too. Public Connection requests keep the caller's options.
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    // Fails alike on Workers and Node, where fetch with redirect: "error" throws a TypeError.
     if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "redirect", status: response.status })
     return response
   }
@@ -302,9 +287,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const hostId = options.chatgptHostId ?? (async () => (await import("./internal/chatgpt-host.ts")).chatgptHostId((await getStore()).secrets))
   const now = options.now ?? Date.now
   const refreshing = new Map<string, Promise<StoredToken>>()
-  // Provider revocation can invalidate an entire grant. Serialize token
-  // replacements with revocation so a callback or refresh cannot replace a
-  // grant after revocation has leased its token but before the provider call.
   const tokenMutations = new Map<string, Promise<void>>()
   async function withTokenMutation<T>(name: string, run: () => Promise<T>): Promise<T> {
     const previous = tokenMutations.get(name)
@@ -324,7 +306,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const definitions = new Map<string, Promise<ConnectionModule | undefined>>()
   const instanceDefinitions = new Map<string, ConnectionDefinition>()
 
-  // A store factory that throws synchronously still rejects, so callers can treat the store as unavailable.
   const getStore = () => (store ??= Promise.resolve().then(() => v.is(v.function(), options.store) ? options.store() : options.store).catch((error: unknown) => {
     store = undefined
     throw error
@@ -365,7 +346,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ connection: name, instances: loaded.instances, problem: "instances" })
     }
     if (loaded) return loaded
-    // Instance keys cannot contain `:`, so the last one separates the definition name from the instance.
     const separator = name.lastIndexOf(":")
     const group = separator > 0 ? await loadDefinition(name.slice(0, separator)) : undefined
     const instance = name.slice(separator + 1)
@@ -380,7 +360,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return resolved
   }
 
-  /** Connection names, with each instance of a keyed definition as `<name>:<instance>`. */
   async function connectionNames(): Promise<string[]> {
     const names: string[] = []
     for (const name of Object.keys(options.definitions).sort()) {
@@ -389,7 +368,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         loaded = await loadDefinition(name)
       }
       catch {
-        // A broken lazy definition must not hide healthy Connections from discovery.
         continue
       }
       if (loaded && isConnectionInstances(loaded)) names.push(...loaded.instances.map(instance => `${name}:${instance}`))
@@ -399,7 +377,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   function envContext(store: ConnectionStore, name: string, permission: "activity" | "replace" | "use", actor: string, options: UseConnectionOptions = {}): EnvAccessContext {
-    // The Connection access map is the policy. Env grants one permission on this Connection token only.
     return connectionEnvAccess(store.bridge, {
       actor: envActor(actor),
       name,
@@ -428,7 +405,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   const authorizationServers = new Map<string, Promise<AuthorizationServer>>()
   const registrations = clientRegistrations({ now, request, secrets: async () => (await getStore()).secrets })
 
-  /** The authorization server of an MCP endpoint. Discovery runs once per process; a failed one runs again. */
   function authorizationServer(mcp: string, name: string): Promise<AuthorizationServer> {
     let pending = authorizationServers.get(mcp)
     if (!pending) {
@@ -441,7 +417,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return pending
   }
 
-  /** The endpoints of an OAuth provider: the declared ones, then the ones that its authorization server publishes. */
   async function oauthEndpoints(provider: ConnectionProvider, name: string, discover = false): Promise<{ authorizationEndpoint: string, revocationEndpoint?: string, server?: AuthorizationServer, tokenEndpoint: string }> {
     const server = provider.mcp && (discover || !provider.authorizationEndpoint || !provider.tokenEndpoint) ? await authorizationServer(provider.mcp, name) : undefined
     const revocationEndpoint = provider.revocationEndpoint ?? server?.revocationEndpoint
@@ -454,10 +429,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /**
-   * The endpoints and client of an OAuth flow. Without a `clientId`, the client is the one that ViteHub registered: the
-   * one in `token` for a grant, or for a new sign-in the one registered for `redirectUri`, which it registers first.
-   */
   async function oauthClient(definition: ConnectionDefinition, name: string, input: { chatgptClientId?: string, pending?: { id: string, key: string }, redirectUri?: string, token?: StoredToken } = {}): Promise<OAuthClient> {
     const provider = definition.provider
     if (isChatGPTProvider(provider)) return {
@@ -471,7 +442,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     if (!clientId && !provider.mcp) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
     const endpoints = await oauthEndpoints(provider, name, !clientId)
     const declaredParams = Object.hasOwn(provider, "authorizationParams") ? provider.authorizationParams : undefined
-    // MCP authorization: requests to a discovered server name the MCP resource (RFC 8707), or the declared one.
     const resource = endpoints.server ? declaredParams?.resource ?? endpoints.server.resource : undefined
     const authorizationParams = resource ? { ...declaredParams, resource } : declaredParams
     const base = {
@@ -489,13 +459,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       return { ...base, clientId, ...(clientSecret ? { clientSecret } : {}) }
     }
     if (input.pending) {
-      // The code belongs to the client that built the authorization URL, even when the shared registration changed since.
       const current = await registrations.stored(input.pending.key)
       const secret = current?.clientId === input.pending.id ? current.clientSecret : undefined
       return { ...base, clientId: input.pending.id, ...(secret ? { clientSecret: secret } : {}), registered: input.pending.key }
     }
     if (input.token) {
-      // A grant from a client that is not stored, such as one of an earlier `clientId`, cannot refresh.
       if (!input.token.client) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name, problem: "rejected" })
       const { id, key, secret } = input.token.client
       return { ...base, clientId: id, ...(secret ? { clientSecret: secret } : {}), registered: key }
@@ -532,11 +500,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const parsedError = v.safeParse(v.object({ error: v.string() }), body)
     const error = parsedError.success ? parsedError.output.error : undefined
     if (!response.ok || error) {
-      // An infrastructure error may follow rotation. Only named OAuth rejections
-      // prove that a ChatGPT grant was not changed; keep every other failure fenced.
       if (!provider.chatgpt || (response.status === 400 || response.status === 401)
         && error !== undefined && (error === "invalid_client" || chatgptTerminalRefreshErrors.has(error))) onResponse?.()
-      // A registered client that the server no longer knows cannot use its grants. The next Connect registers again.
       const forgotten = provider.registered !== undefined && (error === "invalid_client" || error === "unauthorized_client")
       if (forgotten) await registrations.forget(provider.registered!, clientId)
       throw forgotten || error === "invalid_grant" || provider.chatgpt && error !== undefined && chatgptTerminalRefreshErrors.has(error)
@@ -548,7 +513,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       !token.output.access_token || !token.output.refresh_token || !Number.isFinite(token.output.expires_in)
       || token.output.expires_in! <= 0 || token.output.token_type?.toLowerCase() !== "bearer"
     )) {
-      // A malformed success may have rotated the grant without returning its replacement.
       throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "no-token", provider: provider.id })
     }
     onResponse?.()
@@ -598,10 +562,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return parseToken(current.value, name)
   }
 
-  /**
-   * Refresh the stored token. `stale` is the access token the caller used. When the
-   * stored token already differs, another request refreshed it first.
-   */
   async function refreshToken(name: string, definition: ConnectionDefinition, stale: string, force: boolean): Promise<StoredToken> {
     const connections = await getStore()
     const key = tokenKey(name)
@@ -638,7 +598,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         return await refreshLeasedToken(name, definition, latest, stored.revision, () => { dispatched = true }, () => { rejected = true })
       }
       catch (error) {
-        // Keep the lease if a rotated grant cannot be saved or quarantined durably.
         if (dispatched && !rejected) {
           releaseLease = await connections.secrets.inspect(key)
             .then(current => setStatus(name, { status: "reauth_required" }, current?.revision ?? null))
@@ -665,11 +624,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     catch (error) {
       if (!dispatched) throw error
       if (responded && isConnectionError(error, ["CONNECTIONS_PROVIDER_FAILED"])) {
-        // A definite rejection leaves the refresh grant intact and retryable.
         onRejected()
         throw error
       }
-      // A failed request can have rotated the provider grant before its response was lost.
       if (isChatGPTProvider(definition.provider) && isConnectionError(error, ["CONNECTIONS_NEEDS_RECONNECT"])) {
         const cleared = await connections.bridge.replace(envContext(connections, name, "replace", "connections"), { expectedRevision: tokenRevision, key, value: JSON.stringify({ reauthRequired: true }) })
         await setStatus(name, { status: "reauth_required" }, cleared.revision)
@@ -689,7 +646,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
     catch (error) {
       if (!isEnvBridgeError(error, "ENV_BRIDGE_CONFLICT")) throw error
-      // Another isolate wrote a newer token. Use it.
       const current = await connections.secrets.read(key)
       if (!current) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name })
       return parseToken(current.value, name)
@@ -716,10 +672,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       : connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey, connection: name })
   }
 
-  /**
-   * Read the `fallback` key of an API key Connection. A sealed Server Env secret is unsealed.
-   * The key must pass the same format check as a stored key.
-   */
   async function readFallbackKey(name: string, definition: ConnectionDefinition): Promise<string | undefined> {
     const provider = definition.provider
     if (!isApiKeyProvider(provider) || !provider.fallback) return undefined
@@ -733,24 +685,16 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return key
   }
 
-  /**
-   * The `fallback` key for one request. It applies only when no key state was ever stored for the
-   * Connection, or when the store cannot open. A stored key wins, and so does a revoke or a quarantine.
-   * `connections` is the open store for activity, or `undefined` when the store cannot open.
-   */
   async function fallbackFor(context: CallContext): Promise<{ connections?: ConnectionStore, key: string } | undefined> {
     const provider = context.definition.provider
     if (!isApiKeyProvider(provider) || !provider.fallback) return undefined
-    // An approval binds to the credential it was requested with. A stored grant never uses the fallback.
     if (context.approved && context.approvedGrantId !== FALLBACK_GRANT) return undefined
     const connections = await getStore().catch(() => undefined)
-    // A failed state read on an open store fails the request. It must not skip a revoke.
     if (connections && await connections.state.get(context.name) !== undefined) return undefined
     const key = await readFallbackKey(context.name, context.definition)
     return key === undefined ? undefined : { connections, key }
   }
 
-  /** Dispatch one provider request with a credential and record whether a write reached the provider. */
   async function dispatch(context: CallContext, providerRequest: ProviderRequest, init: SendInit, token: { accessToken: string, tokenType: string }): Promise<Response> {
     if (providerRequest.write && context.providerExecution) {
       context.providerExecution.dispatched = true
@@ -770,17 +714,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return response
   }
 
-  /** Reject a failed typed method response. Raw `fetch` returns every response. */
   async function checkResponse(providerRequest: ProviderRequest, response: Response): Promise<Response> {
     if (response.ok || providerRequest.action === "fetch") return response
     const message = await providerMessage(response)
     throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ action: providerRequest.action, message, status: response.status })
   }
 
-  /** Send with the provider `fallback` key. Activity is recorded like an Env Bridge use while the store is open. */
   async function sendWithFallback(context: CallContext, providerRequest: ProviderRequest, init: SendInit, fallback: { connections?: ConnectionStore, key: string }): Promise<Response> {
-    // Serialize fallback dispatch with token mutations. Recheck state after claiming the lease
-    // so a revoke that completed while the fallback was resolving always wins.
     let owner: string | undefined
     if (fallback.connections?.refreshLeases) {
       owner = await claimMutationLease(context.name)
@@ -822,7 +762,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /** Send one provider request with the Connection token inside an audited Env Bridge use. */
   async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {
     const fallback = await fallbackFor(context)
     if (fallback) return await sendWithFallback(context, providerRequest, init, fallback)
@@ -845,9 +784,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             return await dispatch(context, providerRequest, init, current)
           }
           let response = await call(token)
-          // An API key has no refresh token. The admin replaces a rejected key.
           if (response.status === 401 && !isApiKeyProvider(context.definition.provider)) {
-            // Cancellation may never settle; it must not block token refresh.
             void response.body?.cancel().catch(() => undefined)
             token = await refresh(context.name, context.definition, token.accessToken, true)
             response = await call(token)
@@ -869,7 +806,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /** The credential that an approval binds to: the stored grant, or the provider `fallback` key. */
   async function approvalGrant(context: CallContext): Promise<string> {
     if (await fallbackFor(context)) return FALLBACK_GRANT
     const apiKey = isApiKeyProvider(context.definition.provider)
@@ -882,7 +818,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return token.grantId
   }
 
-  /** Apply policy, dry run, and approval, then send. Returns `undefined` when dry run skips a write. */
   async function governed(context: CallContext, providerRequest: ProviderRequest, approvalInput: ApprovalInput, init: SendInit = {}): Promise<Response | undefined> {
     envActor(context.actor)
     for (const parent of context.inherited ?? []) envActor(parent)
@@ -980,7 +915,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  /** The definition's `docs`, or the colocated file of its definition, which an instance shares. */
   async function connectionDocs(name: string, loaded: ConnectionDefinition): Promise<{ docs?: string }> {
     const separator = name.lastIndexOf(":")
     const colocated = options.docs?.[name] ?? (separator > 0 ? options.docs?.[name.slice(0, separator)] : undefined)
@@ -998,13 +932,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       connections = await getStore()
     }
     catch (error) {
-      // The fallback key works without the store, so inspection must too.
       if (!hasFallback) throw error
     }
     const state = await connections?.state.get(name)
     const declared = isChatGPTProvider(provider) ? [...chatgptScopes] : [...(loaded.scopes ?? [])]
     const granted = state?.scopes ?? []
-    // A failing fallback means no key here. The request that uses it reports the error.
     const fallback = hasFallback && state === undefined && await readFallbackKey(name, loaded).catch(() => undefined) !== undefined
     const keySource = fallback ? "fallback" : apiKeyProvider && state?.status === "connected" ? "stored" : undefined
     return {
@@ -1080,7 +1012,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   async function complete(input: ConnectionCallback): Promise<ConnectionInspection> {
     const actor = input.actor === undefined && isConsoleState(input.state) ? undefined : decisionActor(input.actor)
     const connections = await getStore()
-    // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
     if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_EXPIRED()
     if (actor !== undefined && authorization.actor !== actor) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
@@ -1107,8 +1038,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         grant_type: "authorization_code",
         redirect_uri: authorization.redirectUri,
       }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { releaseLease = false; quarantine = true }, () => { releaseLease = true; quarantine = false })
-      // A successful exchange may already have replaced the provider grant. Keep
-      // the mutation fenced until the replacement token and state are durable.
       releaseLease = false
       quarantine = true
       let account: ConnectionAccount | undefined
@@ -1122,7 +1051,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         throw error
       }
       const key = tokenKey(name)
-      // Bind the account check to the same token revision used by the conditional write.
       let current: Awaited<ReturnType<typeof connections.secrets.read>>
       let previous: ReturnType<typeof v.safeParse<typeof storedTokenSchema>> | undefined
       let state: Awaited<ReturnType<typeof connections.state.get>>
@@ -1150,7 +1078,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       }
       token.accountId = account?.id
       token.grantId = randomToken()
-      // Quarantine the Connection if its new grant cannot be saved durably.
       releaseLease = false
       quarantine = true
       const replacement = await connections.bridge.replace(envContext(connections, name, "replace", authorization.actor), { expectedRevision: current?.revision ?? null, key, value: JSON.stringify(token) })
@@ -1209,7 +1136,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const loaded = await definition(input.name)
     const connections = await getStore()
     const key = tokenKey(input.name)
-    // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
     const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) ? undefined : (await oauthEndpoints(loaded.provider, input.name, isDiscovered(loaded.provider))).revocationEndpoint
     const owner = await claimMutationLease(input.name)
     let releaseLease = true
@@ -1232,7 +1158,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
           }
           catch {}
           if (token && revocationEndpoint) {
-            // A lost response can leave a grant-wide revoke running at the provider.
             releaseLease = false
             const response = await request(revocationEndpoint, {
               body: new URLSearchParams({ token: token.refreshToken ?? token.accessToken, ...(token.chatgpt ? { client_id: token.chatgpt.clientId, token_type_hint: "refresh_token" } : {}), ...(token.client ? { client_id: token.client.id, ...(token.client.secret ? { client_secret: token.client.secret } : {}) } : {}) }),
@@ -1249,7 +1174,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             }
             releaseLease = true
           }
-          // Keep the mutation lease until the revoked marker and metadata are durable.
           releaseLease = false
           const replacement = await connections.bridge.replace(envContext(connections, input.name, "replace", actor), { expectedRevision: metadata.revision, key, value: JSON.stringify({ revoked: true }) })
           return replacement.revision
@@ -1285,7 +1209,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       result = await provider.verify(key, { fetch: request, signal: AbortSignal.timeout(REFRESH_WAIT_MS) })
     }
     catch (error) {
-      // A check failure message could contain the key, so ViteHub keeps only a Connections code that does not contain it.
       let preserve = false
       try {
         if (isConnectionError(error)) {
@@ -1294,9 +1217,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
           preserve = typeof why === "string" && typeof code === "string" && !why.includes(key) && !code.includes(key)
         }
       }
-      catch {
-        // Malformed or accessor-backed provider errors are sanitized below.
-      }
+      catch {}
       if (preserve) throw error
       throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "verify", provider: provider.id })
     }
@@ -1392,7 +1313,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       AbortSignal.timeout(APPROVAL_EXECUTION_TTL_MS),
       leaseAbort.signal,
     ])
-    // Keep the lease alive until the provider settles, even if it ignores abort.
     const heartbeat = setInterval(() => {
       void connections.approvals
         .renew(input.id, new Date(now() + APPROVAL_EXECUTION_TTL_MS).toISOString())
@@ -1482,7 +1402,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         expires_at: token.expiresAt, ext_agent_host_id: await hostId(),
       }
       if (new TextEncoder().encode(JSON.stringify(credential)).byteLength > 60 * 1024) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
-      // Move refresh ownership before the protected file leaves this host.
       const cleared = await connections.bridge.replace(envContext(connections, input.name, "replace", input.actor), {
         key: tokenKey(input.name), expectedRevision: current.revision ?? null, value: JSON.stringify({ transferred: true }),
       })
@@ -1498,7 +1417,6 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const parsed = v.safeParse(chatgptTransferSchema, input.credential)
     if (!parsed.success) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
     const credential = parsed.output
-    // Imported identity can be expired. Verify its signature at its signed issue time, then renew the session.
     let issuedAt: number
     try {
       const claims = decodeJwt(credential.id_token)

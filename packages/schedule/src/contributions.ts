@@ -61,7 +61,6 @@ export async function collectScheduleContributions(
   })
   for (const contribution of contributions) {
     const { export: exportName, module } = contribution.definition
-    // The build reads the cron from the module source, so it needs a file and the default export.
     if (!isAbsolute(module)) {
       throw invalidContribution(contribution, `\`definition.module\` of Schedule ${JSON.stringify(contribution.name)} must be an absolute file path or a file: URL, because the build reads its cron from source.`)
     }

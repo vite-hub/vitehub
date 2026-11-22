@@ -30,7 +30,7 @@ export function discoverAgentChannelModules(serverDirs: string[]): Array<{ handl
   return discoverChannelDefinitions({ mode: "server-channels", scanDirs: serverDirs }).map(({ handler, name }) => ({ handler, name }))
 }
 
-const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels", "vite-hub/channels/adapters", "@vite-hub/channels/adapters", "@vite-hub/agent/channels"])
 const webhookAdapterFactories = new Set(["stripe", "webhook"])
 
 /** The webhook route that every Channel with an HTTP sender adapter gets, next to its own `path`. */

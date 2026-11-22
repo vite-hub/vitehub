@@ -1,7 +1,6 @@
 import { defineErrors } from "@vite-hub/runtime"
 import { defineDiagnostics } from "nostics"
 
-// Runtime errors. `send()` returns them as `[error, undefined]`. Each code has a heading on the docs page.
 export const channelErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
@@ -29,7 +28,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
 export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/channels/diagnostics",
   codes: {
@@ -39,7 +37,7 @@ export const channelsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     CHANNELS_C0007: {
       ...dynamicError,
-      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()` or `webhook()` from `vite-hub/channels`, `slack()` from `vite-hub/agent/channels`, or your own `{ kind, send }`.",
+      fix: "Give `defineChannel({ adapter })` an adapter with a non-empty `kind`: `stripe()`, `webhook()`, or `slack()` from `vite-hub/channels/adapters`, or your own `{ kind, send }`.",
     },
     CHANNELS_C0008: {
       ...dynamicError,

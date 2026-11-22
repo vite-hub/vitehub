@@ -34,7 +34,6 @@ function writeHelp(command: ViteHubCliCommand, context: ViteHubCliContext): numb
   return setupExitCodes.done
 }
 
-/** Runs `body` and reports any error in the setup envelope. */
 async function runSetupCommand(command: ViteHubCliCommand, args: string[], context: ViteHubCliContext, body: (json: boolean) => Promise<number>): Promise<number> {
   const json = args.includes("--json")
   try {
@@ -117,10 +116,6 @@ function isCheckoutStatusModule(value: unknown): value is CheckoutStatusModule {
   return Object(value) === value && typeof Reflect.get(Object(value), "formatWorkspaceStatus") === "function" && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function"
 }
 
-/**
- * The checkout folders of `vitehub.lock`, read by the Workspace package that the project installs. Undefined without a
- * lock file. The Workspace package reads only local files here; it never calls the app.
- */
 async function readCheckouts(root: string): Promise<{ statuses: unknown[], text: string } | { error: string } | undefined> {
   if (!existsSync(join(root, "vitehub.lock"))) return undefined
   const require = createRequire(join(root, "package.json"))

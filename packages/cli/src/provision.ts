@@ -72,7 +72,6 @@ export function provisionEnv(env: NodeJS.ProcessEnv, credentials: HostCredential
     }
   }
   if (credentials.host === "vercel") {
-    // A Vercel link stores the project owner, which is a user id on a personal account. Only a team id is a team.
     const teamId = credentials.teamId
     const resolved = setVariable(setVariable(env, "VERCEL_TOKEN", credentials.token), "VERCEL_TEAM_ID", teamId)
     if (!link.accountId && !link.projectId) return resolved
@@ -146,7 +145,6 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
   stream.write(`${lines.join("\n")}\n\n`)
 }
 
-// Resolves the arguments shared by every provision command. Returns an exit code on failure or help.
 async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArgs, context: ProvisionFeatureContext): Promise<{ exitCode: number } | { host: ProvisionProvider, link?: SetupLink }> {
   if (parsed.help) {
     writeUsage(command, context.stdout)
@@ -160,7 +158,6 @@ async function resolveHost(command: ProvisionCommand, parsed: ParsedProvisionArg
   let host = parsed.host
   let link: SetupLink | undefined
   if (host === undefined) {
-    // The same host as `vitehub deploy`. The setup module loads only when --host is missing.
     const { resolveDefaultDeployTarget } = await import("./setup/deploy.ts")
     try {
       const target = await resolveDefaultDeployTarget(resolveViteHubProjectRoot(context.rootDir), context.env, `vitehub provision ${command}`)
@@ -188,7 +185,6 @@ function hasHostCredentials(host: ProvisionProvider, env: ProvisionFeatureContex
   return Boolean(host === "cloudflare" ? resolveCloudflareProvisionConfig(env) : resolveVercelProvisionConfig(env))
 }
 
-/** The context with the credentials of `resolveHostCredentials` in its env, so a `wrangler login` works as in deploy. */
 async function withHostCredentials(host: ProvisionProvider, context: ProvisionFeatureContext, link?: SetupLink): Promise<ProvisionFeatureContext> {
   const credentials = await resolveHostCredentials(host, { cwd: context.rootDir, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
   return { ...context, env: provisionEnv(context.env, credentials, {
@@ -197,7 +193,6 @@ async function withHostCredentials(host: ProvisionProvider, context: ProvisionFe
   }) }
 }
 
-// Runs only the plan phase. Step messages go to stderr so stdout stays one JSON document in --json mode.
 async function planProvision(provider: ProvisionProvider, context: ProvisionFeatureContext, steps: readonly ProvisionStep[], json: boolean): Promise<ProvisionPlan> {
   return await planProvisionSteps(provider, [...steps], {
     env: context.env,
@@ -216,7 +211,6 @@ interface UndeclaredProvisionEntry {
   key: string
 }
 
-// Lists recorded ids that no current Definition uses, for example after a rename. Never deletes anything.
 function findUndeclaredEntries(
   provider: ProvisionProvider,
   recorded: Record<string, Record<string, string>>,
@@ -230,8 +224,6 @@ function findUndeclaredEntries(
     if (step.provider !== provider) continue
     const described = step.recordedState?.({ env }) ?? []
     for (const category of described) categories.set(category.category, category)
-    // A rename can target a key with a stale id. Key presence alone cannot verify ownership.
-    // Include sibling categories, such as d1 and d1Nuxt, that can refer to the same resource.
     if (described.some(category => category.declared.length)) {
       for (const category of described) activeDeclarations.add(category.category)
     }
@@ -254,7 +246,6 @@ function findUndeclaredEntries(
     if (!description?.declared.includes(key)) return false
     const expected = description.declaredResourceIdentity?.(key)
     const identity = resourceIdentity(category, key, id)
-    // Keep key-based declarations when identities are unknown, but report definite config changes.
     return expected === undefined || identity === undefined || identity === expected
   }
   const declaredById = new Map<string, string>()
@@ -318,18 +309,14 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
   const { env = cliContext.env, rootDir, steps } = await load(provider)
   const context = await withHostCredentials(provider, { ...cliContext, env, rootDir }, resolved.link)
 
-  // Fail closed outside --dry-run: a credential-less run silently creating
-  // nothing would mask missing CI secrets behind a green step.
   if (!parsed.dryRun && !hasHostCredentials(provider, context.env)) {
     context.stderr.write(`Provision requires ${HOST_CREDENTIALS[provider]}. Dry-run preview does not require credentials (--dry-run).\n`)
     return 1
   }
 
-  // Reject unreadable state before providers can create resources whose IDs would be lost.
   if (!parsed.dryRun) await readProvisionState(context.rootDir)
 
   const { actions, checked, warnings } = await planProvision(provider, context, steps, parsed.json)
-  // A step that could not look up its resources planned nothing for them, so applying would report success for an incomplete plan.
   const blocked = !checked && !parsed.dryRun
   if (!parsed.json) {
     if (!checked) context.stdout.write("provision: plan not checked.\n")
@@ -344,7 +331,6 @@ async function runProvision(args: string[], cliContext: ProvisionFeatureContext,
     writeProvisionActions(actions, context.stdout)
   }
 
-  // apply() is idempotent: it skips creation when the resource exists but still returns its ids.
   let state: ProvisionState = {}
   if (!parsed.dryRun && !blocked) {
     for (const { action } of actions) {

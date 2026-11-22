@@ -19,7 +19,6 @@ const vercelEnv = { VERCEL_TEAM_ID: "team_1", VERCEL_TOKEN: "vercel-token-1" }
 const netlifyEnv = { NETLIFY_AUTH_TOKEN: "netlify-token-1" }
 const denoEnv = { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: "deno-token-1" }
 const tokens = ["cf-token-1", "vercel-token-1", "netlify-token-1", "deno-token-1"]
-/** `env` of a build that lists no env names. */
 const noEnv = { checked: [], missing: [], pushed: [], stage: "production" }
 
 function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, runHostCli?: HostCliRun, spawn?: ViteHubCliSpawn } = {}) {
@@ -50,7 +49,6 @@ describe("vitehub deploy on Cloudflare", () => {
       version: "version-1",
     })
     expectNoLeak(calls, result.stdout + result.stderr, tokens)
-    // The first deploy records the host project.
     expect(await readLink(root)).toMatchObject({ default: "cloudflare", schemaVersion: 2, targets: { cloudflare: { account: { id: "acc-1" }, project: { name: "my-app" }, verified: false } } })
   })
 
@@ -74,7 +72,6 @@ describe("vitehub deploy on Cloudflare", () => {
       `npx wrangler d1 migrations apply DB --remote --config ./other/wrangler.json && ${deployCommand}`,
       `npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json --env production && ${deployCommand}`,
       `${deployCommand} && npx wrangler d1 migrations apply DB --remote --config ./server/wrangler.json`,
-      // Deploy writes its own secrets file, so a build command must not name one.
       `${deployCommand} --secrets-file ./.env`,
     ]) {
       const rejected = await builtProject("cloudflare", buildOutput("cloudflare", command))
@@ -223,7 +220,6 @@ describe("vitehub deploy on Cloudflare", () => {
     expect(result.json).toMatchObject({ temporary: { claimUrl: "https://dash.cloudflare.com/claim/abc123" } })
     expect(Date.parse(result.json.temporary!.expiresAt!) - Date.now()).toBeGreaterThan(55 * 60_000)
     expectNoLeak(calls, result.stdout + result.stderr, tokens)
-    // A temporary Worker belongs to a temporary account, so no link file is written.
     expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
 
     const text = await runSetup(["deploy", "--no-build", "--yes", "--temporary"], root, (await fakeHosts()).env)
@@ -337,7 +333,6 @@ describe("vitehub deploy on Vercel", () => {
     })
     const sha = "0123456789abcdef0123456789abcdef01234567"
     const hosts = await fakeHosts({ VERCEL_TOKEN: "vercel-token-1", ...teamEnv })
-    // A fake git on PATH answers for the repository.
     await writeFile(join(hosts.env.PATH!.split(":")[0]!, "git"), `#!/bin/sh\n[ "$1" = rev-parse ] && echo ${sha}\nexit 0\n`, { mode: 0o755 })
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
 
@@ -357,7 +352,6 @@ describe("vitehub deploy on Vercel", () => {
     expect((await hosts.calls()).map(call => call.argv)).toEqual([["deploy", "--prebuilt", "--yes", "--json", "--prod", "--temporary"]])
     expect(await readFile(join(root, ".vercel/output/functions/__server.func/.vc-config.json"), "utf8")).toBe(buildOutput("vercel")[".vercel/output/functions/__server.func/.vc-config.json"])
     expect(result.json).toMatchObject({ temporary: { claimUrl: "https://vercel.com/claim/xyz", expiresAt: "2026-11-07T00:00:00.000Z" } })
-    // The anonymous token in .vercel/anonymous.json stays there.
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, ["anonymous-token"])
   })
 
@@ -458,7 +452,6 @@ describe("vitehub deploy on Deno", () => {
   })
 })
 
-/** A build spawn that records the host env of each build and writes the build output of that host. */
 function recordBuilds(): { spawn: ViteHubCliSpawn, hosts: [string | undefined, string | undefined][] } {
   const hosts: [string | undefined, string | undefined][] = []
   const spawn: ViteHubCliSpawn = async (_command, _args, options) => {
@@ -497,7 +490,6 @@ describe("vitehub deploy --host", () => {
     expect(calls.map(call => [call.name, ...call.argv.slice(0, 2)])).toEqual([["vercel", "deploy", "--prebuilt"]])
     expect(calls[0]!.argv).toEqual(expect.arrayContaining(["--project", "prj_1", "--scope", "team_1"]))
     expect(result.json).toMatchObject({ host: "vercel", url: "https://my-app.vercel.app" })
-    // Both targets are linked already, so there is no note about separate resources.
     expect(result.stderr).not.toContain("separate on each host")
     expect(JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8"))).toEqual(JSON.parse(twoTargets({ default: "cloudflare" })))
   })
@@ -563,7 +555,6 @@ describe("vitehub deploy --host", () => {
   it("rejects a build output made for another host, and an unknown or Node host", async () => {
     const root = await builtProject("cloudflare", { ".vitehub/link.json": twoTargets({ default: "cloudflare" }) })
     const hosts = await fakeHosts({ ...cloudflareEnv, ...vercelEnv })
-    // The Vercel output folder holds a Cloudflare manifest, as a stale build would.
     for (const [file, content] of Object.entries(buildOutput("vercel"))) {
       await mkdir(dirname(join(root, file)), { recursive: true })
       await writeFile(join(root, file), content)

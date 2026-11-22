@@ -22,7 +22,6 @@ export class RealtimeDocumentConflict extends Diagnostic {
   } {
     return {
       code: this.code,
-      // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
       data: undefined,
       docs: this.docs,
       fix: this.fix,

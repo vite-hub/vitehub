@@ -1,7 +1,10 @@
 import type { LanguageInput } from "shiki/core";
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, shallowRef, useId, type VNode } from "vue";
 import { useCopy } from "../components/copy-button.ts";
-import { icon } from "../workspace/icons.ts";
+import { MorphText, SwapIcon } from "../components/motion.ts";
+import { ring } from "../motion/helpers/ring.ts";
+import { icon, type WorkspaceIconName } from "../workspace/icons.ts";
+import { type WorkspaceIssue, WorkspaceIssues } from "../workspace/workspace-issues.ts";
 import {
   decodePlaygroundLink,
   encodePlaygroundLink,
@@ -30,10 +33,8 @@ export interface PlaygroundPane {
   slot?: string;
 }
 
-export interface PlaygroundIssue {
-  message: string;
-  line?: number;
-}
+/** A problem that the render found, shown by `WorkspaceIssues`. */
+export type PlaygroundIssue = WorkspaceIssue;
 
 export interface PlaygroundResult {
   html: string;
@@ -226,13 +227,15 @@ export const PlaygroundRender = defineComponent({
       await Promise.all([writeHash(), run()]);
     }
 
-    async function copyLink() {
+    async function copyLink(event: MouseEvent) {
+      const button = event.currentTarget;
       if (!await writeHash()) return;
       if (location.href.length > playgroundLinkLimit) {
         notice.value = tooLong;
         return;
       }
       if (!await copy(location.href)) notice.value = blockedClipboard;
+      else if (button instanceof HTMLElement) ring(button);
     }
 
     onMounted(() => {
@@ -322,15 +325,15 @@ export const PlaygroundRender = defineComponent({
               ? h("button", { "aria-label": "Reset to the example", "class": "vh-ws-icon-button vh-pg-icon-button", "data-action": "reset", "title": "Reset to the example", "type": "button", "onClick": () => confirm.value?.showModal() }, [icon("rotate-ccw")])
               : undefined,
             h("button", { "aria-label": "Download as a zip", "class": "vh-ws-icon-button vh-pg-icon-button", "data-action": "download", "title": "Download as a zip", "type": "button", "onClick": () => downloadZip(files.value, template.value ?? "playground") }, [icon("download")]),
-            h("button", { "class": "vh-ws-button", "data-action": "copy-link", "type": "button", "onClick": copyLink }, [icon(copied.value ? "check" : "link"), copied.value ? "Copied" : "Copy link"]),
+            h("button", { "class": "vh-ws-button", "data-action": "copy-link", "type": "button", "onClick": copyLink }, [
+              h(SwapIcon, { name: copied.value ? "check" : "link", enter: copied.value ? "draw" : "blur" }, { default: ({ name }: { name: WorkspaceIconName }) => icon(name) }),
+              h(MorphText, { text: copied.value ? "Copied" : "Copy link" }),
+            ]),
           ]),
         ]),
         ...props.panes.map((pane, index) => h("div", { key: pane.file, "class": "vh-pg-pane", "data-file": pane.file, "hidden": active.value !== index }, editor(pane))),
         notice.value ? h("p", { class: "vh-pg-notice", role: "status" }, notice.value) : undefined,
-        h("ul", { "aria-label": "Issues", "aria-live": "polite", "class": "vh-pg-issues", "hidden": issues.value.length === 0 }, issues.value.map(issue => h("li", [
-          issue.line === undefined ? undefined : h("span", { class: "vh-pg-issue-line" }, `Line ${issue.line}`),
-          issue.message,
-        ]))),
+        h(WorkspaceIssues, { class: "vh-pg-issues", issues: issues.value }),
         // Resetting drops edits that live nowhere else, so it asks first.
         h("dialog", {
           "aria-labelledby": confirmId,

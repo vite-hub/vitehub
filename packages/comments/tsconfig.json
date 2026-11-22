@@ -17,6 +17,12 @@
       "@vite-hub/ui/headless": [
         "../ui/src/headless.ts"
       ],
+      "@vite-hub/ui/motion": [
+        "../ui/src/motion.ts"
+      ],
+      "@vite-hub/ui/motion/core": [
+        "../ui/src/motion-core.ts"
+      ],
       "@vite-hub/ui/standalone/*": [
         "../ui/src/standalone/*.ts"
       ]

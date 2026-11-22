@@ -12,10 +12,6 @@ const shared: Record<string, string> = {
   redis: "Redis carries room updates between instances.",
 }
 
-/**
- * The driver that the server uses. An `auto` or `node` driver picks it at boot: `REDIS_URL`, then
- * `REALTIME_POSTGRES_URL`, then a Postgres Default Database, then memory.
- */
 function resolveDriver(input: RealtimeDurabilityInput, context: DurabilityContext): { driver: string, source?: string } {
   if (input.driver !== "auto" && input.driver !== "node") return { driver: input.driver }
   if (context.env.REDIS_URL?.trim()) return { driver: "redis", source: "REDIS_URL" }

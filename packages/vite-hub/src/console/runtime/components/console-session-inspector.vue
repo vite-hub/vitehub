@@ -612,6 +612,11 @@ function message(error: unknown) {
                 :aria-label="`Close ${item.label}`"
                 @click.stop="closeSurface(item); focusActiveTab()"
               />
+              <!--
+                The underline of the active tab, under the tab and its close button. It is outside the tab, so the select
+                effect moves it as the indicator of the tab list.
+              -->
+              <span v-if="activeSurface === String(item.value)" class="session-inspector__underline" data-motion-indicator aria-hidden="true" />
             </div>
           </TabsList>
         </Tabs>

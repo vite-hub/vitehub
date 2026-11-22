@@ -401,6 +401,78 @@ describe("vitehub-options codemod", () => {
     expect(output).not.toMatch(/\b(?:hubKv|hubDb)\b/)
   })
 
+  it("migrates the vite-hub options of a file that nuxt.config.ts imports", async () => {
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    await writeFile(join(cwd, "nuxt.config.ts"), lines(
+      "import { createHostProfile } from './build/host-profile'",
+      "const hostProfile = createHostProfile()",
+      "export default defineNuxtConfig({ modules: hostProfile.modules, vitehub: hostProfile.vitehub })",
+    ))
+    await mkdir(join(cwd, "build"))
+    const profile = (preset: string, sandbox: string) => lines(
+      "export function createHostProfile() {",
+      "  return {",
+      "    modules: ['vite-hub/nuxt'],",
+      "    vitehub: {",
+      "      name: 'strata',",
+      `      ${preset}: 'cloudflare' as const,`,
+      `      ${sandbox}: true,`,
+      "      schedule: true,",
+      "    },",
+      "  }",
+      "}",
+      "export const unrelated = { vitehub: { preset: 'react', devtools: true } }",
+    )
+    await writeFile(join(cwd, "build/host-profile.ts"), profile("preset", "sandbox"))
+    const run = await runCodemod("vitehub-options", { cwd })
+    expect(run.result.edits.map(edit => edit.path)).toEqual(["build/host-profile.ts"])
+    expect(await readFile(join(cwd, "build/host-profile.ts"), "utf8")).toBe(profile("host", "sandboxTask"))
+  })
+
+  it("migrates a shared imported base and override only once", async () => {
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    await writeFile(join(cwd, "nuxt.config.ts"), lines(
+      "import { profile } from './profile'",
+      "export default defineNuxtConfig({ vitehub: profile.vitehub, $development: profile.$development, $production: profile.$development })",
+    ))
+    await writeFile(join(cwd, "profile.ts"), lines(
+      "export const profile = {",
+      "  vitehub: { preset: 'cloudflare' },",
+      "  $development: { vitehub: { observability: { service: 'app', logs: (readLogs(), true) } } },",
+      "}",
+    ))
+    const { result } = await runCodemod("vitehub-options", { cwd, dryRun: true })
+    expect(result.followUps).toEqual([])
+    expect(result.edits[0]?.after).toBe(lines(
+      "export const profile = {",
+      "  vitehub: { host: 'cloudflare' },",
+      "  $development: { vitehub: { observability: { service: 'app' }, logs: (readLogs(), true) } },",
+      "}",
+    ))
+  })
+
+  it("traces a Vite plugin argument and reports an opaque options expression", async () => {
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    await writeFile(join(cwd, "vite.config.mts"), lines(
+      "import { vitehub as hub } from 'vite-hub'",
+      "import config, { opaque } from './profile.mjs'",
+      "export default { plugins: [hub(config), hub(opaque())] }",
+    ))
+    await writeFile(join(cwd, "profile.mts"), lines(
+      "export default { preset: 'cloudflare' } as const",
+      "export const opaque = () => choose({ vitehub: { preset: 'react' } })",
+    ))
+    const { result } = await runCodemod("vitehub-options", { cwd, dryRun: true })
+    expect(result.edits.map(edit => [edit.path, edit.after])).toEqual([["profile.mts", lines(
+      "export default { host: 'cloudflare' } as const",
+      "export const opaque = () => choose({ vitehub: { preset: 'react' } })",
+    )]])
+    expect(result.followUps).toEqual([expect.objectContaining({ file: "vite.config.mts", line: 3 })])
+  })
+
   it("edits config files and reports renamed option types", async () => {
     await mkdir(scratch, { recursive: true })
     const cwd = await mkdtemp(join(scratch, "app-"))

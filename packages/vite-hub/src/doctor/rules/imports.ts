@@ -6,7 +6,7 @@ import { moduleSourceVisitors, vitehubModule } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { dependsOn } from "./integrations.ts"
 
-const generatedFile = /(?:^|\/)\.vitehub\//
+export const generatedFile: RegExp = /(?:^|\/)\.vitehub\//
 const generatedImport = /(?:^|\/)(?:\.vitehub|\.nuxt\/vitehub)(?:\/|$)/
 const internalImport = /^(?:vite-hub\/_internal|@vite-hub\/internal|@vite-hub\/[^/]+\/_?internal)(?:\/|$)/
 /** The `#vitehub/*` aliases that the import paths reference documents. Packages resolve others for generated code. */
@@ -55,7 +55,7 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
  */
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
-  "blob", "browser", "channels", "comments", "content",
+  "blob", "browser", "channels", "channels/adapters", "comments", "content",
   "choices", "database", "email", "forms", "forms/database", "forms/operations", "forms/runtime",
   "env", "env/bridge", "env/database", "env/seal",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
@@ -108,7 +108,7 @@ const facadePaths = new Set(Object.keys(frameworkPackageManifest.exports).flatMa
   return path && ownerPackages.has(`@vite-hub/${path.split("/")[0]}`) ? [path] : []
 }))
 /** The `vite-hub` package and the owner packages import each other through `@vite-hub/*`. */
-const viteHubPackage = /^(?:vite-hub|@vite-hub\/.+)$/
+export const viteHubPackage: RegExp = /^(?:vite-hub|@vite-hub\/.+)$/
 
 export const preferViteHubImports: DoctorRule = createRule({
   meta: {

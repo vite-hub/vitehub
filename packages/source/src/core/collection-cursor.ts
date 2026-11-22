@@ -40,10 +40,7 @@ function encodeBase64Url(value: string): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")
 }
 
-/** The decoded text, or undefined for a value that is not canonical unpadded base64url. */
 function decodeBase64Url(value: string): string | undefined {
-  // Collection cursors are emitted as unpadded base64url. Reject malformed
-  // padding and lengths before host-specific decoders can silently accept them.
   if (!/^[A-Za-z0-9_-]*$/.test(value) || value.length % 4 === 1) return
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))

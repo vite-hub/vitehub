@@ -21,7 +21,6 @@ export async function hasVercelLogin(root: string, context: ViteHubCliContext): 
   }
 }
 
-/** Reads `claimUrl` and `expiresAt` that `vercel deploy --temporary` keeps in `.vercel/anonymous.json`. Its token stays there. */
 async function readClaim(root: string): Promise<DeployResult["claim"]> {
   let value: unknown
   try {
@@ -35,7 +34,6 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
   return { url, ...(typeof value.expiresAt === "number" ? { expiresAt: new Date(value.expiresAt).toISOString() } : {}) }
 }
 
-// Vercel CLI 65.11: `vercel deploy --help`, recorded in test/fixtures/host-cli-help/. The CLI reads VERCEL_TOKEN from the environment, so no token goes in argv.
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
   const credentialTeam = context.credentials.ok ? context.credentials.teamId : optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
@@ -53,7 +51,6 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
       if (context.commit) args.push("--meta", `vitehubCommit=${context.commit.sha}`, "--meta", `vitehubDirty=${context.commit.dirty}`)
       const result = await run(args, { show: true })
       if (result.exitCode !== 0) throw hostCliFailed("vercel deploy", result, context.secrets)
-      // Without a terminal the CLI wraps the deployment in `{ status, deployment }`.
       const json = lastJsonObject(result.stdout)
       const deployment = isRecord(json?.deployment) ? json.deployment : json
       const url = context.preview ? optionalString(deployment?.url) : optionalString(deployment?.productionUrl) ?? optionalString(deployment?.url)
@@ -99,7 +96,6 @@ export function vercelEnv(context: HostEnvContext): HostEnv {
 
 const gitSources = new Set(["git", "git-deploy-hook", "api-trigger-git-deploy", "import/repo", "clone/repo"])
 
-/** `source` of a deployment: https://vercel.com/docs/rest-api/reference/endpoints/deployments/list-deployments */
 function vercelSource(value: unknown, commit: HostDeployment["commit"]): HostDeploymentSource {
   if (value === "cli") return "cli"
   if (typeof value === "string" && gitSources.has(value)) return "git"
@@ -115,7 +111,6 @@ function vercelState(value: unknown): HostDeployment["state"] {
   return "unknown"
 }
 
-/** `vitehubCommit` and `vitehubDirty` from `vercel deploy --meta`, else the commit of a Git integration build. */
 function vercelCommit(meta: unknown): HostDeployment["commit"] {
   if (!isRecord(meta)) return
   const marked = optionalString(meta.vitehubCommit)
@@ -153,7 +148,6 @@ function parseVercelDeployments(value: unknown, production: string | undefined):
  */
 export const listVercelDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const linked = context.link.account?.id
-  // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
   const teamId = linked ? (linked.startsWith("team_") ? linked : undefined) : context.credentials.teamId
   const client = createVercelProvisionClient({ teamId, token: context.credentials.token }, context.fetch)
   const project = context.link.project.id ?? context.link.project.name

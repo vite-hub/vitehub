@@ -1,4 +1,5 @@
 import { spawn as spawnProcess } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
@@ -6,8 +7,6 @@ import { dirname, join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
-
-import { createHash } from "node:crypto"
 
 import { createDbCliContributor } from "../src/cli.ts"
 import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
@@ -26,6 +25,33 @@ afterEach(async () => {
 })
 
 const databaseUrl = "file:.vitehub/data/database/sqlite.db"
+
+async function seedDatabase(rootDir: string, sql: string) {
+  await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
+  const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+  try {
+    await client.executeMultiple(sql)
+  }
+  finally {
+    client.close()
+  }
+}
+
+async function rows(rootDir: string, sql: string) {
+  const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
+  try {
+    const result = await client.execute(sql)
+    return result.rows.map(row => result.columns.map((_, index) => row[index]))
+  }
+  finally {
+    client.close()
+  }
+}
+
+async function folder(migrationsDir: string, tag: string, sql: string) {
+  await mkdir(join(migrationsDir, tag), { recursive: true })
+  await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
+}
 
 /**
  * Waits for the next second. Drizzle Kit 1.0 names a SQLite migration folder by the current second only, and Drizzle
@@ -644,6 +670,77 @@ describe("vitehub database migrate", () => {
     expect(result.stdout).not.toContain("no pending migrations")
   }, 120_000)
 
+  it("applies every statement of a custom migration written without breakpoints", async () => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    await nextSecond()
+    await expect(project.run("generate", ["--custom", "--name", "seed"])).resolves.toMatchObject({ exitCode: 0 })
+    const [, seed] = await migrationTags(migrationsDir)
+    const file = join(migrationsDir, seed!, "migration.sql")
+    const sql = [
+      await readFile(file, "utf8"),
+      "CREATE TABLE `note_events` (`note_id` integer);",
+      "CREATE TRIGGER `notes_insert` AFTER INSERT ON `notes` BEGIN INSERT INTO `note_events` (`note_id`) VALUES (NEW.`id`); END;",
+      "INSERT INTO `notes` (`id`, `title`) VALUES (1, 'Groceries');",
+      "INSERT INTO `notes` (`id`, `title`) VALUES (2, 'Rent');",
+      "",
+    ].join("\n")
+    await writeFile(file, sql)
+    const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
+
+    const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
+    expect(shipped.databases.default.migrations[1].statements).toHaveLength(4)
+    const testClient = createTestDatabaseClient(project.rootDir, "migrations")
+    try {
+      await expect(testClient.execute("SELECT note_id FROM note_events ORDER BY note_id")).resolves.toMatchObject({ rows: [{ note_id: 1 }, { note_id: 2 }] })
+    }
+    finally {
+      testClient.close()
+    }
+
+    const dryRun = await project.run("migrate", ["--dry-run"])
+    expect(dryRun.stdout).toContain("INSERT INTO `notes` (`id`, `title`) VALUES (2, 'Rent');")
+    await expect(readFile(file, "utf8")).resolves.not.toContain("--> statement-breakpoint")
+
+    const migrated = await project.run("migrate")
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain(`[vitehub] Database "default": applied ${seed}.\n`)
+    const client = createClient({ url: `file:${join(project.rootDir, ".vitehub/data/database/sqlite.db")}` })
+    try {
+      await expect(client.execute("SELECT note_id FROM note_events ORDER BY note_id")).resolves.toMatchObject({ rows: [{ note_id: 1 }, { note_id: 2 }] })
+    }
+    finally {
+      client.close()
+    }
+    await expect(readFile(file, "utf8")).resolves.toBe(sql)
+    await expect(rows(project.rootDir, `SELECT hash FROM __drizzle_migrations WHERE name = '${seed}'`)).resolves.toEqual([[createHash("sha256").update(sql).digest("hex")]])
+  }, 120_000)
+
+  it("matches a legacy ledger by the original hash when two folders share a second", async () => {
+    const project = await createProject()
+    const applied = "20231114221320_init"
+    const pending = "20231114221320_seed"
+    const init = "CREATE TABLE notes (id INTEGER PRIMARY KEY); INSERT INTO notes VALUES (1);"
+    const seed = "INSERT INTO notes VALUES (2); INSERT INTO notes VALUES (3);"
+    const hash = (sql: string) => createHash("sha256").update(sql).digest("hex")
+    await folder(project.database.migrationsDir, applied, init)
+    await folder(project.database.migrationsDir, pending, seed)
+    await seedDatabase(project.rootDir, [
+      init,
+      "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC);",
+      `INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('${hash(init)}', ${Date.UTC(2023, 10, 14, 22, 13, 20)});`,
+    ].join("\n"))
+
+    await expect(project.run("migrate", ["--dry-run"])).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("1 pending migration.") })
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(rows(project.rootDir, "SELECT id FROM notes ORDER BY id")).resolves.toEqual([[1], [2], [3]])
+    await expect(rows(project.rootDir, "SELECT name, hash FROM __drizzle_migrations ORDER BY id")).resolves.toEqual([[applied, hash(init)], [pending, hash(seed)]])
+    await expect(readFile(join(project.database.migrationsDir, applied, "migration.sql"), "utf8")).resolves.toBe(init)
+    await expect(readFile(join(project.database.migrationsDir, pending, "migration.sql"), "utf8")).resolves.toBe(seed)
+  }, 120_000)
+
   it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
@@ -671,34 +768,6 @@ describe("vitehub database migrate", () => {
 })
 
 describe("vitehub database migrate with an existing migrations table", () => {
-  /** Runs SQL on the local database file, as another tool left it. */
-  async function seedDatabase(rootDir: string, sql: string) {
-    await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
-    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
-    try {
-      await client.executeMultiple(sql)
-    }
-    finally {
-      client.close()
-    }
-  }
-
-  async function rows(rootDir: string, sql: string) {
-    const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
-    try {
-      const result = await client.execute(sql)
-      return result.rows.map(row => result.columns.map((_, index) => row[index]))
-    }
-    finally {
-      client.close()
-    }
-  }
-
-  async function folder(migrationsDir: string, tag: string, sql: string) {
-    await mkdir(join(migrationsDir, tag), { recursive: true })
-    await writeFile(join(migrationsDir, tag, "migration.sql"), sql)
-  }
-
   it("keeps the migrations that NuxtHub recorded in _hub_migrations, and applies the next one", async () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir

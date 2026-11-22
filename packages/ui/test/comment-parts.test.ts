@@ -9,8 +9,8 @@ import {
 import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref, type Component } from "vue";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { defineComponent, h, ref, Teleport, type Component } from "vue";
 import {
   CommentComposer,
   CommentLayer,
@@ -33,8 +33,8 @@ const sofia: CommentUser = { id: "sofia", name: "Sofía Benítez" };
 const pricing = { id: "/pricing", kind: "page" };
 
 const UButton = defineComponent({
-  setup(_props, { attrs }) {
-    return () => h("button", { ...attrs, type: "button" }, typeof attrs.label === "string" ? attrs.label : undefined);
+  setup(_props, { attrs, slots }) {
+    return () => h("button", { ...attrs, type: "button" }, slots.default?.() ?? (typeof attrs.label === "string" ? attrs.label : undefined));
   },
 });
 const UModal = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() });
@@ -331,16 +331,22 @@ describe("composer attachments", () => {
   const shot = new File(["png"], "shot.png", { type: "image/png" });
   const notes = new File(["text"], "notes.txt", { type: "text/plain" });
 
-  it("revokes previews when a controlled file list is cleared or mutated", async () => {
+  it("revokes previews a moment after a controlled file list is cleared or mutated, and at once on unmount", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    onTestFinished(() => { vi.useRealTimers(); });
     const files = ref([shot, notes]);
     const wrapper = keep(mount(defineComponent({ setup: () => () => h(CommentComposer, { autofocus: false, files: files.value }) }), { global }));
     await flushPromises();
     expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
     files.value.splice(0, 1);
     await flushPromises();
+    // The card of the removed picture still folds away with its preview.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
     files.value = [];
     await flushPromises();
+    vi.advanceTimersByTime(1000);
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
     files.value = [shot];
     await flushPromises();
@@ -397,16 +403,31 @@ describe("composer attachments", () => {
     expect(wrapper.emitted("submit")?.at(-1)).toEqual([{ body: "", files: [shot], mentions: [] }]);
   });
 
-  it("marks a picture as an image, so the box can draw it as a thumbnail, and keeps its name for a screen reader", async () => {
+  it("puts pictures in one stack beside the text, named for a screen reader, and keeps other files as chips", async () => {
+    const other = new File(["png"], "other.png", { type: "image/png" });
+    const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes, other] } }));
+    await flushPromises();
+    const stack = wrapper.get("[data-slot=comment-image-stack]");
+    expect(stack.attributes("aria-label")).toBe("Attached 2 pictures");
+    expect(stack.findAll("[data-slot=comment-image-stack-card] img").map((image) => image.attributes("alt"))).toEqual(["shot.png", "other.png"]);
+    expect(stack.get("[data-slot=comment-image-stack-count]").text()).toBe("2");
+    // Folded, the cards are behind the toggle: it fans them out, and only then can they open or be removed.
+    const toggle = stack.get("[data-slot=comment-image-stack-toggle]");
+    expect(toggle.attributes()).toMatchObject({ "aria-expanded": "false", "aria-label": "Show 2 pictures" });
+    expect(stack.get("[data-slot=comment-image-stack-card]").attributes("inert")).toBeDefined();
+    await toggle.trigger("click");
+    expect(stack.attributes("data-fanned")).toBe("true");
+    expect(stack.get("[data-slot=comment-image-stack-card]").attributes("inert")).toBeUndefined();
+    const chips = wrapper.findAll("[data-slot=prompt-input-attachments] [data-slot=attachment]");
+    expect(chips.map((chip) => chip.get("[data-slot=attachment-title]").text())).toEqual(["notes.txt"]);
+  });
+
+  it("removes a picture from the stack", async () => {
     const wrapper = keep(mount(CommentComposer, { global, props: { autofocus: false, files: [shot, notes] } }));
     await flushPromises();
-    const [picture, file] = wrapper.findAll("[data-slot=attachment]");
-    expect(picture!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("image");
-    expect(picture!.get("img").attributes("alt")).toBe("shot.png");
-    expect(picture!.get("[data-slot=attachment-title]").text()).toBe("shot.png");
-    expect(picture!.get("[data-slot=attachment-actions] button").attributes("aria-label")).toBe("Remove shot.png");
-    expect(file!.get("[data-slot=attachment-media]").attributes("data-variant")).toBe("icon");
-    expect(file!.get("[data-slot=attachment-title]").text()).toBe("notes.txt");
+    await wrapper.get("[data-slot=comment-image-stack-toggle]").trigger("click");
+    await wrapper.get("button[aria-label='Remove shot.png']").trigger("click");
+    expect(wrapper.emitted("update:files")?.at(-1)).toEqual([[notes]]);
   });
 
   it("has no file button when attachments is off, or while editing", () => {
@@ -448,7 +469,7 @@ describe("posted messages", () => {
     expect(wrapper.get("[data-slot=comment-mention]").attributes("data-self")).toBe("true");
   });
 
-  it("shows image attachments as thumbnails that open full size, and other files as chips with links", async () => {
+  it("shows image attachments as tiles that open full size, and other files as chips with links", async () => {
     const wrapper = keep(mount(CommentReply, {
       global,
       props: {
@@ -457,13 +478,24 @@ describe("posted messages", () => {
       },
     }));
     const images = wrapper.get("[data-slot=comment-reply-images]");
-    expect(images.get("button.vh-image-preview").attributes("aria-label")).toBe("Preview a.png");
+    expect(images.get("button[data-slot=comment-reply-image]").attributes("aria-label")).toBe("Preview a.png");
     expect(images.get("img").attributes("src")).toBe("https://files.test/shots/a.png");
     expect(images.find("[data-slot=attachment]").exists()).toBe(false);
     const chips = wrapper.get("[data-slot=comment-reply-attachments]");
     expect(chips.find("img").exists()).toBe(false);
     expect(chips.get("a").attributes("href")).toBe("https://files.test/docs/spec.pdf");
     expect(chips.get("a").text()).toBe("spec.pdf");
+  });
+
+  it("shows four tiles of six pictures, the last with how many more, and lays them out by count", () => {
+    const keys = ["a.png", "b.png", "c.png", "d.png", "e.png", "f.png"];
+    const wrapper = keep(mount(CommentReply, { global, props: { attachmentUrl: (key: string) => `/files/${key}`, message: message("m1", { attachments: keys }) } }));
+    const images = wrapper.get("[data-slot=comment-reply-images]");
+    expect(images.attributes("data-count")).toBe("4");
+    const tiles = images.findAll("[data-slot=comment-reply-image]");
+    expect(tiles.map((tile) => tile.attributes("aria-label"))).toEqual(["Preview a.png", "Preview b.png", "Preview c.png", "Preview d.png"]);
+    expect(tiles[3]!.get("[data-slot=comment-reply-image-more]").text()).toBe("+3");
+    expect(tiles.slice(0, 3).some((tile) => tile.find("[data-slot=comment-reply-image-more]").exists())).toBe(false);
   });
 
   it("takes the name and media type of an attachment from attachmentUrl", () => {
@@ -475,8 +507,46 @@ describe("posted messages", () => {
         message: message("m1", { attachments: ["drop1", "drop2"] }),
       },
     }));
-    expect(wrapper.get("[data-slot=comment-reply-images] img").attributes()).toMatchObject({ alt: "shot.webp", src: "/files/drop1" });
+    expect(wrapper.get("[data-slot=comment-reply-image]").attributes("aria-label")).toBe("Preview shot.webp");
+    expect(wrapper.get("[data-slot=comment-reply-image] img").attributes("src")).toBe("/files/drop1");
     expect(wrapper.get("[data-slot=comment-reply-attachments] a").text()).toBe("notes");
+  });
+
+  it("retries both the thumbnail and the open preview when the image URL changes", async () => {
+    const modal = defineComponent({ props: { open: Boolean }, setup: (props, { slots }) => () => props.open ? slots.content?.() : null });
+    const wrapper = keep(mount(CommentReply, {
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: () => "/broken.png", message: message("m1", { attachments: ["shot.png"] }) },
+    }));
+    const tile = wrapper.get("[data-slot=comment-reply-image]");
+    await tile.trigger("click");
+    await wrapper.get(".vh-image-dialog__image").trigger("error");
+    expect(tile.text()).toContain("Image unavailable");
+    expect(wrapper.get(".vh-image-dialog__error").text()).toContain("Image unavailable");
+    await wrapper.setProps({ attachmentUrl: () => "/working.png" });
+    expect(tile.get("img").attributes("src")).toBe("/working.png");
+    expect(wrapper.get(".vh-image-dialog__image").attributes("src")).toBe("/working.png");
+  });
+
+  it("treats gallery controls teleported by a thread as inside that thread", async () => {
+    const modal = defineComponent({
+      props: { open: Boolean },
+      setup: (props, { slots }) => () => props.open ? h(Teleport, { to: "body" }, slots.content?.() ?? []) : null,
+    });
+    const wrapper = keep(mount(CommentThread, {
+      attachTo: document.body,
+      global: { components: { ...global.components, UModal: modal } },
+      props: { attachmentUrl: (key: string) => `/files/${key}`, thread: thread(1, { messages: [message("m1", { attachments: ["a.png", "b.png"] })] }) },
+    }));
+    await wrapper.get("[data-slot=comment-reply-image]").trigger("click");
+    const next = document.querySelector<HTMLButtonElement>('button[aria-label="Next picture"]')!;
+    next.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toBeUndefined();
+    next.click();
+    await flushPromises();
+    expect(document.querySelector(".vh-image-dialog__name")?.textContent).toBe("b.png");
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    expect(wrapper.emitted("close")).toHaveLength(1);
   });
 
   it("puts the avatar, the name, and the time on one row above the text", () => {
@@ -631,6 +701,19 @@ describe("CommentPanel", () => {
     await flushPromises();
     expect(wrapper.get("[data-slot=comment-panel]").attributes("data-view")).toBe("list");
     expect(document.activeElement?.getAttribute("data-thread-id")).toBe("thread-2");
+  });
+
+  it("makes Open and Resolved a radio group that arrow keys move", async () => {
+    const { wrapper } = await panel([thread(1), thread(2, { status: "resolved" })]);
+    expect(wrapper.get("[data-slot=comment-panel-filters]").attributes("role")).toBe("radiogroup");
+    const filters = () => wrapper.findAll("[data-slot=comment-panel-filter]");
+    expect(filters().map(filter => [filter.attributes("role"), filter.attributes("aria-checked"), filter.attributes("tabindex")])).toEqual([["radio", "true", "0"], ["radio", "false", "-1"]]);
+
+    await filters()[0]!.trigger("keydown", { key: "ArrowRight" });
+    await flushPromises();
+    expect(filters().map(filter => filter.attributes("aria-checked"))).toEqual(["false", "true"]);
+    expect(document.activeElement).toBe(filters()[1]!.element);
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
   });
 
   it("stays open on a click outside, as a side panel does", async () => {

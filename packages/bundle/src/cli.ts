@@ -16,7 +16,6 @@ const missingReport = "No bundle report in .vitehub/bundle/. Set `bundle: true` 
 
 export { formatBytes }
 
-/** A loaded project supplies its Vite root; runtime dispatch uses the last build's location. */
 function projectRoot(context: ViteHubCliContext): string {
   const root = resolveViteHubProjectRoot(context.rootDir)
   if (resolve(context.cwd) !== resolve(context.rootDir)) return root
@@ -28,7 +27,6 @@ interface ParsedArgs {
   json: boolean
   positional: string[]
   against?: string
-  /** An option that needs a value and has none. */
   missing?: string
   unknown?: string
 }
@@ -108,12 +106,10 @@ function findingLines(findings: readonly BundleFinding[]): string[] {
   return lines
 }
 
-/** Like `vite-doctor`: an error finding fails the command, a warning does not. */
 function exitCode(findings: readonly BundleFinding[]): number {
   return findings.some(finding => finding.severity === "error") ? 1 : 0
 }
 
-/** `+1.2 kB`, `-300 B`, or `0 B`. */
 function formatDelta(bytes: number): string {
   return bytes > 0 ? `+${formatBytes(bytes)}` : bytes < 0 ? `-${formatBytes(-bytes)}` : "0 B"
 }

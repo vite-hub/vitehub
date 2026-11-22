@@ -37,7 +37,6 @@ interface Received {
   body: string
 }
 
-// The token stands for the T3 relay token in the URL. No operation result may hold it.
 const token = "relay-token-7c1e"
 
 let server: Server
@@ -89,7 +88,6 @@ beforeAll(async () => {
     store: createDrizzleWebhookStore(drizzle({ client })),
     wake: (wake, options) => queue.send(wake, options),
   })
-  // The handler of the generated `POST /_vitehub/rpc` route of `vite dev`, with the Webhooks operations.
   handler = createStandaloneOperationHandler([{ operations: webhooksOperations, plugin: "@vite-hub/webhooks/vite" }], root)
 })
 
@@ -103,12 +101,10 @@ afterAll(async () => {
   await rm(base, { force: true, recursive: true })
 })
 
-/** A loopback request to the app, as `vite dev` gets it. */
 function local(url: string | URL | Request, init?: RequestInit): Promise<Response> {
   return handler.fetch(Object.assign(new Request(url, init), { ip: "127.0.0.1" }))
 }
 
-/** One call through the operation RPC: `{ ok: true, value }` or `{ ok: false, code, message, status }`. */
 async function rpc(operation: string, input?: unknown) {
   const response = await local("http://localhost:5173/_vitehub/rpc", {
     method: "POST",
@@ -133,7 +129,6 @@ function stream() {
   return { output: () => text, write: (chunk: string | Uint8Array) => { text += String(chunk); return true } }
 }
 
-/** `vitehub <args>` against the dev server of the app. */
 async function cli(args: string[]) {
   const stdout = stream()
   const stderr = stream()
@@ -171,7 +166,6 @@ describe("webhooks operations through the RPC", () => {
     expect(received[0]!.headers).toMatchObject({ "x-vitehub-event": "webhooks.test", "x-vitehub-delivery": tested.id, "x-vitehub-events": "1" })
     expect(JSON.parse(received[0]!.body)).toEqual({ test: true, webhook: "digest" })
     await sent(tested.id)
-    // The real send still waits for its debounce, with its own body.
     expect(await value("webhooks.get", { id: pendingSend!.id })).toMatchObject({ state: "pending", body: { real: true } })
     await value("webhooks.cancel", { id: pendingSend!.id })
 

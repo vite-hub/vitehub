@@ -1,5 +1,5 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { runtimeErrorDiagnostics } from "@vite-hub/runtime"
+import { runtimeErrorDiagnostics } from "@vite-hub/runtime/internal/error-diagnostics"
 
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
@@ -66,7 +66,6 @@ export interface QueueSendOperationInput {
   queue: string
 }
 
-/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const statuses: Readonly<Record<string, number>> = {
   QUEUE_DEFINITION_NAME_INVALID: 400,
   QUEUE_DEFINITION_NOT_FOUND: 404,
@@ -80,7 +79,6 @@ const statuses: Readonly<Record<string, number>> = {
   QUEUE_UNSUPPORTED_OPTION: 400,
 }
 
-/** Gives a Queue catalog error the status and the redacted message that the CLI and the Console report. */
 function failure(error: unknown): unknown {
   if (runtimeErrorDiagnostics.RUNTIME_DURATION_INVALID.is(error)) return Object.assign(error, { status: 400, statusMessage: redactInspectionText(error.message) })
   if (!isQueueError(error)) return error
@@ -137,10 +135,6 @@ export async function sendToQueue(input: QueueSendOperationInput): Promise<Queue
   }
 }
 
-/**
- * The stored jobs of the local or postgres provider. Cloudflare and Vercel do not let a producer read their queue, so
- * their jobs do not list.
- */
 async function localJobs(): Promise<QueueJobStore> {
   const config = getQueueRuntimeConfig()
   if (config === false) throw failure(queueErrorDiagnostics.QUEUE_DISABLED())

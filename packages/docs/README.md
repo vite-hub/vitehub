@@ -26,6 +26,8 @@ export default defineNuxtConfig({
 
 The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-agent-discovery`, and `nuxt-link-checker` for you, so a new site does not add them to `modules`. An app that already lists `@nuxt/ui` keeps it before the docs module, as in [Add docs to an existing app](#add-docs-to-an-existing-app). Content serves the agent files: `/raw/<page>.md`, `llms.txt`, `llms-full.txt`, `sitemap.md`, `sitemap.xml`, and the MCP server. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
+The module turns off Nuxt's idle prefetch of lazy chunks in the whole app, such as the editor and the comark blocks. A page loads the chunks that it renders. A link loads its page and payload when the reader points at it or focuses it, unless the app sets `experimental.defaults.nuxtLink.prefetchOn`.
+
 The shell uses Lucide, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
 Apps that use `vite-hub` add `vite-hub/docs/nuxt` to `modules` in place of `@vite-hub/docs/nuxt`, and import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
@@ -80,6 +82,25 @@ Read pages from more than one place with `sources`. It replaces `dir`. Each entr
 The module reads the `.md` and `.navigation.yml` files of every source through ViteHub Content when it builds. In development the server reads folders through Nitro server assets, and the module watches them. The build copies the pages of any other Source into `.nuxt/docs/sources/docs-<index>/` and serves that copy, so a `github()` Source shows its branch as it was at build time. A production build packs the Markdown and rewritten agent copies into one gzip module to stay below Cloudflare’s module limit. A `glob()` Source lists dot files only when its `include` names them, such as `**/.navigation.yml`, and reads only below the app root.
 
 `sources` configures the site pages, search, Markdown resources, and the pages that the docs assistant reads.
+
+A page that the build generates, such as a list of the skills in a repository, is a `files()` Source. Its loader runs when the build reads the pages, so nothing writes the page into the content folder first:
+
+```ts
+import { readdir } from "node:fs/promises"
+import { files } from "vite-hub/source"
+
+async function skillCatalog() {
+  const skills = await readdir("../skills")
+  return ["---", "title: All skills", "---", ...skills.map(name => `- \`${name}\``)].join("\n")
+}
+
+export default defineNuxtConfig({
+  docs: {
+    base: "/",
+    sources: ["content", { source: files({ "catalog.md": skillCatalog }), mount: "/skills" }],
+  },
+})
+```
 
 ```ts
 import { github, glob } from "vite-hub/source"
@@ -165,7 +186,7 @@ navigation.panel: true
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
 - `home` is a product home page under the site header, with no title, actions, sidebar, or outline. Your `components/content/` blocks, such as a `::product-hero`, take the full width. The Markdown between them, such as a heading, a list, or a code group, gets the prose styles and the width of a docs page. The page keeps its search entry, Markdown copy, and share image.
 
-The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. A code panel tutorial starts collapsed too.
+The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. That page fills the viewport under the header and the window does not scroll: the root element of the page is exactly as tall as the viewport, so `height: 100%` inside it fills the screen, and content that is taller scrolls inside the page. A code panel tutorial starts collapsed too.
 
 ````md
 ---
@@ -183,6 +204,40 @@ console.log("hello")
 ::
 ````
 
+### Runnable lessons and examples
+
+`runnable` runs lessons and starting apps in the reader's browser, in a WebContainer. Each one is an app in the fixtures folder. The page stays the lesson text, and the fixture is the app after the last step: every file code block of a `::tutorial-step` must equal the fixture file.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["@vite-hub/docs/nuxt"],
+  docs: {
+    runnable: {
+      lessons: [{ slug: "first-route", page: "/docs/first-route", fixture: "first-route" }],
+      examples: [{ id: "kv", label: "KV", description: "Store and read a value.", fixture: "kv", open: "server/api/kv.post.ts", preview: "/api/kv" }],
+    },
+  },
+})
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `fixtures` | `fixtures` | The folder of the apps, relative to the app root. |
+| `lessons` | `[]` | `{ slug, page, fixture }`. `slug` names the lesson and its snapshot. `page` is the URL of a docs page with `::tutorial-step` blocks, from `dir` or from `sources`. |
+| `examples` | `[]` | `{ id, label, description, fixture, open, preview }`, in menu order. `open` is the file that the editor opens first, and `preview` is the path that the preview opens. |
+| `start` | None | The URL of a docs page whose code blocks give a file before the step that writes it, such as an Installation page. Without it, that file does not exist before its step. |
+| `pnpmWorkspace` | None | The folder of `pnpm-workspace.yaml`, relative to the app root. Set it when fixtures use `catalog:` or `workspace:` specifiers: the build rewrites them to npm versions, and packs the workspace packages that a fixture uses into its snapshot. The packages are the folders that its `packages` patterns match, as pnpm finds them. |
+
+The build writes three modules that app pages import, and does not add pages:
+
+- `#build/runnable-tutorials.mjs` exports `runnableTutorials`: the files before step 1 and the files of each step.
+- `#build/playground-templates.mjs` exports `playgroundTemplates`: the files of each example.
+- `#build/learn-facts.mjs` exports `learnFacts`: the step count and reading time of each `layout: tutorial` page, by URL.
+
+Their types and the browser helpers, such as `tutorialStepFiles()`, come from `@vite-hub/docs/runnable`.
+
+`nuxt build` also writes a `node_modules` snapshot of each fixture to `/_tutorials/snapshots/<slug>.<hash>.<part>.bin` under the app base, so the workspace skips `npm install`. The snapshot holds the `dependencies` of the fixture, so the package that its `dev` script runs, such as `vite`, must be in `dependencies`. An example with the dependencies of a lesson uses the snapshot of that lesson. The npm lockfile `<fixture>.package-lock.json` beside each fixture pins the install. The build writes it when it is missing or no longer matches the dependencies: commit it. `nuxi prepare` never builds snapshots. `nuxt dev` reuses the last ones while the dependencies match, and builds them with `TUTORIAL_SNAPSHOTS=1`. `TUTORIAL_SNAPSHOTS=0` skips them in a build, and the workspace runs `npm install`. A page that boots a WebContainer needs cross-origin isolation: list its routes in `vitehub.webContainer.routes`.
+
 ## Customize
 
 Most changes are options in `nuxt.config.ts`:
@@ -190,7 +245,7 @@ Most changes are options in `nuxt.config.ts`:
 | Option | Default | Use |
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
-| `base` | `/docs`, or `/` without a `docs/` folder | URL prefix whose folders are sections. |
+| `base` | `/docs`, or `/` without a `docs/` folder in `dir` | URL prefix whose folders are sections. With `sources`, the default is always `/docs`. If all pages are outside the default base, setup warns with `DOCS_BASE_EMPTY`. Set `base: '/docs'` to keep them standalone without the warning. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo`, `badge` (`{ label, tooltip }`). A `logo` path is a one-color SVG that the theme fills with the text color. `{ light, dark }` shows a colored logo as it is, with `dark` in dark mode. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |

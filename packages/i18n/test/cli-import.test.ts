@@ -166,7 +166,6 @@ it("checks unchanged entries against the locked record after import starts", asy
   ].join("\n"))
   const started = deferred()
   const release = deferred()
-  // Hold the first entry inside its record lock while a translator changes the next entry.
   recordIO.pause = async () => {
     started.resolve()
     await release.promise

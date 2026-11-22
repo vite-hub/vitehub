@@ -157,7 +157,10 @@
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "rou3": "^1.0.0",
-    "valibot": "catalog:runtime"
+    "scule": "^1.3.0",
+    "unrouting": "^0.3.2",
+    "valibot": "catalog:runtime",
+    "vue-router": "^5.4.0"
   },
   "devDependencies": {
     "@better-auth/api-key": "catalog:auth",
@@ -172,6 +175,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "bun-types": "^1.4.3",
+    "evlog": "2.33.1",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",

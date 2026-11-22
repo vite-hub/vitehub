@@ -11,6 +11,18 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 
 `VITEHUB_HOST` selects the deployment host and is reserved. For an application Env field named `host`, use `env.source("APP_HOST", { canonical: false })` or a custom Env prefix.
 
+## Agent skill
+
+The package ships the `vitehub` agent skill at `node_modules/vite-hub/dist/skills/vitehub/`, written for the installed version. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
+
+Coding agents don't load skills from `node_modules`. Install it into the project once, and again after `vitehub update`:
+
+```sh
+npx skills add ./node_modules/vite-hub/dist/skills/vitehub --agent claude-code codex
+```
+
+The CLI copies it to `.agents/skills/vitehub/`, where Codex loads it, and links it from `.claude/skills/vitehub/` for Claude Code. For a single task without installing it, tell the agent to read `node_modules/vite-hub/dist/skills/vitehub/SKILL.md` first.
+
 ## Install
 
 ```sh
@@ -52,7 +64,9 @@ pnpm add vite-hub
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
-A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. When an installed package is outside the range that `vite-hub` supports, the build continues and warns with the `pnpm add` command that installs a supported version. Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
+
+Vercel Workflow requires `@vercel/functions` for all definitions; add `workflow` and `@workflow/builders` for native durable definitions. See the [Workflow hosts guide](https://vitehub.dev/docs/workflows/hosts) for installation. Other provider SDKs, such as `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
 You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
@@ -153,7 +167,7 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 `vitehub({ redirects: { host: "example.com", https: true, trailingSlash: "remove" } })` sends every request to one canonical address in one redirect: `301` for `GET` and `HEAD`, `308` for other methods. `trailingSlash` changes page paths only. `vite dev`, local names, IP addresses, and preview hosts such as `*.workers.dev` (add more with `previewHosts`) keep their host and scheme. On Cloudflare, ViteHub sets `assets.run_worker_first` so static files redirect too. Move single pages with Nitro `routeRules`. On Cloudflare, ViteHub also writes their redirects to the static `_redirects` file, after the lines of `public/_redirects`. See [Redirect to one canonical address](https://vitehub.dev/docs/frameworks-hosts/redirects).
 
-`vitehub({ health: true })` adds `/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, version, commit, vitehub }`, where `version` is the app's `package.json` version, `commit` is the commit of the build from the CI or host variables, else from Git, else `null`, and `vitehub` is the installed `vite-hub` version. It checks each Database (`SELECT 1`), each KV store (one read), and each Blob store (opens the root directory on `fs`, lists up to one object on `s3` with `s3:ListBucket`, and checks object metadata on other drivers) of the app, with 2 seconds for each, and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, vitehub, checks: { database: { default: true }, kv: { default: false } } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route.
+`vitehub({ health: true })` adds `/_vitehub/health` for load balancers and container health checks, on every host. It answers `{ ok: true, version, commit, vitehub }`, where `version` is the app's `package.json` version, `commit` is the commit of the build from the CI or host variables, else from Git, else `null`, and `vitehub` is the installed `vite-hub` version. It checks each Database (`SELECT 1`), each KV store (one read), and each Blob store (opens the root directory on `fs`, lists up to one object on `s3` with `s3:ListBucket`, and checks object metadata on other drivers) of the app, with 2 seconds for each, and answers `503` with `ok: false` when one fails, for example `{ ok: false, commit, vitehub, checks: { database: { default: true }, kv: { default: false } } }`. The error goes to the server log, never to the response. `health: { route: "/api/health" }` moves the route. `health: { checks: ["database"] }` checks only the Database: list any of `"database"`, `"kv"`, and `"blob"`, or `[]` for none. A listed primitive that the app does not turn on fails the build.
 
 `vitehub({ publicUrl, seo: { sitemap: true } })` serves `/sitemap.xml` and `/robots.txt` on every host. The sitemap lists the Nuxt pages without a dynamic part, the static prerender routes, the published Content pages with a URL, and the pages that `server/sitemap.ts` returns with `defineSitemap()` from `vite-hub/seo`. `exclude` leaves path prefixes out, and `pages: false` keeps only Content and `server/sitemap.ts` entries. URLs start with `publicUrl`, else the request origin; a build that prerenders the files needs `publicUrl` (`SEO_PUBLIC_URL_MISSING`). `robots: { disallow }` adds `Disallow` lines. ViteHub keeps the app's own `public/robots.txt`, and a server route for `/sitemap.xml` fails the build with `SEO_SITEMAP_ROUTE_EXISTS`. See [Sitemap and robots.txt](https://vitehub.dev/docs/frameworks-hosts/sitemap).
 
@@ -298,6 +312,8 @@ Set `agent: { invocations: "database" }` in the `vitehub()` options to give ever
 
 The store uses a discovered ViteHub Database and creates its journal tables on first use. It supports local SQLite and hosted libSQL through Drizzle, plus native Cloudflare D1. D1 over HTTP is rejected by a read-only probe before schema creation or writes because its raw query results do not contain column names. The `database` option defaults to `default`.
 
+On a Postgres Database, the store does not create tables. ViteHub adds `vitehub_agent_invocations` and `vitehub_agent_invocations_observations` to that Database, so `vitehub database generate` writes their migration and `vitehub database migrate` applies it. Without the tables, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. Claims expire by the database clock, so several Node instances can share one journal.
+
 Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAge, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
 ## Invoke Agents from the Console
@@ -348,7 +364,7 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 Logs has its own `logs` key. Turn it on with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { maxEntries: 256 }` to size the buffer, and `observability: { evlog: { redact: true } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 
-`observability: { browserErrors: true }` sends uncaught browser errors to `POST /_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error` and `app:error`. Report an error that the app catches with the browser's `reportError(error)`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
+`observability: { browserErrors: true }` sends uncaught browser errors to `POST /_vitehub/browser-errors`, and the server logs each one as an error on the Evlog event of that request. A Vite app gets a script in `index.html`, and a Nuxt app a client plugin that also reports `vue:error`, `app:error`, and `app:chunkError`. Both report chunks that fail to load. Send an error that the app catches, or a warning, with `reportBrowserError(error, { action, level, fields })` from `vite-hub/logs/client`. The route takes same-origin requests only, 16 KiB at most, and 20 reports a minute from one address. It is off by default. See [Log browser errors](https://vitehub.dev/docs/logs/configure#log-browser-errors).
 
 For production, use `logs: { source: './server/logs.ts' }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. Without `observability`, this form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
 

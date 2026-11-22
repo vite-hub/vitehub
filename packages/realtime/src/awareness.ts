@@ -92,10 +92,6 @@ export function compactRealtimeAwareness(awareness: awarenessProtocol.Awareness)
   return compacted
 }
 
-/**
- * Drops the entries of an awareness update that describe clients another peer owns. Stock y-websocket clients send
- * every awareness change they see, other people's too, so an echo is normal and must not close the connection.
- */
 function dropForeignAwareness<Peer extends object>(
   update: Uint8Array,
   owners: ReadonlyMap<number, Peer>,
@@ -111,7 +107,6 @@ function dropForeignAwareness<Peer extends object>(
     const clock = decoding.readVarUint(decoder)
     const state = decoding.readVarString(decoder)
     const owner = owners.get(client)
-    // Neither a newer clock nor a null state proves ownership: a stock client can echo either over BroadcastChannel.
     if (owner === peer || (!owner && state.trim() !== "null" && clock > (awareness.meta.get(client)?.clock ?? -1))) kept.push([client, clock, state])
   }
   if (kept.length === length) return update
@@ -141,7 +136,6 @@ export function createRealtimeAwarenessOwners<Peer extends object>(options: { ma
     peerClients.get(owner)?.delete(client)
   }
   return {
-    /** A WebSocket declares its own client id at connection time; the bus relays that claim to retire the old socket. */
     claim(awareness: awarenessProtocol.Awareness, peer: Peer, client: number, identity?: RealtimeIdentity, remote = false): boolean {
       const state = awareness.getStates().get(client)
       if (!remote && identity && state && (!isPlainObject(state.user) || state.user.id !== identity.id)) return false
@@ -181,7 +175,6 @@ export function createRealtimeAwarenessOwners<Peer extends object>(options: { ma
         throw error
       }
     },
-    /** Whether a peer of this instance owns the client. */
     ownsLocally(client: number): boolean {
       const owner = owners.get(client)
       return !!owner && !remoteOwners.has(owner)
@@ -194,7 +187,6 @@ export function createRealtimeAwarenessOwners<Peer extends object>(options: { ma
       }
       return clients
     },
-    /** Forgets the clients that another instance owned, after their state was removed. */
     releaseRemote(clients: readonly number[]): void {
       for (const client of clients) {
         const owner = owners.get(client)

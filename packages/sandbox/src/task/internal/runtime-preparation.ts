@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, write
 import { builtinModules } from 'node:module'
 
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
-import { getResolvedFeatureOptions, VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
+import { getResolvedFeatureOptions, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
 import { normalizeHosting, resolveHostPreset } from '@vite-hub/internal/hosting'
 import { isPlainObject } from '@vite-hub/internal/object'
@@ -13,6 +13,7 @@ import { basename, dirname, resolve } from 'pathe'
 import { discoverSandboxTaskDefinitions } from '../discovery'
 import { createSandboxTaskFeaturePlan, resolveSandboxTaskFeatureConfig, sandboxTaskRuntimeLocalProviderSpecifier, sandboxTaskRuntimeSpecifier, sandboxTaskRuntimeStateSpecifier } from '../feature'
 import { getSandboxTaskFeatureDriver } from '../module-types'
+import { createSandboxTaskTypeTemplateContents, sandboxTaskTypeTemplateFilename } from '../type-template'
 import {
   activateSandboxTaskRuntimeFile,
   markSandboxTaskRuntimeGeneration,
@@ -61,7 +62,6 @@ function normalizeSandboxTaskOptions(options: SandboxTaskOptions): AgentSandboxT
     return false
   if (!isPlainObject(options))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0042({ message: '[vitehub] `sandboxTask` must be a plain object.' })
-  // Without `driver`, the Sandbox Task picks the host's driver, so the former `provider` key would be ignored silently.
   if (options.driver === undefined && Object.hasOwn(options, 'provider')) {
     // SAFETY: An app config without types still passes the former `provider` key.
     const provider = (options as { provider?: unknown }).provider
@@ -206,7 +206,6 @@ function createSandboxTaskRuntimeFacadeContents(
     `import { setSandboxTaskRuntimeConfig, ${localDev ? 'setSandboxTaskRuntimeLocalProvider, ' : ''}setSandboxTaskRuntimeRegistry } from ${JSON.stringify(sandboxTaskRuntimeStateSpecifier)}`,
     '',
     `setSandboxTaskRuntimeConfig(${JSON.stringify(runtimeConfig, null, 2)})`,
-    // A dynamic import keeps `node:child_process` out of the dev server until a Task runs locally.
     ...(localDev
       ? [`setSandboxTaskRuntimeLocalProvider(async () => (await import(${JSON.stringify(sandboxTaskRuntimeLocalProviderSpecifier)})).resolveLocalTaskSandbox())`]
       : []),
@@ -231,7 +230,6 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
       continue
     }
     if (platform === 'win32' && alias.artifactKey) {
-      // One replaceable file keeps every runtime entry on the same immutable generation.
       aliases[alias.key] = plan.manifest.aliasPath
       continue
     }
@@ -242,8 +240,6 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan, plat
   return aliases
 }
 
-// A file outside the runtime generations keeps one real path for the whole dev session. Replace it in one step,
-// because the active generation imports it.
 async function writeStableSandboxTaskRuntimeFile(
   file: string,
   contents: string,
@@ -325,8 +321,6 @@ async function writeSandboxTaskArtifactsLocked(
     const registryArtifact = emitted.get(plan.aliases?.find(alias => alias.key === SANDBOX_REGISTRY_ID)?.artifactKey || '')
     invariant(registryArtifact, 'the Sandbox Task feature adds the registry artifact and its alias to the plan')
     const providerLoaderArtifact = emitted.get('sandbox-task-provider-loader')
-    // The facade loads from the generation folder or through the `runtime` link. An absolute path reaches the
-    // provider loader from both. On Windows the facade is a copy in the `runtime` folder.
     const providerLoaderImport = providerLoaderArtifact && (platform === 'win32'
       ? createImportPath(activeFacadeFile, providerLoaderArtifact.dst)
       : providerLoaderArtifact.dst)
@@ -467,11 +461,24 @@ export async function prepareSandboxTaskRuntime(options: {
     root: rootDir,
   }, options.env, definitions.length > 0)
   const stateModule = createSandboxTaskStateModuleContents(context)
-  if (!context.config) {
+  const prepareOnly = options.userConfig[VITEHUB_PREPARE] === true
+  if (!context.config || prepareOnly) {
+    const files: string[] = []
+    if (context.config && options.writeArtifacts !== false) {
+      const generatedDir = ensureGeneratedDir(rootDir, 'sandbox-task')
+      const file = resolve(generatedDir, sandboxTaskTypeTemplateFilename)
+      const contents = createSandboxTaskTypeTemplateContents(definitions)
+      await mkdir(generatedDir, { recursive: true })
+      await withSandboxTaskRuntimeGenerationLock(generatedDir, lease => lease.publish(async () => {
+        await mkdir(dirname(file), { recursive: true })
+        await writeStableSandboxTaskRuntimeFile(file, contents, lease)
+      }))
+      files.push(file)
+    }
     return {
       aliases: {} as AliasMap,
-      definitions: [],
-      files: [],
+      definitions,
+      files,
       hosting: context.hosting,
       localDev: false,
       provider: undefined,

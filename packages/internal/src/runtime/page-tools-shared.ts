@@ -61,24 +61,27 @@ export function viteHubPageToolsWanted(search: string, cookie: string): boolean 
  */
 export const viteHubPageToolsAssets = "/_vitehub/page/assets"
 
-/** The route of the visitor check. */
-export const viteHubPageSessionPath = "/_vitehub/page/session"
+/**
+ * The route of the visitor check. It is public, and each tool checks the visitor itself. Its path has no auth word,
+ * such as `session`, because Vite Doctor takes a handler on such a path for an auth route without a guard.
+ */
+export const viteHubPageSessionPath = "/_vitehub/page/tools"
 
 /**
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=21"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=22"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
  * the same on every site. The pill sets the `--vitehub-pill-*` colors, and segments inherit them through their shadow
  * roots. A pressed or expanded button is inverted, like the active tool in Drop. A busy button, or every button of a
- * busy segment, is inverted too: a tool that is still loading shows the click at once.
+ * busy segment, is inverted too: a tool that is still loading shows the click at once. A press squashes a button with the
+ * press of the motion layer of `@vite-hub/ui/motion`, which the pill installs.
  */
-export const viteHubPillButtonStyles = `button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:var(--vitehub-pill-justify,center);gap:4px;min-width:28px;height:28px;padding:0 8px;border-radius:8px;font:inherit;white-space:nowrap;color:var(--vitehub-pill-text);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition-property:background-color,color,scale;transition-duration:150ms;transition-timing-function:cubic-bezier(.23,1,.32,1)}
+export const viteHubPillButtonStyles = `button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:var(--vitehub-pill-justify,center);gap:4px;min-width:28px;height:28px;padding:0 8px;border-radius:8px;font:inherit;white-space:nowrap;color:var(--vitehub-pill-text);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition-property:background-color,color;transition-duration:150ms;transition-timing-function:cubic-bezier(.23,1,.32,1)}
 @media(hover:hover){button:where(:not(:disabled):hover){background:var(--vitehub-pill-hover);color:var(--vitehub-pill-strong)}}
-button:where(:not(:disabled):active){scale:.96}
 button[aria-pressed=true],button[aria-expanded=true]{background:var(--vitehub-pill-on);color:var(--vitehub-pill-on-text)}
 :host([aria-busy=true]) button,button[aria-busy=true]{background:var(--vitehub-pill-on);color:var(--vitehub-pill-on-text);cursor:progress}
 button:focus-visible{outline:2px solid var(--vitehub-pill-on);outline-offset:1px}
@@ -143,7 +146,7 @@ export function withViteHubBase(base: string, path: string): string {
 
 /**
  * The URL of the session route, from the URL of the loader: the loader is at `<base>/_vitehub/page/assets/loader.js`,
- * so the session is at `<base>/_vitehub/page/session`. Without that shape, it is the session path at the root.
+ * so the session is at `<base>/_vitehub/page/tools`. Without that shape, it is the session path at the root.
  */
 export function viteHubPageSessionUrl(loaderUrl: string): string {
   const path = new URL(loaderUrl, "http://localhost").pathname
@@ -192,7 +195,7 @@ export interface ViteHubPageAccount {
   signOut: string
 }
 
-/** The answer of `GET /_vitehub/page/session`. */
+/** The answer of `GET /_vitehub/page/tools`. */
 export interface ViteHubPageSession {
   tools: ViteHubPageToolInfo[]
   account?: ViteHubPageAccount

@@ -1,5 +1,3 @@
-// The package resolves `#vitehub/env/server` to this module when the Env Vite plugin does not generate it, such as in
-// Node outside Vite. Its declarations type the generated module through the `ServerEnv` interface.
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { EnvAccessContext } from "../bridge.ts"
