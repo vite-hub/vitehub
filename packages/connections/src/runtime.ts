@@ -1,4 +1,5 @@
 import { connectionEnvAccess } from "@vite-hub/env/internal/connections"
+import { errorCode, logFailure } from "@vite-hub/internal/runtime/request-log"
 import * as v from "valibot"
 import { decodeJwt } from "jose"
 
@@ -367,7 +368,10 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       try {
         loaded = await loadDefinition(name)
       }
-      catch {
+      catch (error) {
+        logFailure({ field: "connections", fields: { op: "list", connection: name }, message: "Connections could not load a Connection Definition", error }, () => {
+          console.warn(`[vitehub] Connections could not load the Connection Definition "${name}". It is left out of the list.`, error)
+        })
         continue
       }
       if (loaded && isConnectionInstances(loaded)) names.push(...loaded.instances.map(instance => `${name}:${instance}`))
@@ -928,17 +932,24 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const apiKeyProvider = isApiKeyProvider(provider)
     const hasFallback = isApiKeyProvider(provider) && provider.fallback !== undefined
     let connections: ConnectionStore | undefined
+    let storeFailure: { error: unknown } | undefined
     try {
       connections = await getStore()
     }
     catch (error) {
       if (!hasFallback) throw error
+      if (!isConnectionError(error, ["CONNECTIONS_NOT_CONFIGURED"])) storeFailure = { error }
     }
     const state = await connections?.state.get(name)
     const declared = isChatGPTProvider(provider) ? [...chatgptScopes] : [...(loaded.scopes ?? [])]
     const granted = state?.scopes ?? []
-    const fallback = hasFallback && state === undefined && await readFallbackKey(name, loaded).catch(() => undefined) !== undefined
-    const keySource = fallback ? "fallback" : apiKeyProvider && state?.status === "connected" ? "stored" : undefined
+    const fallbackRead: { key?: string | undefined, keyError?: string } | undefined = hasFallback && state === undefined
+      ? await readFallbackKey(name, loaded).then(key => ({ key }), (error: unknown) => ({ keyError: errorCode(error) ?? "Error" }))
+      : undefined
+    const fallback = fallbackRead?.key !== undefined
+    if (!fallback && storeFailure) throw storeFailure.error
+    const keyError = fallbackRead?.keyError
+    const keySource = fallback || keyError ? "fallback" : apiKeyProvider && state?.status === "connected" ? "stored" : undefined
     return {
       account: state?.accountId ? { id: state.accountId, email: state.accountEmail } : undefined,
       actions: connectionActions(loaded),
@@ -951,6 +962,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       ...await connectionDocs(name, loaded),
       ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       ...(keySource ? { keySource } : {}),
+      ...(keyError ? { keyError } : {}),
       name,
       provider: provider.id,
       refreshedAt: state?.refreshedAt,

@@ -1,5 +1,3 @@
-import { invariantError } from "@vite-hub/internal/invariant"
-
 import { isUint8Array, kvValueType } from "./inspect-value.ts"
 
 const maximumValueBytes = 256 * 1_024
@@ -28,8 +26,9 @@ function truncateValue(value: string): { truncated: boolean; value: string } {
   return { truncated: false, value }
 }
 
-function boundedJSONStringify(value: unknown): { editable: boolean; truncated: boolean; value?: string } {
+function boundedJSONStringify(value: unknown): { editable: boolean; truncated: boolean; value?: string } | undefined {
   let editable = true
+  let unsupported = false
   let bytes = 0
   let rendered = ""
   let truncated = false
@@ -75,7 +74,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       const toJSON: unknown = Reflect.get(Object(input), "toJSON")
       if (applyToJSON && typeof toJSON === "function") return serialize(toJSON.call(input, key), depth, arrayValue, key, false)
-      throw invariantError("JSON has no bigint without `toJSON()`")
+      unsupported = true
+      return false
     }
 
     // SAFETY: Primitive JSON categories returned above, so the remaining input is an object.
@@ -98,7 +98,10 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       editable = false
       return serialize(boxed, depth, arrayValue, key)
     }
-    if (ancestors.has(object)) throw invariantError("JSON has no circular value")
+    if (ancestors.has(object)) {
+      unsupported = true
+      return false
+    }
     if (seen.has(object)) editable = false
     seen.add(object)
     ancestors.add(object)
@@ -140,6 +143,7 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
   }
 
   const serialized = serialize(value, 0, false, "")
+  if (unsupported) return undefined
   return { editable, truncated, value: serialized || truncated ? rendered : undefined }
 }
 
@@ -162,13 +166,13 @@ export function previewKVValue(value: unknown): KVPreview {
     rendered = Array.from(value.subarray(0, maximumBytes), byte => byte.toString(16).padStart(2, "0")).join("")
   }
   else {
-    try {
-      const result = boundedJSONStringify(value)
+    const result = boundedJSONStringify(value)
+    if (result) {
       rendered = result.value ?? String(value)
       truncated = result.truncated
       editable = result.editable
     }
-    catch {
+    else {
       format = "text"
       rendered = String(value)
     }

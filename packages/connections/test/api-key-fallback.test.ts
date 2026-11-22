@@ -94,18 +94,20 @@ describe("API key fallback", () => {
 
   it("rejects a fallback key that fails the key format check, without exposing it", async () => {
     const test = harness(() => "has space")
-    expect(await test.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
-    expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
+    expect(await test.runtime.inspect("executor")).toMatchObject({ keyError: "CONNECTIONS_INVALID_PROVIDER", keySource: "fallback", status: "disconnected" })
     const error = await test.runtime.client("executor", {}).fetch(URL_ITEMS).catch((cause: unknown) => cause)
     expect(error).toMatchObject({ code: "CONNECTIONS_INVALID_PROVIDER", why: "The fallback key of Connection \"executor\" must contain 1 to 8192 visible ASCII characters." })
     expect(String(error)).not.toContain("has space")
     expect(test.keys).toEqual([])
   })
 
-  it("reports no key when the fallback is empty or fails during inspection", async () => {
-    expect(await harness(() => undefined).runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
-    const failing = harness(() => { throw new Error("missing env") })
-    expect(await failing.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
+  it("reports no key when the fallback is empty, and the failure when it throws during inspection", async () => {
+    const empty = await harness(() => undefined).runtime.inspect("executor")
+    expect(empty).toMatchObject({ status: "disconnected" })
+    expect(empty).not.toHaveProperty("keySource")
+    expect(empty).not.toHaveProperty("keyError")
+    const failing = harness(() => { throw Object.assign(new Error("missing env"), { code: "ENV_MISSING" }) })
+    expect(await failing.runtime.inspect("executor")).toMatchObject({ keyError: "ENV_MISSING", keySource: "fallback", status: "disconnected" })
     await expect(failing.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toThrow("missing env")
   })
 

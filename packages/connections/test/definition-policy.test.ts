@@ -51,6 +51,21 @@ describe("Connection policy validation", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it("lists the other Connections and warns when a Connection Definition fails to load", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const runtime = createConnectionsRuntime({
+        definitions: { broken: async () => { throw new Error("syntax error") }, mail: async () => ({ default: { provider: testProvider(), scopes: ["mail.read"] } }) },
+        store: createStore(),
+      })
+      expect((await runtime.list()).map(item => item.name)).toEqual(["mail"])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("\"broken\""), expect.objectContaining({ message: "syntax error" }))
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
   it.each([{}, { access: {}, api: {} }, { access: { server: { write: false } } }, { access: { server: {} }, api: { mail: undefined } }])("preserves valid omitted and restrictive policies: %j", policy => {
     const definition = { provider: testProvider(), scopes: ["mail.read"], ...policy }
     expect(Reflect.apply(defineConnection, undefined, [definition])).toBe(definition)
