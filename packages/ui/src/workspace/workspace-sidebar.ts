@@ -56,7 +56,11 @@ export const WorkspaceSidebar = defineComponent({
       const active = document.activeElement;
       // Focus goes back only when it was in the panel. After a click outside, it stays where the reader clicked.
       const inside = !active || active === document.body || !!panel.value?.contains(active);
-      if (inside && previous?.isConnected) previous.focus();
+      // A sidebar that mounted open has no earlier focus to restore, so focus goes to the button that controls it.
+      const target = previous?.isConnected && previous !== document.body
+        ? previous
+        : document.querySelector<HTMLElement>(`[aria-controls="${CSS.escape(id())}"]`);
+      if (inside) target?.focus();
       previous = undefined;
     }, { flush: "pre" });
 
