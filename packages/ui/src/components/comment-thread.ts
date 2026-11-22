@@ -1,7 +1,8 @@
 import type { CommentDelivery, CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { type Component, computed, defineComponent, h, nextTick, type PropType, provide, ref, type Ref, type SlotsType, type VNode } from "vue";
 import { RollNumber } from "./motion.ts";
 import {
+  commentThreadPortals,
   consumedPointerEvents,
   pathOf,
   shakeDirtyComposers,
@@ -13,12 +14,13 @@ import { displayName, writerName, writerPerson } from "../internal/comment-perso
 import { commentTitle, deliveryAttributes, messagesSinceResolved } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
-import { ImagePreview } from "../internal/image-preview.ts";
+import { ImageGallery } from "../internal/image-gallery.ts";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { MotionList } from "./motion-list.ts";
 import { RelativeTime } from "./relative-time.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { useViteHubUIIcons } from "../config.ts";
@@ -103,7 +105,7 @@ function attachmentHref(value: string | undefined): string | undefined {
   }
 }
 
-// Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
+// Shows the attachments of a message: images as a mosaic that opens full size, and other files as chips. An attachment
 // is an image when its media type says so, or, without one, when its name has an image extension or none.
 function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component, fileIcon: string) {
   if (message.attachments.length === 0) return null;
@@ -116,11 +118,11 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
     const image = href !== undefined && (link?.type ? link.type.startsWith("image/") : extension === undefined || imageExtensions.has(extension));
     return { href, image, key, name };
   });
-  const images = items.filter((item) => item.image);
+  const images = items.flatMap((item) => (item.image && item.href ? [{ key: item.key, name: item.name, src: item.href }] : []));
   const files = items.filter((item) => !item.image);
   return [
     images.length > 0
-      ? h("div", { "data-slot": "comment-reply-images" }, images.map((item) => h(ImagePreview, { alt: item.name, key: item.key, src: item.href })))
+      ? h(ImageGallery, { images })
       : null,
     files.length > 0
       ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
@@ -406,6 +408,8 @@ export const CommentThread = defineComponent({
     const sending = ref(false);
     const failure = ref<string | undefined>();
     const composer = ref<{ focus: () => void } | null>(null);
+    const portals = new Set<Ref<HTMLElement | undefined>>();
+    provide(commentThreadPortals, portals);
 
     const user = computed(() => props.user ?? comments?.user.value);
     // Mentions in a reply or an edit go in this thread, so the search asks for the people that may be mentioned there.
@@ -425,6 +429,7 @@ export const CommentThread = defineComponent({
     useDocumentPointerDown((event) => {
       const path = pathOf(event);
       if (props.preview || !props.dismissible || !root.value || path.includes(root.value)) return;
+      for (const portal of portals) if (portal.value && path.includes(portal.value)) return;
       if (path.some((element) => element.matches("[data-slot='comment-pin']")) || consumedPointerEvents.has(event)) return;
       consumedPointerEvents.add(event);
       const where = root.value.getRootNode();
@@ -531,7 +536,7 @@ export const CommentThread = defineComponent({
             }),
             back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: icons.value.close, onClick: close, size: "xs", variant: "ghost" }),
           ]),
-          h("div", { "data-slot": "comment-thread-messages" }, [
+          h(MotionList, { "data-slot": "comment-thread-messages" }, () => [
             anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")

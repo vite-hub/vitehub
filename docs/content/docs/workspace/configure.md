@@ -60,8 +60,8 @@ One GitHub Store serves every request of an instance, and it keeps writes until 
 Without a `store`, development uses Local. In production:
 
 - Cloudflare uses Memory.
-- Vercel uses Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists, else Memory.
-- Other hosts use Local.
+- Other hosts use Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists at build time.
+- Without them at build time, Vercel uses Memory. On the other hosts, Workspace Definitions without `root` check the same variables at runtime and use Local when they are missing. A Workspace created only in code needs `store: { driver: 'vercel' }` to use Vercel Blob.
 
 You must select Cloudflare Artifacts or GitHub yourself.
 

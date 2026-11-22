@@ -82,6 +82,11 @@
       "import": "./dist/agent/invocations/drizzle.js",
       "default": "./dist/agent/invocations/drizzle.js"
     },
+    "./agent/invocations/postgres": {
+      "types": "./dist/agent/invocations/postgres.d.ts",
+      "import": "./dist/agent/invocations/postgres.js",
+      "default": "./dist/agent/invocations/postgres.js"
+    },
     "./agent/mcp": {
       "types": "./dist/agent/mcp.d.ts",
       "import": "./dist/agent/mcp.js",
@@ -266,6 +271,11 @@
       "types": "./dist/choices/vue.d.ts",
       "import": "./dist/choices/vue.js",
       "default": "./dist/choices/vue.js"
+    },
+    "./choices/testing": {
+      "types": "./dist/choices/testing.d.ts",
+      "import": "./dist/choices/testing.js",
+      "default": "./dist/choices/testing.js"
     },
     "./cms": {
       "types": "./dist/cms.d.ts",
@@ -542,6 +552,11 @@
       "import": "./dist/gateways/ai-sdk.js",
       "default": "./dist/gateways/ai-sdk.js"
     },
+    "./gateways/testing": {
+      "types": "./dist/gateways/testing.d.ts",
+      "import": "./dist/gateways/testing.js",
+      "default": "./dist/gateways/testing.js"
+    },
     "./i18n": {
       "types": "./dist/i18n.d.ts",
       "import": "./dist/i18n.js",
@@ -801,6 +816,11 @@
       "types": "./dist/ui/motion.d.ts",
       "import": "./dist/ui/motion.js",
       "default": "./dist/ui/motion.js"
+    },
+    "./ui/motion/core": {
+      "types": "./dist/ui/motion/core.d.ts",
+      "import": "./dist/ui/motion/core.js",
+      "default": "./dist/ui/motion/core.js"
     },
     "./ui/vite": {
       "types": "./dist/ui/vite.d.ts",

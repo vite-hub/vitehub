@@ -1,5 +1,5 @@
 import { defineChoices, toOptions } from "vite-hub/choices"
-import { wordGateway } from "./word-gateway"
+import { wordGateway } from "vite-hub/choices/testing"
 
 // Your data. In a real app it comes from a database.
 const suppliers = [
@@ -10,7 +10,7 @@ const suppliers = [
 
 export const forecast = defineChoices({
   name: "forecast", // a label for logs. It connects nothing.
-  gateway: wordGateway,
+  gateway: wordGateway(), // asks no model, so you need no API key
   groups: {
     supplier: {
       label: "Supplier",

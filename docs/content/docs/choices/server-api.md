@@ -79,7 +79,7 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check.
+The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option and one per non-empty single-select group, except that an `infer` group with one option sends none. The `supported` check adds one question if at least one non-empty group does not infer.
 
 `error.code` is `DECISIONS_R0002` to `DECISIONS_R0006` ([Limits and errors](/docs/choices/limits-and-errors)).
 
@@ -112,13 +112,27 @@ Pass a `signal` to stop the gateway request:
 await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 ```
 
+## Track token usage
+
+Pass `onUsage` to read the model, provider, and token counts that the gateway reports:
+
+```ts fragment
+await forecast.resolve(text, {
+  onUsage: ({ model, provider, usage }) => console.log(provider, model, usage.inputTokens, usage.outputTokens),
+})
+```
+
+Jev sends at most 60 KB of questions per request, so it can report usage for multiple batches in one `resolve()`. With `model`, `onUsage` runs at most once. It runs only when the gateway reports usage. If no question is sent, a TypeSafe response has no token counts, or a `model` response fails validation, the callback does not run. No callback does not mean that no request was sent or no tokens were used.
+
+With one group and 100 options, multi-select sends 101 questions: one per option plus `supported`. Single-select without inference sends 2: one for the group plus `supported`. With `infer: true` it sends 1, since there is no `supported` check.
+
 ## Inspect
 
 `forecast.inspect(text)` returns `[error, plan]`, with the state and questions that `resolve()` would send. Nothing leaves your server. Use it in tests or when an answer looks wrong.
 
 ```ts fragment
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
-plan.questions // one question for each option of a multiple group, one for each single group, and `supported` unless every group infers
+plan.questions // the questions for this input, including `supported` when needed
 ```
 
 The CLI runs both functions on a file, with no route or dev server:
@@ -130,3 +144,35 @@ pnpm vitehub choices run server/utils/forecast-choices.ts "nord parts" --inspect
 ```
 
 `run` prints the selection as JSON. Read [Run Choices](/docs/cli/primitives#run-choices) for `--export` and `--context`.
+
+## Test without a model
+
+`vite-hub/choices/testing` has two gateways that need no key. Pass one as the `gateway` of `defineChoices()`.
+
+`selectionGateway(selection)` returns the selection that you give, by group key and option value. It validates values against the loaded groups without applying model thresholds. Leave a group out to select nothing, even when it has `infer: true`:
+
+```ts [forecast.test.ts]
+import { defineChoices } from 'vite-hub/choices'
+import { selectionGateway, unsupported } from 'vite-hub/choices/testing'
+
+const groups = {
+  chart: { label: 'Chart', multiple: false, options: [{ label: 'Line', value: 'line' }, { label: 'Bar', value: 'bar' }] },
+  supplier: { label: 'Supplier', options: [{ label: 'Vak Supply', value: 'S1' }, { label: 'Nord Parts', value: 'S2' }] },
+} as const
+
+const forecast = defineChoices({
+  gateway: selectionGateway<typeof groups>({ chart: 'bar', supplier: { include: ['S2'], exclude: ['S1'] } }),
+  groups,
+})
+const [, selection] = await forecast.resolve('bar chart for nord parts except vak supply')
+selection?.supplier.include // ['S2']
+
+// DECISIONS_R0004: the options cannot express the text.
+await defineChoices({ gateway: selectionGateway(unsupported), groups }).resolve('price above 100')
+```
+
+A group that you leave out selects nothing. Pass a function, `(text, context) => selection`, to answer from the text and the request `context`. Return `unsupported` for [`DECISIONS_R0004`](/docs/choices/limits-and-errors#decisions_r0004), and throw for [`DECISIONS_R0005`](/docs/choices/limits-and-errors#decisions_r0005). A group key or option value that the groups do not have, or a value in both `include` and `exclude`, also returns `DECISIONS_R0005`, with `DECISIONS_TESTING_SELECTION_INVALID` as its `cause`.
+
+`wordGateway()` answers by word match: it includes an option when the text names its label or an alias as whole words, and excludes one after "except", "not", or "without". A single-select group without `infer` skips excluded options. [Get started](/docs/choices/get-started) uses it. It is not a model, so use it to try the flow, not to ship.
+
+For a failing gateway, pass `scriptedAsk()` from `vite-hub/gateways/testing` with `{ error: 'GATEWAYS_R0008' }`. `resolve()` returns `DECISIONS_R0005` with the gateway's public reason. See [Test without a key](/docs/gateways/server-api#test-without-a-key).

@@ -8,6 +8,7 @@ import { excerpt } from "../internal/comment-person.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { commentThreadKey } from "../internal/comment-selection.ts";
 import { commentTitle, deliveryAttributes } from "../internal/comment-status.ts";
+import { createMotionList, type MotionList } from "../motion/list.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSize, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -327,8 +328,23 @@ export const CommentLayer = defineComponent({
       window.addEventListener("resize", readSidesSoon, { passive: true });
       window.visualViewport?.addEventListener("resize", readSidesSoon, { passive: true });
     });
-    onUpdated(readSides);
+    // The cards in the margin move to their new places with the list mover of the motion layer, when one above them grows,
+    // opens, or goes, and when the page scrolls. It reads where they are after each render, for the next one.
+    let marginList: MotionList | undefined;
+    const moveMargin = () => {
+      const element = layer.value;
+      if (!element) return;
+      if (marginList) marginList.play();
+      else marginList = createMotionList(element, { items: (root) => [...root.querySelectorAll<HTMLElement>("[data-margin-key]")], movesOnly: true });
+      marginList.measure();
+    };
+    onMounted(moveMargin);
+    onUpdated(() => {
+      readSides();
+      moveMargin();
+    });
     onBeforeUnmount(() => {
+      marginList?.destroy();
       cardSizes?.disconnect();
       cancelAnimationFrame(sideFrame);
       window.removeEventListener("resize", readSidesSoon);
@@ -633,6 +649,8 @@ export const CommentLayer = defineComponent({
                   "div",
                   {
                     ...draftColumn,
+                    // The bubble comes out of its pin, as a tooltip comes out of its trigger. In the margin it is a card.
+                    "data-motion-appear": draftColumn ? undefined : "[data-slot=comment-pin]",
                     "data-slot": "comment-layer-popover",
                     style: draftColumn?.style ?? { left: `${placement.left}px`, right: "auto" },
                     ref: (element: unknown) => {

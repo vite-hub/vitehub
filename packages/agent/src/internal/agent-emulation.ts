@@ -32,6 +32,15 @@ function hostContext(context: BuiltInEnvContext): BuiltInEnvContext {
   return env ? { ...context, cloudflare: { env } } : context
 }
 
+/**
+ * The AI emulator origin when `VITEHUB_MODELS=emulate` is set, else undefined. It reads `emulatorUrl()` and
+ * falls back to `http://localhost:4014`, as `emulate()` does. It reads no credentials, so inspection can call it.
+ */
+export function modelEmulatorUrl(context: BuiltInEnvContext = {}): string | undefined {
+  if (!isModelEmulationRequested(context)) return
+  return emulatorUrl(context) ?? "http://localhost:4014"
+}
+
 /** Whether `VITEHUB_MODELS=emulate` is set. It never throws, so inspection can show the switch in every environment. */
 export function isModelEmulationRequested(context: BuiltInEnvContext = {}): boolean {
   return readHostEnv([modelEmulationEnv], hostContext(context)) === "emulate"

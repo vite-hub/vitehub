@@ -192,6 +192,8 @@ const sections = [
   { label: "Accounts", value: "accounts", slot: "accounts" as const },
 ];
 const summary = ref<UsageSummary>();
+const summaryWindow = ref<UsageWindow>(window.value);
+const keptSummary = ref(false);
 const loading = ref(true);
 const error = ref<unknown>();
 const agent = computed(() => String(route.query.agent || ""));
@@ -442,12 +444,13 @@ async function loadPage(page: { cursor: string | undefined; previous: Array<stri
   request = controller;
   loading.value = true;
   error.value = undefined;
+  const requestedWindow = window.value;
   try {
     const result = v.parse(
       usageSummarySchema,
       await requestConsole(props.base, {
         query: {
-          window: window.value,
+          window: requestedWindow,
           ...(agent.value ? { agent: agent.value } : {}),
           ...(status.value !== "all" ? { status: status.value } : {}),
           ...(search.value ? { search: search.value } : {}),
@@ -458,12 +461,19 @@ async function loadPage(page: { cursor: string | undefined; previous: Array<stri
     );
     if (request !== controller) return;
     summary.value = result;
+    summaryWindow.value = requestedWindow;
+    keptSummary.value = false;
     runCursor.value = page.cursor;
     previousCursors.value = page.previous;
     error.value = undefined;
   } catch (value) {
     if (value instanceof Object && "name" in value && value.name === "AbortError") return;
-    if (request === controller) error.value = value;
+    if (request === controller) {
+      error.value = value;
+      // The numbers of another period must not stay next to the error.
+      if (keptSummary.value) summary.value = undefined;
+      keptSummary.value = false;
+    }
   } finally {
     if (request === controller) {
       request = undefined;
@@ -486,10 +496,14 @@ async function loadStatus(): Promise<void> {
 }
 watch(
   [() => props.base, window, agent, status, search],
-  () => {
+  ([base], previous) => {
     runCursor.value = undefined;
     previousCursors.value = [];
-    summary.value = undefined;
+    // Another period or filter keeps the numbers on the page until the new ones arrive, so the headline stays and its
+    // digits roll to the new totals. Another usage endpoint starts empty.
+    if (base !== previous?.[0]) summary.value = undefined;
+    keptSummary.value = Boolean(summary.value);
+    selectedModelName.value = undefined;
     void load();
   },
   { immediate: true },
@@ -503,7 +517,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
     <template #header>
       <ConsolePageHeader title="Usage" :toggle="false">
         <template #right>
-          <span v-if="updatedAt" class="hidden text-xs text-dimmed tabular-nums sm:inline">Updated {{ updatedAt }}</span>
+          <span v-if="updatedAt && !keptSummary" class="hidden text-xs text-dimmed tabular-nums sm:inline">Updated {{ updatedAt }}</span>
           <UButton class="md:hidden" aria-label="Open agent sessions" color="neutral" icon="i-lucide-list" label="Sessions" size="sm" variant="ghost" @click="emit('open-sessions')" />
           <UTooltip text="Refresh usage">
             <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="refresh(); loadStatus();" />
@@ -524,12 +538,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             </div>
           </div>
           <ConsoleState v-if="error" compact :error="error" title="Could not load usage" :retry="load" />
-          <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
+          <p v-if="summary?.partial && !keptSummary" class="flex items-start gap-2 text-xs text-muted" role="status">
             <Icon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             Some usage is unavailable. Recorded totals include only the evidence received.
           </p>
           <!-- The skeleton has the height of the numbers, so they do not push the page down when they arrive. -->
-          <div v-if="!summary && loading" class="usage-headline" role="status" aria-label="Loading usage">
+          <div v-if="loading && (!summary || (keptSummary && (section === 'sessions' || !summary.available)))" class="usage-headline" role="status" aria-label="Loading usage">
             <div v-for="index in 3" :key="index" class="grid gap-1.5">
               <USkeleton class="h-3.5 w-16" />
               <USkeleton class="h-10 w-28" />
@@ -538,7 +552,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </div>
 
           <template v-if="section === 'overview'">
-            <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
+            <UEmpty v-if="summary && !keptSummary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
             <template v-if="summary?.available">
               <!-- Big numbers with small labels. Each one picks the metric of the chart and the ranking below. -->
               <div class="usage-headline" role="group" aria-label="Usage metric">
@@ -557,12 +571,14 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 </button>
               </div>
               <p class="usage-page__caption">
-                {{ windowLabels[window] }} · {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
-                <span v-if="partialChart" class="ms-2 inline-flex items-center gap-1.5 text-default">
+                <span v-if="keptSummary">Previous results · </span>{{ windowLabels[summaryWindow] }} · {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
+                <span v-if="partialChart && !keptSummary" class="ms-2 inline-flex items-center gap-1.5 text-default">
                   <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
                 </span>
               </p>
+            </template>
 
+            <template v-if="summary?.available && !keptSummary">
               <section v-if="metric !== 'sessions' && modelSegments.length > 1" aria-label="Share by model" class="usage-share">
                 <div role="img" :aria-label="`Share of ${metric === 'cost' ? 'spend' : metric} by model: ${breakdownModels.map(model => `${model.model} ${modelShare(model)}`).join(', ')}`" class="usage-share__bar">
                   <span v-for="segment in modelSegments" :key="segment.key" :style="{ flex: `${segment.value} 1 0`, backgroundColor: segment.color }" :title="`${segment.label} · ${formatMetricNumber(segment.value)}`" />
@@ -658,7 +674,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
             </template>
           </template>
           <template v-else-if="section === 'sessions'">
-            <section v-if="summary" aria-labelledby="session-history-heading">
+            <section v-if="summary && !keptSummary" aria-labelledby="session-history-heading">
               <div class="mb-3 flex items-baseline justify-between gap-3">
                 <h2 id="session-history-heading" ref="historyHeading" class="scroll-mt-4 text-sm font-semibold outline-none" tabindex="-1">Session history</h2>
                 <span class="text-xs text-muted">Newest first</span>
@@ -803,18 +819,18 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
         <aside class="usage-filters" aria-label="Usage filters">
           <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search sessions" size="sm" variant="ghost" class="w-full" :ui="{ base: 'text-base sm:text-sm' }" />
           <section aria-labelledby="usage-filter-agents">
-            <h2 id="usage-filter-agents"><span>Agents</span><small v-if="agentRows.length">{{ agentRows.length }}</small></h2>
+            <h2 id="usage-filter-agents"><span>Agents</span><small v-if="!keptSummary && agentRows.length">{{ agentRows.length }}</small></h2>
             <ul>
               <li>
                 <button type="button" :aria-pressed="selectedAgent === 'all'" @click="selectedAgent = 'all'">
                   <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name">All agents</span>
-                  <span class="usage-filters__count">{{ summary?.sessionCount ?? "" }}</span>
+                  <span class="usage-filters__count">{{ keptSummary ? "" : summary?.sessionCount ?? "" }}</span>
                 </button>
               </li>
               <li v-for="row in agentRows" :key="row.agent">
                 <button type="button" :aria-pressed="selectedAgent === `agent:${row.agent}`" @click="selectedAgent = `agent:${row.agent}`">
                   <span class="usage-filters__check" aria-hidden="true" /><span class="usage-filters__name" :title="row.agent">{{ row.agent }}</span>
-                  <span class="usage-filters__count">{{ row.count }}</span>
+                  <span class="usage-filters__count">{{ keptSummary ? "" : row.count }}</span>
                 </button>
               </li>
             </ul>

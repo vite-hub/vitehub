@@ -24,6 +24,23 @@ export function forwardedRequestOrigin(request: Pick<Request, "headers" | "url">
 }
 
 /**
+ * Whether a request came in on one of the public `origins` of the app, such as the origin of `vitehub({ publicUrl })`.
+ * It compares the host that the client used, so a proxy that does not forward the scheme still matches. A loopback
+ * host, such as `localhost:3000` for a preview or a proxy that does not forward the host, also matches: it cannot be a
+ * second public hostname. Every request matches when `origins` is empty.
+ */
+export function matchesPublicOrigin(request: Pick<Request, "headers" | "url">, origins: readonly string[]): boolean {
+  if (origins.length === 0) return true
+  const { host, hostname } = new URL(forwardedRequestOrigin(request))
+  return isLoopbackHostname(hostname) || origins.some(origin => new URL(origin).host === host)
+}
+
+/** `localhost`, `[::1]`, or an IPv4 address in `127.0.0.0/8`. URL parsing writes IPv4 addresses as four decimal parts. */
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname)
+}
+
+/**
  * Whether a browser treats `origin` as secure: `https:`, or `http:` on a loopback host (`localhost`, `*.localhost`,
  * `127.0.0.0/8`, or `[::1]`). A route that answers with a secret, or builds a URL that carries one, needs this.
  */
@@ -32,8 +49,5 @@ export function isSecureOrigin(origin: string): boolean {
   const { protocol, hostname } = new URL(origin)
   if (protocol === "https:") return true
   if (protocol !== "http:") return false
-  const host = hostname.toLowerCase()
-  if (host === "localhost" || host.endsWith(".localhost") || host === "[::1]") return true
-  const octets = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
-  return octets !== null && octets.slice(1).every(octet => Number(octet) <= 255)
+  return isLoopbackHostname(hostname) || hostname.endsWith(".localhost")
 }

@@ -5,6 +5,7 @@ import { defaultExportExpression, objectProperties, scanModule, staticString, st
 
 import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
+import { assertAuthPages } from "./access-pages.ts"
 import { accessRouteSyntaxError } from "./application-path.ts"
 import { discoverAuthAbilities, discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -309,11 +310,33 @@ function readReturnedObject(callback: Expression): ObjectExpression | undefined 
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
+/** The value of a top-level `const name = value`, exported or not. */
+function topLevelConstValue(module: ScannedModule, name: string): Expression | undefined {
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.id.name === name) return declarator.init ? unwrapExpression(declarator.init) : undefined
+    }
+  }
+}
+
+/**
+ * The exported `defineAuth()` call: `export default defineAuth(...)`, or `export default auth` after a top-level
+ * `const auth: AuthDefinition<...> = defineAuth(...)`. A composite TypeScript project needs that annotation when it
+ * cannot write the inferred type of the Definition (TS7056), as with the Better Auth `apiKey()` plugin.
+ */
+function exportedDefineAuthCall(module: ScannedModule): CallExpression | undefined {
+  const exported = defaultExportExpression(module)
+  const call = exported?.type === "Identifier" ? topLevelConstValue(module, exported.name) : exported
+  return call?.type === "CallExpression" && call.callee.type === "Identifier" && call.callee.name === "defineAuth" ? call : undefined
+}
+
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const authDatabase = readAuthDatabaseImports(module)
-  const call = defaultExportExpression(module)
-  if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
+  const call = exportedDefineAuthCall(module)
+  if (!call) return
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
@@ -327,6 +350,7 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   }
   const returned = readReturnedObject(options)
   assertAuthDatabasePlacement(options, returned, authDatabase)
+  assertOneReturnWithPages(options)
   return returned === undefined ? undefined : { authDatabase, body: returned, callback: true, plugins }
 }
 
@@ -513,6 +537,61 @@ function readAuthAccessSignInConfig(body: ObjectExpression | undefined): Pick<Re
   return resolved
 }
 
+/** The build reads only the first return of a callback, so access.pages in any other branch would go unguarded. */
+function assertOneReturnWithPages(options: Expression): void {
+  if (options.type !== "ArrowFunctionExpression" || options.body.type !== "BlockStatement") return
+  const returned: (Expression | null | undefined)[] = []
+  walk(options.body, (node) => {
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+    if (node.type === "ReturnStatement") returned.push(node.argument)
+  })
+  const declaresPages = (argument: Expression | null | undefined) => {
+    const body = objectLiteral(argument ? unwrapExpression(argument) : undefined)
+    if (!hasObjectProperty(body, "access")) return false
+    const access = readObjectPropertyValue(body, "access")
+    const object = objectLiteral(access && unwrapExpression(access))
+    return !object || hasObjectProperty(object, "pages")
+  }
+  if (returned.length > 1 && returned.some(declaresPages)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "A `defineAuth()` callback that sets access.pages must have one `return`, so that the build reads the same pages as every request." })
+  }
+}
+
+/** `access.pages`, which the Nuxt module turns into route rules at build time, like `access.signIn`. */
+function readAuthAccessPagesConfig(body: ObjectExpression | undefined): Pick<ResolvedAuthViteConfig["access"], "pages"> {
+  if (!hasObjectProperty(body, "access")) return {}
+  const expression = readObjectPropertyValue(body, "access")
+  const unwrapped = expression && unwrapExpression(expression)
+  if (unwrapped?.type === "Identifier" && unwrapped.name === "undefined") return {}
+  const access = objectLiteral(unwrapped)
+  // A variable, a call, a spread or a computed key can hide `pages` from the build, while the Definition has it at runtime.
+  if (!access || readObjectEntries(access).some(entry => !entry.key)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access must be an inline object with only static keys, without a spread, so that the build can read access.pages." })
+  }
+  if (!hasObjectProperty(access, "pages")) return {}
+  const value = readObjectPropertyValue(access, "pages")
+  const object = objectLiteral(value && unwrapExpression(value))
+  const entries = readObjectEntries(object)
+  if (!object || entries.some(entry => !entry.key)) {
+    throw authErrorDiagnostics.AUTH_PAGE_ROUTES_INVALID({ message: "`defineAuth()` access.pages must be an inline object literal with string keys, such as `{ '/dashboard/**': 'user' }`." })
+  }
+  // A value that is not a literal reads as `undefined`, which the check reports with its key.
+  const pages = Object.fromEntries(entries.map(({ key, value }) => [key, value && staticValue(value)]))
+  assertAuthPages(pages)
+  return { pages }
+}
+
+/** `components.prefix`, which the Nuxt module reads at build time to name `<AuthPermission>`, like `basePath`. */
+function readAuthComponentsConfig(body: ObjectExpression | undefined): ResolvedAuthViteConfig["components"] {
+  if (!hasObjectProperty(body, "components")) return
+  const components = objectLiteral(readObjectPropertyValue(body, "components"))
+  if (!components || readObjectEntries(components).some(entry => entry.key !== "prefix")) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  if (!hasObjectProperty(components, "prefix")) return
+  const prefix = staticString(readObjectPropertyValue(components, "prefix"))
+  if (!prefix?.trim() || prefix !== prefix.trim()) throw authErrorDiagnostics.AUTH_COMPONENTS_INVALID()
+  return { prefix }
+}
+
 /** The `authDatabase()` call of the `database` option, or undefined for any other value. */
 function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
   const value = readObjectPropertyValue(body, "database")
@@ -588,14 +667,17 @@ export function resolveAuthViteConfig(
 
   const abilities = discoverAuthAbilities(rootDir, discovery)
   const publicRoutes = readAuthAccessPublicConfig(body)
+  const components = readAuthComponentsConfig(body)
   return {
     ...(abilities ? { abilities } : {}),
     access: {
       routes: readAuthAccessRoutesConfig(body),
       ...(publicRoutes.length ? { public: publicRoutes } : {}),
       ...readAuthAccessSignInConfig(body),
+      ...readAuthAccessPagesConfig(body),
     },
     basePath,
+    ...(components ? { components } : {}),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),

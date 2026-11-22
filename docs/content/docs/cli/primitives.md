@@ -392,7 +392,7 @@ The first command's output, with the offline gateway of the [Choices tutorial](/
 ```json [Output]
 {
   "supplier": { "exclude": ["vak"], "include": ["nord"] },
-  "chart": { "confidence": 0.8, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
+  "chart": { "confidence": 0, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
 }
 ```
 

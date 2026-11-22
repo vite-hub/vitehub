@@ -28,6 +28,6 @@ describe("Status styles", () => {
   it("stops the pulse under reduced motion", async () => {
     const { readFile } = await import("node:fs/promises");
     const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\[data-slot="status-indicator"\]\[data-pulse\]::after \{\s*animation: none;/);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\[data-slot="status-indicator"\]\[data-pulse\] \{\s*animation: none;/);
   });
 });

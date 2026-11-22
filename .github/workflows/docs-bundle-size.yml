@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - docs/**
+      - "!docs/evals/**"
+      - "!docs/test/**"
+      - "!docs/DESIGN.md"
       - packages/docs/**
       - packages/ui/**
       - packages/icons/**

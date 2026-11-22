@@ -1,0 +1,9 @@
+/* The kit style family between the base styles and the parts' own layer, as on the ui-sdk page. */
+@layer theme, base, comark, ui-sdk, components, utilities;
+@import "../../../../kit/src/styles/tokens.css";
+@import "../../../../kit/src/styles/default.css";
+@import "../../../styles.css";
+
+/* One part fills the viewport, as the prototype sections do. */
+html, body, #app { height: 100%; margin: 0; }
+body { overflow: hidden; }

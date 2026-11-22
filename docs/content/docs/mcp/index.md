@@ -64,6 +64,8 @@ Use the MCP server when the app must give its own tools to Agents. Install `@vit
 
 Use `defineMcpHooks()` in `server/mcp.ts` to map the caller to the app's own user and to log tool calls.
 
+To ask the person for values during a tool call, call `elicit(form, { message })` from the second argument of the handler and read `[error, answer]`. It works on the dev server and on one-process Node, Bun, or Deno builds, not on Cloudflare Workers or Vercel.
+
 This is not the ViteHub MCP of the Console at `https://console.vitehub.dev/mcp`. Do not add an MCP SDK. Throw an error with a 4xx `status` to tell the Agent what to fix.
 
 Prove it with `vitehub inspect definitions --kind mcp-tool`, then with a real `tools/list` and `tools/call` request to `/mcp`.
