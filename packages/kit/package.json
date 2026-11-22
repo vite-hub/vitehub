@@ -74,7 +74,7 @@
     "nuxt": "catalog:nuxt",
     "playwright-core": "catalog:browser",
     "postcss": "^8.5.29",
-    "postcss-selector-parser": "^7.1.6",
+    "postcss-selector-parser": "^7.2.1",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
