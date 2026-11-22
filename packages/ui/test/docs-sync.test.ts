@@ -4,6 +4,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import * as ui from "../src/index.ts";
+import { WorkspaceFileLink } from "../src/workspace/workspace-file-link.ts";
+import { WorkspaceGuide } from "../src/workspace/workspace-guide.ts";
+import { WorkspaceIssues } from "../src/workspace/workspace-issues.ts";
+import { WorkspaceSteps } from "../src/workspace/workspace-steps.ts";
+import { WorkspaceTask } from "../src/workspace/workspace-task.ts";
 import * as workspace from "../src/workspace.ts";
 
 // Each public component maps to the docs page that documents it. A new component needs a page here.
@@ -157,5 +162,18 @@ describe("UI docs stay in sync with the public components", () => {
       if (event.startsWith("update:")) continue;
       expect(events.has(event), `${page}.md should document the ${event} event of ${name}`).toBe(true);
     }
+  });
+});
+
+// The learn parts of the workspace entry share one page.
+describe("UI docs stay in sync with the learn parts of the workspace", () => {
+  const learnParts = { WorkspaceFileLink, WorkspaceGuide, WorkspaceIssues, WorkspaceSteps, WorkspaceTask };
+
+  it.each(Object.entries(learnParts))("documents every prop and event of %s on workspace-guide.md", (name, component) => {
+    const source = readFileSync(resolve(docsRoot, "workspace-guide.md"), "utf8");
+    const section = source.split(`\n### ${name}\n`)[1]?.split("\n### ")[0] ?? "";
+    expect(section, `workspace-guide.md should have a ${name} section`).not.toBe("");
+    for (const prop of Object.keys(component.props)) expect(section, `${name} prop ${prop}`).toContain(`| \`${prop}\` |`);
+    for (const event of Object.keys(component.emits ?? {})) expect(section, `${name} event ${event}`).toContain(`| \`${event}\` |`);
   });
 });
