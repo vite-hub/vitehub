@@ -79,3 +79,13 @@
 **Decision:** The bundled components use `suspensible: false`. Until they load they render a comment node, which Reka UI skips.
 
 **Consequences:** The parts do not hold back a parent `Suspense`. `test:workspace-parts` opens the start screen inside `Suspense` and fails on console errors.
+
+## Workspace follows only share links in the hash, and asks before they replace edits
+
+`Workspace` in `packages/ui/src/workspace/workspace.ts`.
+
+**Context:** A docs page changes the hash for anchors. A share link decodes asynchronously, so the reader can edit or open another example while it decodes.
+
+**Decision:** A hash without `#code=` keeps the run. A decoded link that arrives after the reader opened another example is dropped. A link that would replace edits asks first, as the examples menu does.
+
+**Consequences:** Every run of a WebContainer runner, including Retry and Restart, waits for the boot before it.

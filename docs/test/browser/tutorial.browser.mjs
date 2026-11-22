@@ -143,6 +143,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.getByRole("button", { name: "Solve" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.locator(".cm-content").filter({ hasText: "defineAgent" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Reset", exact: true }).isEnabled(), true);
     await page.getByRole("button", { name: "Next step" }).click();
 
     await page.locator(".vh-ws-step-nav-count").filter({ hasText: "Step 3 of 4" }).waitFor();

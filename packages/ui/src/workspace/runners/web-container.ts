@@ -76,22 +76,35 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
     let release!: () => void;
     const turn = queue;
     queue = new Promise<void>((resolve) => { release = resolve; });
+    const boots = new Set<Promise<void>>();
+    function inTurn(action: () => Promise<void>): Promise<void> {
+      return turn.then(() => {
+        if (disposed) return;
+        if (workspace.container.value) return action();
+        const boot = workspace.boot();
+        boots.add(boot);
+        const done = () => { boots.delete(boot); };
+        boot.then(done, done);
+        return boot;
+      });
+    }
     let booting: Promise<void> | undefined;
     const ownTurn = () => {
-      booting ??= turn.then(() => disposed ? undefined : workspace.boot());
+      booting ??= inTurn(() => workspace.boot());
       return booting;
     };
+    const restart = () => inTurn(() => workspace.restart());
     if (getCurrentInstance()) onMounted(ownTurn);
     else void ownTurn();
     onScopeDispose(() => {
       disposed = true;
       workspace.teardown();
       if (current.value === workspace) current.value = undefined;
-      void (booting ?? turn).then(release, release);
+      void Promise.allSettled([turn, ...boots]).then(release);
     });
 
     watch(() => store.credentials.value, () => {
-      if (workspace.container.value && workspace.status.value === "ready") void workspace.restart();
+      if (workspace.container.value && workspace.status.value === "ready") void restart();
     });
     const states = computed(() => {
       const result: Partial<Record<ConnectProviderName, ConnectProviderState>> = {};
@@ -114,7 +127,7 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       ];
     });
     const actions = computed<WorkspaceMenuItem[]>(() => [
-      { disabled: !workspace.container.value, icon: "i-lucide-refresh-cw", label: "Restart dev server", onSelect: () => void workspace.restart() },
+      { disabled: !workspace.container.value, icon: "i-lucide-refresh-cw", label: "Restart dev server", onSelect: () => void restart() },
     ]);
 
     return {
@@ -130,7 +143,7 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
         previewPath.value = next.preview ?? "/";
         try { await workspace.setFiles(nextFiles, { mode: "replace" }); }
         catch { return; }
-        await workspace.restart();
+        if (workspace.container.value) await restart();
       },
       tabs,
       panel(tab) {
@@ -141,9 +154,9 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
             online: workspace.online.value,
             status: workspace.status.value,
             steps: workspace.steps.value,
-            onRestart: () => void workspace.restart(),
-            onRetry: () => void workspace.boot(),
-            "onRetry-install": () => void workspace.install(),
+            onRestart: () => void restart(),
+            onRetry: () => void inTurn(() => workspace.boot()),
+            "onRetry-install": () => void inTurn(() => workspace.install()),
             "onShow-output": () => showTab("terminal"),
           }));
         }

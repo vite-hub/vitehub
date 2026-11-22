@@ -52,8 +52,9 @@ const snapshot = prebuilt && (() => fetchSnapshot(prebuilt.parts, { cache: `vite
 
 const baseline = shallowRef<Files>(stepFiles(step.value, "start"))
 const examples = computed<WorkspaceExample[]>(() => [
-  { id: tutorial.slug, label: tutorial.title, files: baseline.value, preview: props.data.preview },
+  { id: tutorial.slug, label: tutorial.title, files: stepFiles(step.value, "start"), preview: props.data.preview },
 ])
+const resetStep = (files: Files) => tutorialWorkspaceFiles(tutorial, files, stepFiles(step.value, "start"))
 const runner = webContainer({ port: props.data.port, snapshot: () => snapshot || undefined })
 type Container = NonNullable<typeof runner.workspace.value>
 const selected = ref(Object.keys(tutorial.steps[step.value]?.files ?? {})[0])
@@ -141,6 +142,7 @@ const guideComponents = { pre: DocsLearnCodePre, DocsLearnFile }
       :guide="data.guide"
       :examples="examples"
       :runner="runner"
+      :reset="resetStep"
       :share="false"
       label="lesson"
     >
