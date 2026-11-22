@@ -1,9 +1,16 @@
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { posix } from "node:path"
 
 import type { BundleGroupKind } from "./types.ts"
 
 const frameworkPackages = new Set(["@unhead/vue", "nuxt-nightly", "@vue/reactivity", "@vue/runtime-core", "@vue/runtime-dom", "@vue/server-renderer", "@vue/shared", "crossws", "h3", "nitro", "nuxt", "ocache", "rou3", "srvx", "unhead", "vue", "vue-router"])
+
+function manifestPackageName(manifestFile: string): string | undefined {
+  if (!existsSync(manifestFile)) return undefined
+  const manifest: unknown = JSON.parse(readFileSync(manifestFile, "utf8"))
+  const name = manifest && typeof manifest === "object" ? Reflect.get(manifest, "name") : undefined
+  return typeof name === "string" ? name : undefined
+}
 
 /** The root-relative id of a module. Dependencies become `node_modules/<package>/<file>`, wherever pnpm stores them. */
 export function moduleId(id: string, root: string, packages: Map<string, string | undefined> = new Map()): string {
@@ -25,13 +32,7 @@ export function moduleId(id: string, root: string, packages: Map<string, string 
     let dir = posix.dirname(clean)
     while (dir !== ".") {
       if (!packages.has(dir)) {
-        let name: string | undefined
-        try {
-          const manifest: unknown = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
-          if (manifest && typeof manifest === "object" && typeof Reflect.get(manifest, "name") === "string") name = Reflect.get(manifest, "name")
-        }
-        catch { }
-        packages.set(dir, name)
+        packages.set(dir, manifestPackageName(`${dir}/package.json`))
       }
       const name = packages.get(dir)
       if (name) return `node_modules/${name}/${posix.relative(dir, clean)}`

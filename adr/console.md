@@ -211,3 +211,13 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** Read tools declare readOnlyHint true and destructiveHint false; run_operation declares destructive.
 
 **Consequences:** Wrong hints make clients prompt for every read or run writes without asking.
+
+## A Console build without the Console page bundles a placeholder page and warns
+
+`vitehub-console-page` plugin `load()` in `packages/console/vite.config.ts`.
+
+**Context:** `pnpm --filter vite-hub build:console-account` builds the Console page. The repository-wide `build` task, the affected-package runner (`test/run-package-task.mjs`), and the Console `typecheck` and `test` scripts all build `@vite-hub/console` without it. A failing build there would make every package build first build the Console page, which is a full Vue app build.
+
+**Decision:** Without the page, the build warns and bundles a placeholder. The `console` CI job builds the page first, and `scripts/host-smoke.mjs` fails when the running Console serves the placeholder, so `console-deploy` never ships it.
+
+**Consequences:** A manual deploy that skips `build:console-account` ships the placeholder with only a build warning. Fail the build when `vitehub console deploy` exists and builds the page itself, or when the repository build gets a separate deploy build of the Console.
