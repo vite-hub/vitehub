@@ -32,7 +32,7 @@ export interface CachingRouteRuleQuery {
    * Returns true when a rule that caches keeps no guarded response, for example because the server does not render
    * the guarded paths of the rule. `applied` holds the route rules of the request method, in the order of the config.
    */
-  exempt?: (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[]) => boolean
+  exempt?: (entry: RouteRuleEntry, applied: readonly RouteRuleEntry[], name: string) => boolean
 }
 
 /** Route rules that keep one response and serve it to many visitors. */
@@ -83,7 +83,7 @@ export async function createCachingRouteRuleFinder(routeRules: RouteRules, toPat
         for (const entry of applied) {
           const value = entry.rules[name]
           if (value === undefined || value === false || !routesOverlap(guarded, entry.pattern)) continue
-          if (applied.some(off => turnsOff(entry, off)) || exempt?.(entry, applied)) continue
+          if (applied.some(off => turnsOff(entry, off)) || exempt?.(entry, applied, name)) continue
           return { key: entry.key, name, method }
         }
       }

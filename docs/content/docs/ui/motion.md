@@ -6,7 +6,7 @@ navigation.group: Parts
 icon: i-lucide-sparkles
 ---
 
-Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
+Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises, the chevron of a `<details>` or an `aria-expanded` control turns. A sidebar that sets `data-motion-panel` follows a spring to its new width when it opens. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
 
 ::example{name="MotionExample" height=8}
 ::
@@ -68,17 +68,25 @@ Use `Progress` for work that runs, `DropField` for files that a person drags in,
 
 `v-ring="done"` rings an element once each time `done` becomes true, for a finished action such as saved or copied. `createViteHubUI()` registers it.
 
+Some motion comes from attributes, with no part:
+
+- `data-motion-appear="<trigger>"` on an element that appears next to its trigger, such as a bubble next to a pin, makes it come out of the trigger as a tooltip does. The value selects the trigger around the element or next to it.
+- `data-motion-chevron` on an element in a `<summary>` or in a control with `aria-expanded` turns it with a spring when the control opens or closes, as the layer does with an icon there. Set its angle for each state in CSS, with no transition.
+- `data-leaving="true"` on a mark that the page removes a moment later folds a copy of it away.
+
 ## Animation
 
 Each part continues from where it is when its value changes again in the middle of its motion. The element keeps the final text for screen readers the whole time, and holds plain text again at the end. With reduced motion turned on in the system, the parts crossfade in 150ms. Inside `data-motion="none"` they change at once.
 
 ## Without Vue
 
-`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `vite-hub/ui/motion` do the same on any element.
+`morphText(element, text)`, `rollNumber(element, value, format?)`, `swapIcon(container, icon, { exit, enter })`, `ring(element)`, `shake(element)` for a box that refuses an action, `travel(element, { from, to })` for a thing that moves to a new place, such as a picture that opens larger, `createMotionList(container)`, `createProgress(host)`, `createDropField(field, options)`, and `createHoldToDelete(button, options)` from `vite-hub/ui/motion` do the same on any element.
 
 ## Accessibility
 
 `MorphText` and `RollNumber` keep the final text in the element while the letters move, so a screen reader reads the new text at once and never a half state. `SwapIcon` is hidden from screen readers: give the control that holds it a label or an `aria-label`. With reduced motion turned on in the system, nothing travels and the parts crossfade in 150ms.
+
+`installMotion(root)` from `@vite-hub/ui/motion` starts the motion layer with every effect, in a shadow root or an element that Vue does not render. A script with its own small bundle, such as a toolbar that you add to other pages, imports `installMotion` from `@vite-hub/ui/motion/core` and lists its effects, so the others stay out of the bundle: `installMotion(shadowRoot, { effects: [pressEffect, appearEffect] })`.
 
 ## API Reference
 

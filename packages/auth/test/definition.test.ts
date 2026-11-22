@@ -123,6 +123,9 @@ describe("defineAuth", () => {
     [{ "/team/:id": "user", "/team/:slug": false }, '"/team/:slug": false'],
     // Vue Router matches pages without case by default, so the key order would decide the mode.
     [{ "/Dashboard": "user", "/dashboard": false }, '"/dashboard": false'],
+    // Vue Router compares the upper case of each character, so `σ` and `ς` match. Nuxt decodes route rule keys.
+    [{ "/σ": "user", "/ς": false }, '"/ς": false'],
+    [{ "/café": "user", "/caf%C3%A9": false }, '"/caf%C3%A9": false'],
     [{ "/team/*": false }, '"/team/*": false'],
     [{ "/a/*/c": "user" }, '"/a/*/c": "user"'],
   ] as const)("rejects the access.pages entry in %j", (pages, entry) => {
