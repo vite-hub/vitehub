@@ -145,11 +145,18 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   )
 }
 
+export function createDiscordGatewayHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+) {
+  const load = lazy(module => module.createDiscordGatewayHandler(agent))
+  return async (request: Request, options: AgentDiscordGatewayRouteOptions) => await (await load())(request, options)
+}
+
 export function createDiscordGatewayRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response> {
-  const load = lazy(module => module.createDiscordGatewayRouteHandler(agent))
-  return async (request, options) => await (await load())(request, options)
+  const handle = createDiscordGatewayHandler(agent)
+  return async (request, options) => await handle(request, options) ?? new Response(null, { status: 204 })
 }
 
 export function createTelegramPollingRouteHandler(

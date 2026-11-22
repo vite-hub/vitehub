@@ -10,6 +10,7 @@ export type { AgentHealthHandlerOptions, AgentHealthReport, AgentHealthStatus } 
 export {
   createChannelChatRouteHandler,
   createChannelWebhookRouteHandler,
+  createDiscordGatewayHandler,
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
   drainInlineChatInvocations,

@@ -14,7 +14,7 @@ import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { agentChannelOperations } from "../src/operations.ts"
-import { createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler, runDiscordGatewayListeners } from "../src/server/internal.ts"
+import { createChannelWebhookRouteHandler, createDiscordGatewayHandler, createDiscordGatewayRouteHandler, runDiscordGatewayListeners } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 import type { AgentRunContext } from "../src/index.ts"
@@ -401,20 +401,26 @@ describe("simulated chat Channels", () => {
 
   it("runs the Gateway listener of a simulated Discord Channel once in a Node process", async () => {
     const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
-    const handler = createDiscordGatewayRouteHandler(agent)
-    const statuses: number[] = []
+    const handler = createDiscordGatewayHandler(agent)
+    const firstRun = Promise.withResolvers<Response | null>()
     let runs = 0
     const stop = runDiscordGatewayListeners({
-      support: async (abortSignal) => {
-        runs++
-        const response = await handler(new Request("http://vitehub.local/_vitehub/agents/support/discord/gateway"), { abortSignal, durationMs: 1 })
-        statuses.push(response.status)
-        return response
+      support: (abortSignal) => {
+        if (++runs === 2) {
+          void stop()
+          return Promise.resolve(null)
+        }
+        const result = handler(new Request("http://vitehub.local/_vitehub/agents/support/discord/gateway"), { abortSignal, durationMs: 1 })
+        void result.then(firstRun.resolve, firstRun.reject)
+        return result
       },
     })
-    await vi.waitFor(() => expect(statuses).toEqual([204]))
-    await new Promise(resolve => setTimeout(resolve, 50))
-    await stop()
+    try {
+      await expect(firstRun.promise).resolves.toBeNull()
+      await new Promise(resolve => setTimeout(resolve, 50))
+    } finally {
+      await stop()
+    }
     expect(runs).toBe(1)
   })
 

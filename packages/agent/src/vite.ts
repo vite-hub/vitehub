@@ -1855,7 +1855,7 @@ async function generateAgentWebhookRouteHandler(
         ]
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("state"))}`] : []),
-    ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler, runDiscordGatewayListeners } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
+    ...(options.processDiscordGateway ? [`import { createDiscordGatewayHandler, runDiscordGatewayListeners } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`] : []),
     ...workflowRuntime.imports,
@@ -1894,7 +1894,7 @@ async function generateAgentWebhookRouteHandler(
           "  })",
           "}",
           "",
-          "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasDiscordGatewayChannel(agent)).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
+          "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasDiscordGatewayChannel(agent)).map(([name, agent]) => [name, createDiscordGatewayHandler(agent)]))",
           `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
           "const discordGatewayDurationMs = Number(process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS || '') || defaultDiscordGatewayDurationMs",
           "",

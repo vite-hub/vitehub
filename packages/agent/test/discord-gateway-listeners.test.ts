@@ -1,27 +1,33 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { runDiscordGatewayListeners } from "../src/server/internal.ts"
+import { runDiscordGatewayListeners } from "../src/server/discord-gateway-listeners.ts"
 
 afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it("does not run a listener again after it answers 204", async () => {
-  const listen = vi.fn(async () => new Response(null, { status: 204 }))
+it("does not run a listener again when there is no Gateway", async () => {
+  let runs = 0
+  const listen = vi.fn(async () => {
+    if (++runs === 2) void stop()
+    return null
+  })
   const stop = runDiscordGatewayListeners({ support: listen }, 10)
   await new Promise(resolve => setTimeout(resolve, 50))
   await stop()
   expect(listen).toHaveBeenCalledTimes(1)
 })
 
-it("runs a listener again when its Gateway connection closes", async () => {
+it.each([200, 204])("runs a listener again when its Gateway connection closes with %i", async (status) => {
+  let runs = 0
   const listen = vi.fn(async () => {
-    await new Promise(resolve => setTimeout(resolve, 5))
-    return new Response(null, { status: 200 })
+    if (++runs === 3) void stop()
+    return new Response(null, { status })
   })
   const stop = runDiscordGatewayListeners({ support: listen }, 60_000)
-  await vi.waitFor(() => expect(listen.mock.calls.length).toBeGreaterThanOrEqual(3))
+  await new Promise(resolve => setImmediate(resolve))
   await stop()
+  expect(listen).toHaveBeenCalledTimes(3)
 })
 
 it("logs a failed listener with a coded diagnostic and runs it again after the retry delay", async () => {

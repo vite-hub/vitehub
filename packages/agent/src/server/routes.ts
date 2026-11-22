@@ -10859,9 +10859,9 @@ export function createTelegramPollingRouteHandler(
   }
 }
 
-export function createDiscordGatewayRouteHandler(
+export function createDiscordGatewayHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response> {
+): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response | null> {
   return async (request, handlerOptions) => {
     if (request.method !== "GET") {
       return createJsonErrorResponse(405, "Discord Gateway route only accepts GET requests.")
@@ -10881,10 +10881,7 @@ export function createDiscordGatewayRouteHandler(
       const adapters = await resolveChatAdapters(chatOptions, context)
       const discordAdapters = resolveDiscordAdapters(adapters)
       const entries = discordAdapters.filter(([, adapter]) => !isSimulatedChatAdapter(adapter))
-      if (entries.length === 0 && discordAdapters.length > 0) {
-        // A simulated Discord Channel has no Gateway: there is nothing to listen to.
-        return new Response(null, { status: 204 })
-      }
+      if (entries.length === 0 && discordAdapters.length > 0) return null
       if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }
