@@ -1,11 +1,15 @@
 import { spawnSync } from "node:child_process"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+import { normalizePath } from "./comments.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "../..")
+const vp = fileURLToPath(new URL("./bin/vp", import.meta.resolve("vite-plus/package.json")))
 
 export function bannedComments(paths) {
-  const result = spawnSync(join(repoRoot, "node_modules/.bin/vp"), ["lint", "-f", "json", ...paths], {
+  const result = spawnSync(process.execPath, [vp, "lint", "--ignore-path", ".gitignore", "-f", "json", ...paths], {
     cwd: repoRoot,
     encoding: "utf8",
     env: { ...process.env, VITEHUB_COMMENT_BASELINE: "off" },
@@ -15,9 +19,10 @@ export function bannedComments(paths) {
   const byFile = new Map()
   for (const diagnostic of JSON.parse(result.stdout).diagnostics) {
     if (diagnostic.code !== "vitehub(no-comments)") continue
-    const spans = byFile.get(diagnostic.filename) ?? []
+    const file = normalizePath(diagnostic.filename)
+    const spans = byFile.get(file) ?? []
     spans.push(diagnostic.labels[0].span)
-    byFile.set(diagnostic.filename, spans)
+    byFile.set(file, spans)
   }
   return byFile
 }
@@ -46,6 +51,11 @@ export function deleteSpans(text, spans) {
       const open = /\{[ \t]*\n[ \t]*$/.exec(out.slice(0, lineStart))
       const close = /^[ \t]*\}/.exec(out.slice(lineStart))
       if (open && close) out = `${out.slice(0, open.index + 1)}${out.slice(lineStart + close[0].length - 1)}`
+    }
+    else if (out.startsWith("/*", offset)) {
+      const lineBreaks = out.slice(offset, end).replace(/[^\r\n\u2028\u2029]/g, "")
+      const separator = lineBreaks || (before && after && !/\s$/.test(before) && !/^\s/.test(after) ? " " : "")
+      out = out.slice(0, offset) + separator + out.slice(end)
     }
     else if (before.trim()) {
       out = out.slice(0, offset).replace(/[ \t]+$/, "") + out.slice(end)

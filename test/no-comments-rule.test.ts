@@ -1,9 +1,10 @@
 import { resolve } from "node:path"
 
 import { RuleTester } from "vite-plus/lint/plugins-dev"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
 
 import plugin from "../scripts/lint/comments.mjs"
+import { deleteSpans } from "../scripts/lint/delete-comments.mjs"
 
 RuleTester.describe = describe
 RuleTester.it = it
@@ -11,10 +12,14 @@ RuleTester.it = it
 const repoRoot = resolve(import.meta.dirname, "..")
 const source = resolve(repoRoot, "packages/example/src/index.ts")
 const tests = resolve(repoRoot, "packages/example/test/index.test.ts")
+const windowsSource = resolve(repoRoot, "packages\\example\\src\\index.ts")
+const windowsFixture = resolve(repoRoot, "packages\\example\\test\\fixtures\\app.ts")
 
 new RuleTester().run("vitehub/no-comments", plugin.rules["no-comments"], {
   valid: [
     { filename: source, code: "/** Opens a store. */\nexport function open() {}" },
+    { filename: windowsSource, code: "/** Opens a store. */\nexport function open() {}" },
+    { filename: windowsFixture, code: "// A fixture comment.\nconst value = 1" },
     { filename: source, code: "export interface Store {\n  /** The store name. */\n  name: string\n}" },
     { filename: source, code: "export interface Store {\n  /** The store name. */\n  // doctor-disable-next-line example-rule -- example reason\n  name: string\n}" },
     { filename: source, code: "export type Mode =\n  /** Reads only. */\n  | \"read\"\n  /** Reads and writes. */\n  | \"write\"" },
@@ -35,5 +40,15 @@ new RuleTester().run("vitehub/no-comments", plugin.rules["no-comments"], {
     { filename: source, code: "const codes = {\n  // A store answered with an error.\n  other: 1,\n}", errors: [{ messageId: "banned" }] },
     { filename: source, code: "// SAFETY: checked.\nconst h = 1\n// A later note.\nconst i = 2", errors: [{ messageId: "banned" }] },
     { filename: source, code: "const j = 1 // trailing note", errors: [{ messageId: "banned" }] },
+    { filename: windowsSource, code: "// A new comment.\nconst value = 1", errors: [{ messageId: "banned" }] },
   ],
+})
+
+describe("deleteSpans", () => {
+  it.each([
+    ["const", "/* note */", "value = 1", "const value = 1"],
+    ["return", "/*\r\nnote */", "1", "return\r\n1"],
+  ])("preserves the separator after %s", (before, comment, after, expected) => {
+    expect(deleteSpans(before + comment + after, [{ offset: before.length, length: comment.length }])).toBe(expected)
+  })
 })
