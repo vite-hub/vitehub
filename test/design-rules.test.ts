@@ -31,6 +31,8 @@ const allowed = [
   // The pages that the server renders before the Console app loads copy the tokens of theme.css, and a test keeps them equal.
   "packages/vite-hub/src/console/standalone-page.ts",
   "docs/app/data/brand-colors.ts",
+  // The brand colors of the languages, for the file icons of the workspace parts.
+  "packages/ui/src/workspace/file-icons.ts",
   "docs/app/examples/",
 ]
 

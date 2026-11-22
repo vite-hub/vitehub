@@ -97,7 +97,7 @@ Object.assign(window, { workspace });
         <button class="vh-ws-button" type="button" :disabled="!workspace.container.value" @click="workspace.restart()">Restart server</button>
       </template>
       <template #files>
-        <WorkspaceFileTree v-model:selected="selected" :paths="paths" :modified="workspace.modified.value" />
+        <WorkspaceFileTree v-model:selected="selected" :paths="paths" :edited="workspace.modified.value" />
       </template>
       <template #editor>
         <WorkspaceEditor v-model="source" :path="selected" />
