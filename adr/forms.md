@@ -100,7 +100,7 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 
 **Decision:** Focus the first invalid field only after nextTick(), once the error element renders.
 
-**Consequences:** Focusing before the render makes screen readers announce the field without its error. `useFormSubmit.send` calls Formisch's `focus()` itself because Formisch's Vue focus runs before that render (open-circle/formisch#271). Drop the manual focus there once Formisch focuses after render.
+**Consequences:** Focusing before the render makes screen readers announce the field without its error.
 
 ## Cancel an oversized body stream without awaiting the cancel, and ignore its rejection
 
@@ -401,13 +401,3 @@ Each entry records a decision that the code cannot show. See [README.md](README.
 **Decision:** The test writes input values through the HTMLInputElement prototype setter, then dispatches an input event.
 
 **Consequences:** Setting `input.value` directly makes the fill a no-op for ui-sdk and the tests fail or pass vacuously.
-
-## Without Rate Limit, Forms counts in the memory of each Worker isolate
-
-`createFormsHandler` in `packages/forms/src/runtime.ts`, `renderFormsHandler` in `packages/forms/src/vite.ts`.
-
-**Context:** A Cloudflare Rate Limit binding needs its name, limit and period (10 s or 60 s) at build time, while Forms reads a policy per form at run time.
-
-**Decision:** When the app uses Rate Limit, the generated handler passes `checkRateLimit` and Forms counts there. Otherwise, or when Rate Limit is unavailable, Forms counts in the memory of the process, which on Workers is one isolate.
-
-**Consequences:** Without Rate Limit, the Workers limit is weak, since each isolate counts on its own. Declaring the `forms` limit as a Cloudflare binding would need build-time policies for every form.
