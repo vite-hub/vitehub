@@ -174,7 +174,6 @@ export function createGitHubClient(repo: string): GitHubClient {
         { signal },
       )).data))
       if (data === undefined) return
-      if (Array.isArray(data)) return
       if (!isRecord(data) || !isRecord(data.object) || !isNonEmptyString(data.object.sha)) throw malformed(repo, "branch")
       return data.object.sha
     },
