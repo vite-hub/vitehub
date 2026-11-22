@@ -1,10 +1,12 @@
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "./discovery.ts"
-import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
+import { isProviderCron, readStaticScheduleCronOption, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
 import { utcCronForTimeZone } from "./internal/time-zone-cron.ts"
+import { parseCronFields } from "./os/cron.ts"
 import { scheduleConsoleTiming } from "./runtime/console.ts"
 
 import type { ViteHubConsoleRecord, ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
@@ -27,13 +29,9 @@ function inspectTimeZone(timeZone: string | null | undefined): string {
 }
 
 function inspectHostCron(cron: string, timeZone: string): ViteHubDefinitionField[] {
-  try {
-    const utcCron = utcCronForTimeZone(cron, timeZone)
-    return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
-  }
-  catch {
-    return []
-  }
+  if (!isIanaTimeZone(timeZone) || !isProviderCron(cron) || !parseCronFields(cron)) return []
+  const utcCron = utcCronForTimeZone(cron, timeZone)
+  return utcCron ? [{ label: "Host cron (UTC)", value: utcCron }] : []
 }
 
 function summarizeScheduleDefinition(
@@ -97,10 +95,8 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
   const crons = new Map<string, string>()
   for (const definition of definitions) {
     if (definition.startable) continue
-    try {
-      for (const [name, cron] of await readRuntimeDefinitionCrons([definition])) crons.set(name, cron)
-    }
-    catch {}
+    const cron = readStaticScheduleCronOption(definition.handler)
+    if (cron) crons.set(definition.name, cron)
   }
   return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons, options.cron))
 }

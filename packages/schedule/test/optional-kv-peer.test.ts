@@ -58,9 +58,6 @@ function workspaceConfig(packageOverrides: Record<string, string>): string {
     "packages:",
     "  - .",
     "overrides:",
-    "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
-    "  \"msgpackr@^2\": \"2.1.0\"",
-    "  msgpackr-extract: \"3.0.4\"",
     ...Object.entries(packageOverrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
     "",
   ].join("\n")
