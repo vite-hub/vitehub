@@ -2,16 +2,17 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { consoleDateTime, consoleInitials, consoleRelativeTime } from "../client/format";
-import { grantSummary, inviteGuest, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession } from "../client/site-access";
+import { grantSummary, inviteGuest, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession, siteStoreText } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
+import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleConfirm from "./console-confirm.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import Icon from "./console-icon.vue";
 
-import type { SiteGrant, SiteInvite, SiteSession } from "../client/site-access";
+import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../client/site-access";
 
 /**
  * Site access: who the Console signs in to the app for the page tools. Members open the site from here, or scan a QR
@@ -30,6 +31,7 @@ const toast = useConsoleToast();
 const sessions = ref<SiteSession[]>([]);
 const invites = ref<SiteInvite[]>([]);
 const grants = ref<SiteGrant[]>([]);
+const store = ref<SiteStore>();
 const loading = ref(true);
 const error = ref<unknown>();
 const now = ref(Date.now());
@@ -47,6 +49,7 @@ async function load(): Promise<void> {
     sessions.value = next.sessions;
     invites.value = next.invites;
     grants.value = next.grants;
+    store.value = next.store;
   }
   catch (cause) {
     if (!controller.signal.aborted) error.value = cause;
@@ -56,6 +59,7 @@ async function load(): Promise<void> {
   }
 }
 
+const storeMissing = computed(() => store.value?.kind === "none" ? Object.assign(new Error(store.value.why), { code: "CONSOLE_TICKET_STORE_MISSING" }) : undefined);
 const guestGrants = computed(() => grants.value.filter(grant => !grant.membersOnly));
 const members = computed(() => sessions.value.filter(pass => pass.kind === "member"));
 const guests = computed(() => sessions.value.filter(pass => pass.kind === "guest"));
@@ -241,9 +245,13 @@ onBeforeUnmount(() => {
         <USkeleton v-for="index in 3" :key="index" class="h-14 w-full" />
       </div>
       <div v-else class="vitehub-console-page grid gap-8">
-        <p class="text-pretty text-[13px] text-muted">
-          The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
-        </p>
+        <div class="grid gap-1.5">
+          <p class="text-pretty text-[13px] text-muted">
+            The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
+          </p>
+          <ConsoleState v-if="storeMissing" compact :error="storeMissing" title="Site access can't make links" :retry="load" />
+          <p v-else-if="store" class="text-pretty text-xs text-dimmed"><ConsoleCodeText :text="siteStoreText(store)" /></p>
+        </div>
 
         <section v-for="group in [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
           <h2 :id="`site-${group.id}`" class="flex items-baseline gap-2 text-[13px] font-semibold text-highlighted">

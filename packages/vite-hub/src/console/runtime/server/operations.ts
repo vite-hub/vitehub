@@ -8,6 +8,7 @@ import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../auth-operations.ts"
+import { siteStoreText } from "../site-access.ts"
 
 import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleMutation } from "@vite-hub/auth/console-runtime"
 import type { AnyOperation, OperationContext, OperationDefinition, OperationKind } from "@vite-hub/internal/operations"
@@ -16,7 +17,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { ConsoleTicket } from "./tickets.ts"
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
+import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../site-access.ts"
 
 // Standalone runtime imports retain every operation; host builds replace these flags before bundling.
 declare global {
@@ -548,12 +549,14 @@ function formatSiteSessions({ sessions }: { sessions: SiteSession[] }): string {
   ])}\n`
 }
 
-function formatSiteInvites({ invites }: { invites: SiteInvite[] }): string {
-  if (!invites.length) return "No open invites.\n"
-  return `${table([
-    ["ID", "NAME", "ROLES", "PATH", "EXPIRES", "BY"],
-    ...invites.map(invite => [invite.id, invite.name, invite.grants.join(","), invite.path, invite.expiresAt, invite.createdBy.name]),
-  ])}\n`
+function formatSiteInvites({ invites, store }: { invites: SiteInvite[], store: SiteStore }): string {
+  const list = invites.length
+    ? table([
+        ["ID", "NAME", "ROLES", "PATH", "EXPIRES", "BY"],
+        ...invites.map(invite => [invite.id, invite.name, invite.grants.join(","), invite.path, invite.expiresAt, invite.createdBy.name]),
+      ])
+    : "No open invites."
+  return `${list}\n${siteStoreText(store)}\n`
 }
 
 function formatSiteGrants({ grants }: { grants: SiteGrant[] }): string {
@@ -608,7 +611,7 @@ const siteOperations = [
   }),
   defineConsoleOperation({
     cli: { format: formatSiteInvites },
-    description: "List the guest invites that nobody opened yet.",
+    description: "List the guest invites that nobody opened yet, and the store that keeps the one-time links: Auth, a Database table, the default KV store, development memory, or none with the cause.",
     input: v.strictObject({}),
     kind: "read",
     name: "site.invites",

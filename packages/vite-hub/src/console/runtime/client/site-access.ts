@@ -4,13 +4,14 @@ import { siteAccessOperations } from "../site-access"
 import { requestConsoleOperation } from "./request"
 import { openConsoleTicket } from "./ticket"
 
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
+import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../site-access"
 import type { ConsoleTicketLink } from "./ticket"
 
-export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
+export type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../site-access"
+export { siteStoreText } from "../site-access"
 
 /** Everything the Site access section shows, read in one go. */
-export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
+export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], store: SiteStore }> {
   const options = signal ? { signal } : {}
   const [sessions, invites, grants] = await Promise.all([
     requestConsoleOperation(siteAccessOperations.sessions, {}, options),
@@ -18,7 +19,7 @@ export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: 
     requestConsoleOperation(siteAccessOperations.grants, {}, options),
   ])
   // SAFETY: These operations answer with the shapes of `server/site-access.ts`.
-  return { sessions: (sessions as { sessions: SiteSession[] }).sessions, invites: (invites as { invites: SiteInvite[] }).invites, grants: (grants as { grants: SiteGrant[] }).grants }
+  return { sessions: (sessions as { sessions: SiteSession[] }).sessions, invites: (invites as { invites: SiteInvite[] }).invites, grants: (grants as { grants: SiteGrant[] }).grants, store: (invites as { store: SiteStore }).store }
 }
 
 /** Opens the app in a new tab, and signs that browser in as you on the way. */

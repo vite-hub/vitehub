@@ -10,7 +10,7 @@ import { getConsoleSections } from "./sections.ts"
 import type { SealKey } from "@vite-hub/env/seal"
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 import type { KVDriversWith } from "@vite-hub/kv"
-import type { SiteSession } from "../site-access.ts"
+import type { SiteSession, SiteStore } from "../site-access.ts"
 
 /** The cookie of a browser that Site access signed in, in an app without Auth. */
 export const consoleSiteCookie: string = "vitehub_site"
@@ -93,9 +93,7 @@ export function setConsoleSiteKV(kv: ConsoleSiteKV | undefined): void {
   installedKV = kv
 }
 
-function storeMissing(why: string): Error {
-  return consoleRequestError(500, `One-time links need a store that every instance of the app shares. ${why}`, "CONSOLE_TICKET_STORE_MISSING")
-}
+const storeMissingPrefix = "One-time links need a store that every instance of the app shares."
 
 const consoleSiteTable = "vitehub_console_site"
 const databaseSiteKVs = new WeakMap<object, { root: string, store: ConsoleSiteKV }>()
@@ -121,23 +119,40 @@ async function databaseSiteKV(name: string, db: object): Promise<ConsoleSiteKV> 
   return store
 }
 
-/**
- * The KV store of tickets without Auth, and of site sessions: the `vitehub_console_site` table of the app's default or
- * only Database, else the app's default KV store when its driver takes a key out atomically. A development server keeps
- * them in memory. Otherwise it fails closed with `CONSOLE_TICKET_STORE_MISSING`, which names the cause.
- */
-export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
-  if (installedKV) return installedKV
-  if (isConsoleDevelopmentRuntime()) return memorySiteKV()
+type ResolvedSiteKV =
+  | { store: Exclude<SiteStore, { kind: "auth" | "none" }>, open: () => Promise<ConsoleSiteKV> }
+  | { store: Extract<SiteStore, { kind: "none" }>, open?: undefined }
+
+async function resolveConsoleSiteKV(): Promise<ResolvedSiteKV> {
+  if (isConsoleDevelopmentRuntime()) return { store: { kind: "memory" }, open: async () => memorySiteKV() }
   const site = consoleState().siteDatabase
   const database = site && "open" in site ? await site.open() : undefined
-  if (database) return await databaseSiteKV(database.name, database.db)
+  if (database) return { store: { kind: "database", name: database.name, table: consoleSiteTable }, open: async () => await databaseSiteKV(database.name, database.db) }
   const kv = getConsoleSections().includes("kv") ? await import("@vite-hub/kv") : undefined
   const driver = await kv?.getKVStoreDriver()
-  if (kv && driver && atomicDrivers.includes(driver)) return kv.kv
-  const store = driver ? `The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.` : "The app has no KV store."
-  if (site && "choices" in site) throw storeMissing(`The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. Set \`console: { siteAccess: { database: "<name>" } }\` to one of them. ${store}`)
-  throw storeMissing(`The app has no Database. ${store}`)
+  if (kv && driver && atomicDrivers.includes(driver)) return { store: { kind: "kv", driver }, open: async () => kv.kv }
+  const kvCause = driver ? `The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.` : "The app has no KV store."
+  const why = site && "choices" in site
+    ? `The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. Set \`console: { siteAccess: { database: "<name>" } }\` to one of them. ${kvCause}`
+    : `The app has no Database. ${kvCause}`
+  return { store: { kind: "none", why: `${storeMissingPrefix} ${why}` } }
+}
+
+/**
+ * Where Site access keeps links and site sessions without Auth, as plain data: memory on a development server, else the
+ * `vitehub_console_site` table of the app's default or only Database, else the app's default KV store when its driver
+ * takes a key out atomically, else `none` with the cause. It reads no row and creates no table.
+ */
+export async function describeConsoleSiteKV(): Promise<SiteStore> {
+  return (await resolveConsoleSiteKV()).store
+}
+
+/** The KV store of tickets without Auth, and of site sessions. Without one, it fails closed with `CONSOLE_TICKET_STORE_MISSING`, which names the cause. */
+export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
+  if (installedKV) return installedKV
+  const resolved = await resolveConsoleSiteKV()
+  if (!resolved.open) throw consoleRequestError(500, resolved.store.why, "CONSOLE_TICKET_STORE_MISSING")
+  return await resolved.open()
 }
 
 function serverEnv(name: string): string | undefined {
@@ -286,9 +301,10 @@ export async function readConsoleSiteVisitor(request: Request): Promise<ViteHubS
   return { ...claims.person, roles: claims.roles }
 }
 
-/** The browsers that Site access signed in without Auth, most recently signed in first. */
+/** The browsers that Site access signed in without Auth, most recently signed in first. None when no store keeps them. */
 export async function listConsoleSiteSessions(known: ReadonlySet<string>): Promise<SiteSession[]> {
-  const kv = await consoleSiteKV()
+  const kv = installedKV ?? await (await resolveConsoleSiteKV()).open?.()
+  if (!kv) return []
   const records = (await consoleSiteEntries(kv, sessionPrefix)).map(({ value }) => readRecord(value))
   return records
     .filter((record): record is SiteRecord => record !== undefined && record.expiresAt > Date.now())

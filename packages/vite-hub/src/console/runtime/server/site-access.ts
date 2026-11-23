@@ -4,11 +4,11 @@ import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarke
 import { readConsoleAccessGrants, readConsoleOperationUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { consoleSiteKV, listConsoleSiteSessions, openConsoleSiteSession, requireConsoleSiteKey, revokeConsoleSiteSession } from "./site-session.ts"
-import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
+import { appBase, appOrigin, authConsole, authFailure, base64url, consoleInvitePrefix, consoleRecordStore, describeConsoleSiteStore, issueConsoleTicket, seeOther, ticketProblem, type ConsoleTicket, type ConsoleTicketRecord } from "./tickets.ts"
 
 import type { ViteHubPageGrant } from "@vite-hub/internal/runtime/page-tools"
 import { siteStateCookie } from "../site-access.ts"
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
+import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../site-access.ts"
 
 /**
  * Site access: the Console signs browsers in to the app, so the page tools work there without a password.
@@ -191,10 +191,13 @@ export async function inviteGuest(context: SiteContext, input: { name: string, g
   return { ...ticket, invite: { id, name, grants, path, expiresAt: ticket.expiresAt, createdBy: { id: user?.id ?? "", name: by } } }
 }
 
-/** `site.invites`: the guest invites that nobody opened yet, newest first. */
-export async function listInvites(context: SiteContext): Promise<{ invites: SiteInvite[] }> {
+/** `site.invites`: the guest invites that nobody opened yet, newest first, and the store that keeps the links. */
+export async function listInvites(context: SiteContext): Promise<{ invites: SiteInvite[], store: SiteStore }> {
   const request = contextRequest(context)
-  const rows = await (await consoleRecordStore(request, isRequestEvent(context.event) ? context.event : undefined)).list(consoleInvitePrefix)
+  const event = isRequestEvent(context.event) ? context.event : undefined
+  const store = await describeConsoleSiteStore(request, event)
+  if (store.kind === "none") return { invites: [], store }
+  const rows = await (await consoleRecordStore(request, event)).list(consoleInvitePrefix)
   const origin = appOrigin(request)
   const base = appBase(request)
   const invites = rows.flatMap(({ value, expiresAt }) => {
@@ -209,7 +212,7 @@ export async function listInvites(context: SiteContext): Promise<{ invites: Site
       createdBy: { id: record.person.id, name: record.person.name ?? record.person.email ?? "Console member" },
     }]
   })
-  return { invites: invites.sort((a, b) => b.expiresAt.localeCompare(a.expiresAt)) }
+  return { invites: invites.sort((a, b) => b.expiresAt.localeCompare(a.expiresAt)), store }
 }
 
 /** `site.revoke-invite`: the link of the invite stops working. */

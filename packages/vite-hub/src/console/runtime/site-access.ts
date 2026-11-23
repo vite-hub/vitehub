@@ -46,3 +46,25 @@ export interface SiteGrant {
   description?: string
   membersOnly?: true
 }
+
+/**
+ * Where Site access keeps its one-time links, and its site sessions in an app without Auth. `auth` is the Better Auth
+ * verification store. `none` has the cause and the fix in `why`: the app cannot make links.
+ */
+export type SiteStore =
+  | { kind: "auth" }
+  | { kind: "database", name: string, table: string }
+  | { kind: "kv", driver: string }
+  | { kind: "memory" }
+  | { kind: "none", why: string }
+
+/** The store in one sentence, such as ``Links and site sessions are kept in Database `default`, table `vitehub_console_site`.`` */
+export function siteStoreText(store: SiteStore): string {
+  switch (store.kind) {
+    case "auth": return "Auth keeps the links in the Better Auth verification store."
+    case "database": return `Links and site sessions are kept in Database \`${store.name}\`, table \`${store.table}\`.`
+    case "kv": return `Links and site sessions are kept in the default KV store, which uses the \`${store.driver}\` driver.`
+    case "memory": return "Links and site sessions are kept in the memory of the development server."
+    case "none": return store.why
+  }
+}

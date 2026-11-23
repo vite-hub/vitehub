@@ -1,5 +1,5 @@
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
-import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
+import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
 
 const hour = 3_600_000
 const day = 24 * hour
@@ -21,6 +21,7 @@ let sessions: SiteSession[] = [
 let invites: SiteInvite[] = [
   { id: "invite-leo", name: "Leo (QA)", grants: ["comments-read", "comments-write", "comments-resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
 ]
+const store: SiteStore = { kind: "database", name: "default", table: "vitehub_console_site" }
 let next = 0
 
 function link(origin: string, minutes: number): { url: string, expiresAt: string } {
@@ -34,7 +35,7 @@ function missing(what: string): ConsoleRpcResult {
 export function siteFixture(origin: string, operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   switch (operation) {
     case "site.sessions": return { ok: true, value: { sessions } }
-    case "site.invites": return { ok: true, value: { invites } }
+    case "site.invites": return { ok: true, value: { invites, store } }
     case "site.grants": return { ok: true, value: { grants } }
     case "site.link": return { ok: true, value: input.qr ? link(origin, 10) : { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() } }
     case "site.invite": {

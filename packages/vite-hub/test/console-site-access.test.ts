@@ -167,7 +167,7 @@ describe("guests", () => {
   it("signs one browser in as a new user with the name and roles, never the Console", async () => {
     const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
     const url = String(Reflect.get(Object(value), "url"))
-    expect((await call("site.invites")).value).toEqual({ invites: [expect.objectContaining({ name: "Ana", grants: ["comments-write"], path: "/" })] })
+    expect((await call("site.invites")).value).toEqual({ invites: [expect.objectContaining({ name: "Ana", grants: ["comments-write"], path: "/" })], store: { kind: "auth" } })
     const { response, cookie } = await open(url, iphone)
     expect(response.status).toBe(303)
     const user = (await signedIn(cookie))?.user
@@ -177,7 +177,7 @@ describe("guests", () => {
     expect(await consoleLink(cookie)).toBe(false)
     // The invite works once, and leaves the list.
     expect((await open(url, chrome)).response.status).toBe(401)
-    expect((await call("site.invites")).value).toEqual({ invites: [] })
+    expect((await call("site.invites")).value).toEqual({ invites: [], store: { kind: "auth" } })
     const sessions = (await call("site.sessions")).value as { sessions: Array<{ id: string, person: object }> }
     expect(sessions.sessions).toEqual([expect.objectContaining({ kind: "guest", person: { id: user!.id, name: "Ana" }, grants: ["comments-write"], device: "Safari · iOS" })])
     // Revoking the guest's browser deletes the guest.
@@ -448,7 +448,7 @@ describe("the vitehub site commands", () => {
     const invited = await vitehub(["site", "invite", "Ana", "--grants", "comments-write"])
     expect(invited.code).toBe(1)
     expect(invited.stderr).toContain("CONSOLE_TICKET_NO_PERSON: An invite records the Console member who made it")
-    expect((await vitehub(["site", "invites"])).stdout).toBe("No open invites.\n")
+    expect((await vitehub(["site", "invites"])).stdout).toBe("No open invites.\nAuth keeps the links in the Better Auth verification store.\n")
   })
 
   it("on a dev server, refuse a sign-in link for the local developer and invite a guest instead", async () => {
@@ -466,7 +466,7 @@ describe("the vitehub site commands", () => {
     expect(url).toMatch(new RegExp(`^${origin}/_vitehub/rpc\\?ticket=vt1_`))
     expect(note).toMatch(/^The link works once, in one browser, until \S+\. Revoke it with `vitehub site revoke-invite \S+`\.$/)
     const invites = await vitehub(["site", "invites"], "dev")
-    expect(invites.stdout).toMatch(/^ID +NAME +ROLES +PATH +EXPIRES +BY\n\S+ +Ana +comments-read,comments-write +\/runs\/42 +\S+ +You\n$/)
+    expect(invites.stdout).toMatch(/^ID +NAME +ROLES +PATH +EXPIRES +BY\n\S+ +Ana +comments-read,comments-write +\/runs\/42 +\S+ +You\nAuth keeps the links in the Better Auth verification store\.\n$/)
 
     // A development server answers only this machine, so the browser that opens the link runs here too.
     const response = await redeemConsoleTicket(requestEvent(new Request(url!, { headers: { "user-agent": chrome } }), { remoteAddress: "127.0.0.1" }))

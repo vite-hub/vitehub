@@ -9,9 +9,10 @@ import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { consoleErrorResult, consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
-import { consoleSiteEntries, consoleSiteKV } from "./site-session.ts"
+import { consoleSiteEntries, consoleSiteKV, describeConsoleSiteKV } from "./site-session.ts"
 
 import type { AuthConsole } from "@vite-hub/auth/console-runtime"
+import type { SiteStore } from "../site-access.ts"
 import type { ConsoleSiteKV } from "./site-session.ts"
 
 /**
@@ -159,6 +160,25 @@ export async function authFailure(error: Parameters<typeof import("./auth.ts").a
   return auth ? auth.authConsoleFailure(error) : error
 }
 
+/** Auth without a shared database answers AUTH_CONSOLE_UNAVAILABLE. Each call decides the same way, so all use one store. */
+function authStoreUnavailable(error: unknown): boolean {
+  return Reflect.get(Object(error), "code") === "AUTH_CONSOLE_UNAVAILABLE"
+}
+
+/**
+ * Where tickets are kept, in the order that the ticket store picks it: Auth, else the store of Site access. It writes
+ * nothing and creates no table.
+ */
+export async function describeConsoleSiteStore(request: Request, event?: ConsoleRequestEvent): Promise<SiteStore> {
+  const api = await authConsole(request, event)
+  if (api) {
+    const [error] = await api.listVerifications(consoleInvitePrefix)
+    if (!error) return { kind: "auth" }
+    if (!authStoreUnavailable(error)) throw await authFailure(error)
+  }
+  return await describeConsoleSiteKV()
+}
+
 /**
  * The shared store of tickets: Better Auth's verification table when the app has Auth with a database. Otherwise the
  * KV store of Site access: the app's default KV store with an atomic `getAndDelete()`, or memory on a development
@@ -170,11 +190,9 @@ async function ticketStore(request: Request, event?: ConsoleRequestEvent): Promi
   const fallback = async (): Promise<ConsoleRecordStore> => kvTicketStore(await consoleSiteKV())
   if (!api) return await fallback()
   const shared = authTicketStore(api)
-  // Auth without a database answers AUTH_CONSOLE_UNAVAILABLE. Each call decides the same way, so both use one store.
-  const unavailable = (error: unknown) => Reflect.get(Object(error), "code") === "AUTH_CONSOLE_UNAVAILABLE"
   const method = <K extends keyof ConsoleRecordStore>(name: K): ConsoleRecordStore[K] => {
     const call = (...args: unknown[]) => Reflect.apply(shared[name], shared, args).catch(async (error: unknown) => {
-      if (unavailable(error)) return Reflect.apply((await fallback())[name] as (...input: unknown[]) => unknown, undefined, args)
+      if (authStoreUnavailable(error)) return Reflect.apply((await fallback())[name] as (...input: unknown[]) => unknown, undefined, args)
       throw error
     })
     // SAFETY: `call` forwards the arguments and the answer of the method with this name.

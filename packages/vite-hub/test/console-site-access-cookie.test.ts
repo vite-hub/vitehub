@@ -21,11 +21,13 @@ import { consoleState } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { resolveConsoleOptions } from "../src/console/vite.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleSiteDatabase } from "../src/console/runtime/server/setup.ts"
 import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-session.ts"
+import { describeConsoleSiteStore } from "../src/console/runtime/server/tickets.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -173,13 +175,20 @@ describe("Site access without Auth", () => {
 
   it("signs a guest in with the roles of the invite, never the Console", async () => {
     const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
-    expect((await call("site.invites")).value).toEqual({ invites: [expect.objectContaining({ name: "Ana", grants: ["comments-write"], path: "/" })] })
+    expect((await call("site.invites")).value).toEqual({ invites: [expect.objectContaining({ name: "Ana", grants: ["comments-write"], path: "/" })], store: { kind: "kv", driver: "redis" } })
     const { cookie } = await open(String(Reflect.get(Object(value), "url")))
     expect(await tools(cookie)).toEqual(["comments"])
     const user = await commentsUser(cookie)
     expect(user).toMatchObject({ name: "Ana", role: "guest,comments-write" })
     expect([commentsRoleAllows(user, "write"), commentsRoleAllows(user, "delete")]).toEqual([true, false])
-    expect((await call("site.invites")).value).toEqual({ invites: [] })
+    expect((await call("site.invites")).value).toEqual({ invites: [], store: { kind: "kv", driver: "redis" } })
+  })
+
+  it("names the store of links and site sessions: the default KV store, or memory on a development server", async ({ onTestFinished }) => {
+    expect(await describeConsoleSiteStore(new Request(origin))).toEqual({ kind: "kv", driver: "redis" })
+    onTestFinished(() => installConsoleDevelopment("/app", false))
+    installConsoleDevelopment("/app", true)
+    expect(await describeConsoleSiteStore(new Request(origin))).toEqual({ kind: "memory" })
   })
 })
 
@@ -243,6 +252,12 @@ describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
     expect((await call("site.revoke-session", { id })).value).toEqual({ revoked: true, removedUser: false })
     expect(await tools(cookie)).toEqual([])
     expect(kv.entries.size).toBe(0)
+  }))
+
+  it("names the Database and table of links and site sessions, and creates no table to do so", () => inD1(async () => {
+    expect(await describeConsoleSiteStore(new Request(origin))).toEqual({ kind: "database", name: "default", table: "vitehub_console_site" })
+    expect(() => d1.rows()).toThrow(/no such table/)
+    expect((await call("site.invites")).value).toEqual({ invites: [], store: { kind: "database", name: "default", table: "vitehub_console_site" } })
   }))
 
   it("keeps links and site sessions out of reach of a KV store with the same name on the same Database", () => inD1(async () => {
@@ -469,6 +484,14 @@ describe("Site access without Auth fails closed", () => {
     installConsoleSections("console-site-cookie", ["site"])
     expect((await call("site.link")).body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING" })
     expect(kv.entries.size).toBe(0)
+  })
+
+  it("names the cause in site.invites and lists no browsers when no store keeps links", async () => {
+    kv.driver = "cloudflare-kv-binding"
+    const why = expect.stringMatching(/^One-time links need a store that every instance of the app shares\. The app has no Database\. The default KV store uses the cloudflare-kv-binding driver/)
+    expect(await describeConsoleSiteStore(new Request(origin))).toEqual({ kind: "none", why })
+    expect((await call("site.invites")).value).toEqual({ invites: [], store: { kind: "none", why } })
+    expect((await call("site.sessions")).value).toEqual({ sessions: [] })
   })
 
   it("refuses a link without VITEHUB_SECRET", async () => {
