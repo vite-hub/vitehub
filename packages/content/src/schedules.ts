@@ -124,7 +124,7 @@ export interface ContentDocumentSchedule {
 type StoredSchedule = Omit<ContentSchedule, "status"> & {
   /** Internal compare-and-swap claim while publishing. */
   running?: string
-  /** Durable fence left by unschedule() when dismissing an expired claim. */
+  /** Left by `unschedule()` of earlier Content versions for an expired claim. `publishDue()` deletes these files. */
   cancelled?: string
 }
 
@@ -363,15 +363,6 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
       if (!entry) return
       if (entry.stored.running && (claimIsActive(entry.stored, Date.now()) || activeClaims.has(entry.stored.running))) throw invalid(`Schedule ${JSON.stringify(id)} is currently publishing; try again after it finishes.`)
       found = true
-      if (entry.stored.running) {
-        // Keep a durable tombstone so a publisher that outlived its lease
-        // cannot settle the schedule after cancellation succeeds.
-        return {
-          put: { [entry.path]: render({ ...entry.stored, running: undefined, cancelled: entry.stored.running }) },
-          message: options.message ?? `Unschedule ${entry.stored.at}`,
-          metadata: host.metadata(options.metadata, { action: "unschedule", schedule: id, documents: entry.stored.expect.map(({ collection, id: documentId }) => ({ collection, id: documentId })) }),
-        }
-      }
       return {
         delete: [entry.path],
         message: options.message ?? `Unschedule ${entry.stored.at}`,
@@ -383,13 +374,28 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     }
   }
 
+  /** Delete the cancelled files that `unschedule()` of earlier Content versions kept for expired claims. */
+  async function removeCancelled(): Promise<void> {
+    await commit(({ entries }) => {
+      const cancelled = [...entries.values()].filter(({ stored }) => stored.cancelled)
+      if (!cancelled.length) return
+      return {
+        delete: cancelled.map(({ path }) => path),
+        message: `Remove ${cancelled.length} cancelled schedule${cancelled.length === 1 ? "" : "s"}`,
+        metadata: { content: { action: "schedules-removed", schedules: cancelled.map(({ stored }) => stored.id) } },
+      }
+    })
+  }
+
   async function publishDue(options: ContentPublishDueOptions = {}): Promise<ContentPublishDueResult> {
     if (!isOptionsObject(options)) throw invalid("publishDue() options must be an object.")
     if (options.now !== undefined && (Object.prototype.toString.call(options.now) !== "[object Date]" || Number.isNaN(Number(options.now)))) {
       throw invalid("publishDue({ now }) must be a valid Date.")
     }
     const now = options.now === undefined ? Date.now() : Number(options.now)
-    const due = [...(await read()).entries.values()]
+    const state = await read()
+    if ([...state.entries.values()].some(({ stored }) => stored.cancelled)) await removeCancelled()
+    const due = [...state.entries.values()]
       .filter(({ stored }) => !stored.failure && !stored.cancelled && Date.parse(stored.at) <= now)
       .sort((left, right) => left.stored.at.localeCompare(right.stored.at))
     const result: ContentPublishDueResult = { published: [], failed: [] }
