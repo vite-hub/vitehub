@@ -94,11 +94,15 @@ async function memberAccess(project: { id: string, teamId: string }, userId: str
   return member && { person: member.person, roles: siteMemberRoles(member.policy) }
 }
 
+async function guestRoles(project: { id: string, teamId: string }, inviter: string, roles: readonly string[]): Promise<string[]> {
+  const policy = (await memberPolicy(project, inviter))?.policy
+  const allowed = new Set(policy?.roles.filter(role => !role.membersOnly).map(role => role.id))
+  return roles.filter(role => allowed.has(role))
+}
+
 async function guestAccess(project: { id: string, teamId: string }, grant: ConsoleSiteGrantRow): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
-  const inviter = await memberPolicy(project, grant.createdBy)
-  const allowed = new Set(inviter?.policy.roles.filter(role => !role.membersOnly).map(role => role.id))
   const guest = siteGuest(grant)
-  const roles = guest.roles.filter(role => allowed.has(role))
+  const roles = await guestRoles(project, grant.createdBy, guest.roles)
   return roles.length ? { person: guest.person, roles } : undefined
 }
 
@@ -151,9 +155,13 @@ export async function openSiteLink(request: Request, kind: "invite" | "code"): P
     kind,
     secret,
     userAgent: request.headers.get("user-agent") ?? "",
-    allow: async link => link.kind === "invite" || (link.userId !== null && Boolean(await memberAccess({ id: link.projectId, teamId: link.teamId }, link.userId))),
+    allow: async (link) => {
+      const project = { id: link.projectId, teamId: link.teamId }
+      if (link.kind === "invite") return (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
+      return link.userId !== null && Boolean(await memberAccess(project, link.userId))
+    },
   })
-  if (opened === "forbidden") return linkProblem(403, "The person of this code can no longer open this site from the Console.")
+  if (opened === "forbidden") return linkProblem(403, `The person of this ${what} can no longer give access to this site from the Console.`)
   const [project] = opened ? await db.select().from(consoleProjects).where(eq(consoleProjects.id, opened.projectId)).limit(1) : []
   if (opened && project) {
     const headers = new Headers()

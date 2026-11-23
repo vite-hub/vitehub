@@ -153,11 +153,11 @@ export function qrCode(url: string): string {
 }
 
 /**
- * What a browser may do, in words: `Console and every page tool` for a member, else the labels of its grants, such as
- * `Read comments, Write comments`. Grants the catalogue does not know keep their id.
+ * What a browser may do, in words: the labels of its grants, such as `Read comments, Write comments`, or for a member of
+ * an app that keeps Site access itself, `Console and every page tool`. Grants the catalogue does not know keep their id.
  */
 export function grantSummary(kind: "member" | "guest", grants: readonly string[], catalogue: readonly SiteGrant[]): string {
-  if (kind === "member") return "Console and every page tool"
+  if (kind === "member" && !usesConsoleSiteAccess()) return "Console and every page tool"
   const labels = grants.map(id => catalogue.find(grant => grant.id === id)?.label ?? id)
   return labels.length ? labels.join(", ") : "Nothing"
 }

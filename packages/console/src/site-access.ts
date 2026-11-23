@@ -292,6 +292,7 @@ export interface ConsoleSiteLinkOwner {
   teamId: string
   kind: "invite" | "code"
   userId: string | null
+  roles: string[] | null
   createdBy: string
 }
 
@@ -311,7 +312,7 @@ export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: "i
   const { link, teamId } = found
   const person = kind === "code" && link.userId ? await siteMember(db, { teamId }, link.userId) : undefined
   if (kind === "code" && !person) return "forbidden"
-  if (input.allow && !await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, createdBy: link.createdBy })) return "forbidden"
+  if (input.allow && !await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
   const pass = newSecret()
   const grant: ConsoleSiteGrantRow = {
     id: crypto.randomUUID(),

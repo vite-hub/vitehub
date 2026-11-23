@@ -252,6 +252,18 @@ describe("Site access in the Console", () => {
     expect((await codePage.fetch(new Request(String(code.body.url)))).status).toBe(303)
   })
 
+  it("checks the app policy of the inviter before it uses an invite", async () => {
+    const { api } = await setup()
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"] })
+    app.answer = { ok: true, value: { write: true, roles: commentRoles.slice(0, 1) } }
+    const refused = await invitePage.fetch(new Request(String(created.body.url)))
+    expect(refused.status).toBe(403)
+    expect(refused.headers.getSetCookie()).toEqual([])
+    expect((await api("GET", "")).body.invites).toMatchObject([{ name: "Grace" }])
+    app.answer = { ok: true, value: { write: true, roles: commentRoles } }
+    expect((await invitePage.fetch(new Request(String(created.body.url)))).status).toBe(303)
+  })
+
   it("applies the current app policy of the inviter before each guest token", async () => {
     const { api } = await setup()
     const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"] })

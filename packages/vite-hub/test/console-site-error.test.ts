@@ -66,6 +66,13 @@ it("opens the app's /_vitehub/site in a new tab, which signs in through the Cons
   await vi.waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/site?return=%2F&project=p-1"))
 })
 
+it("shows the roles of the last token of a member browser", async () => {
+  const session = { id: "s-1", kind: "member", person: { id: "u-1", name: "Ada" }, grants: ["console", "comments-read"], device: "Phone", createdAt: "2026-11-23T00:00:00.000Z", lastSeenAt: "2026-11-23T00:00:00.000Z", expiresAt: "2026-11-30T00:00:00.000Z" }
+  const { container } = mountSite(async () => Response.json({ ...overview, sessions: [session] }))
+  await vi.waitFor(() => expect(container.textContent).toContain("Phone · Console, Read comments"))
+  expect(container.textContent).not.toContain("every page tool")
+})
+
 it.each([
   { action: "Link a phone", path: "/api/projects/p-1/site/codes", payload: {}, scope: "main" },
   { action: "Invite someone", path: "/api/projects/p-1/site/invites", payload: { name: "Ana", grants: ["comments-read"], expiresInDays: 7 }, scope: "[role=dialog]" },
