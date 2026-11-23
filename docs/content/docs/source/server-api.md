@@ -251,7 +251,7 @@ export const articles = defineCollection({
 | --- | --- |
 | `filters` | Fields a client can filter by. `?category=guide` ignores case. A repeated key matches any value. `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. A `Date` matches its ISO string. |
 | `search` | Fields that `?search=` matches as a substring, ignoring case. Without it, a non-empty `search` returns `400`. |
-| `facets` | Fields counted into `page.facets` as `{ value, count }` lists over all matches. |
+| `facets` | Fields counted into `page.facets` as `{ value, count }` lists over all matches, ordered by count descending with ties broken by the same string order as `sort`. |
 | `sort` | Field and direction. Numbers sort by value, `Date` by time, and strings in UTF-16 code unit order after folding common Latin letters and accents (breaking ties with the original string). Omit it to keep the array order. |
 | `key` | Field that `collection.get(key)` matches in server code. |
 | `schema` | Standard Schema for one item. Each item is checked on load, and the output type is the item type. |
