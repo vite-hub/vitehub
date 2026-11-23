@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
 import { dirname, relative, resolve } from "node:path"
-import { keyName, type Node } from "@vite-hub/internal/ast"
+import { keyName, parseProgram, type Node } from "@vite-hub/internal/ast"
+import { viteHubServerImportSources } from "@vite-hub/internal/nuxt-server-imports"
 import * as v from "valibot"
 import { importOptionalOwner } from "../internal/optional-owners.ts"
 import { configObject } from "./config-object.ts"
@@ -20,6 +21,8 @@ const definitionSchema = v.object({
   manual: v.optional(v.boolean()),
   imports: v.optional(v.array(v.string())),
 })
+const serverImportOriginsSchema = v.record(v.string(), v.object({ name: v.string(), source: v.string() }))
+const defaultServerImportOrigins = Object.fromEntries(Array.from(viteHubServerImportSources, ([name, source]) => [name, { name, source }]))
 const inventorySchema = v.object({
   /** Definitions that each owner package discovers. A kind is missing when its discovery failed. */
   definitions: v.record(v.string(), v.array(definitionSchema)),
@@ -29,14 +32,14 @@ const inventorySchema = v.object({
   serverDirs: v.optional(v.array(v.string())),
   /** Direct dependencies whose installed `package.json` needs `@nuxthub/core`. */
   nuxtHubDependents: v.optional(v.array(v.object({ name: v.string(), field: v.picklist(["peerDependencies", "dependencies"]) }))),
-  nuxtServerAutoImports: v.optional(v.boolean()),
+  nuxtServerAutoImports: v.optional(serverImportOriginsSchema),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
   serverDirs?: string[]
   nuxtHubDependents?: NuxtHubDependent[]
-  nuxtServerAutoImports?: boolean
+  nuxtServerAutoImports?: v.InferOutput<typeof serverImportOriginsSchema>
 }
 /** A dependency that lists `@nuxthub/core` in `field`, so installing it also installs NuxtHub. */
 export type NuxtHubDependent = { name: string, field: "peerDependencies" | "dependencies" }
@@ -187,8 +190,7 @@ function nuxtConfigLayers(project: ProjectInfo): ConfigValue[] {
   return read(root, known)
 }
 
-function configuredServerAutoImports(project: ProjectInfo): boolean {
-  const layers = nuxtConfigLayers(project)
+function configuredServerAutoImports(layers: ConfigValue[]): boolean {
   const option = (configs: ConfigValue[], key: string) => layerOptions(configs, key)[0]
   const experimental = option(layerOptions(layers, "experimental"), "nitroAutoImports")
   const legacy = layerOptions(layers, "nitroLegacy")
@@ -203,6 +205,27 @@ function configuredServerAutoImports(project: ProjectInfo): boolean {
   if (nitroImports[0] === unknownConfig || configBoolean(nitroImports[0]) === false) return false
   const autoImport = option(nitroImports, "autoImport") ?? option(layerOptions(layers, "imports"), "autoImport")
   return autoImport === undefined || configBoolean(autoImport) === true
+}
+
+function readNuxtServerImportOrigins(root: string, layers: ConfigValue[]): ViteHubInventory["nuxtServerAutoImports"] {
+  const directory = layerOptions(layers, "typesDir")[0] ?? layerOptions(layers, "buildDir")[0]
+  if (directory !== undefined && (directory === unknownConfig || directory.type !== "StringLiteral")) return
+  const file = resolve(root, directory?.value ?? ".nuxt", "types/server-imports.mjs")
+  try {
+    const { program } = parseProgram(readFileSync(file, "utf8"), { typescript: false })
+    return Object.fromEntries(program.body.flatMap((statement) => {
+      if (statement.type !== "ExportNamedDeclaration" || !statement.source) return []
+      const source = statement.source.value
+      return statement.specifiers.flatMap((specifier) => {
+        if (specifier.type !== "ExportSpecifier") return []
+        const name = keyName(specifier.exported)
+        return name ? [[name, { name: specifier.local.name, source }] as const] : []
+      })
+    }))
+  }
+  catch {
+    return undefined
+  }
 }
 
 const describeSchema = v.object({
@@ -306,12 +329,16 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
       env = undefined
     }
     const nuxtHubDependents = readNuxtHubDependents(root)
+    const layers = project.framework === "nuxt" ? nuxtConfigLayers(project) : []
+    const nuxtServerAutoImports = configuredServerAutoImports(layers)
+      ? readNuxtServerImportOrigins(root, layers) ?? defaultServerImportOrigins
+      : undefined
     return {
       definitions,
       serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
       ...(env ? { env } : {}),
       ...(nuxtHubDependents.length ? { nuxtHubDependents } : {}),
-      ...(project.framework === "nuxt" && configuredServerAutoImports(project) ? { nuxtServerAutoImports: true } : {}),
+      ...(nuxtServerAutoImports ? { nuxtServerAutoImports } : {}),
     } satisfies ViteHubInventory
   },
 }

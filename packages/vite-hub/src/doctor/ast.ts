@@ -2,7 +2,6 @@ import * as v from "valibot"
 import type { RuleContext, ScriptVisitor } from "vite-doctor/extension"
 
 import { viteHubInventory } from "./inventory.ts"
-import { viteHubServerImports } from "../nuxt-server-imports.ts"
 
 /** A script AST node from oxc-parser. */
 export type AstNode = { type: string, [key: string]: unknown }
@@ -328,11 +327,6 @@ export function scopeIndex(ctx: RuleContext): ScopeIndex {
   return index
 }
 
-/** Auto-imports that `vite-hub/nuxt` registers for Nitro server code when the Nuxt config turns on server auto-imports. */
-const nuxtServerAutoImports = new Map<string, ImportOrigin>(
-  Object.values(viteHubServerImports).flatMap(sources => Object.entries(sources).flatMap(([source, names]) => names.map((name: string): [string, ImportOrigin] => [name, { source, name }]))),
-)
-
 export function isServerFile(path: string): boolean {
   return /(?:^|\/)server\//.test(path)
 }
@@ -362,9 +356,9 @@ export function resolver(ctx: RuleContext): Resolver {
   const cached = root ? resolvers.get(root) : undefined
   if (cached && cached.ctx.file.path === ctx.file.path) return cached
   const scopes = scopeIndex(ctx)
-  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath) && viteHubInventory(ctx).nuxtServerAutoImports
-    ? nuxtServerAutoImports
-    : new Map<string, ImportOrigin>()
+  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath)
+    ? viteHubInventory(ctx).nuxtServerAutoImports
+    : undefined
 
   function binding(node: unknown) {
     const target = unwrap(node)
@@ -374,7 +368,7 @@ export function resolver(ctx: RuleContext): Resolver {
   function originOf(node: Identifier, seen: Set<Binding>): { origin: ImportOrigin, rest: string[] } | undefined {
     const found = scopes.lookup(node, node.name)
     if (!found) {
-      const auto = autoImports.get(node.name)
+      const auto = autoImports && Object.hasOwn(autoImports, node.name) ? autoImports[node.name] : undefined
       return auto ? { origin: auto, rest: [] } : undefined
     }
     if (found.origin) return { origin: found.origin, rest: [] }

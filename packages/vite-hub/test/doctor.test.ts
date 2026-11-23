@@ -232,6 +232,15 @@ describe("vitehub/destructure-result-tuples", () => {
     })).toEqual(["VHUB0003"])
   })
 
+  it("uses Nuxt's resolved server imports for names that the app owns", async () => {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
+      ".nuxt/types/server-imports.mjs": "export { kv } from '../../server/utils/kv';\n",
+      "server/utils/kv.ts": "export const kv = { async set() { return 'app-kv' } }\n",
+      "server/api/local.get.ts": "export default async () => ({ value: await kv.set() })\n",
+      "server/api/explicit.post.ts": 'import { kv } from "vite-hub/kv"\nexport default async () => { await kv.set("key", "value") }\n',
+    })).toEqual(["VHUB0003"])
+  })
+
   it.each([
     ["no switch", "export default defineNuxtConfig({})\n", []],
     ["experimental.nitroAutoImports", nuxtServerAutoImportsConfig, ["VHUB0003"]],
