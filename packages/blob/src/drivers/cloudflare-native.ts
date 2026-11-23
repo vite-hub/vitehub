@@ -151,6 +151,8 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
 }
 
+const r2MaximumListLimit = 1000
+
 function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
   if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
@@ -225,14 +227,24 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       return object ? mapObject(object) : null
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
+      const limit = listOptions.limit ?? r2MaximumListLimit
       const result = await getBucket(options).list({
         cursor: listOptions.cursor,
         delimiter: listOptions.folded ? "/" : undefined,
         include: ["customMetadata", "httpMetadata"],
-        limit: listOptions.limit ?? 1000,
+        limit: Math.min(Math.max(limit, 1), r2MaximumListLimit),
         prefix: listOptions.prefix,
       })
       assertListPageCursor(result)
+      if (limit === 0) {
+        const hasMore = Boolean(result.truncated || result.objects.length || result.delimitedPrefixes?.length)
+        return {
+          blobs: [],
+          cursor: hasMore ? listOptions.cursor : undefined,
+          folders: listOptions.folded ? [] : undefined,
+          hasMore,
+        }
+      }
       return {
         blobs: result.objects.map(mapObject),
         cursor: result.truncated ? result.cursor : undefined,
