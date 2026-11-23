@@ -101,11 +101,11 @@ function statFromEntry(entry: ShellStat | ShellEntry): FsStat {
   }
 }
 
-async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string, to: string) {
+async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string, to: string): Promise<string[]> {
   const source = await workspace.stat(from)
   if (source.type === "file") {
     await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
-    return
+    return [to]
   }
 
   const entries = await workspace.list(from, { recursive: true })
@@ -122,13 +122,13 @@ async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string
     const relativePath = from ? entry.path.slice(from.length + 1) : entry.path
     await workspace.writeFile(posix.join(to, relativePath), await workspace.readFile(entry.path, { encoding: "binary" }))
   }
+  return [to, ...entries.map(entry => posix.join(to, from ? entry.path.slice(from.length + 1) : entry.path))]
 }
 
 class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   readonly writeFs: boolean
-  #paths = [workspaceMountPoint]
-  #refreshPromise: Promise<void> | undefined
-  #refreshAgain = false
+  #paths: Set<string> | undefined
+  #pathsUpdate: Promise<Set<string>> | undefined
 
   constructor(
     private readonly workspace: ReadonlyShellWorkspace | WritableShellWorkspace,
@@ -150,8 +150,9 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   async writeFile(path: string, content: FileContent, options?: WriteFileOptions | BufferEncoding): Promise<void> {
     const workspace = this.#requireWritable()
     const encoding = typeof options === "string" ? options : options?.encoding
-    await workspace.writeFile(this.#toRelativePath(path), encoding ? toShellContent(content, encoding) : content)
-    await this.#refreshPaths()
+    const relativePath = this.#toRelativePath(path)
+    await workspace.writeFile(relativePath, encoding ? toShellContent(content, encoding) : content)
+    await this.#trackPaths({ added: [relativePath] })
   }
 
   async appendFile(path: string, content: FileContent, options?: WriteFileOptions | BufferEncoding): Promise<void> {
@@ -167,7 +168,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     merged.set(current, 0)
     merged.set(next, current.byteLength)
     await workspace.writeFile(relativePath, merged)
-    await this.#refreshPaths()
+    await this.#trackPaths({ added: [relativePath] })
   }
 
   async exists(path: string): Promise<boolean> {
@@ -197,7 +198,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
       throw shellErrorDiagnostics.SHELL_R0023({ message: `[vitehub] Workspace directory already exists: "${path}".` })
     }
     await workspace.mkdir(relativePath, { recursive: options?.recursive })
-    await this.#refreshPaths()
+    await this.#trackPaths({ added: [relativePath] })
   }
 
   async readdir(path: string): Promise<string[]> {
@@ -221,14 +222,14 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   async rm(path: string, options?: RmOptions): Promise<void> {
     const workspace = this.#requireWritable()
-    await workspace.rm(this.#toRelativePath(path), { force: options?.force, recursive: options?.recursive })
-    await this.#refreshPaths()
+    const relativePath = this.#toRelativePath(path)
+    await workspace.rm(relativePath, { force: options?.force, recursive: options?.recursive })
+    await this.#trackPaths({ removed: relativePath })
   }
 
   async cp(src: string, dest: string, _options?: CpOptions): Promise<void> {
     const workspace = this.#requireWritable()
-    await copyWorkspacePath(workspace, this.#toRelativePath(src), this.#toRelativePath(dest))
-    await this.#refreshPaths()
+    await this.#trackPaths({ added: await copyWorkspacePath(workspace, this.#toRelativePath(src), this.#toRelativePath(dest)) })
   }
 
   async mv(src: string, dest: string): Promise<void> {
@@ -242,9 +243,9 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     if (!from || to.startsWith(`${from}/`)) {
       throw shellErrorDiagnostics.SHELL_R0022({ message: `[vitehub] Cannot move Workspace path "${src}" into itself, "${dest}".` })
     }
-    await copyWorkspacePath(workspace, from, to)
+    const added = await copyWorkspacePath(workspace, from, to)
     await workspace.rm(from, { recursive: true, force: true })
-    await this.#refreshPaths()
+    await this.#trackPaths({ added, removed: from })
   }
 
   resolvePath(base: string, path: string): string {
@@ -269,7 +270,8 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   getAllPaths(): string[] {
-    return [...this.#paths]
+    if (!this.#paths) return [workspaceMountPoint]
+    return [workspaceMountPoint, ...[...this.#paths].map(path => `${workspaceMountPoint}/${path}`).sort((left, right) => left.localeCompare(right))]
   }
 
   async chmod(_path: string, _mode: number): Promise<void> {
@@ -323,26 +325,33 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     return absolutePath.slice(`${workspaceMountPoint}/`.length).replace(/\/$/, "")
   }
 
-  async #refreshPaths() {
-    this.#refreshAgain = true
-    this.#refreshPromise ||= Promise.resolve().then(async () => {
-      try {
-        do {
-          this.#refreshAgain = false
-          const entries = await this.workspace.list("", { recursive: true })
-          this.#paths = [
-            workspaceMountPoint,
-            ...entries
-              .map(entry => entry.path ? `${workspaceMountPoint}/${entry.path}` : workspaceMountPoint)
-              .sort((left, right) => left.localeCompare(right)),
-          ]
-        } while (this.#refreshAgain)
+  async #trackPaths(change: { added?: readonly string[], removed?: string }) {
+    const update = (this.#pathsUpdate ?? this.#listAllPaths()).then((paths) => {
+      if (change.removed) {
+        for (const path of paths) {
+          if (path === change.removed || path.startsWith(`${change.removed}/`)) paths.delete(path)
+        }
       }
-      finally {
-        this.#refreshPromise = undefined
+      for (const path of change.added ?? []) {
+        const segments = path.split("/").filter(Boolean)
+        for (let index = 1; index <= segments.length; index += 1) paths.add(segments.slice(0, index).join("/"))
       }
+      this.#paths = paths
+      return paths
     })
-    await this.#refreshPromise
+    this.#pathsUpdate = update
+    try {
+      await update
+    }
+    catch (error) {
+      if (this.#pathsUpdate === update) this.#pathsUpdate = undefined
+      throw error
+    }
+  }
+
+  async #listAllPaths() {
+    const entries = await this.workspace.list("", { recursive: true })
+    return new Set(entries.map(entry => entry.path).filter(Boolean))
   }
 }
 

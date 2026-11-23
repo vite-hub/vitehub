@@ -895,6 +895,23 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(await fs.readdir("/workspace")).toEqual(["first.md", "second.md"])
   })
 
+  it("lists the Workspace once and keeps its paths current through each change", async () => {
+    const workspace = new MemoryWorkspace({ "docs/a.md": "a", "docs/guide/b.md": "b", "old/c.md": "c", "keep.md": "k" })
+    const list = vi.spyOn(workspace, "list")
+    const fs = createWritableWorkspaceFs(workspace)
+    for (let index = 0; index < 20; index += 1) await fs.writeFile(`/workspace/out/file-${index}.txt`, "x")
+    await fs.appendFile("/workspace/out/file-0.txt", "y")
+    await fs.mkdir("/workspace/empty/deep", { recursive: true })
+    await fs.cp("/workspace/docs", "/workspace/copy")
+    await fs.cp("/workspace/keep.md", "/workspace/copy/keep.md")
+    await fs.mv("/workspace/old", "/workspace/moved")
+    await fs.rm("/workspace/docs/guide", { recursive: true })
+    await fs.rm("/workspace/missing.md", { force: true })
+    expect(list.mock.calls.filter(([path, options]) => path === "" && options?.recursive)).toHaveLength(1)
+    const listed = (await workspace.list("", { recursive: true })).map(entry => `/workspace/${entry.path}`)
+    expect(fs.getAllPaths()).toEqual(["/workspace", ...listed.sort((left, right) => left.localeCompare(right))])
+  })
+
   it("can refresh paths after a listing fails", async () => {
     const workspace = new MemoryWorkspace({})
     const fs = createWritableWorkspaceFs(workspace)
