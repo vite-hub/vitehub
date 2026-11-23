@@ -6217,11 +6217,11 @@ describe("Agent Invocations", () => {
       })
       clock.mockRestore()
 
-      const cutoffs = batch.mock.calls.flatMap(([statements]) => statements.flatMap(statement =>
-        typeof statement === "object" && "sql" in statement && statement.sql.startsWith("DELETE FROM ") && statement.sql.endsWith("updated_at < ?")
-          ? [statement.args]
-          : [],
-      ))
+      const cutoffs = batch.mock.calls.flatMap(([statements]) => statements.flatMap((statement) => {
+        if (typeof statement === "string") return []
+        const [sql, args] = Array.isArray(statement) ? statement : [statement.sql, statement.args]
+        return sql.startsWith("DELETE FROM ") && sql.endsWith("updated_at < ?") ? [args] : []
+      }))
       expect(cutoffs).toHaveLength(2)
       expect(cutoffs[0]).toEqual(cutoffs[1])
       expect(duplicate).toMatchObject({
