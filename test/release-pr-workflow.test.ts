@@ -110,7 +110,7 @@ describe("release PR workflow", () => {
       writeManifest("packages/peers/package.json", { name: "@vite-hub/peers", version: current, peerDependencies: { "@vite-hub/env": "workspace:^" } })
       writeManifest("playground/app/package.json", { name: "app", private: true, dependencies: { "@vite-hub/peers": "workspace:*" } })
     }
-    const pnpm = (...args: string[]) => execFileSync("corepack", ["pnpm@12.16.1", ...args, "--ignore-scripts", "--offline"], {
+    const pnpm = (...args: string[]) => execFileSync("corepack", ["pnpm@12.21.0", ...args, "--ignore-scripts", "--offline"], {
       cwd: directory,
       stdio: "pipe",
       env: { ...process.env, CI: "true", COREPACK_ENABLE_AUTO_PIN: "0" },
