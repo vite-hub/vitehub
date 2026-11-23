@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
 import * as rolldown from "@vite-hub/internal/build/rolldown"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -909,6 +910,23 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "./server/email-driver" })
 
     await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
+  })
+
+  it("resolves a driver module from the framework project root instead of the Vite package root", async () => {
+    const root = await createTempProject()
+    const frontend = join(root, "frontend")
+    const driverPath = join(root, "server", "email-driver.ts")
+    await mkdir(frontend, { recursive: true })
+    await mkdir(dirname(driverPath), { recursive: true })
+    await writeFile(join(frontend, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(driverPath, "export default () => ({ name: 'custom', send: () => {} })\n")
+    const plugin = hubEmail({ driver: "./server/email-driver.ts" })
+    const config = { root: frontend, [VITEHUB_PROJECT_ROOT]: root, [VITEHUB_GENERATED_ROOT]: join(root, ".vitehub") }
+
+    await buildConfigHook(plugin)(config)
+    await functionHook(plugin.configResolved, "configResolved")(config)
 
     expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
   })

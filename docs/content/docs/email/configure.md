@@ -225,8 +225,23 @@ export default defineConfig({
 :::
 ::
 
+This example sends the message body and addresses, including `replyTo` from Forms. It does not forward headers, attachments, tags, metadata, scheduling, unsubscribe settings, or idempotency keys.
+
 ```ts [server/email-driver.ts]
-import type { EmailDriver } from 'vite-hub/email'
+import type { EmailAddress, EmailAddressList, EmailDriver } from 'vite-hub/email'
+
+function formatAddress(address: EmailAddress): string {
+  if (typeof address === 'string') return address
+  if (!address.name) return address.email
+  const name = address.name.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+  return `"${name}" <${address.email}>`
+}
+
+function formatAddresses(value: EmailAddressList | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const addresses = typeof value === 'string' || 'email' in value ? [value] : value
+  return addresses.map(formatAddress).join(', ')
+}
 
 export default function postmarkDriver(options: { apiKey: string }): EmailDriver {
   return {
@@ -235,7 +250,16 @@ export default function postmarkDriver(options: { apiKey: string }): EmailDriver
       const response = await fetch('https://api.postmarkapp.com/email', {
         method: 'POST',
         headers: { 'accept': 'application/json', 'content-type': 'application/json', 'x-postmark-server-token': options.apiKey },
-        body: JSON.stringify({ From: message.from, To: message.to, Subject: message.subject, HtmlBody: message.html, TextBody: message.text }),
+        body: JSON.stringify({
+          From: formatAddress(message.from),
+          To: formatAddresses(message.to),
+          Cc: formatAddresses(message.cc),
+          Bcc: formatAddresses(message.bcc),
+          ReplyTo: formatAddresses(message.replyTo),
+          Subject: message.subject,
+          HtmlBody: message.html,
+          TextBody: message.text,
+        }),
       })
       if (!response.ok) {
         const error = Object.assign(new Error(`Postmark answered ${response.status}`), { code: 'PROVIDER' as const, driver: 'postmark', status: response.status })
