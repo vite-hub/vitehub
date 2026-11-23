@@ -109,6 +109,7 @@
   "docs/test/browser/hero-figures.browser.mjs": 12,
   "docs/test/browser/playground.browser.mjs": 34,
   "docs/test/browser/tutorial.browser.mjs": 20,
+  "docs/test/check-snippets.test.ts": 2,
   "docs/test/cloudflare-assets.test.ts": 4,
   "docs/test/diagnostic-links.test.ts": 2,
   "docs/test/diagnostics.test.ts": 4,

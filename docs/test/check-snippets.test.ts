@@ -277,14 +277,14 @@ export default { plugins: [Promise.resolve([hubEnv({ public: { appName: env({ de
   it.each(["function", "async function", "promise"])("resolves a %s Vite config before generating Env declarations", async (form) => {
     const pageRoot = join(repoRoot, "docs/.snippets/resolved-env-page")
     const label = "vite.config.ts"
-    const config = '{ plugins: [hubEnv()], env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }'
+    const config = '{ env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }'
     const callback = `({ command, mode, isSsrBuild, isPreview }) => {
   if (command !== "serve" || mode !== "development" || isSsrBuild !== false || isPreview !== false) throw new Error("Unexpected ConfigEnv")
   return ${config}
 }`
     const exported = form === "promise" ? `Promise.resolve(${config})` : `${form === "async function" ? "async " : ""}${callback}`
     const declarations = await generatedDeclarations([{
-      code: `import { env, hubEnv } from "@vite-hub/env/vite"\nexport default ${exported}`,
+      code: `import { env } from "@vite-hub/env/vite"\nexport default ${exported}`,
       file: join(pageRoot, label), fragment: false, label, line: 1, page: "resolved-env-page.md", pageRoot,
     }])
 
@@ -438,6 +438,8 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
+    // Only a literal `route: false` in the exported `defineCollection()` call skips the route. An aliased import, a
+    // namespaced call, or options built elsewhere keep it, and the handler answers 404 at request time.
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["wrong-name.ts", [2345]],
       ["unrelated.ts", [2345]],
