@@ -172,12 +172,14 @@ export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Re
   const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
     node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
   if (findProperty(options, "dataDir")) return
+  const nuxt = config.nuxtConfig
+  if (nuxt && (["rootDir", "srcDir", "serverDir"].some(key => findProperty(nuxt, key)) || existsSync(join(rootDir, "layers")))) return
   const host = findProperty(options, "host")?.value
   const configuredHost = host === undefined ? undefined : staticString(host)
   if (host !== undefined && configuredHost === undefined) return
   if (configuredHost !== undefined && configuredHost !== "node" && configuredHost !== "vercel" && configuredHost !== "netlify" && configuredHost !== "cloudflare" && configuredHost !== "deno") return
   const { hostFromNitroPreset, resolveBuildHost } = await import("@vite-hub/internal/deployment")
-  const nitro = config.nuxtConfig && findProperty(config.nuxtConfig, "nitro")?.value
+  const nitro = nuxt && findProperty(nuxt, "nitro")?.value
   const nitroOptions = literalObject(nitro)
   if (configuredHost === undefined && nitro !== undefined && !nitroOptions) return
   const preset = nitroOptions && findProperty(nitroOptions, "preset")?.value

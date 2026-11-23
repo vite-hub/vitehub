@@ -166,6 +166,26 @@ describe("ViteHub CLI config loading", () => {
     await expect(readAgentJournalPostgres(root, { DATABASE_URL: "postgres://db/app" })).resolves.toEqual(expected)
   })
 
+  it.each(["'backend'", "process.env.APP_SERVER_DIR"])("does not read a stale Postgres journal with Nuxt serverDir %s", async (serverDir) => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), `export default defineNuxtConfig({ serverDir: ${serverDir}, vitehub: { agent: true, database: true } })`)
+    await mkdir(join(root, "server/databases"), { recursive: true })
+    await writeFile(join(root, "server/databases/default.ts"), postgresDatabase("connection: { url: 'postgres://old/app' }, "))
+    await mkdir(join(root, "backend/databases"), { recursive: true })
+    await writeFile(join(root, "backend/databases/default.ts"), postgresDatabase("connection: { url: 'postgres://live/app' }, "))
+    await expect(readAgentJournalPostgres(root, {})).resolves.toBeUndefined()
+  })
+
+  it("does not infer the Nuxt Postgres journal when local layers can change discovery", async () => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({ vitehub: { agent: true, database: true } })")
+    await mkdir(join(root, "server/databases"), { recursive: true })
+    await writeFile(join(root, "server/databases/default.ts"), postgresDatabase(envUrl))
+    await mkdir(join(root, "layers/shared"), { recursive: true })
+    await writeFile(join(root, "layers/shared/nuxt.config.ts"), "export default defineNuxtConfig({ serverDir: 'backend' })")
+    await expect(readAgentJournalPostgres(root, { DATABASE_URL: "postgres://db/app" })).resolves.toBeUndefined()
+  })
+
   it("finds the Postgres journal for Agents enabled by Definition discovery", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
     roots.push(root)
