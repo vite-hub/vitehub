@@ -71,6 +71,8 @@ export interface ConsoleState {
   sections?: readonly ConsoleSectionId[]
   /** Sections shown in navigation when local operations have more runtime sections installed. */
   navigationSections?: readonly ConsoleSectionId[]
+  /** Sections of the app that `console.sections` hides. Site access still uses their primitives. */
+  hiddenSections?: readonly ConsoleSectionId[]
 }
 
 export function consoleState(): ConsoleState {

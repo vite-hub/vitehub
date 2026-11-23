@@ -12,6 +12,12 @@ export function getConsoleSections(): readonly ConsoleSectionId[] {
   return consoleState().sections ?? []
 }
 
+/** Whether the app has the primitive of this section, also when `console.sections` hides the section. */
+export function hasConsoleIntegration(section: ConsoleSectionId): boolean {
+  const state = consoleState()
+  return Boolean(state.sections?.includes(section) || state.hiddenSections?.includes(section))
+}
+
 export function getConsoleProjectName(): string | undefined {
   return consoleState().projectName
 }

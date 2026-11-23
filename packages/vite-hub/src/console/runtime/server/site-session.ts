@@ -5,7 +5,7 @@ import { deriveViteHubSecret, readViteHubSecret } from "@vite-hub/internal/secre
 
 import { consoleState } from "../../internal.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime } from "./request.ts"
-import { getConsoleSections } from "./sections.ts"
+import { hasConsoleIntegration } from "./sections.ts"
 
 import type { SealKey } from "@vite-hub/env/seal"
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
@@ -134,7 +134,7 @@ export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   const openSite = site && "open" in site ? site : undefined
   const named = openSite?.configured ? await openSite.open() : undefined
   if (named) return await databaseSiteKV(named.name, named.db)
-  const kv = getConsoleSections().includes("kv") ? await import("@vite-hub/kv") : undefined
+  const kv = hasConsoleIntegration("kv") ? await import("@vite-hub/kv") : undefined
   const driver = await kv?.getKVStoreDriver()
   if (kv && driver && atomicDrivers.includes(driver)) return kv.kv
   const database = openSite && !openSite.configured ? await openSite.open() : undefined
