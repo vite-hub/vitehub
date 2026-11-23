@@ -1191,15 +1191,16 @@ The route drops a repeated submission from the same owner, replays the stream fr
 
 | Scope | Streams live in | Use it when |
 | --- | --- | --- |
-| `'shared'` | The database of the [Agent journal](/docs/agents/invocation-storage) | The app runs more than one instance, or a deploy replaces the process while a reply streams. |
+| `'shared'` | The database of the [Agent journal](/docs/agents/invocation-storage) | Requests can reach different instances, or completed replies need to survive a deploy. |
 | `'process'` | The memory of the process | The chat stays on one process. Active streams die with it, and other instances cannot find them. |
 
-With `'shared'`, the process that runs the Agent writes the stream to the journal database, and any instance reads it back. A client that reconnects to another instance gets the same bytes in the same order. A `DELETE` on any instance stops the run within about two seconds.
+With `'shared'`, the process that runs the Agent writes the stream to the journal database, and any instance reads it back. A client that reconnects to another instance gets the same bytes in the same order. If the writer exits mid-reply, another instance can replay committed bytes but cannot continue generation. The replay fails when the writer is detected as stale. A `DELETE` on any instance signals the owning run to stop within about two seconds, including before it starts sending a response.
 
 - The journal must keep its rows in a database: the default journal on SQLite, libSQL, or D1, or `invocations: 'database'`. A journal in memory or a custom store fails with `AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED`.
 - A reader of a stream whose first request failed before it started gets `AGENT_RESUMABLE_CHAT_STREAM_FAILED`. A claim that loses to other requests three times fails with `AGENT_RESUMABLE_CHAT_CLAIM_CONFLICT`.
 - The streams are only as shared as the journal. The default journal file is on one host, so set `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` to a libSQL endpoint, or use D1 or a Postgres Database, when instances run on different hosts. The `agent-chat-streams` line of the boot Durability report shows the scope.
-- A reader polls the database every 100 ms, so a reply on another instance arrives up to about 100 ms later.
+- A reader polls the database every 100 ms, including while the Agent is idle.
+- With D1, use Workers Paid and only enable shared streams when both the writer and each resumed request fit within the [D1 query limit per invocation](https://developers.cloudflare.com/d1/platform/limits/). Workers Free is not supported for this mode: idle readers alone can use about 10 queries per second. Budget for one query per stored batch and a heartbeat every two seconds on the writer, plus setup, completion, and any other D1 queries made by the request. For long replies or high query volume, use libSQL or Postgres instead.
 - On SQLite, libSQL, and D1, the tables are created on first use. On Postgres, ViteHub adds `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` to the [journal tables](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database). Run `vitehub database generate` and `vitehub database migrate`.
 
 ## Connect an adapter platform

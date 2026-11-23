@@ -161,14 +161,14 @@ function runtimeDatabase(name: string): RuntimeDatabase {
  */
 export function databaseChatStreamSql(name = "default"): ChatStreamSql {
   const database = runtimeDatabase(name)
-  return cachedChatStreamSql(database, () => {
-    const postgres = postgresClient(database, name)
-    if (postgres) return postgresChatStreamSql(postgres)
-    return {
-      dialect: "sqlite",
-      query: async (text, params = []) => statementResult(await database.all(statementSql(text, params))).results,
-    }
-  })
+  const postgres = postgresClient(database, name)
+  if (postgres) return cachedChatStreamSql(postgres, () => postgresChatStreamSql(postgres))
+  const client = database.$client
+  const all = database.all.bind(database)
+  return cachedChatStreamSql(isRecord(client) ? client : database, () => ({
+    dialect: "sqlite",
+    query: async (text, params = []) => statementResult(await all(statementSql(text, params))).results,
+  }))
 }
 
 /**

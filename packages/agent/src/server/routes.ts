@@ -9225,6 +9225,12 @@ export function createChannelChatRouteHandler(
         const claim = await resumableSession.claim(resumableMessageId || "default")
         if (claim.kind === "existing") return await claim.response
         resumableClaim = claim
+        if (claim.signal) {
+          triggerInput = {
+            ...triggerInput,
+            abortSignal: triggerInput.abortSignal ? AbortSignal.any([triggerInput.abortSignal, claim.signal]) : claim.signal,
+          }
+        }
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       let invokerInput: AgentRunInput
@@ -9344,7 +9350,7 @@ export function createChannelChatRouteHandler(
         response = withAgentChatInvocationId(response, await agentInvocationId(triggerInput.run.runId, agentName))
       }
       if (!resumableClaim) return response
-      return resumableClaim.complete(response, {
+      return await resumableClaim.complete(response, {
         messageId: resumableMessageId,
         runId: triggerInput.run?.runId,
         waitUntil: promise => context.waitUntil(promise),

@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
+import postgres from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "../../database/src/definition.ts"
@@ -11,12 +13,15 @@ import { createNodePostgresDatabase } from "../../database/src/runtime/node-post
 import { defineChatCapability } from "../src/chat-trigger.ts"
 import { defineAgent } from "../src/index.ts"
 import { createDefaultAgentInvocations } from "../src/invocations/default-core.ts"
+import { libsqlChatStreamSql, registerChatStreamSql } from "../src/internal/chat-stream-sql.ts"
+import { chatStreamTables, createSharedChatStreams } from "../src/internal/resumable-chat-shared.ts"
 import { createResumableChatCustody } from "../src/internal/resumable-chat.ts"
 import { installAgentInvocations, resolveAgentInvocationsSetting } from "../src/invocations/app.ts"
 import { agentInvocationsPostgresSchema } from "../src/invocations/postgres.ts"
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 
 import type { AgentInvocationsSetting } from "../src/invocations/app.ts"
+import type { AgentRunContext } from "../src/types.ts"
 
 const useDatabase = vi.fn()
 vi.mock("@vite-hub/database", () => ({ useDatabase }))
@@ -37,7 +42,7 @@ function chatRequest(method: "DELETE" | "GET" | "POST", messageId = "message-1")
   })
 }
 
-function sharedHandler(invocations: AgentInvocationsSetting, run: () => Response): Handler {
+function sharedHandler(invocations: AgentInvocationsSetting, run: (context: AgentRunContext) => Response | Promise<Response>): Handler {
   return createChannelChatRouteHandler(
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     defineAgent({ capabilities: [defineChatCapability()], driver: { run }, invocations }) as never,
@@ -141,12 +146,13 @@ function sharedStreamScenarios(processes: () => Processes) {
     const partial = await readFrames(first.body!, 0)
     await partial.reader.cancel("browser disconnected")
     const resumed = await processB(chatRequest("GET"), { agentName: "support" })
-    const resumedText = resumed.text()
+    const resumedReader = resumed.body!.getReader()
+    await expect(resumedReader.read()).resolves.toEqual({ done: false, value: encoder.encode("first") })
 
     const stopped = await processB(chatRequest("DELETE", "message-3"), { agentName: "support" })
     expect(stopped.status).toBe(204)
     await vi.waitFor(() => expect(source.cancelled).toHaveBeenCalledWith("Cancelled by the web chat client."), { timeout: 5_000 })
-    await expect(resumedText).resolves.toBe("first")
+    await expect(resumedReader.read()).resolves.toMatchObject({ done: true })
     const after = await processB(chatRequest("GET"), { agentName: "support" })
     expect(after.status).toBe(204)
   })
@@ -170,6 +176,28 @@ describe("shared resumable chat on SQLite", () => {
 
   sharedStreamScenarios(() => current)
 
+  it("signals the Driver when DELETE arrives before its response", async () => {
+    const { promise: started, resolve: start } = Promise.withResolvers<void>()
+    const { promise: cancelled, resolve: cancel } = Promise.withResolvers<unknown>()
+    const processA = sharedHandler(current.a, async ({ input: { abortSignal } }) => {
+      if (!abortSignal) throw new Error("The Driver did not receive a cancellation signal")
+      start()
+      await new Promise<void>((resolve) => {
+        abortSignal.addEventListener("abort", () => {
+          cancel(abortSignal.reason)
+          resolve()
+        }, { once: true })
+      })
+      return new Response("stopped")
+    })
+    const processB = sharedHandler(current.b, () => new Response("must not run"))
+    const pending = processA(chatRequest("POST"), { agentName: "support" })
+    await Promise.race([started, pending.then(() => { throw new Error("The Driver returned before cancellation") })])
+    expect((await processB(chatRequest("DELETE"), { agentName: "support" })).status).toBe(204)
+    await expect(cancelled).resolves.toBe("Cancelled by the web chat client.")
+    await pending
+  })
+
   it("rejects the shared scope when the journal keeps no database", async () => {
     const run = vi.fn(() => new Response("must not run"))
     const response = await sharedHandler({ store: "memory" }, run)(chatRequest("POST"), { agentName: "support" })
@@ -180,6 +208,44 @@ describe("shared resumable chat on SQLite", () => {
     await expect(custody.session({ auth: "user-1" }, { agentName: "support", channelId: "http", chatId: "chat-1" }))
       .rejects.toMatchObject({ code: "AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED" })
   })
+})
+
+it("keeps the original response open until the final shared chunk is committed", async () => {
+  const { createClient } = await import("@libsql/client")
+  const client = createClient({ url: ":memory:" })
+  const sql = libsqlChatStreamSql(client)
+  const journal = {}
+  const gate = Promise.withResolvers<void>()
+  const writing = Promise.withResolvers<void>()
+  registerChatStreamSql(journal, async () => ({
+    ...sql,
+    async query(text, params) {
+      if (text.startsWith(`INSERT INTO ${chatStreamTables.chunks}`)) {
+        writing.resolve()
+        await gate.promise
+      }
+      return await sql.query(text, params)
+    },
+  }))
+  try {
+    const session = await createSharedChatStreams({ journal: () => journal, ttlMs: 60_000 }).session("chat")
+    const claim = await session.claim("message")
+    if (claim.kind !== "claimed") throw new Error("Expected a new claim")
+    const response = await claim.complete(new Response("hello"), { waitUntil() {} })
+    const reader = response.body!.getReader()
+    await expect(reader.read()).resolves.toEqual({ done: false, value: encoder.encode("hello") })
+    const eof = reader.read()
+    await writing.promise
+    try {
+      expect(await Promise.race([eof, new Promise(resolve => setTimeout(() => resolve("waiting"), 0))])).toBe("waiting")
+    } finally {
+      gate.resolve()
+      await eof
+    }
+    await expect((await session.latest())!.text()).resolves.toBe("hello")
+  } finally {
+    client.close()
+  }
 })
 
 describe("shared resumable chat on a libSQL Database", () => {
@@ -203,22 +269,30 @@ describe("shared resumable chat on a libSQL Database", () => {
 })
 
 describe.skipIf(!url)("shared resumable chat on a Postgres server", () => {
+  const schema = `vitehub_test_${randomUUID().replaceAll("-", "")}`
   const pools: Array<{ end: () => Promise<void> }> = []
-  const nodePostgres = () => {
+  const nodePostgres = (track = true) => {
     const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_SHARED_CHAT_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
     const db = createNodePostgresDatabase(definition, { binding: "DB" })
-    pools.push(Reflect.get(db, "$client"))
+    if (track) pools.push(Reflect.get(db, "$client"))
     return db
   }
-  const dropAll = `DROP TABLE IF EXISTS vitehub_agent_chat_stream_chunks, vitehub_agent_chat_streams, vitehub_agent_invocations_observations, vitehub_agent_invocations`
+  const scopedUrl = (name: string) => {
+    const scoped = new URL(url!)
+    scoped.searchParams.set("options", `-c search_path=${name}`)
+    return scoped.href
+  }
+  let admin: postgres.Sql
   let databases: Record<"a" | "b", ReturnType<typeof nodePostgres>>
   beforeAll(() => {
-    process.env.VITEHUB_TEST_SHARED_CHAT_DATABASE_URL = url
+    admin = postgres(url!, { max: 1 })
+    process.env.VITEHUB_TEST_SHARED_CHAT_DATABASE_URL = scopedUrl(schema)
     databases = { a: nodePostgres(), b: nodePostgres() }
   })
 
   beforeEach(async () => {
-    await databases.a.execute(dropAll)
+    await admin.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    await admin.unsafe(`CREATE SCHEMA ${schema}`)
     for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...agentInvocationsPostgresSchema }))) {
       await databases.a.execute(statement)
     }
@@ -226,9 +300,10 @@ describe.skipIf(!url)("shared resumable chat on a Postgres server", () => {
     installAgentInvocations({ database: () => import("../src/invocations/database.ts") })
   })
   afterAll(async () => {
-    await databases.a.execute(dropAll)
     installAgentInvocations({})
     await Promise.all(pools.map(pool => pool.end()))
+    await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    await admin?.end()
     delete process.env.VITEHUB_TEST_SHARED_CHAT_DATABASE_URL
   })
 
@@ -239,12 +314,29 @@ describe.skipIf(!url)("shared resumable chat on a Postgres server", () => {
 
   it("names the missing chat stream tables", async () => {
     const database = nodePostgres()
-    await database.execute("DROP TABLE vitehub_agent_chat_stream_chunks, vitehub_agent_chat_streams")
+    await admin.unsafe(`DROP TABLE ${schema}.vitehub_agent_chat_stream_chunks, ${schema}.vitehub_agent_chat_streams`)
     useDatabase.mockImplementation(() => ({ db: database }))
     const custody = createResumableChatCustody<{ auth: string }>({ owner: ({ auth }) => auth, scope: "shared" }, { journal: () => resolveAgentInvocationsSetting({ database: "c", store: "database" }) })
     await expect(custody.session({ auth: "user-1" }, { agentName: "support", channelId: "http", chatId: "chat-1" })).rejects.toMatchObject({
       code: "AGENT_RESUMABLE_CHAT_POSTGRES_TABLES_MISSING",
       message: expect.stringContaining("\"vitehub_agent_chat_streams\" or \"vitehub_agent_chat_stream_chunks\""),
     })
+  })
+
+  it("resolves the current client of a stable Database proxy", async () => {
+    const proxy = nodePostgres(false)
+    useDatabase.mockReturnValue({ db: proxy })
+    const { databaseChatStreamSql } = await import("../src/invocations/database.ts")
+    const first = databaseChatStreamSql()
+    await expect(first.query("SELECT current_schema() AS schema")).resolves.toEqual([{ schema }])
+    process.env.VITEHUB_TEST_SHARED_CHAT_DATABASE_URL = scopedUrl("pg_catalog")
+    try {
+      pools.push(Reflect.get(proxy, "$client"))
+      const second = databaseChatStreamSql()
+      expect(second).not.toBe(first)
+      await expect(second.query("SELECT current_schema() AS schema")).resolves.toEqual([{ schema: "pg_catalog" }])
+    } finally {
+      process.env.VITEHUB_TEST_SHARED_CHAT_DATABASE_URL = scopedUrl(schema)
+    }
   })
 })

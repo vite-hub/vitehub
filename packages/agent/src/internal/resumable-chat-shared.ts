@@ -27,6 +27,7 @@ const sqliteSchema = [
   `CREATE INDEX IF NOT EXISTS ${streams}_latest ON ${streams} (latest, sequence)`,
   `CREATE INDEX IF NOT EXISTS ${streams}_expires_at ON ${streams} (expires_at)`,
   `CREATE TABLE IF NOT EXISTS ${chunks} (stream INTEGER NOT NULL, position INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (stream, position))`,
+  `CREATE TRIGGER IF NOT EXISTS ${streams}_delete_chunks AFTER DELETE ON ${streams} BEGIN DELETE FROM ${chunks} WHERE stream = OLD.sequence; END`,
 ]
 
 const now = {
@@ -41,7 +42,6 @@ type Query = (text: string, params?: readonly ChatStreamSqlValue[]) => Promise<R
 
 interface StreamRow {
   aliveAt: number
-  error: string
   hasBody: boolean
   headers: [string, string][]
   now: number
@@ -84,7 +84,6 @@ function streamRow(row: Record<string, unknown>): StreamRow {
   const headers: unknown = JSON.parse(text(row.headers) || "[]")
   return {
     aliveAt: Number(row.alive_at),
-    error: text(row.error),
     hasBody: Number(row.has_body) === 1,
     // SAFETY: The writer stores `[...headers]`, which is a list of name and value pairs.
     headers: Array.isArray(headers) ? headers as [string, string][] : [],
@@ -134,7 +133,7 @@ function streamLost(): Error {
 }
 
 async function readStream(query: Query, sequence: number): Promise<StreamRow | undefined> {
-  const [row] = await query(`SELECT state, status, status_text, headers, has_body, error, alive_at, {now} AS now FROM ${streams} WHERE sequence = ?`, [sequence])
+  const [row] = await query(`SELECT state, status, status_text, headers, has_body, alive_at, {now} AS now FROM ${streams} WHERE sequence = ?`, [sequence])
   return row ? streamRow(row) : undefined
 }
 
@@ -144,19 +143,20 @@ function streamBody(query: Query, sequence: number): ReadableStream<Uint8Array> 
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       while (!cancelled) {
-        const stateBeforeChunks = await readStream(query, sequence)
-        const rows = await query(`SELECT position, data FROM ${chunks} WHERE stream = ? AND position > ? ORDER BY position LIMIT ?`, [sequence, cursor, readChunkRows])
-        if (rows.length) {
+        const rows = await query(`SELECT s.state, s.error, s.alive_at, {now} AS now, c.position, c.data FROM ${streams} s LEFT JOIN ${chunks} c ON c.stream = s.sequence AND c.position > ? WHERE s.sequence = ? ORDER BY c.position LIMIT ?`, [cursor, sequence, readChunkRows])
+        if (cancelled) return
+        const [row] = rows
+        if (!row) return controller.error(streamLost())
+        if (row.position != null) {
           for (const chunk of rows) {
             controller.enqueue(fromBase64(text(chunk.data)))
             cursor = Number(chunk.position)
           }
           return
         }
-        if (!stateBeforeChunks) return controller.error(streamLost())
-        if (stateBeforeChunks.state === "done" || stateBeforeChunks.state === "stopped") return controller.close()
-        if (stateBeforeChunks.state === "failed") return controller.error(new Error(stateBeforeChunks.error))
-        if (stateBeforeChunks.now - stateBeforeChunks.aliveAt > staleMs) return controller.error(streamLost())
+        if (row.state === "done" || row.state === "stopped") return controller.close()
+        if (row.state === "failed") return controller.error(new Error(text(row.error)))
+        if (Number(row.now) - Number(row.alive_at) > staleMs) return controller.error(streamLost())
         await sleep(pollMs)
       }
     },
@@ -175,6 +175,7 @@ async function responseOnceOpen(query: Query, sequence: number): Promise<Respons
       await sleep(pollMs)
       continue
     }
+    if (row.state === "failed" && !row.hasBody) throw agentDiagnostics.AGENT_RESUMABLE_CHAT_STREAM_FAILED()
     return new Response(row.hasBody ? streamBody(query, sequence) : null, {
       headers: new Headers(row.headers),
       status: row.status,
@@ -188,22 +189,20 @@ interface SharedChatStreamsOptions {
   ttlMs: number
 }
 
-interface ChatStreamWriter {
-  stop(): void
-}
-
 /**
  * Keeps resumable chat streams in the database of the Agent journal. The process that claims a stream writes its
  * bytes as chunk rows, and any process reads them back by polling, so a client can resume on another instance.
  */
 export function createSharedChatStreams(options: SharedChatStreamsOptions): { session(latestKey: string): Promise<ResumableChatSession> } {
-  const writers = new Map<string, ChatStreamWriter>()
   const liveTtlMs = options.ttlMs + staleMs
 
-  function claimed(query: Query, id: string, sequence: number): ResumableChatClaim {
+  function claimed(query: Query, dialect: ChatStreamSql["dialect"], sequence: number): ResumableChatClaim {
     let settled = false
     let stopped = false
-    let persistFailed = false
+    let released = false
+    let touching = false
+    let persistenceFailure: Error | undefined
+    const abort = new AbortController()
     let position = 0
     let pending: Uint8Array[] = []
     let flushing: Promise<void> | undefined
@@ -219,53 +218,62 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
       else local.error(error)
     }
 
-    function stop(): void {
+    function stop(error?: Error): void {
       if (stopped) return
       stopped = true
-      closeLocal()
-      void upstream?.cancel(cancellationReason).catch(() => undefined)
+      release()
+      abort.abort(error ?? cancellationReason)
+      closeLocal(error)
+      void upstream?.cancel(abort.signal.reason).catch(() => undefined)
     }
 
-    const writer: ChatStreamWriter = { stop }
-    writers.set(id, writer)
+    async function checkOwnership(): Promise<void> {
+      const [row] = await query(`SELECT state FROM ${streams} WHERE sequence = ?`, [sequence])
+      if (!released && (!row || row.state === "stopped")) stop(row ? undefined : streamLost())
+    }
 
     async function touch(): Promise<void> {
-      if (stopped || persistFailed) return
-      const rows = await query(touchSql, [liveTtlMs, sequence])
-      if (!rows.length) stop()
+      if (released || touching) return
+      touching = true
+      try {
+        const rows = await query(touchSql, [liveTtlMs, sequence])
+        if (!rows.length && !released) await checkOwnership()
+      } finally {
+        touching = false
+      }
     }
 
     const heartbeat = setInterval(() => {
-      if (!flushing) void touch().catch(() => undefined)
+      void touch().catch(() => undefined)
     }, heartbeatMs)
     heartbeat.unref?.()
 
     function release(): void {
       clearInterval(heartbeat)
-      if (writers.get(id) === writer) writers.delete(id)
+      released = true
     }
 
     async function flushOnce(): Promise<void> {
       const batch: Uint8Array[] = []
       let size = 0
-      while (pending.length && (size === 0 || size + pending[0]!.length <= chunkRowBytes)) {
+      while (pending.length && size + pending[0]!.length <= chunkRowBytes) {
         const part = pending.shift()!
         batch.push(part)
         size += part.length
       }
       position++
-      await query(`INSERT INTO ${chunks} (stream, position, data) VALUES (?, ?, ?)`, [sequence, position, toBase64(concat(batch))])
-      await touch()
+      const rows = await query(`INSERT INTO ${chunks} (stream, position, data) SELECT sequence, ?, ? FROM ${streams} WHERE sequence = ? AND state = 'open'${dialect === "postgres" ? " FOR UPDATE" : ""} RETURNING position`, [position, toBase64(concat(batch)), sequence])
+      if (!rows.length) await checkOwnership()
     }
 
     function schedule(): void {
-      if (flushing || !pending.length || persistFailed) return
+      if (flushing || !pending.length || stopped || persistenceFailure) return
       flushing = flushOnce().then(() => {
         flushing = undefined
         schedule()
-      }, () => {
+      }, (error: unknown) => {
         flushing = undefined
-        persistFailed = true
+        persistenceFailure = new Error("[vitehub] The web chat stream could not be stored.", { cause: error })
         pending = []
       })
     }
@@ -274,36 +282,37 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
       while (flushing) await flushing
     }
 
-    async function finish(state: "done" | "failed", error?: unknown): Promise<void> {
+    async function finish(error?: Error): Promise<void> {
       await drain()
-      const failed = state === "failed" || persistFailed
-      const message = state === "failed" ? errorText(error) : "[vitehub] The web chat stream could not be stored."
-      await query(
-        `UPDATE ${streams} SET state = ?, error = ?, alive_at = {now}, expires_at = {now} + ? WHERE sequence = ? AND state = 'open'`,
-        [failed ? "failed" : "done", failed ? message : null, options.ttlMs, sequence],
-      ).catch(() => undefined)
+      if (stopped) return
+      const failure = error ?? persistenceFailure
+      const rows = await query(
+        `UPDATE ${streams} SET state = ?, error = ?, alive_at = {now}, expires_at = {now} + ? WHERE sequence = ? AND state IN ('claimed', 'open') RETURNING sequence`,
+        [failure ? "failed" : "done", failure?.message ?? null, options.ttlMs, sequence],
+      )
+      if (!rows.length) await checkOwnership()
+      else closeLocal(failure)
     }
 
     async function consume(): Promise<void> {
       try {
         while (!stopped) {
           const chunk = await upstream!.read()
-          if (chunk.done) break
+          if (chunk.done || stopped) break
           const value = chunk.value.slice()
           if (localOpen) local?.enqueue(value)
-          if (!persistFailed) {
-            pending.push(value)
+          if (!persistenceFailure) {
+            for (let start = 0; start < value.length; start += chunkRowBytes) {
+              pending.push(value.subarray(start, start + chunkRowBytes))
+            }
             schedule()
           }
         }
-        closeLocal()
-        await finish("done")
       } catch (error) {
-        closeLocal(error)
-        await finish("failed", error)
-      } finally {
-        release()
+        await finish(new Error(errorText(error), { cause: error }))
+        return
       }
+      await finish()
     }
 
     async function open(headers: Headers, response: Response): Promise<void> {
@@ -312,16 +321,17 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
           `UPDATE ${streams} SET state = 'open', status = ?, status_text = ?, headers = ?, has_body = 1, alive_at = {now}, expires_at = {now} + ? WHERE sequence = ? AND state = 'claimed' RETURNING sequence`,
           [response.status, response.statusText, JSON.stringify([...headers]), liveTtlMs, sequence],
         )
-        if (!rows.length) stop()
-      } catch {
-        persistFailed = true
+        if (!rows.length) await checkOwnership()
+      } catch (error) {
+        persistenceFailure = new Error("[vitehub] The web chat stream could not be opened.", { cause: error })
       }
       await consume()
     }
 
     return {
       kind: "claimed",
-      complete(response, completion) {
+      signal: abort.signal,
+      async complete(response, completion) {
         invariant(!settled, "the web chat route calls complete() once, before it settles the Resumable Chat claim in another way")
         settled = true
         const headers = new Headers(response.headers)
@@ -331,17 +341,20 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
         const init = { headers, status: response.status, statusText: response.statusText }
         if (!response.body) {
           const written = query(
-            `UPDATE ${streams} SET state = 'done', status = ?, status_text = ?, headers = ?, has_body = 0, alive_at = {now}, expires_at = {now} + ? WHERE sequence = ? AND state = 'claimed'`,
+            `UPDATE ${streams} SET state = 'done', status = ?, status_text = ?, headers = ?, has_body = 0, alive_at = {now}, expires_at = {now} + ? WHERE sequence = ? AND state = 'claimed' RETURNING sequence`,
             [response.status, response.statusText, JSON.stringify([...headers]), options.ttlMs, sequence],
-          ).catch(() => undefined).finally(release)
-          completion.waitUntil(written)
+          ).finally(release)
+          if (!(await written).length) throw agentDiagnostics.AGENT_RESUMABLE_CHAT_STREAM_FAILED()
           return new Response(null, init)
         }
         upstream = response.body.getReader()
         const body = new ReadableStream<Uint8Array>({
           start(controller) {
             local = controller
-            if (!localOpen) controller.close()
+            if (!localOpen) {
+              if (abort.signal.reason instanceof Error) controller.error(abort.signal.reason)
+              else controller.close()
+            }
           },
           cancel() {
             localOpen = false
@@ -353,7 +366,9 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
           release()
           return new Response(body, init)
         }
-        const written = open(headers, response)
+        const written = open(headers, response).catch((error: unknown) => {
+          closeLocal(new Error("[vitehub] The web chat stream could not be stored.", { cause: error }))
+        }).finally(release)
         try {
           completion.waitUntil(written)
         } catch (error) {
@@ -377,20 +392,20 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
     async session(latestKey) {
       const source = chatStreamSqlSource(options.journal())
       if (!source) throw agentDiagnostics.AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED()
-      const query = await openStreams(await source())
+      const sql = await source()
+      const query = await openStreams(sql)
       const streamId = (invocationId: string) => JSON.stringify([latestKey, invocationId])
 
       return {
         async claim(invocationId): Promise<ResumableChatClaimResult> {
           const id = streamId(invocationId)
           for (let attempt = 0; attempt < claimAttempts; attempt++) {
-            await query(`DELETE FROM ${chunks} WHERE stream IN (SELECT sequence FROM ${streams} WHERE ${reclaimable})`, [id, staleMs])
             await query(`DELETE FROM ${streams} WHERE ${reclaimable}`, [id, staleMs])
             const [inserted] = await query(
               `INSERT INTO ${streams} (id, latest, state, alive_at, expires_at) VALUES (?, ?, 'claimed', {now}, {now} + ?) ON CONFLICT (id) DO NOTHING RETURNING sequence`,
               [id, latestKey, liveTtlMs],
             )
-            if (inserted) return claimed(query, id, Number(inserted.sequence))
+            if (inserted) return claimed(query, sql.dialect, Number(inserted.sequence))
             const [existing] = await query(`SELECT sequence FROM ${streams} WHERE id = ?`, [id])
             if (!existing) continue
             return {
@@ -413,7 +428,6 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
         async stop(invocationId) {
           const id = streamId(invocationId)
           await query(`UPDATE ${streams} SET state = 'stopped', expires_at = {now} + ? WHERE id = ? AND state <> 'stopped'`, [options.ttlMs, id])
-          writers.get(id)?.stop()
         },
       }
     },

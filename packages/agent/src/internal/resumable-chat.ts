@@ -48,11 +48,13 @@ interface ResumableChatProcessRun {
 
 export interface ResumableChatClaim {
   kind: "claimed"
-  complete(response: Response, completion: ResumableChatProcessCompletion): Response
+  signal?: AbortSignal
+  complete(response: Response, completion: ResumableChatProcessCompletion): Response | Promise<Response>
   fail(error: unknown): void | Promise<void>
 }
 
 export interface ResumableChatProcessClaim extends ResumableChatClaim {
+  complete(response: Response, completion: ResumableChatProcessCompletion): Response
   fail(error: unknown): void
 }
 
