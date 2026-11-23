@@ -166,14 +166,14 @@ function authStoreUnavailable(error: unknown): boolean {
 }
 
 /**
- * Where tickets are kept, in the order that the ticket store picks it: Auth, else the store of Site access. It writes
- * nothing and creates no table.
+ * Where tickets are kept, in the order that the ticket store picks it: Auth, else the store of Site access. It reads the
+ * configuration only: no row, no write, and no table.
  */
 export async function describeConsoleSiteStore(request: Request, event?: ConsoleRequestEvent): Promise<SiteStore> {
   const api = await authConsole(request, event)
   if (api) {
-    const [error] = await api.listVerifications(consoleInvitePrefix)
-    if (!error) return { kind: "auth" }
+    const [error, storage] = await api.verificationStore()
+    if (!error) return { kind: "auth", storage }
     if (!authStoreUnavailable(error)) throw await authFailure(error)
   }
   return await describeConsoleSiteKV()

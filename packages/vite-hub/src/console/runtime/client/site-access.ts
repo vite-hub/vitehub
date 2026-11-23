@@ -14,12 +14,16 @@ export function isSiteAuthUnavailable(error: unknown): error is ConsoleRequestEr
   return error instanceof ConsoleRequestError && error.code === "AUTH_CONSOLE_UNAVAILABLE"
 }
 
+function isSiteStoreMissing(error: unknown): error is ConsoleRequestError {
+  return error instanceof ConsoleRequestError && error.code === "CONSOLE_TICKET_STORE_MISSING"
+}
+
 /** Everything the Site access section shows, read in one go. */
 export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError, store?: SiteStore }> {
   const options = signal ? { signal } : {}
   const [sessions, invites, grants] = await Promise.all([
     requestConsoleOperation(siteAccessOperations.sessions, {}, options).catch((error: unknown) => {
-      if (isSiteAuthUnavailable(error)) return error
+      if (isSiteAuthUnavailable(error) || isSiteStoreMissing(error)) return error
       throw error
     }),
     requestConsoleOperation(siteAccessOperations.invites, {}, options),
@@ -27,8 +31,9 @@ export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: 
   ])
   // SAFETY: These operations answer with the shapes of `server/site-access.ts`.
   const { store } = invites as { store?: SiteStore }
+  if (isSiteStoreMissing(sessions) && store?.kind !== "none") throw sessions
   return {
-    ...(isSiteAuthUnavailable(sessions) ? { sessions: [], sessionsError: sessions } : { sessions: (sessions as { sessions: SiteSession[] }).sessions }),
+    ...(isSiteAuthUnavailable(sessions) ? { sessions: [], sessionsError: sessions } : isSiteStoreMissing(sessions) ? { sessions: [] } : { sessions: (sessions as { sessions: SiteSession[] }).sessions }),
     invites: (invites as { invites: SiteInvite[] }).invites,
     grants: (grants as { grants: SiteGrant[] }).grants,
     ...(store ? { store } : {}),

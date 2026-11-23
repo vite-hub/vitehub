@@ -83,6 +83,11 @@ export interface AuthConsole {
   saveVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Take a value that `saveVerification()` kept. Of two calls at the same time, one gets it. `null` when it is gone or expired. */
   consumeVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
+  /**
+   * Where `saveVerification()` keeps values, read from the Auth configuration with no query: Better Auth's
+   * `verification` table, or its `secondaryStorage` when one is set and `verification.storeInDatabase` is off.
+   */
+  verificationStore(): Promise<Result<"database" | "secondaryStorage", AuthConsoleErrorCode>>;
   /** The live values whose identifier starts with `prefix`, at most 1,000. Hosts use it for values that a person lists, such as Console invites. */
   listVerifications(prefix: string): Promise<Result<{ identifier: string; value: string; expiresAt: Date }[], AuthConsoleErrorCode>>;
   /** Delete a kept value. Deleting a value that is gone does nothing. */
@@ -1378,6 +1383,12 @@ export function createAuthConsole(
       }),
     consumeVerification: (identifier) =>
       result(async () => (await (await verifications()).consumeVerificationValue(identifier))?.value ?? null),
+    verificationStore: () =>
+      result(async () => {
+        await verifications();
+        const { options } = await context();
+        return options.secondaryStorage && !options.verification?.storeInDatabase ? "secondaryStorage" : "database";
+      }),
     listVerifications: (prefix) =>
       result(async () => {
         await verifications();

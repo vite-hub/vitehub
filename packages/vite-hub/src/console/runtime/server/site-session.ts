@@ -161,7 +161,6 @@ export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (!resolved.open) throw consoleRequestError(500, resolved.store.why, "CONSOLE_TICKET_STORE_MISSING")
   return await resolved.open()
 }
-}
 
 function serverEnv(name: string): string | undefined {
   const value: unknown = getActiveCloudflareBinding<unknown>(name) ?? globalThis.process?.env?.[name]

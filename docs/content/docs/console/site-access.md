@@ -147,7 +147,7 @@ A production build fails with `VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN` when the 
 
 Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
 
-To see where the app keeps its links, run `vitehub site invites`, or open **Site access** in the Console. Both name the store in one line, such as ``Links and site sessions are kept in Database `default`, table `vitehub_console_site`.`` When there is no store, they show the cause and the fix. The `store` field of `site.invites` gives the same data: `kind` is `auth`, `database`, `kv`, `memory`, or `none`.
+To see where the app keeps its links, run `vitehub site invites`, or open **Site access** in the Console. Both name the store in one line, such as ``Links and site sessions are kept in Database `default`, table `vitehub_console_site`.`` When there is no store, they show the cause and the fix. The `store` field of `site.invites` gives the same data: `kind` is `auth`, `database`, `kv`, `memory`, or `none`. For `auth`, `storage` is `database` (the Better Auth `verification` table) or `secondaryStorage`.
 
 When you deploy multiple instances, use a store that all instances can access. Separate local SQLite files cannot share tickets or sessions. When apps or previews share a Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's Database-backed links and sessions.
 

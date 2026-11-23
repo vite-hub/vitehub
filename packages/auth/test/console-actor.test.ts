@@ -172,6 +172,19 @@ describe("one-time values and the app session", () => {
     expect((await api.listVerifications("invite:"))[1]).toEqual([]);
   });
 
+  it("names where one-time values go from the configuration: the verification table, or secondaryStorage when set", async () => {
+    expect(await createAuthConsole((await app()).auth).verificationStore()).toEqual([undefined, "database"]);
+    const cache = new Map<string, string>();
+    const secondaryStorage: SecondaryStorage = {
+      get: async (key) => cache.get(key) ?? null,
+      set: async (key, value) => { cache.set(key, value); },
+      delete: async (key) => { cache.delete(key); },
+    };
+    expect(await createAuthConsole((await app({ secondaryStorage })).auth).verificationStore()).toEqual([undefined, "secondaryStorage"]);
+    const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
+    expect((await createAuthConsole(createAuthForRequest(definition, new Request(origin))).verificationStore())[0]).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
+  });
+
   it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
     const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
     const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));

@@ -7,6 +7,7 @@ import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMedia
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleDiagnostic } from "../diagnostics.ts"
 import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../auth-operations.ts"
 import { siteStoreText } from "../site-access.ts"
 
@@ -549,14 +550,19 @@ function formatSiteSessions({ sessions }: { sessions: SiteSession[] }): string {
   ])}\n`
 }
 
-function formatSiteInvites({ invites, store }: { invites: SiteInvite[], store: SiteStore }): string {
+function siteStoreLines(store: SiteStore): string[] {
+  if (store.kind !== "none") return [siteStoreText(store)]
+  return [`CONSOLE_TICKET_STORE_MISSING: ${store.why}`, `Fix: ${consoleDiagnostic("CONSOLE_TICKET_STORE_MISSING").fix}`]
+}
+
+function formatSiteInvites({ invites, store }: { invites: SiteInvite[], store?: SiteStore }): string {
   const list = invites.length
     ? table([
         ["ID", "NAME", "ROLES", "PATH", "EXPIRES", "BY"],
         ...invites.map(invite => [invite.id, invite.name, invite.grants.join(","), invite.path, invite.expiresAt, invite.createdBy.name]),
       ])
     : "No open invites."
-  return `${list}\n${siteStoreText(store)}\n`
+  return [list, ...(store ? siteStoreLines(store) : []), ""].join("\n")
 }
 
 function formatSiteGrants({ grants }: { grants: SiteGrant[] }): string {

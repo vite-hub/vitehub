@@ -564,12 +564,12 @@ describe("Site access without Auth fails closed", () => {
     expect(kv.entries.size).toBe(0)
   })
 
-  it("names the cause in site.invites and lists no browsers when no store keeps links", async () => {
+  it("names the cause in site.invites and refuses site.sessions when no store keeps links", async () => {
     kv.driver = "cloudflare-kv-binding"
     const why = expect.stringMatching(/^One-time links need a store that every instance of the app shares\. The app has no Database\. The default KV store uses the cloudflare-kv-binding driver/)
     expect(await describeConsoleSiteStore(new Request(origin))).toEqual({ kind: "none", why })
     expect((await call("site.invites")).value).toEqual({ invites: [], store: { kind: "none", why } })
-    expect((await call("site.sessions")).value).toEqual({ sessions: [] })
+    expect((await call("site.sessions")).body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING", message: why })
   })
 
   it("refuses a link without VITEHUB_SECRET", async () => {
