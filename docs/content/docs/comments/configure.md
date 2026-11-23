@@ -115,16 +115,17 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function. The `authorize` context has `development` and `console`, so pass it as the second argument to keep the default and add your own rule:
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. To keep the default dev, GitHub, and Site access checks and also allow admins, pass `{ development }` to `defaultPolicy()`:
 
 ```ts [server/comments.ts]
 import { defaultPolicy, defineComments } from 'vite-hub/comments'
 
 export const comments = defineComments({
-  // Guests on the dev server, as by default, and admins everywhere.
-  authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === 'admin',
+  authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === 'admin',
 })
 ```
+
+This policy does not grant access based on Console admission alone. Do not pass the entire `authorize` context as the gate: `console: true` means the Console admitted the request, but with `identify` the built-in policy does not treat that as permission for the app user.
 
 On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 

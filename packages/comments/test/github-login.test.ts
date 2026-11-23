@@ -107,7 +107,7 @@ describe("authorize on the dev server", () => {
 
   it.each([true, false])("falls back to the default policy with development=%s", async (development) => {
     const call = await setup(fakeLogin(null), development, {
-      authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === "admin",
+      authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === "admin",
     })
     const { body } = await call("/session")
     expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development, delete: development })

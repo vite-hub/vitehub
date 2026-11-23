@@ -5,7 +5,7 @@ import { defaultPolicy, defineComments } from "../src/index.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
 import type { H3Event } from "h3"
-import type { CommentAction, CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess, CommentsIdentifyContext, CommentsPolicyGate, CommentsRequestEvent, CommentSubject } from "../src/index.ts"
+import type { CommentAction, CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess, CommentsIdentifyContext, CommentsRequestEvent, CommentSubject } from "../src/index.ts"
 
 const comments = defineComments()
 
@@ -15,10 +15,9 @@ it("gives policies the subject and one set of actions", () => {
   defineComments({ authorize: ({ subject }) => subject?.kind === "page" })
 })
 
-it("lets a policy pass its context to defaultPolicy() as the gate", () => {
-  expectTypeOf<CommentsAuthorizeContext>().toExtend<CommentsPolicyGate>()
+it("lets a policy pass development to defaultPolicy()", () => {
   expectTypeOf<CommentsAuthorizeContext["development"]>().toEqualTypeOf<boolean | undefined>()
-  defineComments({ authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === "admin" })
+  defineComments({ authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === "admin" })
 })
 
 it("types GitHub access in a policy alongside custom identity", () => {

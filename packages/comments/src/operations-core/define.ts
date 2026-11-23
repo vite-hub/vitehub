@@ -55,8 +55,8 @@ export interface CommentsAuthorizeContext {
   console?: boolean
   /**
    * The app runs on the development server: Vite's serve command, which the generated plugin records. It never comes
-   * from `NODE_ENV`. The context fits `defaultPolicy()`, so a policy can fall back to it:
-   * `authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === "admin"`.
+   * from `NODE_ENV`. Pass `{ development }` to `defaultPolicy()` for the dev, GitHub, and Site access checks.
+   * The full context is not the default gate: with `identify`, Console admission does not grant the app user access.
    */
   development?: boolean
 }
