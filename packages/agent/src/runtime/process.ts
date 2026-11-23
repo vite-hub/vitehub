@@ -377,6 +377,9 @@ export type { ProcessAgentHost, ProcessAgentHostOptions } from './process-host.t
 /**
  * Starts the process hosts that discovered Agents contribute, for example through a process host
  * preset. The generated Nitro plugin owns one instance per server process.
+ *
+ * With `leases`, each Agent runs its host on one server at a time, under the Lease `agent-process-host:<agent>`.
+ * The other servers wait and take over within about 30 seconds when the holder stops.
  */
 export function createAgentProcessHosts(options: {
   names: readonly string[]
@@ -387,6 +390,10 @@ export function createAgentProcessHosts(options: {
   enabled?: boolean
   /** First delay before a host that failed to start is created again. Doubles up to 30 minutes. Defaults to 1 minute. */
   retryMs?: number
+  /** A shared Lease store, such as `useLeases()`. Without it, every server runs every host. */
+  leases?: () => import("@vite-hub/runtime").LeaseStore
+  /** Lease timing, for tests. Defaults to a 25 second Lease that each server checks every 5 seconds. */
+  lease?: { ttlMs?: number, intervalMs?: number }
 }): {
   start(): void
   close(): Promise<void>
@@ -396,15 +403,16 @@ export function createAgentProcessHosts(options: {
 } {
   const hosts = new Map<string, import("../process-host.ts").AgentProcessHostInstance>()
   const failures = new Map<string, string>()
+  const gates = new Map<string, import("./process-host-lease.ts").AgentProcessHostLease>()
   let starting: Promise<void> | undefined
   let closed = false
   // A development server with production credentials must not repair real PRs by accident.
   const enabled = options.enabled ?? (process.env.NODE_ENV === "production" || process.env.VITEHUB_AGENT_PROCESS_HOSTS === "1")
   const retries = new Map<string, ReturnType<typeof setTimeout>>()
   const retryMs = options.retryMs ?? 60_000
-  const startHost = async (agentName: string, attempt: number): Promise<void> => {
+  const startHost = async (agentName: string, attempt: number, retry = true): Promise<boolean> => {
     retries.delete(agentName)
-    if (closed) return
+    if (closed) return false
     const { loadAgent } = await import("../index.ts")
     const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
@@ -413,37 +421,74 @@ export function createAgentProcessHosts(options: {
       const contribution = getAgentProcessHostContribution(agent)
       if (!contribution) {
         failures.set(agentName, "The Agent has no process host contribution.")
-        return
+        return false
       }
       const host = await contribution.create({ agentName, agent, state: options.state(), dataDir: join(options.dataDir ?? ".vitehub/agents", agentName) })
       if (closed) {
         await host.close()
-        return
+        return false
       }
       failures.delete(agentName)
       hosts.set(agentName, host)
       host.start()
+      return true
     }
     catch (error) {
       failures.set(agentName, error instanceof Error ? error.message : String(error))
       console.error(`[vitehub] Agent process host "${agentName}" did not start.`, error)
+      if (!retry) return false
       // A provider outage at boot, such as an unavailable GitHub API, must not stop the host until the next deploy.
       const delay = Math.min(retryMs * 2 ** attempt, 30 * 60_000)
       const timer = setTimeout(() => { void startHost(agentName, attempt + 1) }, delay)
       timer.unref?.()
       retries.set(agentName, timer)
+      return false
+    }
+  }
+  const stopHost = async (agentName: string): Promise<void> => {
+    const host = hosts.get(agentName)
+    hosts.delete(agentName)
+    await host?.close()
+  }
+  const leaseStore = (): import("@vite-hub/runtime").LeaseStore | undefined => {
+    if (!options.leases) return undefined
+    try {
+      return options.leases()
+    }
+    catch (error) {
+      console.warn("[vitehub:agent] Agent process hosts need a Lease store in the default Database. Every server runs its own process hosts.", error)
+      return undefined
     }
   }
   return {
     start() {
       if (starting || closed || !enabled) return
-      starting = Promise.all(options.names.map(agentName => startHost(agentName, 0))).then(() => undefined)
+      const leases = leaseStore()
+      if (!leases) {
+        starting = Promise.all(options.names.map(agentName => startHost(agentName, 0))).then(() => undefined)
+        return
+      }
+      starting = import("./process-host-lease.ts").then(({ startAgentProcessHostLease }) => {
+        if (closed) return
+        for (const agentName of options.names) {
+          gates.set(agentName, startAgentProcessHostLease({
+            ...options.lease,
+            agentName,
+            leases,
+            state: options.state,
+            promote: () => startHost(agentName, 0, false),
+            demote: () => stopHost(agentName),
+            onError: error => console.error(`[vitehub] The process host Lease of the Agent "${agentName}" failed.`, error),
+          }))
+        }
+      })
     },
     async close() {
       closed = true
       for (const timer of retries.values()) clearTimeout(timer)
       retries.clear()
       await starting
+      await Promise.all([...gates.values()].map(gate => gate.stop()))
       await Promise.all([...hosts.values()].map(host => host.close()))
     },
     wake(reason) {
@@ -452,6 +497,7 @@ export function createAgentProcessHosts(options: {
     status() {
       if (!enabled) return "drained"
       const statuses = [...hosts.values()].map(host => host.status())
+      if (!statuses.length && gates.size && !closed) return "accepting"
       if (failures.size && !statuses.length) return "failed"
       if (!statuses.length) return closed ? "drained" : "starting"
       for (const status of ["failed", "draining", "starting", "accepting"] as const) if (statuses.includes(status)) return status
@@ -460,7 +506,10 @@ export function createAgentProcessHosts(options: {
     async health() {
       const agents: Record<string, unknown> = {}
       for (const [name, reason] of failures) agents[name] = { status: "degraded", reason }
-      for (const [name, host] of hosts) agents[name] = await host.health()
+      for (const [name, gate] of gates) {
+        if (gate.role() === "standby") agents[name] = { status: "healthy", role: "standby", holder: gate.holder() }
+      }
+      for (const [name, host] of hosts) agents[name] = { ...await host.health(), ...gates.has(name) ? { role: "holder" } : {} }
       if (!enabled) for (const name of options.names) agents[name] = { status: "degraded", reason: "Process hosts start in production or with VITEHUB_AGENT_PROCESS_HOSTS=1." }
       const degraded = Object.values(agents).some(agent => isRuntimeRecord(agent) && agent.status !== "healthy")
       return { status: degraded ? "degraded" : "healthy", agents }

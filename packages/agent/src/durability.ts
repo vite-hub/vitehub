@@ -83,3 +83,25 @@ export function agentRecoveryDurability(input: AgentRecoveryDurabilityInput, con
     ...(database.fix ? { fix: database.fix } : {}),
   }]
 }
+
+/** What the build passes to `agentProcessHostDurability()`. `lease` is true when the hosts run under a Database Lease. */
+export interface AgentProcessHostDurabilityInput {
+  lease: boolean
+}
+
+const processHostFix = "Add a Database named `default`, so each Agent runs its process host on one server at a time, under the Lease `agent-process-host:<agent>`."
+
+/** How many servers run the process host of an Agent, such as the Babysitter. */
+export function agentProcessHostDurability(input: AgentProcessHostDurabilityInput, context: DurabilityContext): Durability[] {
+  const database = input.lease ? context.find("database") : undefined
+  if (!database) {
+    return [{ primitive: "agent-process-host", store: "process", scope: "process", reason: "Every server runs its own process host for each Agent.", fix: processHostFix }]
+  }
+  return [{
+    primitive: "agent-process-host",
+    store: `lease (${database.store})`,
+    scope: database.scope,
+    reason: `One server at a time runs the process host of each Agent, under a Lease in the default Database. Another server takes over within about 30 seconds. ${database.reason}`,
+    ...(database.fix ? { fix: database.fix } : {}),
+  }]
+}

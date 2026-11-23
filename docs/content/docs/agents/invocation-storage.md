@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Only the journal is shared: Agent State and process hosts still expect one Node instance. The [recovery sweep](#recover-interrupted-invocations) works on every instance.
+ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Agent State still belongs to its store. With a Database, a [process host](/docs/agents/process-hosts#run-one-host-across-servers) runs on one instance at a time. The [recovery sweep](#recover-interrupted-invocations) works on every instance.
 
 ## Use the default journal
 

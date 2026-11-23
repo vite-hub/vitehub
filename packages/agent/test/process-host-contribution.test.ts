@@ -4,9 +4,13 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { env } from "@vite-hub/env"
 import { defineAgent } from "../src/index.ts"
-import { withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
+import { agentProcessHostIntake, registerAgentProcessHostIntake, withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
+import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
+import { agentProcessHostLeaseIntervalMs, agentProcessHostLeaseKey, agentProcessHostLeaseTtlMs } from "../src/runtime/process-host-lease.ts"
+import { createMemoryLeaseStore, createSqlLeaseStore, type LeaseStore } from "@vite-hub/runtime"
+import { DatabaseSync } from "node:sqlite"
 
 const roots: string[] = []
 afterEach(async () => {
@@ -91,6 +95,125 @@ describe("createAgentProcessHosts", () => {
     expect(create).not.toHaveBeenCalled()
     expect(hosts.status()).toBe("drained")
     expect((await hosts.health()).status).toBe("degraded")
+  })
+})
+
+describe("createAgentProcessHosts with a Lease", () => {
+  const lease = { ttlMs: 200, intervalMs: 20 }
+  function fakeHost(): AgentProcessHostInstance & { running: boolean } {
+    return {
+      running: false,
+      start() { this.running = true },
+      async close() { this.running = false },
+      wake() {},
+      status: () => "accepting",
+      health: async () => ({ status: "healthy" }),
+    }
+  }
+  function server(leases: LeaseStore, create: () => Promise<AgentProcessHostInstance>) {
+    return createAgentProcessHosts({ names: ["worker"], enabled: true, lease, leases: () => leases, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create }) }),
+    }, state: () => ({ extension: vi.fn() }) })
+  }
+
+  it("runs the host on one server at a time and hands it over when the holder stops", async () => {
+    const leases = createMemoryLeaseStore()
+    const [first, second] = [fakeHost(), fakeHost()]
+    const [a, b] = [server(leases, async () => first), server(leases, async () => second)]
+    a.start()
+    await vi.waitFor(() => expect(first.running).toBe(true))
+    b.start()
+    await new Promise(resolve => setTimeout(resolve, 5 * lease.intervalMs))
+    expect(second.running).toBe(false)
+    expect(b.status()).toBe("accepting")
+    expect(await b.health()).toMatchObject({ status: "healthy", agents: { worker: { role: "standby" } } })
+    expect(await a.health()).toMatchObject({ agents: { worker: { status: "healthy", role: "holder" } } })
+    expect((await leases.get(agentProcessHostLeaseKey("worker")))[1]).toMatchObject({ key: "agent-process-host:worker" })
+
+    await a.close()
+    expect(first.running).toBe(false)
+    await vi.waitFor(() => expect(second.running).toBe(true))
+    await b.close()
+    expect(second.running).toBe(false)
+  })
+
+  it("stops the host before the Lease expires when the holder cannot renew it", async () => {
+    const database = new DatabaseSync(":memory:")
+    let renewals = true
+    const leases = createSqlLeaseStore({ dialect: "sqlite", query: async (text, params) => {
+      if (!renewals && /^\s*update/i.test(text)) throw new Error("Database unavailable")
+      const statement = database.prepare(text)
+      return /^\s*(select|with)|returning/i.test(text) ? statement.all(...params) : (statement.run(...params), [])
+    } })
+    const host = fakeHost()
+    let stoppedAt: number | undefined
+    const hosts = server(leases, async () => ({ ...host, close: async () => { stoppedAt ??= performance.now() } }))
+    hosts.start()
+    await vi.waitFor(async () => expect(await hosts.health()).toMatchObject({ agents: { worker: { role: "holder" } } }))
+    await new Promise(resolve => setTimeout(resolve, 3 * lease.intervalMs))
+    renewals = false
+    const failedAt = performance.now()
+    await vi.waitFor(() => expect(stoppedAt).toBeDefined())
+    expect(stoppedAt! - failedAt).toBeLessThan(lease.ttlMs)
+    await hosts.close()
+  })
+
+  it("frees the Lease when the host does not start, so another server can run it", async () => {
+    const leases = createMemoryLeaseStore()
+    const host = fakeHost()
+    const failing = vi.fn(async () => { throw new Error("GitHub App request /app failed with 503.") })
+    const a = server(leases, failing)
+    a.start()
+    await vi.waitFor(() => expect(failing).toHaveBeenCalled())
+    const b = server(leases, async () => host)
+    b.start()
+    await vi.waitFor(() => expect(host.running).toBe(true))
+    expect(await a.health()).toMatchObject({ agents: { worker: { role: "standby" } } })
+    await Promise.all([a.close(), b.close()])
+  })
+
+  it("keeps webhook deliveries on a standby server and hands them to the holder", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-process-host-forward-"))
+    roots.push(root)
+    const state = createLibsqlAgentState({ url: `file:${join(root, "state.db")}` })
+    const leases = createMemoryLeaseStore()
+    const [, other] = await leases.acquire(agentProcessHostLeaseKey("worker"), { owner: "other-server", ttl: 60 })
+    const handled: string[] = []
+    const host = { ...fakeHost(), start() { registerAgentProcessHostIntake("worker", async ({ deliveryId }) => { handled.push(deliveryId); return new Response(null, { status: 202 }) }) },
+      async close() { registerAgentProcessHostIntake("worker", undefined) } }
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, lease, leases: () => leases, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host }) }),
+    }, state: () => state })
+    hosts.start()
+    await vi.waitFor(async () => expect(await hosts.health()).toMatchObject({ agents: { worker: { role: "standby", holder: "other-server" } } }))
+    for (const deliveryId of ["delivery-1", "delivery-2", "delivery-1"]) {
+      const response = await agentProcessHostIntake("worker")!({ deliveryId, event: "pull_request", payload: { number: 7 } })
+      expect(response.status).toBe(202)
+      expect(await response.json()).toEqual({ accepted: true, forwarded: true })
+    }
+    expect(handled).toEqual([])
+    await other!.release()
+    await vi.waitFor(() => expect(handled).toEqual(["delivery-1", "delivery-2"]))
+    expect(await state.extension("process_host").execute("SELECT * FROM vitehub_agent_state_process_host_intake")).toEqual([])
+    await hosts.close()
+    expect(agentProcessHostIntake("worker")).toBeUndefined()
+    await state.disconnect()
+  })
+
+  it("runs the host on every server when no Lease store exists", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const host = fakeHost()
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, leases: () => { throw new Error("No Database") }, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host }) }),
+    }, state: () => ({ extension: vi.fn() }) })
+    hosts.start()
+    await vi.waitFor(() => expect(host.running).toBe(true))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("need a Lease store"), expect.any(Error))
+    await hosts.close()
+  })
+
+  it("replaces a stopped holder within about 30 seconds by default", () => {
+    expect(agentProcessHostLeaseTtlMs + agentProcessHostLeaseIntervalMs).toBe(30_000)
   })
 })
 

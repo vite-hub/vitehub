@@ -22,7 +22,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
-import type { AgentRecoveryDurabilityInput, AgentStateDurabilityInput } from "./durability.ts"
+import type { AgentProcessHostDurabilityInput, AgentRecoveryDurabilityInput, AgentStateDurabilityInput } from "./durability.ts"
 import { createNativePackageLoading, createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -2105,6 +2105,11 @@ async function generateAgentNetlifyFunctionRouteHandler(
   ].join("\n")
 }
 
+function usesDatabaseLeases(options: { libsqlState?: GeneratedLibsqlAgentStateOptions } & AgentGeneratedImportOptions): boolean {
+  return Boolean(options.libsqlState && !options.libsqlState.ephemeralHosting
+    && options.runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false))
+}
+
 async function writeAgentWebhookRouteHandler(
   root: string,
   options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
@@ -2207,12 +2212,14 @@ async function writeAgentWebhookRouteHandler(
   const processHostFiles = [generatedAgentProcessHosts, generatedAgentProcessHostsPlugin, generatedAgentProcessHostsDrain, generatedAgentProcessHostsHealth].map(file => join(root, file))
   if (processHosts.length) {
     const routeModule = `./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`
+    const hostLeases = usesDatabaseLeases(options)
     await writeFileIfChanged(processHostFiles[0]!, [
       `import registry from ${JSON.stringify(agentRegistryId)}`,
       `import { createAgentProcessHosts } from ${JSON.stringify(agentRuntimeModule("process"))}`,
       `import { agentProcessHostState } from ${JSON.stringify(routeModule)}`,
+      ...(hostLeases ? [`import { agentProcessHostLeases } from ${JSON.stringify(agentRuntimeModule("runtime/recovery-leases"))}`] : []),
       "",
-      `export const host = createAgentProcessHosts({ names: ${JSON.stringify(processHosts)}, registry, state: agentProcessHostState })`,
+      `export const host = createAgentProcessHosts({ names: ${JSON.stringify(processHosts)}, registry, state: agentProcessHostState${hostLeases ? ", leases: agentProcessHostLeases" : ""} })`,
       "",
     ].join("\n"))
     await writeFileIfChanged(processHostFiles[1]!, [
@@ -2240,7 +2247,7 @@ async function writeAgentWebhookRouteHandler(
     const persistent = !options.libsqlState.ephemeralHosting
     // A persistent server also drains inline Chat invocations when it stops.
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
-    const recoveryLeases = persistent && options.runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false)
+    const recoveryLeases = usesDatabaseLeases(options)
     const internalImport = JSON.stringify(agentRuntimeModule("server/internal"))
     await writeFileIfChanged(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
@@ -2845,6 +2852,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   // The Agent state store that the server uses, when the app has hosted Agents.
   let stateDurability: AgentStateDurabilityInput | undefined
   let recoveryDurability: AgentRecoveryDurabilityInput | undefined
+  let processHostDurability: AgentProcessHostDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
@@ -3191,6 +3199,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       durability: () => [
         ...stateDurability ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }] : [],
         ...recoveryDurability ? [{ export: "agentRecoveryDurability", input: recoveryDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-recovery" }] : [],
+        ...processHostDurability ? [{ export: "agentProcessHostDurability", input: processHostDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-process-host" }] : [],
       ],
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
       operations: () => [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: agentRuntimeModule("operations") }],
@@ -3326,6 +3335,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       const processHostAgents = resolved && hasHostedAgents
         ? discoverProcessHostAgentNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }))
         : []
+      processHostDurability = processHostAgents.length ? { lease: Boolean(recoveryDurability?.sweep) } : undefined
       if (processHostAgents.length) {
         const hosting = denoOutput ? "deno" : resolveAgentHosting(config)
         if (hosting) {

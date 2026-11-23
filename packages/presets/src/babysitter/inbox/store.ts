@@ -135,6 +135,11 @@ export interface PullRequestInboxOptions {
    * approves its current head, or a head the host built on the approved one. Every other rule still applies.
    */
   admitApproved?: boolean
+  /**
+   * The time in Unix milliseconds, for tests. By default the inbox follows the clock of its database: it measures
+   * how far the host clock is from it at most every 30 seconds and corrects a difference of one second or more, so
+   * servers with different host clocks agree when a lease expires.
+   */
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
@@ -165,6 +170,9 @@ export function pullRequestFilterContext(repository: string, pr: GitHubPullReque
 }
 
 const stringValue = (value: unknown): string => isRuntimeString(value) ? value : String(value)
+const databaseNow = "CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER)"
+const clockSampleIntervalMs = 30_000
+const clockSkewToleranceMs = 1_000
 const ciEvidencePrefix = 'ci-evidence:v1:'
 const ciEvidenceAtPrefix = 'ci-evidence-at:v1:'
 const legacyRecordSchema = v.record(v.string(), v.unknown())
@@ -266,6 +274,8 @@ export class PullRequestInbox {
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
   private repositoryList: () => readonly string[]
   private clock: () => number
+  private clockOffset: number | undefined
+  private clockSampledAt = Number.NEGATIVE_INFINITY
   private filter?: GitHubPullRequestFilter
   /** Whether a maintainer's approval admits an author the filter leaves out. */
   readonly admitApproved: boolean
@@ -277,7 +287,7 @@ export class PullRequestInbox {
   private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
@@ -290,7 +300,8 @@ export class PullRequestInbox {
       const fixed = repositories.map(repository => repository.toLowerCase())
       this.repositoryList = () => fixed
     }
-    this.clock = clock
+    this.clockOffset = clock ? undefined : 0
+    this.clock = clock ?? (() => Date.now() + (this.clockOffset ?? 0))
     this.filter = filter
     this.admitApproved = admitApproved
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -348,10 +359,24 @@ export class PullRequestInbox {
     })
     await this.ready
   }
+  /** The current time on the inbox clock. Compare lease ends from the inbox with it, not with `Date.now()`. */
+  now(): number {
+    return this.clock()
+  }
+  private async syncClock(tx: PullRequestInboxExecutor): Promise<void> {
+    if (this.clockOffset === undefined || performance.now() - this.clockSampledAt < clockSampleIntervalMs) return
+    const [row] = await tx.execute(`SELECT ${databaseNow} AS now`)
+    const now = Number(row?.now)
+    if (!Number.isFinite(now)) return
+    const offset = now - Date.now()
+    this.clockOffset = Math.abs(offset) < clockSkewToleranceMs ? 0 : offset
+    this.clockSampledAt = performance.now()
+  }
   private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.init()
     return await this.storage.transaction(async tx => {
       signal?.throwIfAborted()
+      await this.syncClock(tx)
       const result = await run(tx)
       signal?.throwIfAborted()
       return result
@@ -359,6 +384,7 @@ export class PullRequestInbox {
   }
   private async read(statement: string, args: unknown[] = []): Promise<PullRequestInboxRow[]> {
     await this.init()
+    await this.syncClock(this.storage)
     return await this.storage.execute(statement, args)
   }
   /** Parses one stored row. An invalid row is reported once and skipped by queue-wide reads. */
