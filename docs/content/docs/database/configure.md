@@ -755,7 +755,7 @@ vitehub: {
 },
 ```
 
-A project cannot combine `src/database.ts` with named databases, so this fits an app whose databases are in `server/databases/` or all named.
+A project cannot combine `src/database.ts` with named databases, so this fits any app that does not define its Default Database in `src/database.ts`.
 
 | Field | Type | Description |
 | --- | --- | --- |
