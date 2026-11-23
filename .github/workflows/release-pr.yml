@@ -125,16 +125,16 @@ jobs:
             fi
           done
 
-  recover-release:
+  resolve-recovery:
     if: github.event_name == 'workflow_dispatch' && inputs.recover_failed_release && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
     runs-on: ubuntu-latest
-    concurrency:
-      group: release-recovery
-      cancel-in-progress: false
     permissions:
-      contents: write
-      actions: write
+      contents: read
       pull-requests: read
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,19 +191,60 @@ jobs:
             echo "Tag $release_tag already exists; dispatch release.yml on that tag instead" >&2
             exit 1
           fi
-          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-          echo "sha=$recovery_sha" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
-      - run: vp run verify
+          {
+            echo "tag=$release_tag"
+            echo "sha=$recovery_sha"
+            echo "version=${release_tag#v}"
+          } >> "$GITHUB_OUTPUT"
+
+  verify-recovery:
+    needs: resolve-recovery
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.verified.outputs.sha }}
+      version: ${{ steps.verified.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve-recovery.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the exact release
+        id: verified
+        uses: ./.github/actions/verify-release
+        with:
+          version: ${{ needs.resolve-recovery.outputs.version }}
+          exact: "true"
+          source-sha: ${{ needs.resolve-recovery.outputs.sha }}
+
+  recover-release:
+    needs: [resolve-recovery, verify-recovery]
+    if: needs.verify-recovery.result == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-recovery
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: write
+    steps:
       - name: Tag corrected main and dispatch release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ needs.resolve-recovery.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve-recovery.outputs.sha }}
+          RELEASE_VERSION: ${{ needs.resolve-recovery.outputs.version }}
+          VERIFIED_SHA: ${{ needs.verify-recovery.outputs.sha }}
+          VERIFIED_VERSION: ${{ needs.verify-recovery.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "$RELEASE_SHA" || "$VERIFIED_SHA" != "$RELEASE_SHA" || -z "$RELEASE_VERSION" || "$VERIFIED_VERSION" != "$RELEASE_VERSION" || "$RELEASE_TAG" != "v${VERIFIED_VERSION}" ]]; then
+            echo "Release verification passed for ${VERIFIED_VERSION:-no version} at ${VERIFIED_SHA:-no commit}, not ${RELEASE_TAG} at ${RELEASE_SHA}" >&2
+            exit 1
+          fi
           status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${RELEASE_SHA}...main" --jq .status)"
           if [[ "$status" != "ahead" && "$status" != "identical" ]]; then
             echo "Reviewed recovery commit is no longer on main" >&2
@@ -228,19 +269,32 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      sha: ${{ steps.verified.outputs.sha }}
+      version: ${{ steps.verified.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ./.github/actions/setup
-      - uses: ./.github/actions/setup-deno
+      - name: Resolve the release version
+        id: release
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+        shell: bash
+        run: echo "version=${RELEASE_BRANCH#release/v}" >> "$GITHUB_OUTPUT"
+      - name: Verify the exact release
+        id: verified
+        uses: ./.github/actions/verify-release
+        with:
+          version: ${{ steps.release.outputs.version }}
+          exact: "true"
+          source-sha: ${{ github.event.pull_request.merge_commit_sha }}
       - name: Check release candidate
         env:
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
-      - run: vp run verify
 
   tag-release:
     needs: verify-release
@@ -266,10 +320,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
           RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          VERIFIED_SHA: ${{ needs.verify-release.outputs.sha }}
+          VERIFIED_VERSION: ${{ needs.verify-release.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           release_tag="${RELEASE_BRANCH#release/}"
+          if [[ -z "$RELEASE_SHA" || "$VERIFIED_SHA" != "$RELEASE_SHA" || "$release_tag" != "v${VERIFIED_VERSION}" ]]; then
+            echo "Release verification passed for ${VERIFIED_VERSION:-no version} at ${VERIFIED_SHA:-no commit}, not ${release_tag} at ${RELEASE_SHA}" >&2
+            exit 1
+          fi
           existing_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           if [[ -n "$existing_sha" && "$existing_sha" != "$RELEASE_SHA" ]]; then
             echo "Tag $release_tag already points to $existing_sha" >&2
