@@ -2,12 +2,12 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { findProperty, keyName, parseProgram, walk } from "@vite-hub/internal/ast"
+import { findProperty, keyName, parseProgram } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
 import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 
-import type { ArrayExpression, Expression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
+import type { ArrayExpression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"
 
 /** A value that a codemod can read from source without running it. */
 export type LiteralValue = boolean | number | string
@@ -169,17 +169,4 @@ export function nitroPreset(config: NuxtConfigFile): { value?: string, property?
   const property = nitro ? findProperty(nitro, "preset") : undefined
   const value = property ? literalValue(property.value) : undefined
   return { value: typeof value === "string" ? value : undefined, property }
-}
-
-/** Every identifier name in the source range of `node`. */
-export function identifiersIn(node: Node): Set<string> {
-  const names = new Set<string>()
-  walk(node, (child) => {
-    if (child.type === "Identifier") names.add(child.name)
-  })
-  return names
-}
-
-export function isExpression(node: Node): node is Expression {
-  return node.type !== "SpreadElement" && node.type !== "ArgumentPlaceholder" && node.type !== "JSXNamespacedName"
 }

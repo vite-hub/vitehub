@@ -670,13 +670,14 @@ pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive
 Or call `replayChannel()` from trusted server code:
 
 ```ts [server/api/backfill.post.ts] fragment
+import { defineEventHandler, readBody } from 'h3'
 import { replayChannel } from 'vite-hub/agent/server'
 import { getRuntimeContext } from 'vite-hub/runtime'
 import labeller from '../agents/labeller'
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
-  const { cursor } = await readBody<{ cursor?: string }>(event)
+  const { cursor } = await readBody<{ cursor?: string }>(event) ?? {}
   return await replayChannel(labeller, 'mailbox', {
     cursor,
     limit: 50,

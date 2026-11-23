@@ -868,10 +868,10 @@ describe("kv runtime", () => {
   })
 
   it("bounds selective Deno KV pages and resumes from the provider cursor", async () => {
-    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+    const list = vi.fn((_selector: unknown, options: { cursor?: string; limit?: number } = {}) => {
       const iterator = (async function* () {
         if (!options.cursor) {
-          yield { key: ["other"], value: null }
+          yield { key: ["match-0", "part"], value: null }
         }
         else {
           for (const key of ["match-1", "match-2", "match-3"].slice(0, options.limit)) {
@@ -899,7 +899,7 @@ describe("kv runtime", () => {
       keys: ["match-1", "match-2"],
       cursor: expect.any(String),
     })
-    expect(list).toHaveBeenNthCalledWith(1, { prefix: [] }, { cursor: undefined, limit: 2 })
+    expect(list).toHaveBeenNthCalledWith(1, { prefix: [], start: ["match"] }, { cursor: undefined, limit: 2 })
     expect(list).toHaveBeenNthCalledWith(2, { prefix: [] }, { cursor: "deno-next", limit: 2 })
     expect(list).toHaveBeenCalledTimes(2)
   })

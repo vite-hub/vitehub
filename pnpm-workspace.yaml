@@ -42,7 +42,7 @@ allowBuilds:
 
 catalogs:
   ai:
-    "@agntn/web": ^0.5.5
+    "@agntn/web": ^0.9.1
     "@ai-sdk/anthropic": 4.0.75
     "@ai-sdk/mcp": 2.0.69
     "@ai-sdk/openai": 4.0.88

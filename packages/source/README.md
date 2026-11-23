@@ -316,8 +316,10 @@ export const articles = defineCollection({
 Clients filter with the declared field paths: `?category=guide` matches without
 case, a repeated key matches any of its values, `?empty=category` matches items
 with no value, and `?search=` matches the `search` fields. Any other key returns
-`400`. Cursors are bound to the data and the query. A cursor from changed data or
-another query returns `409`. `load` runs on every request; return
+`400`. String sort keys and facet ties use UTF-16 code unit order, folding common
+Latin letters and accents first, then comparing the original strings to break ties.
+Cursors are bound to the data, query, and sort order. A cursor from changed data,
+another query, or an older sort order returns `409`. `load` runs on every request; return
 `{ items, digest }` when the origin already has a content digest, or ViteHub
 hashes the items for pagination. Keyed lookups do not compute a digest.
 `useCollection()` exposes `total` and `facets` from the latest
