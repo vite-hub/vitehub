@@ -6218,7 +6218,7 @@ describe("Agent Invocations", () => {
       clock.mockRestore()
 
       const cutoffs = batch.mock.calls.flatMap(([statements]) => statements.flatMap(statement =>
-        typeof statement !== "string" && statement.sql.startsWith("DELETE FROM ") && statement.sql.endsWith("updated_at < ?")
+        typeof statement === "object" && "sql" in statement && statement.sql.startsWith("DELETE FROM ") && statement.sql.endsWith("updated_at < ?")
           ? [statement.args]
           : [],
       ))
