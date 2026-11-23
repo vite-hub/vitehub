@@ -9,7 +9,7 @@ import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { setupExitCodes, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { installArgs, installCommand, setsOption, setupStatus } from "./status.ts"
 
@@ -110,7 +110,15 @@ export function readFeatureId(value: string, commandUsage = usage): FeatureId {
   return id
 }
 
-function optionValue(value: string): JsonValue {
+function optionValue(value: string, key: string): JsonValue {
+  if (value.trimStart().startsWith("[")) {
+    try {
+      return JSON.parse(value)
+    }
+    catch {
+      throw invalid(`--option ${key} must contain a valid JSON array.`)
+    }
+  }
   if (value === "true" || value === "false" || value === "null" || /^-?\d+(?:\.\d+)?$/u.test(value)) return JSON.parse(value) as JsonValue
   return value
 }
@@ -164,7 +172,7 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     const id = head ?? (parsed.features.length === 1 ? parsed.features[0] : undefined)
     const keys = head ? path.slice(1) : path
     if (!id || !keys.length || keys.some(key => !key)) throw invalid(`--option ${JSON.stringify(option)} must start with one of the features, such as \`${parsed.features[0] ?? "email"}.driver=resend\`.`)
-    setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1)))
+    setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1), `${id}.${keys.join(".")}`))
   }
   return parsed
 }
@@ -288,6 +296,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
 
   const missing: SetupMissing[] = []
+  const inputFixes: string[] = []
   const defaults: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}
   const requires: FeatureId[] = []
   let rerunnable = true
@@ -380,9 +389,42 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
   }
+  const site = project.config?.ok ? project.config.site : undefined
+  if (inputFeatures.includes("i18n") && site?.keys.i18n?.kind !== "expression") {
+    const i18n = valueFor("i18n")
+    const locales = isRecord(i18n) ? i18n.locales : undefined
+    if (!Array.isArray(locales) || !locales.length || !locales.every(locale => typeof locale === "string")) {
+      missing.push({ field: "i18n.locales" })
+      inputFixes.push(`Pass a nonempty JSON array, such as \`--option 'i18n.locales=["en","es"]'\`.`)
+      rerunnable = false
+    }
+  }
+  let needsMcpOAuth = false
+  if (inputFeatures.includes("mcp") && site?.keys.mcp?.kind !== "expression") {
+    const configuredAuth = site?.keys.auth
+    const discoveredAuth = status.features.some(item => item.id === "auth" && item.enabled === "on" && item.reason === "default")
+    const selectedAuth = args.features.includes("auth") && (!configuredAuth || configuredAuth.kind === "expression" || configuredAuth.value === false)
+    const authEnabled = !args.options.auth && (selectedAuth || (configuredAuth?.kind === "literal" && configuredAuth.value === true) || discoveredAuth)
+    const mcp = valueFor("mcp")
+    const mode = isRecord(mcp) && Object.hasOwn(mcp, "auth") ? mcp.auth : undefined
+    if (mode === true || mode === "optional" || (mode === undefined && authEnabled)) {
+      if (authEnabled) needsMcpOAuth = true
+      else {
+        missing.push({ field: "auth" })
+        inputFixes.push("Select the `auth` feature or enable Auth in the app config. Add `mcpOAuth()` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()` in the Auth Definition.")
+        rerunnable = false
+      }
+    }
+    else if (mode !== false) {
+      missing.push({ choices: ["true", "optional", "false"], field: "mcp.auth" })
+      inputFixes.push("Enable Auth for signed requests and use `mcp.auth=true` or `mcp.auth=optional`, or omit `mcp.auth` to require sign-in by default. Pass `--option mcp.auth=false` only when anyone may call every tool.")
+      rerunnable = false
+    }
+  }
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
-    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
+    const fix = inputFixes.length ? inputFixes.join(" ") : undefined
+    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ fix, message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
       missing,
       ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
     })
@@ -390,7 +432,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const edits: ConfigEdit[] = []
   let expression = false
-  const site = project.config?.ok ? project.config.site : undefined
   const addedFeatures = [...args.features, ...requires]
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
@@ -462,6 +503,19 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const restartRequired = addsDiscovery && !configFile
   const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
+  if (needsMcpOAuth) {
+    const [appServerDir, ...layers] = project.serverDirs ?? []
+    const authFiles = features.auth.enabledByDiscovery ?? []
+    const appFiles = appServerDir ? authFiles.map(name => join(appServerDir, name)) : []
+    const definition = appServerDir && [
+      ...appFiles,
+      ...authFiles.map(name => join(definitionRoot, `server.${name}`)),
+      ...layers.flatMap(dir => authFiles.map(name => join(dir, name))),
+    ].find(existsSync)
+    const target = definition ? ` in \`${relative(project.root, definition)}\`` : ""
+    if (!definition && appServerDir) nextSteps.push(`Create an Auth Definition at \`${join(serverDir, "auth.ts")}\` if the app has none.`)
+    nextSteps.push(`Add \`mcpOAuth()\` from \`vite-hub/auth/mcp\` to the \`plugins\` of \`defineAuth()\` in the Auth Definition${target}. https://vitehub.dev/docs/mcp/configure#sign-in-with-mcp-oauth`)
+  }
   if (command && !args.install) nextSteps.push(`Install the packages: ${command}`)
   for (const id of implied) {
     const support = featureSupport(id, host)
