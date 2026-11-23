@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { conditionalFetch, forgeMemoryCache, forgeProvider, useForge } from "../src/index.ts"
 
@@ -57,6 +57,13 @@ describe("conditional Forge requests", () => {
     const init = { headers: { accept: "application/json", authorization: "Bearer test" } }
     const result = await conditionalFetch(echo)(request, init)
     expect(await result.json()).toEqual(await (await echo(request, init)).json())
+  })
+
+  it("rejects null headers before calling the fetcher", async () => {
+    const request = new Request("https://api.github.com/user", { headers: { authorization: "Bearer test" } })
+    const fetcher = vi.fn<typeof fetch>()
+    await expect(conditionalFetch(fetcher)(request, { headers: null as unknown as HeadersInit })).rejects.toThrow(TypeError)
+    expect(fetcher).not.toHaveBeenCalled()
   })
 
   it("revalidates a repeated GET and returns the cached body on a 304", async () => {
