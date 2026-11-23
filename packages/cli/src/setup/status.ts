@@ -1,6 +1,6 @@
 import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, formatInstallArgument, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -56,11 +56,14 @@ export function uninstallArgs(packageManager: SetupPackageManager, packages: rea
   return [...removeArgs[packageManager], ...packages]
 }
 
-/** The shell command that installs `prod` and then `dev`, such as `pnpm add kv && pnpm add -D 'drizzle-kit@1.0.0-rc.5 || ^1.0.0'`. */
+export function formatInstallCommand(command: string, args: readonly string[]): string {
+  return [command, ...args].map(formatInstallArgument).join(" ")
+}
+
 export function installCommand(packageManager: SetupPackageManager, prod: readonly string[], dev: readonly string[]): string | undefined {
   const commands = [
-    ...(prod.length ? [[packageManager, ...installArgs(packageManager, prod, false)].map(shellQuote).join(" ")] : []),
-    ...(dev.length ? [[packageManager, ...installArgs(packageManager, dev, true)].map(shellQuote).join(" ")] : []),
+    ...(prod.length ? [formatInstallCommand(packageManager, installArgs(packageManager, prod, false))] : []),
+    ...(dev.length ? [formatInstallCommand(packageManager, installArgs(packageManager, dev, true))] : []),
   ]
   return commands.length ? commands.join(" && ") : undefined
 }

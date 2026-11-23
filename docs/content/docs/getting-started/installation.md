@@ -208,12 +208,12 @@ If another third-party dependency version falls outside the range supported by y
 | Feature | Add these packages |
 | --- | --- |
 | `agent` | `@vite-hub/agent` |
-| `auth` | `@vite-hub/auth better-auth drizzle-orm` |
+| `auth` | `@vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5` (see [Auth setup](/docs/auth/get-started)) |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
-| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5`, and `drizzle-kit@1.0.0-rc.5` as a development dependency |
 | `email` | `@vite-hub/email` |
 | `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |

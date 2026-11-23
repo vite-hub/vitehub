@@ -371,7 +371,7 @@ describe("DB CLI contributor", () => {
       });
     `], { env: { ...process.env, NODE_PATH: "" } })).rejects.toMatchObject({
       code: 1,
-      stderr: expect.stringContaining(`Cannot find drizzle-kit in the dependencies of ${rootDir}. Install it, for example with \`pnpm add -D 'drizzle-kit@1.0.0-rc.5 || ^1.0.0'\`.`),
+      stderr: expect.stringContaining(`Cannot find drizzle-kit in the dependencies of ${rootDir}. Install it, for example with \`pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"\`.`),
     })
   })
 

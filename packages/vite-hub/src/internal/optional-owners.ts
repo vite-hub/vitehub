@@ -7,7 +7,7 @@ import { formatDiagnostic } from "nostics"
 
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
-import { consoleFeaturePackages, featureIds, featurePackages, features, installSpecifier, isOwnerCheckedPackage } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, featurePackages, features, formatInstallArgument, installSpecifier, isOwnerCheckedPackage } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -203,9 +203,8 @@ export function installArguments(packages: readonly string[], manifest: unknown 
   return previewArguments(packages, manifest).map(installSpecifier)
 }
 
-/** The `pnpm add` arguments of `installArguments`, quoted for a POSIX shell, such as `'drizzle-orm@1.0.0-rc.5 || ^1.0.0'`. */
 export function installCommandArguments(packages: readonly string[], manifest?: unknown): string {
-  return installArguments(packages, manifest).map(shellArgument).join(" ")
+  return installArguments(packages, manifest).map(formatInstallArgument).join(" ")
 }
 
 function previewArguments(packages: readonly string[], manifest: unknown): string[] {
@@ -354,11 +353,6 @@ function readInstalledManifest(packageName: string): unknown {
   }
 }
 
-/** Quotes `value` for a POSIX shell when it needs quotes, such as a range with `^`, `<`, or a space. */
-function shellArgument(value: string): string {
-  return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
-}
-
 /**
  * Installed packages whose version is outside the range in the `peerDependencies` of `vite-hub`, with the sentences
  * that name them and the `pnpm add` arguments that install supported versions. A package without a version, or with a
@@ -384,7 +378,7 @@ function unsupportedPackageVersions(
   const installed = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`).join(" ")
   // A preview of `vite-hub` gives a ViteHub package the preview URL. Other packages get the supported range.
   const previews = previewArguments(unsupported.map(({ name }) => name), manifest)
-  const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!)).join(" ")
+  const install = unsupported.map(({ name, range }, index) => formatInstallArgument(previews[index] === name ? `${name}@${range}` : previews[index]!)).join(" ")
   return { install, installed }
 }
 

@@ -614,6 +614,17 @@ export function installSpecifier(name: string): string {
   return range ? `${name}@${range}` : name
 }
 
+export function quoteSupportedInstallSpecifier(value: string): string | undefined {
+  const separator = value.indexOf("@", 1)
+  if (separator < 0) return undefined
+  const name = value.slice(0, separator)
+  return Object.hasOwn(installRanges, name) && value === installSpecifier(name) ? `"${value}"` : undefined
+}
+
+export function formatInstallArgument(value: string): string {
+  return quoteSupportedInstallSpecifier(value) ?? (/^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`)
+}
+
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {
   agents: ["@libsql/client", "drizzle-orm"],

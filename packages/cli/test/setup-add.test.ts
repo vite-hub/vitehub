@@ -789,7 +789,7 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["database", "--yes"], root, spawn)
 
     expect(exitCode).toBe(0)
-    expect(json.install).toEqual({ command: "pnpm add @vite-hub/database 'drizzle-orm@1.0.0-rc.5 || ^1.0.0' && pnpm add -D 'drizzle-kit@1.0.0-rc.5 || ^1.0.0'", devPackages: ["drizzle-kit@1.0.0-rc.5 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
+    expect(json.install).toEqual({ command: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"', devPackages: ["drizzle-kit@1.0.0-rc.5 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
     expect(calls).toEqual([
       { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
       { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
@@ -800,7 +800,7 @@ describe("vitehub add", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
     const { exitCode, json } = await add(["auth", "--dry-run"], root)
     expect(exitCode, JSON.stringify(json)).toBe(0)
-    expect(json.install).toMatchObject({ command: "pnpm add @vite-hub/auth better-auth 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'", packages: ["@vite-hub/auth", "better-auth", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
+    expect(json.install).toMatchObject({ command: 'pnpm add @vite-hub/auth better-auth "drizzle-orm@1.0.0-rc.5 || ^1.0.0"', packages: ["@vite-hub/auth", "better-auth", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
   })
 
   it("declares owner packages in the target manifest even when hoisted", async () => {
@@ -842,6 +842,7 @@ describe("vitehub add", () => {
     expect(calls).toBe(2)
     expect(result.exitCode).toBe(1)
     expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(result.json.error?.message).toContain('pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("package manager may have changed")
     expect(await readFile(join(root, "package.json"), "utf8")).not.toBe(pnpmManifest)
     expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe("install 2")

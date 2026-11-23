@@ -11,7 +11,7 @@ import type { SqliteSnapshot } from "./internal/snapshot-uniques.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 
-import { installSpecifier } from "@vite-hub/internal/features"
+import { formatInstallArgument, installSpecifier } from "@vite-hub/internal/features"
 import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { loadAllEnv } from "@vite-hub/internal/vite-stage"
 
@@ -697,7 +697,7 @@ async function runDrizzleKit(
   // generated config and working directory belong to it. Fall back to the invoking Vite root for external Database roots.
   const drizzleKitBin = runs.every(run => usesD1Http(run.database) || usesPostgres(run.database)) ? "" : resolveDrizzleKitBin([projectRoot, context.rootDir])
   if (drizzleKitBin === undefined) {
-    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D '${installSpecifier("drizzle-kit")}'\`.\n`)
+    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D ${formatInstallArgument(installSpecifier("drizzle-kit"))}\`.\n`)
     return 1
   }
   let postgresMigrated = false
@@ -829,7 +829,7 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
   }
   const drizzleKit = resolveDrizzleKit([projectRoot, context.rootDir])
   if (!drizzleKit) {
-    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D '${installSpecifier("drizzle-kit")}'\`.\n`)
+    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D ${formatInstallArgument(installSpecifier("drizzle-kit"))}\`.\n`)
     return 1
   }
   // Drizzle Kit 0.x has an `up` command too, but it upgrades 0.x snapshots and keeps the journal.
