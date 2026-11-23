@@ -7,7 +7,8 @@ import type {
 import { resolveWebSearchProvider } from "./credentials.ts"
 import { agentDiagnostics } from "../../agent-diagnostics.ts"
 
-type WebModule = typeof import("@agntn/web")
+type WebPackage = typeof import("@agntn/web")
+type WebModule = Pick<WebPackage, "createSearchProvider" | "readUrl"> & Partial<Pick<WebPackage, "readUrlDetailed">>
 
 interface WebSearchOptions {
   excludeDomains?: string[]
@@ -88,11 +89,18 @@ export function createWebSearchToolSet(provider: WebSearchProviderInput): AgentT
       async execute(input) {
         const value = normalizeReadInput(input)
         web ||= loadWeb()
-        const { readUrl } = await web
-        return await readUrl(value.url, {
+        const { readUrl, readUrlDetailed } = await web
+        const options = {
           format: "markdown",
           maxTokens: value.maxTokens,
-        })
+        } as const
+        if (!readUrlDetailed || value.maxTokens === undefined) return await readUrl(value.url, options)
+
+        const { ignoredOptions, provider, result } = await readUrlDetailed(value.url, options)
+        if (ignoredOptions?.includes("maxTokens")) {
+          throw agentDiagnostics.AGENT_R0272({ message: `[vitehub] web_read: ${provider} does not support maxTokens.` })
+        }
+        return result
       },
     },
     web_search: {

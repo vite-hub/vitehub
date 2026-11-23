@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { Provider, register } from "@agntn/web"
 import type { ProviderConfig, ReadOptions } from "@agntn/web"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createWebSearchToolSet } from "../src/capabilities/web-search/tool-mode.ts"
 
@@ -98,6 +98,38 @@ describe("webSearch tool mode through @agntn/web", () => {
     }
     finally {
       unregister()
+    }
+  })
+
+  it("rejects a token budget when the fallback reader cannot honor it", async () => {
+    vi.stubEnv("FIRECRAWL_API_KEY", "test-firecrawl-key")
+    const fetchReader = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      if (url.hostname === "r.jina.ai") {
+        return new Response("Payment required", { status: 402 })
+      }
+      if (url.hostname === "api.firecrawl.dev" && url.pathname === "/v2/scrape") {
+        return Response.json({ success: true, data: { markdown: "A long page. ".repeat(1000) } })
+      }
+      throw new Error(`Unexpected request to ${url}`)
+    })
+    vi.stubGlobal("fetch", fetchReader)
+    try {
+      const tools = createWebSearchToolSet("exa")
+      const url = "https://vitehub.dev"
+
+      await expect(tools.web_read.execute?.({ maxTokens: 1, url })).rejects.toThrow(
+        "firecrawl does not support maxTokens",
+      )
+      expect(fetchReader.mock.calls.map(([input]) => String(input))).toEqual([
+        "https://r.jina.ai/https%3A%2F%2Fvitehub.dev",
+        "https://api.firecrawl.dev/v2/scrape",
+      ])
+      await expect(tools.web_read.execute?.({ url })).resolves.toMatchObject({ url })
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
     }
   })
 
