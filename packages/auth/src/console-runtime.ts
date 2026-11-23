@@ -206,8 +206,8 @@ const errors = defineErrors({
       fix: "Refresh the list and check the Auth Definition's plugins.",
     },
     AUTH_CONSOLE_UNAVAILABLE: {
-      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database or plugin API needed for this operation.",
-      fix: "Configure a database adapter and the required Better Auth plugin.",
+      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database, the `user.role` field, or the Better Auth plugin API that this operation needs.",
+      fix: "Set `database: authDatabase()` from `vite-hub/auth/database`, which also adds the `user.role` field that Site access needs. With your own adapter and schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field with `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`. For a plugin operation, add the plugin. With a custom schema, add the plugin fields to your schema and apply the database migration before using the plugin. The default `admin()` fields are `user.role`, `user.banned`, `user.banReason`, `user.banExpires`, and `session.impersonatedBy`.",
     },
     AUTH_CONSOLE_PROVIDER_FAILED: {
       why: "Better Auth or an app column reader could not complete the operation.",
@@ -1228,7 +1228,7 @@ export function createAuthConsole(
       throw authConsoleError(409, "Signing a browser in from the Console needs a Better Auth database.");
     const role = getAuthTables(ctx.options).user?.fields.role;
     if (!role)
-      throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, then declare it in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`, or add `admin()` from better-auth/plugins.");
+      throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`.");
     if (role.input !== false)
       throw authConsoleError(409, "Site access keeps permissions as roles in `user.role`, and your `role` field lets users set it when they sign up or update their profile. Set `input: false` on the `role` field of `user.additionalFields` in `defineAuth()`.");
     if (role.returned === false)
