@@ -844,6 +844,28 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(runtime.exec("if test -f tmp/out\nthen\ncat tmp/out\nfi")).resolves.toMatchObject({ exitCode: 0, stdout: "ok\n" })
   })
 
+  it("copies and moves files and directories to new Workspace paths with cp and mv", async () => {
+    const workspace = new MemoryWorkspace({ "a.txt": "a", "dir/x.txt": "x", "dir2/y.txt": "y" })
+    const runtime = createShellRuntime({
+      driver: createJustBashDriver({ commands: ["cp", "mv"], cwd: workspaceMountPoint, fs: createWritableWorkspaceFs(workspace) }),
+    })
+
+    for (const command of ["cp a.txt b.txt", "mv b.txt c.txt", "cp -r dir copy", "mv dir2 moved", "cp a.txt dir", "mv c.txt dir/"]) {
+      await expect(runtime.exec(command), command).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    }
+    expect((await workspace.list("", { recursive: true })).map(entry => entry.path).sort()).toEqual(["a.txt", "copy", "copy/x.txt", "dir", "dir/a.txt", "dir/c.txt", "dir/x.txt", "moved", "moved/y.txt"])
+    await expect(runtime.exec("cp -r dir dir/inner")).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("into itself") })
+    await expect(runtime.exec("cp missing.txt other.txt")).resolves.toMatchObject({ exitCode: 1, stderr: "cp: cannot stat 'missing.txt': No such file or directory\n" })
+    await expect(workspace.exists("dir/inner")).resolves.toBe(false)
+    await expect(workspace.exists("other.txt")).resolves.toBe(false)
+  })
+
+  it("keeps a Workspace stat failure for a path that exists", async () => {
+    const workspace = new MemoryWorkspace({ "a.txt": "a" })
+    vi.spyOn(workspace, "stat").mockRejectedValueOnce(new Error("store offline"))
+    await expect(createWritableWorkspaceFs(workspace).stat("/workspace/a.txt")).rejects.toThrow("store offline")
+  })
+
   it("keeps yq XML conversion unavailable in the portable driver", async () => {
     const workspace = new MemoryWorkspace({
       "input.xml": `<?xml version="1.0"?>

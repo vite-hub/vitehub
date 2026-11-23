@@ -186,7 +186,10 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     if (!relativePath) {
       return statFromEntry({ path: "", type: "directory" })
     }
-    return statFromEntry(await this.workspace.stat(relativePath))
+    return statFromEntry(await this.workspace.stat(relativePath).catch(async (error: unknown) => {
+      if (await this.workspace.exists(relativePath).catch(() => true)) throw error
+      throw shellErrorDiagnostics.SHELL_PATH_NOT_FOUND({ cause: error, message: `[vitehub] ENOENT: no such file or directory, stat '${this.#resolveFromRoot(path)}'` })
+    }))
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
