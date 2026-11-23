@@ -606,7 +606,8 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Valid
-  await sendQueue('welcome-email', { email })
+  const [error] = await sendQueue('welcome-email', { email })
+  if (error) throw error
 }
 ```
 
@@ -682,7 +683,8 @@ import { sendQueue } from 'vite-hub/queue'
 
 export async function signUp(email: string) {
   // Valid
-  await sendQueue('welcome-email', { email }, { delay: '1m' })
+  const [error] = await sendQueue('welcome-email', { email }, { delay: '1m' })
+  if (error) throw error
 }
 ```
 
@@ -798,7 +800,11 @@ import { defineEventHandler } from 'h3'
 import { runSchedule } from 'vite-hub/schedule'
 
 // Invalid: server/schedules/report.ts does not set manual: true.
-export default defineEventHandler(() => runSchedule('report'))
+export default defineEventHandler(async () => {
+  const [error, run] = await runSchedule('report')
+  if (error) throw error
+  return run
+})
 ```
 
 ```ts [server/schedules/report.ts] fragment

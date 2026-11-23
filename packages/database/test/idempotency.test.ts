@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { PGlite } from "@electric-sql/pglite"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
+import { PgDialect } from "drizzle-orm/pg-core"
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite"
 import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js"
@@ -196,6 +197,32 @@ it("recovers when table and index creation each encounter Postgres catalog conte
     expect(await runIdempotent(contended, "first-use", () => "done")).toEqual([undefined, "done"])
   }
   finally {
+    await backend.close()
+  }
+})
+
+it("runs fn and keeps the result when the delete of expired keys fails", async () => {
+  const backend = new PGlite()
+  const db = drizzlePglite({ client: backend })
+  const dialect = new PgDialect()
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  const sweepFails: IdempotencyDatabase = {
+    async execute(statement) {
+      if (dialect.sqlToQuery(statement).sql.startsWith("DELETE FROM vitehub_idempotency_keys WHERE expires_at")) {
+        throw new Error("database is locked")
+      }
+      return await db.execute(statement)
+    },
+  }
+  try {
+    const fn = vi.fn(() => "sent")
+    expect(await runIdempotent(sweepFails, "mail:welcome", fn)).toEqual([undefined, "sent"])
+    expect(await runIdempotent(sweepFails, "mail:welcome", fn)).toEqual([undefined, "sent"])
+    expect(fn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledOnce()
+  }
+  finally {
+    warn.mockRestore()
     await backend.close()
   }
 })

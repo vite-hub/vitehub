@@ -144,7 +144,8 @@ import resetSignups from '../server/schedules/reset-signups'
 const hub = setupViteHubTest()
 
 test('the nightly Schedule resets the counter', async () => {
-  await kv.set('signups', 3)
+  const [setError] = await kv.set('signups', 3)
+  expect(setError).toBeUndefined()
 
   const run = await hub.runSchedule(resetSignups, { scheduledAt: new Date('2026-11-08T00:00:00Z') })
 

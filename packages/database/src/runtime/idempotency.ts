@@ -1,3 +1,4 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import { sql } from "drizzle-orm"
 
 import type { Result } from "@vite-hub/runtime"
@@ -87,7 +88,14 @@ async function claimKey(db: IdempotencyDatabase, key: string, claim: string, now
 async function sweep(db: IdempotencyDatabase, now: number): Promise<void> {
   if (now - (swept.get(db) ?? 0) < sweepInterval) return
   swept.set(db, now)
-  await queryRows(db, sql`DELETE FROM ${table} WHERE expires_at <= ${now}`)
+  try {
+    await queryRows(db, sql`DELETE FROM ${table} WHERE expires_at <= ${now}`)
+  }
+  catch (error) {
+    logFailure({ field: "database", fields: { op: "idempotency-sweep" }, message: "Database could not delete expired idempotency keys", error }, () => {
+      console.warn("[vitehub] Database could not delete expired idempotency keys. It tries again in one minute.", error)
+    })
+  }
 }
 
 function invalidSeconds(value: number | undefined): boolean {
