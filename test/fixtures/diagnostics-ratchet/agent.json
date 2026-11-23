@@ -35,6 +35,7 @@
     "packages/agent/src/internal/chatgpt-transport.ts": 1,
     "packages/agent/src/internal/generated-provider-git-files.ts": 2,
     "packages/agent/src/internal/provider-skills.ts": 1,
+    "packages/agent/src/internal/resumable-chat-shared.ts": 1,
     "packages/agent/src/internal/resumable-chat.ts": 1,
     "packages/agent/src/internal/workflow-portability.ts": 2,
     "packages/agent/src/internal/workflow-runtime-loaders.ts": 1,

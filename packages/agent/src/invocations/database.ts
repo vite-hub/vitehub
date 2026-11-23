@@ -7,11 +7,13 @@ import { useDatabase } from "@vite-hub/database"
 import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { cachedChatStreamSql, postgresChatStreamSql } from "../internal/chat-stream-sql.ts"
 import { agentInvocationPostgresClient } from "./postgres-clients.ts"
 import { createPostgresAgentInvocationStore } from "./postgres-store.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "./d1.ts"
 import type { AgentInvocationStore } from "../invocations.ts"
+import type { ChatStreamSql } from "../internal/chat-stream-sql.ts"
 
 /** `migrate` applies only to SQLite, libSQL, and D1. A Postgres Database gets its tables from its migrations. */
 export interface DatabaseAgentInvocationStoreOptions extends Omit<D1AgentInvocationStoreOptions, "database"> {
@@ -148,6 +150,27 @@ function postgresClient(database: RuntimeDatabase, name: string) {
   return is(database, PgAsyncDatabase) ? agentInvocationPostgresClient(database.$client, name) : undefined
 }
 
+function runtimeDatabase(name: string): RuntimeDatabase {
+  // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
+  return (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+}
+
+/**
+ * The SQL connection that shared resumable chat streams use in a ViteHub Database. Postgres uses the journal client.
+ * SQLite, libSQL, and D1 run the statements through the Database driver.
+ */
+export function databaseChatStreamSql(name = "default"): ChatStreamSql {
+  const database = runtimeDatabase(name)
+  const postgres = postgresClient(database, name)
+  if (postgres) return cachedChatStreamSql(postgres, () => postgresChatStreamSql(postgres))
+  const client = database.$client
+  const all = database.all.bind(database)
+  return cachedChatStreamSql(isRecord(client) ? client : database, () => ({
+    dialect: "sqlite",
+    query: async (text, params = []) => statementResult(await all(statementSql(text, params))).results,
+  }))
+}
+
 /**
  * Agent Invocation store backed by a ViteHub Database. On SQLite, libSQL, and D1 it creates its table on first use.
  * On Postgres it uses the tables of `postgresAgentInvocationTables()`, which the Database migrations create.
@@ -155,8 +178,7 @@ function postgresClient(database: RuntimeDatabase, name: string) {
 export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocationStoreOptions = {}): AgentInvocationStore {
   const { database: name = "default", ...storeOptions } = options
   const adapters = new WeakMap<object, InvocationDatabase>()
-  // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
-  const runtime = (): RuntimeDatabase => (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+  const runtime = (): RuntimeDatabase => runtimeDatabase(name)
   const sqlite = createD1AgentInvocationStore({
     ...storeOptions,
     async database() {

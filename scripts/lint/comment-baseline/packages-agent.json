@@ -48,7 +48,6 @@
   "packages/agent/src/delivery-artifacts.ts": 1,
   "packages/agent/src/deployment-env.ts": 2,
   "packages/agent/src/discovery.ts": 16,
-  "packages/agent/src/durability.ts": 1,
   "packages/agent/src/evalite-runner.ts": 1,
   "packages/agent/src/evlog.ts": 6,
   "packages/agent/src/evlog/privacy.ts": 2,

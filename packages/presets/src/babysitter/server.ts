@@ -1032,6 +1032,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       claim,
       () => pullRequestInbox.get(claim.snapshot.repository, claim.snapshot.number),
       createProviderHeadReader(providerDirectory, pushedHead),
+      () => pullRequestInbox.now(),
     );
     const poll = async () => {
       if (stopped || polling || controller.signal.aborted) return;
@@ -1139,11 +1140,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           await pullRequestInbox.finish(claim, { text: "Unconfirmed merge head changed; retrying current GitHub state.", retry: true });
           return "blocked";
         }
-        const age = Date.now() - pending.startedAt;
+        const age = pullRequestInbox.now() - pending.startedAt;
         if (pending.asynchronous && age >= pendingMergeDeadlineMs) {
           // Release the fence so a new head can merge, and keep this head from starting the same stuck request
           // again until the retry. A merge by hand or a new head ends the wait sooner.
-          const until = Date.now() + stoppedMergeRetryMs;
+          const until = pullRequestInbox.now() + stoppedMergeRetryMs;
           const reason = `Stopped waiting for the GitHub merge of ${pending.head}: it was still pending after ${Math.floor(age / 60_000)} minutes. The Babysitter requests it again at ${new Date(until).toISOString()}.`;
           await pullRequestInbox.setMeta(stoppedKey, { head: pending.head, until, reason });
           await pullRequestInbox.clearDirectMerge(repository, number, pending.token);
@@ -1187,7 +1188,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
     }
     const stopped = pending ? undefined : await pullRequestInbox.meta(stoppedKey);
-    if (isRuntimeRecord(stopped) && stopped.head === decision.head && hasRuntimeType(stopped.until, "number") && stopped.until > Date.now()) {
+    if (isRuntimeRecord(stopped) && stopped.head === decision.head && hasRuntimeType(stopped.until, "number") && stopped.until > pullRequestInbox.now()) {
       return await parkMerge(hasRuntimeType(stopped.reason, "string") ? stopped.reason : "Stopped waiting for a pending GitHub merge.", stopped.until);
     }
     // A child's merge into this branch must finish first: its commits must land with this PR.
@@ -2034,7 +2035,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     step("snapshot-detect");
     try {
       // One open-PR query per repository and minute finds lost deliveries; only changed PRs are probed.
-      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository, signal), repositories, Date.now(), !eventScopedBootstrap, (repository, error) => {
+      await detectChangedPullRequests(pullRequestInbox, repository => readGraphql(repository, signal), repositories, pullRequestInbox.now(), !eventScopedBootstrap, (repository, error) => {
         void noteForgeQuota(error, "snapshot-detect");
         // An event, not an error: the next minute retries the repository.
         schedulerEvent("babysitter.snapshot.detect.failed", { repository, error: (error instanceof Error ? error.message : String(error)).slice(0, 300) });
@@ -2046,10 +2047,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     }
     step("snapshot-probe");
     try {
-      await probeChangedSnapshots(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors, undefined, undefined, signal);
+      await probeChangedSnapshots(pullRequestInbox, readRest, pullRequestInbox.now(), readThreads, activityAuthors, undefined, undefined, signal);
       // The slow sweep remains for changes the fingerprint cannot see, such as edited comments.
       step("snapshot-sweep");
-      await reconcileOneSnapshot(pullRequestInbox, readRest, Date.now(), readThreads, activityAuthors, signal);
+      await reconcileOneSnapshot(pullRequestInbox, readRest, pullRequestInbox.now(), readThreads, activityAuthors, signal);
     } catch (error) {
       signal.throwIfAborted();
       await noteForgeQuota(error, "snapshot-reconcile");
@@ -2702,7 +2703,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
               const assertLeaseHeld = async () => {
                 abortSignal.throwIfAborted();
                 const current = await pullRequestInbox.get(repository, number);
-                if (current?.lease !== inboxClaim.token || current.leaseUntil <= Date.now()) {
+                if (current?.lease !== inboxClaim.token || current.leaseUntil <= pullRequestInbox.now()) {
                   throw new DOMException("Pull request lease lost.", "AbortError");
                 }
                 return current;
@@ -2717,7 +2718,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 if (current.sourcePushOverflow || current.sourcePushHeads?.some(head => !verifiedPushHeads.has(head)) || current.sourcePushHead !== inboxClaim.snapshot.sourcePushHead && !verifiedPushHeads.has(current.sourcePushHead ?? "")) {
                   throw new DOMException("Pull request source branch changed before synchronize.", "AbortError");
                 }
-                const stopped = claimStopReason(inboxClaim, current, observedHead && pendingInboxHeads.has(observedHead) ? observedHead : pushedHead);
+                const stopped = claimStopReason(inboxClaim, current, observedHead && pendingInboxHeads.has(observedHead) ? observedHead : pushedHead, pullRequestInbox.now());
                 if (stopped) throw new DOMException(stopped, "AbortError");
                 if (pushedHead && observedHead === pushedHead) {
                   pendingInboxHeads.clear(); pendingInboxHeads.add(pushedHead);
@@ -2893,7 +2894,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   const renewLease = async () => {
                     let current = await assertLease();
                     for (;;) {
-                      if (await pullRequestInbox.renew({ ...inboxClaim, generation: current.generation, snapshot: current }, Date.now() + 2 * 60 * 60_000)) return;
+                      if (await pullRequestInbox.renew({ ...inboxClaim, generation: current.generation, snapshot: current }, pullRequestInbox.now() + 2 * 60 * 60_000)) return;
                       // A generation can advance between validation and CAS.
                       // Recheck ownership, head and feedback before adopting it.
                       const latest = await assertLease();
@@ -3313,7 +3314,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                   releaseModelSlot();
                 }
               }, abortSignal, () => { providerLimited = true; }).catch(async (error: unknown) => {
-                if (recordedPass && isProviderFailure(error) && Date.now() - recordedPass.at < providerFailureReleaseMs
+                if (recordedPass && isProviderFailure(error) && pullRequestInbox.now() - recordedPass.at < providerFailureReleaseMs
                   && await pullRequestInbox.releaseModelPass(inboxClaim, recordedPass.at, recordedPass.exemption)) {
                   schedulerEvent("babysitter.daily_pass_budget.released", { ...owner, head_sha: pullRequest.headRefOid, ...recordedPass.exemption ? { exemption: recordedPass.exemption } : {},
                     reason: (error instanceof Error ? error.message : String(error)).slice(0, 160) });

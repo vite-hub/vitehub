@@ -1,6 +1,6 @@
-import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp } from "drizzle-orm/pg-core"
+import { bigint, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core"
 
-import { postgresAgentInvocationTableNames } from "./postgres-table-names.ts"
+import { defaultAgentJournalPostgresPrefix, postgresAgentInvocationTableNames } from "./postgres-table-names.ts"
 
 import type { PgTable } from "drizzle-orm/pg-core"
 
@@ -61,8 +61,46 @@ export function postgresAgentInvocationTables(options: { tablePrefix?: string } 
 
 const tables = postgresAgentInvocationTables()
 
-/** The Postgres journal tables with the default `vitehub_agent_` prefix, as a Drizzle schema object. */
-export const agentInvocationsPostgresSchema: { agentInvocations: PgTable, agentInvocationObservations: PgTable } = {
+const agentChatStreams = pgTable("vitehub_agent_chat_streams", {
+  sequence: bigint("sequence", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  id: text("id").notNull().unique(),
+  latest: text("latest").notNull(),
+  state: text("state").notNull(),
+  status: integer("status").notNull().default(200),
+  statusText: text("status_text").notNull().default(""),
+  headers: text("headers").notNull().default("[]"),
+  hasBody: integer("has_body").notNull().default(0),
+  error: text("error"),
+  aliveAt: bigint("alive_at", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+}, table => [
+  index("vitehub_agent_chat_streams_latest").on(table.latest, table.sequence),
+  index("vitehub_agent_chat_streams_expires_at").on(table.expiresAt),
+])
+
+const agentChatStreamChunks = pgTable("vitehub_agent_chat_stream_chunks", {
+  stream: bigint("stream", { mode: "number" }).notNull(),
+  position: integer("position").notNull(),
+  data: text("data").notNull(),
+}, table => [
+  primaryKey({ name: "vitehub_agent_chat_stream_chunks_pk", columns: [table.stream, table.position] }),
+  foreignKey({ name: "vitehub_agent_chat_stream_chunks_stream_fk", columns: [table.stream], foreignColumns: [agentChatStreams.sequence] }).onDelete("cascade"),
+])
+
+/**
+ * The Postgres journal tables with the default `vitehub_agent_` prefix, as a Drizzle schema object. It also holds the
+ * streams of web chat routes with `resumable.scope: "shared"`: one row per stream, and its bytes as chunk rows.
+ */
+export const agentInvocationsPostgresSchema: { agentInvocations: PgTable, agentInvocationObservations: PgTable, agentChatStreams: PgTable, agentChatStreamChunks: PgTable } = {
   agentInvocations: tables.invocations,
   agentInvocationObservations: tables.observations,
+  agentChatStreams,
+  agentChatStreamChunks,
+}
+
+const defaultJournal = postgresAgentInvocationTables({ tablePrefix: defaultAgentJournalPostgresPrefix })
+
+export const agentDefaultJournalPostgresSchema: { agentDefaultInvocations: PgTable, agentDefaultInvocationObservations: PgTable } = {
+  agentDefaultInvocations: defaultJournal.invocations,
+  agentDefaultInvocationObservations: defaultJournal.observations,
 }
