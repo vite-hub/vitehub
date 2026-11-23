@@ -81,8 +81,10 @@ describe("docs paths", () => {
   it("resolves trailing slashes and `/index` to the same page", () => {
     expect(normalizeDocsPath("/docs/kv/")).toBe("/docs/kv")
     expect(normalizeDocsPath("/docs/kv/index")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/docs/kv/index/")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/index/")).toBe("/")
     expect(normalizeDocsPath("/")).toBe("/")
-    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index"]) {
+    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index", "/docs/kv/index/"]) {
       expect(findDocsPage(manifest, path)).toMatchObject({ page: { path: "/docs/kv" }, section: { id: "kv" } })
     }
   })
