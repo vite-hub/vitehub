@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, gte, inArray, lt, or, sql } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import { webhooksErrors } from "./errors.ts"
@@ -46,7 +46,7 @@ export type MemberEndpointKind = "url" | "inbox"
 const endpointKinds = ["url", "inbox"] as const satisfies readonly MemberEndpointKind[]
 
 /**
- * One row for each member endpoint, at most one for each owner. `sealed` holds the URL and secret, encrypted with
+ * One row per owner and address. `sealed` holds the URL and secret, encrypted with
  * `VITEHUB_WEBHOOKS_KEY`, and `null` for an inbox. `host` is the only part of the URL in plain text.
  */
 export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
@@ -57,6 +57,7 @@ export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
   /** The verified email of the owner at connect time, not proof of their current identity. */
   ownerEmail: text("owner_email"),
   name: text("name").notNull(),
+  address: text("address").notNull().default(""),
   kind: text("kind", { enum: endpointKinds }).notNull(),
   agent: text("agent"),
   host: text("host"),
@@ -67,15 +68,38 @@ export const webhookEndpoints = sqliteTable("vitehub_webhook_endpoints", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, table => [
-  uniqueIndex("vitehub_webhook_endpoints_owner").on(table.owner),
+  uniqueIndex("vitehub_webhook_endpoints_owner").on(table.owner, table.address),
   index("vitehub_webhook_endpoints_created").on(table.createdAt, table.id),
 ])
 
 /** The table of Webhooks, for `defineDatabase({ schema })` or a Database contribution. */
 export const webhooksSchema = { webhookDeliveries }
 
-/** The table of member endpoints. Webhooks adds it only when a feature of the app uses member endpoints. */
-export const webhookEndpointsSchema = { webhookEndpoints }
+/** Where a pairing code is: not used yet, used by an agent that waits for Allow, used up, or used with a refused URL. */
+export type MemberPairingState = "waiting" | "paired" | "used" | "refused"
+
+const pairingStates = ["waiting", "paired", "used", "refused"] as const satisfies readonly MemberPairingState[]
+
+/**
+ * One row for each pairing code, for 10 minutes. `id` is the SHA-256 hash of the code. `sealed` holds the signing secret
+ * that the member's agent gets with the code, and after pairing the agent's URL too, encrypted with `VITEHUB_WEBHOOKS_KEY`.
+ */
+export const webhookPairings = sqliteTable("vitehub_webhook_pairings", {
+  id: text("id").primaryKey(),
+  owner: text("owner").notNull(),
+  state: text("state", { enum: pairingStates }).notNull(),
+  agent: text("agent"),
+  host: text("host"),
+  address: text("address"),
+  sealed: text("sealed").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, table => [
+  index("vitehub_webhook_pairings_owner").on(table.owner),
+])
+
+/** The tables of member endpoints and their pairing codes. Webhooks adds them only when a feature of the app uses member endpoints. */
+export const webhookEndpointsSchema = { webhookEndpoints, webhookPairings }
 
 export { webhookEndpointsTableNames, webhooksTableNames } from "./table-names.ts"
 
@@ -86,9 +110,11 @@ export const webhooksTables: readonly string[] = [
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_webhook` ON `vitehub_webhook_deliveries` (`webhook`,`created_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_state` ON `vitehub_webhook_deliveries` (`state`,`due_at`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_deliveries_owner` ON `vitehub_webhook_deliveries` (`owner`,`created_at`,`id`) WHERE owner IS NOT NULL",
-  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
-  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_endpoints` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `owner_name` text, `owner_email` text, `name` text NOT NULL, `address` text DEFAULT '' NOT NULL, `kind` text NOT NULL, `agent` text, `host` text, `sealed` text, `disabled_at` integer, `disabled_by` text, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_owner` ON `vitehub_webhook_endpoints` (`owner`,`address`)",
   "CREATE INDEX IF NOT EXISTS `vitehub_webhook_endpoints_created` ON `vitehub_webhook_endpoints` (`created_at`,`id`)",
+  "CREATE TABLE IF NOT EXISTS `vitehub_webhook_pairings` (`id` text PRIMARY KEY NOT NULL, `owner` text NOT NULL, `state` text NOT NULL, `agent` text, `host` text, `address` text, `sealed` text NOT NULL, `expires_at` integer NOT NULL, `created_at` integer NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS `vitehub_webhook_pairings_owner` ON `vitehub_webhook_pairings` (`owner`)",
 ]
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
@@ -369,6 +395,8 @@ export interface MemberEndpoint {
   /** The verified email of the owner. A ViteHub Console account with this email acts as the owner. */
   ownerEmail: string | null
   name: string
+  /** Where the agent can be reached, such as a T3 thread link, or `null` for none. */
+  address: string | null
   kind: MemberEndpointKind
   /** The agent that receives, such as `"t3"`, `"claude-code"`, or `"codex"`. */
   agent: string | null
@@ -382,42 +410,55 @@ export interface MemberEndpoint {
   updatedAt: number
 }
 
-/** A member endpoint with its sealed URL and secret. Only the Webhooks runtime reads it. */
-export interface StoredMemberEndpoint extends MemberEndpoint {
+/** A member endpoint with its sealed URL and secret, as the table holds it. Only the Webhooks runtime reads it. */
+export interface StoredMemberEndpoint extends Omit<MemberEndpoint, "address"> {
+  /** `""` for none. */
+  address: string
   sealed: string | null
 }
 
-/** The storage of member endpoints. */
 export interface ListMemberEndpointsOptions {
   limit?: number
   after?: { createdAt: number, id: string }
 }
 
+/** The storage of member endpoints. */
 export interface WebhookEndpointStore {
-  /** Stores the endpoint of its owner. It replaces the owner's endpoint when one exists. */
+  /** Stores the endpoint of its owner. It replaces the owner's endpoint with the same address when one exists. */
   put: (endpoint: StoredMemberEndpoint) => Promise<void>
-  /** The endpoint of an owner. */
-  get: (owner: string) => Promise<StoredMemberEndpoint | undefined>
+  /** The endpoint of an owner with `address`, else the owner's newest one. */
+  get: (owner: string, address?: string) => Promise<StoredMemberEndpoint | undefined>
   /** The endpoint with this id. */
   find: (id: string) => Promise<StoredMemberEndpoint | undefined>
   /** Removes the endpoint when the owner has it. Returns the removed endpoint. */
   remove: (owner: string, id: string) => Promise<StoredMemberEndpoint | undefined>
+  /** Removes every endpoint of the owner. Returns the removed endpoints. */
+  removeAll: (owner: string) => Promise<StoredMemberEndpoint[]>
   /** The endpoints, the oldest first. */
   list: (options?: ListMemberEndpointsOptions) => Promise<StoredMemberEndpoint[]>
   /** Disables the endpoint. Returns the endpoint after the change. */
   disable: (id: string, now: number, by: string | null) => Promise<StoredMemberEndpoint | undefined>
   /** Enables a disabled endpoint. Returns the endpoint after the change. */
   enable: (id: string, now: number) => Promise<StoredMemberEndpoint | undefined>
+  /** Stores a new pairing code after deleting expired codes and this owner's finished codes. */
+  insertPairing: (row: StoredMemberPairing) => Promise<void>
+  pairing: (id: string) => Promise<StoredMemberPairing | undefined>
+  /** Moves a code when it is still in `from` and not expired. */
+  movePairing: (id: string, from: MemberPairingState, to: MemberPairingState, now: number, set?: Partial<Pick<StoredMemberPairing, "agent" | "host" | "address" | "sealed">>) => Promise<StoredMemberPairing | undefined>
+  removePairing: (id: string, owner: string) => Promise<void>
 }
+
+export type StoredMemberPairing = typeof webhookPairings.$inferSelect
 
 /** Member endpoints in a Drizzle SQLite Database. Pass a function when the Database connects per request. */
 export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (() => WebhooksDatabase)): WebhookEndpointStore {
   const db = typeof database === "function" ? database : () => database
   const t = webhookEndpoints
+  const p = webhookPairings
   return {
     put: endpoint => guarded("store a member endpoint", async () => {
       await db().insert(t).values(endpoint).onConflictDoUpdate({
-        target: t.owner,
+        target: [t.owner, t.address],
         set: {
           id: endpoint.id,
           ownerName: endpoint.ownerName,
@@ -434,8 +475,11 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
         },
       })
     }),
-    get: owner => guarded("read a member endpoint", async () => {
-      const [row] = await db().select().from(t).where(eq(t.owner, owner)).limit(1)
+    get: (owner, address) => guarded("read a member endpoint", async () => {
+      const normalized = address?.trim()
+      const [row] = await db().select().from(t).where(eq(t.owner, owner))
+        .orderBy(...normalized === undefined ? [] : [desc(sql`${t.address} = ${normalized}`)], desc(t.createdAt), desc(t.id))
+        .limit(1)
       return row
     }),
     find: id => guarded("read a member endpoint", async () => {
@@ -446,6 +490,7 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
       const [row] = await db().delete(t).where(and(eq(t.owner, owner), eq(t.id, id))).returning()
       return row
     }),
+    removeAll: owner => guarded("remove the member endpoints of an owner", async () => await db().delete(t).where(eq(t.owner, owner)).returning()),
     list: (options = {}) => guarded("list the member endpoints", async () => {
       const { after } = options
       const where = after && or(gt(t.createdAt, after.createdAt), and(eq(t.createdAt, after.createdAt), gt(t.id, after.id)))
@@ -462,6 +507,21 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
     enable: (id, now) => guarded("enable a member endpoint", async () => {
       const [row] = await db().update(t).set({ disabledAt: null, disabledBy: null, updatedAt: now }).where(eq(t.id, id)).returning()
       return row
+    }),
+    insertPairing: row => guarded("store a pairing code", async () => {
+      await db().delete(p).where(or(lt(p.expiresAt, row.createdAt), and(eq(p.owner, row.owner), inArray(p.state, ["used", "refused"]))))
+      await db().insert(p).values(row)
+    }),
+    pairing: id => guarded("read a pairing code", async () => {
+      const [row] = await db().select().from(p).where(eq(p.id, id)).limit(1)
+      return row
+    }),
+    movePairing: (id, from, to, now, set = {}) => guarded("update a pairing code", async () => {
+      const [row] = await db().update(p).set({ ...set, state: to }).where(and(eq(p.id, id), eq(p.state, from), gte(p.expiresAt, now))).returning()
+      return row
+    }),
+    removePairing: (id, owner) => guarded("remove a pairing code", async () => {
+      await db().delete(p).where(and(eq(p.id, id), eq(p.owner, owner)))
     }),
   }
 }

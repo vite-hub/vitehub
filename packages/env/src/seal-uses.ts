@@ -8,6 +8,15 @@ export interface SealUsesDatabase {
   all: (query: string) => unknown[] | PromiseLike<unknown[]>
 }
 
+declare const sealUseCount: unique symbol
+
+/** A positive safe integer: the number of times a sealed value can be read. */
+export type SealUseCount = number & { readonly [sealUseCount]: true }
+
+export function isSealUseCount(value: unknown): value is SealUseCount {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+}
+
 const table = "vitehub_env_seal_uses"
 const ready = new WeakMap<SealUsesDatabase, Promise<void>>()
 
@@ -30,8 +39,7 @@ function initialize(db: SealUsesDatabase): Promise<void> {
 }
 
 /** Keeps `uses` for a new id. The row holds no part of the value. */
-export async function createSealUses(db: SealUsesDatabase, id: string, uses: number, expiresAt: number | undefined): Promise<void> {
-  invariant(Number.isSafeInteger(uses) && uses >= 1, "`uses` must be a positive integer")
+export async function createSealUses(db: SealUsesDatabase, id: string, uses: SealUseCount, expiresAt: number | undefined): Promise<void> {
   await initialize(db)
   const now = Date.now()
   await db.all(`DELETE FROM ${table} WHERE expires_at IS NOT NULL AND expires_at <= ${now}`)

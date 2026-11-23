@@ -14,7 +14,7 @@ function pathValue(value: unknown, parts: string[]): { value: unknown } | undefi
   return undefined
 }
 
-function isJsonLiteral(value: string): boolean {
+export function isJsonLiteral(value: string): boolean {
   try {
     JSON.parse(value)
     return true

@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { denoOrganization } from "../src/setup/deploy/deno.ts"
+import { readSetupLinks } from "../src/setup/link.ts"
 import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
@@ -259,7 +261,7 @@ describe("vitehub link", () => {
     expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
-  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
+  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }, { DENO_DEPLOY_ORG: "acme" }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`) })
 
     const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
@@ -267,6 +269,57 @@ describe("vitehub link", () => {
     expect(exitCode).toBe(0)
     expect(json).toMatchObject({ credentials: null, link: { host: "deno", project: { name: "my-app" }, verified: false } })
     expect(json.link.account).toBeUndefined()
+  })
+
+  it.each([false, true])("verifies and saves the effective Deno organization with --account=%s", async (explicitAccount) => {
+    const root = await createProject({
+      "node_modules/.bin/deno": "#!/usr/bin/env node\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`),
+    })
+    const calls: string[][] = []
+    const runHostCli: HostCliRun = async (_command, args) => {
+      calls.push(args.slice(args.indexOf("deploy")))
+      return { exitCode: 0, stdout: JSON.stringify({ productionUrl: "https://my-app.acme.deno.net" }) }
+    }
+
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", ...(explicitAccount ? ["--account", "acme"] : []), "--json"], root, { DENO_DEPLOY_ORG: explicitAccount ? "other" : " acme ", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(0)
+    expect(json.link).toMatchObject({ account: { id: "acme" }, host: "deno", project: { name: "my-app" }, verified: true })
+    expect(calls).toEqual([["deploy", "apps", "get", "--json", "--non-interactive", "--org", "acme", "--app", "my-app"]])
+    const [link] = (await readSetupLinks(root)).targets
+    expect(denoOrganization(link, {})).toBe("acme")
+    expect(denoOrganization(link, { DENO_DEPLOY_ORG: "other" })).toBe("acme")
+  })
+
+  it.each([false, true])("reports a missing Deno app as a conflict with --create=%s", async (create) => {
+    const root = await createProject({ "node_modules/.bin/deno": "#!/usr/bin/env node\n", "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`) })
+    const runHostCli: HostCliRun = async () => ({ exitCode: 4, stderr: '{"error":{"code":"NOT_FOUND","message":"Application not found"}}', stdout: "" })
+
+    const { exitCode, json } = await runSetup<{ error: SetupError, rerun?: string }>(["link", "--json", ...(create ? ["--create"] : [])], root, { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(3)
+    expect(json.error).toMatchObject({ code: "SETUP_LINK_PROJECT_NOT_FOUND", fix: expect.stringContaining("Create the app in Deno Deploy first") })
+    expect(json.rerun).toBeUndefined()
+    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
+  })
+
+  it("reports the Deno CLI error without revealing its token", async () => {
+    const root = await createProject({
+      "node_modules/.bin/deno": "#!/usr/bin/env node\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`),
+    })
+    const runHostCli: HostCliRun = async () => ({ exitCode: 3, stderr: JSON.stringify({ error: { code: "AUTH", message: `Authentication failed: ${TOKEN}` } }), stdout: "" })
+
+    const { exitCode, json, stdout, stderr } = await runSetup<{ error: SetupError }>(["link", "--json"], root, { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(1)
+    expect(json.error.code).toBe("SETUP_DEPLOY_FAILED")
+    expect(stdout).toContain("Authentication failed: <redacted>")
+    expect(`${stdout}${stderr}`).not.toContain(TOKEN)
+    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
   })
 
   it("exits 2 with the login fix when credentials are missing", async () => {

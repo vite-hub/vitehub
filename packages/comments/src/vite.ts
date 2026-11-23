@@ -7,7 +7,7 @@ import { validateCommentsDefinition } from "./operations-core/define.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 
 import { findCommentsEntry as findLiveEntry } from "./entry.ts"
-import { hubComments as liveComments } from "./live-vite.ts"
+import { hubComments as liveComments, readCommentsSend } from "./live-vite.ts"
 import { findCommentsEntry as findOperationEntry } from "./operations-core/vite.ts"
 
 import type { OperationContributions } from "@vite-hub/internal/operations"
@@ -20,7 +20,7 @@ export { commentsConsoleSection } from "./console.ts"
 export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
 export { COMMENTS_VITE_PLUGIN_NAME, usesComments } from "./operations-core/vite.ts"
-export { comments, comments as default, commentsOverlayDirectory, componentNames, githubRepository, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
+export { comments, comments as default, commentsOverlayDirectory, componentNames, githubRepository, readCommentsBuild, readCommentsComponents, readCommentsDatabase, readCommentsSend, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
 export type { CommentsOptions, CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions, StandaloneDatabase } from "./live-vite.ts"
 
 export type HubCommentsOptions = CommentsVitePluginOptions & {
@@ -76,6 +76,10 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       const { runnerImport } = await import("vite")
       const { module } = await runnerImport<{ comments?: unknown, default?: unknown }>(entry, { configFile: false, root: projectRoot, resolve: { alias: resolved.resolve?.alias }, logLevel: "silent" })
       validateCommentsDefinition(module.comments ?? module.default, display)
+      if (await readCommentsSend(entry)) {
+        if (liveOptions.dialect === "postgresql") throw commentsErrorDiagnostics.COMMENTS_SEND_POSTGRES()
+        if (!resolved.plugins.some(plugin => plugin.name === "@vite-hub/webhooks/vite")) throw commentsErrorDiagnostics.COMMENTS_SEND_WEBHOOKS_OFF({ file: display })
+      }
     },
     vitehub: {
       ...live.vitehub,

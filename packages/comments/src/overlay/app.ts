@@ -1,5 +1,5 @@
 import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
-import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { createMotionList, installMotion, rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
@@ -10,8 +10,9 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { base64 } from "../client-files.ts"
+import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -23,7 +24,7 @@ import type { CommentCan, CommentVisibility } from "@vite-hub/ui/headless"
 import type { MotionList } from "@vite-hub/ui/motion"
 import type { App, VNode } from "vue"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
@@ -416,6 +417,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
+  const send = computed(() => {
+    const path = page.value
+    return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
+  })
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
     (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
@@ -778,6 +783,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       onMounted(moveCursors)
       onUpdated(moveCursors)
       onBeforeUnmount(() => cursorList?.motion.destroy())
+      if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"
@@ -975,6 +981,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             type: "button",
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
+      send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),

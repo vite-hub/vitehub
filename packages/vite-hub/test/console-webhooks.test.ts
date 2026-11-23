@@ -36,7 +36,7 @@ const minute = 60_000
 const t3: ConsoleWebhook = { debounceMs: 30 * minute, host: "t3.example.com", name: "t3", secret: "T3_WEBHOOK_SECRET", secretSet: true, signature: "github", url: "T3_WEBHOOK_URL", urlSet: true }
 
 function member(fields: Partial<ConsoleMemberEndpoint> & Pick<ConsoleMemberEndpoint, "id" | "owner">): ConsoleMemberEndpoint {
-  return { agent: "t3", createdAt: 0, disabledAt: null, disabledBy: null, host: "relay.t3.codes", kind: "url", last: null, mine: false, name: "Launch plan thread", ownerName: null, updatedAt: 0, ...fields }
+  return { address: null, agent: "t3", createdAt: 0, disabledAt: null, disabledBy: null, host: "relay.t3.codes", kind: "url", last: null, mine: false, name: "Launch plan thread", ownerName: null, updatedAt: 0, ...fields }
 }
 
 const ana = member({ id: "whe_ana", owner: "user_ana", ownerName: "Ana Ruiz", last: { at: 5, error: null, failures: 0, state: "sent", status: 202 } })

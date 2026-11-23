@@ -309,25 +309,25 @@ async function confirm(operation: AnyOperation, target: string): Promise<boolean
 }
 
 function acceptedRoots(rootDir: string): string[] {
-  const roots = new Set([rootDir])
-  try {
-    roots.add(resolveViteHubProjectRoot(rootDir))
-  }
-  catch {}
-  return [...roots]
+  return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
-function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
+function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string, roots?: string[] } | { failure: OperationFailure } {
   if (parsed.url) {
     const message = appUrlError(parsed.url)
     if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
     return { target: parsed.url }
   }
-  const roots = acceptedRoots(context.rootDir)
-  const found = findViteHubDevServerUrl(roots, context.env)
-  if (found) return { target: found }
-  const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
-  return { failure: failureOf(error, 503) }
+  try {
+    const roots = acceptedRoots(context.rootDir)
+    const found = findViteHubDevServerUrl(roots, context.env)
+    if (found) return { target: found, roots }
+    const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${roots.at(-1)}.` })
+    return { failure: failureOf(error, 503) }
+  }
+  catch (error) {
+    return { failure: failureOf(error) }
+  }
 }
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
@@ -372,7 +372,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
-        ...(parsed.url ? {} : { roots: acceptedRoots(context.rootDir) }),
+        ...(resolved.roots ? { roots: resolved.roots } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         url: target,
       }, operation.name, parsed.input)

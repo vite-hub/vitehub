@@ -3059,8 +3059,8 @@ importers:
         specifier: ^8.5.29
         version: 8.5.32
       postcss-selector-parser:
-        specifier: ^7.1.6
-        version: 7.1.6
+        specifier: ^7.2.1
+        version: 7.2.1
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3161,9 +3161,6 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.9.0(katex@0.19.1)(shiki@4.5.0)
-      entities:
-        specifier: 8.1.0
-        version: 8.1.0
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
@@ -17611,6 +17608,10 @@ packages:
 
   postcss-selector-parser@7.1.6:
     resolution: {integrity: sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==}
+    engines: {node: '>=4'}
+
+  postcss-selector-parser@7.2.1:
+    resolution: {integrity: sha512-GwxlMgTTXwIom+ebC7an3k6RaJDwklRQQnfiXsLPGicu8FYV/k/+1/9YY2OU2+r938H2t4X0TDxoif+HP2rjzQ==}
     engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
@@ -39266,6 +39267,10 @@ snapshots:
   postcss-selector-parser@7.1.6:
     dependencies:
       cssesc: 3.0.0
+      util-deprecate: 1.0.2
+
+  postcss-selector-parser@7.2.1:
+    dependencies:
       util-deprecate: 1.0.2
 
   postcss-value-parser@4.2.0:
