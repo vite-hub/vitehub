@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import type { DefaultDatabaseResolution } from "@vite-hub/database/config"
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
@@ -130,6 +131,12 @@ function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], 
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
+function renderConsoleSiteDatabase(resolution: DefaultDatabaseResolution): string {
+  if (resolution.status === "ambiguous") return `{ choices: ${JSON.stringify(resolution.names)} }`
+  const name = resolution.status === "resolved" ? resolution.name : "default"
+  return `{ name: ${JSON.stringify(name)}, load: async () => (await import("@vite-hub/database/runtime/registry")).databases }`
+}
+
 function renderConsoleNitroPlugin(
   {
     projectRoot,
@@ -168,7 +175,7 @@ function renderConsoleNitroPlugin(
   const databaseEnabled = sections.includes("databases")
   const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
   const siteDatabaseEnabled = !development && sections.includes("site") && configuredSections.includes("databases")
-  const firstDatabase = databaseNames.includes("default") ? "default" : [...databaseNames].sort((left, right) => left.localeCompare(right))[0]
+  const siteDatabase = siteDatabaseEnabled ? requireOptionalOwner(ownerModules.databaseConfig, "database").resolveDefaultDatabase(databaseNames) : undefined
   const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
@@ -220,7 +227,7 @@ function renderConsoleNitroPlugin(
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
-    ...(siteDatabaseEnabled ? [`installConsoleSiteDatabase(async () => (await import("@vite-hub/database/runtime/registry")).databases${firstDatabase === undefined ? "" : `, ${JSON.stringify(firstDatabase)}`})`] : []),
+    ...(siteDatabase ? [`installConsoleSiteDatabase(${renderConsoleSiteDatabase(siteDatabase)})`] : []),
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,

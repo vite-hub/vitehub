@@ -58,7 +58,8 @@ export interface ConsoleState {
   invocations?: AgentInvocations
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
-  siteDatabase?: () => Promise<{ name: string, db: object } | undefined>
+  /** The Database of Site access links and site sessions without Auth, or the Databases that the build could not choose from. */
+  siteDatabase?: { open: () => Promise<{ name: string, db: object } | undefined> } | { choices: readonly string[] }
   documents?: ConsoleDocumentEditors
   env?: ServerEnvDescription
   projectName?: string

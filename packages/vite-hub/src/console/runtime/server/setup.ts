@@ -10,14 +10,13 @@ export { installConsoleAccess } from "./access-policy.ts"
 export { installConsoleDevelopment } from "./development.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 
-export function installConsoleSiteDatabase(load: () => Promise<Record<string, { db: object }>>, preferredName?: string): void {
-  consoleState().siteDatabase = async () => {
-    const databases = await load()
-    const name = preferredName ?? Object.keys(databases)[0]
-    if (name === undefined) return undefined
-    const entry = databases[name]
-    return entry && { name, db: entry.db }
-  }
+export function installConsoleSiteDatabase(database: { name: string, load: () => Promise<Readonly<Record<string, { db: object }>>> } | { choices: readonly string[] }): void {
+  consoleState().siteDatabase = "name" in database
+    ? { open: async () => {
+        const entry = (await database.load())[database.name]
+        return entry && { name: database.name, db: entry.db }
+      } }
+    : { choices: [...database.choices] }
 }
 
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], navigationSections?: readonly ConsoleSectionId[]): readonly ConsoleSectionId[] {

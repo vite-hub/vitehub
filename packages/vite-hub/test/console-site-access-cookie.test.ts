@@ -223,7 +223,7 @@ describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
     d1 = createD1()
     onTestFinished(d1.close)
     db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB", readReplication: true } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
-    installConsoleSiteDatabase(async () => ({ default: { db } }), "default")
+    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
   })
 
   const inD1 = <T>(callback: () => T) => runWithActiveCloudflareEnv({ DB: d1.binding }, callback)
@@ -337,7 +337,7 @@ describe.each(["objects", "arrays"] as const)("Site access without Auth on fs-li
       vi.unstubAllGlobals()
     })
     const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { databaseId: "site-id", http: { url: "https://d1.example.com/query", authToken: "token" } } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
-    installConsoleSiteDatabase(async () => ({ default: { db } }), "default")
+    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
 
     const url = await link("site.link", { path: "/guide" })
     const requests = api.request.mock.calls
@@ -364,13 +364,70 @@ it("generates the Site storage loader when Database inspection is hidden", async
     const file = join(root, "plugin.mjs")
     await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv", "databases"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["databases"] }, pageTool: { base: "/" } })
     const plugin = await readFile(file, "utf8")
-    expect(plugin).toContain('installConsoleSiteDatabase(async () => (await import("@vite-hub/database/runtime/registry")).databases)')
+    expect(plugin).toContain('installConsoleSiteDatabase({ name: "default", load: async () => (await import("@vite-hub/database/runtime/registry")).databases })')
     expect(plugin).not.toContain("installConsoleDatabase")
     expect(plugin).toContain(' ["kv","site"])')
   }
   finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+describe("Site access without Auth picks its store as useDatabase() does", () => {
+  async function generated(names: string[]): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-store-"))
+    try {
+      const file = join(root, "plugin.mjs")
+      const definitions = names.map(name => ({ fields: [], file: `server/databases/${name}.ts`, name, source: "database" }))
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["databases"], catalog: { agents: [], content: { databases: { definitions, kind: "definition-catalog" } } }, blobStores: [], access: { mode: "token" }, pageTool: { base: "/" } })
+      return await readFile(file, "utf8")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+
+  it("uses the Database named default, else the only Database, and never picks one of several", async () => {
+    expect(await generated(["analytics", "default"])).toContain("installConsoleSiteDatabase({ name: \"default\", ")
+    expect(await generated(["content"])).toContain("installConsoleSiteDatabase({ name: \"content\", ")
+    expect(await generated(["primary", "analytics"])).toContain("installConsoleSiteDatabase({ choices: [\"analytics\",\"primary\"] })")
+  })
+
+  it("keeps links in the Database when the app has no KV store", ({ onTestFinished }) => {
+    const d1 = createD1()
+    onTestFinished(d1.close)
+    installConsoleSections("console-site-cookie", ["site"])
+    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB" } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
+    return runWithActiveCloudflareEnv({ DB: d1.binding }, async () => {
+      const { response, cookie } = await open(await link("site.link"))
+      expect(response.status).toBe(303)
+      expect(d1.rows()).toBe(1)
+      expect(await tools(cookie)).toEqual(["console", "comments"])
+    })
+  })
+
+  it("keeps links in the Database before an atomic KV store", ({ onTestFinished }) => {
+    const d1 = createD1()
+    onTestFinished(d1.close)
+    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB" } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
+    return runWithActiveCloudflareEnv({ DB: d1.binding }, async () => {
+      await link("site.link")
+      expect(d1.rows()).toBe(1)
+      expect(kv.entries.size).toBe(0)
+    })
+  })
+
+  it("names the Databases when several have no default and no KV store takes a link out once", async () => {
+    kv.driver = "cloudflare-kv-binding"
+    installConsoleSiteDatabase({ choices: ["analytics", "primary"] })
+    const { body } = await call("site.link")
+    expect(body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING", message: expect.stringContaining('several Databases and none is named "default": "analytics", "primary"') })
+    expect(Reflect.get(Object(body), "message")).toContain("cloudflare-kv-binding driver")
+    installConsoleSections("console-site-cookie", ["site"])
+    expect((await call("site.link")).body).toMatchObject({ message: expect.stringContaining("The app has no KV store.") })
+  })
 })
 
 describe("Site access without Auth fails closed", () => {

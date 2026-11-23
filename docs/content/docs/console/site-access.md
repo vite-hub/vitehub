@@ -84,7 +84,14 @@ A draft preview needs your app's origin to render, and a sign-in needs it to set
 
 A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. With one of them, tickets and site sessions go in the `vitehub_console_site` table of the app's first [Database](/docs/database), such as D1 on Cloudflare or D1 over HTTP. KV stores use the `vitehub_kv` table, so no KV store can read or clear them. A development server without a store keeps tickets in memory. A production app with none of these stores refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). When Better Auth has a `secondaryStorage`, Better Auth keeps the tickets there instead, unless you set `verification: { storeInDatabase: true }`.
+
+Without Auth, ViteHub picks the store in this order:
+
+1. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database named `default`, else the only Database. This works on D1 on Cloudflare and D1 over HTTP too.
+2. The app's default [KV store](/docs/kv), when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it.
+
+Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. When the app has several Databases and none is named `default`, ViteHub does not pick one. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
 
 When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
 
