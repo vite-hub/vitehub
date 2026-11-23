@@ -146,6 +146,24 @@ describe("vitehub init", () => {
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
+  it("fails the SMTP Email driver on Cloudflare before any write", async () => {
+    const parent = await createProject()
+    for (const mode of ["--dry-run", "--yes"]) {
+      const result = await init(["app", "--host", "cloudflare", "--features", "email", "--option", "email.driver=smtp", "--no-install", mode], parent)
+      expect(result.exitCode, mode).toBe(3)
+      expect(result.json.error).toMatchObject({ code: "SETUP_FEATURE_UNSUPPORTED" })
+    }
+    expect(existsSync(join(parent, "app"))).toBe(false)
+  })
+
+  it("plans nodemailer for the SMTP Email driver on Node", async () => {
+    const parent = await createProject()
+    const result = await init(["app", "--host", "node", "--features", "email", "--option", "email.driver=smtp", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/email", "nodemailer"]))
+    expect(await readFile(join(parent, "app", "vite.config.ts"), "utf8")).toContain("email: { driver: \"smtp\" }")
+  })
+
   it("asks for a provider option with an init rerun", async () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "vercel", "--features", "email", "--no-install", "--yes"], parent)

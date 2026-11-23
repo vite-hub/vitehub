@@ -570,8 +570,19 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   if (id === "sandboxTask" && (sandboxDriver === "vercel" || sandboxDriver === "cloudflare")) selected.push(sandboxDriverPackages[sandboxDriver])
   // On Vercel, Queue and Workflow use the Vercel driver unless the app sets another `driver`.
   if ((id === "queue" || id === "workflow") && host === "vercel" && (options?.driver ?? "vercel") === "vercel") selected.push(...vercelProviderPackages[id])
+  if (id === "email" && options?.driver === "smtp" && host !== "cloudflare") selected.push(...ownerCheckedPackages.email ?? [])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
+}
+
+const ownerCheckedPackages: Partial<Record<FeatureId, readonly string[]>> = { email: ["nodemailer"] }
+
+/**
+ * Whether `vitehub add` installs `name` for feature `id`, but the feature's owner package checks it itself, because only
+ * the owner knows when the app loads it. `vite-hub` does not require such a package before the owner runs.
+ */
+export function isOwnerCheckedPackage(id: FeatureId, name: string): boolean {
+  return ownerCheckedPackages[id]?.includes(name) ?? false
 }
 
 const sandboxDriverPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const

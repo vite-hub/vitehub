@@ -82,6 +82,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   }],
   ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
+  ["@vite-hub/workspace/blob-database/postgres", { "drizzle-orm": "both" }],
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["vite-hub/connections/server", { "drizzle-orm": "both" }],

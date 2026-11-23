@@ -189,6 +189,7 @@ the same behavior.
 | `vite-hub/workspace/lineage` | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
 | `vite-hub/workspace/blob-database` | Content-addressed Workspace history Store and Database schema. Requires `drizzle-orm`. |
+| `vite-hub/workspace/blob-database/postgres` | Postgres Database schema of the Workspace history Store. Requires `drizzle-orm`. |
 | `vite-hub/workspace/loader` and `vite-hub/workspace/server` | Workspace loader and manual server extension APIs. |
 
 ViteHub adapters use `vite-hub/*` imports. You install their optional third-party providers and SDKs yourself. Provider Output, build plugins, and provider modules not listed here stay in their own packages.

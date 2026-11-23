@@ -1,7 +1,7 @@
 import { parseMarkdown } from "comark"
 import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { htmlPlugins, literalHtmlTags } from "./parser.ts"
+import { htmlPlugins, literalHtmlTags, templatePlugins } from "./parser.ts"
 
 export async function prepareTemplate(source: string) {
   const prefix = `VITEHUBCODE${crypto.randomUUID().replaceAll("-", "")}`
@@ -19,7 +19,7 @@ export async function prepareTemplate(source: string) {
       else visit(node.slice(2) as Node[], literal || (node[0] !== null && literalHtmlTags.has(node[0])))
     }
   }
-  if (lines.length) visit((await parseMarkdown(masked, { autoClose: false, autoUnwrap: false, linkify: false, plugins: htmlPlugins })).nodes)
+  if (lines.length) visit((await parseMarkdown(masked, { autoClose: false, autoUnwrap: false, registerDefaultPlugins: false, plugins: templatePlugins(...htmlPlugins) })).nodes)
   const template = masked.replace(pattern, (token, index: string) => inCode.has(Number(index)) ? token : lines[Number(index)]!)
   validateBranches(template)
   return { template, restore: (rendered: string) => rendered.replace(pattern, (_token, index: string) => lines[Number(index)]!) }
