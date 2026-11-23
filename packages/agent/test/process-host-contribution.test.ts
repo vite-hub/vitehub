@@ -14,6 +14,12 @@ import { DatabaseSync } from "node:sqlite"
 import { installStubPackages } from "./support/stub-packages.ts"
 
 const roots: string[] = []
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -131,7 +137,7 @@ describe("createAgentProcessHosts with a Lease", () => {
     expect(await a.health()).toMatchObject({ agents: { worker: { status: "healthy", role: "holder" } } })
     expect((await leases.get(agentProcessHostLeaseKey("worker")))[1]).toMatchObject({ key: "agent-process-host:worker" })
 
-    const finishClose = Promise.withResolvers<void>()
+    const finishClose = deferred<void>()
     const closing = vi.spyOn(first, "close").mockImplementation(async () => {
       await finishClose.promise
       first.running = false
@@ -154,7 +160,7 @@ describe("createAgentProcessHosts with a Lease", () => {
 
   it.each(["starting", "running"])("fences a %s host when renewal never answers", async (phase) => {
     const store = createMemoryLeaseStore()
-    const renew = Promise.withResolvers<Awaited<ReturnType<Lease["renew"]>>>()
+    const renew = deferred<Awaited<ReturnType<Lease["renew"]>>>()
     const renewStarted = vi.fn(() => renew.promise)
     let acquiredOnce = false
     const leases: LeaseStore = { ...store, async acquire(key, options) {
@@ -166,7 +172,7 @@ describe("createAgentProcessHosts with a Lease", () => {
     const host = fakeHost()
     const start = vi.spyOn(host, "start")
     const close = vi.spyOn(host, "close")
-    const startup = Promise.withResolvers<AgentProcessHostInstance>()
+    const startup = deferred<AgentProcessHostInstance>()
     const create = vi.fn(() => startup.promise)
     const first = server(leases, create)
     const peerHost = fakeHost()
@@ -233,9 +239,9 @@ describe("createAgentProcessHosts with a Lease", () => {
     const leases = createMemoryLeaseStore()
     const [, other] = await leases.acquire(agentProcessHostLeaseKey("worker"), { owner: "other-server", ttl: 60 })
     const handled: string[] = []
-    const finishDelivery = Promise.withResolvers<void>()
-    const finishClose = Promise.withResolvers<void>()
-    const closeStarted = Promise.withResolvers<void>()
+    const finishDelivery = deferred<void>()
+    const finishClose = deferred<void>()
+    const closeStarted = deferred<void>()
     const host = { ...fakeHost(), start() {
       registerAgentProcessHostIntake("worker", async ({ deliveryId }) => {
         handled.push(deliveryId)
