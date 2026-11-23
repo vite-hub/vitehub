@@ -58,25 +58,54 @@ export interface EmailEnvelope {
 export type EmailMessage = EmailBody & EmailEnvelope
 
 /**
- * The Markdown templates under `server/emails`, by name. `.vitehub/types/email-templates.d.ts` adds each template
- * and the `data` type that it reads.
+ * What every Email template returns. `subject` is set when the template has one, such as `subject:` frontmatter in
+ * Markdown.
+ */
+export interface RenderedEmail {
+  subject?: string
+  html: string
+  text: string
+}
+
+/**
+ * The templates under `server/emails`, by name. `.vitehub/types/email-templates.d.ts` adds each template with the
+ * `data` type that it reads, and `subject: true` when the template sets its own subject.
  */
 export interface EmailTemplateRegistry {}
 
 /** The name of a template under `server/emails`, for example `welcome` or `monthly/recap`. */
 export type EmailTemplateName = Extract<keyof EmailTemplateRegistry, string>
 
-type EmailTemplateData<TName extends EmailTemplateName> = {} extends EmailTemplateRegistry[TName]
-  ? { data?: EmailTemplateRegistry[TName] }
-  : { data: EmailTemplateRegistry[TName] }
+interface EmailTemplateEntry {
+  data: unknown
+  subject: boolean
+}
 
-/** A message whose body `email.send()` renders from a template under `server/emails`. */
+type EmailTemplateEntryOf<TName extends EmailTemplateName> = EmailTemplateRegistry[TName] extends EmailTemplateEntry
+  ? EmailTemplateRegistry[TName]
+  : never
+
+type EmailTemplateData<TData> = {} extends TData
+  ? { data?: TData }
+  : { data: TData }
+
+type EmailTemplateSubject<TSubject extends boolean> = TSubject extends true
+  ? { subject?: string }
+  : { subject: string }
+
+/**
+ * A message whose body `email.send()` renders from a template under `server/emails`. `subject` overrides the subject
+ * of the template, and is required when the template has none.
+ */
 export type EmailTemplateMessage<TName extends EmailTemplateName = EmailTemplateName> = {
-  [TTemplate in TName]: EmailEnvelope & EmailTemplateData<TTemplate> & {
-    template: TTemplate
-    html?: never
-    text?: never
-  }
+  [TTemplate in TName]: Omit<EmailEnvelope, "subject">
+    & EmailTemplateData<EmailTemplateEntryOf<TTemplate>["data"]>
+    & EmailTemplateSubject<EmailTemplateEntryOf<TTemplate>["subject"]>
+    & {
+      template: TTemplate
+      html?: never
+      text?: never
+    }
 }[TName]
 
 /** What `email.send()` takes: a message with a body, or a template name and its `data`. */

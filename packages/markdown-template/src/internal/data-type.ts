@@ -5,6 +5,7 @@ import { assertBindingRoot } from "../bindings.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "../error-diagnostics.ts"
 import { hasMarkdownHtmlChildren, literalHtmlTags, parserOptions } from "../parser.ts"
 import { prepareTemplate } from "../prepare.ts"
+import { mapTemplateTextBindings } from "../text.ts"
 
 type DataUse = "condition" | "markdown" | "scalar"
 
@@ -104,10 +105,16 @@ function renderField(field: DataField, indent: string): string {
  * Infers the `data` type of a template from its `data.*` bindings. A value read only inside an `::if` branch is
  * optional and takes `null`, and a condition value is optional `unknown`.
  */
-export async function inferMarkdownTemplateDataType(template: string, indent = ""): Promise<MarkdownTemplateDataType> {
+export async function inferMarkdownTemplateDataType(template: string, { indent = "", text }: { indent?: string, text?: string } = {}): Promise<MarkdownTemplateDataType> {
   const prepared = await prepareTemplate(template)
   const root = emptyField()
   await visit(root, (await parseMarkdown(prepared.template, parserOptions)).nodes, true)
+  if (text !== undefined) {
+    mapTemplateTextBindings(text, (path) => {
+      const parts = dataPath(path)
+      if (parts) addPath(root, parts, "scalar", true)
+    })
+  }
   if (!root.children.size) return { required: false, type: "Record<string, never>" }
   return { required: [...root.children.values()].some(field => field.required), type: renderField(root, indent) }
 }
