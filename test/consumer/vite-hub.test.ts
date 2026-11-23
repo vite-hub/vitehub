@@ -166,12 +166,12 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
-async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
+async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>, env: NodeJS.ProcessEnv = process.env) {
   const port = await availablePort()
   const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
     cwd,
     detached: true,
-    env: { ...process.env, NUXT_TELEMETRY_DISABLED: "1" },
+    env: { ...env, NUXT_TELEMETRY_DISABLED: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   })
   let logs = ""
@@ -486,6 +486,54 @@ async function assertOneWorkspaceCopy(appDir: string) {
 }
 
 describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-hub consumer contract", () => {
+  it("serves the local KV tutorial without installing unstorage in the app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-kv-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+    const tutorial = join(repoRoot, "fixtures/tutorials/server-primitives")
+
+    try {
+      await Promise.all([
+        mkdir(join(appDir, "server/api"), { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir, new Set(["vite-hub", "@vite-hub/kv"]))
+      await Promise.all([
+        cp(join(tutorial, "vite.config.ts"), join(appDir, "vite.config.ts")),
+        cp(join(tutorial, "server/api/settings.post.ts"), join(appDir, "server/api/settings.post.ts")),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            "@vite-hub/kv": specs["@vite-hub/kv"],
+            h3: "2.0.8",
+            nitro: "3.0.261103-rc",
+            vite: "8.3.5",
+            "vite-hub": specs["vite-hub"],
+          },
+          private: true,
+          type: "module",
+        })),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs)),
+      ])
+      await installApp(appDir, "--strict-peer-dependencies")
+      const vite = join(appDir, "node_modules/vite/bin/vite.js")
+      const env = { PATH: process.env.PATH, HOME: process.env.HOME, CI: "1", NO_COLOR: "1" }
+      await withDevServer(process.execPath, [vite, "--strictPort"], appDir, /Local:/, async (origin) => {
+        const response = await fetch(`${origin}/api/settings`, {
+          body: JSON.stringify({ theme: "system" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+          signal: AbortSignal.timeout(15_000),
+        })
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toEqual({ settings: { theme: "system" } })
+      }, env)
+      expect(existsSync(join(appDir, "node_modules/unstorage"))).toBe(false)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
   it("serves SSH from a packed vite-hub installation with the app's ssh2 without hoisting", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-sandbox-consumer-"))
     const appDir = join(root, "app")

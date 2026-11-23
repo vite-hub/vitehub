@@ -161,6 +161,10 @@ function kvStorageMountName(store: string): string {
 
 function configureNitroStorage(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
   if (!kv) return
+  const deps = nitro.deps ??= {}
+  const paths = deps.paths ??= {}
+  paths.unstorage ??= import.meta.resolve("unstorage")
+
   const names = Object.keys({ default: kv.store, ...kv.stores })
   const mounts = isPlainObject(nitro.kv) ? nitro.kv : {}
   const legacy = isPlainObject(nitro.storage) ? nitro.storage : {}
@@ -277,6 +281,7 @@ interface KVNitroBuild {
 }
 
 interface NitroCloudflareKVTarget {
+  deps?: { paths?: Record<string, string> }
   handlers?: unknown[]
   kv?: Record<string, unknown>
   storage?: Record<string, unknown>
