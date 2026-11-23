@@ -1,7 +1,10 @@
+import { execFile } from "node:child_process"
 import { DatabaseSync } from "node:sqlite"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import { defineRelations } from "drizzle-orm"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -407,16 +410,39 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     })
   })
 
-  it("keeps links in the Database before an atomic KV store", ({ onTestFinished }) => {
-    const d1 = createD1()
-    onTestFinished(d1.close)
-    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB" } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
-    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
-    return runWithActiveCloudflareEnv({ DB: d1.binding }, async () => {
-      await link("site.link")
-      expect(d1.rows()).toBe(1)
-      expect(kv.entries.size).toBe(0)
-    })
+  it("uses shared atomic KV without opening the Database", async () => {
+    const load = vi.fn(async () => ({ default: { db: { $client: { query: vi.fn() } } } }))
+    installConsoleSiteDatabase({ name: "default", load })
+    const url = await link("site.link")
+    expect(kv.entries.size).toBe(1)
+    const { response, cookie } = await open(url)
+    expect(response.status).toBe(303)
+    expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("consumes a Database-backed ticket from the built Console without the KV peer", async () => {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict"
+      import { registerHooks } from "node:module"
+      import { DatabaseSync } from "node:sqlite"
+
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (specifier === "@vite-hub/kv" || specifier.startsWith("@vite-hub/kv/")) throw new Error("KV is not installed: " + specifier)
+        return nextResolve(specifier, context)
+      } })
+      const { installConsoleSections, installConsoleSiteDatabase } = await import("./dist/console/runtime/server/setup.js")
+      const { consoleSiteKV } = await import("./dist/console/runtime/server/site-session.js")
+      process.env.VITEHUB_SECRET = ${JSON.stringify(secret)}
+      const sqlite = new DatabaseSync(":memory:")
+      const db = { $client: { async execute({ sql, args }) { return { rows: sqlite.prepare(sql).all(...args) } } } }
+      installConsoleSections("console-site-cookie", ["site"])
+      installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
+      const store = await consoleSiteKV()
+      await store.set("ticket", "value", { ttl: 60 })
+      assert.deepEqual(await store.getAndDelete("ticket", { type: "text" }), [undefined, "value"])
+      assert.deepEqual(await store.getAndDelete("ticket", { type: "text" }), [undefined, null])
+    `], { cwd: fileURLToPath(new URL("../", import.meta.url)), timeout: 10_000 })
   })
 
   it("names the Databases when several have no default and no KV store takes a link out once", async () => {

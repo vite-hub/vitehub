@@ -171,6 +171,8 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
 const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|web-container|workflow|workspace)(?:\/|$)/;
+const bundledOwnerRuntime = [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle", "@vite-hub/kv/runtime/database"];
+const externalOwnerRuntime = /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$|kv\/runtime\/database$)/;
 const agentDeclarationRoot = `${resolve(import.meta.dirname, "../agent/dist").replaceAll("\\", "/")}/`;
 
 export default defineConfig({
@@ -531,8 +533,8 @@ export default defineConfig({
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
-        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
+        neverBundle: ["vite", externalOwnerRuntime],
+        alwaysBundle: bundledOwnerRuntime,
         onlyBundle: false,
       },
       // Root declarations are emitted separately so feature exports cannot pull optional types into them.
@@ -712,8 +714,8 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
-        alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
+        neverBundle: ["vite", externalOwnerRuntime],
+        alwaysBundle: bundledOwnerRuntime,
         onlyBundle: false,
         dts: {
           neverBundle: ["vite"],
