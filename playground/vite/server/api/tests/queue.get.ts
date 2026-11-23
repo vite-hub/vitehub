@@ -1,16 +1,23 @@
 import { defineEventHandler, getQuery } from "h3"
 import { kv } from "@vite-hub/kv"
+import { getQueueMarkerKey } from "../../../../_shared/queue-test"
 
 export default defineEventHandler(async (event) => {
   const marker = getQuery(event).marker
-  const key = typeof marker === "string" && marker.length > 0
-    ? `queue-e2e:${marker}`
-    : ""
+  if (typeof marker !== "string" || marker.length === 0) {
+    return { error: null, ok: true, received: false, seen: false }
+  }
 
-  const [error, seen] = key ? await kv.has(key) : [undefined, false] as const
-  if (error) throw error
+  const [seenError, seen] = await kv.has(getQueueMarkerKey(marker, "done"))
+  if (seenError) throw seenError
+  const [receivedError, received] = await kv.has(getQueueMarkerKey(marker, "received"))
+  if (receivedError) throw receivedError
+  const [failureError, failure] = await kv.get(getQueueMarkerKey(marker, "failed"))
+  if (failureError) throw failureError
   return {
+    error: typeof failure === "string" ? failure : null,
     ok: true,
+    received,
     seen,
   }
 })

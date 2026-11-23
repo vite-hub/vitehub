@@ -12,7 +12,7 @@ import { runSandboxTask } from "@vite-hub/sandbox/task"
 import { useWorkspace } from "@vite-hub/workspace"
 import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { deferWorkflow, getWorkflowRun, startWorkflow } from "@vite-hub/workflow"
-import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
+import { getQueueMarkerKey, queueMarkerStages, resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 
 const app = new H3()
 const analytics = useDatabase("analytics")
@@ -32,7 +32,9 @@ const blobPutBody = v.optional(v.object({
   value: v.optional(v.string()),
 }), {})
 const markerBody = v.object({
+  error: v.optional(v.string()),
   marker: v.string(),
+  stage: v.optional(v.picklist(queueMarkerStages), "done"),
 })
 const noteBody = v.object({
   title: v.string(),
@@ -276,21 +278,27 @@ app.get("/api/tests/probe", (event) => {
 
 app.get("/api/tests/queue", async (event) => {
   const marker = getQuery(event).marker
-  const key = typeof marker === "string" && marker.length > 0
-    ? `queue-e2e:${marker}`
-    : ""
+  if (typeof marker !== "string" || marker.length === 0) {
+    return { error: null, ok: true, received: false, seen: false }
+  }
 
-  const [error, seen] = key ? await kv.has(key) : [undefined, false] as const
-  if (error) throw error
+  const [seenError, seen] = await kv.has(getQueueMarkerKey(marker, "done"))
+  if (seenError) throw seenError
+  const [receivedError, received] = await kv.has(getQueueMarkerKey(marker, "received"))
+  if (receivedError) throw receivedError
+  const [failureError, failure] = await kv.get(getQueueMarkerKey(marker, "failed"))
+  if (failureError) throw failureError
   return {
+    error: typeof failure === "string" ? failure : null,
     ok: true,
+    received,
     seen,
   }
 })
 
 app.post("/api/tests/queue", async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  const [error] = await kv.set(`queue-e2e:${body.marker}`, true)
+  const [error] = await kv.set(getQueueMarkerKey(body.marker, body.stage), body.stage === "failed" ? body.error || "unknown error" : true)
   if (error) throw error
   return { ok: true }
 })
