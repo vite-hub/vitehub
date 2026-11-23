@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { dirname, extname, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
@@ -899,7 +900,9 @@ function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undef
 }
 
 export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
-  const packageLoading = createNativePackageLoading()
+  const workspaceEntry = import.meta.resolve(WORKSPACE_PACKAGE_NAME)
+  const packageLoading = createNativePackageLoading([workspaceEntry])
+  const workspaceDist = dirname(fileURLToPath(workspaceEntry)).replace(/\\/g, "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const internalOptions = options as InternalWorkspaceModuleOptions | false | undefined
   let hosting = internalOptions ? internalOptions.hosting : undefined
   const publicOptions = stripWorkspaceInternalOptions(options)
@@ -1056,7 +1059,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          ...(packageLoading.configureEnvironment(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
+          ...(packageLoading.configureEnvironment(name, env, config) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
         },
       }
     },
@@ -1221,7 +1224,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       },
     },
     load: {
-      filter: { id: WORKSPACE_LOAD_ID_PATTERN },
+      filter: { id: new RegExp(`${WORKSPACE_LOAD_ID_PATTERN.source}|^${workspaceDist}/.+\\.js$`) },
       handler(id) {
         if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
         if (id === RESOLVED_WORKSPACES_ID) {

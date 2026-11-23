@@ -139,6 +139,29 @@ describe("Vite provider builds", () => {
     }
   })
 
+  it("reuses the native package in Node SSR dev but not in worker SSR or builds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-ssr-"))
+    try {
+      const linked = join(root, "dist", "index.js")
+      await mkdir(join(root, "dist"))
+      await writeFile(linked, "export const registry = {}\n")
+      const ssr = createNativePackageLoading([pathToFileURL(linked).href])
+      ssr.configureEnvironment("ssr", { command: "serve" })
+      expect(ssr.load(linked, "ssr")).toContain("export * from \"data:text/javascript,")
+      expect(ssr.load(join(root, "other", "dist", "index.js"), "ssr")).toBeUndefined()
+      expect(ssr.load(linked, "client")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "serve", isSsrTargetWebworker: true })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "serve" }, { resolve: { conditions: ["workerd"] } })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+      ssr.configureEnvironment("ssr", { command: "build" })
+      expect(ssr.load(linked, "ssr")).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("renders a Nitro plugin that hands each generated module to its package", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-native-install-"))
     try {
