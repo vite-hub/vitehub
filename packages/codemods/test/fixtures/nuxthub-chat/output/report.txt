@@ -48,7 +48,7 @@ Manual follow-ups (23):
   23. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
 
 Notes:
-  - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.
+  - NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again.
   - Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.
   - NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.
 

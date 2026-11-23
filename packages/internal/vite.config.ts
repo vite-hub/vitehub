@@ -38,6 +38,7 @@ export default defineConfig({
       "src/forge.ts",
       "src/http-request.ts",
       "src/inspect.ts",
+      "src/nuxt-server-imports.ts",
       "src/invariant.ts",
       "src/object.ts",
       "src/operation-registry.ts",

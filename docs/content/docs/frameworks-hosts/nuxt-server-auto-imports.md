@@ -25,6 +25,20 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+## Migrate an app
+
+An app that used the ViteHub auto-imports before Nuxt 5 can import them with
+one codemod:
+
+```bash [Terminal]
+npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
+```
+
+It adds the import of each helper that a server file uses without one. It
+leaves names that your app gives itself, such as `db` from
+`server/utils/db.ts`. `vitehub migrate` runs it too. See
+[Upgrade ViteHub](/docs/codemods/upgrade-vitehub#nuxt-server-imports).
+
 ## Turn server auto-imports on
 
 ViteHub follows Nuxt's own switch. It adds no option of its own.

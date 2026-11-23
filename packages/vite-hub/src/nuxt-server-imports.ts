@@ -1,42 +1,13 @@
+import { viteHubServerImports as serverImportTable } from "@vite-hub/internal/nuxt-server-imports"
+
 /**
  * The server helpers that `vite-hub/nuxt` auto-imports in Nitro code, per ViteHub feature, when the app turns on
- * Nuxt's server auto-imports (see {@link nuxtServerAutoImportsEnabled}). This table is the only list.
- *
- * Rules for an entry:
- * - Runtime helpers that server code calls in a handler, such as `kv` or `sendQueue`.
- * - `define*` helpers only when Nitro alone loads their Definition files. ViteHub also loads Agent, Auth, Comments,
- *   Database, Schedule, Workflow, and Workspace Definitions outside Nitro (Vite SSR, jiti, `runnerImport`, or
- *   provider bundles). Those files and their dependencies keep explicit imports for every helper they use.
- * - No name that Nuxt, Nitro, or H3 auto-imports, such as `getSession`, `useSession`, `defineTask`, or `useStorage`.
+ * Nuxt's server auto-imports (see {@link nuxtServerAutoImportsEnabled}). The table lives in
+ * `@vite-hub/internal/nuxt-server-imports`, so the `nuxt-server-imports` codemod reads the same list.
  *
  * The `satisfies` check fails the typecheck when a name is not a value export of its `vite-hub/*` entry.
  */
-export const viteHubServerImports = {
-  agent: { "vite-hub/agent": ["runAgent", "streamAgent"] },
-  auth: { "vite-hub/auth/server": ["can", "requireAbility", "requireAuth", "requireAuthorization", "requireCaller", "useAuth", "withAnonymousAuthorization", "withAuth", "withAuthorization"] },
-  blob: { "vite-hub/blob": ["blob"] },
-  browser: { "vite-hub/browser": ["defineBrowser", "runBrowser"] },
-  // `defineCachedFunction` and `defineCachedHandler` keep Nitro's auto-imports. Import the tagged ones from `vite-hub/cache`.
-  cache: { "vite-hub/cache": ["invalidateTag"] },
-  channels: { "vite-hub/channels": ["defineChannel", "useChannel"] },
-  connections: { "vite-hub/connections": ["defineConnection"], "vite-hub/connections/server": ["useConnection"] },
-  database: { "vite-hub/database": ["db", "schema", "useDatabase"] },
-  email: { "vite-hub/email": ["email"] },
-  // Generated Env declarations type the primitive root for each app.
-  env: { "vite-hub/env": ["checkServiceToken", "requireServiceToken", "useServerEnv", "verifyWebhook"] },
-  i18n: { "vite-hub/i18n/server": ["getRequestI18n", "useTranslations"] },
-  kv: { "vite-hub/kv": ["kv"] },
-  queue: { "vite-hub/queue": ["defineQueue", "deferQueue", "useQueue", "sendQueue"] },
-  rateLimit: { "vite-hub/rate-limit": ["checkRateLimit", "peekRateLimit", "refundRateLimit", "requireRateLimit", "resetRateLimit"] },
-  realtime: { "vite-hub/realtime": ["defineRealtime"], "vite-hub/realtime/server": ["isRealtimeAvailable", "refreshRealtimeDocument"] },
-  sandboxTask: { "vite-hub/sandbox/task": ["runSandboxTask"] },
-  schedule: { "vite-hub/schedule": ["cancelSchedule", "getSchedule", "listSchedules", "startSchedule"] },
-  seo: { "vite-hub/seo": ["defineSitemap"] },
-  // Source is always on. `useSource("docs")` opens `server/sources/docs.ts`.
-  source: { "vite-hub/source": ["useSource"] },
-  workflow: { "vite-hub/workflow": ["cancelWorkflow", "deferWorkflow", "getWorkflowRun", "resumeWorkflow", "startWorkflow"] },
-  workspace: { "vite-hub/workspace": ["useWorkspace"] },
-} as const satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
+export const viteHubServerImports = serverImportTable satisfies Record<string, { [From in keyof ServerImportEntries]?: readonly (keyof ServerImportEntries[From] & string)[] }>
 
 /** The public entries that the table imports from, mapped to their facade source. */
 interface ServerImportEntries {
