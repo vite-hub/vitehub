@@ -76,13 +76,13 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Build errors.
-    EMAIL_DUPLICATE_TEMPLATE: {
-      why: ({ name }: { name: string }) => `Two Email templates have the name ${JSON.stringify(name)}.`,
-      fix: "Rename or remove one of the two Markdown files under `server/emails`.",
-    },
     EMAIL_DRIVER_MODULE_NOT_FOUND: {
       why: ({ driver, file }: { driver: string, file: string }) => `\`email.driver\` is ${JSON.stringify(driver)}, but ${file} does not exist.`,
       fix: "Create the driver module, or fix the path. The path is relative to the project root, for example `email: { driver: './server/email-driver.ts' }`, and the module default-exports a function that returns an `EmailDriver`.",
+    },
+    EMAIL_DUPLICATE_TEMPLATE: {
+      why: ({ name }: { name: string }) => `Two Email templates have the name ${JSON.stringify(name)}.`,
+      fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
       why: "The \"cloudflare\" driver needs a Cloudflare host.",

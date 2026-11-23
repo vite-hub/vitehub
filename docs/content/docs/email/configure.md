@@ -198,7 +198,7 @@ export default function postmarkDriver(options: { apiKey: string }): EmailDriver
 }
 ```
 
-The host compiles the module with your app, so it can import any package. ViteHub calls the function for each send. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) wraps it like a built-in driver. A path to a file that does not exist fails the build with [`EMAIL_DRIVER_MODULE_NOT_FOUND`](/docs/email/limits-and-errors#email_driver_module_not_found).
+The host compiles the module with your app, so it can import any package. ViteHub calls the function for each send. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) wraps it like a built-in driver. A path to a file that does not exist fails the build with [`EMAIL_DRIVER_MODULE_NOT_FOUND`](/docs/email/diagnostics/email_driver_module_not_found).
 
 To send without the `email` helper, pass the driver to `createEmail()`.
 
