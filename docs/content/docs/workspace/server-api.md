@@ -347,7 +347,7 @@ In a history commit, each hook also gets `input.commit`, which is read-only:
 
 `input.commit` is the same object for every path of one commit, so a hook can keep one check per commit in a `WeakMap`. Writes to the working tree have no `input.commit`. A hook error with a `status` from 400 to 499, such as `Object.assign(error, { status: 409, fix })`, reaches `workspace.commit` callers with that status, its `fix`, and its `details`.
 
-Rules from several plugins and the Definition merge by field. For one pattern, a later rule replaces only the fields it sets and keeps its validators beside earlier ones. For one path, matching patterns apply from least to most specific, each replacing only the fields it sets, and every matching validator runs. Hooks from every plugin run in order. Prefer a `write:validate` hook that throws when a contributed check must always run.
+Rules from several plugins and the Definition merge by field. For one pattern, a later rule replaces only the fields it sets and keeps its validators beside earlier ones. For one path, matching patterns apply from least to most specific, each replacing only the fields it sets, and matching validators run in order until one rejects the write. Hooks from every plugin run in order; if a rule validator already rejects a write, `write:validate` hooks do not run for that write.
 
 ## Sync Sources
 
