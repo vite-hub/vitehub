@@ -135,7 +135,6 @@ const previousHelpers = new WeakMap<object, PropertyDescriptor>()
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
   const key = "defineNuxtConfig"
   const current: unknown = Reflect.get(globalThis, key)
-  // Nuxt Kit also holds this helper while it loads a config and removes it when the count reaches zero.
   const helper = typeof current === "function" && "count" in current && typeof current.count === "number"
     ? current as { count: number }
     : Object.assign((config: unknown) => config, { count: 0 })
