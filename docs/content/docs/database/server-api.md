@@ -74,7 +74,7 @@ export default defineEventHandler(() => {
 
 Use named databases when the app needs more than one separate database. Split for a real data or deployment reason, not to mirror a source folder.
 
-The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine Default and Named Database Definitions.
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine `src/database.ts` with Named Database Definitions. To keep a Default Database beside Named Databases, define it in `server/databases/default.ts`.
 
 ```ts [src/analytics.database.ts]
 import { defineDatabase } from 'vite-hub/database'

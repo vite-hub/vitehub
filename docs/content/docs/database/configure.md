@@ -80,7 +80,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
-| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files and D1 over HTTP. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
@@ -755,7 +755,7 @@ vitehub: {
 },
 ```
 
-A project cannot mix a default database with named ones, so this fits an app whose databases are all named.
+A project cannot combine `src/database.ts` with named databases, so this fits an app whose databases are in `server/databases/` or all named.
 
 | Field | Type | Description |
 | --- | --- | --- |
