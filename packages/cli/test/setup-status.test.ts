@@ -135,6 +135,20 @@ describe("vitehub status", () => {
   })
 
   it.each([
+    [`srcDir: "src"`, "server/comments.ts", "on"],
+    [`srcDir: "src"`, "src/server/comments.ts", "off"],
+  ])("discovers Nuxt Comments in the root server directory with %s: %s", async (options, file, enabled) => {
+    const root = await createProject({
+      [file]: `throw new Error("must not load discovery files")`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "comments")).toMatchObject({ enabled, reason: "default" })
+    expect(feature(json, "queue")).toMatchObject({ enabled: "off", reason: "default" })
+  })
+
+  it.each([
     ["backend", "backend/comments.ts", "on"],
     ["backend", "server/comments.ts", "off"],
     ["", "server/comments.ts", "on"],

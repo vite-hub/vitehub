@@ -428,6 +428,8 @@ describe("vitehub add", () => {
     ['rootDir: "app"', "app/server"],
     ['serverDir: "backend"', "backend"],
     ['rootDir: "app", serverDir: "backend"', "app/backend"],
+    ['srcDir: "src"', "server"],
+    ['srcDir: "src", serverDir: "backend"', "backend"],
   ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -439,7 +441,7 @@ describe("vitehub add", () => {
     const files = Object.keys(await snapshot(root))
     expect(files).toContain(`${serverDir}/queues/jobs.ts`)
     expect(files).toContain(`${serverDir}/databases/jobs.ts`)
-    expect(files.some(file => file.startsWith("server/"))).toBe(false)
+    expect(files.filter(file => file.endsWith("/jobs.ts")).every(file => file.startsWith(`${serverDir}/`))).toBe(true)
     expect((await add(args, root)).json.status).toBe("unchanged")
   })
 

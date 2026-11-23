@@ -89,7 +89,7 @@ function nuxtServerDirs(root: string, config: LocateResult | undefined): string[
   if (!nuxt || nuxt.spread) return
   const extended = nuxt.keys.extends
   if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return
-  if (nuxt.keys._layers || nuxt.keys.srcDir || existsSync(join(root, "layers"))) return
+  if (nuxt.keys._layers || existsSync(join(root, "layers"))) return
   const rootDir = nuxt.keys.rootDir
   const serverDir = nuxt.keys.serverDir
   if (rootDir && (rootDir.kind !== "literal" || typeof rootDir.value !== "string")) return
