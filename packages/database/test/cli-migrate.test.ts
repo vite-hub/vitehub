@@ -230,7 +230,7 @@ describe("vitehub database up", () => {
       "",
     ].join("\n"))
     // An older ViteHub, or `drizzle-kit up` alone, converted the folder and kept `members_email_unique` as an index.
-    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
     await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
     await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("already uses the layout of Drizzle Kit 1.0") })
     const tags = await migrationTags(migrationsDir)
@@ -1180,7 +1180,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
     // Drizzle Kit 0.31 wrote these, and Wrangler applied them as `0000_init.sql` and `0001_add_body.sql`.
     await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations"), migrationsDir, { recursive: true })
-    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
     await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
     expect(existsSync(join(migrationsDir, "meta"))).toBe(false)
     await project.writeSchema(["title", "body", "tags"])

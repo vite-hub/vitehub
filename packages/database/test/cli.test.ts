@@ -40,7 +40,7 @@ async function nextSecond() {
 async function migrationFolders(migrationsDir: string) {
   return (await readdir(migrationsDir).catch(() => [])).filter(name => existsSync(join(migrationsDir, name, "migration.sql"))).sort()
 }
-const drizzleKitBin = join(projectRoot, "node_modules", "drizzle-kit", "bin.cjs")
+const drizzleKitBin = join(projectRoot, "node_modules", "drizzle-kit", "bin.js")
 
 function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
   return {
@@ -418,7 +418,7 @@ describe("DB CLI contributor", () => {
     ].join("\n"))
 
     await execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate",
       "--config",
       configFile,
