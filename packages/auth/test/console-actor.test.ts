@@ -309,11 +309,30 @@ describe("users and sessions that a host signs in", () => {
     expect((await api.revokeHostSession(listed!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
   });
 
-  it("needs admin(), which keeps the roles", async () => {
+  it("keeps the roles in a role field of the app's own schema, without admin()", async () => {
+    const fixture = await app({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, input: false } } } });
+    fixture.database.sqlite.prepare("UPDATE user SET role = NULL, emailVerified = 1 WHERE id = ?").run(fixture.member.id);
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error, user] = await api.hostUser({ email: "ada@example.com", name: "Ada", roles: ["console", "comments-write"] });
+    expect(error).toBeUndefined();
+    const [, headers] = await api.hostSession(user!.id, browser());
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: headers!.get("set-cookie")!.split(";")[0]! }) });
+    expect(session?.user).toMatchObject({ id: fixture.member.id, role: expect.stringContaining("console,comments-write") });
+    expect((await fixture.request("sign-up/email", { name: "Eve", email: "eve@example.com", password: "passwordpassword", role: "console" })).status).toBe(400);
+  });
+
+  it("tells an app without a role field how to add one", async () => {
     const fixture = await app();
     const context = await fixture.auth.$context;
     const api = createAuthConsole({ api: fixture.auth.api, $context: Promise.resolve({ ...context, options: { ...context.options, plugins: [] } }) });
     const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
-    expect(error).toMatchObject({ message: expect.stringContaining("admin()") });
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("authDatabase()") });
+  });
+
+  it("refuses a role field that users can set", async () => {
+    const fixture = await app({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, input: true } } } });
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("input: false") });
   });
 });

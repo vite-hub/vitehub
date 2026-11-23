@@ -22,7 +22,16 @@ With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site acces
 | **`/_vitehub`** | Signs in through the Console and returns to the page with the pill open. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin) in the comma-separated `user.role`, so Site access needs `admin()` in the `plugins` of `defineAuth()`. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table and declare it, or add `admin()`:
+
+```ts [server/auth.ts] fragment
+export default defineAuth({
+  database: drizzleAdapter(db, { provider: "sqlite", schema }),
+  user: { additionalFields: { role: { type: "string", required: false, input: false } } },
+})
+```
+
+`input: false` stops users from setting their own roles, and Site access refuses a `role` field without it. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
 A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
 

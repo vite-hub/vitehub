@@ -18,6 +18,7 @@ export async function consoleEventsFixture(options: {
   /** The app origin, `http://localhost:5173` by default. An `https:` origin gives `__Secure-` cookies. */
   origin?: string
   session?: { cookieCache: { enabled: boolean } }
+  user?: { additionalFields: Record<string, { type: "string", required: false, input: boolean }> }
 } = {}) {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });
@@ -29,6 +30,7 @@ export async function consoleEventsFixture(options: {
     database: database.sqlite,
     ...(options.secondaryStorage ? { secondaryStorage: options.secondaryStorage } : {}),
     ...(options.session ? { session: options.session } : {}),
+    ...(options.user ? { user: options.user } : {}),
     secret: "console-events-local-test-secret-abcdefghijklmnopqrstuvwxyz",
     baseURL: origin,
   });

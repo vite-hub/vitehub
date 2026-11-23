@@ -1,6 +1,7 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { createAuthEndpoint } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
+import { getAuthTables } from "better-auth/db";
 import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent";
@@ -88,10 +89,10 @@ export interface AuthConsole {
   deleteVerification(identifier: string): Promise<Result<void, AuthConsoleErrorCode>>;
   /**
    * The user that a host signs in without a password, such as a Console member or a guest that a member invited, with
-   * `roles` added to the comma-separated `user.role` of Better Auth's `admin()` plugin. With `email`, an existing user
-   * with that verified email keeps their account and gets the roles, and an unverified one is refused; without it, a new
-   * user gets a placeholder email. Needs `admin()` and a
-   * database. Better Auth runs the app's `databaseHooks.user.create` for a new user.
+   * `roles` added to the comma-separated `user.role`. With `email`, an existing user with that verified email keeps
+   * their account and gets the roles, and an unverified one is refused; without it, a new user gets a placeholder email.
+   * Needs a database and a `user.role` field that users cannot set: `authDatabase()` and `admin()` add one. Better Auth
+   * runs the app's `databaseHooks.user.create` for a new user.
    */
   hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
   /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */
@@ -1221,13 +1222,16 @@ export function createAuthConsole(
       throw authConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
     return ctx.internalAdapter;
   }
-  /** The Better Auth context for host users and sessions: `admin()` keeps the roles, a database keeps the rest. */
+  /** The Better Auth context for host users and sessions: the `user.role` field keeps the roles, a database keeps the rest. */
   async function hostContext() {
     const ctx = await context();
     if (!ctx.options.database || !ctx.internalAdapter || !ctx.authCookies || !ctx.secret || !ctx.sessionConfig)
       throw authConsoleError(409, "Signing a browser in from the Console needs a Better Auth database.");
-    if (!ctx.options.plugins?.some((plugin) => plugin.id === "admin"))
-      throw authConsoleError(409, "Site access keeps permissions as roles of Better Auth's admin() plugin. Add admin() from better-auth/plugins to the plugins of defineAuth().");
+    const role = getAuthTables(ctx.options).user?.fields.role;
+    if (!role)
+      throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, then declare it in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`, or add `admin()` from better-auth/plugins.");
+    if (role.input !== false)
+      throw authConsoleError(409, "Site access keeps permissions as roles in `user.role`, and your `role` field lets users set it when they sign up or update their profile. Set `input: false` on the `role` field of `user.additionalFields` in `defineAuth()`.");
     return { ...ctx, internalAdapter: ctx.internalAdapter, authCookies: ctx.authCookies, secret: ctx.secret, sessionConfig: ctx.sessionConfig };
   }
   async function hostUser(input: AuthConsoleHostUserInput): Promise<{ id: string; roles: string[] }> {
