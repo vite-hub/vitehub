@@ -288,7 +288,10 @@ export function useTranslations(): Translations {
       const records = { ...published[entry], ...draft[entry] }
       const previous = findPreviousTranslations(sources, records)
       const ids = Object.keys(sources).filter(id => !(id in records)).sort()
-      const start = options?.cursor ? Math.max(0, ids.indexOf(options.cursor) + 1) : 0
+      // The cursor is the last id of the page before. It may be translated since then, so continue after its position.
+      const cursor = options?.cursor
+      const after = cursor === undefined ? 0 : ids.findIndex(id => id > cursor)
+      const start = after === -1 ? ids.length : after
       const limit = Math.max(1, Math.min(options?.limit ?? 50, 200))
       const page = ids.slice(start, start + limit)
       const items = page.map((id): MissingTranslation => {
