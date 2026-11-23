@@ -208,7 +208,7 @@ These paths have no `vite-hub` path:
 | `@vite-hub/docs/navigation` | Docs Package | The manifest types and navigation helpers. |
 | `@vite-hub/docs/primitive-rail` | Docs Package | `PrimitiveRail`, the navigation rail for Server Primitives. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
-| `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
+| `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. It returns `{ subject?, html, text }`. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/ui/comment-marks.css` | UI Package | The comment pins and highlights as plain CSS, for a page that reads the file as text with `?raw`. |
 | `@vite-hub/web-container/vue` | WebContainer Package | `useWebContainer()`, the Vue composable for the WebContainer lifecycle, files, commands, and preview. |
