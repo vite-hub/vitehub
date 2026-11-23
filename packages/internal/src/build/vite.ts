@@ -9,6 +9,7 @@ import type { NuxtServerDirOptions } from "./paths.ts"
 import type { ConfigEnv, EnvironmentOptions, ViteDevServer } from "vite"
 
 export type { NuxtServerDirOptions } from "./paths.ts"
+export { addNuxtVueImports, type NuxtVueImportContext } from "./nuxt-vue-imports.ts"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
