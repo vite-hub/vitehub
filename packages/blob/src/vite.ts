@@ -41,6 +41,8 @@ import type { Plugin, ResolvedConfig } from "vite"
 const operationsModule = ownModule(import.meta.url, "operations")
 const runtimeStateModule = ownModule(import.meta.url, "runtime/state")
 const signedRouteModule = ownModule(import.meta.url, "runtime/signed")
+/** The module whose `checkBlobStoreHealth(name)` the generated health route calls. */
+export const blobHealthModule: string = ownModule(import.meta.url, "runtime/storage")
 const signedNitroRoute = `${blobSignedRoute}/**`
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`

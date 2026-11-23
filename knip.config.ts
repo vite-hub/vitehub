@@ -206,6 +206,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        "scripts/bench-vercel-runtime-packages/*.mjs",
         "scripts/lint/delete-comments.mjs",
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",

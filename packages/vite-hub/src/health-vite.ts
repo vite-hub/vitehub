@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { readBuildRevision } from "@vite-hub/internal/build/revision"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
@@ -8,6 +7,8 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
+import { requireOptionalOwner } from "./internal/optional-owners.ts"
 import { readViteHubVersion } from "./version.ts"
 
 import type { Plugin } from "vite"
@@ -54,8 +55,8 @@ export function selectHealthTargets(checks: readonly unknown[] | undefined, targ
 /** A key that no app writes. KV reads it to prove that the store answers, which costs one read. */
 const probeKey = "vitehub-health-check"
 
-function blobRuntimeModule() {
-  return fileURLToPath(import.meta.resolve("@vite-hub/blob/runtime/state"))
+function blobHealthModule() {
+  return requireOptionalOwner(ownerModules.blobVite, "blob").blobHealthModule
 }
 
 /**
@@ -69,7 +70,7 @@ export function renderHealthHandler(input: { version?: string, commit: string | 
   const groups = [
     ...(input.database ? [`database: import("@vite-hub/database/runtime/registry").then(({ pingDatabases }) => pingDatabases())`] : []),
     ...(input.kv.length ? [`kv: import("vite-hub/kv").then(({ kv }) => checkStores("KV store", ${JSON.stringify(input.kv)}, async (name) => { const [error] = await kv.store(name, { mode: "read" }).has(${JSON.stringify(probeKey)}); if (error) throw error }))`] : []),
-    ...(input.blob.length ? [`blob: import(${JSON.stringify(blobRuntimeModule())}).then(({ checkBlobStoreHealth }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, checkBlobStoreHealth))`] : []),
+    ...(input.blob.length ? [`blob: import(${JSON.stringify(blobHealthModule())}).then(({ checkBlobStoreHealth }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, checkBlobStoreHealth))`] : []),
   ]
   const build = input.version ? "version, commit, vitehub" : "commit, vitehub"
   return [

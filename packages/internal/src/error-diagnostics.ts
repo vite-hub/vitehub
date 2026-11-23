@@ -142,6 +142,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ owner }: { owner: string }) => `[vitehub] ${owner} extends tuple requires [preset, options] with an options object.`,
       fix: "Set `extends` to a preset, or to a two-item tuple `[preset, { ...options }]` whose second item is a plain object.",
     },
+    INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT: {
+      why: ({ first, name, second }: { first: string, name: string, second: string }) => `[vitehub] One server function needs ${name} from two installations: ${first} and ${second}.`,
+      fix: "Install one version of the package that the message names, for example with `pnpm dedupe` or an `overrides` entry in `package.json`, then build again.",
+    },
     INTERNAL_SECRET_PURPOSE_MISSING: {
       why: "[vitehub] A derived secret requires a purpose.",
       fix: "Pass a non-empty purpose to `deriveSecret()`, such as `deriveSecret(\"my-module:session\")`.",

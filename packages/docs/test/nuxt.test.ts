@@ -1107,7 +1107,7 @@ describe("docs Nuxt setup", () => {
   })
 
   it("gives the parser the site's repository, where issue references link", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ stargazers_count: 1 })))
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ stargazers_count: 42 })))
     onTestFinished(() => {
       vi.unstubAllGlobals()
     })
