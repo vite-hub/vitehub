@@ -252,6 +252,20 @@ describe("GitHub workspace store", () => {
     expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
   });
 
+  it("keeps a pinned archive after a host transfers its buffer", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token" }, "docs");
+    const materializer = await loadRevisionMaterializer(store);
+    const first = await materializer.materializeRevision();
+    const archive = first.archive!;
+    if (!(archive.buffer instanceof ArrayBuffer)) throw new Error("Expected a transferable archive buffer.");
+    structuredClone(archive, { transfer: [archive.buffer] });
+
+    const second = await materializer.materializeRevision();
+    expect(second.archive).toEqual(archiveBytes);
+    expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
+  });
+
   it("lets callers cancel revision resolution while the GitHub request continues", async () => {
     const abort = new AbortController();
     vi.mocked(fetch).mockImplementationOnce(async () => await new Promise<Response>(() => {}));
