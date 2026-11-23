@@ -286,7 +286,8 @@ export interface FetchSnapshotOptions {
   /**
    * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
    * snapshot version its own URLs, such as names with a content hash. After the whole snapshot inflates and matches
-   * `sha256`, its parts go into the cache and parts of other URLs are deleted. A failed load keeps the cache as it was.
+   * `sha256`, its parts go into the cache. Parts of other URLs are deleted only after every part is stored, so a
+   * failed write keeps the previous version. A failed load keeps the cache as it was.
    */
   cache?: string
   /** The SHA-256 of the joined parts, in hex. A snapshot that differs is rejected, and none of its parts is cached. */
@@ -322,7 +323,7 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
-  if (cache) await replaceCachedPartsAfterLoad(cache, parts)
+  if (cache && options.cache) await replaceCachedPartsAfterLoad(options.cache, cache, parts)
   return data
 }
 
@@ -335,20 +336,39 @@ async function readCachedPart(cache: SnapshotCache, url: string): Promise<Blob |
   }
 }
 
-async function replaceCachedPartsAfterLoad(cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
-  const keep = new Set(parts.map(part => new Request(part.url).url))
+async function hasCachedPart(cache: SnapshotCache, url: string): Promise<boolean> {
   try {
+    return await cache.match(url) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
+async function replaceCachedPartsAfterLoad(name: string, cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
+  const replace = async () => {
+    let stored = true
+    for (const part of parts) {
+      if (!part.downloaded && await hasCachedPart(cache, part.url)) continue
+      try {
+        await cache.put(part.url, new Response(part.blob))
+      }
+      catch {
+        stored = false
+      }
+    }
+    if (!stored) return
+    const keep = new Set(parts.map(part => new Request(part.url).url))
     const stale = (await cache.keys()).filter(request => !keep.has(request.url))
     await Promise.all(stale.map(async request => await cache.delete(request).catch(() => false)))
   }
-  catch {}
-  for (const part of parts) {
-    if (!part.downloaded) continue
-    try {
-      await cache.put(part.url, new Response(part.blob))
-    }
-    catch {}
-  }
+  const navigator: unknown = Reflect.get(globalThis, "navigator")
+  const locks: unknown = typeof navigator === "object" && navigator !== null ? Reflect.get(navigator, "locks") : undefined
+  await (isLockManager(locks) ? locks.request(`vitehub-web-container-snapshot:${name}`, replace) : replace()).catch(() => {})
+}
+
+function isLockManager(value: unknown): value is { request: (name: string, callback: () => Promise<void>) => Promise<void> } {
+  return typeof value === "object" && value !== null && "request" in value && typeof value.request === "function"
 }
 
 /**

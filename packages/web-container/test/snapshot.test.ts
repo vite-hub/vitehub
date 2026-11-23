@@ -174,6 +174,88 @@ describe("snapshots", () => {
     expect(stored.has("https://docs.test/new.0.bin")).toBe(method !== "put")
   })
 
+  it("keeps the previous version for an offline rollback when a put fails", async () => {
+    const oldData = new Uint8Array(randomBytes(1000))
+    const [oldPart] = packSnapshot(oldData)
+    const data = new Uint8Array(randomBytes(300_000))
+    const parts = packSnapshot(data, { partBytes: 50_000 })
+    const urls = parts.map((_, index) => `https://docs.test/new.${index}.bin`)
+    const stored = new Map<string, Response>([["https://docs.test/old.0.bin", new Response(oldPart)]])
+    vi.stubGlobal("caches", { open: async () => ({
+      match: async (url: string) => stored.get(url)?.clone(),
+      put: async (url: string, response: Response) => {
+        if (url === urls[1]) throw new DOMException("The quota has been exceeded.", "QuotaExceededError")
+        stored.set(url, response)
+      },
+      keys: async () => [...stored.keys()].map(url => new Request(url)),
+      delete: async (request: Request) => stored.delete(request.url),
+    }) })
+    const fetchPart = vi.fn(async (url: string) => new Response(parts[urls.indexOf(url)]))
+    vi.stubGlobal("fetch", fetchPart)
+    expect(await fetchSnapshot(urls, { cache: "app" })).toEqual(data)
+    expect([...stored.keys()].sort()).toEqual(["https://docs.test/old.0.bin", ...urls.filter(url => url !== urls[1])].sort())
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
+    expect(await fetchSnapshot(["https://docs.test/old.0.bin"], { cache: "app" })).toEqual(oldData)
+  })
+
+  it("stores its parts again when a load from the cache finishes after another version replaced them", async () => {
+    const oldData = new Uint8Array(randomBytes(1000))
+    const [oldPart] = packSnapshot(oldData)
+    const [newPart] = packSnapshot(new Uint8Array(randomBytes(1000)))
+    const stored = new Map<string, Response>([["https://docs.test/old.0.bin", new Response(oldPart)]])
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let reading = false
+    vi.stubGlobal("caches", { open: async () => ({
+      match: async (url: string) => {
+        if (reading || !stored.has(url)) return stored.get(url)?.clone()
+        reading = true
+        return new Response(new ReadableStream({
+          async pull(controller) {
+            await gate
+            controller.enqueue(oldPart)
+            controller.close()
+          },
+        }))
+      },
+      put: async (url: string, response: Response) => { stored.set(url, response) },
+      keys: async () => [...stored.keys()].map(url => new Request(url)),
+      delete: async (request: Request) => stored.delete(request.url),
+    }) })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(newPart)))
+    const oldLoad = fetchSnapshot(["https://docs.test/old.0.bin"], { cache: "app" })
+    await vi.waitFor(() => expect(reading).toBe(true))
+    await fetchSnapshot(["https://docs.test/new.0.bin"], { cache: "app" })
+    expect([...stored.keys()]).toEqual(["https://docs.test/new.0.bin"])
+    release()
+    expect(await oldLoad).toEqual(oldData)
+    expect([...stored.keys()]).toEqual(["https://docs.test/old.0.bin"])
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch") }))
+    expect(await fetchSnapshot(["https://docs.test/old.0.bin"], { cache: "app" })).toEqual(oldData)
+  })
+
+  it("keeps one whole version when two versions finish loading at the same time", async () => {
+    const stored = new Map<string, Response>()
+    vi.stubGlobal("caches", { open: async () => ({
+      match: async (url: string) => stored.get(url)?.clone(),
+      put: async (url: string, response: Response) => {
+        await new Promise(resolve => setTimeout(resolve, 20))
+        stored.set(url, response)
+      },
+      keys: async () => {
+        await new Promise(resolve => setTimeout(resolve, 30))
+        return [...stored.keys()].map(url => new Request(url))
+      },
+      delete: async (request: Request) => stored.delete(request.url),
+    }) })
+    const versions = ["a", "b"].map(name => ({ data: new Uint8Array(randomBytes(1000)), name }))
+    const packed = new Map(versions.map(version => [`https://docs.test/${version.name}.0.bin`, packSnapshot(version.data)[0]!]))
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(packed.get(url))))
+    const loaded = await Promise.all(versions.map(version => fetchSnapshot([`https://docs.test/${version.name}.0.bin`], { cache: "app" })))
+    expect(loaded).toEqual(versions.map(version => version.data))
+    expect(stored.size).toBe(1)
+  })
+
   it("rejects when a part is missing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })))
     await expect(fetchSnapshot(["/parts/0"])).rejects.toThrow("Snapshot part /parts/0 returned 404.")
