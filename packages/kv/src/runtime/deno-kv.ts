@@ -29,7 +29,9 @@ interface DenoKV {
   set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn: number }) => Promise<unknown>
 }
 
-type DenoKVSelector = { prefix: [] } | { prefix: [], start: ViteHubDenoKVKey } | { start: ViteHubDenoKVKey, end: ViteHubDenoKVKey }
+type DenoKVSelector = { prefix: [] } | { prefix: [], start: ViteHubDenoKVKey }
+
+const MAX_DENO_KEY_BYTES = 2_048
 
 interface DenoRuntime {
   openKv?: (path?: string) => Promise<DenoKV>
@@ -48,16 +50,21 @@ function fromDenoKey(key: DenoKVKey): string | undefined {
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
 }
 
-function keysWithPrefix(prefix: string): DenoKVSelector {
-  if (!prefix) return { prefix: [] }
-  const codePoints = Array.from(prefix, character => character.codePointAt(0) ?? 0)
-  for (let index = codePoints.length - 1; index >= 0; index--) {
-    const last = codePoints[index]
-    if (last === undefined || (last >= 0xD800 && last <= 0xDFFF)) break
-    if (last === 0x10FFFF) continue
-    return { start: [prefix], end: [String.fromCodePoint(...codePoints.slice(0, index), last === 0xD7FF ? 0xE000 : last + 1)] }
+function canMatchStoredKey(prefix: string): boolean {
+  const nulBytes = prefix.split("\0").length - 1
+  return 2 + new TextEncoder().encode(prefix).length + nulBytes <= MAX_DENO_KEY_BYTES
+}
+
+function sortsAfterPrefix(key: DenoKVKey, prefix: string): boolean {
+  const [part] = key
+  if (typeof part !== "string") return !(part instanceof Uint8Array)
+  if (part.startsWith(prefix)) return false
+  const prefixCodePoints = prefix[Symbol.iterator]()
+  for (const character of part) {
+    const prefixCharacter = prefixCodePoints.next().value
+    if (prefixCharacter === undefined || character !== prefixCharacter) return (character.codePointAt(0) ?? 0) > (prefixCharacter?.codePointAt(0) ?? -1)
   }
-  return { prefix: [], start: [prefix] }
+  return false
 }
 
 function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
@@ -94,7 +101,10 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    for await (const entry of kv.list(keysWithPrefix(base))) {
+    if (!canMatchStoredKey(base)) return keys
+
+    for await (const entry of kv.list(base ? { prefix: [], start: [base] } : { prefix: [] })) {
+      if (sortsAfterPrefix(entry.key, base)) break
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
     }
@@ -139,13 +149,23 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
-        const iterator = (await open()).list(keysWithPrefix(prefix), { cursor: continuation.providerCursor, limit })
         const keys: string[] = []
+        if (!canMatchStoredKey(prefix)) {
+          cursorHistories.complete(cursor)
+          return { keys }
+        }
+        const selector: DenoKVSelector = prefix && !continuation.providerCursor ? { prefix: [], start: [prefix] } : { prefix: [] }
+        const iterator = (await open()).list(selector, { cursor: continuation.providerCursor, limit })
+        let pastPrefix = false
         for await (const entry of iterator) {
+          if (sortsAfterPrefix(entry.key, prefix)) {
+            pastPrefix = true
+            break
+          }
           const key = fromDenoKey(entry.key)
           if (key?.startsWith(prefix)) keys.push(key)
         }
-        if (!iterator.cursor) {
+        if (pastPrefix || !iterator.cursor) {
           cursorHistories.complete(cursor)
           return { keys }
         }
