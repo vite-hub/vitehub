@@ -83,7 +83,7 @@ export default defineEventHandler(async () => {
 - You can create the reader at module scope. Read from it in a handler or plugin callback. The first read looks up the name and loads the file. It rejects with `SOURCE_NOT_FOUND` if the name is not registered.
 - The generated `.vitehub` types map each name to the type of its Source. A name without a file is a type error.
 - `server/sources/team/handbook.ts` is the Source `team/handbook`.
-- In Nuxt, `useSource` is auto-imported in server code.
+- In Nuxt with `experimental.nitroAutoImports` on, `useSource` is auto-imported in server code.
 - `useSource()` also takes a Source value, such as `useSource(github({ repo: 'acme/handbook' }))`, for a Source that has no file.
 - `RegisteredSource<'handbook'>` gives the Source type of a name.
 

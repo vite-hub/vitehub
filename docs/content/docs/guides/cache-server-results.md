@@ -97,9 +97,10 @@ export default defineHandler(async (event) => {
   tag record was evicted can come back until its `maxAge` ends.
 - Without the `cache` option, Nitro keeps the cache in memory, and the tag
   records too. Each server instance then has its own tags.
-- In Nuxt, `invalidateTag()` is auto-imported when `cache` is on. Nitro's
-  `defineCachedFunction()` and `defineCachedHandler()` stay auto-imported and
-  have no `tags`, so import the ViteHub ones from `vite-hub/cache`.
+- In Nuxt with `experimental.nitroAutoImports` on, `invalidateTag()` is
+  auto-imported when `cache` is on. Nitro's `defineCachedFunction()` and
+  `defineCachedHandler()` keep their own auto-imports and have no `tags`, so
+  import the ViteHub ones from `vite-hub/cache`.
 
 ## Serve the stored value when a call fails
 
