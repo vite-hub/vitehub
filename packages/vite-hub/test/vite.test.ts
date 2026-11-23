@@ -796,7 +796,6 @@ describe("vitehub", () => {
       "vite-hub/workspace-shell",
       "vite-hub/unavailable-services",
       "vite-hub/cloudflare-sh-syntax",
-      "vite-hub/cloudflare-pkce-challenge",
       "vite-hub/cloudflare-redirects-file",
       "vite-hub/dependencies",
       "vite-hub/error-log",
