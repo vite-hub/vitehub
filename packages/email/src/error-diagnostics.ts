@@ -80,6 +80,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ name }: { name: string }) => `Two Email templates have the name ${JSON.stringify(name)}.`,
       fix: "Rename or remove one of the two Markdown files under `server/emails`.",
     },
+    EMAIL_DRIVER_MODULE_NOT_FOUND: {
+      why: ({ driver, file }: { driver: string, file: string }) => `\`email.driver\` is ${JSON.stringify(driver)}, but ${file} does not exist.`,
+      fix: "Create the driver module, or fix the path. The path is relative to the project root, for example `email: { driver: './server/email-driver.ts' }`, and the module default-exports a function that returns an `EmailDriver`.",
+    },
     EMAIL_HOST_UNSUPPORTED: {
       why: "The \"cloudflare\" driver needs a Cloudflare host.",
       fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
@@ -115,10 +119,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     EMAIL_UNKNOWN_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
         ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
-        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", or "log".`,
+        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", "log", or the path of a driver module that starts with "./" or "../".`,
       fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
         ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
-        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
+        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing. For another provider, write a driver module and set `email: { driver: './server/email-driver.ts' }`.",
     },
 
     // Tool errors.

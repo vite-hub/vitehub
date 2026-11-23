@@ -94,7 +94,11 @@ The Vite plugin throws these while it reads the config or templates.
 
 ### EMAIL_UNKNOWN_DRIVER
 
-Set `driver` to `"resend"`, `"cloudflare"`, or `"log"`. The former `"cloudflare-email"` is now `"cloudflare"`; `npx @vite-hub/codemods driver-key` renames it.
+Set `driver` to `"resend"`, `"cloudflare"`, `"log"`, or the path of a [driver module](/docs/email/configure#configure-another-provider) that starts with `./` or `../`. The former `"cloudflare-email"` is now `"cloudflare"`; `npx @vite-hub/codemods driver-key` renames it.
+
+### EMAIL_DRIVER_MODULE_NOT_FOUND
+
+`driver` is the path of a driver module, but no file is at that path. The path is relative to the project root. Create the module, or fix the path. A path without an extension also finds a `.ts`, `.mts`, `.js`, or `.mjs` file.
 
 ### EMAIL_HOST_UNSUPPORTED
 
