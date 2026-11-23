@@ -191,7 +191,7 @@ export function rewriteDatabaseReferences(file: SourceFile, plan: DatabasePlan, 
     else if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "require") source = node.arguments[0]
     else if (node.type === "TSExternalModuleReference") source = node.expression
     else if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && node.callee.property.type === "Identifier" && moduleCalls.has(node.callee.property.name)) source = node.arguments[0]
-    else if (node.type === "TSImportType") source = node.argument
+    else if (node.type === "TSImportType") source = node.source
     if (source && typeof source === "object" && "type" in source && source.type === "StringLiteral" && "value" in source && typeof source.value === "string") {
       sources.add(source)
       replace(source as { value: string }, !required)
