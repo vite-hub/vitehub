@@ -1,0 +1,42 @@
+import { resolvePublicUrl } from "@vite-hub/runtime"
+import { useDatabase } from "vite-hub/database"
+
+import { databaseConsoleMcpRecords } from "../../../../src/mcp-client-records.ts"
+import { answerConsoleMcpCall, consoleMcpMaxRequestBytes, consoleMcpReplyStatus } from "../../../../src/mcp-client-rpc.ts"
+import { consoleMcpCallbackPath } from "../../../../src/mcp-client-types.ts"
+import { consoleSecretProblem, consoleSecretVariable } from "../../../../src/token-box.ts"
+import { allowPrivateProjects, consoleDiagnosticProblem, consoleProblem, consoleTeamRoute, projectIdOf, projectNotFound, spendForwardBudget } from "../../../utils/console.ts"
+
+export default consoleTeamRoute(async (request, caller) => {
+  if (request.method !== "POST") return new Response(null, { headers: { allow: "POST" }, status: 405 })
+  if (request.headers.get("x-vitehub-console") !== "1" || !request.headers.get("content-type")?.startsWith("application/json")) {
+    return consoleProblem(403, "CONSOLE_ACCESS_DENIED", "Send MCP client calls from the Console page, as JSON with the x-vitehub-console header.")
+  }
+  if ("key" in caller) return consoleProblem(403, "CONSOLE_ACCESS_DENIED", "MCP connections of the Console belong to the person who signed in to the Console page. API keys cannot use them.")
+  const secret = process.env[consoleSecretVariable]
+  const problem = consoleSecretProblem(secret)
+  if (problem || !secret) return consoleProblem(500, "CONSOLE_SECRET_NOT_CONFIGURED", problem ?? "")
+  const id = projectIdOf(request, "/p/")
+  const project = await caller.projects.get(id)
+  if (!project) return projectNotFound()
+  const spent = await spendForwardBudget(caller, id)
+  if (spent) return consoleDiagnosticProblem(429, spent.diagnostic, { "retry-after": String(spent.retryAfter) })
+  const text = await request.text()
+  if (new TextEncoder().encode(text).byteLength > consoleMcpMaxRequestBytes) return consoleProblem(413, "CONSOLE_REQUEST_INVALID", "The call is too large. Send tool arguments under 256 KiB.")
+  let body: unknown
+  try {
+    body = JSON.parse(text)
+  }
+  catch {
+    return consoleProblem(400, "CONSOLE_REQUEST_INVALID", "The request body is not JSON.")
+  }
+  const reply = await answerConsoleMcpCall(body, {
+    allowPrivate: allowPrivateProjects(),
+    appOrigin: new URL(project.url).origin,
+    projectId: project.id,
+    records: databaseConsoleMcpRecords(useDatabase("default").db, secret),
+    redirectUrl: `${resolvePublicUrl({ request }) ?? new URL(request.url).origin}${consoleMcpCallbackPath}`,
+    userId: caller.user.id,
+  })
+  return Response.json(reply, { headers: { "cache-control": "no-store" }, status: consoleMcpReplyStatus(reply) })
+})
