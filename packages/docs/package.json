@@ -117,6 +117,7 @@
     "linkedom": "^0.18.13",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",

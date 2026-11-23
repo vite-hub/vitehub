@@ -70,14 +70,14 @@ const step = ref(0);
 
 ### Issues
 
-`WorkspaceIssues` lists the issues of the last render, each with its line when it has one. `PlaygroundRender` shows its issues with it. Without issues it hides, or shows the `empty` text.
+`WorkspaceIssues` lists the issues of the last render, each with its line when it has one. An issue with a `file` shows `file:line` as a button that emits `show` with the path, and `Workspace` opens that file. The Issues tab of `render()` shows it. Without issues it hides, or shows the `empty` text.
 
 ::example{name="WorkspaceIssuesExample" height=12}
 ::
 
 ## Accessibility
 
-The guide is an `article`, and its title is an `h2`. A new step starts at the top of the text. Back and Next are in a `nav` named "Step navigation", and Back names the step it goes to. The steps menu is a `nav` named "Steps": its button names the current step, and Previous and Next are off at the first and last step. A file link is a button whose title holds the full path. The task box has the `note` role. The issues list is named "Issues" and is a polite live region, so screen readers hear each new list.
+The guide is an `article`, and its title is an `h2`. A new step starts at the top of the text. Back and Next are in a `nav` named "Step navigation", and Back names the step it goes to. The steps menu is a `nav` named "Steps": its button names the current step, and Previous and Next are off at the first and last step. A file link is a button whose title holds the full path. The task box has the `note` role. The issues list is named "Issues" and is a polite live region, so screen readers hear each new list. The file of an issue is a button whose title names the file.
 
 ## API Reference
 
@@ -162,10 +162,16 @@ The guide is an `article`, and its title is an `h2`. A new step starts at the to
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `issues` | `WorkspaceIssue[]` | Required | The issues, each `{ message, line? }`. |
+| `issues` | `WorkspaceIssue[]` | Required | The issues, each `{ message, file?, line? }`. |
 | `empty` | `string` | | The text to show when there are no issues. Without it, the list hides. |
+
+#### Events
+
+| Event | Payload | Description |
+| --- | --- | --- |
+| `show` | `string` | The reader clicked the file of an issue. The payload is its path. |
 
 ## Related
 
-- [Playground render](/docs/ui/playground-render)
+- [Workspace](/docs/ui/workspace)
 - [File tree](/docs/ui/file-tree)

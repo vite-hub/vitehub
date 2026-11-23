@@ -49,7 +49,7 @@ function isExported(node) {
 const noComments = defineRule({
   meta: {
     messages: {
-      banned: "Delete this comment. Name the code so it needs none, record a decision in adr/, or file an issue for a workaround. See .agents/skills/delete-comment/SKILL.md.",
+      banned: "Delete this comment. Name the code so it needs none, or file an issue for a workaround. See .agents/skills/delete-comment/SKILL.md.",
       ratchet: "This file has {{count}} comments, and scripts/lint/comment-baseline allows {{allowed}}. Delete comments until it fits. See .agents/skills/delete-comment/SKILL.md.",
     },
   },

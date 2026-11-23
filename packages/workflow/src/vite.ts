@@ -13,6 +13,7 @@ import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProv
 import { collectViteHubProviderImportAliases, createNoExternalAddition, createProviderOutputEnvironmentOwner, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { errorCode } from "@vite-hub/internal/runtime/request-log"
 
 import { normalizeWorkflowOptions } from "./config.ts"
 import { workflowDeploymentEnv } from "./deployment-env.ts"
@@ -321,13 +322,27 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
 
+  let reportedDevWorkflowError: string | undefined
+
   function resolveDevWorkflow(): ResolvedWorkflowOptions | undefined {
     try {
-      return resolveWorkflow(workflow)
+      const resolved = resolveWorkflow(workflow)
+      reportedDevWorkflowError = undefined
+      return resolved
     }
-    catch {
+    catch (error) {
+      if (!startupBuild) reportDevWorkflowError(error)
       return undefined
     }
+  }
+
+  function reportDevWorkflowError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+    const code = errorCode(error)
+    const report = code ? `${code}: ${message}` : message
+    if (report === reportedDevWorkflowError) return
+    reportedDevWorkflowError = report
+    console.warn(`[vitehub:workflow] ${report} The dev server runs without Workflows until you fix the Workflow configuration.`)
   }
 
   let configPlugins: unknown

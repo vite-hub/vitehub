@@ -55,7 +55,7 @@ Use the web platform before JavaScript, and JavaScript before a dependency. A na
 
 ## Comments
 
-Write no comments. Name the code so it needs none. Record a non-obvious decision in the area's log in [adr/](adr/README.md), and file an issue for a workaround. The `vitehub/no-comments` lint rule (`scripts/lint/comments.mjs`) keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. Existing comments are allowed up to the per-file count in `scripts/lint/comment-baseline/`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
+Write no comments. Name the code so it needs none, and file an issue for a workaround. The `vitehub/no-comments` lint rule (`scripts/lint/comments.mjs`) keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. Existing comments are allowed up to the per-file count in `scripts/lint/comment-baseline/`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
 
 ## Diagnostic codes
 

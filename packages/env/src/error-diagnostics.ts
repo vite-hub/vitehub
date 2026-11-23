@@ -13,7 +13,7 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_R0002: withFix("Pass one or more variable names, for example `env.source('DATABASE_URL')`."),
     ENV_R0003: withFix("Use a key of `vitehub({ env: { providers } })` or `hubEnv({ providers })` as the provider name, for example `env.provider('vault', 'db/password')`."),
     ENV_R0004: withFix("Pass the key that the provider reads as the second argument, for example `env.provider('vault', 'db/password')`."),
-    ENV_R0005: withFix("Pass one plain options object, for example `env({ secret: true })`."),
+    ENV_R0005: withFix("Pass one plain options object with only `default`, `mode`, `optional`, `schema`, `secret`, `source`, or `type`, for example `env({ secret: true })`."),
     ENV_R0006: withFix("Remove `required`: a value is required by default. Set `optional: true` for a value that can be missing, or a `default` for a fallback value, not both."),
     ENV_R0008: withFix("Change the Env declaration at the path in the error details, as the message says."),
     ENV_R0009: withFix("Load Server Env with `await loadServerEnv()`, or run the code in `runWithServerEnv()`. A provider value cannot be read without `await`."),

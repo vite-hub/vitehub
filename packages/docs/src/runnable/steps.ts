@@ -1,7 +1,14 @@
 // Shared by the build and the browser, so this file imports nothing from Node.
+import type { WorkspaceRenderContext, WorkspaceRenderResult } from "@vite-hub/ui/workspace"
+import type { Component } from "vue"
+
+import type { DocsConnectProvider } from "../schema.ts"
 
 /** Text files of an app, keyed by a relative path such as `server/api/greet.post.ts`. */
 export type TutorialFiles = Record<string, string>
+
+/** Binary files of an app, such as model weights, keyed by a relative path. */
+export type TutorialAssets = Record<string, Uint8Array>
 
 export interface RunnableTutorialStep {
   /** The `::tutorial-step` title. */
@@ -28,17 +35,66 @@ export interface RunnableTutorialData {
 export interface PlaygroundTemplate {
   id: string
   label: string
-  description: string
+  description?: string
+  /** The heading of the example in the examples menu. */
+  group?: string
   /** The file that the editor opens first. */
-  open: string
+  open?: string
   /** The path that the preview opens when the dev server is ready. */
-  preview: string
+  preview?: string
+  /** The paths of `files` that the editor does not let the reader change. */
+  readonly?: string[]
   files: TutorialFiles
+  /**
+   * The files that are not valid UTF-8, such as model weights. The page module of a `playground` page carries them.
+   * `#build/playground-templates.mjs` leaves them out.
+   */
+  assets?: TutorialAssets
   /** The slug of the snapshot that this template mounts. Templates with the same dependencies share one. */
   snapshotOf: string
   /** The parts of that snapshot and their SHA-256, for `fetchSnapshot()`. Without it, the workspace runs `npm install`. */
   snapshot?: RunnableTutorialData["snapshot"]
 }
+
+/** An example of a `playground` page. Examples with the same `snapshotOf` mount one snapshot. A `render` page has none. */
+export type DocsPlaygroundExampleData = Omit<PlaygroundTemplate, "snapshotOf"> & { snapshotOf?: string }
+
+/** What the page module of a `playground` page holds, besides its loaders. */
+export interface DocsPlaygroundData {
+  layout: "playground"
+  examples: DocsPlaygroundExampleData[]
+  /** Without `render`: the port of the dev server. */
+  port: number
+  /** Without `render`: the accounts that the reader can connect. */
+  connect?: DocsConnectProvider[]
+}
+
+/** What the page module of a `learn` page holds. */
+export interface DocsLearnData {
+  layout: "learn"
+  tutorial: RunnableTutorialData
+  guide: "top" | "side"
+  port: number
+  preview?: string
+}
+
+/**
+ * The default export of the `render` module of a `layout: playground` page. It gets the text files, and the open
+ * example with its binary files in `example.assets`.
+ */
+export type DocsRenderFunction = (files: TutorialFiles, context: WorkspaceRenderContext) => WorkspaceRenderResult | Promise<WorkspaceRenderResult>
+
+/** An output tab of a `layout: playground` page, with the component that draws it. */
+export interface DocsWorkspaceTab {
+  value: string
+  label: string
+  component: () => Promise<{ default: Component }>
+}
+
+/** The workspace of a `playground` or `learn` page, as `#build/docs/workspaces.mjs` loads it by page path. */
+export type DocsWorkspaceData =
+  | (DocsPlaygroundData & { render?: () => Promise<{ default: DocsRenderFunction }>, tabs?: DocsWorkspaceTab[] })
+  | DocsLearnData
 
 /** The files at the start of step `index` (from 0), or at its end with `solution`. Each step builds on the one before. */
 export function tutorialStepFiles(tutorial: Pick<RunnableTutorialData, "files" | "steps">, index: number, state: "start" | "solution"): TutorialFiles {

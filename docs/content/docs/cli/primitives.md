@@ -563,7 +563,7 @@ pnpm vitehub schedule cancel sched_mh1x2y3z_ab12cd34 --yes
 
 Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. `runs` takes `--limit <n>`. Errors go to stderr, or to the JSON body with `--json`. `schedule.runs` and `schedule.attempts` are `read` operations of the Schedules section.
 
-The output redacts URLs with credentials, bearer tokens, and secret assignments in error messages. When the store cannot list the full history, the command fails with `SCHEDULE_HISTORY_INCOMPLETE` (`503`). An unknown run id fails with `SCHEDULE_RUN_NOT_FOUND` (`404`).
+The output redacts URLs with credentials, bearer tokens, and secret assignments in error messages. An unknown run id fails with `SCHEDULE_RUN_NOT_FOUND` (`404`).
 
 ## Run Workflows in development
 

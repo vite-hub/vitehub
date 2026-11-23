@@ -4,6 +4,7 @@ import { securityHeadersNitroModule, type ResolvedSecurity } from "./security-vi
 
 import type { Plugin } from "vite"
 import type { RequestPolicyOptions } from "./_internal/runtime/request-policy.ts"
+import type { ViteHubHost } from "./deployment.ts"
 
 /** `sameOriginWrites` options of `vitehub()`. */
 export interface SameOriginWritesOptions {
@@ -42,10 +43,11 @@ function renderInstallSecurity({ headers, devHeaders, maxBodySize }: ResolvedSec
  * Install the policy synchronously before other Nitro plugins can defer initialization. Server entries capture
  * `nitroApp.fetch` immediately, so installing after an async plugin would leave that captured entry unprotected.
  */
-export function requestPolicyVitePlugin(options: { trustProxy?: boolean, sameOriginWrites?: boolean | SameOriginWritesOptions }, security: ResolvedSecurity | undefined): Plugin {
+export function requestPolicyVitePlugin(host: ViteHubHost, options: { trustProxy?: boolean, sameOriginWrites?: boolean | SameOriginWritesOptions }, security: ResolvedSecurity | undefined): Plugin {
   const sameOriginWrites = options.sameOriginWrites
   const policy: RequestPolicyOptions = {
     trustProxy: options.trustProxy === true,
+    trustProxyAddress: options.trustProxy === true && host === "node",
     sameOriginWrites: sameOriginWrites ? { exclude: sameOriginWrites === true ? [] : sameOriginWrites.exclude ?? [] } : false,
   }
   const headers = security?.headers ?? []

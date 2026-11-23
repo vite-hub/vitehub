@@ -10,6 +10,10 @@ People comment on your site. 30 minutes after the last comment, T3 Code starts a
 
 You need [Comments](/docs/comments/with-vite-hub) in a ViteHub app, with `queue` and `database` on, as in [Get started](/docs/webhooks/get-started#install-webhooks).
 
+::tip
+This page sends every comment of the site to one T3 task that you set up. For each person to hand the comments of a page to their own T3 thread, with one click in the comment pill, use [Send](/docs/comments/send): `defineComments({ send: true })`, and no webhook file.
+::
+
 ## Define the webhook
 
 ```ts [server/webhooks/t3.ts]
@@ -50,15 +54,16 @@ A failed send never fails the comment. Comments logs a thrown error, and the cod
 
 ## Create the T3 task
 
-In T3 Code, create a scheduled task that runs on a webhook. These are its fields:
+In T3 Code, create a scheduled task that runs on a webhook, such as with the `schedule_task` tool. These are its fields:
 
 ```json [t3-task.json]
 {
   "title": "Site comments",
   "prompt": "A reader commented on the site.\n\nThread: {{body.thread}}\nComment: {{body.message}}\n\nRead the page, then answer or fix what the comment asks.",
-  "threadMode": "new_thread",
+  "bindToCurrentThread": false,
   "schedule": {
     "type": "webhook",
+    "dedupe": { "replayKey": "{{headers.x-vitehub-delivery}}" },
     "signature": {
       "header": "x-hub-signature-256",
       "encoding": "hex",
@@ -69,7 +74,8 @@ In T3 Code, create a scheduled task that runs on a webhook. These are its fields
 }
 ```
 
-- `threadMode: "new_thread"` starts a new thread for each run.
+- `bindToCurrentThread: false` starts a new thread for each run.
+- The replay key is the delivery id. When the Queue tries a delivery again, T3 runs it once.
 - `{{body.thread}}` and `{{body.message}}` read the JSON body of the delivery. T3 writes an object as JSON.
 - The signature fields match what ViteHub sends: HMAC-SHA256 of the raw body, hex, after `sha256=`.
 

@@ -106,7 +106,9 @@ links that your code builds from the request start with `http://`.
 
 Set `trustProxy: true` to read the first `X-Forwarded-Proto` value. When it is
 `https`, the request URL becomes `https://` before any middleware or route
-runs. Set `sameOriginWrites: true` to refuse browser writes with cookies that
+runs. The client address also becomes the last `X-Forwarded-For` value, which
+the proxy adds. Auth's rate limiter, `session.ipAddress`, and Rate Limit read
+it. Set `sameOriginWrites: true` to refuse browser writes with cookies that
 come from another origin.
 
 ::tabs{sync="framework"}
@@ -162,7 +164,13 @@ export default defineConfig({
 
 - `trustProxy` never reads `X-Forwarded-Host`. The proxy must send the
   client's `Host` header to Node. Caddy does this by default. In nginx, set
-  `proxy_set_header Host $host;` and `proxy_set_header X-Forwarded-Proto $scheme;`.
+  these directives so the proxy sets the protocol and appends the client address:
+
+  ```nginx
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  ```
 - `sameOriginWrites` answers `403` to a request that is not `GET`, `HEAD`, or
   `OPTIONS`, has a `Cookie` header, and has `Sec-Fetch-Site: same-site` or
   `cross-site`, or an `Origin` that is not the app's origin. A sibling
@@ -174,14 +182,19 @@ export default defineConfig({
   prefix matches the path and the paths below it.
 
 ::warning
-Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`.
-Without a proxy, a client can send the header and make the server build
-`https://` URLs for a plain HTTP request.
+Turn on `trustProxy` only when a proxy that you run sets `X-Forwarded-Proto`
+and overwrites `X-Forwarded-For` or appends its peer address. Keep Node reachable
+only through that proxy. If clients can supply either trusted value, they can
+make the server build `https://` URLs for plain HTTP requests or spoof the
+address used by Auth and Rate Limit to bypass IP-based rate limits and set
+`session.ipAddress`. If you already use `trustProxy`, check both headers in
+your proxy configuration before upgrading.
 ::
 
-Both options work on every host. On Cloudflare, Vercel, Netlify, and Deno
-Deploy, the request URL is already `https://`, so `trustProxy` changes nothing
-there.
+Only the Node host reads `X-Forwarded-For` through `trustProxy`. Cloudflare,
+Vercel, and Netlify keep the address that their Nitro preset reports. Deno
+Deploy keeps the peer address, which can be the edge server instead of the
+client. The request URL on these hosts is already `https://`.
 
 ## Check health
 
@@ -443,9 +456,9 @@ uses it for per-client rate limiting and `session.ipAddress`.
 
 A plain Web `Request` has no peer address. Without the host context, those
 requests share one rate-limit bucket. Requests from srvx already carry the
-host address as `ip`. Behind a trusted proxy, configure
-[`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
-Do not import a generated Nitro route.
+host address as `ip`. Behind a proxy you run, pass the last
+`X-Forwarded-For` value, which the proxy adds, as `clientAddress`. Values
+before it come from the client. Do not import a generated Nitro route.
 
 ## Durability and instances
 

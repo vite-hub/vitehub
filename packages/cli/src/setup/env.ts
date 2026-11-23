@@ -664,7 +664,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
     })
   }
   if (stored.length && !hostEnv && host !== "cloudflare") {
-    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: stored.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: `vitehub link --host ${host} --create` })
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_NOT_LINKED({ host, names: stored.map(item => item.name).join(", ") }), setupExitCodes.inputNeeded, { rerun: host === "deno" ? "vitehub link --host deno" : `vitehub link --host ${host} --create` })
   }
   await assertUntracked(stored, options.root, options.run, context.env, context.stderr)
   const planned = await decryptPlanned(stored, options.root, context.env, options.secrets)

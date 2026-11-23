@@ -3,7 +3,6 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import { defineComponent, h, type PropType, ref } from "vue";
-import { PlaygroundRender } from "../src/index.ts";
 import {
   provideWorkspaceFileOpener,
   WorkspaceFileLink,
@@ -187,10 +186,16 @@ describe("WorkspaceIssues", () => {
     expect(wrapper.text()).toBe("No issues.");
   });
 
-  it("is the issues list of PlaygroundRender", () => {
-    const wrapper = mount(PlaygroundRender, {
-      props: { panes: [{ file: "a.md", label: "A" }], presets: [{ files: { "a.md": "" }, id: "a", label: "A" }], render: async () => ({ html: "" }) },
-    });
-    expect(wrapper.findComponent(WorkspaceIssues).classes()).toEqual(["vh-ws-issues", "vh-pg-issues"]);
+  it("shows file:line as a button that emits show with the path", async () => {
+    const wrapper = mount(WorkspaceIssues, { props: { issues: [
+      { file: "index.html", line: 1, message: "No h1." },
+      { file: "app.vue", message: "Unused import." },
+      { line: 2, message: "Missing comma." },
+    ] } });
+    expect(wrapper.findAll("li").map(item => item.text())).toEqual(["index.html:1No h1.", "app.vueUnused import.", "Line 2Missing comma."]);
+    const buttons = wrapper.findAll("button.vh-ws-issue-file");
+    expect(buttons.map(button => button.attributes("title"))).toEqual(["Open index.html", "Open app.vue"]);
+    await buttons[1]!.trigger("click");
+    expect(wrapper.emitted("show")).toEqual([["app.vue"]]);
   });
 });

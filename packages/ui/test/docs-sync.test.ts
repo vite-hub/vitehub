@@ -21,7 +21,6 @@ const pages: Record<string, string> = {
   FileDiff: "diff",
   FileTree: "file-tree",
   DeviceFrame: "device-frame",
-  PlaygroundRender: "playground-render",
   Markdown: "markdown",
   MessageParts: "message-parts",
   MultiFileDiff: "diff",
@@ -72,6 +71,7 @@ const pages: Record<string, string> = {
   CommentPin: "comments",
   CommentReply: "comments",
   CommentSelectionBar: "comments",
+  CommentSend: "comments",
   CommentThread: "comments",
   CommentToolbar: "comments",
   Marker: "marker",
@@ -123,6 +123,7 @@ const workspacePages: Record<string, string> = {
   WorkspaceSidebar: "workspace-bar",
   WorkspaceStart: "workspace-bar",
   WorkspaceStatus: "workspace-code",
+  Workspace: "workspace",
 };
 Object.assign(pages, workspacePages);
 

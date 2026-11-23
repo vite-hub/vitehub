@@ -610,6 +610,29 @@ describe("the browser with a Workspace", () => {
       vi.unstubAllGlobals()
     }
   })
+  it.each<[string, () => Promise<Response>, string]>([
+    ["a network failure", async () => { throw new TypeError("Failed to fetch") }, "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["an error status", async () => new Response("Service Unavailable", { status: 503 }), "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["a body that is not JSON", async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }), "I18N_LIVE_CATALOG_INVALID"],
+  ])("keeps the build catalog and warns for %s", async (_name, answer, code) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", answer)
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code }))
+    }
+    finally {
+      warn.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe("missing translations for Agents", () => {

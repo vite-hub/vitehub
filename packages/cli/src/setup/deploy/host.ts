@@ -299,7 +299,10 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
         options.signal?.addEventListener("abort", abort, { once: true })
         if (options.timeoutMs) timeout = setTimeout(stop, options.timeoutMs)
         if (options.signal?.aborted) abort()
-        child.stdin?.on("error", () => {})
+        child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+          const exitedBeforeReading = error.code === "EPIPE" || (stopping && error.code === "ERR_STREAM_DESTROYED")
+          if (!exitedBeforeReading) failure ??= error
+        })
         child.stdin?.end(options.stdin ?? "")
       })
     }

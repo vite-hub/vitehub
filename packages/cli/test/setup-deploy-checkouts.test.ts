@@ -6,7 +6,7 @@ import process from "node:process"
 import { describe, expect, it, vi } from "vitest"
 
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
-import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 import { isolateProjectPackages, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"

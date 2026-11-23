@@ -1,5 +1,5 @@
 {
-  "packages/env/src/cli.ts": 3,
+  "packages/env/src/cli.ts": 2,
   "packages/env/src/operations.ts": 1,
   "packages/env/src/vite.ts": 1
 }

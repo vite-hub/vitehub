@@ -59,7 +59,7 @@ Keep one owner responsible for integration and completion. Record commands and i
 
 ## Verify the changed behavior
 
-Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) and [`test/tasks.ts`](test/tasks.ts) define root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
+Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) defines root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
 
 Start with the affected package's full `test` script so every package-owned test invocation runs, including suites with a separate configuration:
 

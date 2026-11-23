@@ -18,40 +18,32 @@ const anyRoot = `:where(${root})`;
 const groupingAtRules = new Set(["container", "layer", "media", "starting-style", "supports"]);
 const globalAtRules = new Set(["-webkit-keyframes", "font-face", "keyframes", "property"]);
 
-export interface SelectorPart {
-  type: string;
-  value: string;
-  attribute?: string;
-  nodes?: SelectorPart[];
-  toString(): string;
-}
-
-export function parseSelectors(selectors: string): SelectorPart[] {
-  return selectorParser().astSync(selectors).nodes as unknown as SelectorPart[];
+export function parseSelectors(selectors: string): selectorParser.Selector[] {
+  return selectorParser().astSync(selectors).nodes;
 }
 
 const rootTags = new Set(["body", "html"]);
 const rootPseudos = new Set([":host", ":root"]);
 
-function isPageRoot(node: SelectorPart): boolean {
+function isPageRoot(node: selectorParser.Node): boolean {
   if (node.type === "tag") return rootTags.has(node.value.toLowerCase());
   if (node.type !== "pseudo") return false;
-  const selectors = node.nodes ?? [];
+  const selectors = node.nodes;
   if (rootPseudos.has(node.value) && selectors.length === 0) return true;
   return (
     (node.value === ":where" || node.value === ":is") &&
     selectors.length > 0 &&
-    selectors.every((selector) => selector.nodes?.length === 1 && isPageRoot(selector.nodes[0]!))
+    selectors.every((selector) => selector.nodes.length === 1 && isPageRoot(selector.nodes[0]!))
   );
 }
 
-function isThemeMarker(node: SelectorPart): boolean {
+function isThemeMarker(node: selectorParser.Node): boolean {
   if (node.type === "class") return node.value === "dark" || node.value === "light";
   return node.type === "attribute" && node.attribute === "data-theme";
 }
 
-function scopeSelector(selector: SelectorPart, where: string): string[] {
-  const nodes = selector.nodes ?? [];
+function scopeSelector(selector: selectorParser.Selector, where: string): string[] {
+  const nodes = selector.nodes;
   const combinator = nodes.findIndex((node) => node.type === "combinator");
   const first = combinator === -1 ? nodes : nodes.slice(0, combinator);
   const rest = combinator === -1 ? "" : nodes.slice(combinator).join("").trimEnd();

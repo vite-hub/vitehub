@@ -190,12 +190,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
       const [run] = await options.scheduleRunStore.listRuns({ scheduleId, idPrefix: "srun_static_", limit: 1 })
-      if (!run || run.id.startsWith("srun_static_")) return run?.scheduledAt
-      const limit = 100
-      const recent = await options.scheduleRunStore.listRuns({ scheduleId, limit })
-      const latest = recent.find(record => record.id.startsWith("srun_static_"))
-      if (latest) return latest.scheduledAt
-      return recent.length < limit ? undefined : "unknown"
+      return run?.scheduledAt
     },
     reportError,
     retries() {
@@ -267,7 +262,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         if (due === 0) continue
         const runs = await options.scheduleRunStore.listRuns({ idPrefix: "srun_static_", limit: due, scheduleId: entry.name })
         for (const run of runs) {
-          if (run.scheduledAt.getTime() < since || !run.id.startsWith("srun_static_")) continue
+          if (run.scheduledAt.getTime() < since) continue
           if (run.status !== "pending" && run.status !== "running") continue
           held.set(run.id, { scheduleId: entry.name, scheduledAt: run.scheduledAt })
         }

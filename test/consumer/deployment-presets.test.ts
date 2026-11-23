@@ -360,11 +360,12 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const remote = await mkdtemp(join(tmpdir(), "vitehub-deno-native-remote-"))
   const bin = join(root, "bin")
   const invocationsFile = join(root, "invocations.jsonl")
-  let nitro: Awaited<ReturnType<typeof createNitro>> | undefined
   try {
     await mkdir(join(root, "node_modules"), { recursive: true })
     await mkdir(join(root, "server/api"), { recursive: true })
     await symlink(sharpRoot, join(root, "node_modules/sharp"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "deno-native-fixture" }), "utf8")
+    await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/api/optimize.get.ts"), `import { createRequire } from "node:module"
 import { join, relative } from "node:path"
 import { defineHandler } from "nitro/h3"
@@ -379,28 +380,25 @@ export default defineHandler(async () => {
   return [...png.subarray(0, 4)]
 })
 `, "utf8")
-    const config = await resolveConfig({
+    const builder = await createBuilder({
+      nitro: { serverDir: true },
+      plugins: [
+        vitehub({
+          host: "deno",
+          agent: false,
+          blob: false,
+          database: false,
+          env: false,
+          queue: false,
+          rateLimit: false,
+          workflow: false,
+          workspace: false,
+        }),
+        nitro(),
+      ],
       root,
-      plugins: flattenPlugins([vitehub({
-        host: "deno",
-        agent: false,
-        blob: false,
-        database: false,
-        env: false,
-        queue: false,
-        rateLimit: false,
-        workflow: false,
-        workspace: false,
-      })]).filter(plugin => plugin.name !== "vite-hub/error-log" && plugin.name !== "vite-hub/standard-context"),
-    }, "build")
-    const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro>[0] }).nitro
-    expect(nitroConfig).toBeDefined()
-
-    nitro = await createNitro({ ...nitroConfig, dev: false, rootDir: root, serverDir: "./server" })
-    await prepare(nitro)
-    await copyPublicAssets(nitro)
-    await prerender(nitro)
-    await build(nitro)
+    })
+    await builder.buildApp()
 
     const artifactRequire = createRequire(join(output, "server/index.mjs"))
     const nativeFiles = [
@@ -480,13 +478,9 @@ process.exit(result.status ?? 1)
     for (const invocation of invocations) expect(invocation).toContain("--allow-node-modules")
     for (const file of nativeFiles) expect(existsSync(join(remote, file)), file).toBe(true)
   } finally {
-    try {
-      await nitro?.close()
-    } finally {
-      await Promise.all([
-        rm(root, { force: true, recursive: true }),
-        rm(remote, { force: true, recursive: true }),
-      ])
-    }
+    await Promise.all([
+      rm(root, { force: true, recursive: true }),
+      rm(remote, { force: true, recursive: true }),
+    ])
   }
 }, 60_000)

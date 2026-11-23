@@ -449,6 +449,14 @@ Unavailable
     })).toBe("<policy>Use Acme.</policy>")
   })
 
+  it.each([
+    'A <span title="&amp;copy; &amp;#169;">note</span>.',
+    '<div title="&amp;copy; &amp;#169;">\nNote\n</div>',
+    '<img src="https://example.com/?a=1&amp;b=2">',
+  ])("preserves literal entity text in HTML attributes: %s", async (template) => {
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+  })
+
   it("rejects unsafe URLs in authored HTML tags", async () => {
     await expect(renderMarkdownTemplate("[status](<http://[::1]/>)"))
       .resolves.toBe("[status](http://%5B::1%5D/)")

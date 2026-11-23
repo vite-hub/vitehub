@@ -97,13 +97,10 @@ export function abortError(signal: AbortSignal): Error {
 /** Reject with the abort reason when `signal` aborts before `promise` settles. */
 export async function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
-  if (signal.aborted) {
-    void promise.catch(() => undefined)
-    throw abortError(signal)
-  }
   return await new Promise<T>((resolve, reject) => {
     const abort = () => reject(abortError(signal))
-    signal.addEventListener("abort", abort, { once: true })
+    if (signal.aborted) abort()
+    else signal.addEventListener("abort", abort, { once: true })
     promise.then(
       (value) => {
         signal.removeEventListener("abort", abort)
