@@ -224,6 +224,7 @@ it("adds up a D1 journal with one statement and no new table", async () => {
   try {
     const db = await worker.getD1Database("DB");
     await db.prepare(`CREATE TABLE vitehub_agent_invocations (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, agent_name TEXT, status TEXT, updated_at TEXT, record TEXT)`).run();
+    await db.prepare("CREATE INDEX vitehub_agent_invocations_status_updated_at ON vitehub_agent_invocations (status, updated_at)").run();
     const insert = (id: string, at: string, usd: string, totalTokens: number) => db
       .prepare(`INSERT INTO vitehub_agent_invocations(id,agent_name,status,updated_at,record) VALUES (?,'bot','completed',?,?)`)
       .bind(id, at, JSON.stringify({
