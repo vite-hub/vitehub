@@ -74,7 +74,7 @@ export interface DatabaseKVStoreConfig {
   driver: "database"
   /**
    * The Database that keeps the keys, in the table `vitehub_kv`. Default `"default"`. The store creates the table when
-   * it is missing. Postgres and libSQL work. D1 does not.
+   * it is missing. Postgres, libSQL, and Cloudflare D1 work.
    */
   database?: string
   /** A Database store uses the Database of the app, in `vite dev` too. */

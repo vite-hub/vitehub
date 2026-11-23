@@ -9,7 +9,7 @@ import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { consoleErrorResult, consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
-import { consoleSiteKeys, consoleSiteKV } from "./site-session.ts"
+import { consoleSiteEntries, consoleSiteKV } from "./site-session.ts"
 
 import type { AuthConsole } from "@vite-hub/auth/console-runtime"
 import type { ConsoleSiteKV } from "./site-session.ts"
@@ -102,8 +102,7 @@ function kvTicketStore(kv: ConsoleSiteKV): ConsoleRecordStore {
       return read(unwrap(await kv.getAndDelete(identifier, { type: "text" })))?.value ?? null
     },
     async list(prefix) {
-      const keys = await consoleSiteKeys(kv, prefix)
-      const rows = await Promise.all(keys.map(async identifier => ({ identifier, entry: read(unwrap(await kv.get(identifier, { type: "text" }))) })))
+      const rows = (await consoleSiteEntries(kv, prefix)).map(({ key, value }) => ({ identifier: key, entry: read(value) }))
       return rows.flatMap(({ identifier, entry }) => entry ? [{ identifier, value: entry.value, expiresAt: new Date(entry.expiresAt) }] : [])
     },
     async remove(identifier) {

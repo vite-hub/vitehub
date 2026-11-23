@@ -121,11 +121,9 @@ export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>
   request: typeof fetch,
 ) {
   async function execute(queries: SqlQuery[]): Promise<SqlResult[]> {
-    // An empty batch sends no request, as libSQL runs nothing.
     if (!queries.length) return []
     for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
-    // One HTTP request per call, so a batch is one call.
     const response = await trackDatabaseCall(() => request(config.url, {
       body: JSON.stringify(requestQueries.length === 1 ? requestQueries[0] : { batch: requestQueries }),
       headers: {
@@ -168,7 +166,6 @@ export function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>
         throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
       }
       if (query.method === "run") return result.results.rows
-      // The `/raw` endpoint returns rows as arrays, with the column names beside them for object rows.
       const columns = result.results.columns
       if (query.rowMode === "object" && !(Array.isArray(columns) && columns.every(column => typeof column === "string"))) {
         throw databaseErrorDiagnostics.DATABASE_D1_INVALID_RESPONSE()
@@ -190,6 +187,7 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
   request: typeof fetch = (...args) => fetch(...args),
 ): () => RuntimeDrizzleDatabase<TSchema, TRelations> {
   let cached: { database: RuntimeDrizzleDatabase<TSchema, TRelations>, token: string, url: string } | undefined
+  const requestWithDeadline: typeof fetch = (input, init) => request(input, { ...init, signal: AbortSignal.timeout(d1HttpRequestTimeoutMs) })
   return () => {
     const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
     if (!databaseId) {
@@ -200,7 +198,7 @@ export function createCloudflareD1HttpResolver<TSchema extends Record<string, un
     const client: D1HttpClient = {
       migrationsTable: config.cloudflare?.migrationsTable ?? defaultD1MigrationsTable,
       protocol: "d1-http",
-      query: createD1QueryAt(queryUrl, token, problem => databaseErrorDiagnostics.DATABASE_D1_MIGRATION_FAILED({ database: config.name, problem }), request),
+      query: createD1QueryAt(queryUrl, token, problem => databaseErrorDiagnostics.DATABASE_D1_MIGRATION_FAILED({ database: config.name, problem }), requestWithDeadline),
       target: migrationTarget(queryUrl),
     }
     const database = keepOwnClient(createCloudflareD1HttpDb<TSchema, TRelations>({ token, url }, relations, request), client)
