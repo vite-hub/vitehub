@@ -732,7 +732,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it.each([true, { driver: "kv" }] as const)("auto-imports KV and stores Nitro cache entries through a packed Nuxt route (cache: %j)", async (cache) => {
+  it.each([true, { driver: "kv" }] as const)("uses KV and stores Nitro cache entries through a packed Nuxt route (cache: %j)", async (cache) => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-kv-cache-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -754,6 +754,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "server/api/visits.get.ts"), `
           import { defineCachedHandler } from "nitro/cache"
+          import { kv } from "vite-hub/kv"
 
           export default defineCachedHandler(async () => {
             const [readError, visits] = await kv.get("visits")
@@ -893,6 +894,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default {
             modules: ["vite-hub/nuxt"],
+            experimental: { nitroAutoImports: true },
             nitro: { preset: "node-server" },
             vitehub: { agent: false, kv: true, host: "node", queue: true },
           }
