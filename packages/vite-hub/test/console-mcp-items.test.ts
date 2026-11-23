@@ -16,58 +16,28 @@ const renderer = createRenderer({
   patchProp() {}, remove() {}, setElementText() {}, setText() {},
 })
 
-it("loads more than ten resource pages before requesting templates that share its OAuth grant", async () => {
+it("requests templates only after the resource list that shares its OAuth grant, with no cursor", async () => {
   const connection: ConsoleMcpConnection = { auth: "oauth", createdAt: new Date().toISOString(), id: "mcp_test", label: "Test", sameOrigin: true, status: "connected", url: "https://app.example/mcp" }
   type Page = ConsoleMcpPage & { connection: ConsoleMcpConnection }
-  let finishPage: ((page: Page) => void) | undefined
-  const firstPage = new Promise<Page>(resolve => { finishPage = resolve })
-  const kinds: unknown[] = []
+  let finishResources: ((page: Page) => void) | undefined
+  const resources = new Promise<Page>(resolve => { finishResources = resolve })
+  const inputs: Record<string, unknown>[] = []
   mocks.request.mockImplementation((_operation: string, input: Record<string, unknown>) => {
-    kinds.push(input.kind)
-    return kinds.length === 1 ? firstPage : Promise.resolve({ connection, items: [], ...(input.kind === "resources" && kinds.length < 12 ? { nextCursor: `page-${kinds.length + 1}` } : {}) })
+    inputs.push(input)
+    return inputs.length === 1 ? resources : Promise.resolve({ connection, items: [] })
   })
   const app = renderer.createApp({ ...Items, render: () => null }, { connection, kind: "resources", peers: [connection] })
   app.provide(ssrContextKey, {})
   try {
     app.mount({})
-    await vi.waitFor(() => expect(kinds).toContain("resources"))
-    expect(kinds).toEqual(["resources"])
-    finishPage!({ connection, items: [], nextCursor: "next" })
-    await vi.waitFor(() => expect(kinds).toEqual([...Array.from({ length: 12 }, () => "resources"), "resource-templates"]))
-    expect(mocks.request.mock.calls[1]![1]).toMatchObject({ cursor: "next" })
-    expect(mocks.request.mock.calls[11]![1]).toMatchObject({ cursor: "page-12" })
+    await vi.waitFor(() => expect(inputs).toHaveLength(1))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(inputs).toEqual([{ id: "mcp_test", kind: "resources" }])
+    finishResources!({ connection, items: [] })
+    await vi.waitFor(() => expect(inputs).toEqual([{ id: "mcp_test", kind: "resources" }, { id: "mcp_test", kind: "resource-templates" }]))
   }
   finally {
-    finishPage!({ connection, items: [] })
-    app.unmount()
-    mocks.request.mockReset()
-  }
-})
-
-it.each([
-  { cursors: ["same", "same"], pages: 2, message: "repeated pagination cursor" },
-  { cursors: ["first", "second", "first"], pages: 3, message: "repeated pagination cursor" },
-  { cursors: [], pages: 1_000, message: "1,000 pages" },
-])("stops pagination with a visible error: $message ($pages requests)", async ({ cursors, pages, message }) => {
-  const connection: ConsoleMcpConnection = { auth: "oauth", createdAt: new Date().toISOString(), id: "mcp_test", label: "Test", sameOrigin: true, status: "connected", url: "https://app.example/mcp" }
-  const failed = vi.fn()
-  let calls = 0
-  mocks.request.mockImplementation(async () => {
-    calls++
-    // Keep the failing implementation finite too, so it cannot hang the test process.
-    if (calls > 1_005) throw new Error("Pagination test guard reached")
-    return { connection, items: [], nextCursor: cursors[(calls - 1) % cursors.length] ?? `page-${calls}` }
-  })
-  const app = renderer.createApp({ ...Items, render: () => null }, { connection, kind: "resources", onFailed: failed, peers: [connection] })
-  app.provide(ssrContextKey, {})
-  try {
-    const view = app.mount({})
-    await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce())
-    expect(Reflect.get(view.$, "setupState")).toMatchObject({ error: expect.objectContaining({ message: expect.stringContaining(message) }) })
-    expect(calls).toBe(pages)
-    expect(failed).toHaveBeenCalledOnce()
-  }
-  finally {
+    finishResources!({ connection, items: [] })
     app.unmount()
     mocks.request.mockReset()
   }

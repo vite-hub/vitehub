@@ -33,7 +33,7 @@ const operations: Readonly<Record<string, McpOperation>> = {
   "mcp-client.complete": operation(z.strictObject({ code: optionalText, error: z.string().max(200).optional(), errorDescription: optionalText, iss: optionalText, state: z.string().min(1).max(200) }), completeConsoleMcp),
   "mcp-client.connect": operation(z.strictObject({ label: z.string().max(80).optional(), prompt, server: z.string().min(1).max(2_048), token: optionalText }), connectConsoleMcp),
   "mcp-client.disconnect": operation(z.strictObject({ id }), disconnectConsoleMcp),
-  "mcp-client.items": operation(z.strictObject({ cursor: optionalText, id, kind: z.enum(["prompts", "resource-templates", "resources", "tools"]) }), listConsoleMcpItems),
+  "mcp-client.items": operation(z.strictObject({ id, kind: z.enum(["prompts", "resource-templates", "resources", "tools"]) }), listConsoleMcpItems),
   "mcp-client.list": operation(z.strictObject({}), listConsoleMcp),
   "mcp-client.prompt": operation(z.strictObject({ arguments: z.record(z.string(), z.string()).optional(), id, name: z.string().min(1).max(256) }), getConsoleMcpPrompt),
   "mcp-client.read": operation(z.strictObject({ id, uri: z.string().min(1).max(2_048) }), readConsoleMcpResource),

@@ -18,6 +18,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
   | "CONSOLE_MCP_KEY_INVALID"
   | "CONSOLE_MCP_KV_REQUIRED"
+  | "CONSOLE_MCP_LIST_INCOMPLETE"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -209,6 +210,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "VITEHUB_CONSOLE_MCP_KEY is set, but the app has no configured default KV store for MCP connections.",
       "Set kv: true in vitehub(), or configure a default KV store, then rebuild the app.",
       `${consoleGuide}/mcp-client#keep-connections-across-restarts`,
+      "docs",
+    ),
+    CONSOLE_MCP_LIST_INCOMPLETE: code(
+      "The MCP server sent a list of more than 20 pages, so the Console did not show it.",
+      "Make the MCP server send its tools, resources, resource templates, or prompts in 20 pages or fewer, such as with more items in each page.",
+      `${consoleGuide}/mcp-client`,
       "docs",
     ),
     CONSOLE_REQUEST_INVALID: code(

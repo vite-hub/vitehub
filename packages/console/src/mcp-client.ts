@@ -13,6 +13,7 @@ import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult
 type ConsoleMcpErrorCode =
   | "CONSOLE_CONFLICT"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
+  | "CONSOLE_MCP_LIST_INCOMPLETE"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -689,16 +690,16 @@ const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: 
 }
 
 /**
- * Tools, resources, resource templates, or prompts. One MCP session reads all pages, because a cursor can belong to its
- * session. After 20 pages the answer has a `nextCursor`.
+ * All tools, resources, resource templates, or prompts. One MCP session reads every page, because a cursor can belong
+ * to its session. A list of more than 20 pages fails with `CONSOLE_MCP_LIST_INCOMPLETE`.
  */
-export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { cursor?: string | undefined, id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
+export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
   return withConnection(scope, input.id, async (connection) => {
     const { field, method } = listMethods[input.kind]
     try {
-      const { items, nextCursor } = await withClient(scope, connection, async (client) => {
+      const { cursor, items } = await withClient(scope, connection, async (client) => {
         const items: Record<string, unknown>[] = []
-        let cursor = input.cursor
+        let cursor: string | undefined
         for (let page = 0; page < maximumPages; page++) {
           const result = await client.request({ method, params: cursor ? { cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs })
           const values: unknown = Reflect.get(result, field)
@@ -706,9 +707,10 @@ export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { curso
           cursor = text(Reflect.get(result, "nextCursor"))
           if (!cursor) break
         }
-        return { items, nextCursor: cursor }
+        return { cursor, items }
       })
-      return { connection: describe(connection), items, ...(nextCursor ? { nextCursor } : {}) }
+      if (cursor) throw new ConsoleMcpError(502, "CONSOLE_MCP_LIST_INCOMPLETE", `The MCP server sent more than ${maximumPages} pages of ${input.kind}. The Console shows no part of a list that it cannot read fully.`)
+      return { connection: describe(connection), items }
     }
     catch (error) {
       if (error instanceof McpError && error.code === -32601) return { connection: describe(connection), items: [] }
