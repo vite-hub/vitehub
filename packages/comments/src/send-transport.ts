@@ -37,10 +37,12 @@ export function createCommentSendTransport(options: CommentSendTransportOptions 
       return pairing
     },
     pollPairing: async value => (await request<CommentSendPairingCheck>(`/send/pair/${code(value)}`)).data,
-    allow: async (value) => {
+    allow: async (value, selection) => {
       const path = pairingPages.get(value) ?? page()
-      pairingPages.delete(value)
-      return (await request<CommentSendResult>(`/send/allow?page=${path}`, post({ code: value }))).data
+      const result = (await request<CommentSendResult>(`/send/allow?page=${path}`, post({ code: value, selection }))).data
+      // After `changed`, the member may allow the same code again, from the same page.
+      if (result.status !== "changed") pairingPages.delete(value)
+      return result
     },
     cancel: async (value) => {
       pairingPages.delete(value)

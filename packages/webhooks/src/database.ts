@@ -431,6 +431,8 @@ export interface WebhookEndpointStore {
   find: (id: string) => Promise<StoredMemberEndpoint | undefined>
   /** Removes the endpoint when the owner has it. Returns the removed endpoint. */
   remove: (owner: string, id: string) => Promise<StoredMemberEndpoint | undefined>
+  /** Removes every endpoint of the owner. Returns the removed endpoints. */
+  removeAll: (owner: string) => Promise<StoredMemberEndpoint[]>
   /** The endpoints, the oldest first. */
   list: (options?: ListMemberEndpointsOptions) => Promise<StoredMemberEndpoint[]>
   /** Disables the endpoint. Returns the endpoint after the change. */
@@ -487,6 +489,7 @@ export function createDrizzleWebhookEndpointStore(database: WebhooksDatabase | (
       const [row] = await db().delete(t).where(and(eq(t.owner, owner), eq(t.id, id))).returning()
       return row
     }),
+    removeAll: owner => guarded("remove the member endpoints of an owner", async () => await db().delete(t).where(eq(t.owner, owner)).returning()),
     list: (options = {}) => guarded("list the member endpoints", async () => {
       const { after } = options
       const where = after && or(gt(t.createdAt, after.createdAt), and(eq(t.createdAt, after.createdAt), gt(t.id, after.id)))

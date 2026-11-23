@@ -106,6 +106,26 @@ export interface CommentSendPayloadContext {
   quotes: readonly string[]
 }
 
+/** What `send.prompt` gets: the values of one setup code, and the default prompt. */
+export interface CommentSendPromptContext {
+  /** The member who pressed Send. */
+  user: CommentsUser
+  /** The subject of the page that the member pairs from. */
+  subject: CommentSubject
+  /** The public origin of the app, such as `https://joyandmaxi.com`. */
+  origin: string
+  /** The URL that the agent posts the code to: `{ code, url, thread }` for a T3 task, or `{ code, inbox }` for an inbox. */
+  pairUrl: string
+  /** The setup code. It works once, for 10 minutes. */
+  code: string
+  /** The secret that signs each delivery to a T3 webhook task. */
+  secret: string
+  /** Whether each send carries a read token. `false` when `grant` is `false`. */
+  grant: boolean
+  /** The default prompt: the steps that connect a T3 Code thread. */
+  prompt: string
+}
+
 /** A JSON value, as the delivered body holds it. */
 export type CommentSendData = string | number | boolean | null | CommentSendData[] | { [key: string]: CommentSendData }
 
@@ -129,6 +149,11 @@ export interface CommentSendOptions {
   grant?: false
   /** The hosts that a paired agent URL may use. Default: `["relay.t3.codes"]`, the T3 Code relay. */
   hosts?: readonly string[]
+  /**
+   * The setup prompt that Send copies, such as to add the steps of a Claude Code or Codex inbox, or to name the tools of
+   * your own MCP server. Default: `context.prompt`, the steps that connect a T3 Code thread.
+   */
+  prompt?: (context: CommentSendPromptContext) => string | Promise<string>
 }
 
 export interface DefineCommentsOptions extends CommentsDefinition {
@@ -233,3 +258,4 @@ export type CommentsErrorCode =
   | "COMMENTS_FIELD_FORBIDDEN"
   | "COMMENTS_FIELD_CONFLICT"
   | "COMMENTS_FIELD_LOCKED"
+  | "COMMENTS_SEND_OFF"

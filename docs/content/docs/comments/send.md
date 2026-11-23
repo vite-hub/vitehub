@@ -36,6 +36,8 @@ You pair once, in the pill:
 2. Paste the prompt in the T3 Code thread that should get your comments. The agent creates a T3 task that runs on a webhook, and posts the task's URL to your site with the code of the prompt.
 3. The pill asks once: **T3 Code · relay.t3.codes wants your comments from this site**. Press **Allow and send**.
 
+**Allow and send** sends the threads that the pill counted when you pressed **Send**. When a thread starts or gets a new message while you pair, Allow sends nothing and keeps the code, and the pill asks again with the new count.
+
 The setup code works once, for 10 minutes, and only for the person who copied it. The agent follows these steps from the prompt:
 
 - It calls the T3 tool `schedule_task` with a webhook schedule. The signature is `x-hub-signature-256`, hex, after `sha256=`, with a secret that your server made for this code. The replay key is `{{headers.x-vitehub-delivery}}`, so T3 runs each delivery once. `bindToCurrentThread: true` posts each run in the same thread, and `freshSession: true` starts each run with a fresh session.
@@ -62,9 +64,25 @@ For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Cod
 
 After the pairing, **Send N** sends at once. The pill shows **Sending** while Webhooks is attempting delivery, **Sent** once it succeeds, then **Working** until the agent answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When delivery fails, the comments stay available to send again.
 
-**N** counts the open threads on the page that you may read, whose last message is not an agent's, and that have a message newer than their last send. Threads of other people count too. A thread that was sent and has no new message does not count.
+**N** counts the open threads on the page that you may read, whose last message is not an agent's, and whose last message was not in your own last send. Threads of other people count too. Each person has their own count: when another person sends a thread, it still counts for you. Send compares message ids, not times, so a server clock that is slow does not hide a new message.
 
-A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last.
+A send is done when each thread that you wrote has left that set: it is resolved, deleted, or an agent answered last. When someone reopens a thread of a done send with no new message, an inbox send goes back to **Sent**. For a webhook agent, the thread waits for the member to press **Send** again. A thread that the send carried as a quote brings back work only if the send had no asks.
+
+### Your own setup prompt
+
+`send.prompt` changes the setup prompt that the pill copies, such as to add the steps for a Claude Code or Codex inbox, or to name the tools of your own MCP server. It gets the setup code, the pair URL, the signing secret, and `prompt`, the default text.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  send: {
+    prompt: ({ prompt, pairUrl, code }) => `${prompt}
+
+From Claude Code, post { "code": "${code}", "inbox": "Claude Code" } to ${pairUrl} instead.`,
+  },
+})
+```
 
 ### Send to the thread that wrote the page
 
@@ -121,6 +139,27 @@ export const comments = defineComments({
 })
 ```
 
+## Read sends on the server
+
+`comments.listSends(user)` gives the sends of `user` that reached the agent and that it has not finished, newest first, at most 20. Each one has the threads that `user` may still read, marked `ask` or `quote`. As it scans, it checks queued deliveries and marks finished sends as done. `states` and `limit` choose other sends, and `gate` and `console` go to `comments.can()`, as for a thread. `comments.readSend(user, id)` opens one send, as `comments_get_send` does, and a send that reached the agent becomes **Working**.
+
+```ts [server/api/inbox.get.ts]
+import { defineEventHandler } from 'h3'
+import type { H3Event } from 'h3'
+import { comments } from '../comments'
+
+/** The signed-in person, from your auth. */
+declare function requireUser(event: H3Event): Promise<{ id: string, name: string }>
+
+export default defineEventHandler(async (event) => {
+  const [error, sends] = await comments.listSends(await requireUser(event))
+  if (error) throw error
+  return sends
+})
+```
+
+Without `send`, both answer [`COMMENTS_SEND_OFF`](/docs/comments/diagnostics/comments_send_off).
+
 ## Security
 
 - **The code is the only key of the pair route.** `POST /send/pair` takes any origin, because the agent posts from its own machine. Every other Send route takes requests from the site's own pages only.
@@ -139,7 +178,7 @@ export const comments = defineComments({
 | `POST /send/pair` | The agent, any origin | Pairs with `{ code, url, thread? }` or `{ code, inbox }` |
 | `GET /send/pair/<code>` | The person | `waiting`, `paired`, `expired`, or `refused` |
 | `DELETE /send/pair/<code>` | The person | Drops the code |
-| `POST /send/allow?page=` | The person who copied the code | Saves the agent and sends |
+| `POST /send/allow?page=` | The person who copied the code | Saves the agent and sends, with `{ code, selection }` |
 | `POST /send?page=` | The person | Sends |
 | `GET /send/<id>` | The agent, with the read token | The threads of the send |
 ::

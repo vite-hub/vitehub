@@ -114,7 +114,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 
 ## Send to an agent
 
-`defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields. The `comments_get_send` MCP tool reads a send. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
+`defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields, and `prompt` changes the setup prompt. Each member has their own count, and Allow sends only the threads the member saw. The `comments_get_send` MCP tool reads a send, and `comments.listSends(user)` and `comments.readSend(user, id)` read sends on the server. Reopening a thread can restore a done inbox send or let the member send it to a webhook agent again. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
 
 ## Deployment and security boundaries
 
@@ -298,7 +298,7 @@ const client = createCommentsClient({ transport, user: ana });
 
 ### Send
 
-`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. `createCommentSendTransport({ page })` is the transport over the Send routes of `send: true`. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
+`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code, selection)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. `createCommentSendTransport({ page })` is the transport over the Send routes of `send: true`. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
 
 ## Errors
 

@@ -111,6 +111,7 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
   const send = comments.options.send && install.webhooks && (install.dialect ?? "sqlite") === "sqlite"
     ? createCommentSendService({ comments, database: install.database, webhooks: install.webhooks, ...(install.schema === "comments" ? { createTables: commentSendsTables } : {}) })
     : undefined
+  if (send) runtime.reopened = thread => send.reopened(thread)
   runtimes.set(comments, { runtime, ...(sync ? { sync } : {}), ...(send ? { send } : {}) })
   // The comment operations of the Console, the CLI, and MCP share the runtime.
   installCommentsRuntime(runtime)

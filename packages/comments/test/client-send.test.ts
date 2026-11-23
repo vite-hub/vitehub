@@ -24,6 +24,7 @@ function fakeTransport(status: CommentSendStatus, options: { push?: boolean } = 
   const results: CommentSendResult[] = []
   const calls: string[] = []
   const cancelled: string[] = []
+  const selections: string[] = []
   let codes = 0
   let listener: ((event: CommentSendEvent) => void) | undefined
   const transport: CommentSendTransport = {
@@ -34,14 +35,15 @@ function fakeTransport(status: CommentSendStatus, options: { push?: boolean } = 
     startPairing: async () => {
       calls.push("startPairing")
       codes++
-      return { code: `code-${codes}`, prompt, expiresAt: Date.now() + 10 * 60_000, agent: t3 }
+      return { code: `code-${codes}`, prompt, expiresAt: Date.now() + 10 * 60_000, agent: t3, count: current.count, selection: current.selection ?? "" }
     },
     pollPairing: async (code) => {
       calls.push(`pollPairing ${code}`)
       return checks.shift() ?? { status: "waiting" }
     },
-    allow: async (code) => {
+    allow: async (code, selection) => {
       calls.push(`allow ${code}`)
+      selections.push(selection)
       return results.shift()!
     },
     cancel: async (code) => {
@@ -60,6 +62,7 @@ function fakeTransport(status: CommentSendStatus, options: { push?: boolean } = 
     transport,
     calls,
     cancelled,
+    selections,
     checks,
     results,
     setStatus: (next: CommentSendStatus) => (current = next),
@@ -88,11 +91,12 @@ it("allows the code on the page that started pairing", async () => {
   const transport = createCommentSendTransport({ page: () => page, fetch })
   const pairing = await transport.startPairing()
   page = "/another-page"
-  await transport.allow(pairing.code)
+  await transport.allow(pairing.code, "selection-1")
   expect(fetch.mock.calls.map(([url]) => url)).toEqual([
     "/_vitehub/comments/send/start?page=%2Foriginal",
     "/_vitehub/comments/send/allow?page=%2Foriginal",
   ])
+  expect(JSON.parse(String(fetch.mock.calls[1]![1]!.body))).toEqual({ code: "paired-code", selection: "selection-1" })
 })
 
 describe("createCommentSend", () => {
@@ -302,6 +306,45 @@ describe("createCommentSend", () => {
     server.push({ type: "done", id: "send-1" })
     await flush()
     expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
+  })
+
+  it("allows only the threads that the member saw, and confirms the new ones after a change", async () => {
+    const server = fakeTransport({ count: 2, selection: "two" })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    await send.send(copy)
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(send.state).toEqual({ status: "confirm", count: 2, agent: t3 })
+    // A third thread started to wait after the member saw two.
+    server.results.push({ status: "changed", count: 3, selection: "three" })
+    await send.allow()
+    expect(send.state).toEqual({ status: "confirm", count: 3, agent: t3 })
+    expect(server.cancelled).toEqual([])
+    server.results.push({ status: "sent", id: "send-1" })
+    await send.allow()
+    expect(server.calls.filter(call => call.startsWith("allow"))).toEqual(["allow code-1", "allow code-1"])
+    expect(server.selections).toEqual(["two", "three"])
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
+  })
+
+  it("loads the selection again when the count changes while the member pairs", async () => {
+    const server = fakeTransport({ count: 1, selection: "one" }, { push: true })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    await send.send(copy)
+    expect(send.state).toMatchObject({ status: "pairing", count: 1 })
+    server.setStatus({ count: 2, selection: "two" })
+    server.push({ type: "count", count: 2 })
+    await flush()
+    expect(send.state).toMatchObject({ status: "pairing", count: 2 })
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    server.results.push({ status: "sent", id: "send-1" })
+    await send.allow()
+    expect(server.selections).toEqual(["two"])
   })
 
   it("starts a second pairing without sending to the existing agent", async () => {

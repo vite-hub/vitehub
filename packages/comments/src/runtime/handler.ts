@@ -549,7 +549,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       const body = await readJson(request)
       const given: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "code") : undefined
       if (typeof given !== "string" || !given) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the setup code that the agent used." }))
-      return respond(await service.allow(who, given))
+      // Without the selection that the member confirmed, Allow answers `changed` with the current one.
+      const selection: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "selection") : undefined
+      return respond(await service.allow(who, given, typeof selection === "string" ? selection : ""))
     }
     if (method === "POST" && !action) return respond(await service.send(who))
     return json({ error: { code: "COMMENTS_NOT_FOUND", why: `No Comments route ${method} ${url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length)}.` } }, { status: 404 })

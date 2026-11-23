@@ -167,12 +167,12 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
 
 /**
  * The endpoint that a send to a member reaches, or `null` when they have none, as `[error, endpoint]`: the one with
- * `address`, else their newest. It never holds the URL or the secret.
+ * `endpointId` or `address`, else their newest. It never holds the URL or the secret.
  */
-export async function getMemberEndpoint(owner: string, options: { address?: string } = {}): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
+export async function getMemberEndpoint(owner: string, options: { address?: string, endpointId?: string } = {}): Promise<Result<MemberEndpoint | null, MemberEndpointErrorCode>> {
   const { endpoints } = requireMemberEndpoints()
   try {
-    const endpoint = await endpoints.get(owner, options.address)
+    const endpoint = await selectEndpoint(endpoints, owner, options)
     return [undefined, endpoint ? toMemberEndpoint(endpoint) : null]
   }
   catch (error) {
@@ -186,6 +186,20 @@ export async function removeMemberEndpoint(owner: string, id: string): Promise<R
   try {
     const endpoint = await endpoints.remove(owner, id)
     return endpoint ? [undefined, toMemberEndpoint(endpoint)] : [webhooksErrors.WEBHOOKS_ENDPOINT_NOT_FOUND({ match: `the id ${JSON.stringify(id)} and the owner ${JSON.stringify(owner)}` }), undefined]
+  }
+  catch (error) {
+    return [storeError(error), undefined]
+  }
+}
+
+/**
+ * Removes every endpoint of a member, such as when they disconnect their agents, and returns `[error, removed]`. A member
+ * with no endpoint gets an empty list.
+ */
+export async function removeMemberEndpoints(owner: string): Promise<Result<MemberEndpoint[], MemberEndpointErrorCode>> {
+  const { endpoints } = requireMemberEndpoints()
+  try {
+    return [undefined, (await endpoints.removeAll(owner)).map(toMemberEndpoint)]
   }
   catch (error) {
     return [storeError(error), undefined]

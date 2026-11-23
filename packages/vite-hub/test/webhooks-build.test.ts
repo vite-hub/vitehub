@@ -260,12 +260,12 @@ describe("Webhooks in a built Nitro 3 app", () => {
       const origin = `http://127.0.0.1:${server.port}`
       const api = (route: string, body?: unknown, headers: Record<string, string> = { origin }) => server.fetch(`/_vitehub/comments${route}`, { ...body === undefined ? {} : { body: JSON.stringify(body) }, headers: { "content-type": "application/json", ...headers }, method: "POST" })
       expect((await api("/threads", { page: "/", body: "The intro is too long" })).status).toBe(200)
-      const started = await (await api("/send/start?page=/")).json() as { data: { code: string, prompt: string } }
+      const started = await (await api("/send/start?page=/")).json() as { data: { code: string, prompt: string, selection: string } }
       expect(started.data.prompt).toContain(`${origin}/_vitehub/comments/send/pair`)
       // The agent posts from its own machine, with no Origin of the site.
       const paired = await api("/send/pair", { code: started.data.code, url: "https://203.0.113.10/hooks/abc?token=relay" }, { origin: "https://agent.example" })
       expect(paired.status).toBe(200)
-      const allowed = await (await api("/send/allow?page=/", { code: started.data.code })).json() as { data: { status: string, id: string } }
+      const allowed = await (await api("/send/allow?page=/", { code: started.data.code, selection: started.data.selection })).json() as { data: { status: string, id: string } }
       expect(allowed.data).toEqual({ status: "sent", id: expect.stringMatching(/^send_/) })
       expect(received).toHaveLength(1)
       expect(received[0]!.url).toBe("/hooks/abc?token=relay")
