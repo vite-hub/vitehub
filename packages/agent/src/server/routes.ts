@@ -272,7 +272,7 @@ interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptio
    * holds the Lease `agent-recovery:<agent>` in `leases`. A sweep fails the pending or running invocations that no live
    * claim holds, such as those of an instance that crashed.
    */
-  recoverySweep?: { leases: LeaseStore, intervalMs?: number }
+  recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean }
 }
 
 export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
@@ -9395,18 +9395,21 @@ async function recoverInterruptedWebhookAgentInvocations(
   context: ViteAgentRouteRuntimeContext,
   before: number,
   queues: { owns: (scope: string) => boolean, state: AgentWebhookQueueStateAdapter }[],
-  options: { waitForBlocked?: boolean } = {},
+  options: { waitForBlocked?: boolean, canRecover?: () => boolean } = {},
 ): Promise<void> {
   // Durable Workflows own their invocations and may not hold a journal claim while suspended.
-  if (!isRecord(agent) || !agent.invocations || await hasActiveWorkflowRuntime(agent, context)) return
+  if (options.canRecover?.() === false || !isRecord(agent) || !agent.invocations || await hasActiveWorkflowRuntime(agent, context)) return
   const agentName = firstString(agent.name, context.agentIdentity?.name)
   if (!agentName) return
   // A persisted delivery with a run ID runs again under the same invocation record.
   const resumed = new Set<string>()
   for (const { owns, state } of queues) {
+    if (options.canRecover?.() === false) return
     for (const scope of await state.webhookDeliveryScopes()) {
+      if (options.canRecover?.() === false) return
       if (!owns(scope)) continue
       for (const delivery of await state.webhookDeliveries(scope)) {
+        if (options.canRecover?.() === false) return
         const run = delivery.invocation?.run
         if (isRecord(run) && typeof run.runId === "string" && run.runId) {
           resumed.add(await agentInvocationId(run.runId, delivery.invocation?.agentName || agentName))
@@ -10705,23 +10708,41 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     })
   }
   handler.resume = ({ recoverInterruptedBefore, recoverySweep, ...handlerOptions }: AgentChannelWebhookResumeOptions = {}) => {
+    const createQueueContext = async () => createRuntimeContext(
+      new Request("http://vitehub.local/_vitehub/webhook-queue"),
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
     let sweep: AgentRecoverySweep | undefined
     let stopped = false
+    function startSweep(context: ViteAgentRouteRuntimeContext, queues: Parameters<typeof recoverInterruptedWebhookAgentInvocations>[3]) {
+      const agentName = firstString(isRecord(agent) ? agent.name : undefined, context.agentIdentity?.name)
+      if (!recoverySweep || !agentName || sweep || stopped) return
+      sweep = startAgentRecoverySweep({
+        ...recoverySweep,
+        agentName,
+        sweep: canRecover => recoverInterruptedWebhookAgentInvocations(agent, context, Date.now() - agentRecoverySweepGraceMs, queues, { waitForBlocked: false, canRecover }),
+      })
+    }
+    if (recoverySweep?.withoutQueue) {
+      const ready = createQueueContext().then(context => startSweep(context, []))
+        .catch(error => console.error("[vitehub] Interrupted Agent invocation recovery failed.", error))
+      return async () => {
+        stopped = true
+        await ready
+        await sweep?.stop()
+      }
+    }
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     let recoveryBefore = recoverInterruptedBefore
     let inboxReplayBefore = recoverInterruptedBefore
     const unregisterChannelTasks = registerChannelTaskQueue(Object.keys(agentChannelOptions(agent)), createChannelTaskQueue(agent, handlerOptions, webhookQueue))
     const stopQueue = webhookQueue.resume(async (registrar) => {
-      const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
-      const context = createRuntimeContext(
-        request,
-        undefined,
-        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
-        handlerOptions.cloudflare,
-        handlerOptions.runtime,
-        handlerOptions.capabilities,
-        routeAgentIdentity(handlerOptions),
-      )
+      const context = await createQueueContext()
       const trackedStates = new Set<StateAdapter>()
       const sharedState = handlerOptions.webhookState && !stateResolverOwnsScope(handlerOptions.webhookState)
       if (sharedState && typeof handlerOptions.webhookState !== "function") {
@@ -10757,14 +10778,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           .catch(error => console.error("[vitehub] Interrupted chat invocation resume failed.", error))
         recoveryBefore = undefined
       }
-      const sweepAgentName = firstString(isRecord(agent) ? agent.name : undefined, context.agentIdentity?.name)
-      if (recoverySweep && sweepAgentName && !sweep && !stopped) {
-        sweep = startAgentRecoverySweep({
-          ...recoverySweep,
-          agentName: sweepAgentName,
-          sweep: () => recoverInterruptedWebhookAgentInvocations(agent, context, Date.now() - agentRecoverySweepGraceMs, recoveryQueues, { waitForBlocked: false }),
-        })
-      }
+      startSweep(context, recoveryQueues)
       for (const state of trackedStates) registrar.track(state, handlerOptions, agentScopePrefix)
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {

@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { collectDurability } from "@vite-hub/runtime/durability"
 import { describe, expect, it } from "vitest"
 
 import { agentInvocationsDurability, agentProcessHostDurability, agentRecoveryDurability, agentStateDurability } from "../src/durability.ts"
@@ -61,6 +62,20 @@ describe("agentRecoveryDurability", () => {
     expect(agentRecoveryDurability({ sweep: true }, context({}, [postgres]))).toMatchObject([{ primitive: "agent-recovery", store: "lease (postgres)", scope: "shared" }])
     expect(agentRecoveryDurability({ sweep: true }, context())).toMatchObject([{ store: "startup", scope: "process", fix: expect.stringContaining("agent-recovery:<agent>") }])
     expect(agentRecoveryDurability({ sweep: false }, context({}, [postgres]))).toMatchObject([{ store: "startup", scope: "process" }])
+  })
+
+  it("uses the default or sole Lease Database, but not an ambiguous name", () => {
+    const jobs: Durability = { primitive: "database", name: "jobs", store: "postgres", scope: "shared", reason: "Postgres." }
+    const local: Durability = { primitive: "database", name: "default", store: "sqlite", scope: "host", reason: "Local SQLite." }
+    function report(databases: Durability[]) {
+      return collectDurability([
+        { primitive: "database", report: () => databases },
+        { primitive: "agent-recovery", report: context => agentRecoveryDurability({ sweep: true }, context) },
+      ], {}).at(-1)
+    }
+    expect(report([jobs])).toMatchObject({ store: "lease (postgres)", scope: "shared", reason: expect.stringContaining("jobs Database") })
+    expect(report([jobs, local])).toMatchObject({ store: "lease (sqlite)", scope: "host" })
+    expect(report([jobs, { ...local, name: "other" }])).toMatchObject({ store: "startup", scope: "process" })
   })
 })
 

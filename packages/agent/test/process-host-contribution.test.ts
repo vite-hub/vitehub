@@ -11,6 +11,7 @@ import { createAgentProcessHosts } from "../src/runtime/process.ts"
 import { agentProcessHostLeaseIntervalMs, agentProcessHostLeaseKey, agentProcessHostLeaseTtlMs } from "../src/runtime/process-host-lease.ts"
 import { createMemoryLeaseStore, createSqlLeaseStore, type Lease, type LeaseStore } from "@vite-hub/runtime"
 import { DatabaseSync } from "node:sqlite"
+import { installStubPackages } from "./support/stub-packages.ts"
 
 const roots: string[] = []
 afterEach(async () => {
@@ -346,6 +347,19 @@ describe("generated process hosts", () => {
     const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
     expect(route).toContain(`(process.env["TURSO_AUTH_TOKEN"]) ? { authToken: process.env["TURSO_AUTH_TOKEN"] } : {}`)
     expect(route).not.toContain("authToken\":")
+  })
+
+  it("generates separate process host and recovery Lease loaders with a Database", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await project(workerSource)
+    await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "file:state.sqlite" } } })
+    if (typeof plugin.config !== "function" || typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent config hooks.")
+    const config = { command: "build", root, nitro: {}, resolve: { alias: [] }, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
+    await plugin.config.call({} as never, config as never, { command: "build", mode: "production" })
+    await plugin.configResolved.call({} as never, config as never)
+    await expect(readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")).resolves.toContain("leases: agentProcessHostLeases")
+    await expect(readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
   })
 
   it("registers the plugin and host routes, and rejects hosts that cannot run a process", async () => {

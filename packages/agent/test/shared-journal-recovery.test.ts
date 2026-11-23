@@ -136,7 +136,7 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
       expect(response.status).toBe(200)
     },
     /** Starts the webhook queue like the server plugin does when this process starts, with its recovery. */
-    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number } } = {}) {
+    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean } } = {}) {
       stops.push(handler.resume({ ...routeOptions, ...options, recoverInterruptedBefore: Date.now() }))
     },
   }
@@ -278,12 +278,12 @@ describe("recovery at boot on processes that share one journal and one State", (
     await vi.waitFor(async () => expect(await restarted.state.get(indexKey)).toBeNull(), { timeout: 5_000 })
   })
 
-  it("fails an Invocation that another process left running, without a restart, while one process holds the recovery Lease", async () => {
+  it.each([false, true])("fails an Invocation that another process left running under a recovery Lease (without queue: %s)", async (withoutQueue) => {
     const files = await sharedFiles()
     const prompts: string[] = []
     const leases = createMemoryLeaseStore()
     const processes = await Promise.all([startProcess(files, prompts), startProcess(files, prompts)])
-    for (const instance of processes) instance.boot({ recoverySweep: { intervalMs: 100, leases } })
+    for (const instance of processes) instance.boot({ recoverySweep: { intervalMs: 100, leases, withoutQueue } })
     await new Promise(resolve => setTimeout(resolve, 300))
     const sweeps = processes.map(instance => vi.spyOn(instance.store, "list"))
 
