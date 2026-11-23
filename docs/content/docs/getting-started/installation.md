@@ -271,6 +271,8 @@ pnpm vitehub update --preview <commit>
 
 Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release. Previews from `0.4.1` onward include `vitehub update`. If you move to an older preview without it, run `pnpm dlx vite-hub@latest update` instead.
 
+If pnpm reports `ERR_PNPM_IGNORED_BUILDS` for `esbuild`, run `pnpm approve-builds` to review it. After approving it, rerun the install command that ViteHub printed.
+
 `--dry-run` checks that the target publishes every ViteHub package in your workspace and previews the diff without writing files. `--no-install` updates the files and prints the install command.
 
 ::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
