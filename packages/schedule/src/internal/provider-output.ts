@@ -414,7 +414,7 @@ export function netlifyScheduleFunctionNames(definitions: readonly Pick<Discover
 
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport, timeZoneCrons: ScheduleTimeZoneCrons = {}) {
   const scheduleCrons = [...crons.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([name, cron], index) => {
       const cronId = index.toString(36)
       const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")

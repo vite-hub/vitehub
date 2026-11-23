@@ -604,6 +604,31 @@ describe("schedule provider output", () => {
     expect(source).toContain("handler: () => \"ok\"")
   })
 
+  it("names Deno crons the same on every build locale", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-locale-")
+    for (const name of ["hourly", "chores", "Zeta"]) {
+      await writeFile(join(rootDir, "src", `${name}.schedule.ts`), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
+        "",
+      ].join("\n"), "utf8")
+    }
+    const czech = new Intl.Collator("cs")
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+      return czech.compare(this, that)
+    })
+    try {
+      await generateProviderOutputs({ clientOutDir: "dist/client", host: "deno", rootDir })
+    }
+    finally {
+      localeCompare.mockRestore()
+    }
+
+    const source = await readFile(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"), "utf8")
+    const cronNames = [...source.matchAll(/"?cronName"?:\s*"([^"]+)"/g)].map(match => match[1])
+    expect(cronNames).toEqual(["vitehub-0-Zeta", "vitehub-1-chores", "vitehub-2-cleanup", "vitehub-3-hourly"])
+  })
+
   it("bundles Schedules that import vite-hub/schedule into the Deno cron output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-deno-facade-")
     await writeFile(join(rootDir, "src", "heartbeat.schedule.ts"), [
