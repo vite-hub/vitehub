@@ -1,7 +1,7 @@
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { z } from "zod"
 
-import { callConsoleMcpTool, completeConsoleMcp, ConsoleMcpError, connectConsoleMcp, disconnectConsoleMcp, getConsoleMcpPrompt, listConsoleMcp, listConsoleMcpItems, readConsoleMcpResource, reconnectConsoleMcp } from "./mcp-client.ts"
+import { callConsoleMcpTool, completeConsoleMcp, ConsoleMcpError, consoleMcpStateProject, connectConsoleMcp, disconnectConsoleMcp, getConsoleMcpPrompt, listConsoleMcp, listConsoleMcpItems, readConsoleMcpResource, reconnectConsoleMcp } from "./mcp-client.ts"
 
 import type { OperationRpcReply } from "@vite-hub/internal/operation-rpc"
 import type { ConsoleMcpScope } from "./mcp-client.ts"
@@ -44,6 +44,17 @@ function failure(error: unknown): { code: string, message: string, status: numbe
   if (error instanceof ConsoleMcpError || error instanceof InvalidInput) return { code: error.code, message: error.message, status: error.status }
   console.error("[vitehub] Console MCP client failed:", error)
   return { code: "CONSOLE_REQUEST_FAILED", message: "The MCP client of the Console failed. Try again.", status: 500 }
+}
+
+/**
+ * The project that a call acts on. A sign-in comes back to the project that is open in the browser, which can be another
+ * project than the one that started it, so `mcp-client.complete` acts on the project in its OAuth `state`.
+ */
+export function consoleMcpCallProject(body: unknown, routeProject: string): string {
+  const call = readOperationRpcCall(body)
+  const input: unknown = call?.m === "mcp-client.complete" ? call.a[0] : undefined
+  const state: unknown = input instanceof Object ? Reflect.get(input, "state") : undefined
+  return (typeof state === "string" ? consoleMcpStateProject(state) : undefined) ?? routeProject
 }
 
 /** Answer one birpc call of the MCP client section with the operations of the Console server. */

@@ -171,6 +171,7 @@ describe("the Console link", () => {
       expect(consoleScriptSource(`${script}?base=${encodeURIComponent(base)}`, "https://app.example.com").base).toBe("")
     }
     expect(consoleScriptSource("https://app.example.com/portal/_vitehub/console/assets/page-tool.js?v=2", "https://app.example.com")).toEqual({ base: "/portal" })
+    expect(consoleScriptSource("https://console.example.com/page/0.4.0/0123456789abcdef/page-tool.js?base=%2Fportal", "https://console.example.com")).toEqual({ base: "/portal", consoleOrigin: "https://console.example.com" })
     expect(consolePageLink("https://app.example.com", "/portal", [], "https://console.example.com"))
       .toBe("https://console.example.com/open?project=https%3A%2F%2Fapp.example.com%2Fportal&path=%2F")
   })

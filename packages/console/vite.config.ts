@@ -15,6 +15,7 @@ const dataDir = resolve(process.env.VITEHUB_DATA_DIR ?? ".data")
 const page = resolve(import.meta.dirname, "../vite-hub/.vitehub/console-account")
 const pageModule = "#console-page"
 const assetsModule = "#console-assets"
+const outboundFetchModule = "#console-outbound-fetch"
 
 function database() {
   if (host === "node") return { migrateOnStart: true, connection: { url: pathToFileURL(resolve(dataDir, "database/sqlite.db")).href } }
@@ -66,6 +67,10 @@ export default defineConfig({
       name: "vitehub-console-assets",
       resolveId: id => id === assetsModule ? `\0${assetsModule}` : undefined,
       load: id => id === `\0${assetsModule}` ? `export default ${JSON.stringify(readConsoleAssets())}` : undefined,
+    },
+    {
+      name: "vitehub-console-outbound-fetch",
+      resolveId: id => id === outboundFetchModule ? resolve(import.meta.dirname, host === "cloudflare" ? "src/outbound-fetch-worker.ts" : "src/outbound-fetch.ts") : undefined,
     },
     nitro({
       handlers: [{ handler: resolve(import.meta.dirname, "server/handlers/well-known-skills.ts"), route: "/.well-known/skills/**" }],

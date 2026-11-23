@@ -42,12 +42,15 @@ export interface ConsoleMcpScope {
   redirectUrl: string
   /** Allow private and loopback hosts, and plain HTTP to them, as `VITEHUB_CONSOLE_ALLOW_PRIVATE=true` does. */
   allowPrivate: boolean
+  /** The fetch that reaches MCP and OAuth servers. On Node, the Console route gives one that refuses private addresses at connect time. */
+  fetch: typeof fetch
   records: ConsoleMcpRecords
 }
 
 interface UrlPolicy {
   allowPrivate: boolean
   appOrigin: string
+  fetch: typeof fetch
 }
 
 interface ConnectionRuntime {
@@ -92,6 +95,11 @@ function consoleMcpServerUrl(value: string, policy: UrlPolicy): URL {
 }
 
 const redirectStatuses = new Set([301, 302, 303, 307, 308])
+const credentialHeaders = ["authorization", "cookie", "mcp-session-id", "proxy-authorization"]
+
+function hasCredentials(request: Request): boolean {
+  return (request.method !== "GET" && request.method !== "HEAD") || credentialHeaders.some(name => request.headers.has(name))
+}
 
 function withTimeout(timeoutMs: number, policy: UrlPolicy): typeof fetch {
   return async (input, init) => {
@@ -100,17 +108,17 @@ function withTimeout(timeoutMs: number, policy: UrlPolicy): typeof fetch {
     for (let redirects = 0; ; redirects++) {
       signal.throwIfAborted()
       consoleMcpServerUrl(request.url, policy)
-      const response = await fetch(request.clone(), { redirect: "manual", signal })
+      const response = await policy.fetch(request.clone(), { redirect: "manual", signal })
       const location = response.headers.get("location")
       if (!redirectStatuses.has(response.status) || location === null || request.redirect === "manual") return response
       await response.body?.cancel()
       if (request.redirect === "error") throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "The server returned a redirect.")
       if (redirects >= 20) throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "Too many redirects from the MCP or OAuth server.")
       const target = consoleMcpServerUrl(new URL(location, request.url).href, policy)
-      const headers = new Headers(request.headers)
-      if (target.origin !== new URL(request.url).origin) {
-        for (const name of ["authorization", "proxy-authorization", "cookie"]) headers.delete(name)
+      if (target.origin !== new URL(request.url).origin && hasCredentials(request)) {
+        throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", `The server redirected a request with credentials to another origin, ${target.origin}. Use the final URL.`)
       }
+      const headers = new Headers(request.headers)
       if (((response.status === 301 || response.status === 302) && request.method === "POST") || (response.status === 303 && request.method !== "GET" && request.method !== "HEAD")) {
         for (const name of ["content-encoding", "content-language", "content-location", "content-type"]) headers.delete(name)
         request = new Request(target, { headers, method: "GET", redirect: request.redirect, signal })
@@ -125,6 +133,16 @@ function withTimeout(timeoutMs: number, policy: UrlPolicy): typeof fetch {
 function randomId(bytes = 16): string {
   const values = crypto.getRandomValues(new Uint8Array(bytes))
   return btoa(String.fromCharCode(...values)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
+function newState(connection: StoredConnection): string {
+  return `${connection.projectId}.${randomId()}`
+}
+
+/** The project that started an MCP sign-in, read from the OAuth `state` that the Console gave it. */
+export function consoleMcpStateProject(state: string): string | undefined {
+  const end = state.indexOf(".")
+  return end > 0 ? state.slice(0, end) : undefined
 }
 
 function text(value: unknown): string | undefined {
@@ -179,7 +197,7 @@ function clientKey(connection: StoredConnection, oauth: NonNullable<StoredConnec
 
 function oauthProvider(scope: ConsoleMcpScope, connection: StoredConnection, onAuthorize?: () => void): OAuthClientProvider {
   const oauth = connection.oauth!
-  const pending = (): PendingAuthorization => oauth.pending ??= { expiresAt: Date.now() + pendingLifetimeMs, state: randomId() }
+  const pending = (): PendingAuthorization => oauth.pending ??= { expiresAt: Date.now() + pendingLifetimeMs, state: newState(connection) }
   const metadata: OAuthClientMetadata = {
     client_name: "ViteHub Console",
     client_uri: "https://vitehub.dev/docs/console/mcp-client",
@@ -266,7 +284,7 @@ function isSignedOut(error: unknown): error is ConsoleMcpError {
   return error instanceof ConsoleMcpError && error.code === "CONSOLE_MCP_SIGNED_OUT"
 }
 
-interface ClientOptions { fresh?: boolean, timeoutMs?: number }
+interface ClientOptions { timeoutMs?: number }
 
 function runtimeOf(id: string): ConnectionRuntime {
   let runtime = connectionRuntimes.get(id)
@@ -308,51 +326,31 @@ function withClient<T>(scope: ConsoleMcpScope, connection: StoredConnection, run
   return withClientOperation(connection, () => runClient(scope, connection, run, options))
 }
 
-async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions): Promise<T> {
+async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions = {}): Promise<T> {
   let authorizing = false
   let challenge: ConsoleMcpError["challenge"]
   const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs, scope)
   const headers = connection.bearer ? { authorization: `Bearer ${connection.bearer}` } : {}
-  const attempt = async (sessionId: string | undefined) => {
-    const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
-      ...(connection.auth === "oauth" ? { authProvider: oauthProvider(scope, connection, () => { authorizing = true }) } : {}),
-      ...(Object.keys(headers).length ? { requestInit: { headers } } : {}),
-      fetch: async (input, init) => {
-        const response = await fetchWithTimeout(input, init)
-        if (response.status === 401) challenge = extractWWWAuthenticateParams(response)
-        return response
-      },
-      ...(sessionId ? { sessionId } : {}),
-    })
-    if (sessionId && connection.protocolVersion) transport.setProtocolVersion(connection.protocolVersion)
-    const client = new Client(clientInfo, { capabilities: {}, jsonSchemaValidator: { getValidator: () => input => ({ data: input as never, errorMessage: undefined, valid: true }) } })
-    try {
-      await client.connect(transport, { timeout: requestTimeoutMs })
-      if (!sessionId) {
-        connection.protocolVersion = transport.protocolVersion
-        connection.server = serverInfo(client, transport.protocolVersion) ?? connection.server
-      }
-      connection.sessionId = transport.sessionId
-      const value = await run(client)
-      connection.status = "connected"
-      delete connection.error
-      connection.usedAt = Date.now()
-      return value
-    }
-    finally {
-      await transport.close().catch(() => {})
-    }
-  }
+  const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
+    ...(connection.auth === "oauth" ? { authProvider: oauthProvider(scope, connection, () => { authorizing = true }) } : {}),
+    ...(Object.keys(headers).length ? { requestInit: { headers } } : {}),
+    fetch: async (input, init) => {
+      const response = await fetchWithTimeout(input, init)
+      if (response.status === 401) challenge = extractWWWAuthenticateParams(response)
+      return response
+    },
+  })
+  const client = new Client(clientInfo, { capabilities: {}, jsonSchemaValidator: { getValidator: () => input => ({ data: input as never, errorMessage: undefined, valid: true }) } })
   try {
-    const sessionId = options.fresh ? undefined : connection.sessionId
-    try {
-      return await attempt(sessionId)
-    }
-    catch (error) {
-      if (!sessionId || !(error instanceof StreamableHTTPError) || error.code !== 404) throw error
-      delete connection.sessionId
-      return await attempt(undefined)
-    }
+    await client.connect(transport, { timeout: requestTimeoutMs })
+    connection.protocolVersion = transport.protocolVersion
+    connection.server = serverInfo(client, transport.protocolVersion) ?? connection.server
+    connection.sessionId = transport.sessionId
+    const value = await run(client)
+    connection.status = "connected"
+    delete connection.error
+    connection.usedAt = Date.now()
+    return value
   }
   catch (error) {
     if (error instanceof UnauthorizedError || (error instanceof StreamableHTTPError && error.code === 401)) {
@@ -371,6 +369,9 @@ async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection
     }
     connection.error = failureMessage(error)
     throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", connection.error)
+  }
+  finally {
+    await transport.close().catch(() => {})
   }
 }
 
@@ -497,7 +498,7 @@ function startAuthorization(scope: ConsoleMcpScope, connection: StoredConnection
 
 async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, prompt: "login" | undefined, challenge?: ConsoleMcpError["challenge"]): Promise<string> {
   const oauth = connection.oauth!
-  oauth.pending = { expiresAt: Date.now() + pendingLifetimeMs, state: randomId(), ...(prompt ? { prompt } : {}) }
+  oauth.pending = { expiresAt: Date.now() + pendingLifetimeMs, state: newState(connection), ...(prompt ? { prompt } : {}) }
   oauth.tokens = undefined
   delete connection.sessionId
   const fetchFn = withTimeout(requestTimeoutMs, scope)
@@ -545,7 +546,7 @@ export async function connectConsoleMcp(scope: ConsoleMcpScope, input: { label?:
     userId: scope.userId,
   }
   try {
-    await withClient(scope, connection, async () => {}, { fresh: true })
+    await withClient(scope, connection, async () => {})
     await save(scope, connection)
     return { connection: describe(connection) }
   }
@@ -620,7 +621,7 @@ async function finishSignIn(scope: ConsoleMcpScope, connection: StoredConnection
     if (identity) connection.identity = identity
     else delete connection.identity
     if (!connection.labelled) connection.label = connection.identity?.name ?? connection.identity?.email ?? connection.label
-    await runClient(scope, connection, async () => {}, { fresh: true })
+    await runClient(scope, connection, async () => {})
     return describe(connection)
   })
 }
@@ -632,7 +633,7 @@ export async function reconnectConsoleMcp(scope: ConsoleMcpScope, input: { id: s
       return { authorizationUrl: await startAuthorization(scope, connection, input.prompt), connection: describe(connection) }
     }
     try {
-      await withClient(scope, connection, async () => {}, { fresh: true })
+      await withClient(scope, connection, async () => {})
     }
     catch (error) {
       if (!isSignedOut(error) || connection.auth !== "oauth") throw error

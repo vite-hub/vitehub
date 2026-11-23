@@ -105,7 +105,8 @@ const clientContext = (id: string) => `mcp client\n${id}`
 /**
  * Records in the Console database. Each row holds one value sealed with `VITEHUB_CONSOLE_SECRET`, bound to its person,
  * project, and id, so a value copied to another row does not open. A value that does not open, such as one sealed
- * before the secret changed, reads as missing.
+ * before the secret changed, reads as missing. A save inserts a new connection, and changes a read one only while its
+ * row is the version that was read: a stale save, or a save after a disconnect, changes nothing.
  */
 export function databaseConsoleMcpRecords(db: ConsoleDatabase, secret: string): ConsoleMcpRecords {
   async function open<Schema extends z.ZodType>(context: string, sealed: string, schema: Schema): Promise<z.infer<Schema> | undefined> {
@@ -121,9 +122,12 @@ export function databaseConsoleMcpRecords(db: ConsoleDatabase, secret: string): 
     const parsed = schema.safeParse(value)
     return parsed.success ? parsed.data : undefined
   }
+  const versions = new WeakMap<StoredConnection, number>()
   const read = async (row: typeof consoleMcpConnections.$inferSelect): Promise<StoredConnection | undefined> => {
     const connection = await open(connectionContext(row), row.sealed, connectionSchema)
-    return connection?.id === row.id && connection.userId === row.userId && connection.projectId === row.projectId ? connection : undefined
+    if (connection?.id !== row.id || connection.userId !== row.userId || connection.projectId !== row.projectId) return undefined
+    versions.set(connection, row.updatedAt)
+    return connection
   }
   return {
     client: async (key) => {
@@ -150,10 +154,18 @@ export function databaseConsoleMcpRecords(db: ConsoleDatabase, secret: string): 
     },
     save: async (connection) => {
       const sealed = await sealConsoleValue(secret, "mcp records", connectionContext(connection), JSON.stringify(connection))
-      const now = Date.now()
-      await db.insert(consoleMcpConnections)
-        .values({ createdAt: connection.createdAt, id: connection.id, projectId: connection.projectId, sealed, updatedAt: now, userId: connection.userId })
-        .onConflictDoUpdate({ set: { sealed, updatedAt: now }, target: consoleMcpConnections.id })
+      const version = versions.get(connection)
+      if (version === undefined) {
+        const updatedAt = Date.now()
+        await db.insert(consoleMcpConnections).values({ createdAt: connection.createdAt, id: connection.id, projectId: connection.projectId, sealed, updatedAt, userId: connection.userId })
+        versions.set(connection, updatedAt)
+        return
+      }
+      const updatedAt = Math.max(Date.now(), version + 1)
+      const [saved] = await db.update(consoleMcpConnections).set({ sealed, updatedAt })
+        .where(and(eq(consoleMcpConnections.id, connection.id), eq(consoleMcpConnections.userId, connection.userId), eq(consoleMcpConnections.updatedAt, version)))
+        .returning({ updatedAt: consoleMcpConnections.updatedAt })
+      if (saved) versions.set(connection, saved.updatedAt)
     },
     saveClient: async (key, client) => {
       const id = await sha256(key)

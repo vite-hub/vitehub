@@ -11,7 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } fr
 
 import { resetConsoleMcp } from "../src/mcp-client.ts"
 import { databaseConsoleMcpRecords } from "../src/mcp-client-records.ts"
-import { answerConsoleMcpCall } from "../src/mcp-client-rpc.ts"
+import { answerConsoleMcpCall, consoleMcpCallProject } from "../src/mcp-client-rpc.ts"
+import { consoleOutboundFetch } from "../src/outbound-fetch.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -26,6 +27,9 @@ const migrations = resolve(import.meta.dirname, "../server/databases/default/mig
 let origin = ""
 let requireOAuth = false
 const grants = new Map<string, string>()
+const sessions = new Map<string, StreamableHTTPServerTransport>()
+let initializeRequests = 0
+let otherOriginRequests = 0
 
 async function readBody(request: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = []
@@ -51,8 +55,25 @@ function fixtureServer(person: string): Server {
   return server
 }
 
+async function handleSession(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const body = request.method === "POST" ? JSON.parse(await readBody(request)) as unknown : undefined
+  const id = request.headers["mcp-session-id"]
+  let transport = typeof id === "string" ? sessions.get(id) : undefined
+  if (!transport) {
+    if (typeof id === "string") return json(response, 404, { error: "unknown_session" })
+    initializeRequests++
+    const created = new StreamableHTTPServerTransport({ onsessioninitialized: (sessionId) => { sessions.set(sessionId, created) }, sessionIdGenerator: () => crypto.randomUUID() })
+    await fixtureServer("anyone").connect(created)
+    transport = created
+  }
+  await transport.handleRequest(request, response, body)
+}
+
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? "/", origin)
+  if (request.headers.host?.startsWith("localhost:")) otherOriginRequests++
+  if (url.pathname === "/moved") return void response.writeHead(307, { location: `http://localhost:${url.port}/revoke` }).end()
+  if (url.pathname === "/session-mcp") return handleSession(request, response)
   if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) return json(response, 200, { authorization_servers: [origin], resource: `${origin}/mcp`, resource_name: "Fixture" })
   if (url.pathname === "/.well-known/oauth-authorization-server") {
     return json(response, 200, {
@@ -61,6 +82,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       issuer: origin,
       registration_endpoint: `${origin}/register`,
       response_types_supported: ["code"],
+      revocation_endpoint: `${origin}/moved`,
       token_endpoint: `${origin}/token`,
       token_endpoint_auth_methods_supported: ["none"],
     })
@@ -99,9 +121,13 @@ beforeAll(async () => {
 
 afterAll(() => new Promise<void>(done => http.close(() => done())))
 
-afterEach(() => {
+afterEach(async () => {
   requireOAuth = false
   grants.clear()
+  initializeRequests = 0
+  otherOriginRequests = 0
+  await Promise.all(Array.from(sessions.values(), transport => transport.close()))
+  sessions.clear()
   resetConsoleMcp()
 })
 
@@ -117,7 +143,7 @@ async function database() {
 }
 
 function scopeOf(db: Awaited<ReturnType<typeof database>>["db"], overrides: Partial<ConsoleMcpScope> = {}): ConsoleMcpScope {
-  return { allowPrivate: true, appOrigin: origin, projectId: "project-1", records: databaseConsoleMcpRecords(db, secret), redirectUrl, userId: "user-1", ...overrides }
+  return { allowPrivate: true, appOrigin: origin, fetch, projectId: "project-1", records: databaseConsoleMcpRecords(db, secret), redirectUrl, userId: "user-1", ...overrides }
 }
 
 let calls = 0
@@ -170,6 +196,44 @@ describe("Console MCP client", () => {
     expect(answer.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
   })
 
+  it("finishes a sign-in on the project in its state, when the browser opened another project since", async () => {
+    requireOAuth = true
+    const { db } = await database()
+    const started = valueOf(await call(scopeOf(db), "mcp-client.connect", { server: `${origin}/mcp` }))
+    const state = new URL(String(started.authorizationUrl)).searchParams.get("state")
+    grants.set("code-2", "Lucía")
+    const body = { a: [{ code: "code-2", state }], i: "complete", m: "mcp-client.complete", t: "q" }
+    expect(consoleMcpCallProject(body, "project-2")).toBe("project-1")
+    expect(consoleMcpCallProject({ ...body, m: "mcp-client.list" }, "project-2")).toBe("project-2")
+    expect(await answerConsoleMcpCall(body, scopeOf(db, { projectId: consoleMcpCallProject(body, "project-2") }))).toMatchObject({ r: { status: "connected" } })
+  })
+
+  it("opens a new MCP session for each operation, so request ids never repeat in a session", async () => {
+    const { db } = await database()
+    const scope = scopeOf(db)
+    const connection = Object(valueOf(await call(scope, "mcp-client.connect", { server: "/session-mcp" })).connection)
+    valueOf(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" }))
+    valueOf(await call(scope, "mcp-client.call", { arguments: { text: "hello" }, id: connection.id, tool: "echo" }))
+    expect(initializeRequests).toBe(3)
+  })
+
+  it("does not send the token to another origin when the revocation endpoint redirects", async () => {
+    requireOAuth = true
+    const { db } = await database()
+    const scope = scopeOf(db)
+    const started = valueOf(await call(scope, "mcp-client.connect", { server: `${origin}/mcp` }))
+    grants.set("code-3", "Lucía")
+    const finished = valueOf(await call(scope, "mcp-client.complete", { code: "code-3", state: new URL(String(started.authorizationUrl)).searchParams.get("state") }))
+    expect(valueOf(await call(scope, "mcp-client.disconnect", { id: finished.id }))).toMatchObject({ revoked: false })
+    expect(otherOriginRequests).toBe(0)
+  })
+
+  it("refuses a private address when it connects, not only by host name", async () => {
+    const metadata = `http://localhost:${new URL(origin).port}/.well-known/oauth-protected-resource`
+    await expect(consoleOutboundFetch(false)(metadata)).rejects.toMatchObject({ cause: { message: expect.stringContaining("private address") } })
+    expect((await consoleOutboundFetch(true)(metadata)).ok).toBe(true)
+  })
+
   it("keeps each person's connections to their own project", async () => {
     const { db } = await database()
     const connection = Object(valueOf(await call(scopeOf(db), "mcp-client.connect", { server: "/mcp" })).connection)
@@ -220,5 +284,21 @@ describe("Console MCP records", () => {
     await expect(records.client("issuer\nredirect\nserver")).resolves.toEqual({ client_id: "client-1" })
     const { rows } = await client.execute("SELECT id FROM console_mcp_clients")
     expect(String(rows[0]!.id)).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it("drop a stale save, and do not bring back a disconnected connection", async () => {
+    const { client, db } = await database()
+    const records = databaseConsoleMcpRecords(db, secret)
+    await records.save({ auth: "bearer", bearer: "old-token", createdAt: 1, id: "mcp_a", label: "A", labelled: true, projectId: "project-1", sameOrigin: false, status: "connected", url: "https://mcp.example.com/mcp", userId: "user-1" })
+    const first = (await records.connection("user-1", "project-1", "mcp_a"))!
+    const stale = (await records.connection("user-1", "project-1", "mcp_a"))!
+    first.bearer = "rotated-token"
+    await records.save(first)
+    stale.label = "Stale"
+    await records.save(stale)
+    await expect(records.connection("user-1", "project-1", "mcp_a")).resolves.toMatchObject({ bearer: "rotated-token", label: "A" })
+    await records.remove(first)
+    await records.save(first)
+    expect((await client.execute("SELECT id FROM console_mcp_connections")).rows).toHaveLength(0)
   })
 })
