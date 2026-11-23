@@ -1,6 +1,6 @@
 import { getInstanceId } from "@vite-hub/runtime"
 
-import { agentProcessHostIntake, registerAgentProcessHostIntake, type AgentProcessHostIntake } from "../process-host.ts"
+import { localAgentProcessHostIntake, registerAgentProcessHostForwardingIntake, type AgentProcessHostIntake } from "../process-host.ts"
 
 import type { Lease, LeaseStore } from "@vite-hub/runtime"
 import type { SqliteAgentStateExtension } from "../state/sqlite.ts"
@@ -23,7 +23,7 @@ export interface AgentProcessHostLeaseOptions {
   ttlMs?: number
   intervalMs?: number
   /** Starts the host. Resolves `false` when it did not start. */
-  promote: () => Promise<boolean>
+  promote: (canStart: () => boolean) => Promise<boolean>
   /** Stops the host. */
   demote: () => Promise<void>
   onError: (error: unknown) => void
@@ -34,8 +34,17 @@ export interface AgentProcessHostLease {
   role(): "holder" | "standby"
   /** The owner of the Lease, when the last check saw one. */
   holder(): string | undefined
-  tick(): Promise<void>
   stop(): Promise<void>
+}
+
+interface LeaseTerm {
+  lease: Lease
+  deadline: number
+  expiry?: ReturnType<typeof setTimeout>
+  startup?: Promise<void>
+  renewal?: Promise<void>
+  forwarding?: Promise<void>
+  running: boolean
 }
 
 /**
@@ -52,98 +61,148 @@ export function startAgentProcessHostLease(options: AgentProcessHostLeaseOptions
   const key = agentProcessHostLeaseKey(options.agentName)
   const owner = getInstanceId()
   const forward = createForwardedIntake(options.agentName, options.state)
-  let lease: Lease | undefined
-  let holder: string | undefined
-  let running = false
-  let heldUntil = 0
+  const windowMs = ttlMs - Math.min(intervalMs, ttlMs / 2)
+  let term: LeaseTerm | undefined
+  let peer: string | undefined
   let retryAt = 0
   let attempts = 0
-  let pending: Promise<void> | undefined
+  let acquisition: Promise<void> | undefined
+  let retiring: Promise<void> | undefined
+  let stopping: Promise<void> | undefined
   let stopped = false
+  const deliveries = new Set<Promise<Response>>()
 
-  forward.register()
+  const owns = (held: LeaseTerm) => term === held && performance.now() < held.deadline
+  const acceptsLocal = () => !stopped && term?.running === true && owns(term)
+  const unregister = registerAgentProcessHostForwardingIntake(options.agentName, local => {
+    if (!local || !acceptsLocal()) return forward.intake
+    const held = term
+    return (delivery) => {
+      if (term !== held || !acceptsLocal()) return forward.intake(delivery)
+      const pending = local(delivery).finally(() => deliveries.delete(pending))
+      deliveries.add(pending)
+      return pending
+    }
+  })
 
-  async function demote(): Promise<void> {
-    const held = lease
-    lease = undefined
-    try {
-      if (running) {
-        running = false
-        await options.demote()
+  async function release(lease: Lease): Promise<void> {
+    const [error] = await lease.release()
+    if (error) options.onError(error)
+  }
+
+  function retire(held: LeaseTerm, lost: boolean): Promise<void> {
+    held.running = false
+    if (lost) {
+      term = undefined
+      clearTimeout(held.expiry)
+    }
+    retiring ??= (async () => {
+      await held.startup
+      const [closed] = await Promise.all([
+        options.demote().then(() => true, error => { options.onError(error); return false }),
+        held.forwarding,
+        Promise.allSettled(deliveries),
+      ])
+      if (term === held) term = undefined
+      clearTimeout(held.expiry)
+      if (closed) await release(held.lease)
+    })().catch(options.onError).finally(() => { retiring = undefined })
+    return retiring
+  }
+
+  function expireAt(held: LeaseTerm, deadline: number): void {
+    clearTimeout(held.expiry)
+    held.deadline = deadline
+    const check = () => {
+      if (term !== held) return
+      const remaining = held.deadline - performance.now()
+      if (remaining <= 0) void retire(held, true)
+      else {
+        held.expiry = setTimeout(check, Math.ceil(remaining))
+        held.expiry.unref?.()
       }
     }
-    finally {
-      forward.register()
-    }
-    if (held) {
-      const [error] = await held.release()
-      if (error) options.onError(error)
-    }
+    check()
+  }
+
+  function forwardDeliveries(held: LeaseTerm): void {
+    if (!acceptsLocal() || held.forwarding) return
+    held.forwarding = forward.drain(acceptsLocal).catch(options.onError).finally(() => { held.forwarding = undefined })
   }
 
   async function take(): Promise<void> {
-    if (performance.now() < retryAt) return
+    const deadline = performance.now() + windowMs
     const [error, acquired] = await options.leases.acquire(key, { owner, ttl: ttlMs / 1000 })
+    peer = undefined
     if (error) return options.onError(error)
     if (!acquired) {
       const [readError, current] = await options.leases.get(key)
-      holder = readError ? holder : current?.owner
+      if (!readError) peer = current?.owner
       return
     }
-    lease = acquired
-    holder = owner
-    heldUntil = performance.now() + ttlMs
-    if (stopped) return await demote()
-    if (await options.promote()) {
-      running = true
-      attempts = 0
-      await forward.drain().catch(options.onError)
+    if (stopped || performance.now() >= deadline) return await release(acquired)
+    const held: LeaseTerm = { lease: acquired, deadline, running: false }
+    term = held
+    expireAt(held, deadline)
+    const canStart = () => !stopped && owns(held)
+    held.startup = options.promote(canStart).then(started => {
+      held.running = started && canStart()
+      if (!started) retryAt = performance.now() + Math.min(intervalMs * 2 ** attempts++, 30 * 60_000)
+      else {
+        attempts = 0
+        forwardDeliveries(held)
+      }
+    }).catch(options.onError).finally(() => {
+      held.startup = undefined
+      if (term === held && (!held.running || !owns(held) || stopped)) void retire(held, !owns(held))
+    })
+  }
+
+  async function keep(held: LeaseTerm): Promise<void> {
+    const deadline = performance.now() + windowMs
+    const [error, renewed] = await held.lease.renew({ ttl: ttlMs / 1000 })
+    if (term !== held) return
+    if (!owns(held) || (!error && !renewed)) {
+      void retire(held, true)
       return
     }
-    retryAt = performance.now() + Math.min(intervalMs * 2 ** attempts++, 30 * 60_000)
-    await demote()
+    if (error) return options.onError(error)
+    expireAt(held, deadline)
   }
 
-  async function keep(held: Lease): Promise<void> {
-    const startedAt = performance.now()
-    const [error, renewed] = await held.renew({ ttl: ttlMs / 1000 })
-    if (error) {
-      options.onError(error)
-      if (performance.now() + intervalMs >= heldUntil) await demote()
-      return
+  function tick(): void {
+    const held = term
+    if (held) {
+      if (!owns(held)) {
+        void retire(held, true)
+        return
+      }
+      held.renewal ??= keep(held).catch(options.onError).finally(() => { held.renewal = undefined })
+      forwardDeliveries(held)
     }
-    if (!renewed) return await demote()
-    heldUntil = startedAt + ttlMs
-    await forward.drain().catch(options.onError)
+    else if (!stopped && !retiring && performance.now() >= retryAt) {
+      acquisition ??= take().catch(options.onError).finally(() => { acquisition = undefined })
+    }
   }
 
-  function tick(): Promise<void> {
-    pending ??= (async () => {
-      if (stopped) return
-      if (lease) await keep(lease)
-      else await take()
-    })()
-      .catch(options.onError)
-      .finally(() => {
-        pending = undefined
-      })
-    return pending
-  }
-
-  const timer = setInterval(() => void tick(), intervalMs)
+  const timer = setInterval(tick, intervalMs)
   timer.unref?.()
-  void tick()
+  tick()
 
   return {
-    role: () => (running ? "holder" : "standby"),
-    holder: () => holder,
-    tick,
-    async stop() {
+    role: () => acceptsLocal() ? "holder" : "standby",
+    holder: () => acceptsLocal() ? owner : peer,
+    stop() {
       stopped = true
-      clearInterval(timer)
-      await pending
-      await demote()
-      forward.unregister()
+      stopping ??= (async () => {
+        await acquisition
+        if (term) await retire(term, !owns(term))
+        else await retiring
+      })().finally(() => {
+        clearInterval(timer)
+        unregister()
+      })
+      return stopping
     },
   }
 }
@@ -169,22 +228,19 @@ function createForwardedIntake(agentName: string, state: () => { extension(name:
     return Response.json({ accepted: true, forwarded: true }, { status: 202 })
   }
   return {
-    register() {
-      registerAgentProcessHostIntake(agentName, intake)
-    },
-    unregister() {
-      if (agentProcessHostIntake(agentName) === intake) registerAgentProcessHostIntake(agentName, undefined)
-    },
-    async drain() {
-      const target = agentProcessHostIntake(agentName)
-      if (!target || target === intake) return
+    intake,
+    async drain(active: () => boolean) {
+      const target = localAgentProcessHostIntake(agentName)
+      if (!target) return
       const store = await open()
-      for (;;) {
+      while (active()) {
         const rows = await store.execute(`SELECT delivery_id, event, payload FROM ${table()} WHERE agent = ? ORDER BY received_at, delivery_id LIMIT 20`, [agentName])
         if (!rows.length) return
         for (const row of rows) {
+          if (!active()) return
           const deliveryId = String(row.delivery_id)
-          await target({ deliveryId, event: String(row.event), payload: JSON.parse(String(row.payload)) })
+          const response = await target({ deliveryId, event: String(row.event), payload: JSON.parse(String(row.payload)) })
+          if (!response.ok) return
           await store.execute(`DELETE FROM ${table()} WHERE agent = ? AND delivery_id = ?`, [agentName, deliveryId])
         }
       }

@@ -405,38 +405,41 @@ export function createAgentProcessHosts(options: {
   const failures = new Map<string, string>()
   const gates = new Map<string, import("./process-host-lease.ts").AgentProcessHostLease>()
   let starting: Promise<void> | undefined
-  let closed = false
+  let closing: Promise<void> | undefined
+  let drained = false
   // A development server with production credentials must not repair real PRs by accident.
   const enabled = options.enabled ?? (process.env.NODE_ENV === "production" || process.env.VITEHUB_AGENT_PROCESS_HOSTS === "1")
   const retries = new Map<string, ReturnType<typeof setTimeout>>()
   const retryMs = options.retryMs ?? 60_000
-  const startHost = async (agentName: string, attempt: number, retry = true): Promise<boolean> => {
+  const startHost = async (agentName: string, attempt: number, canStart?: () => boolean): Promise<boolean> => {
     retries.delete(agentName)
-    if (closed) return false
+    if (closing) return false
     const { loadAgent } = await import("../index.ts")
     const { getAgentProcessHostContribution } = await import("../process-host.ts")
     const { join } = await import("node:path")
     try {
       const agent = await loadAgent(agentName, options.registry)
+      if (closing || canStart?.() === false) return false
       const contribution = getAgentProcessHostContribution(agent)
       if (!contribution) {
         failures.set(agentName, "The Agent has no process host contribution.")
         return false
       }
       const host = await contribution.create({ agentName, agent, state: options.state(), dataDir: join(options.dataDir ?? ".vitehub/agents", agentName) })
-      if (closed) {
+      if (closing || canStart?.() === false) {
         await host.close()
         return false
       }
-      failures.delete(agentName)
       hosts.set(agentName, host)
       host.start()
+      failures.delete(agentName)
       return true
     }
     catch (error) {
       failures.set(agentName, error instanceof Error ? error.message : String(error))
       console.error(`[vitehub] Agent process host "${agentName}" did not start.`, error)
-      if (!retry) return false
+      await stopHost(agentName).catch(error => console.error(`[vitehub] Agent process host "${agentName}" did not close.`, error))
+      if (canStart || closing) return false
       // A provider outage at boot, such as an unavailable GitHub API, must not stop the host until the next deploy.
       const delay = Math.min(retryMs * 2 ** attempt, 30 * 60_000)
       const timer = setTimeout(() => { void startHost(agentName, attempt + 1) }, delay)
@@ -462,44 +465,50 @@ export function createAgentProcessHosts(options: {
   }
   return {
     start() {
-      if (starting || closed || !enabled) return
+      if (starting || closing || !enabled) return
       const leases = leaseStore()
       if (!leases) {
         starting = Promise.all(options.names.map(agentName => startHost(agentName, 0))).then(() => undefined)
         return
       }
       starting = import("./process-host-lease.ts").then(({ startAgentProcessHostLease }) => {
-        if (closed) return
+        if (closing) return
         for (const agentName of options.names) {
           gates.set(agentName, startAgentProcessHostLease({
             ...options.lease,
             agentName,
             leases,
             state: options.state,
-            promote: () => startHost(agentName, 0, false),
+            promote: canStart => startHost(agentName, 0, canStart),
             demote: () => stopHost(agentName),
             onError: error => console.error(`[vitehub] The process host Lease of the Agent "${agentName}" failed.`, error),
           }))
         }
       })
     },
-    async close() {
-      closed = true
-      for (const timer of retries.values()) clearTimeout(timer)
-      retries.clear()
-      await starting
-      await Promise.all([...gates.values()].map(gate => gate.stop()))
-      await Promise.all([...hosts.values()].map(host => host.close()))
+    close() {
+      closing ??= (async () => {
+        for (const timer of retries.values()) clearTimeout(timer)
+        retries.clear()
+        await Promise.all([...gates.values()].map(gate => gate.stop()))
+        await starting
+        await Promise.all([...hosts.keys()].map(stopHost))
+        drained = true
+      })()
+      return closing
     },
     wake(reason) {
       for (const host of hosts.values()) host.wake(reason)
     },
     status() {
       if (!enabled) return "drained"
+      if (closing) return drained ? "drained" : "draining"
       const statuses = [...hosts.values()].map(host => host.status())
-      if (!statuses.length && gates.size && !closed) return "accepting"
-      if (failures.size && !statuses.length) return "failed"
-      if (!statuses.length) return closed ? "drained" : "starting"
+      for (const name of failures.keys()) {
+        const gate = gates.get(name)
+        if (gate ? !gate.holder() : !statuses.length) return "failed"
+      }
+      if (!statuses.length) return gates.size ? "accepting" : "starting"
       for (const status of ["failed", "draining", "starting", "accepting"] as const) if (statuses.includes(status)) return status
       return "drained"
     },
@@ -507,7 +516,10 @@ export function createAgentProcessHosts(options: {
       const agents: Record<string, unknown> = {}
       for (const [name, reason] of failures) agents[name] = { status: "degraded", reason }
       for (const [name, gate] of gates) {
-        if (gate.role() === "standby") agents[name] = { status: "healthy", role: "standby", holder: gate.holder() }
+        if (gate.role() !== "standby") continue
+        const holder = gate.holder()
+        if (!failures.has(name) || holder) agents[name] = { status: "healthy", role: "standby", holder }
+        else agents[name] = { status: "degraded", role: "standby", reason: failures.get(name) }
       }
       for (const [name, host] of hosts) agents[name] = { ...await host.health(), ...gates.has(name) ? { role: "holder" } : {} }
       if (!enabled) for (const name of options.names) agents[name] = { status: "degraded", reason: "Process hosts start in production or with VITEHUB_AGENT_PROCESS_HOSTS=1." }

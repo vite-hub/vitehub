@@ -172,7 +172,6 @@ export function pullRequestFilterContext(repository: string, pr: GitHubPullReque
 const stringValue = (value: unknown): string => isRuntimeString(value) ? value : String(value)
 const databaseNow = "CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER)"
 const clockSampleIntervalMs = 30_000
-const clockSkewToleranceMs = 1_000
 const ciEvidencePrefix = 'ci-evidence:v1:'
 const ciEvidenceAtPrefix = 'ci-evidence-at:v1:'
 const legacyRecordSchema = v.record(v.string(), v.unknown())
@@ -274,8 +273,8 @@ export class PullRequestInbox {
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
   private repositoryList: () => readonly string[]
   private clock: () => number
-  private clockOffset: number | undefined
-  private clockSampledAt = Number.NEGATIVE_INFINITY
+  private usesDatabaseClock: boolean
+  private clockSample?: { time: number; sampledAt: number }
   private filter?: GitHubPullRequestFilter
   /** Whether a maintainer's approval admits an author the filter leaves out. */
   readonly admitApproved: boolean
@@ -300,8 +299,11 @@ export class PullRequestInbox {
       const fixed = repositories.map(repository => repository.toLowerCase())
       this.repositoryList = () => fixed
     }
-    this.clockOffset = clock ? undefined : 0
-    this.clock = clock ?? (() => Date.now() + (this.clockOffset ?? 0))
+    this.usesDatabaseClock = clock === undefined
+    this.clock = clock ?? (() => {
+      const sample = this.clockSample
+      return sample ? sample.time + Math.floor(performance.now() - sample.sampledAt) : Date.now()
+    })
     this.filter = filter
     this.admitApproved = admitApproved
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -364,13 +366,11 @@ export class PullRequestInbox {
     return this.clock()
   }
   private async syncClock(tx: PullRequestInboxExecutor): Promise<void> {
-    if (this.clockOffset === undefined || performance.now() - this.clockSampledAt < clockSampleIntervalMs) return
+    if (!this.usesDatabaseClock || (this.clockSample && performance.now() - this.clockSample.sampledAt < clockSampleIntervalMs)) return
     const [row] = await tx.execute(`SELECT ${databaseNow} AS now`)
     const now = Number(row?.now)
     if (!Number.isFinite(now)) return
-    const offset = now - Date.now()
-    this.clockOffset = Math.abs(offset) < clockSkewToleranceMs ? 0 : offset
-    this.clockSampledAt = performance.now()
+    this.clockSample = { time: now, sampledAt: performance.now() }
   }
   private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.init()

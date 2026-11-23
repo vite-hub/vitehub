@@ -60,6 +60,26 @@ it.each([
   await state.disconnect()
 })
 
+it('does not reclaim a live lease after the host clock steps forward', async () => {
+  const state = await sharedState()
+  try {
+    const storage = state.extension('babysitter')
+    const claimer = new PullRequestInbox({ storage, repositories: [repository] })
+    const taker = new PullRequestInbox({ storage, repositories: [repository] })
+    await claimer.seed(repository, pr(7))
+    const [claim] = await claimer.claim(1)
+    expect(claim?.snapshot.number).toBe(7)
+    expect(await taker.claim(1)).toEqual([])
+    await withHostClock(3 * hours, async () => {
+      expect(await taker.claim(1)).toEqual([])
+      expect(claimStopReason(claim!, await claimer.get(repository, 7), undefined, claimer.now())).toBeUndefined()
+    })
+  }
+  finally {
+    await state.disconnect()
+  }
+})
+
 it('keeps the clock option for tests', async () => {
   const inbox = new PullRequestInbox({ path: ':memory:', repositories: [repository], clock: () => 1_000 })
   expect(inbox.now()).toBe(1_000)

@@ -187,7 +187,7 @@ ViteHub handles stop signals only where the Nitro server does: the `node`, `node
 
 A discovered Agent with a process host, such as the [Babysitter](/docs/presets/babysitter), gets a generated host on the Node server preset. With a ViteHub Database named `default`, only one server at a time runs the host of each Agent. That server holds the Lease `agent-process-host:<agent>` in the [Leases](/docs/guides/run-one-at-a-time) table. The other servers wait.
 
-- Each server checks the Lease every 5 seconds. The holder renews it, and it lasts 25 seconds. When the holder stops or crashes, another server starts the host within about 30 seconds.
+- Each server checks the Lease every 5 seconds. The holder renews it, and it lasts 25 seconds. During graceful shutdown the holder forwards new deliveries and renews the Lease until its host drains. If the holder crashes, another server starts the host within about 30 seconds.
 - The holder stops its host when it cannot renew the Lease before the Lease ends. It counts this time on its own monotonic clock, and the Lease ends on the Database clock, so the server clocks do not need to agree.
 - The new holder fails the inline Invocations that the old holder left running, as a restarted host does. It does not run them again. An inline Invocation runs at most once.
 - A server that waits keeps each webhook delivery for the host in Agent State and answers `202`. The holder hands the deliveries to its host at its next Lease check. Use shared Agent State, such as remote libSQL, so that the holder can read them.
