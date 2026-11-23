@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { resolve, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { isMap, isSeq, parseDocument } from "yaml"
 
 const root = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(root, ".github/workflows/release-pr.yml"), "utf8")
@@ -30,8 +31,6 @@ describe("release PR workflow", () => {
     expect(workflow).toContain('checkout: "false"')
     expect(workflow).toContain("packages/*")
     expect(workflow).toContain("for workflow in ci.yml; do")
-    expect(workflow).toContain('actions/workflows/${workflow}/runs?head_sha=${head_sha}')
-    expect(workflow).toContain('select(.status == "completed" and .conclusion == "success")')
     expect(workflow).toContain('gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"')
     expect(workflow).toContain("actions: write")
     expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository")
@@ -57,6 +56,62 @@ describe("release PR workflow", () => {
     expect(workflow).not.toContain("commit -m")
     expect(workflow).not.toContain("push origin")
     expect(workflow).not.toContain("--lockfile-only")
+  })
+
+  const fullRun = { id: 42, head_sha: "candidate-sha", event: "workflow_dispatch", status: "completed", conclusion: "success" }
+  it.each([
+    ...["requested", "queued", "pending", "waiting", "in_progress"].map(status => ({
+      scenario: `${status} full run`, runs: [{ ...fullRun, status, conclusion: null }], dispatch: false,
+    })),
+    { scenario: "successful full run", runs: [fullRun], dispatch: false },
+    { scenario: "failed full run", runs: [{ ...fullRun, conclusion: "failure" }], dispatch: true },
+    { scenario: "cancelled full run", runs: [{ ...fullRun, conclusion: "cancelled" }], dispatch: true },
+    { scenario: "successful lightweight PR run", runs: [{ ...fullRun, event: "pull_request" }], dispatch: true },
+    { scenario: "successful full run for an older SHA", runs: [{ ...fullRun, head_sha: "older-sha" }], dispatch: true },
+    { scenario: "empty run history", runs: [], dispatch: true },
+  ])("decides whether to dispatch CI with $scenario", ({ runs, dispatch }) => {
+    const steps = parseDocument(workflow).getIn(["jobs", "proposal", "steps"], true)
+    if (!isSeq(steps)) throw new Error("Missing release proposal steps")
+    const step = steps.items.find(item => isMap(item) && item.get("name") === "Check the release PR and run required checks")
+    const script = isMap(step) ? step.get("run") : undefined
+    if (typeof script !== "string") throw new TypeError("Missing release proposal check script")
+
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-release-ci-"))
+    try {
+      const output = execFileSync("bash", ["--noprofile", "--norc", "-c", `
+        git() { :; }
+        node() { :; }
+        gh() {
+          case "$1:$2" in
+            api:*/pulls*) echo release/v0.5.0 ;;
+            api:*/git/ref/heads/*) echo candidate-sha ;;
+            api:*/actions/workflows/ci.yml/runs*)
+              jq --arg query "\${2#*\\?}" '
+                ($query | split("&") | map(split("=") | {key: .[0], value: .[1]}) | from_entries) as $filters
+                | .workflow_runs |= map(select(.head_sha == $filters.head_sha and ($filters.event == null or .event == $filters.event)))
+              ' <<< "$WORKFLOW_RUNS" | jq -r "$4"
+              ;;
+            workflow:run) printf 'dispatch %s\\n' "\${*:3}" ;;
+            *) return 1 ;;
+          esac
+        }
+        ${script}
+      `], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_REPOSITORY: "vite-hub/vitehub",
+          GITHUB_WORKSPACE: root,
+          RUNNER_TEMP: directory,
+          WORKFLOW_RUNS: JSON.stringify({ workflow_runs: runs }),
+        },
+      })
+      expect(output.split("\n").filter(line => line.startsWith("dispatch ")))
+        .toEqual(dispatch ? ["dispatch ci.yml --repo vite-hub/vitehub --ref release/v0.5.0"] : [])
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it("rejects a branch or package version mismatch", () => {

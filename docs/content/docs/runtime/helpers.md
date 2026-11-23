@@ -42,8 +42,10 @@ Check the import on the package page, the Vite plugin registration, and the gene
 The options below read the same duration string: a number, an optional space, and a unit.
 
 ```ts [server/api/session.post.ts] fragment
-await kv.set('session', session, { ttl: '1h' })
-await startWorkflow('reminder', payload, { delay: '3 days' })
+const [kvError] = await kv.set('session', session, { ttl: '1h' })
+if (kvError) throw kvError
+const [workflowError] = await startWorkflow('reminder', payload, { delay: '3 days' })
+if (workflowError) throw workflowError
 ```
 
 | Unit | Long names |

@@ -116,12 +116,16 @@ jobs:
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
           # ci.yml reports "ci" and "publish preview packages".
           for workflow in ci.yml; do
-            successful_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=100" \
-              --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
-            if [[ "$successful_runs" == "0" ]]; then
+            reusable_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&event=workflow_dispatch&per_page=100" \
+              --jq '.workflow_runs[]
+                | select(.status == "requested" or .status == "queued" or .status == "pending"
+                    or .status == "waiting" or .status == "in_progress"
+                    or (.status == "completed" and .conclusion == "success"))
+                | .id' --paginate)"
+            if [[ -z "$reusable_runs" ]]; then
               gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"
             else
-              echo "$workflow already succeeded for $release_branch at $head_sha"
+              echo "$workflow already has an active or successful run for $release_branch at $head_sha"
             fi
           done
 

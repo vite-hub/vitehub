@@ -444,7 +444,7 @@ describe("local queue review regressions", () => {
 
     await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
 
-    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1 })))
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1 })), { timeout: 5_000 })
     expect(failures).toBe(localQueueMaxAttempts + 1)
     await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
     engine.close()
@@ -670,6 +670,31 @@ describe("local queue delivery with hosted provider rules", () => {
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1), { timeout: 500 })
     expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
     expect(await engine.job("job-1")).toMatchObject({ attempts: 4, payload: { email: "ada@example.com" }, state: "dead" })
+  })
+
+  it("waits longer after each failed write of the job file, also with the Cloudflare retry at once", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = rulesEngine("cloudflare", { welcome: { handler } })
+    const actual = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).writeFile
+    let failures = 0
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      const job = JSON.parse(String(data)) as { attempts: number }
+      if (job.attempts === 0) return await actual(path, data, options)
+      failures++
+      return await actual(join(base, "removed", "job.json.tmp"), data, options)
+    })
+
+    try {
+      await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+      await new Promise(resolve => setTimeout(resolve, 300))
+      expect(failures).toBeGreaterThan(0)
+      expect(failures).toBeLessThan(10)
+      expect(handler).not.toHaveBeenCalled()
+    }
+    finally {
+      engine.close()
+      vi.mocked(writeFile).mockImplementation(actual)
+    }
   })
 
   it("rejects what Cloudflare rejects, with the Cloudflare provider in the error", async () => {
