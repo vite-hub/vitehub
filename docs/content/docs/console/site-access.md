@@ -39,7 +39,7 @@ A custom adapter goes in the Definition callback, `defineAuth(() => ({ ... }))`.
 
 `input: false` stops users from setting their own roles. Leave `returned` unset or set it to `true` so page tools can read the role from the session. Site access refuses a field that users can set or that is hidden from sessions.
 
-Before it makes a link, Site access checks that Auth has a Better Auth database and a correct `role` field. If a check fails, `site.link` and `site.invite` fail with `409` and `AUTH_CONSOLE_UNAVAILABLE`, and the Console shows the error and how to fix it. Account and session checks still run when someone opens the link. For example, an existing member account with an unverified email cannot sign in through the link.
+Before it makes a link, Site access checks that Auth has a Better Auth database and a correct `role` field. In production, `database: "memory"` does not count: a session in memory works only on the instance that opened the link. If a check fails, `site.link` and `site.invite` fail with `409` and `AUTH_CONSOLE_UNAVAILABLE`, and the Console shows the error and how to fix it. Account and session checks still run when someone opens the link. For example, an existing member account with an unverified email cannot sign in through the link.
 
 A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 

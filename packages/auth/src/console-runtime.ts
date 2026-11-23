@@ -12,7 +12,7 @@ import { accessPolicyPluginId } from "./access-policy.ts";
 import { membersVariable } from "./members.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
-import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
+import { isAuthProcessMemoryDatabase, isDevelopmentServer } from "./runtime-state.ts";
 import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
 import type {
   AuthConsoleAction,
@@ -1226,11 +1226,16 @@ export function createAuthConsole(
       throw authConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
     return ctx.internalAdapter;
   }
-  /** The Better Auth context for host users and sessions: the `user.role` field keeps the roles, a database keeps the rest. */
+  /**
+   * The Better Auth context for host users and sessions: the `user.role` field keeps the roles, a database keeps the rest.
+   * Outside a development server, the memory database that Auth adds does not count: it keeps a session on one instance.
+   */
   async function hostContext() {
     const ctx = await context();
     if (!ctx.options.database || !ctx.internalAdapter || !ctx.authCookies || !ctx.secret || !ctx.sessionConfig)
       throw authConsoleError(409, "Signing a browser in from the Console needs a Better Auth database.");
+    if (isAuthProcessMemoryDatabase(ctx.options.database) && !isDevelopmentServer())
+      throw authConsoleError(409, "Auth keeps users and sessions in memory, so a browser that Site access signs in works only on the instance that opened the link, until it restarts. Set `database: authDatabase()` from `vite-hub/auth/database`.");
     const role = getAuthTables(ctx.options).user?.fields.role;
     if (!role)
       throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`.");

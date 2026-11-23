@@ -18,7 +18,7 @@ import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
-import { authProcessMemoryDatabase, getAuthRuntimeState, isAuthProcessMemoryDatabase, resetAuth } from "./runtime-state.ts"
+import { authProcessMemoryDatabase, getAuthRuntimeState, isAuthProcessMemoryDatabase, isDevelopmentServer, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -69,20 +69,6 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
     return memoryAdapter(tables)(options)
   }
   return Object.assign(database, { [authProcessMemoryDatabase]: true })
-}
-
-declare const __VITEHUB_AUTH_DEV__: boolean | undefined
-
-/**
- * True on a development server. The Auth Vite plugin sets `__VITEHUB_AUTH_DEV__` in the server bundle: `true` for
- * `vite dev` and a Nitro dev server, `false` for a build. A Cloudflare Worker has no `NODE_ENV`, so the flag decides there.
- */
-function isDevelopmentServer(): boolean {
-  if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
-  if (getViteHubTestMode()) return true
-  // Code that a ViteHub build did not bundle, such as a test runner, has no flag.
-  const mode = globalThis.process?.env?.NODE_ENV
-  return mode === "development" || mode === "test"
 }
 
 /**

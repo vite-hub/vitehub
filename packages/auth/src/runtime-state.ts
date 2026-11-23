@@ -1,3 +1,4 @@
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { AccessAuthorizationContext, ViteHubContext } from "@vite-hub/runtime"
 import type { AuthDefinition, AuthRequestInput, ViteHubAuth } from "./types.ts"
 
@@ -34,6 +35,20 @@ export const authProcessMemoryDatabase: unique symbol = Symbol.for("vitehub.auth
 /** Whether a Better Auth `database` option is the process memory database that Auth adds. */
 export function isAuthProcessMemoryDatabase(database: unknown): boolean {
   return database instanceof Object && Reflect.get(database, authProcessMemoryDatabase) === true
+}
+
+declare const __VITEHUB_AUTH_DEV__: boolean | undefined
+
+/**
+ * True on a development server. The Auth Vite plugin sets `__VITEHUB_AUTH_DEV__` in the server bundle: `true` for
+ * `vite dev` and a Nitro dev server, `false` for a build. A Cloudflare Worker has no `NODE_ENV`, so the flag decides there.
+ * Code that a ViteHub build did not bundle, such as a test runner, has no flag and reads `NODE_ENV`.
+ */
+export function isDevelopmentServer(): boolean {
+  if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
+  if (getViteHubTestMode()) return true
+  const mode = globalThis.process?.env?.NODE_ENV
+  return mode === "development" || mode === "test"
 }
 
 export function getAuthRuntimeState(): AuthRuntimeState {

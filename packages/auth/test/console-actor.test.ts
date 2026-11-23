@@ -2,7 +2,7 @@ import { admin } from "better-auth/plugins";
 import { adminAc, defaultStatements } from "better-auth/plugins/admin/access";
 import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
 import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
@@ -12,6 +12,7 @@ const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
 afterEach(() => {
   for (const close of closers.splice(0)) close();
+  vi.unstubAllGlobals();
 });
 
 async function app(options?: Parameters<typeof consoleEventsFixture>[0]) {
@@ -319,6 +320,16 @@ describe("users and sessions that a host signs in", () => {
     const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: headers!.get("set-cookie")!.split(";")[0]! }) });
     expect(session?.user).toMatchObject({ id: fixture.member.id, role: expect.stringContaining("console,comments-write") });
     expect((await fixture.request("sign-up/email", { name: "Eve", email: "eve@example.com", password: "passwordpassword", role: "console" })).status).toBe(400);
+  });
+
+  it("refuses the memory database in production, where a session lives on one instance, and keeps it on a development server", async () => {
+    const definition = defineFixedAuth({ database: "memory", emailAndPassword: { enabled: true }, secret: "console-actor-memory-host-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
+    const api = createAuthConsole(createAuthForRequest(definition, new Request(origin)));
+    expect(await api.checkHost()).toEqual([undefined, undefined]);
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false);
+    const [error] = await api.checkHost();
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("authDatabase()") });
+    expect((await api.hostUser({ name: "Ana", roles: ["guest"] }))[0]).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: error!.message });
   });
 
   it("tells an app without a role field how to add one", async () => {
