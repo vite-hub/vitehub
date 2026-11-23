@@ -615,7 +615,7 @@ Use filesystem storage on one machine with one process. Each object is the file 
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Public or CDN base URL for objects, instead of signed URLs when supported. |
 
-The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. In `vite dev`, a `cloudflare` store uses the dev runner's emulated R2 binding when it has one, or the local `fs` driver on the Node runner, instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. Unless `remote: true` is set, a `cloudflare` store in `vite dev` uses the dev runner's emulated R2 binding when it has one, or the local `fs` driver on the Node runner, instead of the HTTP credentials; with `remote: true`, `vite dev` uses the real R2 bucket over HTTP. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 

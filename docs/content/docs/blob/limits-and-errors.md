@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle Blob errors
 
-Each Blob method returns `[error, value]`. On success, `error` is `undefined`. When `error` is set, `error.code` is `BLOB_CONFLICT`, `BLOB_INVALID_CURSOR`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.why` tells what went wrong and names the operation and the store, `error.fix` tells what to do, `error.docs` links to the code in [Blob diagnostics](/docs/blob/diagnostics), and `error.cause` keeps the provider error. Invalid arguments and configuration errors throw instead. See [Server API](/docs/blob/server-api) for each method.
+Each Blob method returns `[error, value]`. On success, `error` is `undefined`. When `error` is set, `error.code` is `BLOB_CONFLICT`, `BLOB_INVALID_CURSOR`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.why` explains what went wrong, `error.fix` tells what to do, `error.docs` links to the code in [Blob diagnostics](/docs/blob/diagnostics), and `error.cause` keeps the underlying error when one exists. Invalid arguments and configuration errors throw instead. See [Server API](/docs/blob/server-api) for each method.
 
 ```ts [server/api/notes.post.ts]
 import { defineEventHandler } from 'h3'
@@ -61,10 +61,6 @@ On Vercel, a request body above 4.5 MB gets `413 FUNCTION_PAYLOAD_TOO_LARGE` bef
 
 `blob.copy()` or a media move found a file at the target pathname, or a folder removal found files in the folder. Pass `{ overwrite: true }` to replace the file. A `put()` returns it when its `ifMatch` or `overwrite: false` condition does not hold: read the file again, and retry with its new `httpEtag`.
 
-### BLOB_INVALID_CURSOR
-
-`blob.list()` received a cursor that this store did not return, or that no longer matches the listing options. Pass the `cursor` of the previous `list()` result on the same store with the same `prefix` and `folded`, or omit `cursor` to read the first page.
-
 ### BLOB_NOT_FOUND
 
 The file does not exist. The error has `statusCode: 404`, but H3 answers the status of a thrown error only for its own `HTTPError`, so a route that rethrows it answers `500`. Map the code in the route: `if (error?.code === 'BLOB_NOT_FOUND') throw new HTTPError({ status: 404 })`.
@@ -75,4 +71,4 @@ The provider failed. Read `error.cause` for the provider error.
 
 ### BLOB_PATHNAME_TOO_LONG
 
-The pathname is too long for the store. Cloudflare R2 accepts keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`. A non-ASCII character takes two to four bytes. `error.cause.message` has the size. Use a shorter pathname.
+The pathname is too long for the store. Cloudflare R2 accepts keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`. A non-ASCII character takes two to four bytes. `error.why` has the size. Use a shorter pathname.
