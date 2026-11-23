@@ -27,16 +27,21 @@ async function* readEvents(body: ReadableStream<Uint8Array>, signal?: AbortSigna
   let buffer = ""
   let type = ""
   let data: string[] = []
+  let carriageReturn = false
   try {
     for (;;) {
       const { value, done } = await reader.read()
       if (done) return
       buffer += decoder.decode(value, { stream: true })
+      if (carriageReturn && buffer) {
+        if (buffer.startsWith("\n")) buffer = buffer.slice(1)
+        carriageReturn = false
+      }
       for (;;) {
         const end = buffer.search(/[\r\n]/)
-        // A `\r` at the end can be the first half of `\r\n`, so it waits for the next chunk.
-        if (end < 0 || (buffer[end] === "\r" && end === buffer.length - 1)) break
+        if (end < 0) break
         const line = buffer.slice(0, end)
+        carriageReturn = buffer[end] === "\r" && end === buffer.length - 1
         buffer = buffer.slice(end + (buffer.startsWith("\r\n", end) ? 2 : 1))
         if (line === "") {
           if (data.length) yield { type: type || "message", data: data.join("\n") }
