@@ -163,6 +163,7 @@ type NuxtLike = {
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
     (name: "build:before" | "modules:done" | "nitro:build:before", callback: () => void): void
     (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
+    (name: "imports:extend", callback: (imports: Array<{ as?: string, from: string, name: string }>) => void): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -185,7 +186,7 @@ type NuxtLike = {
       route?: string
     }>
     imports?: {
-      imports?: Array<{ as?: string, from: string, name: string }>
+      imports?: Array<{ as?: string, from: string, name: string, priority?: number }>
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
@@ -579,16 +580,41 @@ export default defineNuxtPlugin({
   if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
 
+const vueImportWarnings = new WeakMap<object, Set<string>>()
+const vueScanCheckRegistered = new WeakSet<object>()
+
 function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
   nuxt.options.imports ??= {}
   const imports = (nuxt.options.imports.imports ??= [])
+  const priority = -(nuxt.options._layers?.length || 1)
   for (const name of names) {
     const existing = imports.find(entry => (entry.as ?? entry.name) === name)
-    if (existing && existing.from !== from) {
-      throw viteHubErrorDiagnostics.VITE_HUB_B0008({ message: `[vitehub] Cannot auto-import ${name} from ${from} because it is already configured from ${existing.from}.` })
-    }
-    if (!existing) imports.push({ from, name })
+    if (!existing) imports.push({ from, name, priority })
+    else if (existing.from !== from) warnVueImportClash(nuxt, name, existing.from, from)
   }
+  if (vueScanCheckRegistered.has(nuxt)) return
+  vueScanCheckRegistered.add(nuxt)
+  const rootDir = nuxt.options.rootDir || process.cwd()
+  nuxt.hook?.("imports:extend", (scanned) => {
+    const viteHubImports = new Map<string, string>()
+    for (const entry of nuxt.options.imports?.imports ?? []) {
+      if (/^@?vite-hub\//.test(entry.from)) viteHubImports.set(entry.as ?? entry.name, entry.from)
+    }
+    for (const entry of scanned) {
+      const name = entry.as ?? entry.name
+      const viteHubFrom = viteHubImports.get(name)
+      if (viteHubFrom && entry.from !== viteHubFrom) warnVueImportClash(nuxt, name, isAbsolute(entry.from) ? relative(rootDir, entry.from) : entry.from, viteHubFrom)
+    }
+  })
+}
+
+function warnVueImportClash(nuxt: NuxtLike, name: string, owner: string, from: string): void {
+  let warned = vueImportWarnings.get(nuxt)
+  if (!warned) vueImportWarnings.set(nuxt, (warned = new Set()))
+  const key = `${name}\0${owner}`
+  if (warned.has(key)) return
+  warned.add(key)
+  console.warn(`[vitehub] ${owner} already auto-imports \`${name}\`, so ViteHub does not auto-import it from ${from}. Import ViteHub's composable from "${from}" where you need it.`)
 }
 
 /**

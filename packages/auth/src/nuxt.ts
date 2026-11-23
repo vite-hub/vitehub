@@ -42,7 +42,7 @@ type NuxtLike = {
       extraPageMetaExtractionKeys?: string[]
     }
     imports?: {
-      imports?: Array<{ from: string, name: string }>
+      imports?: Array<{ as?: string, from: string, name: string, priority?: number }>
     }
     nitro?: {
       alias?: Record<string, string>
@@ -80,6 +80,7 @@ type NuxtComponent = {
 }
 
 const composables = ["useAbility", "useAuthClient", "useUserSession"]
+const composableWarnings = new WeakMap<object, Set<string>>()
 /** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
 const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
@@ -328,12 +329,17 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
 
   nuxt.options.imports ??= {}
   nuxt.options.imports.imports ??= []
+  const importsFrom = options.importsFrom || "@vite-hub/auth/vue"
+  const priority = -(nuxt.options._layers?.length || 1)
   for (const name of composables) {
-    if (!nuxt.options.imports.imports.some((entry) => entry.name === name)) {
-      nuxt.options.imports.imports.push({
-        from: options.importsFrom || "@vite-hub/auth/vue",
-        name,
-      })
+    const existing = nuxt.options.imports.imports.find(entry => (entry.as ?? entry.name) === name)
+    if (!existing) nuxt.options.imports.imports.push({ from: importsFrom, name, priority })
+    else if (existing.from !== importsFrom) {
+      const warned = composableWarnings.get(nuxt) ?? new Set<string>()
+      composableWarnings.set(nuxt, warned)
+      if (warned.has(`${name}\0${existing.from}`)) continue
+      warned.add(`${name}\0${existing.from}`)
+      console.warn(`[vitehub] ${existing.from} already auto-imports \`${name}\`, so ViteHub does not auto-import it from ${importsFrom}. Import ViteHub's composable from "${importsFrom}" where you need it.`)
     }
   }
 

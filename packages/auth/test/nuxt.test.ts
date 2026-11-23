@@ -324,6 +324,25 @@ describe("Auth Nuxt integration", () => {
     expect(runtime).toContain("setAuthRuntimeEnvResolver(useServerEnv, definition)")
   })
 
+  it("skips a useUserSession that another source already auto-imports and warns once", () => {
+    const nuxt = createNuxt()
+    nuxt.options.imports.imports.push({ from: "nuxt-auth-utils", name: "useUserSession" })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      hubAuthNuxt({ importsFrom: "vite-hub/auth/vue" }, nuxt)
+      hubAuthNuxt({ importsFrom: "vite-hub/auth/vue" }, nuxt)
+
+      expect(nuxt.options.imports.imports.filter(entry => entry.name === "useUserSession")).toEqual([{ from: "nuxt-auth-utils", name: "useUserSession" }])
+      expect(nuxt.options.imports.imports).toContainEqual({ from: "vite-hub/auth/vue", name: "useAbility", priority: -1 })
+      expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("useUserSession"))).toEqual([
+        "[vitehub] nuxt-auth-utils already auto-imports `useUserSession`, so ViteHub does not auto-import it from vite-hub/auth/vue. Import ViteHub's composable from \"vite-hub/auth/vue\" where you need it.",
+      ])
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
   it("installs Vue composables and the server Env runtime once", () => {
     const nuxt = createNuxt()
 
@@ -335,9 +354,9 @@ describe("Auth Nuxt integration", () => {
 
     expect(nuxt.options.imports.imports).toEqual([
       { from: "app/composables", name: "useSession" },
-      { from: "vite-hub/auth/vue", name: "useAbility" },
-      { from: "vite-hub/auth/vue", name: "useAuthClient" },
-      { from: "vite-hub/auth/vue", name: "useUserSession" },
+      { from: "vite-hub/auth/vue", name: "useAbility", priority: -1 },
+      { from: "vite-hub/auth/vue", name: "useAuthClient", priority: -1 },
+      { from: "vite-hub/auth/vue", name: "useUserSession", priority: -1 },
     ])
     expect(nuxt.options.alias).toEqual({
       "#existing": "/tmp/existing.mjs",
