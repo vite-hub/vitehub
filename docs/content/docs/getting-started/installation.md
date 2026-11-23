@@ -211,7 +211,7 @@ If another third-party dependency version falls outside the range supported by y
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
-| `channels` | `@vite-hub/channels` |
+| `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
@@ -244,7 +244,7 @@ If another third-party dependency version falls outside the range supported by y
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 | `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
 
-If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations.
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations. With npm, pass `--save-exact` for pinned Drizzle RC packages so `package.json` keeps the exact version instead of a `^` range. For example, run `npm install --save-exact drizzle-orm@1.0.0-rc.5` and `npm install -D --save-exact drizzle-kit@1.0.0-rc.5`.
 
 Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 

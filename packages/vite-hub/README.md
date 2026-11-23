@@ -37,7 +37,7 @@ pnpm add vite-hub
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
-| `channels` | `@vite-hub/channels` |
+| `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
@@ -70,7 +70,7 @@ pnpm add vite-hub
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 | `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
 
-If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations.
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations. With npm, pass `--save-exact` for pinned Drizzle RC packages so `package.json` keeps the exact version instead of a `^` range. For example, run `npm install --save-exact drizzle-orm@1.0.0-rc.5` and `npm install -D --save-exact drizzle-kit@1.0.0-rc.5`.
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
 
