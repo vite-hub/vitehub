@@ -67,9 +67,11 @@ Turn on Nuxt's own switch to auto-import them. The module then auto-imports
 the server helpers of each feature that you turn on, and `nuxt typecheck`
 knows their types.
 
+Install `@vite-hub/kv` for this example.
+
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
+  modules: [['vite-hub/nuxt', { kv: true }]],
   experimental: { nitroAutoImports: true },
 })
 ```

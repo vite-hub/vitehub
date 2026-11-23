@@ -18,7 +18,6 @@ import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
-import { scanServerExports } from "./internal/server-scan-exports.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
 import { withPrintedDiagnostics } from "./hook-errors.ts"
@@ -61,7 +60,7 @@ import type { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { HookHandler, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 import { assertNoRemovedViteHubOptions } from "./removed-options.ts"
-import { nuxtServerAutoImportsEnabled, resolveViteHubServerImports, type ServerAutoImport } from "./nuxt-server-imports.ts"
+import { nuxtServerAutoImportsEnabled, resolveViteHubServerImports } from "./nuxt-server-imports.ts"
 
 const doctorExtensionEntry = fileURLToPath(new URL("./doctor", import.meta.url))
 const consoleRuntimeRoot = fileURLToPath(new URL("./console/runtime", import.meta.url))
@@ -591,42 +590,6 @@ function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
       throw viteHubErrorDiagnostics.VITE_HUB_B0008({ message: `[vitehub] Cannot auto-import ${name} from ${from} because it is already configured from ${existing.from}.` })
     }
     if (!existing) imports.push({ from, name })
-  }
-}
-
-/**
- * Add ViteHub's server helpers to the auto-imports that Nuxt 5 gives to Nitro code. The caller adds them only when the
- * app turns on Nuxt's server auto-imports. `nitro: { imports: false }` makes `imports` false here, and
- * `imports: { autoImport: false }` sets `imports.autoImport`. When another source already gives a name, such as a
- * `server/utils/` file, another module, or a Nuxt preset, that source keeps it and ViteHub warns once.
- */
-async function addNitroImports(config: Record<string, unknown>, entries: readonly ServerAutoImport[], context: { rootDir: string, warned: Set<string> }): Promise<void> {
-  if (!isRecord(config.imports) || config.imports.autoImport === false) return
-  const options = config.imports
-  // SAFETY: Nitro's `imports.imports` is an unimport list of `{ name, as?, from }` entries.
-  const imports = (Array.isArray(options.imports) ? options.imports : (options.imports = [])) as ServerAutoImport[]
-  const taken = new Map<string, string>()
-  for (const entry of imports) taken.set(entry.as ?? entry.name, entry.from)
-  for (const preset of Array.isArray(options.presets) ? options.presets : []) {
-    if (!isRecord(preset) || typeof preset.from !== "string" || !Array.isArray(preset.imports)) continue
-    for (const item of preset.imports) {
-      const name = typeof item === "string" ? item : isRecord(item) ? item.as ?? item.name : undefined
-      if (typeof name === "string") taken.set(name, preset.from)
-    }
-  }
-  const dirs = Array.isArray(options.dirs) ? options.dirs.filter(dir => typeof dir === "string") : []
-  for (const [name, file] of await scanServerExports(dirs)) if (!taken.has(name)) taken.set(name, relative(context.rootDir, file))
-  for (const entry of entries) {
-    const owner = taken.get(entry.name)
-    if (owner === entry.from) continue
-    if (owner !== undefined) {
-      const key = `${entry.name}\0${owner}`
-      if (!context.warned.has(key)) console.warn(`[vitehub] ${owner} already auto-imports \`${entry.name}\` in server code, so ViteHub does not auto-import it from ${entry.from}. Import ViteHub's helper from "${entry.from}" where you need it.`)
-      context.warned.add(key)
-      continue
-    }
-    imports.push(entry)
-    taken.set(entry.name, entry.from)
   }
 }
 
@@ -1224,7 +1187,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     source: true,
     workflow: Boolean(options.workflow),
   })
-  const serverImportWarnings = new Set<string>()
+  if (nuxtServerAutoImportsEnabled(nuxt.options)) {
+    const { installNuxtServerAutoImports } = await import("./internal/nuxt-server-auto-imports.ts")
+    // SAFETY: Nuxt passes the module its instance, which provides the hook and ignore options used here.
+    installNuxtServerAutoImports(nuxtInstance as Parameters<typeof installNuxtServerAutoImports>[0], serverAutoImports)
+  }
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
   if (consoleOptions) {
@@ -1696,7 +1663,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
     if (!hasRedisStore(kv)) alias[redisDriverSpecifier] ??= disabledRedisDriver
-    if (nuxtServerAutoImportsEnabled(nuxt.options)) await addNitroImports(config, serverAutoImports, { rootDir: projectRoot, warned: serverImportWarnings })
   })
   if (options.agent) {
     addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)

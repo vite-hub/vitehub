@@ -28,10 +28,11 @@ export default defineEventHandler(async (event) => {
 ## Turn server auto-imports on
 
 ViteHub follows Nuxt's own switch. It adds no option of its own.
+Install `@vite-hub/kv` and `@vite-hub/queue` for this example.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
+  modules: [['vite-hub/nuxt', { kv: true, queue: true }]],
   experimental: { nitroAutoImports: true },
 })
 ```

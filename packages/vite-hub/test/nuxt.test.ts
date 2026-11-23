@@ -169,6 +169,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     sharedTsConfig: TypeConfig
   }
   const prepareTypesHooks: Array<(context: PrepareTypesContext) => void> = []
+  let modulesDone = false
+  function runModulesDoneHook() {
+    if (modulesDone) return
+    modulesDone = true
+    for (const hook of modulesDoneHooks) hook()
+  }
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
     hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "nitro:config" | "prepare:types" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof prepareTypesHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
@@ -235,6 +241,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       for (const hook of closeHooks) await hook()
     },
     async runNitroConfigHook(config: Record<string, unknown>) {
+      runModulesDoneHook()
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
     },
@@ -243,9 +250,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       for (const hook of iconHooks) hook(icons)
       return icons
     },
-    runModulesDoneHook() {
-      for (const hook of modulesDoneHooks) hook()
-    },
+    runModulesDoneHook,
     runDoctorExtensionsHook() {
       const entries: string[] = []
       for (const hook of doctorExtensionHooks) hook(entries)
@@ -4722,34 +4727,6 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       : [])
   })
 
-  it("lets an app server/utils export win a name and warns once", async () => {
-    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-server-utils-"))
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      await mkdir(resolve(root, "server/utils"), { recursive: true })
-      await writeFile(resolve(root, "server/utils/db.ts"), "export const db = { query: () => [] }\nexport type Row = { id: string }\n")
-      const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
-      nuxt.options.rootDir = root
-      await viteHubNuxtModule({ database: true, env: false, host: "node" }, nuxt)
-
-      const config: Record<string, unknown> = { imports: { dirs: [resolve(root, "server/utils")], imports: [] } }
-      await runNitroConfigHook(config)
-      await runNitroConfigHook(config)
-      expect(config).toHaveProperty("imports.imports", [
-        { from: "vite-hub/database", name: "schema", priority: -1 },
-        { from: "vite-hub/database", name: "useDatabase", priority: -1 },
-        { from: "vite-hub/source", name: "useSource", priority: -1 },
-      ])
-      expect(warn.mock.calls.filter(([message]) => String(message).includes("auto-import"))).toEqual([[
-        "[vitehub] server/utils/db.ts already auto-imports `db` in server code, so ViteHub does not auto-import it from vite-hub/database. Import ViteHub's helper from \"vite-hub/database\" where you need it.",
-      ]])
-    }
-    finally {
-      warn.mockRestore()
-      await rm(root, { recursive: true, force: true })
-    }
-  })
-
   it("keeps a server auto-import name that another source already configures", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
@@ -4758,15 +4735,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const config: Record<string, unknown> = {
       imports: {
         imports: [{ from: "~/server/utils/kv", name: "kv" }],
-        presets: [{ from: "custom-queue", imports: ["defineQueue", { as: "sendQueue", name: "enqueue" }] }],
+        presets: [{ from: "custom-queue", imports: ["defineQueue", ["enqueue", "sendQueue"]] }],
       },
     }
     await runNitroConfigHook(config)
 
     expect(config).toHaveProperty("imports.imports", [
       { from: "~/server/utils/kv", name: "kv" },
+      { from: "vite-hub/kv", name: "kv", priority: -1, disabled: true },
+      { from: "vite-hub/queue", name: "defineQueue", priority: -1, disabled: true },
       { from: "vite-hub/queue", name: "deferQueue", priority: -1 },
       { from: "vite-hub/queue", name: "useQueue", priority: -1 },
+      { from: "vite-hub/queue", name: "sendQueue", priority: -1, disabled: true },
       { from: "vite-hub/source", name: "useSource", priority: -1 },
     ])
     expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("auto-import")).map(message => message.split(" already")[0])).toEqual([

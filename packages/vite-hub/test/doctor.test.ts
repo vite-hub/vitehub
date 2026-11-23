@@ -238,11 +238,24 @@ describe("vitehub/destructure-result-tuples", () => {
     ["nitroLegacy: true", "export default defineNuxtConfig({ nitroLegacy: true })\n", ["VHUB0003"]],
     ["nitroLegacy without imports: false", "export default defineNuxtConfig({ nitroLegacy: { h3: false } })\n", ["VHUB0003"]],
     ["nitroLegacy with imports: false", "export default defineNuxtConfig({ nitroLegacy: { imports: false } })\n", []],
+    ["comments and unrelated properties", "export default defineNuxtConfig({ /* nitroLegacy: true */ runtimeConfig: { nitroAutoImports: true } })", []],
+    ["Nuxt opt-out", "export default defineNuxtConfig({ nitroLegacy: true, imports: { autoImport: false } })", []],
+    ["Nitro opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: false } })", []],
+    ["Nitro autoImport opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: { autoImport: false } } })", []],
+    ["unresolved spread", "export default defineNuxtConfig({ nitroLegacy: true, ...settings })", []],
   ])("follows Nuxt server auto-imports in the Nuxt config: %s", async (_, config, expected) => {
     expect(await projectCodes(destructureResultTuples, {
       "nuxt.config.ts": config,
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
     }, "nuxt")).toEqual(expected)
+  })
+
+  it.each([false, true])("reads a Nuxt layer default unless the app overrides it (%s)", async (override) => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ extends: './base'${override ? ", experimental: { nitroAutoImports: false }" : ""} })`,
+      "base/nuxt.config.ts": nuxtServerAutoImportsConfig,
+      "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get('settings')\n  return settings\n}\n",
+    }, "nuxt")).toEqual(override ? [] : ["VHUB0003"])
   })
 
   it("follows every ViteHub server auto-import in Nuxt server files", async () => {

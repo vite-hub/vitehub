@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, relative } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { scanServerExports } from "../src/internal/server-scan-exports.ts"
 import { resolveViteHubServerImports, viteHubServerImports, type ViteHubServerImportFeature } from "../src/nuxt-server-imports.ts"
+import { linkFixtureModules } from "./content-preview-fixture.ts"
 
 // SAFETY: `Object.keys` widens the keys of the const table to string.
 const features = Object.keys(viteHubServerImports) as ViteHubServerImportFeature[]
@@ -55,26 +56,69 @@ describe("ViteHub server auto-imports", () => {
     for (const name of ["defineAgent", "defineAuth", "defineComments", "defineDatabase", "defineSchedule", "defineWorkflow", "defineWorkspace"]) expect(names).not.toContain(name)
   })
 
-  it("reads the value names that Nuxt scans from server/utils", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-server-exports-"))
+  it("uses Nuxt runtime imports and restores the fallback on utility refresh", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-nuxt-server-imports-"))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      await mkdir(join(root, "utils/nested"), { recursive: true })
-      await writeFile(join(root, "utils/db.ts"), "export const db = {}, other = 1\nexport type Row = {}\nexport interface Shape {}\nconst local = 1\nexport { local as kv, type Row as Alias }\n")
-      await writeFile(join(root, "utils/send-mail.ts"), "export default function () {}\n")
-      await writeFile(join(root, "utils/types.d.ts"), "export declare const blob: unknown\n")
-      await writeFile(join(root, "utils/broken.ts"), "export const = \n")
-      await writeFile(join(root, "utils/nested/queue.ts"), "export function sendQueue() {}\n")
+      await linkFixtureModules(root, { nuxt: dirname(createRequire(import.meta.url).resolve("nuxt/package.json")) })
+      const files = {
+        "package.json": JSON.stringify({ private: true, type: "module" }),
+        "nuxt.config.ts": `export default defineNuxtConfig({
+          compatibilityDate: "2026-10-01",
+          experimental: { nitroAutoImports: true },
+          ignore: ["**/ignored.ts"],
+          modules: [["vite-hub/nuxt", { host: "node", kv: true, queue: true, env: false }], "./late-module"],
+          nitro: { imports: {
+            imports: [{ from: "./server/values", name: "sendQueue", type: true, priority: 100 }],
+            presets: [{ from: "./server/values", imports: ["useSource"], disabled: true }],
+          } },
+          telemetry: false,
+        })`,
+        "late-module.ts": `export default function (_, nuxt) {
+          nuxt.hook("nitro:config", config => {
+            config.imports.imports.push({ from: "./server/values", name: "readKV", as: "kv", priority: -2 })
+          })
+        }`,
+        "server/values.ts": "export const useSource = () => 'app'\nexport const readKV = () => 'app'\nexport type sendQueue = string\n",
+        "server/utils/ignored.ts": "export const useSource = () => 'ignored'\n",
+      }
+      for (const [file, source] of Object.entries(files)) {
+        await mkdir(dirname(join(root, file)), { recursive: true })
+        await writeFile(join(root, file), source)
+      }
+      const { loadNuxt } = await import("nuxt")
+      const { writeTypes } = await import("nuxt/kit")
+      const nuxt = await loadNuxt({ cwd: root, overrides: { dev: false, _prepare: true } })
+      try {
+        await writeTypes(nuxt)
+        const declarations = () => readFile(join(nuxt.options.buildDir, "types/server-imports.d.ts"), "utf8")
+        const fallback = /const useSource: typeof import\(['"]vite-hub\/source['"]\)/
+        expect(await declarations()).toMatch(fallback)
+        expect(await declarations()).toMatch(/const kv: typeof import\([^\n]*server\/values/)
+        expect(await declarations()).toMatch(/const sendQueue: typeof import\(['"]vite-hub\/queue['"]\)/)
 
-      expect([...await scanServerExports([join(root, "utils")])].map(([name, file]) => [name, file.slice(root.length + 1)]).sort()).toEqual([
-        ["db", "utils/db.ts"],
-        ["kv", "utils/db.ts"],
-        ["other", "utils/db.ts"],
-        ["sendMail", "utils/send-mail.ts"],
-      ])
-      expect([...(await scanServerExports([join(root, "utils/**/*")])).keys()]).toContain("sendQueue")
+        const barrel = join(root, "server/utils/source.ts")
+        const path = relative(nuxt.options.srcDir, barrel)
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await writeFile(barrel, "export * from '../values'\n")
+          await nuxt.callHook("builder:watch", "add", path)
+          expect(await declarations()).toMatch(/const useSource: typeof import\([^\n]*server\/(utils\/source|values)/)
+          await rm(barrel)
+          await nuxt.callHook("builder:watch", "unlink", path)
+          expect(await declarations()).toMatch(fallback)
+        }
+        const warnings = warn.mock.calls.map(([message]) => String(message)).filter(message => message.startsWith("[vitehub]") && message.includes("auto-imports"))
+        expect(warnings).toHaveLength(2)
+        expect(warnings.join("\n")).toContain("already auto-imports `useSource`")
+        expect(warnings.join("\n")).toContain("already auto-imports `kv`")
+      }
+      finally {
+        await nuxt.close()
+      }
     }
     finally {
+      warn.mockRestore()
       await rm(root, { recursive: true, force: true })
     }
-  })
+  }, 60_000)
 })

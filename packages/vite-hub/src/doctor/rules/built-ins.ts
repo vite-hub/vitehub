@@ -1,11 +1,12 @@
 import { join, posix, resolve } from "node:path"
 
-import { findProperty, parseProgram, walk } from "@vite-hub/internal/ast"
+import { findProperty, walk } from "@vite-hub/internal/ast"
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
 import { callArguments, isIdentifier, isNode, isNodeType, isTestFile, numberValue, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
 import type { AstNode } from "../ast.ts"
+import { configObject } from "../config-object.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
 import { generatedFile, viteHubPackage } from "./imports.ts"
@@ -115,27 +116,6 @@ function sourceOf(ctx: RuleContext, node: unknown): string | undefined {
 
 const drizzleConfigFile = /(?:^|\/)drizzle\.config\.[cm]?[jt]s$/
 const viteConfigNames = ["ts", "mts", "cts", "js", "mjs", "cjs"].map(extension => `vite.config.${extension}`)
-
-function configProgram(text: string | undefined) {
-  if (text === undefined) return
-  try {
-    return parseProgram(text).program
-  }
-  catch {
-    return undefined
-  }
-}
-
-function configObject(text: string | undefined) {
-  const program = configProgram(text)
-  const exported = program?.body.find(node => node.type === "ExportDefaultDeclaration")?.declaration
-  const value = exported?.type === "Identifier"
-    ? program?.body.flatMap(node => node.type === "VariableDeclaration" && node.kind === "const" ? node.declarations : [])
-      .find(node => node.id.type === "Identifier" && node.id.name === exported.name)?.init
-    : exported
-  const object = value?.type === "CallExpression" ? value.arguments[0] : value
-  if (object?.type === "ObjectExpression") return object
-}
 
 function drizzleTarget(text: string | undefined, databaseDirs: string[]) {
   const config = configObject(text)
