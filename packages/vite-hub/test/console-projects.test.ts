@@ -319,6 +319,65 @@ describe("account Console", () => {
     expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`)
   })
 
+  it("signs a Site access token in the Console for a /visit link, through a sign-in", async () => {
+    const hash = "h".repeat(43)
+    const token = `vst1.CONSOLE_P1.${"c".repeat(40)}.${"s".repeat(86)}`
+    const search = `?project=${encodeURIComponent("https://app.example.com/portal")}&site=${encodeURIComponent("/runs/42")}&visit=${hash}`
+    let session: import("../src/console/runtime/client/account.ts").ConsoleAccount | undefined
+    const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json({ url: `https://app.example.com/portal/_vitehub/site?token=${token}` }))
+    vi.stubGlobal("fetch", withAccount(() => session, fetch))
+    const replace = vi.fn()
+    vi.stubGlobal("location", { replace })
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/open", search, showPath: () => {} }
+    await module.startConsoleAccount(boot)
+    const back = new URL(module.consoleSignInReturnPath(), "https://console.example.com")
+    expect([back.searchParams.get("visit"), back.searchParams.get("state")]).toEqual([hash, null])
+    session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    await module.startConsoleAccount({ ...boot, search: back.search })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "site", page: "/runs/42", state: hash, visit: true })
+    await module.openConsoleSite()
+    const [url, init] = fetch.mock.calls.find(([called]) => called !== "/api/account")!
+    expect([url, init.method, JSON.parse(String(init.body))]).toEqual(["/api/projects/p-1/site/token", "POST", { path: "/runs/42", state: hash }])
+    expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/site?token=${token}`)
+  })
+
+  it("follows only a Site access token link of the app that it opened", async () => {
+    const { siteTokenRedirect } = await import("../src/console/runtime/client/project-session.ts")
+    const token = `vst1.CONSOLE_P1.${"c".repeat(40)}.${"s".repeat(86)}`
+    expect(siteTokenRedirect(`https://app.example.com/portal/_vitehub/site?token=${token}`, linked.url)).toBe(`https://app.example.com/portal/_vitehub/site?token=${token}`)
+    for (const url of [
+      `https://evil.example/portal/_vitehub/site?token=${token}`,
+      `https://app.example.com/_vitehub/site?token=${token}`,
+      `https://app.example.com/portal/_vitehub/rpc?token=${token}`,
+      "https://app.example.com/portal/_vitehub/site?token=vst1.bad",
+      42,
+    ]) expect(siteTokenRedirect(url, linked.url), String(url)).toBeUndefined()
+  })
+
+  it("manages Site access of the open project through the Console API, not the app", async () => {
+    const calls: [string, string, unknown][] = []
+    await account(async (url, init) => {
+      calls.push([url, init.method ?? "GET", init.body === undefined ? undefined : JSON.parse(String(init.body))])
+      if (url.endsWith("/invites") && init.method === "POST") return Response.json({ code: "CONSOLE_SITE_INVITE_INVALID", message: "An invite lasts 1, 7, 30 days." }, { status: 400 })
+      return Response.json({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }], members: [], url: "https://console.example.com/go/x", expiresAt: "2026-11-23T00:10:00.000Z" })
+    })
+    const site = await import("../src/console/runtime/client/site-access.ts")
+    expect(await site.readSiteAccess()).toEqual({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }] })
+    expect(await site.phoneLink()).toEqual(expect.objectContaining({ url: "https://console.example.com/go/x" }))
+    const refused = await site.inviteGuest({ name: "Grace", grants: ["comments-read"], expiresInDays: 7 }).catch((error: unknown) => error)
+    expect(site.isSiteAccessProblem(refused) && [refused.status, refused.message]).toEqual([400, "An invite lasts 1, 7, 30 days."])
+    await site.revokeSession("g/1")
+    await site.revokeInvite("i-1")
+    expect(calls).toEqual([
+      ["/api/projects/p-1/site", "GET", undefined],
+      ["/api/projects/p-1/site/codes", "POST", {}],
+      ["/api/projects/p-1/site/invites", "POST", { name: "Grace", grants: ["comments-read"], expiresInDays: 7 }],
+      ["/api/projects/p-1/site/sessions/g%2F1", "DELETE", undefined],
+      ["/api/projects/p-1/site/invites/i-1", "DELETE", undefined],
+    ])
+  })
+
   it("keeps the hash of the app page, which the browser kept through the /_vitehub redirect", async () => {
     const state = "s".repeat(43)
     vi.stubGlobal("fetch", withAccount(() => undefined, json(500, {})))

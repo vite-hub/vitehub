@@ -44,9 +44,10 @@ export type ConsoleProjectGate =
   | { kind: "home", page: ConsoleAccountPage }
   /**
    * An `/open` link from `GET /_vitehub` of an app: the Console asks the app for a Site access link and goes back to
-   * `page` of the app, signed in.
+   * `page` of the app, signed in. With `visit`, the link came from the Console's `/visit`, `state` is the state hash of
+   * the app, and the Console signs a Site access token itself.
    */
-  | { kind: "site", page: string, state: string }
+  | { kind: "site", page: string, state: string, visit?: true }
   /** The Console could not sign the browser in to the app of a `/_vitehub` link. `linked` is false for an app of no team project. */
   | { kind: "site-refused", url: string, page: string, linked: boolean, message?: string }
   | { kind: "ready" }
@@ -447,16 +448,18 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
 
 /**
  * The app page and state of an `/open` link from `GET /_vitehub`, `/open?project=<app URL>&site=<page>&state=<state>`,
- * or `undefined` for another link. `page` is a path of the app below its base, such as `/runs/42`.
+ * or from the Console's `/visit`, `/open?project=<app URL>&site=<page>&visit=<state hash>`, or `undefined` for another
+ * link. `page` is a path of the app below its base, such as `/runs/42`.
  */
-export function consoleSiteLink(search: string): { url: string, page: string, state: string } | undefined {
+export function consoleSiteLink(search: string): { url: string, page: string, state: string, visit?: true } | undefined {
   const query = new URLSearchParams(search)
   const url = comparableProjectUrl(query.get("project") ?? "")
   const page = query.get("site")
-  const state = query.get("state") ?? ""
+  const visit = query.get("visit")
+  const state = visit ?? query.get("state") ?? ""
   if (!url || page === null || !/^[\w-]{43}$/.test(state)) return undefined
   if (!page.startsWith("/") || page.startsWith("//") || page.includes("\\")) return undefined
-  return { url, page, state }
+  return { url, page, state, ...(visit === null ? {} : { visit: true as const }) }
 }
 
 /**
@@ -470,7 +473,7 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   const path = query.get("path") ?? "/"
   if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
   const site = consoleSiteLink(search)
-  const back = site ? `&site=${encodeURIComponent(site.page)}&state=${site.state}` : ""
+  const back = site ? `&site=${encodeURIComponent(site.page)}&${site.visit ? "visit" : "state"}=${site.state}` : ""
   return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}`
 }
 
@@ -588,7 +591,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
     else if (site) siteGate = { kind: "site-refused", url: site.url, page: site.page, linked: false }
     // An app of another team, or one that is gone, opens Home instead of another app.
     else if (requested || openLink) missingApp = true
-    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state }
+    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state, ...(site.visit ? { visit: site.visit } : {}) }
     const remembered = rememberedAccountProject(account.teamId)
     storage = accountProjectStorage(account, account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id)
   }
@@ -681,8 +684,38 @@ export function siteTicketUrl(value: unknown, projectUrl: string): string | unde
 }
 
 /**
- * Sign the browser in to the app of a `/_vitehub` link: ask the app for a Site access link bound to the state of that
- * route, and replace this page with it, so Back does not open the used link again. A refusal shows why.
+ * The token link of a `POST /api/projects/<id>/site/token` answer, or `undefined` when it is not
+ * `<app>/_vitehub/site?token=vst1.…` of the app that the Console opened.
+ */
+export function siteTokenRedirect(value: unknown, projectUrl: string): string | undefined {
+  const app = comparableProjectUrl(projectUrl)
+  if (typeof value !== "string" || !app) return undefined
+  let url: URL
+  try {
+    url = new URL(value)
+  }
+  catch {
+    return undefined
+  }
+  if (`${url.origin}${url.pathname}` !== `${app}/_vitehub/site` || !/^vst1\.[A-Z0-9_]{1,64}\.[\w-]+\.[\w-]+$/.test(url.searchParams.get("token") ?? "")) return undefined
+  return url.href
+}
+
+async function requestSiteToken(projectId: string, page: string, state: string): Promise<unknown> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/site/token`, {
+    body: JSON.stringify({ path: page, state }),
+    credentials: "same-origin",
+    headers: { accept: "application/json", "content-type": "application/json" },
+    method: "POST",
+  })
+  if (!response.ok) throw await consoleResponseError(response)
+  return Reflect.get(Object(await response.json()), "url")
+}
+
+/**
+ * Sign the browser in to the app of a `/_vitehub` link, and replace this page with the link, so Back does not open the
+ * used link again. A link from the Console's `/visit` gets a Site access token from the Console. A link of an older app
+ * asks the app for a Site access link bound to the state of its route. A refusal shows why.
  */
 export async function openConsoleSite(): Promise<void> {
   const projects = useState()
@@ -692,18 +725,22 @@ export async function openConsoleSite(): Promise<void> {
   const refuse = (message: string) => {
     projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message }
   }
-  let answer: unknown
+  let url: string | undefined
   try {
-    const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
-    answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
+    if (gate.visit) {
+      url = siteTokenRedirect(await requestSiteToken(current.id, gate.page, gate.state), current.url)
+    }
+    else {
+      const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
+      url = siteTicketUrl(Reflect.get(Object(await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })), "url"), current.url)
+    }
   }
   catch (error) {
     refuse(error instanceof Error ? error.message : "Try again.")
     return
   }
-  const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
   if (!url) {
-    refuse("The app did not return a sign-in link of its own.")
+    refuse(gate.visit ? "The Console did not return a sign-in link of this app." : "The app did not return a sign-in link of its own.")
     return
   }
   const location: unknown = Reflect.get(globalThis, "location")

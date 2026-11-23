@@ -54,6 +54,7 @@ export default defineConfig({
       "src/presets.ts",
       "src/process-sweep.ts",
       "src/secret.ts",
+      "src/site-token.ts",
       "src/sitemap.ts",
       "src/standard-schema.ts",
       "src/systemd.ts",
