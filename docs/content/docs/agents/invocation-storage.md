@@ -352,7 +352,7 @@ Use the direct SQLite adapter when the journal has its own URL, the [`d1` adapte
 
 ### Store invocations in a Postgres Database
 
-On a Postgres Database, the adapter uses two tables:
+On a Postgres Database, the adapter uses two tables. It works with each Postgres driver of a Database: postgres.js, `driver: 'node-postgres'`, and `driver: 'pglite'` in development.
 
 | Table | Content |
 | --- | --- |
@@ -390,6 +390,10 @@ export default defineDatabase({
 #### AGENT_INVOCATION_POSTGRES_TABLES_MISSING: Postgres journal tables are missing
 
 The first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING` when a table does not exist. The error names the tables. Run `vitehub database generate` and `vitehub database migrate`, or add `postgresAgentInvocationTables()` to the schema of the Database that the store uses.
+
+#### AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED: the Postgres client is not supported
+
+A journal operation fails with `AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED` when the Postgres Database has a client other than postgres.js, a node-postgres Pool, or PGlite. The journal does not fall back to SQLite calls. Run the Database on one of these drivers, or keep Agent Invocations in another Database.
 
 ## Delete or prune records
 
