@@ -39,6 +39,7 @@ function isCloudflareKVListPage(value: unknown): value is CloudflareKVListPage {
 }
 
 const cloudflareKVBulkGetKeys = 100
+const cloudflareKVMaximumListLimit = 1000
 
 const cloudflareBindingIdentities = new WeakMap<object, number>()
 let nextCloudflareBindingIdentity = 0
@@ -103,7 +104,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVPageOptions): Promise<KVListPage> => {
     invariant(!disposed, "a KV store is open while the app runs, because Nitro disposes it only when it closes")
-    const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit }
+    const listOptions: { cursor?: string; limit: number; prefix?: string } = { limit: Math.min(limit, cloudflareKVMaximumListLimit) }
     if (cursor) listOptions.cursor = cursor
     if (prefix) listOptions.prefix = prefix
     const activeBinding = typeof bindingName === "string" ? getActiveCloudflareBinding<CloudflareKVNamespace>(bindingName) : undefined
@@ -138,7 +139,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     const keys: string[] = []
     let cursor: string | undefined
     do {
-      const page = await driver.listKeys({ cursor, limit: 1000, prefix })
+      const page = await driver.listKeys({ cursor, limit: cloudflareKVMaximumListLimit, prefix })
       keys.push(...page.keys)
       cursor = page.cursor
     } while (cursor)

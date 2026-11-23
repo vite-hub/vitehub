@@ -944,6 +944,23 @@ describe("vercel provider", () => {
     ])
   })
 
+  it.each([Number.NaN, -60, Number.POSITIVE_INFINITY])("returns RUNTIME_DURATION_INVALID for a retention of %s seconds and does not call Vercel", async (retention) => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    const sendBatch = vi.fn(async () => [{ messageId: "message-1", status: "sent" as const }])
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send, sendBatch },
+      driver: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [sendError] = await client.send({}, { retention })
+    const [batchError] = await client.sendBatch([{ body: {} }], { retention })
+    expect(sendError).toMatchObject({ code: "RUNTIME_DURATION_INVALID", why: expect.stringContaining(`\`retention\` is ${retention}`) })
+    expect(batchError).toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
+    expect(send).not.toHaveBeenCalled()
+    expect(sendBatch).not.toHaveBeenCalled()
+  })
+
   it("returns QUEUE_PROVIDER_FAILED with the per-job results when Vercel rejects a batch job", async () => {
     const results = [
       { messageId: "message-0", status: "sent" as const },
