@@ -125,6 +125,10 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "`history.deleteRef()` cannot delete `main` or the ref that the Workspace working tree follows.",
       fix: "Delete another ref, such as the ref of one run. To remove files from the working ref, commit without them. To remove the whole Workspace history, call `delete()` on the Blob + Database Store.",
     },
+    WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING: {
+      why: "The Postgres Database for this Workspace is missing its history catalog table.",
+      fix: "Apply the migrations for `workspaceHistorySchema` from `vite-hub/workspace/blob-database/postgres`. For a ViteHub Database, add the schema to its Definition and run `vitehub database generate` and `vitehub database migrate`.",
+    },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
       why: ({ reason, workspace }: { reason: string, workspace: string }) => `The module of Workspace "${workspace}" did not load: ${reason}`,
@@ -216,9 +220,5 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0075: withFix("Remove `read` from the rule. Workspace rules limit writes only, so `read: false` would not hide the files. Keep files that a reader must not see out of the Workspace, for example in another Workspace or in an Env secret."),
     WORKSPACE_R0076: withFix("Remove the option from the rule. A Workspace rule accepts `commit`, `maxBytes`, `mediaType`, `validate`, and `write`."),
     WORKSPACE_R0077: withFix("Pass the name of the history Database, `database: \"history\"`, or its Drizzle database, `database: () => useDatabase(\"history\").db` with `import { useDatabase } from \"vite-hub/database\"`. The Database can be SQLite, libSQL, D1, or Postgres. A Database Definition from `defineDatabase()` is not a Drizzle database."),
-    WORKSPACE_R0078: {
-      why: "The Postgres Database for this Workspace is missing its history catalog table.",
-      fix: "Apply the migrations for `workspaceHistorySchema` from `vite-hub/workspace/blob-database/postgres`. For a ViteHub Database, add the schema to its Definition and run `vitehub database generate` and `vitehub database migrate`.",
-    },
   },
 })

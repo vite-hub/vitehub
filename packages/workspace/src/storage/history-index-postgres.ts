@@ -69,7 +69,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
       catch (error) {
         const cause: unknown = error instanceof Error ? error.cause : undefined
         if ([error, cause].some(value => value instanceof Error && "code" in value && value.code === "42P01")) {
-          throw workspaceErrorDiagnostics.WORKSPACE_R0078({ cause: error })
+          throw workspaceErrorDiagnostics.WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING({ cause: error })
         }
         throw error
       }

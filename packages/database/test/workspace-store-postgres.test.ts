@@ -56,7 +56,7 @@ describe("Blob + Database Store on PGlite", () => {
     const store = createBlobDatabaseWorkspaceStore({ blob: await sharedBlob(), database: db, workspace: "handbook" })
 
     await expect(store.history.head()).rejects.toMatchObject({
-      code: "WORKSPACE_R0078",
+      code: "WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING",
       fix: expect.stringContaining("vitehub database migrate"),
       cause: { cause: { code: "42P01" } },
     })
