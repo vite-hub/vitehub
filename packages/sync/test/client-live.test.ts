@@ -35,6 +35,24 @@ describe("readEvents", () => {
     ])
   })
 
+  it("reads an event that ends with a `\\r` before the body ends", async () => {
+    expect(await read(["event: change\rdata: ok\r\r"])).toEqual([{ type: "change", data: "ok" }])
+    expect(await read(["data: a\r", "\r", "\ndata: b\r\n", "\r\n"])).toEqual([
+      { type: "message", data: "a" },
+      { type: "message", data: "b" },
+    ])
+  })
+
+  it("yields an event that ends with a `\\r` while the body stays open", async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({ start: c => void (controller = c) })
+    controller.enqueue(new TextEncoder().encode("data: ok\r\r"))
+    const events = readEvents(stream)
+    expect((await events.next()).value).toEqual({ type: "message", data: "ok" })
+    controller.close()
+    expect((await events.next()).done).toBe(true)
+  })
+
   it("decodes a character split across chunks", async () => {
     const bytes = new TextEncoder().encode("data: é\n\n")
     const stream = new ReadableStream<Uint8Array>({
