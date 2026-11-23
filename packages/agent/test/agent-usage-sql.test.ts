@@ -42,6 +42,15 @@ const fixtures: Array<{ id: string, agentName: string, hours: number, status?: "
   { agentName: "bot", hours: 9, id: "details", observations: [finish({ cost: { usd: "1.5" }, usage: { details: { cachedInputTokens: 5, reasoningOutputTokens: 6 }, inputTokenDetails: { cacheWrite: 2 }, inputTokens: 20, outputTokens: 3.5 } })], status: "failed" },
   { agentName: "bot", hours: 10, id: "negative", observations: [finish({ cost: { usd: "1e3" }, usage: { inputTokens: -1, outputTokens: 2 } })], status: "cancelled" },
   { agentName: "bot", hours: 30, id: "yesterday", observations: [finish({ cost: { usd: "2" }, model: "gpt", usage: { inputTokens: 1, outputTokens: 1 } }), finish({ cost: { usd: "3" }, model: "gpt", usage: { inputTokens: 4, outputTokens: 1 } })] },
+  { agentName: "bot", hours: 11, id: "grouped", observations: [finish({ calls: [
+    { calls: [{ cost: { usd: "0.10" }, usage: { inputTokens: 3, outputTokens: 1 } }, { cost: { usd: "0.05" }, usage: { inputTokens: 2, outputTokens: 2 } }], model: "main" },
+    { calls: [{ cost: { estimated: true, usd: "0.20" }, model: "aux-small", usage: { inputTokens: 4, outputTokens: 2 } }], model: "aux" },
+  ], model: "driver" })] },
+  { agentName: "bot", hours: 12, id: "group-total", observations: [finish({ calls: [
+    { calls: [{ cost: { usd: "9" }, usage: { totalTokens: 1 } }, "text"], cost: { usd: "0.5" }, model: "x", usage: { totalTokens: 50 } },
+    { calls: [{ calls: [{ usage: { inputTokens: 1, outputTokens: 1 } }] }], model: "deep" },
+  ] })] },
+  { agentName: "triage", hours: 13, id: "group-gap", title: "Écouter la file", observations: [finish({ calls: [{ calls: [{ cost: { usd: "0.01" }, usage: { inputTokens: 1, outputTokens: 1 } }, "text"], model: "m" }, { calls: [], model: "empty" }] })] },
   { agentName: "bot", hours: 0.5, id: "running", observations: [], status: "running" },
   { agentName: "bot", hours: 400, id: "too-old", observations: [finish({ cost: { usd: "9" }, usage: { totalTokens: 1 } })] },
 ]
@@ -85,6 +94,16 @@ function withoutTime<T extends { generatedAt: string }>(value: T): Omit<T, "gene
 }
 
 describe("readAgentUsage()", { timeout: 60_000 }, () => {
+  it("matches a search with Unicode lowercase, as summarizeAgentUsage() does", async () => {
+    const { client, store } = await journal()
+    const query = { now, search: "écouter" }
+    const { period, summary } = await expected(store, query)
+    const result = await readAgentUsage(client, query, period)
+    expect(result.sessions.map(session => session.id)).toEqual(["group-gap"])
+    expect(withoutTime(result)).toEqual(withoutTime(summary))
+    client.close()
+  })
+
   it("answers each query as summarizeAgentUsage() does, in one statement and without a new table", async () => {
     const { client, store } = await journal()
     const tables = async () => (await client.execute("SELECT type, name FROM sqlite_master ORDER BY name")).rows.map(row => `${row.type}:${row.name}`)
@@ -104,12 +123,13 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
       { now, status: "completed" },
       { now, search: "LOGIN" },
       { now, search: "call" },
+      { now, search: "écouter" },
     ]
     for (const query of queries) {
       const { period, summary } = await expected(store, query)
       expect(withoutTime(await readAgentUsage(counting, query, period)), JSON.stringify(query)).toEqual(withoutTime(summary))
     }
-    expect(statements).toHaveLength(queries.length)
+    expect(statements).toHaveLength(queries.length + queries.filter(query => query.search).length)
     expect(await tables()).toEqual(before)
     client.close()
   })

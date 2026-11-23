@@ -46,7 +46,6 @@ function d1SqlClient(binding: DefaultAgentInvocationsD1Database): AgentUsageSqlC
 export async function readConsoleJournalUsage(invocations: AgentInvocations, query: AgentUsageQuery, period: AgentUsagePeriod): Promise<AgentUsageSummary | undefined> {
   const database = defaultAgentInvocationsDatabase(invocations)
   if (!database) return undefined
-  await invocations.list({ limit: 1 })
   const [{ readAgentUsage }, client] = await Promise.all([
     import("@vite-hub/agent/usage"),
     database.driver === "libsql" ? database.open() : database.open().then(d1SqlClient),

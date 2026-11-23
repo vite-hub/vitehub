@@ -675,14 +675,18 @@ export function compareUsageModels(
   return right.totalTokens - left.totalTokens || left.model.localeCompare(right.model)
 }
 
+function matchesUsageSearch(row: { agentName: string, id: string, title?: string | undefined }, search: string | undefined): boolean {
+  const text = search?.toLowerCase()
+  return !text || [row.id, row.title ?? "", row.agentName].some(value => value.toLowerCase().includes(text))
+}
+
 /** Keeps the rows that a usage query counts: terminal, inside the window, and matching the filters. */
 export function matchesAgentUsageQuery(row: Pick<AgentUsageRow, "id" | "agentName" | "title" | "status" | "at">, options: AgentUsageQuery, period: AgentUsagePeriod): boolean {
-  const search = options.search?.toLowerCase()
   const timestamp = Date.parse(row.at)
   return agentUsageStatuses.some(status => status === row.status)
     && (!options.status || row.status === options.status)
     && (!options.agentName || row.agentName === options.agentName)
-    && (!search || [row.id, row.title ?? "", row.agentName].some(value => value.toLowerCase().includes(search)))
+    && matchesUsageSearch(row, options.search)
     && timestamp >= Date.parse(period.from)
     && timestamp <= period.now.valueOf()
 }
@@ -867,11 +871,19 @@ function sqlUsageRow(data: Record<string, unknown>): AgentUsageRow {
   })
 }
 
+async function searchedUsageIds(client: AgentUsageSqlClient, table: string, options: AgentUsageQuery, period: AgentUsagePeriod): Promise<string[]> {
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, "candidates"))
+  return rows
+    .map(row => ({ agentName: usageString(row.agent) ?? "", id: String(row.id), title: usageString(row.title) }))
+    .filter(row => matchesUsageSearch(row, options.search))
+    .map(row => row.id)
+}
+
 /**
- * Answers a usage query from a SQLite, libSQL, or D1 Agent journal with one SQL statement, with the same answer as
- * `summarizeAgentUsage()`. SQLite groups and adds up the Invocations of the window, and returns the totals and at
- * most 61 Invocations: one page of sessions and the most expensive runs. It creates no table.
- * It counts the direct calls of a usage record, and not calls inside a call.
+ * Answers a usage query from a SQLite, libSQL, or D1 Agent journal with the same answer as `summarizeAgentUsage()`.
+ * One SQL statement groups and adds up the Invocations of the window, nested calls included, and returns the totals and
+ * at most 61 Invocations: one page of sessions and the most expensive runs. A search first reads the id, title, and
+ * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. It creates no table.
  */
 export async function readAgentUsage(
   client: AgentUsageSqlClient,
@@ -881,7 +893,8 @@ export async function readAgentUsage(
 ): Promise<AgentUsageSummary> {
   const table = settings.table ?? "vitehub_agent_invocations"
   invariant(/^[A-Za-z_]\w*$/.test(table), "the Agent journal table is an SQL identifier")
-  const { rows } = await client.execute(agentUsageStatement(table, options, period))
+  const ids = options.search === undefined ? undefined : await searchedUsageIds(client, table, options, period)
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, ids))
   let totals = emptyUsageTotal()
   let partial = false
   const buckets = new Map<string, AgentUsageTotal>()

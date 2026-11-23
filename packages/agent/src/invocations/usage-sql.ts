@@ -25,17 +25,26 @@ function flag(json: string, path: string): string {
   return `CASE WHEN json_type(${json}, '${path}') = 'true' THEN 1 ELSE 0 END`
 }
 
+const metricPaths: Record<typeof metrics[number], string[]> = {
+  inputTokens: ["$.usage.inputTokens"],
+  outputTokens: ["$.usage.outputTokens"],
+  totalTokens: ["$.usage.totalTokens"],
+  cachedInputTokens: ["$.usage.inputTokenDetails.cacheReadTokens", "$.usage.inputTokenDetails.cacheRead", "$.usage.inputTokenDetails.cachedTokens", "$.usage.details.cachedInputTokens"],
+  cacheWriteTokens: ["$.usage.inputTokenDetails.cacheWriteTokens", "$.usage.inputTokenDetails.cacheWrite"],
+  reasoningTokens: ["$.usage.outputTokenDetails.reasoningTokens", "$.usage.outputTokenDetails.reasoningOutputTokens", "$.usage.outputTokenDetails.reasoning", "$.usage.details.reasoningOutputTokens"],
+}
+
 function usageFields(json: string): string {
   return [
-    `${count(json, "$.usage.inputTokens")} AS inputTokens0`,
-    `${count(json, "$.usage.outputTokens")} AS outputTokens0`,
-    `${count(json, "$.usage.totalTokens")} AS totalTokens0`,
-    `${count(json, "$.usage.inputTokenDetails.cacheReadTokens", "$.usage.inputTokenDetails.cacheRead", "$.usage.inputTokenDetails.cachedTokens", "$.usage.details.cachedInputTokens")} AS cachedInputTokens0`,
-    `${count(json, "$.usage.inputTokenDetails.cacheWriteTokens", "$.usage.inputTokenDetails.cacheWrite")} AS cacheWriteTokens0`,
-    `${count(json, "$.usage.outputTokenDetails.reasoningTokens", "$.usage.outputTokenDetails.reasoningOutputTokens", "$.usage.outputTokenDetails.reasoning", "$.usage.details.reasoningOutputTokens")} AS reasoningTokens0`,
+    ...metrics.map(metric => `${count(json, ...metricPaths[metric])} AS ${metric}0`),
     `${text(json, "$.cost.usd")} AS usdText`,
     `${flag(json, "$.cost.estimated")} AS estimated`,
   ].join(", ")
+}
+
+function ownValue(json: string, metric: typeof metrics[number]): string {
+  const value = count(json, ...metricPaths[metric])
+  return metric === "totalTokens" ? `COALESCE(${value}, ${count(json, ...metricPaths.inputTokens)} + ${count(json, ...metricPaths.outputTokens)})` : value
 }
 
 function decimal(value: string): string {
@@ -96,32 +105,27 @@ function detailObject(): string {
       WHERE j.type = 'object' AND json_extract(j.value, '$.name') = 'agent.usage.recorded') END)`
 }
 
-export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod): { sql: string, args: Array<string | number> } {
+export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod, ids?: readonly string[] | "candidates"): { sql: string, args: Array<string | number> } {
   const args: Array<string | number> = []
   const arg = (value: string | number) => {
     args.push(value)
     return `?${args.length}`
   }
   const bucketFormat = period.window.bucket === "hour" ? "%Y-%m-%dT%H:00:00.000Z" : "%Y-%m-%dT00:00:00.000Z"
-  const search = options.search?.toLowerCase()
   const filters = [
     `at >= ${arg(period.from)}`,
     `at <= ${arg(period.to)}`,
     `strftime('${bucketFormat}', at) IS NOT NULL`,
     ...(options.agentName ? [`agent = ${arg(options.agentName)}`] : []),
-    ...(search ? [`(instr(lower(id), ${arg(search)}) > 0 OR instr(lower(COALESCE(title, '')), ${arg(search)}) > 0 OR instr(lower(agent), ${arg(search)}) > 0)`] : []),
+    ...(Array.isArray(ids) ? [`id IN (SELECT value FROM json_each(${arg(JSON.stringify(ids))}))`] : []),
   ]
-  const after = period.after
-    ? `WHERE at < ${arg(period.after.at)} OR (at = ${arg(period.after.at)} AND id < ${arg(period.after.id)})`
-    : ""
+  const status = options.status ? ` AND s.status = ${arg(options.status)}` : ""
   const costPart = (part: string) => `CASE costSource WHEN 'own' THEN own${part} WHEN 'calls' THEN calls${part} WHEN 'recorded' THEN recorded${part} END AS cost${part}`
-  const sql = `WITH
-source AS MATERIALIZED (
-  SELECT s.id, s.status, s.updated_at AS updatedColumn, s.agent_name AS agentColumn,
+  const head = `source AS MATERIALIZED (
+  ${[`>= ${arg(period.from)}`, "= ''"].map(range => `SELECT s.id, s.status, s.updated_at AS updatedColumn, s.agent_name AS agentColumn,
     CASE WHEN json_valid(s.record) THEN CASE WHEN json_type(s.record, '$.observations') = 'array' THEN s.record END END AS record
   FROM ${table} s
-  WHERE s.status IN ('completed', 'failed', 'cancelled')${options.status ? ` AND s.status = ${arg(options.status)}` : ""}
-    AND (s.updated_at >= ${arg(period.from)} OR s.updated_at = '')
+  WHERE s.status IN ('completed', 'failed', 'cancelled')${status} AND s.updated_at ${range}`).join("\n  UNION ALL\n  ")}
 ),
 fields AS MATERIALIZED (
   SELECT id, status, updatedColumn, record, record IS NULL AS missing,
@@ -130,16 +134,21 @@ fields AS MATERIALIZED (
     ${text("record", "$.createdAt")} AS createdText,
     ${text("record", "$.completedAt")} AS completedText,
     ${text("record", "$.updatedAt")} AS updatedText,
-    ${text("record", `$.annotations."agent.model.id"`)} AS configuredText,
+    ${text("record", `$.annotations."agent.model.id"`)} AS configuredText${ids === "candidates" ? "" : `,
     (SELECT j.value FROM json_each(record, '$.observations') j
       WHERE j.type = 'object' AND json_extract(j.value, '$.name') = 'agent.invocation.finish'
-      ORDER BY j.key DESC LIMIT 1) AS finish
+      ORDER BY j.key DESC LIMIT 1) AS finish`}
   FROM source
 ),
 timed AS MATERIALIZED (
   SELECT *, CASE WHEN missing THEN updatedColumn ELSE COALESCE(NULLIF(completedText, ''), NULLIF(updatedText, ''), createdText, '') END AS at
   FROM fields
-),
+)`
+  if (ids === "candidates") return { sql: `WITH ${head}\nSELECT id, agent, title FROM timed WHERE ${filters.join(" AND ")}`, args }
+  const after = period.after
+    ? `WHERE at < ${arg(period.after.at)} OR (at = ${arg(period.after.at)} AND id < ${arg(period.after.id)})`
+    : ""
+  const sql = `WITH RECURSIVE ${head},
 selected AS MATERIALIZED (
   SELECT *, strftime('${bucketFormat}', at) AS bucket,
     ${flag("finish", `$.attributes."vitehub.observation.truncated"`)} AS truncated,
@@ -158,30 +167,41 @@ ownCost AS MATERIALIZED (
 ownParts AS MATERIALIZED (
   SELECT ownCost.*, ${decimalParts("usd", "own")} FROM ownCost
 ),
-callItems AS MATERIALIZED (
-  SELECT o.id, o.bucket, o.model AS parentModel, CASE WHEN c.type = 'object' THEN c.value END AS call
+callTree(id, bucket, rootModel, inherited, node, ${[...metrics, "cost"].map(metric => `covered${metric}`).join(", ")}) AS (
+  SELECT o.id, o.bucket, o.model, o.model, CASE WHEN c.type = 'object' THEN c.value END, ${[...metrics, "cost"].map(() => "0").join(", ")}
   FROM ownParts o, json_each(o.rec, '$.calls') c WHERE o.callCount > 0
+  UNION ALL
+  SELECT t.id, t.bucket, t.rootModel, COALESCE(${trimmedText("t.node", "$.model")}, t.inherited), CASE WHEN c.type = 'object' THEN c.value END,
+    ${metrics.map(metric => `t.covered${metric} OR ${ownValue("t.node", metric)} IS NOT NULL`).join(", ")},
+    t.coveredcost OR ${decimal(text("t.node", "$.cost.usd"))} IS NOT NULL
+  FROM callTree t, json_each(t.node, '$.calls') c WHERE json_type(t.node, '$.calls') = 'array'
 ),
-callFields AS MATERIALIZED (
-  SELECT id, bucket, parentModel, call IS NOT NULL AS isObject, ${trimmedText("call", "$.model")} AS callModel, ${usageFields("call")}
-  FROM callItems
+callNodes AS MATERIALIZED (
+  SELECT id, bucket, ${[...metrics, "cost"].map(metric => `covered${metric}`).join(", ")},
+    CASE WHEN json_type(node, '$.calls') = 'array' AND json_array_length(node, '$.calls') > 0 THEN 1 ELSE 0 END AS hasCalls,
+    CASE WHEN node IS NULL THEN COALESCE(rootModel, 'Unknown model') ELSE COALESCE(${trimmedText("node", "$.model")}, inherited, 'Unknown model') END AS modelKey,
+    ${usageFields("node")}
+  FROM callTree
 ),
 callCost AS MATERIALIZED (
-  SELECT callFields.*, ${decimal("usdText")} AS usd FROM callFields
+  SELECT callNodes.*, ${decimal("usdText")} AS usd FROM callNodes
 ),
-calls AS MATERIALIZED (
-  SELECT id, bucket, COALESCE(callModel, parentModel, 'Unknown model') AS modelKey,
-    isObject AND (COALESCE(callModel, parentModel) IS NOT NULL OR ${metrics.map(metric => `${metric}0 IS NOT NULL`).join(" OR ")} OR usd IS NOT NULL) AS valid,
+nodes AS MATERIALIZED (
+  SELECT id, bucket, modelKey, hasCalls, ${[...metrics, "cost"].map(metric => `covered${metric}`).join(", ")},
     inputTokens0 AS inputTokens, outputTokens0 AS outputTokens, COALESCE(totalTokens0, inputTokens0 + outputTokens0) AS totalTokens,
     cachedInputTokens0 AS cachedInputTokens, cacheWriteTokens0 AS cacheWriteTokens, reasoningTokens0 AS reasoningTokens,
     usd, estimated, ${decimalParts("usd", "cost")}
   FROM callCost
 ),
+calls AS MATERIALIZED (
+  SELECT * FROM nodes WHERE NOT hasCalls
+),
 callSums AS MATERIALIZED (
-  SELECT id, COUNT(*) AS n, SUM(valid) AS validCount,
-    ${metrics.map(metric => `SUM(${metric}) AS ${metric}, COUNT(${metric}) AS ${metric}Count`).join(", ")},
-    COUNT(usd) AS costCount, MAX(estimated) AS estimated, ${partSums("cost", "sum")}
-  FROM calls GROUP BY id
+  SELECT id,
+    ${metrics.map(metric => `SUM(CASE WHEN NOT covered${metric} THEN ${metric} END) AS ${metric}, SUM(NOT covered${metric} AND ${metric} IS NULL AND NOT hasCalls) AS ${metric}Gaps`).join(", ")},
+    SUM(NOT coveredcost AND usd IS NULL AND NOT hasCalls) AS costGaps, MAX(CASE WHEN NOT coveredcost AND usd IS NOT NULL THEN estimated ELSE 0 END) AS estimated,
+    ${partSums("cost", "sum", "NOT coveredcost")}
+  FROM nodes GROUP BY id
 ),
 callTotals AS MATERIALIZED (
   SELECT callSums.*, ${carried("sum", "calls")} FROM callSums
@@ -207,16 +227,16 @@ recordedTotals AS MATERIALIZED (
   SELECT recordedSums.*, ${carried("sum", "recorded")} FROM recordedSums
 ),
 usageFill AS MATERIALIZED (
-  SELECT o.*, o.callCount > 0 AND cs.validCount = cs.n AS fill,
+  SELECT o.*,
     o.rec IS NOT NULL AND (o.model IS NOT NULL OR ${metrics.map(metric => `o.${metric}0 IS NOT NULL`).join(" OR ")} OR o.usd IS NOT NULL OR o.callCount > 0) AS defined,
-    cs.n AS callN, cs.costCount AS callCostCount, cs.estimated AS callsEstimated, ${parts.map(part => `cs.calls${part}`).join(", ")},
+    o.callCount > 0 AND cs.costGaps = 0 AS callsPriced, cs.estimated AS callsEstimated, ${parts.map(part => `cs.calls${part}`).join(", ")},
     rs.n AS recordedN, rs.costCount AS recordedCostCount, rs.estimated AS recordedEstimated, ${parts.map(part => `rs.recorded${part}`).join(", ")},
-    ${metrics.map(metric => `cs.${metric} AS call${metric}, cs.${metric}Count AS call${metric}Count`).join(", ")}
+    ${metrics.map(metric => `CASE WHEN o.callCount > 0 AND cs.${metric}Gaps = 0 THEN cs.${metric} END AS call${metric}`).join(", ")}
   FROM ownParts o LEFT JOIN callTotals cs ON cs.id = o.id LEFT JOIN recordedTotals rs ON rs.id = o.id
 ),
 usageSource AS MATERIALIZED (
   SELECT *, CASE WHEN usd IS NOT NULL THEN 'own'
-    WHEN fill AND callCostCount = callN THEN 'calls'
+    WHEN callsPriced THEN 'calls'
     WHEN defined AND recordedN > 0 AND recordedCostCount = recordedN THEN 'recorded' END AS costSource
   FROM usageFill
 ),
@@ -224,8 +244,8 @@ usage AS MATERIALIZED (
   SELECT id, status, agent, title, at, bucket, missing, truncated, defined, callCount, model, record, finish,
     createdText, completedText, updatedText, updatedColumn, configuredText,
     ${metrics.map(metric => metric === "totalTokens"
-      ? `COALESCE(totalTokens0, inputTokens0 + outputTokens0, CASE WHEN fill AND calltotalTokensCount = callN THEN calltotalTokens END) AS totalTokens`
-      : `COALESCE(${metric}0, CASE WHEN fill AND call${metric}Count = callN THEN call${metric} END) AS ${metric}`).join(", ")},
+      ? `COALESCE(totalTokens0, inputTokens0 + outputTokens0, calltotalTokens) AS totalTokens`
+      : `COALESCE(${metric}0, call${metric}) AS ${metric}`).join(", ")},
     costSource IS NOT NULL AS hasCost,
     CASE costSource WHEN 'own' THEN estimated WHEN 'calls' THEN callsEstimated WHEN 'recorded' THEN recordedEstimated ELSE 0 END AS costEstimated,
     ${parts.map(costPart).join(", ")},
