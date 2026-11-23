@@ -206,8 +206,8 @@ const errors = defineErrors({
       fix: "Refresh the list and check the Auth Definition's plugins.",
     },
     AUTH_CONSOLE_UNAVAILABLE: {
-      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database or plugin API needed for this operation.",
-      fix: "Configure a database adapter and the required Better Auth plugin.",
+      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database, the `user.role` field, or the Better Auth plugin API that this operation needs.",
+      fix: "Set `database: authDatabase()` from `vite-hub/auth/database`, which also adds the `user.role` field that Site access needs. With your own adapter and schema, add a nullable `role` text column to the `user` table and declare it with `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`, or add `admin()`. For an operation of a Better Auth plugin, such as a ban or impersonation, add that plugin.",
     },
     AUTH_CONSOLE_PROVIDER_FAILED: {
       why: "Better Auth or an app column reader could not complete the operation.",

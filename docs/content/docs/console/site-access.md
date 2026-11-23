@@ -24,12 +24,18 @@ With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site acces
 
 With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table and declare it, or add `admin()`:
 
-```ts [server/auth.ts] fragment
+```ts [server/auth.ts]
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { defineAuth } from 'vite-hub/auth'
+import { db, schema } from 'vite-hub/database'
+
 export default defineAuth(() => ({
-  database: drizzleAdapter(db, { provider: "sqlite", schema }),
-  user: { additionalFields: { role: { type: "string", required: false, input: false } } },
+  database: drizzleAdapter(db, { provider: 'sqlite', schema }),
+  user: { additionalFields: { role: { type: 'string', required: false, input: false } } },
 }))
 ```
+
+A custom adapter goes in the Definition callback, `defineAuth(() => ({ ... }))`. In the static form, `defineAuth({ database: drizzleAdapter(...) })`, the build fails with `AUTH_C0014`.
 
 `input: false` stops users from setting their own roles. Leave `returned` unset or set it to `true` so page tools can read the role from the session. Site access refuses a field that users can set or that is hidden from sessions. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
