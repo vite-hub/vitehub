@@ -20,40 +20,35 @@ function toError(cause: unknown): Error {
   }
 }
 
-function channelSendErrorMessage(error: Error): string {
+function unlessItThrows<T>(read: () => T): T | undefined {
   try {
-    const message = error.message
-    if (typeof message === "string") return message.slice(0, 2_000)
+    return read()
   }
-  catch {}
-  return uninspectableSendErrorMessage
+  catch {
+    return undefined
+  }
+}
+
+function channelSendErrorMessage(error: Error): string {
+  const message = unlessItThrows(() => error.message)
+  return typeof message === "string" ? message.slice(0, 2_000) : uninspectableSendErrorMessage
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, kind: string, extra?: () => Record<string, unknown>): void {
-  try {
-    console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() }))
-  }
-  catch {}
+  unlessItThrows(() => console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() })))
 }
 
 function normalizeSendReceipt(result: object): ChannelSendReceipt {
   const entries: Array<[PropertyKey, unknown]> = []
-  try {
-    for (const key of Reflect.ownKeys(result)) {
-      if (key === "id") continue
-      try {
-        if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
-      }
-      catch {}
-    }
+  for (const key of unlessItThrows(() => Reflect.ownKeys(result)) ?? []) {
+    if (key === "id") continue
+    unlessItThrows(() => {
+      if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
+    })
   }
-  catch {}
   const normalized: ChannelSendReceipt = Object.fromEntries(entries)
-  try {
-    const id: unknown = Reflect.get(result, "id")
-    if (typeof id === "string") normalized.id = id
-  }
-  catch {}
+  const id = unlessItThrows(() => Reflect.get(result, "id"))
+  if (typeof id === "string") normalized.id = id
   return normalized
 }
 

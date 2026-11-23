@@ -11,6 +11,20 @@ export interface WorkspaceExample {
   group?: string;
   /** The files of the example. The start screen shows how many there are. */
   files?: Readonly<Record<string, string>>;
+  /**
+   * The paths of `files` that the reader cannot edit, such as a generated file. The editor refuses typing in them and
+   * says "Read-only". Code can still change them with `setFile`.
+   */
+  readonly?: readonly string[];
+  /**
+   * Binary files, such as model weights, by path. The tree and the editor never show them. `webContainer()` mounts them
+   * next to the files, and `render()` gives them to its function as `example.assets`.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /** The file that the editor of a `Workspace` opens first. Defaults to the first file. */
+  open?: string;
+  /** The path that the preview of a `webContainer()` runner opens. Defaults to `/`. */
+  preview?: string;
 }
 
 /** The examples by group, in the order of their first example. Examples without a group come first. */

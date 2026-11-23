@@ -63,7 +63,7 @@ Typed catalog methods and `useConnection().fetch()` can send the Connection toke
 
 An actor that only uses the provider's MCP endpoint can have the `"mcp"` preset instead of a rule object: `access: { "agent:support": "mcp" }`. It allows every method on the provider's `mcp` endpoint without approval, because MCP sends every protocol message as a POST and cannot wait for an approval. It denies every other request, including typed API methods. A Definition with the preset and no provider `mcp` is invalid.
 
-`useConnection(name).status()` resolves the Connection status, for example `"connected"`. It never rejects: a Connection that cannot be inspected, for example because the store cannot open, is `"disconnected"`. Use it to skip work that needs a Connection.
+`useConnection(name).status()` resolves the Connection status, for example `"connected"`. An unknown name, or a store without `VITEHUB_CONNECTIONS_KEY` or the ViteHub Database, is `"disconnected"`. Other failures, such as a database that cannot open, reject. Use it to skip work that needs a Connection.
 
 ## Use an API key
 
@@ -138,7 +138,7 @@ apiKey({
 ```
 
 `retry.attempts` defaults to `3`. Network errors and `5xx` responses are retried with exponential backoff from `delayMs` (default `250`), only for `methods` (default `GET`, `HEAD`, `OPTIONS`). A `429` is retried for every method after `Retry-After`, at least `on429.minDelayMs`, and pauses the whole bucket. The last attempt returns its response as is. A caller abort stops at once and is not retried. The schedule is in memory, per server process or isolate.
-The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection.
+The `fallback` key applies only when no key was ever set for the Connection, or when the store cannot open, for example without `VITEHUB_CONNECTIONS_KEY`. A key set in the Console or with `set-key` always wins, and so does a revoke: a revoked Connection does not fall back. The fallback key must pass the stored key format check. Requests with it use the same access rules and approvals and are recorded as activity while the store is open. An approval requested with the fallback key does not run after an admin sets a key. `inspect()` reports `keySource: "fallback"` or `"stored"` for a connected API key Connection. When the fallback throws, `inspect()` reports `keySource: "fallback"`, the error code in `keyError`, and `"disconnected"`.
 
 ## Use a custom store
 

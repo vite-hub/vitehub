@@ -1,3 +1,4 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import type { Result } from "@vite-hub/runtime"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -57,7 +58,12 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
         value = await fn()
       }
       catch (cause) {
-        await lock.release()
+        const [releaseError] = await lock.release()
+        if (releaseError) {
+          logFailure({ field: "kv", fields: { op: "lock-release", store }, message: "KV could not release a lock after its callback threw", error: releaseError.cause }, () => {
+            console.warn(`[vitehub] KV could not release the lock "${key}" after its callback threw. The lock expires after its ttl.`, releaseError)
+          })
+        }
         throw cause
       }
       const [releaseError] = await lock.release()

@@ -33,13 +33,6 @@ interface Finding {
   specifier: string
 }
 
-type PeerImportException = Omit<Finding, "message"> & { reason: string }
-
-const exceptions: readonly PeerImportException[] = [
-  { file: "packages/vite-hub", reason: "The index of @nuxt/ui/composables imports #imports, which only a Nuxt or Nuxt UI Vite build defines. The Console imports only defineShortcuts from it.", specifier: "@nuxt/ui/composables" },
-  { file: "packages/vite-hub", reason: "@nuxt/ui exports only types for ./vue-plugin. The Nuxt UI Vite plugin supplies the module in the Console client build.", specifier: "@nuxt/ui/vue-plugin" },
-]
-
 const virtualId = /^(?:#|\0|virtual:)/
 const vueScript = /(<script\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)<\/script>/g
 
@@ -101,16 +94,38 @@ function trackedSources(): string[] {
 }
 
 const loader = `
+import { readFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
+function exportEntry(specifier) {
+  const manifest = JSON.parse(readFileSync(findPackageJSON(specifier, import.meta.url), "utf8"))
+  return manifest.exports?.["." + specifier.slice(manifest.name.length)] ?? null
+}
 const result = {}
 for (const specifier of JSON.parse(process.argv[1])) {
   try { result[specifier] = { names: Object.keys(await import(specifier)) } }
-  catch (error) { result[specifier] = { error: [error?.code, String(error?.message ?? error).split("\\n")[0]].filter(Boolean).join(": ") } }
+  catch (error) {
+    result[specifier] = { code: error?.code, error: [error?.code, String(error?.message ?? error).split("\\n")[0]].filter(Boolean).join(": ") }
+    if (error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED") result[specifier].exported = exportEntry(specifier)
+  }
 }
 process.stdout.write("\\n@@exports@@" + JSON.stringify(result))
 process.exit(0)
 `
 
-type Loaded = Record<string, { error: string, names?: undefined } | { error?: undefined, names: string[] }>
+interface FailedModule {
+  code?: string
+  error: string
+  exported?: unknown
+  names?: undefined
+}
+type Loaded = Record<string, FailedModule | { error?: undefined, names: string[] }>
+
+function loadsOnlyInBuild(module: FailedModule): boolean {
+  if (module.code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return true
+  if (module.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED" || module.exported === null || typeof module.exported !== "object") return false
+  const conditions = Object.keys(module.exported)
+  return conditions.length > 0 && conditions.every(condition => condition === "types")
+}
 
 async function loadExports(dir: string, specifiers: string[]): Promise<Loaded> {
   const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", loader, JSON.stringify(specifiers)], {
@@ -126,6 +141,7 @@ function missingExports(dir: string, imports: readonly PeerImport[], loaded: Loa
   const failed = new Set<string>()
   for (const entry of imports) {
     const module = loaded[entry.specifier]!
+    if (module.error !== undefined && loadsOnlyInBuild(module)) continue
     if (module.error !== undefined) {
       if (!failed.has(entry.specifier)) findings.push({ file: dir, message: `${entry.file}:${entry.line}: ${entry.specifier} does not load from ${dir}: ${module.error}`, specifier: entry.specifier })
       failed.add(entry.specifier)
@@ -154,18 +170,11 @@ async function peerImportFindings() {
   return { findings: findings.flat(), specifiers: new Set([...byPackage.values()].flat().map(entry => entry.specifier)) }
 }
 
-function key(entry: Omit<Finding, "message">): string {
-  return `${entry.file}: ${entry.specifier}${entry.name === undefined ? "" : ` ${entry.name}`}`
-}
-
 describe("peer named imports", () => {
-  it("finds every named import from a peer in the installed version, and no stale exceptions", async () => {
+  it("finds every named import from a peer in the installed version", async () => {
     const { findings, specifiers } = await peerImportFindings()
     expect([...specifiers]).toEqual(expect.arrayContaining(["drizzle-orm", "vue"]))
-    const allowed = new Set(exceptions.map(key))
-    const found = new Set(findings.map(key))
-    expect.soft(findings.filter(finding => !allowed.has(key(finding))).map(finding => finding.message), "Missing peer exports. Import a name that the installed peer exports, mark a type-only name with `type`, or update the peer range.").toEqual([])
-    expect([...allowed].filter(exception => !found.has(exception)), "Stale exceptions. Remove them.").toEqual([])
+    expect(findings.map(finding => finding.message), "Missing peer exports. Import a name that the installed peer exports, mark a type-only name with `type`, or update the peer range.").toEqual([])
   }, 120_000)
 
   it("reads value names from imports and re-exports, with their line", () => {
@@ -200,6 +209,25 @@ describe("peer named imports", () => {
     expect(missingExports("packages/kv", imports, loaded).map(finding => finding.message)).toEqual([
       "packages/kv/src/a.ts:2: h3 does not export \"defineEventHandler\"",
       "packages/kv/src/b.ts:3: drizzle-orm does not load from packages/kv: ERR_MODULE_NOT_FOUND",
+    ])
+  })
+
+  it("skips a peer module that only a build can load", () => {
+    const imports = [
+      { file: "packages/ui/src/a.ts", line: 1, name: "defineShortcuts", specifier: "@nuxt/ui/composables" },
+      { file: "packages/ui/src/a.ts", line: 2, name: "default", specifier: "@nuxt/ui/vue-plugin" },
+      { file: "packages/ui/src/a.ts", line: 3, name: "x", specifier: "typed" },
+      { file: "packages/ui/src/a.ts", line: 4, name: "y", specifier: "missing" },
+    ]
+    const loaded: Loaded = {
+      "@nuxt/ui/composables": { code: "ERR_PACKAGE_IMPORT_NOT_DEFINED", error: "ERR_PACKAGE_IMPORT_NOT_DEFINED: Package import specifier \"#imports\" is not defined" },
+      "@nuxt/ui/vue-plugin": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: { types: "./vue-plugin.d.ts" } },
+      "missing": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: null },
+      "typed": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: { import: "./x.js", types: "./x.d.ts" } },
+    }
+    expect(missingExports("packages/ui", imports, loaded).map(finding => finding.message)).toEqual([
+      "packages/ui/src/a.ts:3: typed does not load from packages/ui: ERR_PACKAGE_PATH_NOT_EXPORTED",
+      "packages/ui/src/a.ts:4: missing does not load from packages/ui: ERR_PACKAGE_PATH_NOT_EXPORTED",
     ])
   })
 

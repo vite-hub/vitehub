@@ -1,3 +1,6 @@
+import { DatabaseSync } from "node:sqlite"
+import type { SQLInputValue } from "node:sqlite"
+
 import { H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import * as awarenessProtocol from "y-protocols/awareness"
@@ -11,7 +14,7 @@ import { readRealtimeStatus } from "../src/layout.ts"
 import { defineRealtime } from "../src/definition.ts"
 import { createRealtimeHandler, refreshRealtimeDocument } from "../src/server.ts"
 import { realtimeRoomKey, resolveRealtimeDefinition } from "../src/internal/server.ts"
-import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
+import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, createTestServer, nativeSqlCarrier, paragraphs, registryOf, sendAwareness, settle } from "./harness.ts"
 
 const serverMocks = vi.hoisted(() => ({
   resolveWorkspaceStoreTarget: vi.fn(),
@@ -848,7 +851,7 @@ describe("room authorities", () => {
     const first = createTestServer(definition, { durable: sql })
     const client = await first.connect("page")
     await settle()
-    expect(sql.alterJournalAttempted).toBe(true)
+    expect(sql.altered).toEqual([])
     const epoch = client.controls[0]!.epoch
     await pace()
     appendParagraph(client.doc, "Edit")
@@ -912,7 +915,7 @@ describe("room authorities", () => {
     unsaved.close()
   })
 
-  it("accepts the intermediate Durable Object journal schema without client_update", async () => {
+  it("adds client_update to an intermediate Durable Object journal once", async () => {
     const sql = new FakeSql({ intermediateJournal: true })
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const server = createTestServer(liveDefinition(memory.adapter), { durable: sql })
@@ -921,9 +924,56 @@ describe("room authorities", () => {
     appendParagraph(client.doc, "Edit")
     await settle()
 
-    expect(sql.alterJournalAttempted).toBe(true)
+    expect(sql.altered).toEqual(["vitehub_realtime_document_updates.client_update"])
     expect(sql.updates).toHaveLength(1)
     expect(sql.updates[0]).toMatchObject({ client_update: 1 })
+    client.close()
+    await settle()
+
+    const again = await createTestServer(liveDefinition(memory.adapter), { durable: sql }).connect("page")
+    await settle()
+    expect(sql.altered).toEqual(["vitehub_realtime_document_updates.client_update"])
+    again.close()
+  })
+
+  it("copies a pre-adapter Durable Object room into the current journal and adds the missing columns", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    memory.adapter.save.mockRejectedValueOnce(new Error("Database unavailable"))
+    const definition = liveDefinition(memory.adapter)
+    const fake = new FakeSql()
+    const first = createTestServer(definition, { durable: fake })
+    const client = await first.connect("page")
+    await settle()
+    await pace()
+    appendParagraph(client.doc, "Edit")
+    client.close()
+    await settle()
+    const key = realtimeRoomKey("docs", "page")
+    const blob = (value: unknown) => new Uint8Array(value as ArrayBuffer)
+
+    const database = new DatabaseSync(":memory:")
+    database.exec(`
+      CREATE TABLE vitehub_realtime_rooms (room_key TEXT PRIMARY KEY, baseline_digest TEXT, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_documents (room_key TEXT PRIMARY KEY, epoch TEXT NOT NULL, digest TEXT, dirty INTEGER NOT NULL, update_blob BLOB NOT NULL);
+      CREATE TABLE vitehub_realtime_document_updates (sequence INTEGER PRIMARY KEY AUTOINCREMENT, room_key TEXT NOT NULL, update_blob BLOB NOT NULL);
+    `)
+    database.prepare("INSERT INTO vitehub_realtime_rooms VALUES (?, ?, ?)").run(key, "v1", blob(fake.documents.get(key)!.update_blob))
+    for (const update of fake.updates) database.prepare("INSERT INTO vitehub_realtime_updates (room_key, update_blob) VALUES (?, ?)").run(key, blob(update.update_blob))
+    const carrier = nativeSqlCarrier((query, ...bindings) => {
+      const rows = database.prepare(query).all(...bindings.map(value => (value instanceof ArrayBuffer ? new Uint8Array(value) : value) as SQLInputValue))
+      return { toArray: () => rows }
+    })
+
+    const migrated = await createTestServer(definition, { durable: { carrier } }).connect("page")
+    await settle()
+    expect(paragraphs(migrated.doc)).toEqual(["Start", "Edit"])
+    expect(database.prepare("SELECT digest FROM vitehub_realtime_documents WHERE room_key = ?").all(key)).toEqual([{ digest: "v1" }])
+    expect(database.prepare("SELECT name FROM pragma_table_info('vitehub_realtime_documents') WHERE name = 'editor_version'").all()).toHaveLength(1)
+    expect(database.prepare("SELECT name FROM pragma_table_info('vitehub_realtime_document_updates') WHERE name = 'client_update'").all()).toHaveLength(1)
+    migrated.close()
+    await settle()
+    database.close()
   })
 
   it("forwards saves and checkpoints to the Durable Object instance that holds the rooms", async () => {

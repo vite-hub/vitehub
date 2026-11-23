@@ -2,7 +2,7 @@ import { installStandaloneOperationRpc, publishStandaloneOperationServer } from 
 import { ownModule } from "@vite-hub/internal/build/paths"
 import * as v from "valibot"
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rename, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
 import { emailDeploymentEnv } from "./deployment-env.ts"
 import { resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
+import { collapseWranglerConfigFile, wranglerEntrySpecs } from "@vite-hub/internal/build/cloudflare"
 import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
@@ -327,27 +328,7 @@ function configureNitroCloudflareWorkers(config: Record<string, unknown>, email:
   return addsBinding
 }
 
-async function removeDuplicateEmailBinding(serverDir: string): Promise<void> {
-  const configFile = resolve(serverDir, "wrangler.json")
-  let source: string
-  try {
-    source = await readFile(configFile, "utf8")
-  }
-  catch (error) {
-    // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
-    throw error
-  }
-  const config: unknown = JSON.parse(source)
-  if (!isRecord(config) || !Array.isArray(config.send_email)) return
-  const bindings = config.send_email
-  const emailBindings = bindings.filter(binding => isRecord(binding) && binding.name === "EMAIL")
-  if (emailBindings.length < 2) return
-  const added = bindings.findIndex(binding => isRecord(binding) && binding.name === "EMAIL" && Object.keys(binding).length === 1)
-  if (added === -1) return
-  bindings.splice(added, 1)
-  await writeFile(configFile, JSON.stringify(config, null, 2), "utf8")
-}
+const sendEmailEntrySpecs = wranglerEntrySpecs.filter(spec => spec.path[0] === "send_email")
 
 const emailTemplatePrefix = "#vitehub/emails/"
 
@@ -523,7 +504,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
     name: "@vite-hub/email/cloudflare-binding",
     setup(nitro) {
       nitro.hooks.hook("compiled", async () => {
-        if (addedEmailBinding) await removeDuplicateEmailBinding(nitro.options.output.serverDir)
+        if (addedEmailBinding) await collapseWranglerConfigFile(nitro.options.output.serverDir, { specs: sendEmailEntrySpecs })
       })
     },
   }
@@ -556,8 +537,8 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       },
     },
     async config(config, env) {
-      command = env?.command
-      await installStandaloneOperationRpc(config, env?.command ?? "build", operationsModule)
+      command = env.command
+      await installStandaloneOperationRpc(config, env.command, operationsModule)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const configRecord = config as Record<string, unknown>
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })

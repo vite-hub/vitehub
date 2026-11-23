@@ -19,7 +19,8 @@ import { MessageParts } from "../../../src/components/message-parts.ts";
 import { PromptInput } from "../../../src/components/prompt-input.ts";
 import { TraceRun } from "../../../src/components/trace-run.ts";
 import { ConnectPanel } from "../../../src/workspace/connect-panel.ts";
-import { PlaygroundContainer } from "../../../src/workspace/playground-container.ts";
+import { webContainer } from "../../../src/workspace/runners/web-container.ts";
+import { Workspace } from "../../../src/workspace/workspace.ts";
 import { WorkspaceBar } from "../../../src/workspace/workspace-bar.ts";
 import { WorkspaceExamples } from "../../../src/workspace/workspace-examples.ts";
 import { WorkspaceSidebar } from "../../../src/workspace/workspace-sidebar.ts";
@@ -56,13 +57,14 @@ const messages: UIMessage[] = Array.from({ length: 30 }, (_, index) => ({
   parts: [{ text: `Message ${index}. ${"A long line of text. ".repeat(6)}`, type: "text" }],
   role: index % 2 ? "assistant" : "user",
 }));
-const template = (id: string, label: string) => ({
+const example = (id: string, label: string) => ({
   files: { "package.json": `{"name":"${id}"}\n`, "server/api/health.get.ts": "export default () => 'ok'\n" },
   id,
   label,
   open: "server/api/health.get.ts",
-  snapshot: async () => new Uint8Array([1]),
 });
+const snapshot = async () => new Uint8Array([1]);
+const runner = webContainer({ snapshot: () => snapshot });
 
 const examples = [
   { description: "A greeting in two languages.", group: "Source language", id: "vue", label: "Vue" },
@@ -143,7 +145,7 @@ export const Parts: Component = defineComponent({
       }, { editor: () => h("p", "editor"), messages: () => h("p", "messages panel"), terminal: () => h("p", "terminal panel") }))),
       section("WorkspacePreview", () => h("div", { style: "height: 240px" }, h(WorkspacePreview, { url: "about:blank" }))),
       section("WorkspaceBar", () => h(Bar)),
-      section("PlaygroundContainer", () => h("div", { style: "height: 480px" }, h(PlaygroundContainer, { name: "demo", templates: [template("kv", "KV"), template("blob", "Blob")] }))),
+      section("Workspace", () => h("div", { style: "height: 480px; display: flex" }, h(Workspace, { examples: [example("kv", "KV"), example("blob", "Blob")], name: "demo", runner }))),
     ]);
   },
 });

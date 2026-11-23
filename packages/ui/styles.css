@@ -3661,6 +3661,9 @@
   .vh-ws-breadcrumb > span { color: var(--vh-muted); flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .vh-ws-breadcrumb-separator { color: var(--vh-dimmed); flex: 0 1000 13px; height: 13px; min-width: 0; stroke-width: 1.5; width: 13px; }
   .vh-ws-breadcrumb b { color: var(--vh-highlighted); flex: 0 1 auto; font-weight: 500; margin-left: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* A file that the example marks read-only. The mark stays whole, and the breadcrumb shrinks first. */
+  .vh-ws-readonly { align-items: center; color: var(--vh-muted); display: inline-flex; flex: none; font-size: 12px; gap: 4px; margin-left: 8px; white-space: nowrap; }
+  .vh-ws-readonly-icon { height: 12px; stroke-width: 1.5; width: 12px; }
   .vh-ws-wrap-button.vh-ws-wrap-button { border-radius: 4px; color: var(--vh-muted); flex: none; height: 24px; justify-content: center; min-height: 0; padding: 0; width: 24px; }
   .vh-ws-wrap-button svg { height: 15px; stroke-width: 1.5; width: 15px; }
   .vh-ws-wrap-button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
@@ -3735,47 +3738,38 @@
   .vh-ws-connect--empty { align-items: center; color: var(--vh-muted); font-size: 0.875rem; gap: 0.5rem; grid-template-columns: 1rem 1fr; }
   .vh-ws-connect--empty p { margin: 0; }
 
-  /* PlaygroundContainer: a toolbar over the shell, and the cards that show when the device cannot run the workspace. */
-  .vh-pc { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  /* The sidebar and the start screen of the session sit under its 44px bar. */
-  .vh-pc-session { --vh-ws-bar: 44px; display: flex; flex: 1; flex-direction: column; min-height: 0; position: relative; }
-  .vh-pc-session > .vh-ws-shell { border: 0; border-radius: 0; flex: 1; }
-  .vh-pc-spacer { flex: 1; }
-  .vh-pc-muted { color: var(--vh-muted); }
-  .vh-pc-strong { color: var(--vh-highlighted); font-weight: 500; }
-  .vh-pc-bar { align-items: center; background: var(--vh-bg-elevated); border-bottom: 1px solid var(--vh-border); display: flex; flex: none; font-size: 0.8125rem; gap: 0.5rem; padding: 0.5rem 0.75rem; }
-  .vh-pc-run-state { color: var(--vh-muted); display: inline-flex; font-size: 0.8125rem; margin-inline-start: 0.25rem; white-space: nowrap; }
+  /* Workspace: the shell under its bar, and the cards that show when the device cannot run the workspace. */
+  .vh-workspace { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .vh-workspace-session { display: flex; flex: 1; flex-direction: column; min-height: 0; position: relative; }
+  .vh-workspace-session > .vh-ws-shell { flex: 1; }
+  .vh-workspace-muted { color: var(--vh-muted); }
+  .vh-workspace-strong { color: var(--vh-highlighted); font-weight: 500; }
+  .vh-ws-banner { flex: none; }
+  .vh-workspace-notice { align-items: center; background: var(--vh-bg-elevated); border-bottom: 1px solid var(--vh-border); display: flex; font-size: 0.8125rem; gap: 0.5rem; padding: 0.5rem 0.75rem; }
+  .vh-workspace-run-state { color: var(--vh-muted); display: inline-flex; font-size: 0.8125rem; margin-inline-start: 0.25rem; white-space: nowrap; }
 
-  /* The Files head takes the head height of the shell, as the editor head and the tabs do. */
-  .vh-pc-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
-  .vh-pc-pane-header { align-items: center; border-bottom: 1px solid var(--vh-border); box-sizing: border-box; display: flex; flex: none; gap: 0.5rem; height: var(--vh-ws-head); padding: 0 0.75rem; }
-  .vh-pc .vh-ws-preview-bar { height: 2.25rem; }
-  .vh-pc-pane-body { display: flex; flex: 1; flex-direction: column; min-height: 0; position: relative; }
-  .vh-pc-pane-title { color: var(--vh-muted); font-size: 0.75rem; font-weight: 500; }
-  .vh-pc-pane-header .vh-pc-muted { font-size: 0.75rem; }
-  /* The file column is one tinted surface, header included. */
-  .vh-pc-files { background: var(--vh-bg-muted); }
-  .vh-pc-tree { flex: 1; min-height: 0; overflow: auto; }
-  .vh-pc-scroll { height: 100%; overflow: auto; }
+  .vh-workspace-scroll { height: 100%; overflow: auto; }
   /* The checklist sits in the middle of the preview, with room on every side. */
-  .vh-pc-boot { align-items: center; display: flex; flex: 1; justify-content: center; overflow: auto; padding: 2rem 1.5rem; }
-  .vh-pc-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; width: 100%; }
+  .vh-workspace-boot { align-items: center; display: flex; flex: 1; justify-content: center; overflow: auto; padding: 2rem 1.5rem; }
+  .vh-workspace-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; width: 100%; }
+  /* The frame of render() paints the light canvas, so its page must not take the dark scheme of this page and draw white text. */
+  .vh-workspace-frame { background: Canvas; border: 0; color-scheme: light; height: 100%; width: 100%; }
 
-  .vh-pc-card { border: 1px solid var(--vh-border); border-radius: var(--vh-radius); margin-top: 1.5rem; padding: 1rem; }
-  .vh-pc-card p { font-size: 0.875rem; margin: 0; }
-  .vh-pc-unsupported { margin-top: 1.5rem; }
-  .vh-pc-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-  .vh-pc-placeholder { display: none; }
+  .vh-workspace-card { border: 1px solid var(--vh-border); border-radius: var(--vh-radius); margin-top: 1.5rem; padding: 1rem; }
+  .vh-workspace-card p { font-size: 0.875rem; margin: 0; }
+  .vh-workspace-unsupported { margin-top: 1.5rem; }
+  .vh-workspace-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+  .vh-workspace-placeholder { display: none; }
   /* Before mount, phones see their card, tablets see nothing yet, and desktops see where the workspace starts. */
   @media (min-width: 48rem) {
-    .vh-pc-gate[data-state="pending"] .vh-pc-phone { display: none; }
+    .vh-workspace-gate[data-state="pending"] .vh-workspace-phone { display: none; }
   }
   @media (min-width: 64rem) {
-    .vh-pc-gate[data-state="pending"] { display: flex; flex: 1; flex-direction: column; }
-    .vh-pc-gate[data-state="pending"] .vh-pc-gate-content { display: none; }
-    .vh-pc-gate[data-state="pending"] .vh-pc-placeholder { align-items: center; display: flex; flex: 1; flex-direction: column; justify-content: center; min-height: 0; }
-    .vh-pc-placeholder-bar { align-self: stretch; border-bottom: 1px solid var(--vh-border); height: 2.75rem; margin-bottom: auto; }
-    .vh-pc-placeholder p { font-size: 0.875rem; margin: 0 0 auto; }
+    .vh-workspace-gate[data-state="pending"] { display: flex; flex: 1; flex-direction: column; }
+    .vh-workspace-gate[data-state="pending"] .vh-workspace-gate-content { display: none; }
+    .vh-workspace-gate[data-state="pending"] .vh-workspace-placeholder { align-items: center; display: flex; flex: 1; flex-direction: column; justify-content: center; min-height: 0; }
+    .vh-workspace-placeholder-bar { align-self: stretch; border-bottom: 1px solid var(--vh-border); height: 2.75rem; margin-bottom: auto; }
+    .vh-workspace-placeholder p { font-size: 0.875rem; margin: 0 0 auto; }
   }
 
   /* Browser support notice */
@@ -3863,75 +3857,6 @@
 .vh-ws-examples-menu [data-slot="itemWrapper"] { width: 100%; }
 .vh-ws-examples-menu [data-slot="itemTrailing"] { display: none; }
 
-/* PlaygroundRender: the examples, the editor, and the preview side by side. The textarea of each pane sits over a
-   colored copy of its text in one grid cell. The copy sets the height and the pane scrolls. */
-@layer components {
-  .vh-pg {
-    background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text);
-    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); height: 100%; min-height: 0; overflow: hidden;
-  }
-  .vh-pg:has(> .vh-pg-presets) { grid-template-columns: 14rem minmax(0, 1fr) minmax(0, 1fr); }
-  .vh-pg-presets { border-inline-end: 1px solid var(--vh-border); display: grid; align-content: start; gap: 1rem; min-height: 0; overflow-y: auto; padding: 0.75rem 0.5rem; }
-  .vh-pg-group ul { display: grid; gap: 0.125rem; list-style: none; margin: 0; padding: 0; }
-  .vh-pg-group-title { color: var(--vh-muted); font-size: 0.75rem; font-weight: 600; margin: 0 0 0.25rem; padding: 0 0.5rem; }
-  .vh-pg-preset {
-    background: none; border: 0; border-radius: calc(var(--vh-radius) * 0.75); color: var(--vh-muted); cursor: pointer; display: block;
-    font: inherit; font-size: 0.8125rem; padding: 0.375rem 0.5rem; text-align: start; width: 100%;
-  }
-  .vh-pg-preset[aria-current="true"] { background: var(--vh-bg-muted); color: var(--vh-highlighted); font-weight: 500; }
-  @media (hover: hover) { .vh-pg-preset:hover { color: var(--vh-highlighted); } }
-
-  .vh-pg-editor { border-inline-end: 1px solid var(--vh-border); display: flex; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
-  .vh-pg-bar { align-items: center; border-bottom: 1px solid var(--vh-border); display: flex; flex: none; gap: 0.5rem; justify-content: space-between; min-height: 2.75rem; padding: 0 0.25rem 0 0.5rem; }
-  .vh-pg-tabs { display: flex; gap: 0.125rem; }
-  .vh-pg-tab {
-    background: none; border: 0; border-radius: calc(var(--vh-radius) * 0.75); color: var(--vh-muted); cursor: pointer;
-    font: inherit; font-size: 0.8125rem; font-weight: 500; min-height: 2rem; padding: 0 0.625rem;
-  }
-  .vh-pg-tab[aria-pressed="true"] { background: var(--vh-bg-muted); color: var(--vh-highlighted); }
-  .vh-pg-title { color: var(--vh-highlighted); font-size: 0.8125rem; font-weight: 500; padding: 0 0.25rem; }
-  .vh-pg-actions { align-items: center; display: flex; gap: 0.25rem; }
-  .vh-pg-icon-button { height: 2rem; width: 2rem; }
-
-  .vh-pg-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: auto; }
-  .vh-pg-pane[hidden] { display: none; }
-  .vh-pg-code { display: grid; flex: 1; background: var(--vh-ws-code-bg, var(--vh-bg-muted)); }
-  .vh-pg-code > *, .vh-pg-paint pre { grid-area: 1 / 1; }
-  .vh-pg-paint { display: grid; pointer-events: none; }
-  .vh-pg-paint pre, .vh-pg-code textarea {
-    background: none !important; border: 0; border-radius: 0; box-shadow: none; color: var(--vh-text); font: 0.8125rem/1.65 var(--vh-ws-font-mono);
-    margin: 0; overflow: visible; overflow-wrap: anywhere; padding: 1rem; tab-size: 2; white-space: pre-wrap;
-  }
-  .vh-pg-paint code { font: inherit; }
-  :root.dark .vh-pg-paint span { color: var(--shiki-dark) !important; }
-  .vh-pg-code textarea { caret-color: var(--vh-text); color: transparent; overflow: hidden; resize: none; }
-  .vh-pg-code textarea::selection { background: var(--vh-selection, color-mix(in oklab, var(--vh-text) 18%, transparent)); }
-
-  .vh-pg-notice { border-top: 1px solid var(--vh-border); color: var(--vh-highlighted); flex: none; font-size: 0.8125rem; margin: 0; padding: 0.625rem 1rem; }
-  .vh-pg-issues { border-top: 1px solid var(--vh-border); flex: none; max-height: 30%; }
-
-  .vh-pg-confirm { background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text); max-width: 22rem; padding: 1rem; }
-  .vh-pg-confirm form { display: grid; gap: 0.5rem; }
-  .vh-pg-confirm p { font-size: 0.875rem; margin: 0; }
-  .vh-pg-confirm-title { color: var(--vh-highlighted); font-weight: 600; }
-  .vh-pg-confirm .vh-ws-actions { justify-content: end; margin-top: 0.5rem; }
-
-  /* The frame paints the light canvas, so its page must not take the dark scheme of this page and draw white text. */
-  .vh-pg-preview { background: Canvas; border: 0; color-scheme: light; height: 100%; width: 100%; }
-
-  @media (max-width: 60rem) {
-    .vh-pg, .vh-pg:has(> .vh-pg-presets) { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(18rem, 1fr) minmax(18rem, 1fr); }
-    .vh-pg:has(> .vh-pg-presets) { grid-template-rows: auto minmax(18rem, 1fr) minmax(18rem, 1fr); }
-    .vh-pg-presets { border-bottom: 1px solid var(--vh-border); border-inline-end: 0; display: flex; overflow-x: auto; }
-    .vh-pg-group { flex: none; }
-    .vh-pg-group ul { display: flex; }
-    .vh-pg-preset { white-space: nowrap; }
-    .vh-pg-editor { border-bottom: 1px solid var(--vh-border); border-inline-end: 0; }
-    /* Smaller text makes iOS zoom into the field. */
-    .vh-pg-paint pre, .vh-pg-code textarea { font-size: 1rem; }
-  }
-}
-
 /*
  * The learn parts of a workspace: the guide, its task box and file links, the steps of the bar, and the issues list.
  * The guide fills the `guide` pane of the shell. Its text scrolls and Back and Next stay at the bottom of the column.
@@ -3974,6 +3899,9 @@
   .vh-ws-issues li + li { margin-top: 0.375rem; }
   .vh-ws-issues-empty { color: var(--vh-muted); }
   .vh-ws-issue-line { font-family: var(--vh-ws-font-mono); font-weight: 600; margin-inline-end: 0.5rem; }
+  /* The file of an issue opens it in the editor. It keeps the look of the line, with an underline as a link. */
+  .vh-ws-issue-file { background: none; border: 0; color: inherit; cursor: pointer; font-size: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+  @media (hover: hover) { .vh-ws-issue-file:hover { color: var(--vh-highlighted); } }
 }
 
 /* MarkdownEditor: the text takes the comark typeset. The editor has no frame, so its caret shows focus. */

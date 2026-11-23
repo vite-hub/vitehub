@@ -110,7 +110,7 @@ export interface TestClient {
   response: Response
 }
 
-export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql, handler?: RealtimeHandlerOptions } = {}) {
+export function createTestServer(definition: RealtimeDefinition, options: { durable?: { carrier: Record<string, unknown> }, handler?: RealtimeHandlerOptions } = {}) {
   const handler = createRealtimeHandler(registryOf(definition) as never, options.handler)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
 
@@ -263,6 +263,9 @@ export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) =
         if (thisArg === sql) return 1
         throw new TypeError("Illegal invocation")
       },
+      get(target, key, receiver) {
+        return key === "name" ? "get databaseSize" : Reflect.get(target, key, receiver)
+      },
     }),
   })
   return sql
@@ -270,13 +273,16 @@ export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) =
 
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
-  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update?: number }> = []
-  readonly intermediateJournal: boolean
-  alterJournalAttempted = false
+  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update: number }> = []
+  readonly columns: Record<"vitehub_realtime_document_updates" | "vitehub_realtime_documents", Set<string>>
+  altered: string[] = []
   private sequence = 0
 
   constructor(options: { intermediateJournal?: boolean } = {}) {
-    this.intermediateJournal = options.intermediateJournal ?? false
+    this.columns = {
+      vitehub_realtime_documents: new Set(["room_key", "epoch", "digest", "dirty", "update_blob", "editor_version"]),
+      vitehub_realtime_document_updates: new Set(["sequence", "room_key", "update_blob", ...options.intermediateJournal ? [] : ["client_update"]]),
+    }
   }
 
   get carrier(): Record<string, unknown> {
@@ -289,28 +295,26 @@ export class FakeSql {
   exec = vi.fn((query: string, ...bindings: unknown[]) => {
     const rows = (value: Array<Record<string, unknown>>) => ({ toArray: () => value })
     if (query.startsWith("CREATE TABLE")) return rows([])
-    if (query.startsWith("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update")) {
-      this.alterJournalAttempted = true
-      if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
-      return rows([])
+    if (query.startsWith("SELECT name FROM pragma_table_info(?) WHERE name = ?")) {
+      const [table, column] = bindings.map(String) as [keyof FakeSql["columns"], string]
+      return rows(this.columns[table].has(column) ? [{ name: column }] : [])
     }
-    if (query.startsWith("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version")) {
-      throw new Error("duplicate column name: editor_version")
-    }
-    if (query.startsWith("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0")) {
-      if (this.intermediateJournal) throw new Error("no such column: client_update")
+    if (query.startsWith("SELECT name FROM sqlite_master")) return rows([])
+    const alter = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(query)
+    if (alter) {
+      const columns = this.columns[alter[1] as keyof FakeSql["columns"]]
+      if (columns.has(alter[2]!)) throw new Error(`duplicate column name: ${alter[2]}`)
+      columns.add(alter[2]!)
+      this.altered.push(`${alter[1]}.${alter[2]}`)
       return rows([])
     }
     if (query.startsWith("SELECT room_key FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [{ room_key: bindings[0] }] : [])
     }
-    if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents") || query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
+    if (query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [row] : [])
-    }
-    if (query.startsWith("SELECT update_blob FROM vitehub_realtime_document_updates")) {
-      return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("SELECT update_blob, client_update FROM vitehub_realtime_document_updates")) {
       return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
@@ -325,10 +329,10 @@ export class FakeSql {
       return rows([])
     }
     if (query.startsWith("INSERT INTO vitehub_realtime_document_updates")) {
-      if (this.intermediateJournal && query.includes("client_update")) {
+      if (!this.columns.vitehub_realtime_document_updates.has("client_update")) {
         throw new Error("table vitehub_realtime_document_updates has no column named client_update")
       }
-      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2] ?? 1) })
+      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2]) })
       return rows([])
     }
     throw new Error(`Unexpected SQL: ${query}`)

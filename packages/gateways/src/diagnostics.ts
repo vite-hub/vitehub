@@ -77,5 +77,9 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ problem }: { problem: string }) => `[vitehub] ${problem}`,
       fix: "Return an answer for the question's type. With `answers.choice()`, give the chosen label a highest probability. With `answers.score()`, use a level from 0 to the last index.",
     },
+    GATEWAYS_TRACE_OBSERVER_FAILED: {
+      why: ({ event }: { event: string }) => `[vitehub] The \`observe\` callback threw on the "${event}" trace event. The Jev request went on without this event.`,
+      fix: "Fix the error in the `observe` callback that the cause names. A trace observer must not throw.",
+    },
   },
 })
