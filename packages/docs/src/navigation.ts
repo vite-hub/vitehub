@@ -328,7 +328,9 @@ function sidebarGroups<Page extends DocsAppPage = DocsPage>(pages: readonly Page
   for (const page of pages) {
     if (!page.navigation) continue
     const label = page.group?.trim() || null
-    groups.set(label, [...groups.get(label) ?? [], page])
+    const group = groups.get(label)
+    if (group) group.push(page)
+    else groups.set(label, [page])
   }
   // A group of one page needs no heading, and a group without a heading cannot fold.
   return [...groups].map(([label, groupPages]) => {
