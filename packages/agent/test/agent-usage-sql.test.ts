@@ -1,0 +1,157 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { createClient } from "@libsql/client"
+import { afterEach, describe, expect, it } from "vitest"
+
+import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
+import { agentUsagePeriod, agentUsageRow, readAgentUsage, summarizeAgentUsage } from "../src/usage.ts"
+
+import type { AgentUsageQuery, AgentUsageSqlClient } from "../src/usage.ts"
+
+const directories: string[] = []
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { force: true, maxRetries: 5, recursive: true })))
+})
+
+const hour = 3_600_000
+const now = Date.parse("2026-11-20T12:30:00.000Z")
+const at = (hours: number) => new Date(now - hours * hour).toISOString()
+
+function finish(record: unknown, truncated = false) {
+  return { attributes: { "usage.record": record, ...truncated ? { "vitehub.observation.truncated": true } : {} }, name: "agent.invocation.finish" }
+}
+
+function recorded(costUsd: unknown, extra: Record<string, unknown> = {}) {
+  return { attributes: { "usage.costUsd": costUsd, ...extra }, name: "agent.usage.recorded" }
+}
+
+const fixtures: Array<{ id: string, agentName: string, hours: number, status?: "cancelled" | "completed" | "failed" | "running", title?: string, model?: string, observations: Array<{ attributes: Record<string, unknown>, name: string }> }> = [
+  { agentName: "bot", hours: 1, id: "own-cost", observations: [finish({ cost: { usd: "0.10" }, model: " gpt ", usage: { inputTokens: 10, outputTokens: 5 } })], title: "Fix Login" },
+  { agentName: "bot", hours: 2, id: "calls", observations: [finish({ calls: [
+    { cost: { usd: "0.15" }, model: "small", usage: { inputTokens: 3, outputTokens: 1, outputTokenDetails: { reasoningTokens: 2 } } },
+    { cost: { estimated: true, usd: "0.05" }, model: "small", usage: { inputTokenDetails: { cacheReadTokens: 4 }, inputTokens: 6, outputTokens: 2, totalTokens: 9 } },
+    { cost: { usd: "0.000000000000000000000000000000000001" }, usage: { inputTokens: 1, outputTokens: 1 } },
+  ], model: "large" })] },
+  { agentName: "bot", hours: 3, id: "bad-call", observations: [finish({ calls: [{ model: "small", usage: { inputTokens: 1 } }, "text"], usage: { totalTokens: 7 } })] },
+  { agentName: "triage", hours: 4, id: "recorded", model: "configured", observations: [finish({ usage: { inputTokens: 2, outputTokens: 2 } }), recorded("0.30", { "usage.costEstimated": true }), recorded("0.20")] },
+  { agentName: "triage", hours: 5, id: "recorded-no-cost", observations: [finish({ usage: { totalTokens: 3 } }), recorded("0.30"), recorded("0.20", { "usage.hasCost": false })] },
+  { agentName: "triage", hours: 6, id: "truncated", observations: [finish({ calls: [{ usage: { inputTokens: 1 } }], usage: { inputTokens: 8, outputTokens: 1 } }, true)] },
+  { agentName: "triage", hours: 7, id: "configured-only", model: "configured", observations: [finish({})] },
+  { agentName: "triage", hours: 8, id: "no-finish", observations: [recorded("1")] },
+  { agentName: "bot", hours: 9, id: "details", observations: [finish({ cost: { usd: "1.5" }, usage: { details: { cachedInputTokens: 5, reasoningOutputTokens: 6 }, inputTokenDetails: { cacheWrite: 2 }, inputTokens: 20, outputTokens: 3.5 } })], status: "failed" },
+  { agentName: "bot", hours: 10, id: "negative", observations: [finish({ cost: { usd: "1e3" }, usage: { inputTokens: -1, outputTokens: 2 } })], status: "cancelled" },
+  { agentName: "bot", hours: 30, id: "yesterday", observations: [finish({ cost: { usd: "2" }, model: "gpt", usage: { inputTokens: 1, outputTokens: 1 } }), finish({ cost: { usd: "3" }, model: "gpt", usage: { inputTokens: 4, outputTokens: 1 } })] },
+  { agentName: "bot", hours: 0.5, id: "running", observations: [], status: "running" },
+  { agentName: "bot", hours: 400, id: "too-old", observations: [finish({ cost: { usd: "9" }, usage: { totalTokens: 1 } })] },
+]
+
+async function journal() {
+  const directory = await mkdtemp(join(tmpdir(), "vitehub-usage-sql-"))
+  directories.push(directory)
+  const url = `file:${join(directory, "journal.sqlite")}`
+  const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url })
+  for (const fixture of fixtures) {
+    const time = at(fixture.hours)
+    const status = fixture.status ?? "completed"
+    await store.create({
+      agentName: fixture.agentName,
+      ...fixture.model ? { annotations: { "agent.model.id": fixture.model } } : {},
+      createdAt: time,
+      id: fixture.id,
+      status,
+      ...fixture.title ? { title: fixture.title } : {},
+      traceId: fixture.id,
+      updatedAt: time,
+      ...status === "running" ? {} : { completedAt: time },
+      observations: fixture.observations.map((observation, index) => ({ ...observation, sequence: index + 1, timestamp: time, type: "lifecycle" as const })),
+    })
+  }
+  const client = createClient({ url })
+  return { client, store }
+}
+
+async function expected(store: Awaited<ReturnType<typeof journal>>["store"], query: AgentUsageQuery) {
+  const period = agentUsagePeriod(query)
+  if ("problem" in period) throw new Error(period.problem)
+  const rows = []
+  for (const summary of (await store.list({ limit: 100 })).invocations) rows.push(agentUsageRow((await store.get(summary.id)) ?? summary))
+  return { period, summary: summarizeAgentUsage(rows, query, period) }
+}
+
+function withoutTime<T extends { generatedAt: string }>(value: T): Omit<T, "generatedAt"> {
+  const { generatedAt: _generatedAt, ...rest } = value
+  return rest
+}
+
+describe("readAgentUsage()", { timeout: 60_000 }, () => {
+  it("answers each query as summarizeAgentUsage() does, in one statement and without a new table", async () => {
+    const { client, store } = await journal()
+    const tables = async () => (await client.execute("SELECT type, name FROM sqlite_master ORDER BY name")).rows.map(row => `${row.type}:${row.name}`)
+    const before = await tables()
+    const statements: string[] = []
+    const counting: AgentUsageSqlClient = {
+      async execute(statement) {
+        statements.push(statement.sql)
+        return await client.execute(statement)
+      },
+    }
+    const queries: AgentUsageQuery[] = [
+      { now },
+      { now, window: "24h" },
+      { now, window: "90d" },
+      { agentName: "triage", now },
+      { now, status: "completed" },
+      { now, search: "LOGIN" },
+      { now, search: "call" },
+    ]
+    for (const query of queries) {
+      const { period, summary } = await expected(store, query)
+      expect(withoutTime(await readAgentUsage(counting, query, period)), JSON.stringify(query)).toEqual(withoutTime(summary))
+    }
+    expect(statements).toHaveLength(queries.length)
+    expect(await tables()).toEqual(before)
+    client.close()
+  })
+
+  it("follows updates at the same timestamp, deletes, backdated imports, and unreadable records", async () => {
+    const { client, store } = await journal()
+    const updatedAt = async () => (await client.execute({ args: ["own-cost"], sql: "SELECT updated_at FROM vitehub_agent_invocations WHERE id = ?" })).rows[0]?.updated_at
+    const before = await updatedAt()
+    await store.update("own-cost", { appendObservation: { attributes: { ...finish({ cost: { usd: "0.70" }, usage: { totalTokens: 99 } }).attributes, "vitehub.observation.id": "late-finish" }, name: "agent.invocation.finish", timestamp: at(1), type: "lifecycle" }, timestamp: at(1) })
+    expect(await updatedAt()).toBe(before)
+    await store.delete("details")
+    const imported = at(20)
+    await store.create({ agentName: "import", completedAt: imported, createdAt: imported, id: "imported", observations: [{ ...finish({ cost: { usd: "0.01" }, usage: { totalTokens: 1 } }), sequence: 1, timestamp: imported, type: "lifecycle" }], status: "completed", traceId: "imported", updatedAt: imported })
+    for (const query of [{ now }, { now, window: "24h" }] satisfies AgentUsageQuery[]) {
+      const { period, summary } = await expected(store, query)
+      const result = await readAgentUsage(client, query, period)
+      expect(withoutTime(result)).toEqual(withoutTime(summary))
+      expect(result.sessions.map(session => session.id)).not.toContain("details")
+      expect(result.sessions.find(session => session.id === "own-cost")?.totals.totalTokens).toBe(99)
+      expect(result.sessions.map(session => session.id)).toContain("imported")
+    }
+    await client.execute({ args: ["yesterday"], sql: "UPDATE vitehub_agent_invocations SET record = json_remove(record, '$.observations') WHERE id = ?" })
+    const { period } = await expected(store, { now })
+    const broken = await readAgentUsage(client, { now }, period)
+    expect(broken.partial).toBe(true)
+    expect(broken.sessions.find(session => session.id === "yesterday")).toMatchObject({ partial: true, totals: { invocations: 1, totalTokensAvailable: false } })
+    expect(broken.runs.map(run => run.id)).not.toContain("yesterday")
+    client.close()
+  })
+
+  it("pages sessions with the cursor of summarizeAgentUsage()", async () => {
+    const { client, store } = await journal()
+    for (let index = 0; index < 60; index++) {
+      const time = at(11 + index / 10)
+      await store.create({ agentName: "bulk", completedAt: time, createdAt: time, id: `bulk-${String(index).padStart(2, "0")}`, observations: [{ ...finish({ cost: { usd: `0.0${index % 7}` }, usage: { totalTokens: index } }), sequence: 1, timestamp: time, type: "lifecycle" }], status: "completed", traceId: `bulk-${index}`, updatedAt: time })
+    }
+    const first = await expected(store, { now })
+    const page = await readAgentUsage(client, { now }, first.period)
+    expect(withoutTime(page)).toEqual(withoutTime(first.summary))
+    expect(page.cursor).toBeDefined()
+    const next = await expected(store, { cursor: page.cursor!, now })
+    expect(withoutTime(await readAgentUsage(client, { cursor: page.cursor!, now }, next.period))).toEqual(withoutTime(next.summary))
+    client.close()
+  })
+})

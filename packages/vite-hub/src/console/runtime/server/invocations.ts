@@ -6,6 +6,7 @@ import { resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 
 import type { Value } from "@libsql/client"
 import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/internal/default-invocations-core"
+import type { AgentUsagePeriod, AgentUsageQuery, AgentUsageSqlClient, AgentUsageSummary } from "@vite-hub/agent/usage"
 import type { ConsoleUsageClient, createConsoleUsageIndex } from "./usage-index.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -27,6 +28,30 @@ function d1UsageClient(binding: DefaultAgentInvocationsD1Database): ConsoleUsage
       return results.map(result => ({ rows: result.results ?? [] }))
     },
   }
+}
+
+function d1SqlClient(binding: DefaultAgentInvocationsD1Database): AgentUsageSqlClient {
+  return {
+    async execute(statement) {
+      const result = await binding.prepare(statement.sql).bind(...statement.args).all<Record<string, Value>>()
+      return { rows: result.results ?? [] }
+    },
+  }
+}
+
+/**
+ * Usage of the default Agent journal, added up by its database in one statement. Undefined for other journals.
+ * It reads the journal tables and writes nothing.
+ */
+export async function readConsoleJournalUsage(invocations: AgentInvocations, query: AgentUsageQuery, period: AgentUsagePeriod): Promise<AgentUsageSummary | undefined> {
+  const database = defaultAgentInvocationsDatabase(invocations)
+  if (!database) return undefined
+  await invocations.list({ limit: 1 })
+  const [{ readAgentUsage }, client] = await Promise.all([
+    import("@vite-hub/agent/usage"),
+    database.driver === "libsql" ? database.open() : database.open().then(d1SqlClient),
+  ])
+  return await readAgentUsage(client, query, period)
 }
 
 /** The usage projection over the database of the default Agent journal. Other journals have none. */
