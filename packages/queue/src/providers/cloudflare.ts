@@ -111,7 +111,7 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
             attempts: message.attempts,
             id: message.id,
             provider: "cloudflare",
-            queue: getCloudflareQueueDefinitionName(batch.queue),
+            queue: options.queue ?? getCloudflareQueueDefinitionName(batch.queue),
           } as const
           reportQueueDeliveryError(error, reportContext)
           let action: CloudflareQueueBatchErrorAction | void = undefined
