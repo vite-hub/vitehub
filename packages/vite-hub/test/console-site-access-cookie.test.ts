@@ -410,7 +410,8 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     })
   })
 
-  it("uses shared atomic KV without opening the Database", async () => {
+  it.each(["redis", "upstash", "database"])("keeps links in a default KV store on %s and does not open the Database", async (driver) => {
+    kv.driver = driver
     const load = vi.fn(async () => ({ default: { db: { $client: { query: vi.fn() } } } }))
     installConsoleSiteDatabase({ name: "default", load })
     const url = await link("site.link")

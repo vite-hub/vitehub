@@ -29,6 +29,10 @@ interface PostgresClient {
   unsafe(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]>
 }
 
+interface NodePostgresPool {
+  query(sql: string, params: KVSqlParam[]): Promise<{ rows: readonly Record<string, unknown>[] }>
+}
+
 interface LibsqlClient {
   execute(statement: { sql: string, args: KVSqlParam[] }): Promise<{ rows: readonly Record<string, unknown>[] }>
 }
@@ -62,7 +66,7 @@ function hasMethod(value: unknown, name: string): boolean {
 }
 
 /**
- * A SQL client over the Drizzle database of the app: postgres.js, libSQL, primary Cloudflare D1, or D1 over HTTP. It resolves
+ * A SQL client over the Drizzle database of the app: postgres.js, a node-postgres Pool, libSQL, primary Cloudflare D1, or D1 over HTTP. It resolves
  * the client on each query because the Database connection can belong to the request.
  */
 export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClient {
@@ -71,6 +75,10 @@ export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClie
   if (hasMethod(first, "unsafe")) {
     // SAFETY: The check above found `unsafe()`, the query method of postgres.js.
     return { dialect: "postgresql", query: async (sql, params) => await (client() as PostgresClient).unsafe(sql, params) }
+  }
+  if (hasMethod(first, "query") && hasMethod(first, "connect")) {
+    // SAFETY: The check above found `query()` and `connect()`, the methods of a node-postgres Pool.
+    return { dialect: "postgresql", query: async (sql, params) => (await (client() as NodePostgresPool).query(sql, params)).rows }
   }
   if (hasMethod(first, "execute")) {
     // SAFETY: The check above found `execute()`, the query method of a libSQL client.

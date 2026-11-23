@@ -43,7 +43,7 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers, through a proxy that does not change it. |
 | `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](/docs/console/site-access#one-time-links) works once, within 60 seconds. |
 | `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in a browser that is signed in to the app with the email of your Console account. |
-| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, a Database named `default` (or only one Database), or a default KV store on Redis, Upstash, or the `database` driver, so every instance shares the tickets. |
+| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database. Without Auth, use a default KV store on Redis, Upstash, or the `database` driver, or a Database named `default` (or only one Database), so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |

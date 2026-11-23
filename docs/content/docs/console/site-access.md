@@ -89,7 +89,7 @@ The store is the verification table of Better Auth when the app has [Auth with a
 Without Auth, ViteHub picks the store in this order:
 
 1. The app's default [KV store](/docs/kv), when its driver can read and delete a key in one operation: Redis, Upstash, or the `database` driver. The other KV drivers do not offer that guarantee to Site access.
-2. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database named `default`, else the only Database. This works without installing `@vite-hub/kv` and supports postgres.js, libSQL, and Cloudflare D1 (by binding or over HTTP).
+2. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database named `default`, else the only Database. This works without installing `@vite-hub/kv` and supports postgres.js, node-postgres, libSQL, and Cloudflare D1 (by binding or over HTTP).
 
 Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. When the app has several Databases and none is named `default`, ViteHub does not pick one. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
 
