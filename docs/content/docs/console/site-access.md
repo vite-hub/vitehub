@@ -22,7 +22,7 @@ With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site acces
 | **`/_vitehub`** | Signs in through the Console and returns to the page with the pill open. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table and declare it, or add `admin()`:
+With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field:
 
 ```ts [server/auth.ts]
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
