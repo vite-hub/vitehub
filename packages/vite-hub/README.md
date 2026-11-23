@@ -360,7 +360,7 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 ## Logs
 
-`vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
+`vite-hub/logs` exports the read-only `LogSource` contract and a bounded local buffer (`createLogBuffer()`) for development inspection without adding an exporter. Import Evlog's logger API from `evlog`. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
 
 Logs has its own `logs` key. Turn it on with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { maxEntries: 256 }` to size the buffer, and `observability: { evlog: { redact: true } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 
