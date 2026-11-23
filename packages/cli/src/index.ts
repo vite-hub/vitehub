@@ -66,6 +66,7 @@ interface ViteHubCliLoadedConfig {
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
 const hostEnvFeatures: ViteHubCliCommandNamespace = {
+  description: "Compare, push, and pull the env names of the app on a host.",
   features: [
     {
       description: "Compare the env names of the last build with the names on the linked host. Exits with 1 when a required name is missing. Never reads values.",
@@ -409,8 +410,19 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   if (helpNamespace) return await runNamespace(helpNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
 
   const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources" || args[1] === "routes") ? "build" : "serve"
-  const { contribution, handlers, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
   const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  let project: Awaited<ReturnType<typeof loadProject>>
+  try {
+    project = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
+  }
+  catch (error: unknown) {
+    if (args.length && !isRootHelp(args)) throw error
+    stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    stderr.write("[vitehub] The project config did not load, so this help lists only the commands that need no project. Fix the error above to see the project namespaces.\n\n")
+    writeRootHelp([provisionNamespace, ...runtimeNamespaces, hostEnvFeatures], await loadCommands(), stdout)
+    return 1
+  }
+  const { contribution, handlers, operations, plugins, rootDir } = project
   const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),

@@ -620,6 +620,33 @@ export default {
     expect(stdout.output()).toContain("  provision")
   })
 
+  it.each([{ args: [] }, { args: ["--help"] }, { args: ["-h"] }])("prints the commands that need no project when root help cannot load the project ($args)", async ({ args }) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn(async () => {
+      throw new Error("SWEEP_CONFIG_WAS_LOADED")
+    })
+    const runtimeNamespaces = [{ description: "Runtime commands.", features: [], name: "sandbox" }]
+
+    expect(await runViteHubCli({ args, cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(1)
+    expect(stderr.output()).toContain("SWEEP_CONFIG_WAS_LOADED\n")
+    expect(stderr.output()).toContain("The project config did not load, so this help lists only the commands that need no project.")
+    const help = stdout.output()
+    expect(help).toContain("  status       Show the host")
+    expect(help).toContain("  sandbox      Runtime commands.")
+    expect(help).toContain("  provision")
+    expect(help).toContain("  env")
+    expect(help).not.toContain("  inspect")
+  })
+
+  it("keeps a project load failure for other commands", async () => {
+    const loadConfig = vi.fn(async () => {
+      throw new Error("SWEEP_CONFIG_WAS_LOADED")
+    })
+
+    await expect(runViteHubCli({ args: ["blob", "--help"], cwd: "/app", loadConfig, stderr: stream(), stdout: stream() })).rejects.toThrow("SWEEP_CONFIG_WAS_LOADED")
+  })
+
   it("lists a namespace once when a runtime namespace replaces a project one", async () => {
     const stdout = stream()
     const loadConfig = vi.fn(async () => ({
