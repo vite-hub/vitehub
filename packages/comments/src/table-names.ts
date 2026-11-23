@@ -9,3 +9,8 @@ export const commentsTableNames: Readonly<Record<string, string>> = {
   vitehubCommentCounters: "vitehub_comment_counters",
   vitehubCommentForge: "vitehub_comment_forge",
 }
+
+/** The tables of `commentSendsSchema`: each schema key and its SQL name. Comments adds them when `send` is on. */
+export const commentSendsTableNames: Readonly<Record<string, string>> = {
+  commentSends: "vitehub_comment_sends",
+}

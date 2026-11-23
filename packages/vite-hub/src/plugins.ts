@@ -1937,6 +1937,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
+      webhooks: "vite-hub/webhooks",
     },
   })
   if (options.realtime) {

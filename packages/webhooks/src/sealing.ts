@@ -71,3 +71,31 @@ export async function unsealEndpoint(endpoint: { id: string, owner: string, seal
   if (typeof url !== "string" || typeof secret !== "string") return [webhooksErrors.WEBHOOKS_KEY_INVALID({ problem: "the sealed endpoint has no URL or secret" }), undefined]
   return [undefined, { url, secret }]
 }
+
+/**
+ * Seals `text` with `VITEHUB_WEBHOOKS_KEY` for another package that keeps a receiver's secret before it becomes a member
+ * endpoint, such as the setup code of Comments Send. `label` binds the sealed text to one row: open it with the same one.
+ */
+export async function sealWebhooksText(label: string, text: string, developmentKey?: string): Promise<[KeyError, undefined] | [undefined, string]> {
+  const [error, key] = await endpointKey(developmentKey)
+  if (error) return [error, undefined]
+  return [undefined, await sealWithKey(key, new TextEncoder().encode(`vitehub:webhooks:text:${label}`), text)]
+}
+
+/** Opens the text that `sealWebhooksText()` sealed with the same `label`. */
+export async function unsealWebhooksText(label: string, sealed: string, developmentKey?: string): Promise<[KeyError, undefined] | [undefined, string]> {
+  const [error, key] = await endpointKey(developmentKey)
+  if (error) return [error, undefined]
+  try {
+    return [undefined, await unsealWithKey(key, new TextEncoder().encode(`vitehub:webhooks:text:${label}`), sealed)]
+  }
+  catch {
+    return [webhooksErrors.WEBHOOKS_KEY_INVALID({ problem: "it is not the key that sealed this text" }), undefined]
+  }
+}
+
+export const sealedMemberBodyPrefix = "vitehub:sealed-member-body:"
+
+export function memberBodyLabel(webhook: string, event: string): string {
+  return `delivery:${JSON.stringify([webhook, event])}`
+}
