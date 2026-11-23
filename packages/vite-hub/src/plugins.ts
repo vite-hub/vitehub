@@ -2065,7 +2065,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
     imports: {
-      blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
       database: "@vite-hub/database/runtime/registry",

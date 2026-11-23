@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
+import { drizzle as drizzlePostgresProxy } from "drizzle-orm/pg-proxy"
 import { getTableConfig } from "drizzle-orm/sqlite-core"
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
@@ -369,5 +370,20 @@ describe("Content sessions", { timeout: 30_000 }, () => {
     await expect(rejection(content.sessions.list())).resolves.toMatchObject({ code: "CONTENT_R0012" })
     await expect(posts.save("hello", { data: { title: "Hello" } }, { session: tabA })).resolves.toMatchObject({ id: "hello" })
     await expect(posts.save("hello", { data: { title: "Hello again" } })).resolves.toMatchObject({ data: { title: "Hello again" } })
+  })
+
+  it("names the fix when the Workspace keeps its history in Postgres", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-content-sessions-"))
+    cleanup.push(() => rm(root, { recursive: true, force: true }))
+    const workspace = `sessions-${++workspaces}`
+    const database = drizzlePostgresProxy(async () => ({ rows: [] }))
+    registerWorkspace(workspace, { store: createBlobDatabaseWorkspaceStore({ blob: createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") })), database, workspace }) })
+    const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+
+    const error = await rejection(content.sessions.list())
+
+    expect(error).toMatchObject({ code: "CONTENT_R0012" })
+    expect(String(Reflect.get(Object(error), "message"))).toContain("keeps its history in Postgres")
   })
 })
