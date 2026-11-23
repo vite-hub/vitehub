@@ -1,6 +1,6 @@
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins";
-import type { SecondaryStorage } from "better-auth";
+import type { BetterAuthOptions, SecondaryStorage } from "better-auth";
 import { defineAuth, createDatabaseAuthEventStore } from "../../src/index.ts";
 import { createBetterAuthOptions, getAuthForDefinition } from "../../src/internal/server.ts";
 import { createAuthConsole } from "../../src/console-runtime.ts";
@@ -18,7 +18,7 @@ export async function consoleEventsFixture(options: {
   /** The app origin, `http://localhost:5173` by default. An `https:` origin gives `__Secure-` cookies. */
   origin?: string
   session?: { cookieCache: { enabled: boolean } }
-  user?: { additionalFields: Record<string, { type: "string", required: false, input: boolean }> }
+  user?: BetterAuthOptions["user"]
 } = {}) {
   const database = eventDatabase();
   const store = createDatabaseAuthEventStore({ db: database.db });

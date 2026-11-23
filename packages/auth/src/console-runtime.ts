@@ -97,14 +97,13 @@ export interface AuthConsole {
   hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
   /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */
   hostSession(userId: string, request: Request): Promise<Result<Headers, AuthConsoleErrorCode>>;
-  /** The live sessions of the users that hold one of `roles`, newest first. */
+  /** Live sessions matching `roles`, newest first. `guest` matches only users created as guests by the host. */
   hostSessions(roles: readonly string[]): Promise<Result<AuthConsoleHostSession[], AuthConsoleErrorCode>>;
-  /** End one session. Answers its user, or a 404 for a session that is gone. */
-  revokeHostSession(id: string): Promise<Result<{ userId: string; roles: string[] }, AuthConsoleErrorCode>>;
-  /** Delete a user with their sessions and accounts. */
-  removeHostUser(userId: string): Promise<Result<void, AuthConsoleErrorCode>>;
+  /** End one session and delete its user only if the host created it as a guest. */
+  revokeHostSession(id: string): Promise<Result<{ removedUser: boolean }, AuthConsoleErrorCode>>;
 }
 
+const hostGuestProvider = "vitehub-site-guest";
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
 
 type Row = Record<string, unknown>;
@@ -1232,7 +1231,16 @@ export function createAuthConsole(
       throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, then declare it in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`, or add `admin()` from better-auth/plugins.");
     if (role.input !== false)
       throw authConsoleError(409, "Site access keeps permissions as roles in `user.role`, and your `role` field lets users set it when they sign up or update their profile. Set `input: false` on the `role` field of `user.additionalFields` in `defineAuth()`.");
+    if (role.returned === false)
+      throw authConsoleError(409, "Site access needs `user.role` in the session so page tools can read its grants. Remove `returned: false` from your `role` field.");
     return { ...ctx, internalAdapter: ctx.internalAdapter, authCookies: ctx.authCookies, secret: ctx.secret, sessionConfig: ctx.sessionConfig };
+  }
+  async function isHostGuest(userId: string): Promise<boolean> {
+    return Boolean(await find("account", [
+      { field: "providerId", value: hostGuestProvider },
+      { field: "accountId", value: userId },
+      { field: "userId", value: userId },
+    ]));
   }
   async function hostUser(input: AuthConsoleHostUserInput): Promise<{ id: string; roles: string[] }> {
     const ctx = await hostContext();
@@ -1260,6 +1268,8 @@ export function createAuthConsole(
       },
       { method: "admin" },
     );
+    if (!email && !await ctx.internalAdapter.createAccount({ providerId: hostGuestProvider, accountId: user.id, userId: user.id }))
+      throw authConsoleError(409, "Better Auth did not store the Site access guest account.");
     return { id: user.id, roles };
   }
   async function hostSession(userId: string, request: Request): Promise<Headers> {
@@ -1286,19 +1296,24 @@ export function createAuthConsole(
     const rows = await Promise.all(
       holders
         .filter((user) => roleList(user.role).some((role) => roles.includes(role)))
-        .map(async (user) =>
-          (await storedSessions(string(user.id)))
+        .map(async (user) => {
+          const userId = string(user.id);
+          const userRoles = roleList(user.role);
+          const guest = await isHostGuest(userId);
+          if (!userRoles.some((role) => roles.includes(role) && (role !== "guest" || guest))) return [];
+          return (await storedSessions(userId))
             .filter((session) => new Date(date(session.expiresAt)).getTime() > now)
             .map((session) => ({
               id: string(session.id),
               user: userSummary(user),
-              roles: roleList(user.role),
+              roles: userRoles,
+              guest,
               device: userAgentDevice(string(session.userAgent)),
               createdAt: date(session.createdAt),
               updatedAt: date(session.updatedAt),
               expiresAt: date(session.expiresAt),
-            })),
-        ),
+            }));
+        }),
     );
     return rows.flat().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
@@ -1383,16 +1398,15 @@ export function createAuthConsole(
         const ctx = await hostContext();
         const session = await hostSessionById(id);
         if (!session) throw authConsoleError(404, "No session has this id. It ended, or someone revoked it.");
+        const userId = string(session.userId);
+        const guest = await isHostGuest(userId);
         await ctx.internalAdapter.deleteSession(string(session.token));
-        const owner = await find("user", equality("id", string(session.userId)));
-        return { userId: string(session.userId), roles: roleList(owner?.role) };
-      }),
-    removeHostUser: (userId) =>
-      result(async () => {
-        const ctx = await hostContext();
-        await ctx.internalAdapter.deleteUserSessions(userId);
-        await ctx.internalAdapter.deleteAccounts(userId);
-        await ctx.internalAdapter.deleteUser(userId);
+        if (guest) {
+          await ctx.internalAdapter.deleteUserSessions(userId);
+          await ctx.internalAdapter.deleteAccounts(userId);
+          await ctx.internalAdapter.deleteUser(userId);
+        }
+        return { removedUser: guest };
       }),
   };
 }
@@ -1409,4 +1423,3 @@ async function signedSessionToken(secret: string, token: string): Promise<string
 function roleList(value: unknown): string[] {
   return string(value).split(",").map((role) => role.trim()).filter(Boolean);
 }
-

@@ -258,11 +258,10 @@ describe("users and sessions that a host signs in", () => {
     const [, guest] = await api.hostUser({ name: "Ana", roles: ["guest", "comments-read", "comments-write"] });
     await api.hostSession(guest!.id, browser());
     const [, sessions] = await api.hostSessions(["guest", "console"]);
-    expect(sessions).toEqual([expect.objectContaining({ user: expect.objectContaining({ id: guest!.id, name: "Ana", email: expect.stringMatching(/^guest-.+@guests\.invalid$/) }), roles: ["guest", "comments-read", "comments-write"], device: "Safari · iOS" })]);
-    expect(await api.revokeHostSession(sessions![0]!.id)).toEqual([undefined, { userId: guest!.id, roles: ["guest", "comments-read", "comments-write"] }]);
+    expect(sessions).toEqual([expect.objectContaining({ guest: true, user: expect.objectContaining({ id: guest!.id, name: "Ana", email: expect.stringMatching(/^guest-.+@guests\.invalid$/) }), roles: ["guest", "comments-read", "comments-write"], device: "Safari · iOS" })]);
+    expect(await api.revokeHostSession(sessions![0]!.id)).toEqual([undefined, { removedUser: true }]);
     expect((await api.hostSessions(["guest"]))[1]).toEqual([]);
     expect((await api.revokeHostSession(sessions![0]!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
-    await api.removeHostUser(guest!.id);
     expect(fixture.database.sqlite.prepare("SELECT id FROM user WHERE id = ?").get(guest!.id)).toBeUndefined();
   });
 
@@ -303,7 +302,7 @@ describe("users and sessions that a host signs in", () => {
     const listed = sessions!.find((row) => row.id === signedIn!.session.id);
     expect(listed).toBeDefined();
     expect(listed).not.toHaveProperty("token");
-    expect(await api.revokeHostSession(listed!.id)).toEqual([undefined, { userId: user!.id, roles: user!.roles }]);
+    expect(await api.revokeHostSession(listed!.id)).toEqual([undefined, { removedUser: kind === "guest" }]);
     expect(await session()).toBeNull();
     expect((await api.hostSessions(roles))[1]?.some((row) => row.id === listed!.id)).toBe(false);
     expect((await api.revokeHostSession(listed!.id))[0]).toMatchObject({ code: "AUTH_CONSOLE_NOT_FOUND" });
@@ -334,5 +333,23 @@ describe("users and sessions that a host signs in", () => {
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
     const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("input: false") });
+  });
+
+  it("refuses a role field hidden from session output", async () => {
+    const fixture = await app({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, input: false, returned: false } } } });
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
+    expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("returned: false") });
+  });
+
+  it("does not classify an app sign-up with a guest default as an invited guest", async () => {
+    const fixture = await app({ plugins: [], user: { additionalFields: { role: { type: "string", input: false, defaultValue: "guest" } } } });
+    const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    const session = await fixture.auth.api.getSession({ headers: new Headers({ cookie: fixture.member.cookie }) });
+    expect(session?.user).toMatchObject({ role: "guest" });
+    expect((await api.hostSessions(["guest", "console"]))[1]).toEqual([]);
+    expect(await api.revokeHostSession(session!.session.id)).toEqual([undefined, { removedUser: false }]);
+    expect(fixture.database.sqlite.prepare("SELECT id FROM user WHERE id = ?").get(fixture.member.id)).toBeDefined();
+    expect(fixture.database.sqlite.prepare("SELECT id FROM account WHERE userId = ?").get(fixture.member.id)).toBeDefined();
   });
 });

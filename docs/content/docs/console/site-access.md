@@ -25,15 +25,15 @@ With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site acces
 With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table and declare it, or add `admin()`:
 
 ```ts [server/auth.ts] fragment
-export default defineAuth({
+export default defineAuth(() => ({
   database: drizzleAdapter(db, { provider: "sqlite", schema }),
   user: { additionalFields: { role: { type: "string", required: false, input: false } } },
-})
+}))
 ```
 
-`input: false` stops users from setting their own roles, and Site access refuses a `role` field without it. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+`input: false` stops users from setting their own roles. Leave `returned` unset or set it to `true` so page tools can read the role from the session. Site access refuses a field that users can set or that is hidden from sessions. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
-A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out; for a guest, it also deletes the user, and their comments keep the name.
+A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out. It deletes the user only if Site access recorded that it created the account for a guest. Older guest accounts without that record are not listed as guests or deleted. Their comments keep the name.
 
 ::warning
 A guest is an app user with a session, so routes that let in any signed-in user let guests in too. Check the role there.

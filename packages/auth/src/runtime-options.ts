@@ -185,6 +185,7 @@ function stripViteHubOptions(
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
   const siteRoles = !impersonation
     && !Object.hasOwn(rest.user?.additionalFields ?? {}, "role")
+    && !declaredPlugins.some(plugin => Object.hasOwn(plugin.schema?.user?.fields ?? {}, "role"))
     && (authDatabaseName(database) !== undefined || isAuthProcessMemoryDatabase(storage.database))
   const { admins, adminClaim, members } = environment
   assertMembersSessionStore(members, Boolean(storage.database || storage.secondaryStorage))
