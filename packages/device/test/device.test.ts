@@ -209,6 +209,29 @@ describe("age and size", () => {
     expect(disk.keys).toEqual(["b", "c"])
   })
 
+  it("counts an overwritten, removed, or reset copy once against the size cap", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    let time = 1
+    const disk = createFakeDisk()
+    const page = openPage(disk, undefined, { maxBytes: 25, now: () => time++ })
+    await page.open()
+    await page.setAccount("ada")
+    for (let round = 0; round < 5; round++) answer(page, "a", "x".repeat(8))
+    answer(page, "b", "x".repeat(8))
+    expect(page.inspect().entries.map(entry => entry.key)).toEqual(["a", "b"])
+    answer(page, "a", "x".repeat(40))
+    answer(page, "c", "x".repeat(8))
+    expect(page.inspect().entries.map(entry => entry.key)).toEqual(["b", "c"])
+    answer(page, "d", "x".repeat(8))
+    expect(page.inspect().entries.map(entry => entry.key)).toEqual(["c", "d"])
+    await page.setAccount("grace")
+    answer(page, "e", "x".repeat(8))
+    answer(page, "f", "x".repeat(8))
+    await page.settled()
+    expect(page.inspect().entries.map(entry => entry.key)).toEqual(["e", "f"])
+    expect(disk.keys).toEqual(["e", "f"])
+  })
+
   it("lets the disk pick the oldest copies over the cap, not the memory of a tab", async () => {
     let time = 1
     const disk = createFakeDisk()
