@@ -41,6 +41,7 @@ describe("readEvents", () => {
       { type: "message", data: "a" },
       { type: "message", data: "b" },
     ])
+    expect(await read(["event: pull\r", "\ndata: a\r", "\r"])).toEqual([{ type: "pull", data: "a" }])
   })
 
   it("yields an event that ends with a `\\r` while the body stays open", async () => {
