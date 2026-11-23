@@ -166,14 +166,64 @@ ViteHub writes the driver name, plain options, and `env()` declarations into a g
 
 For a provider other than `resend` or `cloudflare`, write a driver module and set `driver` to its path. The path is relative to the project root. The module default-exports a function that gets `email.options`, with each `env()` value read, and returns an `EmailDriver`. `email.send()`, Forms, and the Agent `email()` Capability then send through it.
 
-```ts [vite.config.ts] fragment
-email: {
-  driver: './server/email-driver.ts',
-  options: {
-    apiKey: env({ secret: true, source: env.source('POSTMARK_TOKEN') }),
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    email: {
+      driver: './server/email-driver.ts',
+      options: {
+        apiKey: env({ secret: true, source: env.source('POSTMARK_TOKEN') }),
+      },
+    },
   },
-},
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    email: {
+      driver: './server/email-driver.ts',
+      options: {
+        apiKey: env({ secret: true, source: env.source('POSTMARK_TOKEN') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    email: {
+      driver: './server/email-driver.ts',
+      options: {
+        apiKey: env({ secret: true, source: env.source('POSTMARK_TOKEN') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
 
 ```ts [server/email-driver.ts]
 import type { EmailDriver } from 'vite-hub/email'
