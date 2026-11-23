@@ -394,12 +394,12 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     }
     const now = options.now === undefined ? Date.now() : Number(options.now)
     const state = await read()
-    if ([...state.entries.values()].some(({ stored }) => stored.cancelled)) await removeCancelled()
+    const errors: unknown[] = []
+    if ([...state.entries.values()].some(({ stored }) => stored.cancelled)) await removeCancelled().catch((error: unknown) => { errors.push(error) })
     const due = [...state.entries.values()]
       .filter(({ stored }) => !stored.failure && !stored.cancelled && Date.parse(stored.at) <= now)
       .sort((left, right) => left.stored.at.localeCompare(right.stored.at))
     const result: ContentPublishDueResult = { published: [], failed: [] }
-    const errors: unknown[] = []
     for (const { path, digest, stored } of due) {
       let claim = `${Date.now()}:${globalThis.crypto.randomUUID()}`
       const claimed = await commit(({ entries }) => {

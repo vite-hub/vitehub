@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-import { useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
@@ -329,6 +329,25 @@ describe("scheduled publishing", { timeout: 30_000 }, () => {
     await expect(content.publishDue({ now: at })).resolves.toMatchObject({ published: [{ schedule: due.id }], failed: [] })
     await expect(scheduleFiles(store)).resolves.toEqual([])
     await expect(posts.get("first")).resolves.toBeNull()
+  })
+
+  it("runs due schedules when a write:validate hook rejects the removal of cancelled files, and reports the rejection", async () => {
+    const { content, workspace, store, posts } = await setup()
+    cleanup.push(registerWorkspacePlugin(workspace, { id: "schedule-actions", hooks: { "write:validate": ({ commit }) => {
+      const intent = commit?.metadata.content
+      if (typeof intent === "object" && intent !== null && "action" in intent && intent.action === "schedules-removed") throw new Error("Unknown Content action")
+    } } }))
+    const first = await posts.save("first", { data: { title: "First" }, body: "" })
+    const second = await posts.save("second", { data: { title: "Second" }, body: "" })
+    const at = later()
+    const cancelled = await content.schedule({ at, expect: [{ collection: "posts", id: "first", digest: first.digest }] })
+    const due = await content.schedule({ at, expect: [{ collection: "posts", id: "second", digest: second.digest }] })
+    await rewriteSchedule(store, cancelled.id, stored => ({ ...stored, cancelled: expiredClaim() }))
+    await expect(content.publishDue({ now: at })).rejects.toThrow("Unknown Content action")
+    await expect(posts.get("second")).resolves.toMatchObject({ data: { title: "Second" } })
+    await expect(posts.get("first")).resolves.toBeNull()
+    await expect(scheduleFiles(store)).resolves.toEqual([expect.objectContaining({ id: cancelled.id, cancelled: expect.any(String) })])
+    await expect(content.schedules()).resolves.not.toContainEqual(expect.objectContaining({ id: due.id }))
   })
 
   it("settles each schedule once when runs overlap", async () => {
