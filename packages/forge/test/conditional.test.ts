@@ -62,7 +62,7 @@ describe("conditional Forge requests", () => {
   it("rejects null headers before calling the fetcher", async () => {
     const request = new Request("https://api.github.com/user", { headers: { authorization: "Bearer test" } })
     const fetcher = vi.fn<typeof fetch>()
-    await expect(conditionalFetch(fetcher)(request, { headers: null as unknown as HeadersInit })).rejects.toThrow(TypeError)
+    await expect(conditionalFetch(fetcher)(request, { headers: null as unknown as Headers })).rejects.toThrow(TypeError)
     expect(fetcher).not.toHaveBeenCalled()
   })
 
