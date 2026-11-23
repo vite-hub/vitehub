@@ -141,6 +141,39 @@ describe("snapshots", () => {
     expect(stored.size).toBe(1)
   })
 
+  it.each([
+    ["the server fails", (_part: Uint8Array) => new Response(null, { status: 503 })],
+    ["the download is damaged", (part: Uint8Array) => new Response(part.subarray(0, part.byteLength - 10))],
+  ])("keeps the cached version that works when %s for a new version", async (_, serve) => {
+    const data = new Uint8Array(randomBytes(1000))
+    const [oldPart] = packSnapshot(data)
+    const [newPart] = packSnapshot(new Uint8Array(randomBytes(1000)))
+    const stored = memoryCache([["https://docs.test/old.0.bin", new Response(oldPart)]])
+    const fetchPart = vi.fn(async () => serve(newPart!))
+    vi.stubGlobal("fetch", fetchPart)
+    await expect(fetchSnapshot(["https://docs.test/new.0.bin"], { cache: "app" })).rejects.toMatchObject({ code: expect.stringMatching(/^WEB_CONTAINER_SNAPSHOT_(PART_FAILED|DAMAGED)$/) })
+    expect([...stored.keys()]).toEqual(["https://docs.test/old.0.bin"])
+    expect(await fetchSnapshot(["https://docs.test/old.0.bin"], { cache: "app" })).toEqual(data)
+    expect(fetchPart).toHaveBeenCalledOnce()
+  })
+
+  it.each(["match", "keys", "delete", "put"] as const)("loads the snapshot when Cache Storage %s() throws", async (method) => {
+    const data = new Uint8Array(randomBytes(1000))
+    const [part] = packSnapshot(data)
+    const stored = new Map<string, Response>([["https://docs.test/old.0.bin", new Response("old")]])
+    const cache = {
+      match: async (url: string) => stored.get(url)?.clone(),
+      put: async (url: string, response: Response) => { stored.set(url, response) },
+      keys: async () => [...stored.keys()].map(url => new Request(url)),
+      delete: async (request: Request) => stored.delete(request.url),
+    }
+    cache[method] = () => { throw new DOMException("The operation is insecure.", "SecurityError") }
+    vi.stubGlobal("caches", { open: async () => cache })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(part)))
+    expect(await fetchSnapshot(["https://docs.test/new.0.bin"], { cache: "app" })).toEqual(data)
+    expect(stored.has("https://docs.test/new.0.bin")).toBe(method !== "put")
+  })
+
   it("rejects when a part is missing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 404 })))
     await expect(fetchSnapshot(["/parts/0"])).rejects.toThrow("Snapshot part /parts/0 returned 404.")

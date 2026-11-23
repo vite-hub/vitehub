@@ -285,8 +285,8 @@ function isCacheStorage(value: unknown): value is { open: (name: string) => Prom
 export interface FetchSnapshotOptions {
   /**
    * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
-   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
-   * A part goes into the cache only after the whole snapshot inflates and matches `sha256`.
+   * snapshot version its own URLs, such as names with a content hash. After the whole snapshot inflates and matches
+   * `sha256`, its parts go into the cache and parts of other URLs are deleted. A failed load keeps the cache as it was.
    */
   cache?: string
   /** The SHA-256 of the joined parts, in hex. A snapshot that differs is rejected, and none of its parts is cached. */
@@ -300,13 +300,9 @@ export interface FetchSnapshotOptions {
 export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
   const storage: unknown = Reflect.get(globalThis, "caches")
   const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
-  if (cache) {
-    const keep = new Set(urls.map(url => new Request(url).url))
-    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
-  }
   const parts = await Promise.all(urls.map(async (url) => {
-    const cached = await cache?.match(url)
-    if (cached) return { url, blob: await cached.blob(), downloaded: false }
+    const cached = cache && await readCachedPart(cache, url)
+    if (cached) return { url, blob: cached, downloaded: false }
     const response = await fetch(url)
     if (!response.ok) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_FAILED({ status: response.status, url })
     return { url, blob: await response.blob(), downloaded: true }
@@ -326,8 +322,33 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
-  for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})
+  if (cache) await replaceCachedPartsAfterLoad(cache, parts)
   return data
+}
+
+async function readCachedPart(cache: SnapshotCache, url: string): Promise<Blob | undefined> {
+  try {
+    return await (await cache.match(url))?.blob()
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function replaceCachedPartsAfterLoad(cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
+  const keep = new Set(parts.map(part => new Request(part.url).url))
+  try {
+    const stale = (await cache.keys()).filter(request => !keep.has(request.url))
+    await Promise.all(stale.map(async request => await cache.delete(request).catch(() => false)))
+  }
+  catch {}
+  for (const part of parts) {
+    if (!part.downloaded) continue
+    try {
+      await cache.put(part.url, new Response(part.blob))
+    }
+    catch {}
+  }
 }
 
 /**
