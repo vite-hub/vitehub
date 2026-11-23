@@ -41,6 +41,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
   ["@vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
+  ["@vite-hub/agent/test/emulate-models", { "@emulators/ai": "declaration" }],
   ["@vite-hub/agent/invocations/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["@vite-hub/agent/invocations/postgres", { "drizzle-orm": "both" }],

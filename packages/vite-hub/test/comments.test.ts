@@ -135,16 +135,16 @@ describe("comment operations over the Console RPC", () => {
     expect(await value("comments.list")).toEqual([])
   })
 
-  it("gives the policy the user, the action, and the thread", async () => {
+  it("gives the policy the user, action, thread, and development flag", async () => {
     const authorize = vi.fn(() => true)
     await setup(defineComments({ authorize }))
     const thread = await create()
     // `create` has no thread yet, so it gets the subject that the thread starts on.
-    expect(authorize).toHaveBeenCalledWith({ console: true, action: "write", subject: page, user: ana })
+    expect(authorize).toHaveBeenCalledWith({ console: true, development: false, action: "write", subject: page, user: ana })
     await value("comments.resolve", { threadId: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, development: false, action: "resolve", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
     await value("comments.get", { threadId: thread.id })
-    expect(authorize).toHaveBeenLastCalledWith({ console: true, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
+    expect(authorize).toHaveBeenLastCalledWith({ console: true, development: false, action: "read", subject: page, thread: expect.objectContaining({ id: thread.id }), user: ana })
   })
 
   it("filters the list by what authorize lets the user read", async () => {

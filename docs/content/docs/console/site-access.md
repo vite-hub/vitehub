@@ -22,16 +22,26 @@ With [Auth](/docs/auth) or [without it](#site-access-without-auth), **Site acces
 | **`/_vitehub`** | Signs in through the Console and returns to the page with the pill open. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the grants that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days, and creates a new app user. |
 
-With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table and declare it, or add `admin()`:
+With Auth, each browser is a Better Auth session, so your session settings decide how long it lasts; Better Auth's default is 7 days, renewed daily while in use. Grants are roles in the comma-separated `user.role`, the field of Better Auth's [`admin()` plugin](https://www.better-auth.com/docs/plugins/admin). With `authDatabase()`, Auth adds this field for you, so you do not need `admin()`. With your own schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field:
 
-```ts [server/auth.ts] fragment
+```ts [server/auth.ts]
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { defineAuth } from 'vite-hub/auth'
+import { db, schema } from 'vite-hub/database'
+
 export default defineAuth(() => ({
-  database: drizzleAdapter(db, { provider: "sqlite", schema }),
-  user: { additionalFields: { role: { type: "string", required: false, input: false } } },
+  database: drizzleAdapter(db, { provider: 'sqlite', schema }),
+  user: { additionalFields: { role: { type: 'string', required: false, input: false } } },
 }))
 ```
 
-`input: false` stops users from setting their own roles. Leave `returned` unset or set it to `true` so page tools can read the role from the session. Site access refuses a field that users can set or that is hidden from sessions. A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
+A custom adapter goes in the Definition callback, `defineAuth(() => ({ ... }))`. In the static form, `defineAuth({ database: drizzleAdapter(...) })`, the build fails with `AUTH_C0014`.
+
+`input: false` stops users from setting their own roles. Leave `returned` unset or set it to `true` so page tools can read the role from the session. Site access refuses a field that users can set or that is hidden from sessions.
+
+Before it makes a link, Site access checks that Auth has a Better Auth database and a correct `role` field. If a check fails, `site.link` and `site.invite` fail with `409` and `AUTH_CONSOLE_UNAVAILABLE`, and the Console shows the error and how to fix it. Account and session checks still run when someone opens the link. For example, an existing member account with an unverified email cannot sign in through the link.
+
+A member gets the `console` role, which shows the **Console** link, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets `guest` and the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access).
 
 A guest has no password and the email `guest-<id>@guests.invalid`, and never gets the **Console** link or into the Console. Better Auth runs your `databaseHooks.user.create` for guests, so a hook that closes sign-up refuses them too. **Revoke** next to a browser, or `site.revoke-session`, signs it out. It deletes the user only if Site access recorded that it created the account for a guest. Older guest accounts without that record are not listed as guests or deleted. Their comments keep the name.
 
@@ -63,8 +73,8 @@ A docs site or another app without Auth gets Site access too. Opening the link s
 
 - The cookie is sealed with AES-GCM under a key that `VITEHUB_SECRET` gives for this purpose alone, so the browser cannot read or change it. It is `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS, and lasts 7 days. A changed cookie, a cookie of another secret, and an expired cookie count as no cookie.
 - The app trusts the person and the roles in the cookie as much as the Console key: a signed Console call made the ticket.
-- Each cookie names a session in the app's default KV store. **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
-- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a KV store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
+- Each cookie names a session in the store of [one-time links](#one-time-links). **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
+- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
 
 ## One-time links
 
@@ -78,7 +88,9 @@ A draft preview needs your app's origin to render, and a sign-in needs it to set
 
 A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. A development server without a store keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. With one of them, tickets and site sessions go in the `vitehub_console_site` table of the app's first [Database](/docs/database), such as D1 on Cloudflare or D1 over HTTP. KV stores use the `vitehub_kv` table, so no KV store can read or clear them. A development server without a store keeps tickets in memory. A production app with none of these stores refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+
+When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
 
 ## Link to the Console
 

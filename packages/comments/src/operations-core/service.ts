@@ -134,13 +134,15 @@ export function scopeOf(runtime: CommentsRuntime, target: CommentSubject): strin
 
 /**
  * The one access policy of every surface: `authorize`, else `defaultPolicy()`. Only `true` allows. `gate` says what the
- * server checked before, such as the Console's section access; `development` defaults to the runtime's.
+ * server checked before, such as the Console's section access; `development` defaults to the runtime's. `authorize`
+ * gets `development` from it. It gets `console` only from `context`: a mention check keeps the writer's gate, but the
+ * mentioned person was not admitted by the Console.
  */
 export async function can(runtime: Pick<CommentsRuntime, "definition" | "development">, context: CommentsAuthorizeContext, gate: CommentsPolicyGate = {}): Promise<boolean> {
   const { authorize } = runtime.definition
   const subject = context.subject ?? context.thread?.subject
-  const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
   const checked = { ...gate, development: gate.development ?? runtime.development === true }
+  const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}), development: checked.development }
   if (authorize) return await authorize(full) === true
   if (defaultPolicy(full.user, checked, full.action)) return true
   if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()

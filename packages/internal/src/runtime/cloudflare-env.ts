@@ -16,6 +16,8 @@ import type { CloudflareWorkerEnv } from "./cloudflare-env-lookup.ts"
 export { getActiveCloudflareEnv, getCloudflareEnv }
 export type { CloudflareWorkerEnv }
 
+export const d1PrimaryClient: unique symbol = Symbol.for("vitehub.database.d1-primary-client")
+
 export interface CloudflareWorkerExecutionContext {
   waitUntil?: (promise: Promise<unknown>) => void
 }

@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineComments } from "../src/index.ts"
+import { defaultPolicy, defineComments } from "../src/index.ts"
 
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type {} from "@vite-hub/runtime/internal/h3"
@@ -13,6 +13,11 @@ it("gives policies the subject and one set of actions", () => {
   expectTypeOf<CommentsAuthorizeContext["subject"]>().toEqualTypeOf<CommentSubject | undefined>()
   expectTypeOf<CommentAction>().toEqualTypeOf<"read" | "write" | "resolve" | "delete">()
   defineComments({ authorize: ({ subject }) => subject?.kind === "page" })
+})
+
+it("lets a policy pass development to defaultPolicy()", () => {
+  expectTypeOf<CommentsAuthorizeContext["development"]>().toEqualTypeOf<boolean | undefined>()
+  defineComments({ authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === "admin" })
 })
 
 it("types GitHub access in a policy alongside custom identity", () => {

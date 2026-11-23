@@ -1,9 +1,8 @@
 import { existsSync, statSync } from "node:fs"
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path";
+import { dirname, posix, resolve, sep } from "node:path";
 
 import * as v from "valibot";
-import { normalizePath } from "vite";
 
 import {
   createNativePackageLoading,
@@ -260,7 +259,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
     if (module) server.moduleGraph.invalidateModule(module);
     if (!registryChanged || !nitroRegistryFile) return;
 
-    const registryPath = normalizePath(nitroRegistryFile);
+    const registryPath = posix.normalize(nitroRegistryFile.replaceAll(sep, "/"));
     for (const [name, environment] of Object.entries(server.environments)) {
       if (!isServerEnvironment(name, environment.config)) continue;
       const modules = environment.moduleGraph.getModulesByFile(registryPath);

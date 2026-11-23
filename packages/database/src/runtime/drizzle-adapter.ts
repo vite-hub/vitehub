@@ -1,4 +1,4 @@
-import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { d1PrimaryClient, getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 
 import { resolveConfigValue } from "../config-value.ts"
@@ -81,9 +81,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     }
 
     const bindingName = config.cloudflare?.binding
-    const d1Binding = bindingName
-      ? getActiveCloudflareBinding<D1DatabaseLike>(bindingName)
-      : undefined
+    const d1Binding = primaryBinding()
 
     if (d1Binding) {
       const client = (config.cloudflare?.readReplication && bindingName ? useD1Session(bindingName, d1Binding) : undefined) ?? d1Binding
@@ -139,9 +137,15 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
     return libsqlInstance
   }
 
+  function primaryBinding() {
+    const name = config.cloudflare?.binding
+    return !config.remote && name ? getActiveCloudflareBinding<D1DatabaseLike>(name) : undefined
+  }
+
   return new Proxy({} as RuntimeDrizzleDatabase<TSchema, TRelations>, {
     get(_, prop) {
       if (prop === postgresConnectionUrl) return undefined
+      if (prop === d1PrimaryClient) return primaryBinding()
       const instance = getDb()
       const value = instance[prop as keyof RuntimeDrizzleDatabase<TSchema, TRelations>]
       return typeof value === "function" ? value.bind(instance) : value

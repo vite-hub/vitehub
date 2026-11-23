@@ -312,6 +312,7 @@ describe("users and sessions that a host signs in", () => {
     const fixture = await app({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, input: false } } } });
     fixture.database.sqlite.prepare("UPDATE user SET role = NULL, emailVerified = 1 WHERE id = ?").run(fixture.member.id);
     const api = createAuthConsole(fixture.auth, {}, fixture.store);
+    expect(await api.checkHost()).toEqual([undefined, undefined]);
     const [error, user] = await api.hostUser({ email: "ada@example.com", name: "Ada", roles: ["console", "comments-write"] });
     expect(error).toBeUndefined();
     const [, headers] = await api.hostSession(user!.id, browser());
@@ -326,6 +327,7 @@ describe("users and sessions that a host signs in", () => {
     const api = createAuthConsole({ api: fixture.auth.api, $context: Promise.resolve({ ...context, options: { ...context.options, plugins: [] } }) });
     const [error] = await api.hostUser({ name: "Ana", roles: ["guest"] });
     expect(error).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: expect.stringContaining("authDatabase()") });
+    expect((await api.checkHost())[0]).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE", message: error!.message });
   });
 
   it("refuses a role field that users can set", async () => {

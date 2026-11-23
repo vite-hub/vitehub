@@ -3,6 +3,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent"
 import { deriveViteHubSecret, readViteHubSecret } from "@vite-hub/internal/secret"
 
+import { consoleState } from "../../internal.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
@@ -10,19 +11,6 @@ import type { SealKey } from "@vite-hub/env/seal"
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 import type { KVDriversWith } from "@vite-hub/kv"
 import type { SiteSession } from "../site-access.ts"
-
-/**
- * Site access for an app without ViteHub Auth. Redeeming a `page.member` or `page.guest` ticket sets the `vitehub_site`
- * cookie: the person and their roles, sealed with AES-GCM under a key that `VITEHUB_SECRET` gives for this purpose
- * alone, as Comments seals its GitHub sign-in. The cookie is HttpOnly and lasts 7 days, as a Better Auth session does.
- *
- * The cookie trusts the ticket: a signed Console call made it, so the person and the roles are as trusted as the
- * Console key. The browser cannot read or change the cookie. Each cookie also names a session in the app's KV store,
- * and a cookie whose session is gone is ignored, so `site.revoke-session` signs the browser out.
- *
- * Tickets and sessions need a KV store that every instance of the app shares, and tickets need `getAndDelete()`, so a
- * link works once also when two instances redeem it at the same time. A development server keeps both in memory.
- */
 
 /** The cookie of a browser that Site access signed in, in an app without Auth. */
 export const consoleSiteCookie: string = "vitehub_site"
@@ -36,6 +24,7 @@ const encoder = new TextEncoder()
 export interface ConsoleSiteKV {
   set: (key: string, value: string, options: { ttl: number }) => Promise<readonly [unknown, unknown]>
   get: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
+  getMany?: (keys: readonly string[], options: { type: "text" }) => Promise<readonly [unknown, readonly (string | null | undefined)[] | undefined]>
   getAndDelete: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
   list: (options: { prefix: string }) => Promise<readonly [unknown, { keys: string[] } | undefined]>
   delete: (key: string) => Promise<readonly [unknown, unknown]>
@@ -46,17 +35,24 @@ function unwrap<T>([error, value]: readonly [unknown, T]): T {
   return value
 }
 
-/** The keys of a KV store below a prefix. Some drivers list keys with `/` where the key had `:`. */
-export async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<string[]> {
+async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<string[]> {
   const keys = unwrap(await kv.list({ prefix }))?.keys ?? []
   return keys.map(key => key.replaceAll("/", ":")).filter(key => key.startsWith(prefix))
+}
+
+export async function consoleSiteEntries(kv: ConsoleSiteKV, prefix: string): Promise<{ key: string, value: string | null | undefined }[]> {
+  const keys = await consoleSiteKeys(kv, prefix)
+  if (!keys.length) return []
+  const values = kv.getMany
+    ? unwrap(await kv.getMany(keys, { type: "text" })) ?? []
+    : await Promise.all(keys.map(async key => unwrap(await kv.get(key, { type: "text" }))))
+  return keys.map((key, index) => ({ key, value: values[index] }))
 }
 
 const memoryKey: unique symbol = Symbol.for("vitehub.console.tickets")
 // SAFETY: This module owns the process slot, so separately bundled Console chunks share one store.
 const memoryScope = globalThis as typeof globalThis & { [memoryKey]?: Map<string, { value: string, expiresAt: number }> }
 
-/** Keys in the memory of this process. Only a development server uses it: another instance would not see them. */
 function memorySiteKV(): ConsoleSiteKV {
   const entries = memoryScope[memoryKey] ??= new Map()
   const live = (key: string) => {
@@ -88,7 +84,6 @@ function memorySiteKV(): ConsoleSiteKV {
   }
 }
 
-/** Drivers whose `getAndDelete()` is atomic, so a one-time link works once across instances. */
 const atomicDrivers: readonly string[] = ["database", "redis", "upstash"] satisfies readonly KVDriversWith<"getAndDelete">[]
 
 let installedKV: ConsoleSiteKV | undefined
@@ -102,20 +97,48 @@ function storeMissing(why: string): Error {
   return consoleRequestError(500, `One-time links need a store that every instance of the app shares. ${why}`, "CONSOLE_TICKET_STORE_MISSING")
 }
 
+const consoleSiteTable = "vitehub_console_site"
+const databaseSiteKVs = new WeakMap<object, { root: string, store: ConsoleSiteKV }>()
+
+async function databaseSiteKV(): Promise<ConsoleSiteKV | undefined> {
+  const entry = await consoleState().siteDatabase?.()
+  if (!entry) return undefined
+  const { name, db } = entry
+  const root = siteRootSecret()
+  if (!root) throw siteSecretMissing()
+  const cached = databaseSiteKVs.get(db)
+  if (cached?.root === root) return cached.store
+  const namespace = await deriveViteHubSecret(root, "vitehub:site:storage")
+  const { default: createDatabaseKVDriver, kvSqlClientFromDatabase } = await import("@vite-hub/kv/runtime/database")
+  const driver = createDatabaseKVDriver({ driver: "database", database: name, namespace }, async () => kvSqlClientFromDatabase(db, name), consoleSiteTable)
+  const text = (value: unknown): string | null => value === null || value === undefined ? null : String(value)
+  const store: ConsoleSiteKV = {
+    set: async (key, value, { ttl }) => [undefined, await driver.setItem?.(key, value, { ttl })],
+    get: async key => [undefined, text(await driver.getItem(key))],
+    getMany: async keys => [undefined, (await driver.getItems(keys.map(key => ({ key })), {})).map(item => text(item.value))],
+    getAndDelete: async key => [undefined, text(await driver.getAndDeleteItem?.(key))],
+    list: async ({ prefix }) => [undefined, { keys: await driver.getKeys(prefix, {}) }],
+    delete: async key => [undefined, await driver.removeItem?.(key, {})],
+  }
+  databaseSiteKVs.set(db, { root, store })
+  return store
+}
+
 /**
  * The KV store of tickets without Auth, and of site sessions: the app's default KV store when its driver takes a key
- * out atomically. A development server keeps them in memory. Otherwise it fails closed with
- * `CONSOLE_TICKET_STORE_MISSING`.
+ * out atomically, else the `database` KV driver over the app's Database. A development server keeps them in memory.
+ * Otherwise it fails closed with `CONSOLE_TICKET_STORE_MISSING`.
  */
 export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (installedKV) return installedKV
   if (isConsoleDevelopmentRuntime()) return memorySiteKV()
-  // Generated Console sections reflect the app's KV integration.
   if (!getConsoleSections().includes("kv")) throw storeMissing("The app has no Auth Database and no KV store.")
   const { getKVStoreDriver, kv } = await import("@vite-hub/kv")
   const driver = await getKVStoreDriver()
-  if (!atomicDrivers.includes(driver)) throw storeMissing(`The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.`)
-  return kv
+  if (atomicDrivers.includes(driver)) return kv
+  const database = await databaseSiteKV()
+  if (database) return database
+  throw storeMissing(`The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time, and the app has no Database to keep links in.`)
 }
 
 function serverEnv(name: string): string | undefined {
@@ -123,18 +146,21 @@ function serverEnv(name: string): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
+function siteRootSecret(): string | undefined {
+  return readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET") })
+}
+
+function siteSecretMissing(): Error {
+  return consoleRequestError(500, "Site access without Auth needs VITEHUB_SECRET, and the app has none.", "CONSOLE_SITE_SECRET_MISSING")
+}
+
 const keyCache: { root?: string, key?: Promise<SealKey> } = {}
 const developmentSlot: unique symbol = Symbol.for("vitehub.console.site-key")
 // SAFETY: This module owns the process slot, so separately bundled Console chunks share one development key.
 const developmentScope = globalThis as typeof globalThis & { [developmentSlot]?: Promise<SealKey> }
 
-/**
- * The key of the cookie: derived from `VITEHUB_SECRET` for Site access alone, so the app's other cookies and this one
- * never open each other. A development server without the secret uses a random key of this process. In production,
- * the key is undefined without the secret, and a short secret throws, as for Comments.
- */
 async function siteKey(): Promise<SealKey | undefined> {
-  const root = readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET") })
+  const root = siteRootSecret()
   if (!root) {
     if (!isConsoleDevelopmentRuntime()) return undefined
     return await (developmentScope[developmentSlot] ??= importSealKey(crypto.getRandomValues(new Uint8Array(32))))
@@ -149,23 +175,20 @@ async function siteKey(): Promise<SealKey | undefined> {
 /** The key of the cookie, or `CONSOLE_SITE_SECRET_MISSING` before a ticket is made or redeemed. */
 export async function requireConsoleSiteKey(): Promise<SealKey> {
   const key = await siteKey()
-  if (!key) throw consoleRequestError(500, "Site access without Auth seals the browser's cookie with VITEHUB_SECRET, and the app has none.", "CONSOLE_SITE_SECRET_MISSING")
+  if (!key) throw siteSecretMissing()
   return key
 }
 
-/** A browser that Site access signed in. The KV store keeps it, so revoking it signs the browser out. */
 interface SiteRecord {
   id: string
   kind: "member" | "guest"
   person: { id: string, name: string, email?: string, image?: string }
   roles: string[]
   device: string
-  /** Milliseconds since the epoch. */
   createdAt: number
   expiresAt: number
 }
 
-/** What the cookie holds. */
 interface SiteClaims {
   id: string
   person: SiteRecord["person"]
@@ -267,15 +290,13 @@ export async function readConsoleSiteVisitor(request: Request): Promise<ViteHubS
 /** The browsers that Site access signed in without Auth, most recently signed in first. */
 export async function listConsoleSiteSessions(known: ReadonlySet<string>): Promise<SiteSession[]> {
   const kv = await consoleSiteKV()
-  const keys = await consoleSiteKeys(kv, sessionPrefix)
-  const records = await Promise.all(keys.map(async key => readRecord(unwrap(await kv.get(key, { type: "text" })))))
+  const records = (await consoleSiteEntries(kv, sessionPrefix)).map(({ value }) => readRecord(value))
   return records
     .filter((record): record is SiteRecord => record !== undefined && record.expiresAt > Date.now())
     .sort((a, b) => b.createdAt - a.createdAt)
     .map(record => ({
       id: record.id,
       kind: record.kind,
-      // A guest has no email.
       person: { ...record.person },
       grants: record.roles.filter(role => known.has(role)),
       device: record.device,
