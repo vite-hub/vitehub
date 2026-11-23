@@ -365,7 +365,7 @@ describe("vitehub add", () => {
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
     })
     const before = await snapshot(root)
-    const result = await add(["queue", "--name", "jobs", "--yes"], root)
+    const result = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
     expect(await snapshot(root)).toEqual(before)
