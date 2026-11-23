@@ -13,6 +13,7 @@ import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddAr
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
+import { deriveSetupStack } from "./stack.ts"
 import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -22,6 +23,7 @@ import type { FeatureId } from "@vite-hub/internal/features"
 import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.ts"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
+import type { SetupStack } from "./stack.ts"
 
 const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
@@ -47,9 +49,6 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
 export const nuxiPackage = "nuxi@3.37.0"
 
 const nuxtTemplate = "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548"
-
-const stackStart = "<!-- vitehub:stack -->"
-const stackEnd = "<!-- /vitehub:stack -->"
 
 export interface SetupInitArgs {
   dir?: string
@@ -82,8 +81,7 @@ export interface SetupInitPlan {
   scaffold?: { command: string }
   changes: readonly SetupChange[]
   install: { packages: readonly string[], devPackages: readonly string[], command?: string }
-  /** The command that creates the same stack. README.md keeps it. */
-  stack: { command: string }
+  stack: SetupStack
   nextSteps: readonly string[]
 }
 
@@ -150,18 +148,14 @@ function initCommand(parts: InitCommandParts, extra: readonly string[]): string 
     initCommandPrefix,
     shellQuote(parts.dir),
     "--host",
-    parts.host ?? "<host>",
+    shellQuote(parts.host ?? "<host>"),
     "--features",
-    parts.features ? parts.features.join(",") || "''" : "<id,id,...>",
+    shellQuote(parts.features?.join(",") ?? "<id,id,...>"),
     ...options.flatMap(option => ["--option", shellQuote(option)]),
     ...(parts.framework === "nuxt" ? ["--framework", "nuxt"] : []),
     ...(parts.pm && parts.pm !== "pnpm" ? ["--pm", parts.pm] : []),
     ...extra,
   ].join(" ")
-}
-
-function stackCommand(parts: InitCommandParts): string {
-  return initCommand(parts, ["--yes"])
 }
 
 function rerunInit(args: SetupInitArgs, parts: InitCommandParts): string {
@@ -170,34 +164,6 @@ function rerunInit(args: SetupInitArgs, parts: InitCommandParts): string {
     "--yes",
     ...(args.json ? ["--json"] : []),
   ])
-}
-
-function stackBlock(command: string): string {
-  return `${stackStart}\nCreate the same stack with:\n\n\`\`\`sh\n${command}\n\`\`\`\n${stackEnd}\n`
-}
-
-function readmeWithStack(readme: string | undefined, name: string, command: string): string {
-  const block = stackBlock(command)
-  if (readme === undefined) return `# ${name}\n\n${block}`
-  const from = readme.indexOf(stackStart)
-  const to = readme.indexOf(stackEnd, from)
-  if (from !== -1 && to !== -1) {
-    const after = readme.slice(to + stackEnd.length).replace(/^\r?\n/u, "")
-    return `${readme.slice(0, from)}${block}${after}`
-  }
-  return `${readme}${readme === "" || readme.endsWith("\n") ? "" : "\n"}\n${block}`
-}
-
-/** The stack command in the README.md block of `root`, for `vitehub status`. `null` when there is no block. */
-export async function readSetupStack(root: string): Promise<{ command: string } | null> {
-  const file = join(root, "README.md")
-  if (!existsSync(file)) return null
-  const readme = await readFile(file, "utf8")
-  const from = readme.indexOf(stackStart)
-  const to = readme.indexOf(stackEnd, from)
-  if (from === -1 || to === -1) return null
-  const command = readme.slice(from, to).split(/\r?\n/u).map(line => line.trim()).find(line => line.startsWith(initCommandPrefix))
-  return command ? { command } : null
 }
 
 function packageNameOf(root: string): string {
@@ -394,9 +360,6 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   for (const file of added.files) base.set(file.path, { after: file.content })
   if (added.configFile) base.set(configFile, { ...base.get(configFile), after: added.configFile.after })
 
-  const stack = stackCommand(parts())
-  const readme = state.kind === "create" ? undefined : await readOptional(join(root, "README.md"))
-  base.set("README.md", { ...(readme === undefined ? {} : { before: readme }), after: readmeWithStack(readme, name, stack) })
   if (state.kind === "adopt") {
     const gitignore = await readOptional(join(root, ".gitignore"))
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
@@ -418,6 +381,13 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     `Start the dev server: ${runScript(packageManager, "dev")}`,
     ...added.plan.nextSteps,
   ]
+  const finalConfig = base.get(configFile)!.after
+  const stackProject: SetupProject = {
+    ...planned,
+    config: locateViteHubConfig(configFile, finalConfig),
+    configSource: finalConfig,
+    packageManager: args.install && (command || scaffold) ? packageManager : detected.packageManager,
+  }
   const plan: SetupInitPlan = {
     changes: writes.map(write => changeOf(write.path, write.before, write.after)),
     features: added.plan.features,
@@ -430,7 +400,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     packageManager,
     root,
     ...(scaffold ? { scaffold: { command: [scaffold[0], ...scaffold[1]].join(" ") } } : {}),
-    stack: { command: stack },
+    stack: deriveSetupStack(stackProject, setupStatus(stackProject, context.env)),
     status: writes.length || scaffold || (command && args.install) ? "planned" : "unchanged",
   }
   return { install, plan, rerun: rerunInit(args, parts()), writes, ...(scaffold ? { scaffold } : {}) }
@@ -548,14 +518,16 @@ function writePlan(plan: SetupInitPlan, context: ViteHubCliContext): void {
   const lines = [
     ...(plan.install.command ? [`Install: ${plan.install.command}`] : []),
     ...(plan.implied.length ? [`Also turns on: ${plan.implied.join(", ")}`] : []),
+    `Stack: ${plan.stack.command}`,
   ]
-  if (lines.length) context.stdout.write(`${lines.join("\n")}\n`)
+  context.stdout.write(`${lines.join("\n")}\n`)
 }
 
 function writeResult(plan: SetupInitPlan, context: ViteHubCliContext): void {
   const features = plan.features.length ? ` with ${plan.features.join(", ")}` : ""
   if (plan.status === "unchanged") context.stdout.write(`${plan.root} already has this stack. Nothing to change.\n`)
   else context.stdout.write(`${plan.mode === "create" ? "Created" : "Set up"} ${plan.root} for ${plan.host}${features}.\n`)
+  context.stdout.write(`Stack: ${plan.stack.command}\n`)
   context.stdout.write(`\nNext steps:\n${plan.nextSteps.map(step => `- ${step}`).join("\n")}\n`)
 }
 
@@ -595,7 +567,14 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
       planned = await planInit({ ...args, pm: plan.packageManager }, root, await readDir(root, context.env), context)
     }
     await applyInit(planned, args.install, context, !!plan.scaffold)
-    const applied: SetupInitPlan = { ...planned.plan, mode: plan.mode, status: "applied", ...(plan.scaffold ? { scaffold: plan.scaffold } : {}) }
+    const project = await readSetupProject(root, context.env)
+    const applied: SetupInitPlan = {
+      ...planned.plan,
+      mode: plan.mode,
+      stack: deriveSetupStack(project, setupStatus(project, context.env)),
+      status: "applied",
+      ...(plan.scaffold ? { scaffold: plan.scaffold } : {}),
+    }
     if (args.json) writeSetupJson(context, applied)
     else writeResult(applied, context)
     return setupExitCodes.done

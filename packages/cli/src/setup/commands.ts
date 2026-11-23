@@ -11,16 +11,18 @@ import { loginCommand, logoutCommand, whoamiCommand } from "./console-auth.ts"
 import { deployCommand } from "./deploy.ts"
 import { deploymentsCommand, liveLabel, readSetupLive, STATUS_HOST_TIMEOUT_MS } from "./deployments.ts"
 import { readSetupArgs, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { initCommandDefinition, readSetupStack } from "./init.ts"
+import { initCommandDefinition } from "./init.ts"
 import { linkSetupProject, readLinkHostOption, readSetupLinkState, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { removeCommand } from "./remove.ts"
+import { deriveSetupStack } from "./stack.ts"
 import { setupStatus } from "./status.ts"
 import { updateCommand } from "./update.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { SetupLiveStatus } from "./deployments.ts"
 import type { SetupLinkResult, SetupLinkStatus } from "./link.ts"
+import type { SetupStack } from "./stack.ts"
 import type { SetupFeatureStatus, SetupStatus } from "./status.ts"
 
 function supportLabel(support: SetupFeatureStatus["support"]): string {
@@ -84,7 +86,7 @@ function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
   return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
 }
 
-function writeStatus(status: SetupStatus & SetupLinkStatus & SetupLiveStatus & { stack: { command: string } | null }, context: ViteHubCliContext): void {
+function writeStatus(status: SetupStatus & SetupLinkStatus & SetupLiveStatus & { stack: SetupStack | null }, context: ViteHubCliContext): void {
   const shown = status.features.filter(feature => feature.enabled !== "off")
   const off = status.features.length - shown.length
   context.stdout.write(`${table([
@@ -153,7 +155,7 @@ const statusCommand: ViteHubCliCommand = {
         ...features,
         ...state.status,
         ...await readSetupLive(project.root, state.link, state.credentials, context, { offline, signal }),
-        stack: await readSetupStack(project.root),
+        stack: "manual" in features.config && features.config.manual === "no-vitehub" ? null : deriveSetupStack(project, features),
       }
       const checkouts = await readCheckouts(status.root)
       if (json) {
