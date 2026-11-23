@@ -445,12 +445,13 @@ from each instance. Use real passwords and keep them in
 
 ## Client addresses behind Caddy
 
-Each instance sees Caddy as the client. Without `key`, Rate Limit counts by
-client address, so every client would share one count. Pass a `key`, such as
-the user ID. Caddy replaces `X-Forwarded-For` with the address of the client,
-so when only Caddy can reach the instances, its first value is the client
-address. For Auth, set
-[`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
+By default, each instance sees Caddy as the client. Rate Limit counts by
+client address unless you pass a `key`, such as the user ID. To count by the
+original client address, keep the Node ports private and set `trustProxy: true`
+in the app's ViteHub options. Caddy sets `X-Forwarded-For` at the public edge,
+and ViteHub uses the last address in that header for Rate Limit and
+[Auth rate limiting](/docs/auth/configure#rate-limiting). Do not enable proxy
+trust if clients can reach Node directly.
 
 ## What stays in one process
 
