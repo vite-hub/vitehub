@@ -27,7 +27,7 @@ import {
 } from "../src/runtime.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
-import { workspaceStoreTarget } from "../src/storage/target.ts"
+import { provideWorkspaceStoreTarget } from "../src/storage/target.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget } from "../src/storage/metadata-target.ts"
 
 const invocation = {
@@ -1073,9 +1073,8 @@ describe("Workspace Source Resolution", () => {
     getItem.mockRejectedValue(new Error("provider unavailable"))
 
     // A pre-migration snapshot has no local file metadata version in its hash.
-    const baseFacade = Object.assign(facade(base), {
-      [workspaceStoreTarget]: () => ({ provider }),
-    })
+    const baseFacade = facade(base)
+    provideWorkspaceStoreTarget(baseFacade, () => ({ provider }))
     const { workspace } = await createWorkspaceSourceResolutionFacade(baseFacade, definition, {
       invocation,
       overlay: true,

@@ -2588,6 +2588,9 @@ importers:
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
+      nodemailer:
+        specifier: 10.6.0
+        version: 10.6.0
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -16903,6 +16906,10 @@ packages:
   node-emoji@2.2.0:
     resolution: {integrity: sha512-Z3lTE9pLaJF47NyMhd4ww1yFTAP8YhYI8SleJiHzM46Fgpm5cnNzSl9XfzFNqbaz+VlJrIj3fXQ4DeN1Rjm6cw==}
     engines: {node: '>=18'}
+
+  nodemailer@10.6.0:
+    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
+    engines: {node: '>=20.0.0'}
 
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
@@ -37076,6 +37083,8 @@ snapshots:
     optional: true
 
   node-fetch-native@1.6.7: {}
+
+  nodemailer@10.6.0: {}
 
   node-fetch@2.7.0:
     dependencies:

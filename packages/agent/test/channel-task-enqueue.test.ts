@@ -179,6 +179,30 @@ describe("enqueueChannelTask()", () => {
     await vi.waitFor(async () => expect((await deliveries()).find(item => item.sourceId === `task:${receipt!.deliveryId}`)?.status).toBe("completed"))
   })
 
+  it("keeps absolute starts on the database clock and translates relative starts from a skewed host", async () => {
+    const { state } = await setup()
+    const clock = state.extension("task_clock_test")
+    const now = Date.now
+    const startedAt = now()
+    const notBefore = new Date(startedAt + 60_000)
+    Date.now = () => now() + 300_000
+    try {
+      const [absoluteError, absolute] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { notBefore })
+      const [relativeError, relative] = await enqueueChannelTask("airtable", "close-duplicate", { data: {} }, { delayMs: 60_000 })
+      expect(absoluteError).toBeUndefined()
+      expect(relativeError).toBeUndefined()
+      expect(absolute?.notBefore).toBe(notBefore.getTime())
+      const [absoluteRow, relativeRow] = await Promise.all([absolute, relative].map(async receipt =>
+        (await clock.execute("SELECT available_at, status FROM vitehub_agent_state_webhook_queue WHERE delivery_id = ?", [receipt!.deliveryId]))[0]))
+      expect(absoluteRow).toEqual({ available_at: notBefore.getTime(), status: "queued" })
+      expect(relativeRow?.status).toBe("queued")
+      expect(Number(relativeRow?.available_at)).toBeGreaterThanOrEqual(startedAt + 60_000 - 50)
+      expect(Number(relativeRow?.available_at)).toBeLessThanOrEqual(now() + 60_000 + 50)
+    } finally {
+      Date.now = now
+    }
+  })
+
   it("replaces a queued task with the same key, so only the newest input runs", async () => {
     const { deliveries, ran } = await setup()
     const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 300, key: "pair:recA:recB" })

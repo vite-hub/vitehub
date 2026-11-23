@@ -81,7 +81,7 @@ export interface ChannelTaskReceipt {
 export interface ChannelTaskQueue {
   agentName: string
   cancel: (channel: string, task: string, options: CancelChannelTaskOptions) => Promise<number>
-  enqueue: (channel: string, task: string, input: AgentRunInput, options: EnqueueChannelTaskOptions & { notBefore: number }) => Promise<ChannelTaskReceipt>
+  enqueue: (channel: string, task: string, input: AgentRunInput, options: EnqueueChannelTaskOptions & { absoluteStart: boolean; notBefore: number }) => Promise<ChannelTaskReceipt>
   /** Runs a trigger's `invoke` with `input` and admits its result to the webhook queue. */
   trigger: (channel: string, trigger: string, input: unknown) => Promise<{ deliveryId: string, queued: boolean }>
 }
@@ -193,7 +193,7 @@ export async function enqueueChannelTask(
     if (!validTaskName(channel, task)) throw agentDiagnostics.AGENT_CHANNEL_TASK_NAME_MISSING({ method: "enqueueChannelTask", target: "task" })
     if (options.key !== undefined && !validKey(options.key)) throw agentDiagnostics.AGENT_CHANNEL_TASK_KEY_INVALID({ method: "enqueueChannelTask" })
     const notBefore = startTime(options)
-    return [undefined, await (await channelTaskQueue(channel)).enqueue(channel, task, input, { ...options, notBefore })]
+    return [undefined, await (await channelTaskQueue(channel)).enqueue(channel, task, input, { ...options, absoluteStart: options.notBefore !== undefined, notBefore })]
   }
   catch (error) {
     return [channelTaskError(error, channel, task), undefined]

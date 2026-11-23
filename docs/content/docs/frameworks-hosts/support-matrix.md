@@ -33,7 +33,7 @@ select different providers. The Nitro and UnJS column describes generic Nitro ou
 | Blob | fs | R2 | Vercel Blob | Netlify Blobs | S3 | Host driver | fs / S3 |
 | Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
 | Database | SQLite | D1 | libSQL / D1 / Postgres | libSQL / D1 / Postgres | libSQL / D1 / Postgres | Nuxt D1 | SQLite / libSQL / Postgres |
-| Email | Log | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
+| Email | Log | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / SMTP / custom |
 | KV | fs-lite | Workers KV | Upstash | Upstash / Redis | Deno KV | Host driver | Redis / Postgres / fs-lite |
 | Queue | Local driver | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Postgres / local driver |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory, or KV |

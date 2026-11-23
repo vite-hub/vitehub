@@ -19,4 +19,5 @@ export type {
   EmailTemplateMessage,
   EmailTemplateName,
   EmailTemplateRegistry,
+  RenderedEmail,
 } from "./types.ts"
