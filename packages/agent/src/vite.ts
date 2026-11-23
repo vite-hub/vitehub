@@ -2822,7 +2822,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/agent/vite")
-  const packageLoading = createNativePackageLoading()
+  const packageLoading = createNativePackageLoading([
+    import.meta.resolve("@vite-hub/agent"),
+    import.meta.resolve("@vite-hub/workspace"),
+  ])
   const buildConfigs = new WeakMap<object, {
     agent: AgentOptions | false | undefined
     config: ResolvedConfig
@@ -3513,7 +3516,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       return {
         // SAFETY: Vite passes its environment build configuration, which this adapter augments without changing its owned fields.
         build: mergeBuildExternal(config as BuildWithRolldownOptions, []),
-        ...(packageLoading.configureEnvironment(name, env) ? {} : { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }),
+        ...(packageLoading.configureEnvironment(name, env, config) ? {} : { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }),
       }
     },
     buildApp: providerOutputEnvironment.buildApp,

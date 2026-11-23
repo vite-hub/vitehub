@@ -33,6 +33,11 @@ function alwaysBundle(id: string, importer: string | undefined): boolean {
 export default defineConfig({
   pack: {
     ...packDefaults,
+    outputOptions: {
+      codeSplitting: {
+        groups: [{ name: "vitehub-grants", test: /[/\\](?:access-runtime|channel-delivery-ownership)\.ts$/ }],
+      },
+    },
     deps: {
       alwaysBundle,
       neverBundle: [

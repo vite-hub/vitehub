@@ -27,6 +27,7 @@ import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin } from "vite"
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseEmailMarkdown } from "./frontmatter.ts"
 import { discoverEmailTemplates } from "./templates.ts"
 import { disposeEmailOutbox } from "./runtime/outbox.ts"
 import { emailCaptureKey } from "./runtime/capture.ts"
@@ -46,7 +47,7 @@ export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const EMAIL_RESOLVE_ID_PATTERN = /^#vitehub\/(?:email\/definition$|emails\/)/
-const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?markdown-template$/
+const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?email-template$/
 const noExternalAddition = createNoExternalAddition("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
@@ -220,6 +221,15 @@ function resolveMarkdownImport(): string {
   return fileURLToPath(new URL(`./markdown.${extension}`, import.meta.url))
 }
 
+function renderEmailTemplateModule(source: string): string {
+  return [
+    `import { renderEmailMarkdown } from ${JSON.stringify(resolveMarkdownImport())}`,
+    `const template = ${JSON.stringify(source)}`,
+    "export default (data) => renderEmailMarkdown(template, { data })",
+    "",
+  ].join("\n")
+}
+
 function renderEmailPreviewModule(preview: { templates: readonly unknown[] }): string {
   return [
     `export const emailPreview = ${JSON.stringify(preview)}`,
@@ -382,7 +392,7 @@ function emailTemplateName(id: string): string | undefined {
   if (!id.startsWith(emailTemplatePrefix)) return
   const name = id.slice(emailTemplatePrefix.length)
   const segments = name.split("/")
-  if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
+  if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === ".." || segment.startsWith("_"))) {
     throw emailErrorDiagnostics.EMAIL_INVALID_TEMPLATE({ id })
   }
   return name
@@ -407,21 +417,28 @@ interface EmailTemplateTypes {
   registry?: string
 }
 
-async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
+/**
+ * The types of `.vitehub/types/email.d.ts` (`modules`) and `.vitehub/types/email-templates.d.ts` (`registry`). The
+ * docs snippet gate uses it too.
+ * @internal
+ */
+export async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
   if (!templates.length) return { modules: "" }
   const typed = await Promise.all(templates.map(async (template) => {
     try {
-      const data = await inferMarkdownTemplateDataType(template.source, "    ")
-      await assertNoBindingsInCode(template.source)
-      return { ...template, data }
+      const { content, subject } = parseEmailMarkdown(template.source, template.file)
+      const data = await inferMarkdownTemplateDataType(content, { indent: "      ", text: subject })
+      await assertNoBindingsInCode(content)
+      return { ...template, data, subject: subject !== undefined }
     }
     catch (cause) {
+      if (isRecord(cause) && cause.code === "EMAIL_TEMPLATE_FRONTMATTER_INVALID") throw cause
       throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
     }
   }))
-  const modules = typed.map(({ data, name }) => [
+  const modules = typed.map(({ data, name, subject }) => [
     `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
-    `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
+    `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n      ", "\n  ")}) => Promise<{ ${subject ? "subject: string, " : ""}html: string, text: string }>`,
     "  export default render",
     "}",
   ].join("\n")).join("\n\n") + "\n"
@@ -430,7 +447,7 @@ async function renderEmailTemplateTypes(templates: Array<{ file: string, name: s
     "",
     `declare module ${JSON.stringify(importBase)} {`,
     "  interface EmailTemplateRegistry {",
-    ...typed.map(({ data, name }) => `    ${JSON.stringify(name)}: ${data.type}`),
+    ...typed.map(({ data, name, subject }) => `    ${JSON.stringify(name)}: {\n      data: ${data.type}\n      subject: ${subject}\n    }`),
     "  }",
     "}",
     "",
@@ -447,7 +464,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   for (const { file, name } of templates) {
     const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
-    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
+    await writeFileIfChanged(entry, renderEmailTemplateModule(await readFile(file, "utf8")))
     try {
       await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir, tsconfig: false })
     }
@@ -740,7 +757,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           for (const templatesRoot of templatesRoots) {
             const file = resolve(templatesRoot, `${name}.md`)
             try {
-              if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+              if ((await stat(file)).isFile()) return `/@fs/${file}?email-template`
             }
             catch (error) {
               if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -755,12 +772,10 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         if (id === resolvedEmailDefinitionId && definition) {
           return renderEmailDefinitionModule(definition)
         }
-        if (id.endsWith("?markdown-template")) {
+        if (id.endsWith("?email-template")) {
           const file = normalizeTemplateModulePath(id)
           if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
-          return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
-            `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
-          )
+          return readFile(file, "utf8").then(renderEmailTemplateModule)
         }
       },
     },

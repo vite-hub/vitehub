@@ -90,19 +90,23 @@ const [error] = await email.send({
 if (error) throw error
 ```
 
-`html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
+`renderEmailMarkdown()` returns `{ subject?, html, text }`. `subject` is set when the Markdown starts with `subject:` frontmatter. `html` contains rendered HTML. `text` contains the fully composed Markdown, which remains readable in text clients and keeps composition deterministic. Supply your own `text` when you need a marker-free plain-text version.
 
 ### Send a template
 
-Place reusable Markdown under `server/emails`:
+Place reusable Markdown under `server/emails`. `subject:` frontmatter sets the subject and can read `{{ data.* }}` values as plain text. A file or folder whose name starts with `_` is a partial, not a template:
 
 ```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
+
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.
 ```
 
-Send it by name. `email.send()` renders the HTML and text body:
+Send it by name. `email.send()` renders the template once to its subject, HTML, and text. A `subject` in the message overrides the subject of the template, and a template without `subject:` frontmatter needs one (`EMAIL_TEMPLATE_SUBJECT_REQUIRED`):
 
 ```ts
 import { email } from "@vite-hub/email"
@@ -112,7 +116,6 @@ const [error] = await email.send({
   data: { user: { name: "Ada" } },
   from: "hello@example.com",
   to: "you@example.com",
-  subject: "Your workspace is ready",
 })
 if (error) throw error
 ```
@@ -124,7 +127,7 @@ To render a template without sending it, import its typed async renderer:
 ```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
 
-const markdown = await renderWelcome({ user: { name: "Ada" } })
+const { subject, html, text } = await renderWelcome({ user: { name: "Ada" } })
 ```
 
 Nested paths keep their relative name. For example,
