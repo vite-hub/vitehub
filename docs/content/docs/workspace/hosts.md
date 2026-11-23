@@ -30,13 +30,13 @@ Add the generated types so `useWorkspace()` accepts only discovered Workspace na
 
 ## Blob + Database history
 
-The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps history the same way on D1, D1 HTTP, local or hosted libSQL, and Postgres. On D1 and libSQL, it publishes with one atomic batch of conditional SQL statements, not interactive transactions, which D1 does not support. On Postgres, it publishes in one transaction that first locks the Workspace row, so commits to one Workspace run one after another across all instances. Postgres uses the schema from `vite-hub/workspace/blob-database/postgres`, with the same table and column names.
+The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps history the same way on D1, D1 HTTP, local or hosted libSQL, and Postgres. On D1 and libSQL, it publishes with one atomic batch of conditional SQL statements, not interactive transactions, which D1 does not support. On Postgres, it publishes in one transaction that first locks the Workspace row, so commits to one Workspace run one after another across all instances. Postgres uses the schema from `vite-hub/workspace/blob-database/postgres`, with the same table names. If the Postgres Database uses Hyperdrive, disable query caching so all instances read the current head.
 
 | Table | Stores |
 | --- | --- |
 | `workspace_history_workspaces` | Workspace namespace and deletion tombstone. |
 | `workspace_history_refs` | One row per Workspace and ref name, with head id and sequence. |
-| `workspace_history_revisions` | Immutable file manifests, their ref, parent ids, timestamps, messages, metadata, counts, and commit status. |
+| `workspace_history_revisions` | Immutable file manifests, their ref, parent ids, timestamps, messages, metadata, counts, and commit status. On Postgres, `file_index` holds the fields used in queries, separate from opaque file metadata. |
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 

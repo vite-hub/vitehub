@@ -1,14 +1,17 @@
-import { and, desc, eq, exists, gte, inArray, isNotNull, isNull, lt, ne, notExists, sql } from "drizzle-orm"
+import { and, desc, eq, exists, getColumns, gte, inArray, isNotNull, isNull, lt, ne, notExists, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 
+import { sha256 } from "../core/path.ts"
 import { workspaceHistorySchema } from "./history-schema-postgres.ts"
 
 import type { AnyRelations, SQL } from "drizzle-orm"
 import type { PgAsyncDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core"
-import type { HistoryIndex } from "./history-index.ts"
+import type { HistoryIndex, HistoryRevisionRow } from "./history-index.ts"
+import type { HistoryFileIndex } from "./history-schema-postgres.ts"
 
 const { workspaceHistoryWorkspaces: workspaces, workspaceHistoryRefs: refs, workspaceHistoryRevisions: revisions, workspaceHistoryObjects: objects, workspaceHistoryMetadata: metadata } = workspaceHistorySchema
 const crossRef = alias(refs, "cross_ref")
+const { fileIndex: _fileIndex, ...revisionColumns } = getColumns(revisions)
 
 /** A Postgres Drizzle database with the tables of `workspaceHistorySchema` from `@vite-hub/workspace/blob-database/postgres`. */
 export type PostgresHistoryDatabase = PgAsyncDatabase<PgQueryResultHKT, AnyRelations>
@@ -21,7 +24,21 @@ function active(workspace: string) {
 const digestOf = sql`left(${objects.digest}, 64)`
 
 function manifestDigests(where: SQL | undefined) {
-  return sql`(select file.value->>'digest' from ${revisions} cross join lateral json_each(${revisions.entries}) as file where ${where})`
+  return sql`(select file.value->>'digest' from ${revisions} cross join lateral jsonb_each(${revisions.fileIndex}) as file where ${where})`
+}
+
+function textValues(values: string[]) {
+  return sql`(select jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
+}
+
+async function indexFiles(entries: HistoryRevisionRow["entries"]): Promise<HistoryFileIndex> {
+  return Object.fromEntries(await Promise.all(Object.entries(entries).map(async ([path, file]) => {
+    const canonical = JSON.stringify(file, (_key, value: unknown) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(Object.keys(value).sort().map(key => [key, Reflect.get(value, key)]))
+        : value)
+    return [JSON.stringify(path), { digest: file.digest, size: file.size, fingerprint: await sha256(canonical) }] as const
+  })))
 }
 
 async function lock(tx: Transaction, workspace: string): Promise<boolean> {
@@ -32,7 +49,7 @@ async function lock(tx: Transaction, workspace: string): Promise<boolean> {
 async function activeKeys(db: PostgresHistoryDatabase | Transaction, workspace: string, digests: string[]): Promise<Array<[string, string]>> {
   if (!digests.length) return []
   const rows = await db.select({ key: objects.digest }).from(objects)
-    .where(and(eq(objects.workspace, workspace), gte(objects.size, 0), inArray(digestOf, digests)))
+    .where(and(eq(objects.workspace, workspace), gte(objects.size, 0), sql`${digestOf} in ${textValues(digests)}`))
   return rows.map(row => [row.key.slice(0, 64), row.key])
 }
 
@@ -63,8 +80,8 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
       const heads = await db.select({ ref: refs.ref, head: refs.head }).from(refs)
         .where(and(eq(refs.workspace, workspace), isNotNull(refs.head), active(workspace)))
       if (!heads.length) return []
-      const rows = await db.select().from(revisions).where(and(
-        eq(revisions.workspace, workspace), eq(revisions.committed, true), inArray(revisions.id, heads.map(row => row.head!)), active(workspace),
+      const rows = await db.select(revisionColumns).from(revisions).where(and(
+        eq(revisions.workspace, workspace), eq(revisions.committed, true), sql`${revisions.id} in ${textValues(heads.map(row => row.head!))}`, active(workspace),
       ))
       const byId = new Map(rows.map(row => [row.id, row]))
       return heads.flatMap(({ ref, head }) => {
@@ -74,34 +91,35 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
     },
 
     async revision(workspace, id) {
-      const [row] = await db.select().from(revisions).where(and(
+      const [row] = await db.select(revisionColumns).from(revisions).where(and(
         eq(revisions.workspace, workspace), eq(revisions.id, id), eq(revisions.committed, true), active(workspace),
       ))
       return row
     },
 
     async list(workspace, { ref, before, path, limit }) {
-      const previousEntries = sql`coalesce((
-        select previous.entries from ${revisions} as previous
+      const previousIndex = sql`coalesce((
+        select previous.file_index from ${revisions} as previous
         where previous.workspace = ${revisions.workspace} and previous.id = ${revisions.parentId} and previous.committed
-      ), '{}'::json)`
-      const inPath = (key: SQL) => sql`(${key} = ${path}::text or left(${key}, length(${path}::text) + 1) = ${path}::text || '/')`
+      ), '{}'::jsonb)`
+      const encodedPath = JSON.stringify(path)
+      const encodedPrefix = JSON.stringify(`${path}/`).slice(0, -1)
+      const inPath = (key: SQL) => sql`(${key} = ${encodedPath} or starts_with(${key}, ${encodedPrefix}))`
       const pathFilter = path === undefined ? undefined : sql`(
         exists (
           select 1
-          from json_each(${revisions.entries}) as current_file
-          left join json_each(${previousEntries}) as previous_file on previous_file.key = current_file.key
+          from jsonb_each(${revisions.fileIndex}) as current_file
+          left join jsonb_each(${previousIndex}) as previous_file on previous_file.key = current_file.key
           where ${inPath(sql`current_file.key`)}
-            and (previous_file.key is null or current_file.value::jsonb is distinct from previous_file.value::jsonb)
+            and current_file.value is distinct from previous_file.value
         )
         or exists (
           select 1
-          from json_each(${previousEntries}) as previous_file
-          left join json_each(${revisions.entries}) as current_file on current_file.key = previous_file.key
-          where ${inPath(sql`previous_file.key`)} and current_file.key is null
+          from jsonb_each(${previousIndex}) as previous_file
+          where ${inPath(sql`previous_file.key`)} and not (${revisions.fileIndex} ? previous_file.key)
         )
       )`
-      return await db.select().from(revisions).where(and(
+      return await db.select(revisionColumns).from(revisions).where(and(
         eq(revisions.workspace, workspace), eq(revisions.ref, ref), eq(revisions.committed, true),
         before === undefined ? undefined : lt(revisions.sequence, before),
         pathFilter,
@@ -113,7 +131,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
       const [result] = await db.execute<{ bytes: number | string, objects: number | string }>(sql`
         select coalesce(sum(used.size), 0) as bytes, count(*) as objects from (
           select distinct file.value->>'digest' as digest, (file.value->>'size')::bigint as size
-          from ${revisions} cross join lateral json_each(${revisions.entries}) as file
+          from ${revisions} cross join lateral jsonb_each(${revisions.fileIndex}) as file
           where ${revisions.workspace} = ${workspace} and ${revisions.committed} and ${active(workspace)}
         ) as used
       `, "objects")
@@ -131,7 +149,11 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
         if (!await lock(tx, workspace)) return
         const registered = new Set((await activeKeys(tx, workspace, registry.map(object => object.digest))).map(([digest]) => digest))
         const missing = registry.filter(object => !registered.has(object.digest))
-        if (missing.length) await tx.insert(objects).values(missing.map(({ key, size }) => ({ workspace, digest: key, size }))).onConflictDoNothing()
+        if (missing.length) await tx.execute(sql`
+          insert into ${objects} (workspace, digest, size)
+          select ${workspace}, key, size from jsonb_to_recordset(${JSON.stringify(missing)}::jsonb) as entry(key text, size bigint)
+          on conflict do nothing
+        `)
       })
     },
 
@@ -146,16 +168,18 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
     },
 
     async publish(workspace, { revision, ifHead, ifHeads, keys, complete }) {
+      if (!complete) return false
+      const fileIndex = await indexFiles(revision.entries)
       return await db.transaction(async (tx) => {
-        if (!complete || !await lock(tx, workspace)) return false
+        if (!await lock(tx, workspace)) return false
         const uploaded = [...new Set(keys)]
         if (uploaded.length) {
           const ready = await tx.select({ key: objects.digest }).from(objects)
-            .where(and(eq(objects.workspace, workspace), inArray(objects.digest, uploaded), gte(objects.size, 0)))
+            .where(and(eq(objects.workspace, workspace), sql`${objects.digest} in ${textValues(uploaded)}`, gte(objects.size, 0)))
           if (ready.length !== uploaded.length) return false
         }
         await tx.insert(refs).values({ workspace, ref: revision.ref }).onConflictDoNothing()
-        await tx.insert(revisions).values({ ...revision, committed: false }).onConflictDoNothing()
+        await tx.insert(revisions).values({ ...revision, fileIndex, committed: false }).onConflictDoNothing()
         const crossHead = (ref: string, head: SQL) => tx.select({ ref: crossRef.ref }).from(crossRef)
           .where(and(eq(crossRef.workspace, workspace), eq(crossRef.ref, ref), head))
         const changed = await tx.update(refs).set({ head: revision.id, sequence: sql`${refs.sequence} + 1` }).where(and(
@@ -196,7 +220,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
 
     async dropMarkedObjects(workspace, keys) {
       if (!keys.length) return
-      await db.delete(objects).where(and(eq(objects.workspace, workspace), inArray(objects.digest, keys), lt(objects.size, 0)))
+      await db.delete(objects).where(and(eq(objects.workspace, workspace), sql`${objects.digest} in ${textValues(keys)}`, lt(objects.size, 0)))
     },
 
     async tombstone(workspace) {
@@ -228,7 +252,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
     async setMeta(workspace, key, value) {
       await db.transaction(async (tx) => {
         if (!await lock(tx, workspace)) return
-        await tx.insert(metadata).values({ workspace, key, value }).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`excluded.value` } })
+        await tx.insert(metadata).values({ workspace, key, value: value === null ? sql`'null'::json` : value }).onConflictDoUpdate({ target: [metadata.workspace, metadata.key], set: { value: sql`excluded.value` } })
       })
     },
 

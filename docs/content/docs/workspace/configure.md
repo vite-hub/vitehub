@@ -110,6 +110,8 @@ export default defineDatabase({ name: 'history', dialect: 'postgresql', schema: 
 
 Several instances can share one Workspace when they use the same Blob store, the same Database, and the same workspace identity. The Database decides which commit wins. A commit whose `ifHead` is not the current head fails with `WORKSPACE_CONFLICT` on every instance, and every instance then reads the winning head. On Postgres, each commit runs in one transaction that locks the Workspace row. On SQLite, libSQL, and D1, each commit is one batch of conditional statements.
 
+If the Postgres Database uses Cloudflare Hyperdrive, disable query caching on its binding. The Store needs fresh reads after each commit, including reads from other Workers.
+
 With names, the [durability report](/docs/frameworks-hosts/node-self-hosted#durability-and-instances) shows this Store as `shared` only when the Blob store and the Database are both shared, such as S3 with Postgres. When either one stays on this host, as `fs` Blob or a SQLite file does, the report shows `host`, and a server with `VITEHUB_INSTANCES` above 1 does not start. With objects, ViteHub cannot see the stores, so the report trusts them as `shared`, as it does a custom Store.
 
 `vite-hub/workspace/blob-database` exports the constructor and the SQLite schema. Both subpaths need `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.

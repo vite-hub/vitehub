@@ -176,6 +176,8 @@ export default defineWorkspace({
 
 On Postgres, import `workspaceHistorySchema` from
 `@vite-hub/workspace/blob-database/postgres` and set `dialect: "postgresql"`.
+If the Database uses Cloudflare Hyperdrive, disable query caching so all instances
+read the current head.
 
 Instances that use the same Blob store, Database, and workspace identity share
 one Workspace. The Database decides which commit wins: a commit from a stale

@@ -342,6 +342,12 @@ function escapeRegExp(value: string): string {
 // `vite-hub` files that framework aliases point to. It never answers a relative import or a virtual module.
 const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLToPath(frameworkPackageRoot))}`)]
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
+const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
+const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
+
+function workspaceStoreEntry() {
+  return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
+}
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -436,7 +442,8 @@ function frameworkDependencyResolver(
       filter: { id: frameworkDependencyIds },
       handler(id, importer, resolveOptions) {
         if (!blobEnabled && id === "@vite-hub/blob") {
-          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
+          if (importer && importer === workspaceStoreEntry()) return disabledWorkspaceBlobId
+          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: blobUnavailableMessage })
         }
         for (const specifier in providerImportAliases) {
           const frameworkFacade = frameworkProviderImportAliases[specifier]
@@ -455,6 +462,12 @@ function frameworkDependencyResolver(
         const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
         if (!isFrameworkPackageImport && !isOwnerPackageImport) return
         return fileURLToPath(import.meta.resolve(id))
+      },
+    },
+    load: {
+      filter: { id: /^\0vite-hub\/workspace-blob-disabled$/ },
+      handler() {
+        return `export const blob = undefined; throw Object.assign(new Error(${JSON.stringify(blobUnavailableMessage)}), { code: "VITE_HUB_R0075" })`
       },
     },
   }
@@ -1706,7 +1719,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       const facade = frameworkProviderImportAliases[specifier]
       if (facade) databaseRuntimeImports.set(facade, specifier)
     }
-    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
+    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false, workspaceStoreEntry()))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
   if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())

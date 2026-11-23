@@ -8,17 +8,21 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { resolveWorkspaceStoreTarget } from "../../workspace/src/storage/target.ts"
+import { postgresHistoryIndex } from "../../workspace/src/storage/history-index-postgres.ts"
 import { createBlobDatabaseWorkspaceStore } from "../../workspace/src/blob-database.ts"
 import { workspaceHistorySchema } from "../../workspace/src/blob-database/postgres.ts"
 import { defineDatabase } from "../src/definition.ts"
 import { createNodePostgresDatabase } from "../src/runtime/node-postgres.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
+import { db as defaultDb } from "../src/runtime/registry.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { BlobDatabaseWorkspaceStore } from "../../workspace/src/blob-database.ts"
 
 const useDatabase = vi.fn()
 vi.mock("@vite-hub/database/runtime/registry", () => ({ useDatabase }))
+const { getRuntimeDatabases } = vi.hoisted(() => ({ getRuntimeDatabases: vi.fn() }))
+vi.mock("../src/runtime/drizzle-runtime.ts", () => ({ getRuntimeDatabases }))
 
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
 const cleanup: Array<() => Promise<void>> = []
@@ -47,13 +51,7 @@ describe("Blob + Database Store on PGlite", () => {
   })
 
   it("applies the Postgres history schema and keeps history by Database name", async () => {
-    const dataDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-pglite-"))
-    cleanup.push(() => rm(dataDir, { force: true, recursive: true }))
-    const definition = defineDatabase({ dialect: "postgresql", driver: "pglite", schema: workspaceHistorySchema })
-    const db = await createDevPostgresDatabase(definition, { binding: "DB" }, { dataDir, migrationsDir: join(dataDir, "migrations") })
-    const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
-    cleanup.push(() => client.close())
-    for (const statement of await historyMigration()) await client.exec(statement)
+    const db = await migratedDatabase()
     useDatabase.mockImplementation((name: string) => {
       if (name !== "history") throw new Error(`Unknown Database ${name}`)
       return { db }
@@ -77,6 +75,8 @@ describe("Blob + Database Store on PGlite", () => {
 
     await store.setMeta?.("owner", { name: "docs" })
     expect(await store.getMeta?.("owner")).toEqual({ name: "docs" })
+    await store.setMeta?.("owner", null)
+    expect(await store.getMeta?.("owner")).toBeNull()
     await store.setMeta?.("owner", undefined)
     expect(await store.getMeta?.("owner")).toBeUndefined()
 
@@ -87,7 +87,52 @@ describe("Blob + Database Store on PGlite", () => {
     expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
     await expect(store.history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
   })
+
+  it("queries and deletes revisions containing opaque JSON file metadata", async () => {
+    const store = createBlobDatabaseWorkspaceStore({ blob: await sharedBlob(), database: await migratedDatabase(), workspace: "handbook" })
+    const file = { content: "draft", path: "draft.md", metadata: { note: "a\u0000b", nested: { "\u0000": "\ud800" } } }
+    const first = await store.history.commit({ ref: "draft", ifHead: null, files: { "draft.md": file } })
+    const second = await store.history.commit({ ref: "draft", ifHead: first.id, files: { "draft.md": { ...file, metadata: { nested: file.metadata.nested, note: file.metadata.note } } } })
+    expect((await (await store.history.open(second.id)).stat("draft.md"))?.metadata).toEqual(file.metadata)
+    expect((await store.history.list({ ref: "draft", path: "draft.md" })).revisions.map(revision => revision.id)).toEqual([first.id])
+    expect(await store.history.usage()).toEqual({ bytes: 5, objects: 1 })
+    await expect(store.history.deleteRef?.({ ref: "draft", ifHead: second.id })).resolves.toBe(true)
+    expect(await store.history.usage()).toEqual({ bytes: 0, objects: 0 })
+  })
+
+  it("uses the lazy default Database as an object or factory result", async () => {
+    const db = await migratedDatabase()
+    getRuntimeDatabases.mockReturnValue({ databases: { default: { db } } })
+    const blob = await sharedBlob()
+    const direct = createBlobDatabaseWorkspaceStore({ blob, database: defaultDb, workspace: "handbook" })
+    const factory = createBlobDatabaseWorkspaceStore({ blob, database: () => defaultDb, workspace: "handbook" })
+    expect(getRuntimeDatabases).not.toHaveBeenCalled()
+    const head = await direct.history.commit({ ifHead: null, files: {} })
+    expect(await factory.history.head()).toEqual(head)
+  })
+
+  it("registers more objects than can fit in one parameter per column", async () => {
+    const index = postgresHistoryIndex(await migratedDatabase())
+    const workspace = await index.claim("handbook", undefined)
+    const objects = Array.from({ length: 22_000 }, (_, item) => {
+      const digest = item.toString(16).padStart(64, "0")
+      return { digest, key: `${digest}-generation`, size: 1 }
+    })
+    await index.register(workspace, objects)
+    expect(await index.objectKeys(workspace, objects.map(object => object.digest))).toHaveLength(objects.length)
+  }, 30_000)
 })
+
+async function migratedDatabase() {
+  const dataDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-pglite-"))
+  cleanup.push(() => rm(dataDir, { force: true, recursive: true }))
+  const definition = defineDatabase({ dialect: "postgresql", driver: "pglite", schema: workspaceHistorySchema })
+  const db = await createDevPostgresDatabase(definition, { binding: "DB" }, { dataDir, migrationsDir: join(dataDir, "migrations") })
+  const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
+  cleanup.push(() => client.close())
+  for (const statement of await historyMigration()) await client.exec(statement)
+  return db
+}
 
 describe.skipIf(!url)("Blob + Database Store on a Postgres server", () => {
   const schema = `workspace_history_${process.pid}`

@@ -1,6 +1,8 @@
-import { bigint, boolean, index, integer, json, pgTable, primaryKey, text } from "drizzle-orm/pg-core"
+import { bigint, boolean, index, integer, json, jsonb, pgTable, primaryKey, text } from "drizzle-orm/pg-core"
 
 import type { HistoryManifestFile } from "./history-schema.ts"
+
+export type HistoryFileIndex = Record<string, Pick<HistoryManifestFile, "digest" | "size"> & { fingerprint: string }>
 
 const workspaces = pgTable("workspace_history_workspaces", {
   workspace: text("workspace").primaryKey(),
@@ -26,6 +28,7 @@ const revisions = pgTable("workspace_history_revisions", {
   files: integer("files").notNull(),
   bytes: bigint("bytes", { mode: "number" }).notNull(),
   entries: json("entries").$type<Record<string, HistoryManifestFile>>().notNull(),
+  fileIndex: jsonb("file_index").$type<HistoryFileIndex>().notNull(),
   committed: boolean("committed").notNull().default(false),
 }, table => [
   primaryKey({ columns: [table.workspace, table.id] }),
