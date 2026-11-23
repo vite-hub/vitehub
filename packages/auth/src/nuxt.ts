@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { kebabCase, pascalCase, splitByCase } from "scule"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
-import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { addNuxtVueImports, resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions, type NuxtVueImportContext } from "@vite-hub/internal/build/vite"
 
 import { assertNoCachedPageGuards, assertSignInPagesOpen, type NuxtPageLike } from "./page-guard-cache.ts"
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
@@ -27,7 +27,10 @@ export interface AuthNuxtModuleOptions {
 
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
+  hook?: {
+    (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>): void
+    (name: "imports:context", handler: (context: NuxtVueImportContext) => Promise<void>): void
+  }
   options: {
     dev?: boolean
     watch?: string[]
@@ -40,9 +43,6 @@ type NuxtLike = {
     }
     experimental?: {
       extraPageMetaExtractionKeys?: string[]
-    }
-    imports?: {
-      imports?: Array<{ from: string, name: string }>
     }
     nitro?: {
       alias?: Record<string, string>
@@ -326,16 +326,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  nuxt.options.imports ??= {}
-  nuxt.options.imports.imports ??= []
-  for (const name of composables) {
-    if (!nuxt.options.imports.imports.some((entry) => entry.name === name)) {
-      nuxt.options.imports.imports.push({
-        from: options.importsFrom || "@vite-hub/auth/vue",
-        name,
-      })
-    }
-  }
+  addNuxtVueImports(nuxt, options.importsFrom || "@vite-hub/auth/vue", composables)
 
   if (nuxt.options.dev && options.auth !== false && nuxt.hook && !abilitiesWatchRegistered.has(nuxt)) {
     abilitiesWatchRegistered.add(nuxt)

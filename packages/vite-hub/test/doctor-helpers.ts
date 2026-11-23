@@ -25,3 +25,9 @@ export async function projectCodes(rule: DoctorRule, files: Record<string, strin
   })
   return result.diagnostics.filter(diagnostic => diagnostic.code.startsWith("VHUB")).map(diagnostic => diagnostic.code)
 }
+
+export const nuxtServerAutoImportsConfig = "export default defineNuxtConfig({ experimental: { nitroAutoImports: true } })\n"
+
+export async function nuxtAutoImportCodes(rule: DoctorRule, files: Record<string, string>) {
+  return projectCodes(rule, { "nuxt.config.ts": nuxtServerAutoImportsConfig, ...files }, "nuxt")
+}

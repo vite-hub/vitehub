@@ -17,6 +17,7 @@ import { nuxtBetterAuth } from "./nuxt-better-auth/index.ts"
 import { nuxtContent } from "./nuxt-content/index.ts"
 import { nuxtCron } from "./nuxt-cron/index.ts"
 import { nuxtSafeRuntimeConfig } from "./nuxt-safe-runtime-config/index.ts"
+import { nuxtServerImports } from "./nuxt-server-imports/index.ts"
 import { nuxthub } from "./nuxthub/index.ts"
 import { rootAccessors } from "./root-accessors/index.ts"
 import { oneEntryImports } from "./one-entry-imports/index.ts"
@@ -72,6 +73,7 @@ export const codemods: readonly Codemod[] = [
   choicesPackage,
   cliGetList,
   cliAgentTree,
+  nuxtServerImports,
 ]
 
 /**
@@ -80,7 +82,8 @@ export const codemods: readonly Codemod[] = [
  * keys into `vitehub()`, where `agent-surface` then renames the Agent driver keys. `define-forms` moves the Database
  * files before the import codemods rewrite them. `root-accessors` moves `#vitehub/env/server` to `vite-hub/env` before
  * `one-entry-imports` joins the `vite-hub/env/*` imports with it. `queue-durations` and `result-tuples` run after
- * `queue-workflow-verbs`, so they also read the calls that `queue-workflow-verbs` renamed. The codemods that move an
+ * `queue-workflow-verbs`, so they also read the calls that `queue-workflow-verbs` renamed. `nuxt-server-imports` runs
+ * last and detects again after the others, so it imports the helpers under their new names. The codemods that move an
  * app from another module, such as NuxtHub, are not upgrades, so only `npx @vite-hub/codemods` runs them.
  */
 export const upgradeCodemods: readonly Codemod[] = [
@@ -109,4 +112,5 @@ export const upgradeCodemods: readonly Codemod[] = [
   choicesPackage,
   cliGetList,
   cliAgentTree,
+  nuxtServerImports,
 ]

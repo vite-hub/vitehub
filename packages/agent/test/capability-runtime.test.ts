@@ -926,6 +926,24 @@ describe("agent capability runtime", () => {
     expect(resolved.input.context).toBeUndefined()
   })
 
+  it("does not expose the Workspace override to capabilities through a global symbol", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const seen: unknown[] = []
+
+    await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "custom",
+          prepare(context) {
+            seen.push((context as unknown as Record<symbol, unknown>)[Symbol.for("vitehub.agent.workspaceOverride")])
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(seen).toEqual([undefined])
+  })
+
   it("applies capability workspace contributions before runtime surfaces resolve", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 

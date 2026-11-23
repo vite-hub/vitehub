@@ -15,7 +15,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -27,6 +27,7 @@ import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin } from "vite"
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
+import { parseEmailMarkdown } from "./frontmatter.ts"
 import { discoverEmailTemplates } from "./templates.ts"
 import { disposeEmailOutbox } from "./runtime/outbox.ts"
 import { emailCaptureKey } from "./runtime/capture.ts"
@@ -35,6 +36,10 @@ import type { EmailTemplate } from "./templates.ts"
 
 const operationsModule = ownModule(import.meta.url, "operations")
 
+function resolveEmailProjectRoot(config: { root?: string, [VITEHUB_PROJECT_ROOT]?: string }): string {
+  return resolveViteHubProjectRoot(config.root ?? process.cwd(), { projectRoot: config[VITEHUB_PROJECT_ROOT] })
+}
+
 export { emailConsoleSection } from "./console.ts"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
@@ -42,7 +47,7 @@ export const EMAIL_VITE_PLUGIN_NAME = "@vite-hub/email/vite"
 
 const resolvedEmailDefinitionId = `\0${EMAIL_DEFINITION_ID}`
 const EMAIL_RESOLVE_ID_PATTERN = /^#vitehub\/(?:email\/definition$|emails\/)/
-const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?markdown-template$/
+const EMAIL_LOAD_ID_PATTERN = /^\0#vitehub\/email\/definition$|\?email-template$/
 const noExternalAddition = createNoExternalAddition("@vite-hub/email")
 const resolvePackageImport = createRequire(import.meta.url).resolve
 const normalizeTemplateModulePath = (id: string) => {
@@ -53,10 +58,15 @@ const normalizeTemplateModulePath = (id: string) => {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
-export type EmailDriverName = "cloudflare" | "log" | "resend"
+export type EmailDriverName = "cloudflare" | "log" | "resend" | "smtp"
+/**
+ * The path of a module, relative to the project root, that default-exports a driver factory. The factory receives
+ * `email.options` with Env values resolved, and returns an `EmailDriver`.
+ */
+export type EmailDriverModulePath = `./${string}` | `../${string}`
 
 interface GeneratedEmailDefinition {
-  driver: EmailDriverName
+  driver: EmailDriverName | EmailDriverModulePath
   handler: string
   name: "default"
   options: EnvRuntimeRegistry
@@ -73,7 +83,8 @@ export interface EmailOutboxOptions {
 }
 
 export interface EmailOptions {
-  driver: EmailDriverName
+  /** A built-in driver, or the path of a driver module, for example `"./server/email-driver.ts"`. */
+  driver: EmailDriverName | EmailDriverModulePath
   options?: EnvRuntimeConfigOptions
   /**
    * Development outbox. In `vite dev`, `email.send()` records each message. `false` disables the outbox, and then
@@ -161,8 +172,44 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 
 const renamedEmailDrivers = new Map([["cloudflare-email", "cloudflare"]])
 
+function isDriverModulePath(driver: unknown): driver is EmailDriverModulePath {
+  return typeof driver === "string" && (driver.startsWith("./") || driver.startsWith("../"))
+}
+
+const driverModuleExtensions = ["", ".ts", ".mts", ".js", ".mjs"]
+
+async function resolveDriverModule(driver: EmailDriverModulePath, projectRoot: string): Promise<string> {
+  const file = resolve(projectRoot, driver)
+  for (const extension of driverModuleExtensions) {
+    try {
+      if ((await stat(`${file}${extension}`)).isFile()) return `${file}${extension}`
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+  throw emailErrorDiagnostics.EMAIL_DRIVER_MODULE_NOT_FOUND({ driver, file })
+}
+
+async function assertNodemailerInstalled(entry: string): Promise<void> {
+  for (let directory = dirname(entry); ; directory = dirname(directory)) {
+    try {
+      if ((await stat(resolve(directory, "node_modules", "nodemailer", "package.json"))).isFile()) return
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error
+    }
+    if (dirname(directory) === directory) throw emailErrorDiagnostics.EMAIL_SMTP_NODEMAILER_MISSING()
+  }
+}
+
+function relativeImport(from: string, to: string): string {
+  const path = relative(dirname(from), to).replaceAll("\\", "/")
+  return path.startsWith(".") ? path : `./${path}`
+}
+
 function resolveDriverImport(driver: string): string {
-  if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
+  if (driver !== "resend" && driver !== "smtp" && driver !== "cloudflare" && driver !== "log") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
@@ -172,6 +219,15 @@ function resolveDriverImport(driver: string): string {
 function resolveMarkdownImport(): string {
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
   return fileURLToPath(new URL(`./markdown.${extension}`, import.meta.url))
+}
+
+function renderEmailTemplateModule(source: string): string {
+  return [
+    `import { renderEmailMarkdown } from ${JSON.stringify(resolveMarkdownImport())}`,
+    `const template = ${JSON.stringify(source)}`,
+    "export default (data) => renderEmailMarkdown(template, { data })",
+    "",
+  ].join("\n")
 }
 
 function renderEmailPreviewModule(preview: { templates: readonly unknown[] }): string {
@@ -246,7 +302,7 @@ interface GeneratedEmailDev {
   remote: boolean
 }
 
-function remoteNotice(driver: EmailDriverName): string {
+function remoteNotice(driver: GeneratedEmailDefinition["driver"]): string {
   return `[vitehub] Email is remote: \`vite dev\` sends real email through ${driver}.`
 }
 
@@ -336,7 +392,7 @@ function emailTemplateName(id: string): string | undefined {
   if (!id.startsWith(emailTemplatePrefix)) return
   const name = id.slice(emailTemplatePrefix.length)
   const segments = name.split("/")
-  if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === "..")) {
+  if (!name || name.includes("\\") || name.includes("?") || name.includes("#") || name.endsWith(".md") || segments.some(segment => !segment || segment === "." || segment === ".." || segment.startsWith("_"))) {
     throw emailErrorDiagnostics.EMAIL_INVALID_TEMPLATE({ id })
   }
   return name
@@ -361,21 +417,28 @@ interface EmailTemplateTypes {
   registry?: string
 }
 
-async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
+/**
+ * The types of `.vitehub/types/email.d.ts` (`modules`) and `.vitehub/types/email-templates.d.ts` (`registry`). The
+ * docs snippet gate uses it too.
+ * @internal
+ */
+export async function renderEmailTemplateTypes(templates: Array<{ file: string, name: string, source: string }>, importBase: string): Promise<EmailTemplateTypes> {
   if (!templates.length) return { modules: "" }
   const typed = await Promise.all(templates.map(async (template) => {
     try {
-      const data = await inferMarkdownTemplateDataType(template.source, "    ")
-      await assertNoBindingsInCode(template.source)
-      return { ...template, data }
+      const { content, subject } = parseEmailMarkdown(template.source, template.file)
+      const data = await inferMarkdownTemplateDataType(content, { indent: "      ", text: subject })
+      await assertNoBindingsInCode(content)
+      return { ...template, data, subject: subject !== undefined }
     }
     catch (cause) {
+      if (isRecord(cause) && cause.code === "EMAIL_TEMPLATE_FRONTMATTER_INVALID") throw cause
       throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
     }
   }))
-  const modules = typed.map(({ data, name }) => [
+  const modules = typed.map(({ data, name, subject }) => [
     `declare module ${JSON.stringify(`${emailTemplatePrefix}${name}`)} {`,
-    `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
+    `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n      ", "\n  ")}) => Promise<{ ${subject ? "subject: string, " : ""}html: string, text: string }>`,
     "  export default render",
     "}",
   ].join("\n")).join("\n\n") + "\n"
@@ -384,7 +447,7 @@ async function renderEmailTemplateTypes(templates: Array<{ file: string, name: s
     "",
     `declare module ${JSON.stringify(importBase)} {`,
     "  interface EmailTemplateRegistry {",
-    ...typed.map(({ data, name }) => `    ${JSON.stringify(name)}: ${data.type}`),
+    ...typed.map(({ data, name, subject }) => `    ${JSON.stringify(name)}: {\n      data: ${data.type}\n      subject: ${subject}\n    }`),
     "  }",
     "}",
     "",
@@ -401,7 +464,7 @@ async function materializeEmailTemplates(templates: EmailTemplate[], outputRoot:
   for (const { file, name } of templates) {
     const target = resolve(stagingRoot, `${encodeURIComponent(name)}.mjs`)
     const entry = `${target}.entry.mjs`
-    await writeFileIfChanged(entry, `export { default } from ${JSON.stringify(`/@fs/${file}?markdown-template`)}\n`)
+    await writeFileIfChanged(entry, renderEmailTemplateModule(await readFile(file, "utf8")))
     try {
       await bundleEsmEntry(entry, target, { format: "esm", platform: "node", rootDir, tsconfig: false })
     }
@@ -433,7 +496,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   }
   const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
-  const driverImport = resolveDriverImport(configured.driver)
+  const driverSource = isDriverModulePath(configured.driver) ? configured.driver : resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
   const remote = resolveRemote(options.remote)
   const outboxRuntimeId = randomUUID()
@@ -444,6 +507,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare"
+  const smtp = configured.driver === "smtp"
   let addedEmailBinding = false
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
@@ -544,10 +608,13 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "cloudflare" })
+      }
+      if (smtp && cloudflare) {
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "smtp" })
       }
       vercel = hosting === "vercel" || internalOptions.workflowDriver === "vercel"
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {
         const modules = Array.isArray(configRecord.nitro.modules)
@@ -576,7 +643,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       }
     },
     async configResolved(config) {
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       await prepareTypesOnce()
       definition = {
         ...configured,
@@ -588,11 +655,16 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         ? { outbox: outbox && { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId }, remote }
         : undefined
       const previewImport = `./${relative(dirname(entry), previewRegistryPath()).replaceAll("\\", "/")}`
+      const appCompiledDriverImport = isDriverModulePath(driverSource)
+        ? relativeImport(entry, await resolveDriverModule(driverSource, projectRoot))
+        : undefined
+      const driverImport = appCompiledDriverImport ?? driverSource
+      if (smtp && (command === "build" || remote)) await assertNodemailerInstalled(entry)
       await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, dev))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),
-          external: [previewImport, ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
+          external: [previewImport, ...(appCompiledDriverImport ? [appCompiledDriverImport] : []), ...(smtp ? ["nodemailer"] : []), ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
           format: "esm",
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
@@ -685,7 +757,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
           for (const templatesRoot of templatesRoots) {
             const file = resolve(templatesRoot, `${name}.md`)
             try {
-              if ((await stat(file)).isFile()) return `/@fs/${file}?markdown-template`
+              if ((await stat(file)).isFile()) return `/@fs/${file}?email-template`
             }
             catch (error) {
               if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
@@ -700,12 +772,10 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         if (id === resolvedEmailDefinitionId && definition) {
           return renderEmailDefinitionModule(definition)
         }
-        if (id.endsWith("?markdown-template")) {
+        if (id.endsWith("?email-template")) {
           const file = normalizeTemplateModulePath(id)
           if (![...watchFiles].some(watched => normalizeWatchedPath(watched) === normalizeWatchedPath(file))) return
-          return import("node:fs/promises").then(({ readFile }) => readFile(file, "utf8")).then(template =>
-            `import { renderMarkdownTemplate } from ${JSON.stringify(resolvePackageImport("@vite-hub/markdown-template"))}\nconst template = ${JSON.stringify(template)}\nexport default (data) => renderMarkdownTemplate(template, { data })\n`,
-          )
+          return readFile(file, "utf8").then(renderEmailTemplateModule)
         }
       },
     },

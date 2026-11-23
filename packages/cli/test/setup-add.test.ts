@@ -618,6 +618,26 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
+  it("rejects the SMTP Email driver on Cloudflare before writing", async () => {
+    const root = await copyFixture("cloudflare")
+    const before = await snapshot(root)
+    const result = await add(["email", "--option", "email.driver=smtp", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_FEATURE_UNSUPPORTED", why: expect.stringContaining("\"smtp\" driver") })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    ["node-self-hosted", "smtp", true],
+    ["node-self-hosted", "resend", false],
+    ["cloudflare", "resend", false],
+  ])("plans Email on %s with the %s driver", async (fixture, driver, nodemailer) => {
+    const result = await add(["email", "--option", `email.driver=${driver}`, "--dry-run"], await copyFixture(fixture))
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("@vite-hub/email")
+    expect(result.json.install.packages.includes("nodemailer")).toBe(nodemailer)
+  })
+
   it("builds the feature object from --option", async () => {
     const root = await copyFixture("node-self-hosted")
 

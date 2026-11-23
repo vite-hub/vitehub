@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 
 import { renderMarkdownTemplate } from "../src/index.ts"
+import { fillTemplateText } from "../src/internal/composition.ts"
 import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "../src/internal/vite.ts"
 
 it("types every data binding that a template reads", async () => {
@@ -58,6 +59,17 @@ it("makes values of a condition and of its branches optional", async () => {
       "}",
     ].join("\n"),
   })
+})
+
+it("merges required plain-text bindings with optional Markdown bindings", async () => {
+  const template = '::if{:condition="data.enabled"}\nHi {{ data.name }}\n::'
+  const text = "`{{ data.name }}` {{ data.label || friend }}"
+
+  await expect(inferMarkdownTemplateDataType(template, { text })).resolves.toEqual({
+    required: true,
+    type: '{\n  "enabled"?: unknown\n  "name": string | number | boolean\n  "label || friend": string | number | boolean\n}',
+  })
+  expect(fillTemplateText(text, { name: "Ada", "label || friend": "Team" })).toBe("`Ada` Team")
 })
 
 it("accepts null for an object that a condition checks before its branch reads it", async () => {

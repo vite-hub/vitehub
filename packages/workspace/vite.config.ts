@@ -4,6 +4,11 @@ import { normalizePackageExports, packDefaults } from "@vite-hub/internal/packag
 export default defineConfig({
   pack: {
     ...packDefaults,
+    outputOptions: {
+      codeSplitting: {
+        groups: [{ name: "vitehub-grants", test: /[/\\]storage[/\\](?:target|materialization)\.ts$/ }],
+      },
+    },
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [
@@ -19,6 +24,7 @@ export default defineConfig({
     },
     entry: [
       "src/blob-database.ts",
+      "src/blob-database/postgres.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
       "src/durability.ts",

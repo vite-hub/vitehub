@@ -73,6 +73,7 @@ export {
   type LeaseSqlParam,
   type LeaseStore,
 } from "./lease.ts"
+export { getInstanceId, instanceIdEnv } from "./instance.ts"
 export { parseDuration, type Duration, type DurationUnit } from "./duration.ts"
 export { hostedConsoleUrl } from "./hosted-console.ts"
 export { resolvePublicUrl, type PublicUrlConfig } from "./public-url.ts"

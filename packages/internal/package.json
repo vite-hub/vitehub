@@ -123,6 +123,11 @@
       "import": "./dist/integrations/hex.js",
       "default": "./dist/integrations/hex.js"
     },
+    "./nuxt-server-imports": {
+      "types": "./dist/nuxt-server-imports.d.ts",
+      "import": "./dist/nuxt-server-imports.js",
+      "default": "./dist/nuxt-server-imports.js"
+    },
     "./object": {
       "types": "./dist/object.d.ts",
       "import": "./dist/object.js",

@@ -30,7 +30,7 @@ A file in `server/workspaces/` turns on Workspace, so you do not add a `workspac
 | Vercel Blob | `{ driver: 'vercel', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ driver: 'github', repo?, branch?, root?, token?, refs?, database? }` | Files in a repository, with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
 | Custom | `WorkspaceStore` | Your own implementation of the Store contract. |
-| Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host. Pass the returned Store to a Workspace Definition. |
+| Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Folder history that works on any host, on SQLite, libSQL, D1, or Postgres. Instances that share the Blob store and the Database share the Workspace. Pass the returned Store to a Workspace Definition. |
 
 Any other `driver` fails with `WORKSPACE_UNKNOWN_STORE_DRIVER`. The former `cloudflare-artifacts` and `vercel-blob` are now `cloudflare` and `vercel`, and the former `provider` key fails with `WORKSPACE_RENAMED_STORE_PROVIDER_KEY` instead of making a local Store; `npx @vite-hub/codemods driver-key` renames them.
 
@@ -83,23 +83,38 @@ export default defineDatabase({ name: 'history', schema: workspaceHistorySchema 
 ```
 
 ```ts [server/workspaces/notes.ts]
-import { blob } from 'vite-hub/blob'
-import { useDatabase } from 'vite-hub/database'
 import { defineWorkspace } from 'vite-hub/workspace'
 import { createBlobDatabaseWorkspaceStore } from 'vite-hub/workspace/blob-database'
 
 export const notesStore = createBlobDatabaseWorkspaceStore({
-  blob: blob.store('workspace-history'),
-  database: () => useDatabase('history').db,
+  blob: 'workspace-history',
+  database: 'history',
   workspace: 'notes-123',
 })
 
 export default defineWorkspace({ store: notesStore })
 ```
 
-`database` takes a function that returns the Drizzle database. The Store calls it on first use, because the build loads the Workspace Definition without your Databases. Do not pass the Database Definition: it holds options only. `useDatabase('history').db` has the migrations and relations of the build. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
+`blob` is the name of a Blob store, and `database` is the name of a Database. The Store looks them up on first use, because the build loads the Workspace Definition without your Databases. You can also pass a `BlobStorage` object, and a Drizzle database or a function that returns one, such as `() => useDatabase('history').db`. Do not pass the Database Definition: it holds options only. A value that is not a Drizzle database throws `WORKSPACE_R0077`.
 
-`vite-hub/workspace/blob-database` also exports the constructor and schema. This subpath needs `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
+On Postgres, import the schema from `vite-hub/workspace/blob-database/postgres`. The tables and columns have the same names:
+
+```ts [server/databases/history/index.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { workspaceHistorySchema } from 'vite-hub/workspace/blob-database/postgres'
+
+export default defineDatabase({ name: 'history', dialect: 'postgresql', schema: workspaceHistorySchema })
+```
+
+#### Share one Workspace across instances
+
+Several instances can share one Workspace when they use the same Blob store, the same Database, and the same workspace identity. The Database decides which commit wins. A commit whose `ifHead` is not the current head fails with `WORKSPACE_CONFLICT` on every instance, and every instance then reads the winning head. On Postgres, each commit runs in one transaction that locks the Workspace row. On SQLite, libSQL, and D1, each commit is one batch of conditional statements.
+
+If the Postgres Database uses Cloudflare Hyperdrive, disable query caching on its binding. The Store needs fresh reads after each commit, including reads from other Workers.
+
+With names, the [durability report](/docs/frameworks-hosts/node-self-hosted#durability-and-instances) shows this Store as `shared` only when the Blob store and the Database are both shared, such as S3 with Postgres. When either one stays on this host, as `fs` Blob or a SQLite file does, the report shows `host`, and a server with `VITEHUB_INSTANCES` above 1 does not start. With objects, ViteHub cannot see the stores, so the report trusts them as `shared`, as it does a custom Store.
+
+`vite-hub/workspace/blob-database` exports the constructor and the SQLite schema. Both subpaths need `drizzle-orm`. Configure the Blob store and Database connection in their own integrations. The Store does not create cloud resources or apply migrations at runtime.
 
 Give each document or folder one stable workspace identity, and keep the identity and prefix across restarts. History objects live under `_vitehub/workspace-history/`, and `prefix: 'handbook'` puts them under `_vitehub/workspace-history/handbook/`. A prefix accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides `_vitehub/` paths by default. Each Store owns its Blob namespace, so never write its objects with another API.
 

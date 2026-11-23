@@ -4,11 +4,22 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { env } from "@vite-hub/env"
 import { defineAgent } from "../src/index.ts"
-import { withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
+import { agentProcessHostIntake, registerAgentProcessHostIntake, withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
+import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 import { usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
+import { agentProcessHostLeaseIntervalMs, agentProcessHostLeaseKey, agentProcessHostLeaseTtlMs } from "../src/runtime/process-host-lease.ts"
+import { createMemoryLeaseStore, createSqlLeaseStore, type Lease, type LeaseStore } from "@vite-hub/runtime"
+import { DatabaseSync } from "node:sqlite"
+import { installStubPackages } from "./support/stub-packages.ts"
 
 const roots: string[] = []
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
 afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -94,6 +105,206 @@ describe("createAgentProcessHosts", () => {
   })
 })
 
+describe("createAgentProcessHosts with a Lease", () => {
+  const lease = { ttlMs: 200, intervalMs: 20 }
+  function fakeHost(): AgentProcessHostInstance & { running: boolean } {
+    return {
+      running: false,
+      start() { this.running = true },
+      async close() { this.running = false },
+      wake() {},
+      status: () => "accepting",
+      health: async () => ({ status: "healthy" }),
+    }
+  }
+  function server(leases: LeaseStore, create: () => Promise<AgentProcessHostInstance>) {
+    return createAgentProcessHosts({ names: ["worker"], enabled: true, lease, leases: () => leases, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create }) }),
+    }, state: () => ({ extension: vi.fn() }) })
+  }
+
+  it("runs the host on one server at a time and hands it over when the holder stops", async () => {
+    const leases = createMemoryLeaseStore()
+    const [first, second] = [fakeHost(), fakeHost()]
+    const [a, b] = [server(leases, async () => first), server(leases, async () => second)]
+    a.start()
+    await vi.waitFor(() => expect(first.running).toBe(true))
+    b.start()
+    await new Promise(resolve => setTimeout(resolve, 5 * lease.intervalMs))
+    expect(second.running).toBe(false)
+    expect(b.status()).toBe("accepting")
+    expect(await b.health()).toMatchObject({ status: "healthy", agents: { worker: { role: "standby" } } })
+    expect(await a.health()).toMatchObject({ agents: { worker: { status: "healthy", role: "holder" } } })
+    expect((await leases.get(agentProcessHostLeaseKey("worker")))[1]).toMatchObject({ key: "agent-process-host:worker" })
+
+    const finishClose = deferred<void>()
+    const closing = vi.spyOn(first, "close").mockImplementation(async () => {
+      await finishClose.promise
+      first.running = false
+    })
+    const stopped = a.close()
+    try {
+      await vi.waitFor(() => expect(closing).toHaveBeenCalled())
+      await new Promise(resolve => setTimeout(resolve, 2 * lease.ttlMs))
+      expect(second.running).toBe(false)
+    }
+    finally {
+      finishClose.resolve()
+      await stopped
+      await vi.waitFor(() => expect(second.running).toBe(true))
+      await b.close()
+    }
+    expect(first.running).toBe(false)
+    expect(second.running).toBe(false)
+  })
+
+  it.each(["starting", "running"])("fences a %s host when renewal never answers", async (phase) => {
+    const store = createMemoryLeaseStore()
+    const renew = deferred<Awaited<ReturnType<Lease["renew"]>>>()
+    const renewStarted = vi.fn(() => renew.promise)
+    let acquiredOnce = false
+    const leases: LeaseStore = { ...store, async acquire(key, options) {
+      if (acquiredOnce) return [undefined, null]
+      const [error, acquired] = await store.acquire(key, options)
+      acquiredOnce = Boolean(acquired)
+      return error ? [error, undefined] : [undefined, acquired && { ...acquired, renew: renewStarted }]
+    } }
+    const host = fakeHost()
+    const start = vi.spyOn(host, "start")
+    const close = vi.spyOn(host, "close")
+    const startup = deferred<AgentProcessHostInstance>()
+    const create = vi.fn(() => startup.promise)
+    const first = server(leases, create)
+    const peerHost = fakeHost()
+    const peer = server(store, async () => peerHost)
+    if (phase === "running") startup.resolve(host)
+    first.start()
+    try {
+      await vi.waitFor(() => expect(create).toHaveBeenCalled())
+      await vi.waitFor(() => expect(renewStarted).toHaveBeenCalled())
+      peer.start()
+      await vi.waitFor(() => expect(peerHost.running).toBe(true))
+      expect(host.running).toBe(false)
+      startup.resolve(host)
+      await vi.waitFor(() => expect(close).toHaveBeenCalled())
+      expect(start).toHaveBeenCalledTimes(phase === "running" ? 1 : 0)
+    }
+    finally {
+      startup.resolve(host)
+      renew.resolve([undefined, true])
+      await Promise.all([first.close(), peer.close()])
+    }
+  })
+
+  it("stops the host before the Lease expires when the holder cannot renew it", async () => {
+    const database = new DatabaseSync(":memory:")
+    let renewals = true
+    const leases = createSqlLeaseStore({ dialect: "sqlite", query: async (text, params) => {
+      if (!renewals && /^\s*update/i.test(text)) throw new Error("Database unavailable")
+      const statement = database.prepare(text)
+      return /^\s*(select|with)|returning/i.test(text) ? statement.all(...params) : (statement.run(...params), [])
+    } })
+    const host = fakeHost()
+    let stoppedAt: number | undefined
+    const hosts = server(leases, async () => ({ ...host, close: async () => { stoppedAt ??= performance.now() } }))
+    hosts.start()
+    await vi.waitFor(async () => expect(await hosts.health()).toMatchObject({ agents: { worker: { role: "holder" } } }))
+    await new Promise(resolve => setTimeout(resolve, 3 * lease.intervalMs))
+    renewals = false
+    const failedAt = performance.now()
+    await vi.waitFor(() => expect(stoppedAt).toBeDefined())
+    expect(stoppedAt! - failedAt).toBeLessThan(lease.ttlMs)
+    await hosts.close()
+  })
+
+  it("frees the Lease when the host does not start, so another server can run it", async () => {
+    const leases = createMemoryLeaseStore()
+    const host = fakeHost()
+    const failing = vi.fn(async () => { throw new Error("GitHub App request /app failed with 503.") })
+    const a = server(leases, failing)
+    a.start()
+    await vi.waitFor(async () => expect(await a.health()).toMatchObject({ status: "degraded", agents: { worker: { reason: expect.stringContaining("GitHub App") } } }))
+    expect(a.status()).toBe("failed")
+    const b = server(leases, async () => host)
+    b.start()
+    await vi.waitFor(() => expect(host.running).toBe(true))
+    await vi.waitFor(async () => expect(await a.health()).toMatchObject({ status: "healthy", agents: { worker: { role: "standby", holder: expect.any(String) } } }))
+    await Promise.all([a.close(), b.close()])
+  })
+
+  it("keeps webhook deliveries on a standby server and hands them to the holder", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-process-host-forward-"))
+    roots.push(root)
+    const state = createLibsqlAgentState({ url: `file:${join(root, "state.db")}` })
+    const leases = createMemoryLeaseStore()
+    const [, other] = await leases.acquire(agentProcessHostLeaseKey("worker"), { owner: "other-server", ttl: 60 })
+    const handled: string[] = []
+    const finishDelivery = deferred<void>()
+    const finishClose = deferred<void>()
+    const closeStarted = deferred<void>()
+    const host = { ...fakeHost(), start() {
+      registerAgentProcessHostIntake("worker", async ({ deliveryId }) => {
+        handled.push(deliveryId)
+        await finishDelivery.promise
+        return new Response(null, { status: 202 })
+      })
+    }, async close() {
+      registerAgentProcessHostIntake("worker", undefined)
+      closeStarted.resolve()
+      await finishClose.promise
+    } }
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, lease, leases: () => leases, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host }) }),
+    }, state: () => state })
+    hosts.start()
+    await vi.waitFor(async () => expect(await hosts.health()).toMatchObject({ agents: { worker: { role: "standby", holder: "other-server" } } }))
+    for (const deliveryId of ["delivery-1", "delivery-2", "delivery-1"]) {
+      const response = await agentProcessHostIntake("worker")!({ deliveryId, event: "pull_request", payload: { number: 7 } })
+      expect(response.status).toBe(202)
+      expect(await response.json()).toEqual({ accepted: true, forwarded: true })
+    }
+    expect(handled).toEqual([])
+    await other!.release()
+    try {
+      await vi.waitFor(() => expect(handled).toEqual(["delivery-1"]))
+      await new Promise(resolve => setTimeout(resolve, 2 * lease.ttlMs))
+      expect((await leases.get(agentProcessHostLeaseKey("worker")))[1]).toBeDefined()
+      finishDelivery.resolve()
+      await vi.waitFor(() => expect(handled).toEqual(["delivery-1", "delivery-2"]))
+      const queued = () => state.extension("process_host").execute("SELECT delivery_id FROM vitehub_agent_state_process_host_intake")
+      await vi.waitFor(async () => expect(await queued()).toEqual([]))
+      void hosts.close()
+      await closeStarted.promise
+      const response = await agentProcessHostIntake("worker")?.({ deliveryId: "during-close", event: "pull_request", payload: { number: 7 } })
+      expect(response?.status).toBe(202)
+      expect(await queued()).toEqual([{ delivery_id: "during-close" }])
+    }
+    finally {
+      finishDelivery.resolve()
+      finishClose.resolve()
+      await hosts.close()
+      await state.disconnect()
+    }
+    expect(agentProcessHostIntake("worker")).toBeUndefined()
+  })
+
+  it("runs the host on every server when no Lease store exists", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const host = fakeHost()
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, leases: () => { throw new Error("No Database") }, registry: {
+      worker: async () => ({ default: withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host }) }),
+    }, state: () => ({ extension: vi.fn() }) })
+    hosts.start()
+    await vi.waitFor(() => expect(host.running).toBe(true))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("need a Lease store"), expect.any(Error))
+    await hosts.close()
+  })
+
+  it("replaces a stopped holder within about 30 seconds by default", () => {
+    expect(agentProcessHostLeaseTtlMs + agentProcessHostLeaseIntervalMs).toBe(30_000)
+  })
+})
+
 describe("generated process hosts", () => {
   async function project(source: string) {
     const root = await hostPackageRoot("vitehub-process-hosts-")
@@ -142,6 +353,19 @@ describe("generated process hosts", () => {
     const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
     expect(route).toContain(`(process.env["TURSO_AUTH_TOKEN"]) ? { authToken: process.env["TURSO_AUTH_TOKEN"] } : {}`)
     expect(route).not.toContain("authToken\":")
+  })
+
+  it("generates separate process host and recovery Lease loaders with a Database", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await project(workerSource)
+    await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
+    const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "file:state.sqlite" } } })
+    if (typeof plugin.config !== "function" || typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent config hooks.")
+    const config = { command: "build", root, nitro: {}, resolve: { alias: [] }, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
+    await plugin.config.call({} as never, config as never, { command: "build", mode: "production" })
+    await plugin.configResolved.call({} as never, config as never)
+    await expect(readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")).resolves.toContain("leases: agentProcessHostLeases")
+    await expect(readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
   })
 
   it("registers the plugin and host routes, and rejects hosts that cannot run a process", async () => {

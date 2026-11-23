@@ -98,7 +98,7 @@ export default defineEventHandler(async () => {
 - `acquire()` returns `[error, lease]`. `lease` is `null` when another runner holds the key. Leases are not reentrant: the same `owner` also gets `null`.
 - `renew({ ttl? })` moves the end of the lease and returns `[error, renewed]`. `renewed` is `false` when the lease expired and another runner took it. Then stop the work, as the `AbortController` above does. Work that already ran stays done.
 - `get(key)` returns `[error, lease]` with the live lease, its `owner` and `expiresAt`, or `null`. Use it to show who runs a job.
-- `owner` is a label for inspection, such as the server name. `acquire()` does not compare it.
+- `owner` is a label for inspection, such as the server name. The default is `VITEHUB_INSTANCE_ID`, or `<hostname>:<pid>:<random>` when it is not set. `acquire()` does not compare it.
 - Expiry uses the clock of the Database, not the clocks of the servers.
 - `useLeases({ database: 'jobs' })` keeps the leases in another Database of the app.
 

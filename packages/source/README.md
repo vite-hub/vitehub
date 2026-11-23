@@ -174,9 +174,9 @@ await useSource("docs").read("intro.md")
 
 The Vite integration finds each file in `server/sources/`. It registers the
 default export by the path of the file, such as `docs`, when the server starts,
-and writes the `ViteHubSourceMap` types to `.vitehub/types`. In Nuxt,
-`useSource` is auto-imported in server code. `RegisteredSource<"docs">` gives
-the Source type of a name.
+and writes the `ViteHubSourceMap` types to `.vitehub/types`. In Nuxt with
+`experimental.nitroAutoImports` on, `useSource` is auto-imported in server
+code. `RegisteredSource<"docs">` gives the Source type of a name.
 
 ## Split items into parts
 

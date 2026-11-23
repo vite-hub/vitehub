@@ -6190,34 +6190,44 @@ describe("Agent Invocations", () => {
     const directory = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-terminal-duplicate-cutoff-"))
     const client = createClient({ url: `file:${join(directory, "invocations.sqlite")}` })
     const unboundedStore = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
-    const store = createLibsqlAgentInvocationStore({ client, maxAge: 1_000, maxRecords: false })
+    const store = createLibsqlAgentInvocationStore({ client, maxAge: 60_000, maxRecords: false })
     const now = Date.now()
-    const nearlyExpired = new Date(now - 999).toISOString()
+    const timestamp = new Date(now).toISOString()
     try {
       await unboundedStore.create({
-        createdAt: nearlyExpired,
+        createdAt: timestamp,
         id: "retry",
         observations: [],
         status: "completed",
         traceId: "old-trace",
-        updatedAt: nearlyExpired,
+        updatedAt: timestamp,
       })
-      const clock = vi.spyOn(Date, "now")
-        .mockReturnValueOnce(now)
-        .mockReturnValue(now + 2)
+      await store.get("retry")
+      const batch = vi.spyOn(client, "batch")
+      let tick = now
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => tick++)
 
-      await expect(store.create({
-        createdAt: new Date(now).toISOString(),
+      const duplicate = await store.create({
+        createdAt: timestamp,
         id: "retry",
         observations: [],
         status: "completed",
         traceId: "replacement-trace",
-        updatedAt: new Date(now).toISOString(),
-      })).resolves.toMatchObject({
+        updatedAt: timestamp,
+      })
+      clock.mockRestore()
+
+      const cutoffs = batch.mock.calls.flatMap(([statements]) => statements.flatMap((statement) => {
+        if (typeof statement === "string") return []
+        const [sql, args] = Array.isArray(statement) ? statement : [statement.sql, statement.args]
+        return sql.startsWith("DELETE FROM ") && sql.endsWith("updated_at < ?") ? [args] : []
+      }))
+      expect(cutoffs).toHaveLength(2)
+      expect(cutoffs[0]).toEqual(cutoffs[1])
+      expect(duplicate).toMatchObject({
         created: false,
         record: { id: "retry", traceId: "old-trace" },
       })
-      clock.mockRestore()
       await expect(store.get("retry")).resolves.toMatchObject({ traceId: "old-trace" })
     }
     finally {

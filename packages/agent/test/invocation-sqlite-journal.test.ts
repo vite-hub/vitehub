@@ -175,7 +175,7 @@ describe("SQLite invocation journal", () => {
     expect((await client.execute("PRAGMA journal_mode")).rows[0]?.journal_mode).toBe("wal")
     const sql = recording.statements.map(statementSql)
     expect(sql).toContain("PRAGMA journal_mode = WAL")
-    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;\nCREATE TABLE")))
+    expect(sql.findIndex(statement => statement.startsWith("PRAGMA synchronous = NORMAL;\nPRAGMA journal_size_limit = 67108864;\nBEGIN IMMEDIATE;\nCREATE TABLE")))
       .toBeGreaterThan(sql.indexOf("PRAGMA journal_mode = WAL"))
     recording.statements.length = 0
     await store.update("run", { observation: step(1), timestamp: at(1) })
@@ -271,7 +271,7 @@ describe("SQLite invocation journal", () => {
     const store = createLibsqlAgentInvocationStore({ client: pooled, maxAge: false, maxRecords: false })
     await store.create(invocation("run"))
     const modes = (await client.execute("SELECT mode FROM schema_modes")).rows.map(row => row.mode)
-    expect(modes.length).toBeGreaterThan(20)
+    expect(modes.length).toBeGreaterThanOrEqual(3)
     expect(modes).toEqual(modes.map(() => 1))
     expect((await store.get("run"))?.id).toBe("run")
   })

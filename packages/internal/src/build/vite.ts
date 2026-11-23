@@ -9,6 +9,7 @@ import type { NuxtServerDirOptions } from "./paths.ts"
 import type { ConfigEnv, EnvironmentOptions, ViteDevServer } from "vite"
 
 export type { NuxtServerDirOptions } from "./paths.ts"
+export { addNuxtVueImports, type NuxtVueImportContext } from "./nuxt-vue-imports.ts"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
@@ -142,16 +143,23 @@ type NitroPackageLoadingOptions = { devServer?: { runner?: string } }
  * Use one app's effective Nitro runner for both environment configuration and generated imports.
  * `configureEnvironment` reads the runner after Nitro's `build:before` hooks and saves the decision for `load`.
  */
-export function createNativePackageLoading() {
+export function createNativePackageLoading(ssrPackageEntries: readonly string[] = []) {
   let nitro: { options: NitroPackageLoadingOptions } | undefined
   let native = false
+  let nativeSsr = false
+  const ssrDistDirs = ssrPackageEntries.map(entry => dirname(fileURLToPath(entry)).replace(/\\/g, "/") + "/")
   return {
     nitro: {
       setup(instance: { options: NitroPackageLoadingOptions }): void {
         nitro = instance
       },
     },
-    configureEnvironment(name: string, env: { command: string }): boolean {
+    configureEnvironment(name: string, env: { command: string, isSsrTargetWebworker?: boolean }, options?: EnvironmentOptions): boolean {
+      if (name === "ssr") {
+        nativeSsr = env.command === "serve" && !env.isSsrTargetWebworker && !options?.resolve?.conditions?.some(condition =>
+          condition === "worker" || condition === "workerd" || condition === "browser" || condition === "edge-light" || condition === "deno",
+        )
+      }
       if (name !== "nitro") return false
       const runner = nitro?.options.devServer?.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
       native = env.command === "serve" && (runner === "node-worker" || runner === "node-process")
@@ -159,6 +167,13 @@ export function createNativePackageLoading() {
     },
     load(id: string, environmentName: string | undefined): string | undefined {
       if (environmentName === "nitro" && native) return loadNativePackageModule(id)
+      if (environmentName === "ssr" && nativeSsr && ssrDistDirs.length) {
+        const file = id.startsWith("file:") ? fileURLToPath(id) : id
+        const path = file.replace(/\\/g, "/")
+        if (/^vitehub-grants(?:-[\w-]+)?\.js$/.test(basename(path)) && ssrDistDirs.some(dir => dirname(path) + "/" === dir)) {
+          return reexportNativeModule(file)
+        }
+      }
     },
   }
 }
@@ -177,6 +192,10 @@ function loadNativePackageModule(id: string): string | undefined {
   // A dynamic import that Vite cannot analyze reaches the hook as a `file:` URL.
   const file = id.startsWith("file:") ? fileURLToPath(id) : id
   if (!nativePackageDistFile.test(file.replace(/\\/g, "/"))) return
+  return reexportNativeModule(file)
+}
+
+function reexportNativeModule(file: string): string {
   const url = JSON.stringify(pathToFileURL(realpathSync(file)).href)
   const hasDefault = /\bexport default\b|\bas default\b/.test(readFileSync(file, "utf8"))
   // Vite's module runner gives a `data:` import to Node unchanged, and Node resolves its absolute `file:` import.

@@ -59,13 +59,24 @@ pnpm nuxt build
 
 ## Server auto-imports
 
-On Nuxt 5, the module auto-imports the server helpers of each feature that you
-turn on, such as `kv`, `db`, `sendQueue`, and `requireRateLimit`. Server code
-uses them without an import, and `nuxt typecheck` knows their types.
+On Nuxt 5, server code imports ViteHub helpers such as `kv`, `db`,
+`sendQueue`, and `requireRateLimit` from their `vite-hub/*` paths. Server
+auto-imports are off by default, as they are for the Nitro and H3 helpers.
+
+Turn on Nuxt's own switch to auto-import them. The module then auto-imports
+the server helpers of each feature that you turn on, and `nuxt typecheck`
+knows their types.
+
+Install `@vite-hub/kv` for this example.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: [['vite-hub/nuxt', { kv: true }]],
+  experimental: { nitroAutoImports: true },
+})
+```
 
 ```ts [server/api/visits.get.ts] fragment
-import { defineEventHandler } from 'nitro/h3'
-
 export default defineEventHandler(async () => {
   const [error, visits] = await kv.get<number>('visits')
   if (error) throw error
@@ -73,11 +84,25 @@ export default defineEventHandler(async () => {
 })
 ```
 
-They are on by default. To turn them off, set `nitro: { imports: false }` in
-`nuxt.config.ts`. Then import each helper from its `vite-hub/*` path.
+When the app or another module already gives a name, such as `db` from
+`server/utils/db.ts`, that source wins and ViteHub logs one warning.
 
 [Nuxt server folders and auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports)
 lists each folder that the module scans and the auto-imports of each feature.
+
+## Vue auto-imports
+
+The module also auto-imports the Vue composables of each feature that you turn
+on, such as `useCollection`, `useChat`, and `useUserSession`. They have no
+prefix.
+
+When the app gives the same name, the app wins. This is true for a file in
+`composables/` or `utils/` of the app or a layer, and for an entry in
+`imports.imports`, an import preset, or another module. ViteHub skips its
+composable and logs one warning per name, with the source Nuxt selects and the
+ViteHub import path. For example, `composables/useChat.ts`
+replaces the ViteHub `useChat`. Import the ViteHub composable from its
+`vite-hub/*` path where you need it.
 
 ## Nuxt layers
 
@@ -115,7 +140,7 @@ Definition.
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs, not to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers go to `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, not `.vitehub/agent/**`. Discovery still uses `server/agents`. |
 | Database on Cloudflare | With the `cloudflare` host, `database` defaults to `driver: 'cloudflare'`: one D1 host resource that Nitro and Nuxt Content share. |
-| Server auto-imports | On Nuxt 5, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
+| Server auto-imports | Off by default. With `experimental.nitroAutoImports`, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: { actor } }`, behind your actor policy. |
 
