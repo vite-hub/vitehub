@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { createClient } from "@libsql/client"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from "@modelcontextprotocol/sdk/types.js"
 import { drizzle } from "drizzle-orm/libsql"
 import { migrate } from "drizzle-orm/libsql/migrator"
 import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } from "vitest"
@@ -13,11 +13,13 @@ import { resetConsoleMcp } from "../src/mcp-client.ts"
 import { databaseConsoleMcpRecords } from "../src/mcp-client-records.ts"
 import { answerConsoleMcpCall, consoleMcpCallProject } from "../src/mcp-client-rpc.ts"
 import { consoleOutboundFetch } from "../src/outbound-fetch.ts"
+import { memberConsoleProject } from "../src/projects.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import type * as AppWire from "../../vite-hub/src/console/runtime/mcp-client.ts"
 import type { ConsoleMcpScope, connectConsoleMcp, listConsoleMcp } from "../src/mcp-client.ts"
+import type { ConsoleMcpRecords } from "../src/mcp-client-records.ts"
 import type * as ConsoleWire from "../src/mcp-client-types.ts"
 
 const secret = "s".repeat(64)
@@ -43,12 +45,16 @@ function json(response: ServerResponse, status: number, value: unknown, headers:
 
 function fixtureServer(person: string): Server {
   const server = new Server({ name: "fixture", version: "1.0.0" }, { capabilities: { tools: {} } })
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      { description: "Repeat a text.", inputSchema: { properties: { text: { type: "string" } }, required: ["text"], type: "object" }, name: "echo" },
-      { description: "Say who signed in.", inputSchema: { properties: {}, type: "object" }, name: "whoami" },
-    ],
-  }))
+  const tools = [
+    { description: "Repeat a text.", inputSchema: { properties: { text: { type: "string" as const } }, required: ["text"], type: "object" as const }, name: "echo" },
+    { description: "Say who signed in.", inputSchema: { properties: {}, type: "object" as const }, name: "whoami" },
+  ]
+  server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    if (!extra.sessionId) return { tools }
+    if (!request.params?.cursor) return { nextCursor: extra.sessionId, tools: tools.slice(0, 1) }
+    if (request.params.cursor !== extra.sessionId) throw new McpError(ErrorCode.InvalidParams, "The cursor belongs to another session.")
+    return { tools: tools.slice(1) }
+  })
   server.setRequestHandler(CallToolRequestSchema, async request => ({
     content: [{ text: request.params.name === "whoami" ? person : String(request.params.arguments?.text), type: "text" }],
   }))
@@ -62,7 +68,7 @@ async function handleSession(request: IncomingMessage, response: ServerResponse)
   if (!transport) {
     if (typeof id === "string") return json(response, 404, { error: "unknown_session" })
     initializeRequests++
-    const created = new StreamableHTTPServerTransport({ onsessioninitialized: (sessionId) => { sessions.set(sessionId, created) }, sessionIdGenerator: () => crypto.randomUUID() })
+    const created = new StreamableHTTPServerTransport({ onsessionclosed: (sessionId) => { sessions.delete(sessionId) }, onsessioninitialized: (sessionId) => { sessions.set(sessionId, created) }, sessionIdGenerator: () => crypto.randomUUID() })
     await fixtureServer("anyone").connect(created)
     transport = created
   }
@@ -206,6 +212,54 @@ describe("Console MCP client", () => {
     expect(consoleMcpCallProject(body, "project-2")).toBe("project-1")
     expect(consoleMcpCallProject({ ...body, m: "mcp-client.list" }, "project-2")).toBe("project-2")
     expect(await answerConsoleMcpCall(body, scopeOf(db, { projectId: consoleMcpCallProject(body, "project-2") }))).toMatchObject({ r: { status: "connected" } })
+  })
+
+  it("finds the project of a sign-in state through the person's membership of its team, not the open team", async () => {
+    const { client, db } = await database()
+    await client.execute("INSERT INTO organization (id, name, slug, created_at) VALUES ('team-2', 'Other', 'other', 0)")
+    await client.execute("INSERT INTO member (id, organization_id, user_id, role, created_at) VALUES ('m-1', 'team-1', 'user-1', 'member', 0), ('m-2', 'team-2', 'user-1', 'owner', 0), ('m-3', 'team-2', 'user-2', 'owner', 0)")
+    await expect(memberConsoleProject(db, "user-1", "project-1")).resolves.toMatchObject({ id: "project-1", teamId: "team-1" })
+    await expect(memberConsoleProject(db, "user-2", "project-1")).resolves.toBeUndefined()
+    await expect(memberConsoleProject(db, "user-1", "project-3")).resolves.toBeUndefined()
+  })
+
+  it("does not return a sign-in URL whose state another request overwrote", async () => {
+    requireOAuth = true
+    const { db } = await database()
+    const records = databaseConsoleMcpRecords(db, secret)
+    const started = valueOf(await call(scopeOf(db), "mcp-client.connect", { server: `${origin}/mcp` }))
+    const id = String(Object(started.connection).id)
+    let raced = false
+    const racing: ConsoleMcpRecords = {
+      ...records,
+      save: async (connection) => {
+        if (!raced) {
+          raced = true
+          const other = (await records.connection("user-1", "project-1", id))!
+          other.error = "Changed by another request."
+          await records.save(other)
+        }
+        return records.save(connection)
+      },
+    }
+    const reconnected = await call(scopeOf(db, { records: racing }), "mcp-client.reconnect", { id, prompt: "login" })
+    expect(reconnected).toEqual({ error: expect.objectContaining({ code: "CONSOLE_CONFLICT", status: 409 }) })
+    expect(raced).toBe(true)
+    const stored = await records.connection("user-1", "project-1", id)
+    expect(stored?.error).toBe("Changed by another request.")
+  })
+
+  it("reads all pages in one MCP session, and ends the session after the operation", async () => {
+    const { db } = await database()
+    const scope = scopeOf(db)
+    const connection = Object(valueOf(await call(scope, "mcp-client.connect", { server: "/session-mcp" })).connection)
+    expect(sessions.size).toBe(0)
+    const tools = valueOf(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" }))
+    expect(Array.from(Object(tools.items), item => Object(item).name)).toEqual(["echo", "whoami"])
+    expect(tools.nextCursor).toBeUndefined()
+    expect(sessions.size).toBe(0)
+    expect(valueOf(await call(scope, "mcp-client.disconnect", { id: connection.id }))).toEqual({ revoked: false, sessionEnded: false })
+    expect(sessions.size).toBe(0)
   })
 
   it("opens a new MCP session for each operation, so request ids never repeat in a session", async () => {

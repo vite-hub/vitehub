@@ -91,6 +91,14 @@ export async function listConsoleProjects(db: ConsoleDatabase, teamId: string): 
   return (await db.select().from(consoleProjects).where(eq(consoleProjects.teamId, teamId)).orderBy(asc(consoleProjects.createdAt), asc(consoleProjects.id))).map(toProject)
 }
 
+/** A linked project in any team that the person is a member of, whatever team the session has open. */
+export async function memberConsoleProject(db: ConsoleDatabase, userId: string, id: string): Promise<ConsoleProject | undefined> {
+  const [row] = await db.select({ project: consoleProjects }).from(consoleProjects)
+    .innerJoin(authSqliteSchema.member, and(eq(authSqliteSchema.member.organizationId, consoleProjects.teamId), eq(authSqliteSchema.member.userId, userId)))
+    .where(eq(consoleProjects.id, id)).limit(1)
+  return row ? toProject(row.project) : undefined
+}
+
 /** The linked projects of one team. Each method sees only the projects of that team. */
 export interface ConsoleProjectStore {
   list(): Promise<ConsoleProject[]>

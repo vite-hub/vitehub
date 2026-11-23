@@ -69,6 +69,7 @@ const discoveryLifetimeMs = 60_000
 const requestTimeoutMs = 30_000
 const callTimeoutMs = 120_000
 const maximumConnections = 20
+const maximumPages = 20
 const clientInfo = { name: "vitehub-console", title: "ViteHub Console", version: "1.0.0" }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -345,7 +346,6 @@ async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection
     await client.connect(transport, { timeout: requestTimeoutMs })
     connection.protocolVersion = transport.protocolVersion
     connection.server = serverInfo(client, transport.protocolVersion) ?? connection.server
-    connection.sessionId = transport.sessionId
     const value = await run(client)
     connection.status = "connected"
     delete connection.error
@@ -357,7 +357,6 @@ async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection
       if (connection.oauth?.pending) delete connection.oauth.pending
       connection.status = "signed-out"
       connection.error = { bearer: "The server rejected this token.", none: "The server asks for credentials.", oauth: "The server rejected the grant. Sign in again." }[connection.auth]
-      delete connection.sessionId
       throw Object.assign(new ConsoleMcpError(409, "CONSOLE_MCP_SIGNED_OUT", connection.error), { challenge })
     }
     if (error instanceof McpError || error instanceof ConsoleMcpError) throw error
@@ -371,6 +370,7 @@ async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection
     throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", connection.error)
   }
   finally {
+    await transport.terminateSession().catch(() => {})
     await transport.close().catch(() => {})
   }
 }
@@ -397,7 +397,6 @@ function describe(connection: StoredConnection): ConsoleMcpConnection {
   if (connection.error) described.error = connection.error
   if (connection.identity) described.identity = connection.identity
   if (connection.server) described.server = connection.server
-  if (connection.sessionId) described.session = connection.sessionId.slice(-8)
   if (connection.usedAt) described.usedAt = new Date(connection.usedAt).toISOString()
   if (connection.bearer) described.grant = { hint: connection.bearer.slice(-4), refreshable: false, scopes: [] }
   if (tokens) {
@@ -423,8 +422,8 @@ function prune(connection: StoredConnection, now = Date.now()): boolean {
   return true
 }
 
-async function save(scope: ConsoleMcpScope, connection: StoredConnection): Promise<void> {
-  if (!connectionRuntimes.get(connection.id)?.closing) await scope.records.save(connection)
+async function save(scope: ConsoleMcpScope, connection: StoredConnection): Promise<boolean> {
+  return !connectionRuntimes.get(connection.id)?.closing && scope.records.save(connection)
 }
 
 async function owned(scope: ConsoleMcpScope): Promise<StoredConnection[]> {
@@ -446,14 +445,18 @@ async function withConnection<T>(scope: ConsoleMcpScope, id: string, change: (co
     assertOpen(runtime)
     const connection = await connectionOf(scope, id)
     runtime.connection = connection
+    const state = connection.oauth?.pending?.state
+    let value: T
     try {
-      const value = await change(connection)
+      value = await change(connection)
       assertOpen(runtime)
-      return value
     }
-    finally {
+    catch (error) {
       await save(scope, connection)
+      throw error
     }
+    if (!await save(scope, connection) && connection.oauth?.pending?.state !== state) throw new ConsoleMcpError(409, "CONSOLE_CONFLICT", "Another request changed this MCP connection at the same time, so the sign-in was not saved. Try again.")
+    return value
   })
 }
 
@@ -500,7 +503,6 @@ async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, p
   const oauth = connection.oauth!
   oauth.pending = { expiresAt: Date.now() + pendingLifetimeMs, state: newState(connection), ...(prompt ? { prompt } : {}) }
   oauth.tokens = undefined
-  delete connection.sessionId
   const fetchFn = withTimeout(requestTimeoutMs, scope)
   try {
     const known = oauth.discovery?.resourceMetadataUrl
@@ -661,7 +663,7 @@ async function revoke(scope: ConsoleMcpScope, connection: StoredConnection): Pro
   return revoked
 }
 
-/** End the MCP session, revoke the OAuth tokens, and forget the connection. */
+/** Revoke the OAuth tokens and forget the connection. Each operation already ended its MCP session, so `sessionEnded` is `false`. */
 export async function disconnectConsoleMcp(scope: ConsoleMcpScope, input: { id: string }): Promise<{ revoked: boolean, sessionEnded: boolean }> {
   let connection = await connectionOf(scope, input.id)
   const runtime = runtimeOf(connection.id)
@@ -672,16 +674,7 @@ export async function disconnectConsoleMcp(scope: ConsoleMcpScope, input: { id: 
     await runtime.clientOperation
     connection = runtime.connection ?? connection
     await scope.records.remove(connection)
-    let sessionEnded = false
-    if (connection.sessionId) {
-      const headers: Record<string, string> = { "mcp-session-id": connection.sessionId }
-      const bearer = connection.bearer ?? connection.oauth?.tokens?.access_token
-      if (bearer) headers.authorization = `Bearer ${bearer}`
-      if (connection.protocolVersion) headers["mcp-protocol-version"] = connection.protocolVersion
-      const response = await withTimeout(requestTimeoutMs, scope)(connection.url, { headers, method: "DELETE" }).catch(() => undefined)
-      sessionEnded = Boolean(response?.ok)
-    }
-    return { revoked: await revoke(scope, connection), sessionEnded }
+    return { revoked: await revoke(scope, connection), sessionEnded: false }
   }
   finally {
     connectionRuntimes.delete(connection.id)
@@ -695,15 +688,26 @@ const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: 
   "tools": { field: "tools", method: "tools/list" },
 }
 
-/** One page of tools, resources, resource templates, or prompts. */
+/**
+ * Tools, resources, resource templates, or prompts. One MCP session reads all pages, because a cursor can belong to its
+ * session. After 20 pages the answer has a `nextCursor`.
+ */
 export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { cursor?: string | undefined, id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
   return withConnection(scope, input.id, async (connection) => {
     const { field, method } = listMethods[input.kind]
     try {
-      const result = await withClient(scope, connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
-      const values: unknown = Reflect.get(result, field)
-      const items = Array.isArray(values) ? values.filter(isRecord) : []
-      const nextCursor = text(Reflect.get(result, "nextCursor"))
+      const { items, nextCursor } = await withClient(scope, connection, async (client) => {
+        const items: Record<string, unknown>[] = []
+        let cursor = input.cursor
+        for (let page = 0; page < maximumPages; page++) {
+          const result = await client.request({ method, params: cursor ? { cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs })
+          const values: unknown = Reflect.get(result, field)
+          if (Array.isArray(values)) items.push(...values.filter(isRecord))
+          cursor = text(Reflect.get(result, "nextCursor"))
+          if (!cursor) break
+        }
+        return { items, nextCursor: cursor }
+      })
       return { connection: describe(connection), items, ...(nextCursor ? { nextCursor } : {}) }
     }
     catch (error) {

@@ -5,6 +5,7 @@ import { useDatabase } from "vite-hub/database"
 import { databaseConsoleMcpRecords } from "../../../../src/mcp-client-records.ts"
 import { answerConsoleMcpCall, consoleMcpCallProject, consoleMcpMaxRequestBytes, consoleMcpReplyStatus } from "../../../../src/mcp-client-rpc.ts"
 import { consoleMcpCallbackPath } from "../../../../src/mcp-client-types.ts"
+import { memberConsoleProject } from "../../../../src/projects.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../../../src/token-box.ts"
 import { allowPrivateProjects, consoleDiagnosticProblem, consoleProblem, consoleTeamRoute, projectIdOf, projectNotFound, spendForwardBudget } from "../../../utils/console.ts"
 
@@ -32,7 +33,8 @@ export default consoleTeamRoute(async (request, caller) => {
     return consoleProblem(400, "CONSOLE_REQUEST_INVALID", "The request body is not JSON.")
   }
   const callProject = consoleMcpCallProject(body, id)
-  const project = callProject === id ? routeProject : await caller.projects.get(callProject)
+  const { db } = useDatabase("default")
+  const project = callProject === id ? routeProject : await memberConsoleProject(db, caller.user.id, callProject)
   if (!project) return projectNotFound()
   const allowPrivate = allowPrivateProjects()
   const reply = await answerConsoleMcpCall(body, {
@@ -40,7 +42,7 @@ export default consoleTeamRoute(async (request, caller) => {
     appOrigin: new URL(project.url).origin,
     fetch: consoleOutboundFetch(allowPrivate),
     projectId: project.id,
-    records: databaseConsoleMcpRecords(useDatabase("default").db, secret),
+    records: databaseConsoleMcpRecords(db, secret),
     redirectUrl: `${resolvePublicUrl({ request }) ?? new URL(request.url).origin}${consoleMcpCallbackPath}`,
     userId: caller.user.id,
   })
