@@ -661,7 +661,30 @@ function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): 
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
   // Nitro resolves a relative plugin from its own rootDir, which is not the project root when `projectRoot` is set.
-  kit.addPlugin(resolve(root, generatedNitroWorkspacePlugin), dev ? "start" : "end")
+  const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
+  kit.addPlugin(pluginFile, dev ? "start" : "end")
+  if (!dev) {
+    const modules = Array.isArray(kit.config.modules) ? kit.config.modules : []
+    kit.config.modules = [...modules, {
+      name: "vitehub-workspace-durability-registry",
+      setup({ options }: { options: { plugins: string[], buildPlugins: unknown[] } }) {
+        if (!options.plugins.some(file => file.replaceAll("\\", "/").endsWith("/.vitehub/nitro/durability/plugin.mjs"))) return
+        const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+        const importerFile = pluginFile.replaceAll("\\", "/")
+        const registryImport = moduleImportSpecifier(pluginFile, resolve(root, generatedNitroWorkspaceRegistry))
+        const plugin: Plugin = {
+          name: "vitehub-workspace-durability-registry",
+          resolveId: {
+            order: "pre",
+            handler(id, importer) {
+              if (id === WORKSPACE_REGISTRY_ID || (id === registryImport && importer === importerFile)) return registry
+            },
+          },
+        }
+        options.buildPlugins = [...options.buildPlugins, plugin]
+      },
+    }]
+  }
   // A failed request drops the cached Stores that hold only its staged writes.
   kit.addHandler({ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }, "start")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.

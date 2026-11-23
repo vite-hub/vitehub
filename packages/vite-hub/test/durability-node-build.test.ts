@@ -165,8 +165,19 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       'export default defineWorkspace(options)',
     ].join("\n"));
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
+    const warnings: string[] = [];
     const builder = await createBuilder({
       logLevel: "silent",
+      nitro: {
+        rolldownConfig: {
+          onwarn(warning, warn) {
+            if (warning.code === "INEFFECTIVE_DYNAMIC_IMPORT" && warning.message.includes("durability-registry.js")) {
+              warnings.push(warning.message);
+            }
+            warn(warning);
+          },
+        },
+      },
       plugins: [nitro() as never, vitehub({
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
@@ -176,6 +187,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       root: projectRoot,
     });
     await builder.buildApp();
+    expect(warnings).toEqual([]);
     const single = await startBuiltServer("1", {}, projectRoot);
     expect(single.response?.status, single.output).toBe(200);
     const report = await single.response?.json();
