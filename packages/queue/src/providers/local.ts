@@ -423,7 +423,8 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         for (const { availableAt, entry, expiresAt, stored } of prepared) {
           const duplicate = entry.idempotencyKey === undefined
             ? undefined
-            : [...jobs.values(), ...created].find(job => job.queue === queue && job.state === "pending" && job.idempotencyKey === entry.idempotencyKey)
+            : [...jobs.values(), ...created].find(job => job.queue === queue && job.idempotencyKey === entry.idempotencyKey
+              && (job.state === "pending" || (job.state === "dead" && attemptInFlight(job))))
           if (duplicate) {
             ids.push(duplicate.id)
             continue

@@ -379,11 +379,13 @@ describe("local queue inspection", () => {
     })
 
     try {
-      await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+      await engine.enqueue("welcome", [{ id: "job-1", idempotencyKey: "same", payload: {} }])
       await writingDead
       await expect(engine.jobs()).resolves.toMatchObject([{ id: "job-1", state: "running" }])
       await expect(engine.status()).resolves.toMatchObject({ queues: { welcome: { dead: 0, running: 1 } } })
       await expect(engine.retry("job-1")).resolves.toBe("running")
+
+      await expect(engine.enqueue("welcome", [{ id: "job-2", idempotencyKey: "same", payload: {} }])).resolves.toEqual(["job-1"])
 
       release()
       await vi.waitFor(async () => expect(await engine.jobs()).toMatchObject([{ id: "job-1", state: "dead" }]))
