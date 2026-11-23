@@ -3,7 +3,9 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent"
 import { deriveViteHubSecret, readViteHubSecret } from "@vite-hub/internal/secret"
 
+import { consoleState } from "../../internal.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { SealKey } from "@vite-hub/env/seal"
@@ -21,7 +23,8 @@ import type { SiteSession } from "../site-access.ts"
  * and a cookie whose session is gone is ignored, so `site.revoke-session` signs the browser out.
  *
  * Tickets and sessions need a KV store that every instance of the app shares, and tickets need `getAndDelete()`, so a
- * link works once also when two instances redeem it at the same time. A development server keeps both in memory.
+ * link works once also when two instances redeem it at the same time. When the default KV store cannot, such as Cloudflare
+ * KV, they go in the `vitehub_kv` table of the app's Database. A development server keeps both in memory.
  */
 
 /** The cookie of a browser that Site access signed in, in an app without Auth. */
@@ -102,10 +105,36 @@ function storeMissing(why: string): Error {
   return consoleRequestError(500, `One-time links need a store that every instance of the app shares. ${why}`, "CONSOLE_TICKET_STORE_MISSING")
 }
 
+const databaseNamespace = "vitehub-console-site"
+const databaseSiteKVs = new WeakMap<object, ConsoleSiteKV>()
+
+async function databaseSiteKV(): Promise<ConsoleSiteKV | undefined> {
+  if (!getConsoleSections().includes("databases")) return undefined
+  await loadConsoleRuntime()
+  const inspection = consoleState().database
+  const name = inspection?.names[0] ?? Object.keys(inspection?.databases ?? {})[0]
+  const entry = name === undefined ? undefined : inspection?.databases[name]
+  if (name === undefined || !entry) return undefined
+  const cached = databaseSiteKVs.get(entry.db)
+  if (cached) return cached
+  const { default: createDatabaseKVDriver, kvSqlClientFromDatabase } = await import("@vite-hub/kv/runtime/database")
+  const driver = createDatabaseKVDriver({ driver: "database", database: name, namespace: databaseNamespace }, async () => kvSqlClientFromDatabase(entry.db, name))
+  const text = (value: unknown): string | null => value === null || value === undefined ? null : String(value)
+  const store: ConsoleSiteKV = {
+    set: async (key, value, { ttl }) => [undefined, await driver.setItem?.(key, value, { ttl })],
+    get: async key => [undefined, text(await driver.getItem(key))],
+    getAndDelete: async key => [undefined, text(await driver.getAndDeleteItem?.(key))],
+    list: async ({ prefix }) => [undefined, { keys: await driver.getKeys(prefix, {}) }],
+    delete: async key => [undefined, await driver.removeItem?.(key, {})],
+  }
+  databaseSiteKVs.set(entry.db, store)
+  return store
+}
+
 /**
  * The KV store of tickets without Auth, and of site sessions: the app's default KV store when its driver takes a key
- * out atomically. A development server keeps them in memory. Otherwise it fails closed with
- * `CONSOLE_TICKET_STORE_MISSING`.
+ * out atomically, else the `database` KV driver over the app's Database. A development server keeps them in memory.
+ * Otherwise it fails closed with `CONSOLE_TICKET_STORE_MISSING`.
  */
 export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (installedKV) return installedKV
@@ -114,8 +143,10 @@ export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (!getConsoleSections().includes("kv")) throw storeMissing("The app has no Auth Database and no KV store.")
   const { getKVStoreDriver, kv } = await import("@vite-hub/kv")
   const driver = await getKVStoreDriver()
-  if (!atomicDrivers.includes(driver)) throw storeMissing(`The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.`)
-  return kv
+  if (atomicDrivers.includes(driver)) return kv
+  const database = await databaseSiteKV()
+  if (database) return database
+  throw storeMissing(`The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time, and the app has no Database to keep links in.`)
 }
 
 function serverEnv(name: string): string | undefined {

@@ -16,6 +16,8 @@ export type KVSqlParam = string | number | null
  */
 export interface KVSqlClient {
   dialect: "postgresql" | "sqlite"
+  /** The most values that one statement may bind, such as 100 on Cloudflare D1. */
+  maxParameters?: number
   query(sql: string, params: KVSqlParam[]): Promise<readonly Record<string, unknown>[]>
 }
 
@@ -30,29 +32,41 @@ interface LibsqlClient {
   execute(statement: { sql: string, args: KVSqlParam[] }): Promise<{ rows: readonly Record<string, unknown>[] }>
 }
 
+interface D1Client {
+  prepare(sql: string): { bind(...params: KVSqlParam[]): { all(): Promise<{ results: readonly Record<string, unknown>[] }> } }
+}
+
+const d1MaxParameters = 100
+
 function hasMethod(value: unknown, name: string): boolean {
   if ((typeof value !== "object" || value === null) && typeof value !== "function") return false
   return typeof Reflect.get(value, name) === "function"
 }
 
 /**
- * A SQL client over the Drizzle database of the app. It reads `$client` on each query, because a Postgres Database on
- * Cloudflare has a client per request.
+ * A SQL client over the Drizzle database of the app: postgres.js, libSQL, or a Cloudflare D1 binding. It reads `$client`
+ * on each query, because a Postgres Database and a D1 binding on Cloudflare belong to the request.
  */
 export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClient {
   const client = (): unknown => Reflect.get(db, "$client")
   const first = client()
-  const dialect = hasMethod(first, "unsafe") ? "postgresql" : hasMethod(first, "execute") ? "sqlite" : undefined
-  if (!dialect) throw kvErrorDiagnostics.KV_DATABASE_UNAVAILABLE({ database, problem: "unsupported" })
-  return {
-    dialect,
-    async query(sql, params) {
-      // SAFETY: The dialect check above found the method that each branch calls.
-      if (dialect === "postgresql") return await (client() as PostgresClient).unsafe(sql, params)
-      // SAFETY: As above, a libSQL client has `execute()`.
-      return (await (client() as LibsqlClient).execute({ sql, args: params })).rows
-    },
+  if (hasMethod(first, "unsafe")) {
+    // SAFETY: The check above found `unsafe()`, the query method of postgres.js.
+    return { dialect: "postgresql", query: async (sql, params) => await (client() as PostgresClient).unsafe(sql, params) }
   }
+  if (hasMethod(first, "execute")) {
+    // SAFETY: The check above found `execute()`, the query method of a libSQL client.
+    return { dialect: "sqlite", query: async (sql, params) => (await (client() as LibsqlClient).execute({ sql, args: params })).rows }
+  }
+  if (hasMethod(first, "prepare") && hasMethod(first, "batch")) {
+    return {
+      dialect: "sqlite",
+      maxParameters: d1MaxParameters,
+      // SAFETY: The check above found `prepare()` and `batch()`, the methods of a D1 binding.
+      query: async (sql, params) => (await (client() as D1Client).prepare(sql).bind(...params).all()).results,
+    }
+  }
+  throw kvErrorDiagnostics.KV_DATABASE_UNAVAILABLE({ database, problem: "unsupported" })
 }
 
 const sweepIntervalMs = 60_000
@@ -80,7 +94,7 @@ function decodeCursor(cursor: string | undefined): string | undefined {
 /**
  * KV in a table of the app's Database. Each atomic operation is one statement, so two servers that write one key at
  * the same time get one winner. Expiry uses the clock of the Database. Works on Postgres and on SQLite 3.35 or later,
- * such as libSQL.
+ * such as libSQL and Cloudflare D1.
  */
 export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>): KVRuntimeDriver {
   const table = kvTable
@@ -164,13 +178,18 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     return rows.map(row => String(row.key))
   }
 
+  async function rowsPerStatement(parametersPerRow: number, fixedParameters = 0): Promise<number> {
+    const { maxParameters } = await ready()
+    return maxParameters === undefined ? batchRows : Math.min(batchRows, Math.floor((maxParameters - fixedParameters) / parametersPerRow))
+  }
+
   async function upsert(items: readonly { key: string, value: string }[], setOptions: { ttl?: unknown } | undefined): Promise<void> {
     void sweep()
     const ttl = setOptions?.ttl
     if (ttl !== undefined && ttl !== null && ttl !== 0 && typeof ttl !== "number") throw kvErrorDiagnostics.KV_INVALID_TTL()
     const ms = typeof ttl === "number" && ttl !== 0 ? ttlMilliseconds(ttl) : undefined
     const row = `(?, ?, ?, ${ms === undefined ? "null" : "{now} + cast(? as bigint)"})`
-    for (const batch of chunks(items, batchRows)) {
+    for (const batch of chunks(items, await rowsPerStatement(ms === undefined ? 3 : 4))) {
       await query(
         `insert into ${table} (namespace, "key", value, expires_at) values ${batch.map(() => row).join(", ")}
          on conflict (namespace, "key") do update set value = excluded.value, expires_at = excluded.expires_at`,
@@ -191,7 +210,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     },
     async getItems(items) {
       const values = new Map<string, string>()
-      for (const batch of chunks([...new Set(items.map(item => item.key))], batchRows)) {
+      for (const batch of chunks([...new Set(items.map(item => item.key))], await rowsPerStatement(1, 1))) {
         const rows = await query(
           `select "key", value from ${table} where namespace = ? and "key" in (${batch.map(() => "?").join(", ")}) and ${live}`,
           [namespace, ...batch],

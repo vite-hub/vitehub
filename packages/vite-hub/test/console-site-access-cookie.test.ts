@@ -1,3 +1,6 @@
+import { DatabaseSync } from "node:sqlite"
+
+import { drizzle } from "drizzle-orm/d1"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
@@ -6,7 +9,9 @@ import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { commentsRoleAllows, defineComments } from "../../comments/src/index.ts"
 import { defineCommentsPlugin } from "../../comments/src/runtime/plugin.ts"
 import { resolveCommentsIdentity } from "../../comments/src/runtime/session.ts"
+import { consoleState } from "../src/console/internal.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -112,6 +117,7 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
+  consoleState().database = undefined
   vi.unstubAllEnvs()
   vi.useRealTimers()
 })
@@ -174,10 +180,54 @@ describe("Site access without Auth", () => {
   })
 })
 
+function createD1(): { binding: object, rows: () => number } {
+  const sqlite = new DatabaseSync(":memory:")
+  const statement = (query: string, params: (string | number | null)[] = []) => ({
+    bind: (...values: (string | number | null)[]) => statement(query, values),
+    all: async () => ({ results: sqlite.prepare(query).all(...params), success: true, meta: {} }),
+    raw: async () => sqlite.prepare(query).all(...params).map(row => Object.values(row)),
+    run: async () => ({ results: [], success: true, meta: sqlite.prepare(query).run(...params) }),
+  })
+  const rows = () => Number(sqlite.prepare("select count(*) as count from vitehub_kv").get()?.count)
+  return { binding: { prepare: (query: string) => statement(query), batch: async () => [] }, rows }
+}
+
+describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
+  let d1: ReturnType<typeof createD1>
+
+  beforeEach(() => {
+    kv.driver = "cloudflare"
+    d1 = createD1()
+    installConsoleSections("console-site-cookie", ["site", "kv", "databases"])
+    // SAFETY: The stand-in has the D1 methods that Drizzle and the KV `database` driver call.
+    installConsoleDatabase("console-site-cookie", { default: { db: drizzle(d1.binding as never), schema: {} } }, ["default"])
+  })
+
+  it("keeps one-time links and site sessions in the Database", async () => {
+    const url = await link("site.link", { path: "/guide" })
+    expect(d1.rows()).toBe(1)
+    const { response, cookie } = await open(url)
+    expect(response.status).toBe(303)
+    expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect((await open(url)).response.status).toBe(401)
+    const { value } = await call("site.sessions")
+    const id = String(Reflect.get(Object((value as { sessions: unknown[] }).sessions[0]), "id"))
+    expect((await call("site.revoke-session", { id })).value).toEqual({ revoked: true, removedUser: false })
+    expect(await tools(cookie)).toEqual([])
+    expect(kv.entries.size).toBe(0)
+  })
+
+  it("opens a link once when two browsers open it at the same time", async () => {
+    const url = await link("site.link")
+    const statuses = (await Promise.all([open(url), open(url)])).map(({ response }) => response.status)
+    expect(statuses.sort()).toEqual([303, 401])
+  })
+})
+
 describe("Site access without Auth fails closed", () => {
   it("refuses a link without a KV store that takes a link out once", async () => {
     kv.driver = "cloudflare-kv-binding"
-    expect((await call("site.link")).body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING", fix: expect.stringContaining("Redis, Upstash, or the `database` driver") })
+    expect((await call("site.link")).body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING", fix: expect.stringContaining("add a Database") })
     installConsoleSections("console-site-cookie", ["site"])
     expect((await call("site.link")).body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING" })
     expect(kv.entries.size).toBe(0)

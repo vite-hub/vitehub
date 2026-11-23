@@ -96,10 +96,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_DATABASE_UNAVAILABLE: {
       why: ({ database, problem }: { database: string, problem: "missing" | "unsupported" }) => problem === "missing"
         ? `The KV \`database\` driver keeps keys in the Database "${database}", and the app has no Database with that name.`
-        : `The KV \`database\` driver needs the Database "${database}" on Postgres or libSQL. It does not support D1.`,
+        : `The KV \`database\` driver needs the Database "${database}" on postgres.js, libSQL, or Cloudflare D1.`,
       fix: ({ problem }: { database: string, problem: "missing" | "unsupported" }) => problem === "missing"
         ? "Add a Database Definition, for example `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another KV driver."
-        : "On Cloudflare, use the `cloudflare` driver. Elsewhere, point the Database at Postgres or libSQL.",
+        : "Point the Database at postgres.js, libSQL, or a Cloudflare D1 binding, or select another KV driver.",
     },
     KV_DENO_KV_UNAVAILABLE: {
       why: "The `deno-kv` driver needs `Deno.openKv()`, and this runtime does not have it.",
