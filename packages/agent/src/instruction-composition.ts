@@ -1,4 +1,10 @@
 import { parseMarkdown } from "comark"
+import alert from "comark/plugins/alert"
+import attributes from "comark/plugins/attributes"
+import components from "comark/plugins/components"
+import frontmatter from "comark/plugins/frontmatter"
+import html from "comark/plugins/html"
+import taskList from "comark/plugins/task-list"
 import { renderMarkdownTemplateInternal } from "@vite-hub/markdown-template/internal/composition"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
 
@@ -266,12 +272,16 @@ function rethrowInstructionCompositionError(error: unknown): never {
     : agentDiagnostics.AGENT_R0447({ message, cause: error })
 }
 
+function defaultPluginsWithoutLinkify() {
+  return [frontmatter(), html(), alert(), taskList(), components(), attributes()]
+}
+
 async function parseInstructionMarkdown(content: string) {
   return await parseMarkdown(content, {
     autoClose: false,
     autoUnwrap: false,
-    linkify: false,
-    plugins: [],
+    registerDefaultPlugins: false,
+    plugins: defaultPluginsWithoutLinkify(),
   })
 }
 
