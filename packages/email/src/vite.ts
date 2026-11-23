@@ -15,7 +15,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -36,6 +36,10 @@ import type { EmailTemplate } from "./templates.ts"
 
 const operationsModule = ownModule(import.meta.url, "operations")
 
+function resolveEmailProjectRoot(config: { root?: string, [VITEHUB_PROJECT_ROOT]?: string }): string {
+  return resolveViteHubProjectRoot(config.root ?? process.cwd(), { projectRoot: config[VITEHUB_PROJECT_ROOT] })
+}
+
 export { emailConsoleSection } from "./console.ts"
 
 export const EMAIL_DEFINITION_ID = "#vitehub/email/definition"
@@ -54,10 +58,15 @@ const normalizeTemplateModulePath = (id: string) => {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
-export type EmailDriverName = "cloudflare" | "log" | "resend"
+export type EmailDriverName = "cloudflare" | "log" | "resend" | "smtp"
+/**
+ * The path of a module, relative to the project root, that default-exports a driver factory. The factory receives
+ * `email.options` with Env values resolved, and returns an `EmailDriver`.
+ */
+export type EmailDriverModulePath = `./${string}` | `../${string}`
 
 interface GeneratedEmailDefinition {
-  driver: EmailDriverName
+  driver: EmailDriverName | EmailDriverModulePath
   handler: string
   name: "default"
   options: EnvRuntimeRegistry
@@ -74,7 +83,8 @@ export interface EmailOutboxOptions {
 }
 
 export interface EmailOptions {
-  driver: EmailDriverName
+  /** A built-in driver, or the path of a driver module, for example `"./server/email-driver.ts"`. */
+  driver: EmailDriverName | EmailDriverModulePath
   options?: EnvRuntimeConfigOptions
   /**
    * Development outbox. In `vite dev`, `email.send()` records each message. `false` disables the outbox, and then
@@ -162,8 +172,44 @@ function renderResolvedOptions(value: unknown, reference: string): string {
 
 const renamedEmailDrivers = new Map([["cloudflare-email", "cloudflare"]])
 
+function isDriverModulePath(driver: unknown): driver is EmailDriverModulePath {
+  return typeof driver === "string" && (driver.startsWith("./") || driver.startsWith("../"))
+}
+
+const driverModuleExtensions = ["", ".ts", ".mts", ".js", ".mjs"]
+
+async function resolveDriverModule(driver: EmailDriverModulePath, projectRoot: string): Promise<string> {
+  const file = resolve(projectRoot, driver)
+  for (const extension of driverModuleExtensions) {
+    try {
+      if ((await stat(`${file}${extension}`)).isFile()) return `${file}${extension}`
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+  throw emailErrorDiagnostics.EMAIL_DRIVER_MODULE_NOT_FOUND({ driver, file })
+}
+
+async function assertNodemailerInstalled(entry: string): Promise<void> {
+  for (let directory = dirname(entry); ; directory = dirname(directory)) {
+    try {
+      if ((await stat(resolve(directory, "node_modules", "nodemailer", "package.json"))).isFile()) return
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error
+    }
+    if (dirname(directory) === directory) throw emailErrorDiagnostics.EMAIL_SMTP_NODEMAILER_MISSING()
+  }
+}
+
+function relativeImport(from: string, to: string): string {
+  const path = relative(dirname(from), to).replaceAll("\\", "/")
+  return path.startsWith(".") ? path : `./${path}`
+}
+
 function resolveDriverImport(driver: string): string {
-  if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
+  if (driver !== "resend" && driver !== "smtp" && driver !== "cloudflare" && driver !== "log") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
@@ -256,7 +302,7 @@ interface GeneratedEmailDev {
   remote: boolean
 }
 
-function remoteNotice(driver: EmailDriverName): string {
+function remoteNotice(driver: GeneratedEmailDefinition["driver"]): string {
   return `[vitehub] Email is remote: \`vite dev\` sends real email through ${driver}.`
 }
 
@@ -450,7 +496,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   }
   const internalOptions = options as EmailOptions & InternalEmailVitePluginOptions
   const configured = configuredDefinition(options)
-  const driverImport = resolveDriverImport(configured.driver)
+  const driverSource = isDriverModulePath(configured.driver) ? configured.driver : resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
   const remote = resolveRemote(options.remote)
   const outboxRuntimeId = randomUUID()
@@ -461,6 +507,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare"
+  const smtp = configured.driver === "smtp"
   let addedEmailBinding = false
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
@@ -561,10 +608,13 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "cloudflare" })
+      }
+      if (smtp && cloudflare) {
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "smtp" })
       }
       vercel = hosting === "vercel" || internalOptions.workflowDriver === "vercel"
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {
         const modules = Array.isArray(configRecord.nitro.modules)
@@ -593,7 +643,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       }
     },
     async configResolved(config) {
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       await prepareTypesOnce()
       definition = {
         ...configured,
@@ -605,11 +655,16 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         ? { outbox: outbox && { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId }, remote }
         : undefined
       const previewImport = `./${relative(dirname(entry), previewRegistryPath()).replaceAll("\\", "/")}`
+      const appCompiledDriverImport = isDriverModulePath(driverSource)
+        ? relativeImport(entry, await resolveDriverModule(driverSource, projectRoot))
+        : undefined
+      const driverImport = appCompiledDriverImport ?? driverSource
+      if (smtp && (command === "build" || remote)) await assertNodemailerInstalled(entry)
       await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, dev))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),
-          external: [previewImport, ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
+          external: [previewImport, ...(appCompiledDriverImport ? [appCompiledDriverImport] : []), ...(smtp ? ["nodemailer"] : []), ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
           format: "esm",
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",

@@ -15,7 +15,9 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
-The Vite integration composes one ViteHub-owned provider driver from a stable name and runtime Env declarations.
+The SMTP driver requires TLS when you configure a login. If the relay accepts only some recipients, the driver returns an error; do not retry the entire send.
+
+The Vite integration composes one provider driver from a built-in name or an app driver module, and runtime Env declarations.
 
 ## Quickstart
 
@@ -209,7 +211,7 @@ Pass this identity to each reader to inspect this application's configured Email
 
 ## Use another provider
 
-Set `driver` to `resend` or `cloudflare` and declare its options in `hubEmail({ driver, options })`. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
+Set `driver` to `resend`, `smtp`, or `cloudflare` and declare its options in `hubEmail({ driver, options })`. The `smtp` driver reads `host`, `port`, `secure`, `user`, and `pass`, sends with the optional `nodemailer` peer, and runs on Node hosts only. For another provider, set `driver` to the path of a driver module, such as `"./server/email-driver.ts"`. The path is relative to the project root. The module default-exports a function that gets `options`, with each `env()` value read, and returns an `EmailDriver`. The host compiles it with the app. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 

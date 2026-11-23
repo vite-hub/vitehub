@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
 import * as rolldown from "@vite-hub/internal/build/rolldown"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer } from "vite"
 
@@ -289,6 +290,37 @@ describe("hubEmail", () => {
     await writeFile(configFile, source)
     for (const callback of compiled) await callback()
     expect(await readFile(configFile, "utf8")).toBe(source)
+  })
+
+  it("rejects the smtp driver on Cloudflare hosts", async () => {
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    const config = buildConfigHook(plugin)
+
+    await expect(config({ nitro: { preset: "cloudflare-module" } })).rejects.toThrow(expect.objectContaining({
+      code: "EMAIL_HOST_UNSUPPORTED",
+      why: "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it.",
+    }))
+  })
+
+  it("fails the build of the smtp driver when nodemailer is not installed", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    await buildConfigHook(plugin)({ root })
+
+    await expect(resolvePlugin(plugin, root)).rejects.toThrow(expect.objectContaining({ code: "EMAIL_SMTP_NODEMAILER_MISSING" }))
+  })
+
+  it("leaves nodemailer for the app build to resolve", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(fileURLToPath(new URL("../node_modules/nodemailer", import.meta.url)), join(root, "node_modules", "nodemailer"), "dir")
+    const plugin = hubEmail({ driver: "smtp", options: { host: env({ source: env.source("SMTP_HOST") }) } })
+    await buildConfigHook(plugin)({ root })
+    await resolvePlugin(plugin, root)
+
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toMatch(/import\(["'`]nodemailer["'`]\)/)
+    expect(source).not.toContain("etherealWeb")
   })
 
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
@@ -893,7 +925,76 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare", or "log"')
+    expect(() => hubEmail({ driver: "postmark" as "resend" })).toThrow('"resend", "smtp", "cloudflare", "log", or the path of a driver module')
+  })
+
+  it("compiles a driver module with the app and passes it the resolved options", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server", "email-driver.mjs"), [
+      "export default options => ({",
+      "  name: 'custom',",
+      "  send: message => [undefined, { at: new Date(0), driver: 'custom', id: `${options.prefix}-${message.subject}` }],",
+      "})",
+      "",
+    ].join("\n"))
+    vi.stubEnv("CUSTOM_EMAIL_PREFIX", "custom-id")
+    const plugin = hubEmail({
+      driver: "./server/email-driver.mjs",
+      options: { prefix: env({ source: env.source("CUSTOM_EMAIL_PREFIX") }) },
+    })
+
+    await resolvePlugin(plugin, root)
+
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toContain('"../../server/email-driver.mjs"')
+    expect(source).not.toContain("name:'custom'")
+    expect(source).not.toContain("custom-id")
+    const definition = plugin.api.getDefinition()!
+    // SAFETY: the generated definition default-exports `{ driver, canSend }`.
+    const module = await import(pathToFileURL(definition.handler).href) as { default: Parameters<typeof createEmail>[0] & { canSend: boolean } }
+    expect(module.default.canSend).toBe(true)
+    const [error, data] = await createEmail(module.default).send({ from: "app@example.com", subject: "hello", text: "Hi", to: "ada@example.com" })
+    expect(error).toBeUndefined()
+    expect(data).toEqual({ driver: "custom", id: "custom-id-hello" })
+  })
+
+  it("resolves an extensionless driver module path", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server", "email-driver.ts"), "export default () => ({ name: 'custom', send: () => [undefined, { at: new Date(), driver: 'custom', id: '1' }] })\n")
+    const plugin = hubEmail({ driver: "./server/email-driver" })
+
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
+  })
+
+  it("resolves a driver module from the framework project root instead of the Vite package root", async () => {
+    const root = await createTempProject()
+    const frontend = join(root, "frontend")
+    const driverPath = join(root, "server", "email-driver.ts")
+    await mkdir(frontend, { recursive: true })
+    await mkdir(dirname(driverPath), { recursive: true })
+    await writeFile(join(frontend, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(driverPath, "export default () => ({ name: 'custom', send: () => {} })\n")
+    const plugin = hubEmail({ driver: "./server/email-driver.ts" })
+    const config = { root: frontend, [VITEHUB_PROJECT_ROOT]: root, [VITEHUB_GENERATED_ROOT]: join(root, ".vitehub") }
+
+    await buildConfigHook(plugin)(config)
+    await functionHook(plugin.configResolved, "configResolved")(config)
+
+    expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
+  })
+
+  it("names the missing file of a driver module", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "./server/missing-driver.ts" })
+
+    await expect(resolvePlugin(plugin, root)).rejects.toMatchObject({
+      code: "EMAIL_DRIVER_MODULE_NOT_FOUND",
+      why: `\`email.driver\` is "./server/missing-driver.ts", but ${join(root, "server", "missing-driver.ts")} does not exist.`,
+    })
   })
 
   it("rejects secret defaults that would be included in build output", () => {
@@ -946,10 +1047,10 @@ describe("renamed Email drivers", () => {
 
   it("keeps the driver list for a name that was never a driver", () => {
     // SAFETY: An app config without types passes an unknown driver name.
-    expect(() => hubEmail({ driver: "smtp" } as never)).toThrow(expect.objectContaining({
+    expect(() => hubEmail({ driver: "postmark" } as never)).toThrow(expect.objectContaining({
       code: "EMAIL_UNKNOWN_DRIVER",
       fix: expect.stringContaining("driver: 'log'"),
-      why: "The Email `driver` is \"smtp\". It must be \"resend\", \"cloudflare\", or \"log\".",
+      why: "The Email `driver` is \"postmark\". It must be \"resend\", \"smtp\", \"cloudflare\", \"log\", or the path of a driver module that starts with \"./\" or \"../\".",
     }))
   })
 })
