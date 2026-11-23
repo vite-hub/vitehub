@@ -52,6 +52,10 @@ const stubs: Record<string, Component> = {
   UIcon: defineComponent({ props: { name: String }, setup: props => () => h("span", { "data-icon": props.name }) }),
   USkeleton: defineComponent({ setup: () => () => h("div", { "data-skeleton": "" }) }),
   UTooltip: slot,
+  RouterLink: defineComponent({
+    props: { to: Object },
+    setup: (props, { slots }) => () => h("a", { "data-route": props.to?.name }, slots.default?.()),
+  }),
 }
 
 function mount(component: Component, props: Record<string, unknown>) {
@@ -114,9 +118,9 @@ describe("Console that the app refuses", () => {
       // The person sets the key in another tab. Coming back to this one is enough.
       mocks.requestConsole.mockResolvedValue({ projectName: "demo", sections: ["kv"] })
       tab.show()
-      await vi.waitFor(() => expect(root.textContent).toContain("demo"))
+      await vi.waitFor(() => expect(root.querySelector("[aria-label=Primitives]")?.textContent).toContain("KV"))
       expect(root.textContent).not.toContain("The app refused this Console")
-      expect(root.querySelector('button[aria-label="Open KV"]')).not.toBeNull()
+      expect(root.querySelector('[aria-label=Primitives] a[data-route="vitehub-console-kv"]')).not.toBeNull()
     }
     finally { app.unmount() }
   })
@@ -134,7 +138,7 @@ describe("Console that the app refuses", () => {
       // The person fixed access elsewhere and comes back before the request that left earlier answers 401.
       tab.show()
       answerFirst(new ConsoleRequestError(401))
-      await vi.waitFor(() => expect(root.textContent).toContain("demo"))
+      await vi.waitFor(() => expect(root.querySelector("[aria-label=Primitives]")?.textContent).toContain("KV"))
       expect(mocks.requestConsole).toHaveBeenCalledTimes(2)
     }
     finally { app.unmount() }

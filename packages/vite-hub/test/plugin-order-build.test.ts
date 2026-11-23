@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -56,12 +56,13 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
-      const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
+      const { nitro } = (await import("nitro/vite" as string)) as { nitro: (config: { framework?: { name: string, version: string } }) => unknown }
+      const server = nitro(nitroPosition === "before" ? { framework: { name: "nitro", version: "3.0.0-test-builder" } } : {})
       const publicUrl = "http://app.example.com"
       const hub = vitehub({ host: "node", publicUrl, console: true })
       const builder = await createBuilder({
         logLevel: "silent",
-        plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
+        plugins: nitroPosition === "before" ? [server as never, hub] : [hub, server as never],
         root,
       })
       await builder.buildApp()
@@ -81,6 +82,11 @@ describe("Plugin order with the Nitro Vite plugin", () => {
         const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)
         expect(await operationRpcResponseResult(rpc)).toMatchObject({ ok: true })
+        const { framework } = JSON.parse(await readFile(join(root, ".output/nitro.json"), "utf8"))
+        expect(framework).toEqual({ name: "nitro", version: nitroPosition === "before" ? "3.0.0-test-builder" : expect.any(String) })
+        const info = await signedRpcRequest({ key: ci.key, operation: "project.get", url: `${publicUrl}/_vitehub/rpc` })
+        const response = await fetchServer("/_vitehub/rpc", { body: await info.text(), headers: info.headers, method: "POST" })
+        expect(await operationRpcResponseResult(response)).toMatchObject({ ok: true, value: { build: { framework } } })
       })
     }
     finally {
