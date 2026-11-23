@@ -78,3 +78,11 @@ A GitHub-only helper got a provider for another Forge.
 ### FORGE_R0009
 
 A GitHub-only helper got a reference that is not a numbered pull request, or an empty input.
+
+### FORGE_RESPONSE_INVALID
+
+A Forge request succeeded, but the response did not include the expected data. Check that the GitHub App, token, or webhook can read the resource and retry.
+
+### FORGE_UNSUPPORTED
+
+The `forge` value of a Forge connection is not supported. Set `forge` to `github`, `gitlab`, `forgejo`, or `gitea`.

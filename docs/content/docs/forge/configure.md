@@ -61,4 +61,5 @@ For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WE
 
 - `useForge()` and the GitHub Channel read the same App credentials. See [Forge access for Git and Drivers](/docs/agents/channels#forge-access-for-git-and-drivers).
 - The [`forge()` Capability](/docs/agents/capabilities/forge) and the [GitLab and Forgejo Channels](/docs/agents/forge-channels) read the same names. They do not support Gitea yet. Use `useForge({ forge: 'gitea' })` from server code.
-- The Workspace GitHub store and GitHub Sources read only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). They do not mint App installation tokens. Set a token separately when these parts need private-repository access.
+- The Workspace GitHub store also mints GitHub App installation tokens through `useForge()` when `VITEHUB_GITHUB_APP_ID` is set, and falls back to `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`) otherwise.
+- GitHub Sources read only `VITEHUB_GITHUB_TOKEN` (or `FORGES_GITHUB_TOKEN`). They do not mint App installation tokens. Set a token separately when a GitHub Source needs private-repository access.

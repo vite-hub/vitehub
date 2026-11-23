@@ -73,6 +73,7 @@ For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WE
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. GitHub providers revalidate repeated GETs with `If-None-Match`, so unchanged responses come back as `304`s that GitHub doesn't charge; `conditionalRequests: false` turns it off, and `{ identity, cache }` sets who shares entries and where they live. |
 | `conditionalFetch(fetch, { identity, cache })`, `forgeMemoryCache({ maxSize, maxEntrySize })` | The `fetch` wrapper behind `conditionalRequests`, and its in-memory LRU. The default cache is shared by the process, holds up to 32 MiB of bodies, and skips bodies over 1 MiB. |
+| `forgeBranchRules(provider, repo, branch, options)` | Reads branch rules with `provider.repos.branchRules()`. On GitHub, when a private repository on a plan without rulesets or branch protection answers 403 and the branch summary marks it unprotected, returns empty rules instead of rejecting. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
 | `forgeMerge(provider, pull, options)` | `threads.merge()` with `bypassRules`. GitHub only with `bypassRules: true`: merge past failing branch rules, as an admin or a ruleset bypass actor. It needs `method` and `sha`. |
@@ -87,7 +88,7 @@ For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WE
 | `forgeBlob(provider, repo, sha, { signal })` | The bytes of one blob by sha. GitHub only. |
 | `forgeCommitFiles(provider, repo, input, options)` | `contents.commitFiles()` that can also set git file modes (`100644`, `100755`, `120000`). Returns the commit sha. |
 | `BranchMovedError` | The bundled `forges` error for a branch that moved before a commit. |
-| `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Classify Forge request failures. |
+| `forgeResponseError(problem)`, `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Build `FORGE_RESPONSE_INVALID` errors and classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |
 
 ## Diagnostics
@@ -102,6 +103,8 @@ For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WE
 | `FORGE_R0006` | A GitHub-only helper got a provider for another Forge. |
 | `FORGE_R0007` | `githubBranchRuleDetails()` got branch rules that are not complete GitHub rulesets or classic protection. |
 | `FORGE_R0009` | A GitHub-only helper got a reference that is not a numbered pull request, or an empty input. |
+| `FORGE_RESPONSE_INVALID` | A Forge request succeeded, but the response did not include the expected data. |
+| `FORGE_UNSUPPORTED` | The `forge` value of a Forge connection is not `github`, `gitlab`, `forgejo`, or `gitea`. |
 
 ## Gaps in `forges`
 
@@ -113,6 +116,7 @@ For Gitea, `useForge()` uses `VITEHUB_GITEA_WEBHOOK_SECRET` (or `FORGES_GITEA_WE
 | `forgeBlob()` | `contents.getFile()` reads by path, not by blob sha. |
 | `forgeCommitFiles()` | `contents.commitFiles()` cannot set a file mode. |
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
+| `forgeBranchRules()` | `repos.branchRules()` rejects with 403 on private GitHub repos on plans without rulesets or branch protection. |
 | `githubBranchRuleDetails()` | `BranchRules` has no required workflows, ruleset merge methods or classic protection source. |
 | `retargetPullRequest()` | No pull request base change. |
 | `forgeMerge()` | `threads.merge()` cannot bypass branch rules. |

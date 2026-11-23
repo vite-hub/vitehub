@@ -120,8 +120,10 @@ The tag is a claim from the page. Check it against the Forge before you act on i
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
 | `conditionalFetch(fetch, { identity, cache })`, `forgeMemoryCache({ maxSize, maxEntrySize })` | The `fetch` wrapper behind `conditionalRequests`, and its in-memory LRU. The default cache holds up to 32 MiB of bodies per process and skips bodies over 1 MiB. |
+| `forgeBranchRules(provider, repo, branch, options)` | Reads branch rules with `provider.repos.branchRules()`. On GitHub, when a private repository on a plan without rulesets or branch protection answers 403 and the branch summary marks it unprotected, returns empty rules instead of rejecting. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
+| `forgeMerge(provider, pull, options)` | `threads.merge()` with `bypassRules`. GitHub only with `bypassRules: true`: merge past failing branch rules as an admin or a ruleset bypass actor. Needs `method` and `sha`. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. The [`vitehub/forge-error-imports`](/docs/reference/doctor-rules#vhub0026) Doctor rule checks it. |
 | `githubAppCredentials(input)` | GitHub App installation tokens, installation lookup and App metadata. Tokens are cached until one minute before they expire. |
 | `readGitHubAppPrivateKey(inline, path)` | Read a PEM key from a value or a file. |
@@ -133,5 +135,5 @@ The tag is a claim from the page. Check it against the Forge before you act on i
 | `forgeBlob(provider, repo, sha, { signal })` | The bytes of one blob by sha. GitHub only. |
 | `forgeCommitFiles(provider, repo, input, options)` | `contents.commitFiles()` that can also set git file modes (`100644`, `100755`, `120000`). Returns the commit sha. |
 | `BranchMovedError` | The bundled `forges` error for a branch that moved before a commit. |
-| `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Classify Forge request failures. |
+| `forgeResponseError(problem)`, `forgeErrorStatus(error)`, `isForgeResponseError(error)` | Build `FORGE_RESPONSE_INVALID` errors and classify Forge request failures. |
 | `withSignal(promise, signal)`, `abortError(signal)` | Cancellation helpers for Forge calls. |
