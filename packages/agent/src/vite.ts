@@ -137,6 +137,7 @@ export type AgentRuntimeModule =
   | "internal/workspace/runtime"
   | "operations"
   | "runtime/invocations-dev"
+  | "runtime/recovery-leases"
   | "process"
   | "runtime/workflow"
   | "server"
@@ -2244,7 +2245,7 @@ async function writeAgentWebhookRouteHandler(
     await writeFileIfChanged(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
-      ...(recoveryLeases ? ["import { useLeases } from '@vite-hub/database'"] : []),
+      ...(recoveryLeases ? [`import { agentRecoveryLeases } from ${JSON.stringify(agentRuntimeModule("runtime/recovery-leases"))}`] : []),
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2263,20 +2264,8 @@ async function writeAgentWebhookRouteHandler(
       "  }",
       "  function startWebhookQueues(recoverInterruptedBefore) {",
       "    if (closed || stop || stopping) return",
-      `    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore${recoveryLeases ? ", recoverySweep()" : ""})`,
+      `    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore${recoveryLeases ? ", agentRecoveryLeases()" : ""})`,
       "  }",
-      ...(recoveryLeases
-        ? [
-            "  function recoverySweep() {",
-            "    try {",
-            "      return { leases: useLeases() }",
-            "    }",
-            "    catch {",
-            "      console.warn('[vitehub:agent] The Agent recovery sweep needs the default or only Database, and the app has several without a `default`. Invocations of a stopped server are failed only when a server starts.')",
-            "    }",
-            "  }",
-          ]
-        : []),
       ...(persistent
         ? [
             "  const startedAt = performance.timeOrigin",

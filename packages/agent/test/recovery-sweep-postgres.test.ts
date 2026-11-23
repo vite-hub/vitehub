@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createInterface } from "node:readline"
@@ -75,6 +75,9 @@ describe.skipIf(!url)("Agent recovery sweep on a Postgres server", () => {
   beforeAll(async () => {
     sql = postgres(url!, { max: 1, onnotice: () => {} })
     rootDir = await mkdtemp(join(tmpdir(), "vitehub-recovery-sweep-"))
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ dependencies: { postgres: "*" }, private: true }))
+    await mkdir(join(rootDir, "node_modules"))
+    await symlink(fileURLToPath(new URL("../node_modules/postgres", import.meta.url)), join(rootDir, "node_modules/postgres"), "dir")
     await sql.unsafe(`DROP TABLE IF EXISTS ${defaultAgentJournalPostgresPrefix}invocations_observations, ${defaultAgentJournalPostgresPrefix}invocations`)
     await sql.unsafe(`DELETE FROM vitehub_leases WHERE key = 'agent-recovery:${agentName}'`).catch(() => undefined)
     const migration = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...postgresAgentInvocationTables({ tablePrefix: defaultAgentJournalPostgresPrefix }) }))
