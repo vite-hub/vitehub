@@ -46,25 +46,20 @@ async function run(args: string[], env: NodeJS.ProcessEnv = {}) {
   return { code, stderr, stdout }
 }
 
-/** Writes keys as the Chat SDK does through an explicit, unscoped `messages.state`. */
 async function seedUnscopedState(url: string) {
-  // A rollback journal, so a dry run that switched the file to WAL would change its header.
   const state = createLibsqlAgentState({ journalMode: "delete", url })
   await state.connect()
-  // Opening the State adapter deletes expired rows. The dry run must not.
   await state.set("webhook:bot:teams:expired", true, 1)
   await state.set("thread-state:teams:conv-1", { title: "Old thread" })
   await state.set("channel-state:productlane:card-1", { open: true })
   await state.set("chat:callback:token-1", { url: "https://example.com" })
   await state.set("thread-state:slack:C1", { title: "Other adapter" })
-  // ViteHub already wrote its own keys under the Channel scope.
   await state.set("chat:bot:teams:interrupted", { ok: true })
   await state.set("webhook:bot:teams:teams:cursor", 1)
   await state.appendToList("msg-history:teams:conv-1", { text: "one" })
   await state.appendToList("msg-history:teams:conv-1", { text: "two" })
   await state.appendToList("transcripts:user:productlane:u1", { text: "hi" })
   await state.appendToList("transcripts:user:teams", { text: "custom identity" })
-  // Another Agent's transcript in the same database.
   await state.appendToList("transcripts:user:telegram:u2", { text: "other" })
   await state.subscribe("teams:conv-1")
   await state.enqueue("teams:conv-1", queueEntry("queued"), 10)
@@ -82,7 +77,6 @@ describe("vitehub agent state migrate", () => {
     const file = url.slice("file:".length)
     const before = await readFile(file)
     const dryRun = await run(args, { VITEHUB_AGENT_STATE_URL: url })
-    // The dry run does not change the file, not even to delete expired rows.
     expect((await readFile(file)).equals(before)).toBe(true)
     expect(dryRun).toMatchObject({ code: 0, stderr: "" })
     expect(dryRun.stdout).toContain("6 keys move to their Channel scope.")
@@ -113,7 +107,6 @@ describe("vitehub agent state migrate", () => {
     await expect(state.isSubscribed("teams:conv-1")).resolves.toBe(false)
     await expect(state.queueDepth("chat:bot:teams:teams:conv-1")).resolves.toBe(1)
     await expect(state.queueDepth("teams:conv-1")).resolves.toBe(0)
-    // Keys of other adapters and keys that ViteHub scoped itself stay.
     await expect(state.get("thread-state:slack:C1")).resolves.toEqual({ title: "Other adapter" })
     await expect(state.get("chat:bot:teams:interrupted")).resolves.toEqual({ ok: true })
     await expect(state.get("webhook:bot:teams:teams:cursor")).resolves.toBe(1)

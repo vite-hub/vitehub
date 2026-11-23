@@ -37,7 +37,6 @@ export interface ConnectionsCliOptions {
 }
 
 interface ParsedArgs {
-  /** The app session cookie of `--cookie` or `VITEHUB_CONNECTIONS_COOKIE`. */
   credentials: Headers
   flags: Map<string, string | true>
   json: boolean
@@ -75,7 +74,6 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     flags.set(flag, value)
   }
   const url = stringFlag(flags.get("--url")) ?? (env.VITEHUB_CONNECTIONS_URL || undefined)
-  // The management API is the app's own API: its actor module reads the app session in this cookie.
   const credentials = new Headers()
   const cookie = stringFlag(flags.get("--cookie")) ?? env.VITEHUB_CONNECTIONS_COOKIE
   if (cookie) credentials.set("cookie", cookie)
@@ -84,14 +82,12 @@ function parse(args: string[], context: CliContext): ParsedArgs {
     flags,
     json: flags.has("--json"),
     positionals,
-    // Read when a command calls the app, so help and local commands need no dev server.
     get url() {
       return url ?? devServerUrl(context)
     },
   }
 }
 
-/** The dev server that runs in this project writes its URL, with the app base, to the project root. It never guesses a port. */
 function devServerUrl(context: CliContext): string {
   const roots = context.rootDir ? [...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])] : []
   return requireViteHubDevServerUrl(roots, context.env, "connections")
@@ -142,6 +138,7 @@ const inspectionSchema = v.object({
   actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
   keySource: v.optional(v.picklist(["fallback", "stored"])),
+  keyError: v.optional(v.string()),
   name: v.string(),
   provider: v.string(),
   scopes: v.looseObject({ declared: v.array(v.string()), granted: v.array(v.string()), missing: v.array(v.string()) }),
@@ -162,8 +159,6 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect: RequestInit["redirect"] = "manual"): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
-  // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
-  // and persisting the grant. Leave time for that path to finish before reporting a client timeout.
   const seconds = options.requestTimeout ?? (body.action === "complete" ? 120 : 30)
   let response: Response
   let text: string
@@ -176,7 +171,6 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
         origin: base.origin,
       },
       method: "POST",
-      // Keep the session cookie and management actions on the selected app origin.
       redirect,
       signal: AbortSignal.timeout(seconds * 1_000),
     }
@@ -184,7 +178,6 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     text = await response.text()
   }
   catch (error) {
-    // A dev server that rebuilds can accept a request and never answer it.
     if (error instanceof DOMException && error.name === "TimeoutError") {
       throw connectionsErrorDiagnostics.CONNECTIONS_CLI_SERVER_UNREACHABLE({ problem: `${endpoint.origin} did not answer in ${seconds} seconds. If the server is restarting, wait until it is ready, then run the command again.` })
     }
@@ -199,7 +192,6 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
   }
   if (!response.ok) {
     const parsedError = v.safeParse(v.object({ error: errorBody }), value)
-    // An actor module can answer with the error fields at the top level.
     const topLevel = v.safeParse(errorBody, value)
     const error = parsedError.success ? parsedError.output.error : topLevel.success ? topLevel.output : undefined
     const fix = error?.fix ?? (response.status === 401 || response.status === 403 ? "Pass --cookie (or set VITEHUB_CONNECTIONS_COOKIE) with a session that the app's Connections actor accepts." : undefined)
@@ -219,7 +211,7 @@ function describeConnection(connection: ConnectionInspection): string {
     `${connection.name}  ${connection.provider}  ${connection.status}${connection.account?.email ? `  ${connection.account.email}` : ""}`,
   ]
   if (connection.chatgpt) lines.push(`  plan: ${connection.chatgpt.plan}`, `  expires: ${connection.expiresAt ?? "none"}`, `  host: ${connection.chatgpt.hostId}`, `  client: ${connection.chatgpt.clientId ?? "not registered"}`)
-  if (connection.keySource === "fallback") lines.push("  key: provider fallback")
+  if (connection.keySource === "fallback") lines.push(connection.keyError ? `  key: provider fallback failed (${connection.keyError})` : "  key: provider fallback")
   if (connection.scopes.missing.length) lines.push(`  missing scopes: ${connection.scopes.missing.join(" ")}`)
   return lines.join("\n")
 }
@@ -228,10 +220,6 @@ function describeApproval(approval: ConnectionApproval): string {
   return `${approval.id}  ${approval.status}  ${approval.name}  ${approval.action}  ${approval.actor}  ${approval.createdAt}`
 }
 
-/**
- * The ChatGPT gateway runs the Codex package of the app and never a `codex` command from `PATH`. Without it, the
- * first question fails with AGENT_R1026, so say it at sign-in. Only a loopback app shares this project folder.
- */
 function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, context: CliContext): void {
   if (connection.credential !== "chatgpt" || !isLoopback(appUrl(parsed))) return
   try {
@@ -242,7 +230,6 @@ function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, 
   }
 }
 
-/** Read a piped key. A key in an argument would stay in the shell history. */
 async function readKey(options: ConnectionsCliOptions): Promise<string> {
   const stdin = options.stdin ?? process.stdin
   if (stdin.isTTY) throw connectionsErrorDiagnostics.CONNECTIONS_CLI_ARGUMENTS_INVALID({ problem: "Pipe the key on stdin, for example: printf %s \"$KEY\" | vitehub connections set-key <name>" })
@@ -316,7 +303,6 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     const redirectUri = `http://127.0.0.1:${address.port}/callback`
     const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
-    // Wait as long as the server accepts the link, so a slow sign-in, such as a passkey step, can still finish.
     const expiresAt = new Date(authorization.expiresAt)
     const until = expiresAt.toTimeString().slice(0, 5)
     timeout = setTimeout(
@@ -325,7 +311,6 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     )
     const minutes = Math.round((expiresAt.getTime() - Date.now()) / 60_000)
     context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nThe link works one time, until ${until} (${minutes} minutes).\nWaiting for ${redirectUri} ...\n`)
-    // The browser returns to 127.0.0.1 on its own computer. On a server without one, that port must be forwarded.
     const forward = () => context.stderr.write(`If the browser runs on another computer, forward port ${address.port} first. On that computer, run:\n\n  ssh -N -L ${address.port}:127.0.0.1:${address.port} <user>@<this computer>\n\n`)
     if (context.env.SSH_CONNECTION) forward()
     else if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(forward)
@@ -448,7 +433,6 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         throw connectionsErrorDiagnostics.CONNECTIONS_CLI_TRANSPORT_INSECURE({ problem: `set-key sends the key only over HTTPS or to a loopback host. Refusing ${base.origin}.` })
       }
       const key = await readKey(options)
-      // A redirect would send the key to another URL.
       const { connection } = await request(parsed, options, { action: "set-key", key, name }, connectionResponse, "error")
       write(context, parsed, connection, () => `Key stored. ${describeConnection(connection)}`)
     },

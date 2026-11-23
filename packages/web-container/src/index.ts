@@ -126,11 +126,10 @@ export type WebContainerSupport =
   | { supported: true }
   | { supported: false, reason: string }
 
-// The code that this browser entry raises. Its own catalog keeps the page bundle small.
 const webContainerBrowserDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/web-container/diagnostics",
   codes: {
-    // Named errors. Keep these codes in alphabetical order.
+    // Named errors.
     WEB_CONTAINER_UNSUPPORTED: {
       why: ({ reason }: { reason: string }) => reason,
       fix: "Call `bootWebContainer()` in a browser page that is cross-origin isolated: list the page in `webContainer.routes` of `vitehub()`, which sends the isolation headers on it in dev, preview, and production.",
@@ -232,7 +231,6 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
     start(controller) { outputController = controller },
     cancel() { outputCancelled = true },
   }, { highWaterMark: outputLimit, size: chunk => chunk.length })
-  // Drain the process even when the terminal is idle, without tee()'s unbounded queue.
   const collected = spawned.output.pipeTo(new WritableStream<string>({
     write(chunk) {
       captured = (captured + chunk).slice(-outputLimit)
@@ -263,7 +261,6 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
   }
 }
 
-/** A snapshot from `createNodeModulesSnapshot()` lists its symlinks and executable files. Restore them in one Node run. */
 async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<void> {
   const listed = await container.fs.readFile(`node_modules/${snapshotLinksFile}`, "utf8").then(() => true, () => false)
   if (!listed) return
@@ -274,7 +271,6 @@ async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<
   if (code !== 0) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_LINKS_FAILED({ code })
 }
 
-/** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
 interface SnapshotCache {
   match: (url: string) => Promise<Response | undefined>
   put: (url: string, response: Response) => Promise<void>
@@ -305,7 +301,6 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
   const storage: unknown = Reflect.get(globalThis, "caches")
   const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
   if (cache) {
-    // `Request` resolves a relative URL against the page, as the cache keys do.
     const keep = new Set(urls.map(url => new Request(url).url))
     for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
   }
@@ -327,7 +322,6 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
   }
   catch (cause) {
-    // A cached part can be the bad one. Drop every part of this snapshot, so the next load downloads them again.
     await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
     if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
@@ -354,17 +348,16 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
-    const loading = Promise.resolve(options.snapshot)
-    // The boot does not wait for the snapshot. A failed load still rejects below.
-    loading.catch(() => {})
+    const loading = Promise.allSettled([options.snapshot])
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.previewScript) await booted.setPreviewScript(options.previewScript)
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      const snapshot = await loading
-      if (snapshot) {
-        await booted.mount(snapshot)
+      const [loaded] = await loading
+      if (loaded.status === "rejected") throw loaded.reason
+      if (loaded.value) {
+        await booted.mount(loaded.value)
         await restoreSnapshotLinks(booted)
       }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
@@ -380,18 +373,28 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   const container = booted
 
   let server: WebContainerPreviewServer | undefined
-  let resolveReady!: (server: WebContainerPreviewServer) => void
-  let rejectReady!: (error: Error) => void
-  let readySettled = false
+  let readyResult: PromiseSettledResult<WebContainerPreviewServer> | undefined
+  let deliverReady: ((result: PromiseSettledResult<WebContainerPreviewServer>) => void) | undefined
+  let ready: Promise<WebContainerPreviewServer> | undefined
   let serverReadyCount = 0
   let devRunning = false
-  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
-  // Readiness is optional: consumers may use status events without awaiting it.
-  void ready.catch(() => {})
+  function settleReady(result: PromiseSettledResult<WebContainerPreviewServer>) {
+    if (readyResult) return
+    readyResult = result
+    deliverReady?.(result)
+  }
+  function readiness() {
+    if (!ready) {
+      ready = new Promise<WebContainerPreviewServer>((resolve, reject) => {
+        deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
+        if (readyResult) deliverReady(readyResult)
+      })
+      void ready.catch(() => undefined)
+    }
+    return ready
+  }
   function rejectPendingReady(error: Error) {
-    if (readySettled) return
-    readySettled = true
-    rejectReady(error)
+    settleReady({ status: "rejected", reason: error })
   }
   function fail(error: Error) {
     rejectPendingReady(error)
@@ -403,10 +406,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
-    if (!readySettled) {
-      readySettled = true
-      resolveReady(server)
-    }
+    settleReady({ status: "fulfilled", value: server })
     if (status.current.stage === "starting") status.enter("ready")
   })
   container.on("error", ({ message }) => fail(new Error(message)))
@@ -416,7 +416,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     preview: {
       get url() { return server?.url },
       get port() { return server?.port },
-      ready,
+      get ready() { return readiness() },
     },
     fs: container.fs,
     async run(command, runOptions = {}) {
@@ -424,12 +424,10 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       const stage = typeof command === "string" ? commandStages[command] : undefined
       if (stage === "starting") {
         if (devRunning) throw webContainerErrorDiagnostics.WEB_CONTAINER_DEV_RUNNING()
-        // Reserve the slot before spawn yields so an overlapping call cannot share readiness.
         devRunning = true
       }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
-      // Vite runs the WASI build of Rolldown here, and Node warns on each load that WASI is experimental.
       const env = { PORT: defaultPort, NODE_OPTIONS: "--disable-warning=ExperimentalWarning", ...runOptions.env }
       const previewPort = Number(env.PORT)
       previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
@@ -455,12 +453,15 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")
           fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
-        })
+        }, (cause: unknown) => fail(cause instanceof Error ? cause : new Error(String(cause))))
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
           devRunning = false
           if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+        }, (cause: unknown) => {
+          devRunning = false
+          fail(cause instanceof Error ? cause : new Error(String(cause)))
         })
       }
       return run

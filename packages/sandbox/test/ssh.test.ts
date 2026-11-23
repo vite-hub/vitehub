@@ -63,7 +63,6 @@ async function expectStopped(pid: number) {
   await vi.waitFor(async () => {
     try {
       process.kill(pid, 0)
-      // Linux may retain an orphan's zombie briefly after the process was killed.
       if (process.platform === "linux") expect(await readFile(`/proc/${pid}/stat`, "utf8")).toMatch(/\) Z /)
       else throw new Error(`Process ${pid} is still running`)
     }
@@ -114,8 +113,6 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
     expect(JSON.parse(result.stdout)).toEqual({ secret })
   }, 15000)
 
-  // A login shell reads /etc/profile and ~/.profile. Debian's /etc/profile sets PATH again, which dropped the PATH of the
-  // caller and Codex's apply_patch folder on SSH launches.
   it("runs the command without a login shell, so profiles keep the forwarded environment", async () => {
     const { launch, root } = await fixture({ acceptEnvironment: ["HOME", "VITEHUB_SSH_TEST_PATH"] })
     const home = join(root, "home")
@@ -268,7 +265,6 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM")
       await done
     })
-    // Input sent before the server listens reaches the command after the connection opens.
     child.stdin.write("sent early\n")
     await new Promise(resolve => setTimeout(resolve, 1000))
     const restarted = await serveSsh({ hostKeyFile: options.hostKeyFile.slice(0, -".pub".length), authorizedKeyFile: `${options.identityFile}.pub`, user: "agent", cwd: root, host: "127.0.0.1", port })
@@ -341,7 +337,6 @@ describe("SSH launch environment", () => {
 })
 
 describe.skipIf(process.platform === "win32")("SSH launch retry", () => {
-  // A stand-in ssh prints the stderr and exit code for each attempt, so the test controls which failure occurs.
   async function launchWithFakeSsh(attempts: Array<{ stderr: string, code: number }>, overrides: Partial<SshLaunchOptions> = {}) {
     const root = await mkdtemp(join(tmpdir(), "vitehub-ssh-retry-"))
     cleanup.push(() => rm(root, { recursive: true, force: true }))

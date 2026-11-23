@@ -17,7 +17,6 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-/** A server that the test answers by hand: each call waits until the test settles it. */
 function fakeTransport(status: CommentSendStatus, options: { push?: boolean } = {}) {
   let current = status
   const checks: CommentSendPairingCheck[] = []
@@ -75,7 +74,6 @@ const copy = async (text: Promise<string>) => {
   copied.push(await text)
   return true
 }
-// Lets every awaited answer of the fake transport arrive.
 const flush = () => vi.advanceTimersByTimeAsync(0)
 
 beforeEach(() => {
@@ -147,12 +145,10 @@ describe("createCommentSend", () => {
     await flush()
     expect(send.state).toEqual({ status: "idle", count: 2, inbox: false })
 
-    // No agent yet: Send gets a setup code and copies its prompt.
     await send.send(copy)
     expect(copied).toEqual([prompt])
     expect(send.state).toEqual({ status: "pairing", count: 2, prompt, expiresAt: Date.now() + 10 * 60_000, agent: t3 })
 
-    // The agent used the code. The pill asks once.
     server.checks.push({ status: "waiting" }, { status: "paired", agent: t3 })
     await vi.advanceTimersByTimeAsync(1500)
     expect(send.state.status).toBe("pairing")
@@ -166,35 +162,30 @@ describe("createCommentSend", () => {
     expect(server.calls).toContain("allow code-1")
     expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
 
-    // Sent for 2 s, then Working with the agent's thread.
     server.setStatus({ count: 0, agent: t3, working: { id: "send-1", thread: "https://app.t3.codes/threads/42" } })
     await vi.advanceTimersByTimeAsync(1999)
     expect(send.state.status).toBe("sent")
     await vi.advanceTimersByTimeAsync(1)
     expect(send.state).toEqual({ status: "working", count: 0, agent: t3, thread: "https://app.t3.codes/threads/42" })
 
-    // Without pushed events, the client asks the status until the agent is done.
     await vi.advanceTimersByTimeAsync(5000)
     expect(send.state.status).toBe("working")
     server.setStatus({ count: 0, agent: t3 })
     await vi.advanceTimersByTimeAsync(5000)
     expect(send.state).toEqual({ status: "idle", count: 0, inbox: false })
 
-    // A new comment, then a relay that does not take it.
     server.setStatus({ count: 1, agent: t3 })
     await send.refresh()
     server.results.push({ status: "failed", reason: "The relay answered 502." })
     await send.send()
     expect(send.state).toEqual({ status: "failed", count: 1, reason: "The relay answered 502." })
 
-    // Retry sends the same comments, and the limit stops it.
     const retryAt = Date.now() + 10 * 60_000
     server.results.push({ status: "limited", retryAt })
     await send.send()
     expect(send.state).toEqual({ status: "limited", count: 1, retryAt })
     expect(server.calls.filter(call => call === "send")).toHaveLength(2)
 
-    // At the retry time, Send N comes back.
     await vi.advanceTimersByTimeAsync(10 * 60_000)
     expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
 
@@ -212,7 +203,6 @@ describe("createCommentSend", () => {
     await vi.advanceTimersByTimeAsync(1500)
     expect(send.state).toMatchObject({ status: "pairing", reason: "expired", count: 3 })
 
-    // The client stops asking about an expired code.
     const asked = server.calls.length
     await vi.advanceTimersByTimeAsync(10_000)
     expect(server.calls).toHaveLength(asked)
@@ -244,7 +234,6 @@ describe("createCommentSend", () => {
     await vi.advanceTimersByTimeAsync(1500)
     expect(send.state).toMatchObject({ status: "pairing", reason: "refused", agent: t3 })
 
-    // Allow does nothing outside confirm.
     await send.allow()
     expect(server.calls.some(call => call.startsWith("allow"))).toBe(false)
 
@@ -266,7 +255,6 @@ describe("createCommentSend", () => {
     send.cancel()
     expect(send.state).toEqual({ status: "idle", count: 2, inbox: false })
     expect(server.cancelled).toEqual(["code-1"])
-    // No agent was allowed, so Send pairs again.
     await send.send(copy)
     expect(send.state.status).toBe("pairing")
   })
@@ -293,12 +281,10 @@ describe("createCommentSend", () => {
     await vi.advanceTimersByTimeAsync(2000)
     expect(send.state).toEqual({ status: "working", count: 0, agent: t3 })
 
-    // The agent opened its thread, and a new comment waits beside Working.
     server.push({ type: "working", id: "send-1", thread: "https://app.t3.codes/threads/42" })
     server.push({ type: "count", count: 1 })
     expect(send.state).toEqual({ status: "working", count: 1, agent: t3, thread: "https://app.t3.codes/threads/42" })
 
-    // An event of another send changes nothing. Done for this one goes back to Send N.
     server.setStatus({ count: 1, agent: t3 })
     server.push({ type: "done", id: "send-0" })
     await flush()
@@ -317,7 +303,6 @@ describe("createCommentSend", () => {
     server.checks.push({ status: "paired", agent: t3 })
     await vi.advanceTimersByTimeAsync(1500)
     expect(send.state).toEqual({ status: "confirm", count: 2, agent: t3 })
-    // A third thread started to wait after the member saw two.
     server.results.push({ status: "changed", count: 3, selection: "three" })
     await send.allow()
     expect(send.state).toEqual({ status: "confirm", count: 3, agent: t3 })

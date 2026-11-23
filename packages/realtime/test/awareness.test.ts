@@ -200,7 +200,6 @@ describe("realtime awareness ownership", () => {
     const second = {}
     owners.apply(room, first, update([1]))
 
-    // The echo of client 1 is dropped; client 2 is claimed by the peer that sent it.
     expect(owners.apply(room, second, update([2, 1]))).toEqual([2])
     expect(owners.apply(room, second, update([1]))).toEqual([])
     expect(owners.release(second)).toEqual([2])

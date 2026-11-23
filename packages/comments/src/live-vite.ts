@@ -168,7 +168,6 @@ function literalProperties(options: Parameters<typeof objectProperties>[0]): Def
   })
 }
 
-/** The properties of the options object that `server/comments.ts` passes to `defineComments()`, read without running the file. */
 async function readDefinitionProperties(file: string): Promise<DefinitionProperties | undefined> {
   const source = await readFile(file, "utf8").catch(() => "")
   const module = scanModule(source, file)
@@ -228,12 +227,10 @@ async function readDefinitionProperties(file: string): Promise<DefinitionPropert
   }
 }
 
-/** The value of the last `key` property, `null` when its value is not known at build time, or `undefined` without one. */
 function lastProperty(properties: DefinitionProperties, key: string): { value: unknown } | null | undefined {
   const last = properties.findLastIndex(property => property.key === key)
   if (last === -1) return undefined
   const property = properties[last]!
-  // A later spread or dynamic key may replace the option, so its value is not known at build time either.
   if (properties.slice(last + 1).some(later => later.key === undefined)) return null
   if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method || !property.value) return null
   return { value: staticValue(property.value) }
@@ -450,7 +447,6 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(input.session?.blob ? ["attachments: blob"] : []),
       ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
-      // Send delivers to the member endpoints of Webhooks, which load on the first send.
       ...(input.send ? [`webhooks: () => import(${JSON.stringify(input.imports.webhooks)})`] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,

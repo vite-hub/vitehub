@@ -39,7 +39,6 @@ describe("collectContributions", () => {
       { definition: { export: "alpha", module: "pkg/widgets" }, name: "alpha", plugin: "a-plugin", reason: "Adds alpha." },
       { definition: { export: "default", module: "/b/zeta.ts" }, name: "zeta", plugin: "b-plugin" },
     ])
-    // The factory also gets the flat plugin list, so it can read what sibling plugins declare.
     expect(contexts).toEqual([{ ...context, plugins }])
   })
 

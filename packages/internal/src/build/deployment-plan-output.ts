@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, writeFile } from "node:fs/promises"
 import { basename, dirname, relative, resolve } from "node:path"
 
 import type { DeploymentPlan, ViteHubHost } from "../deployment.ts"
@@ -107,8 +107,6 @@ interface FinalizeDeploymentPlanOutputOptions {
   services?: object
 }
 
-const netlifyWrapperSource = 'export { default } from "../functions-internal/server/server.mjs"\n'
-
 interface ResolvedPlanOutput {
   /** The Provider Output root that holds `deployment.json`. */
   root: string
@@ -116,23 +114,13 @@ interface ResolvedPlanOutput {
   entry?: string
   /** Where Nitro wrote its server functions, when that differs from `root`. */
   nitroFunctions?: string
-  /** Whether Netlify needs `functions/server.mjs` to find the Nitro function. */
-  netlifyWrapper: boolean
 }
 
-/**
- * Nitro's Netlify preset writes `.netlify/functions-internal` up to 3.0.260903-beta and
- * `.netlify/v1/functions` (Netlify's Frameworks API) from 3.0.261029-rc. Netlify discovers
- * the second layout itself, so only the first one gets a `functions/server.mjs` wrapper.
- */
 function resolvePlanOutput(plan: DeploymentPlan, rootDir: string, outputDir?: string): ResolvedPlanOutput {
   const nitroOutputRoot = resolve(rootDir, outputDir ?? plan.output.directory)
-  if (plan.host !== "netlify") return { entry: plan.output.entry, netlifyWrapper: false, root: nitroOutputRoot }
-  if (basename(nitroOutputRoot) === "functions" && basename(dirname(nitroOutputRoot)) === "v1") {
-    return { entry: "v1/functions/server/server.mjs", netlifyWrapper: false, nitroFunctions: nitroOutputRoot, root: dirname(dirname(nitroOutputRoot)) }
-  }
-  const root = basename(nitroOutputRoot) === "functions-internal" ? dirname(nitroOutputRoot) : nitroOutputRoot
-  return { entry: plan.output.entry, netlifyWrapper: true, nitroFunctions: resolve(root, "functions-internal"), root }
+  if (plan.host !== "netlify") return { entry: plan.output.entry, root: nitroOutputRoot }
+  const root = basename(nitroOutputRoot) === "functions" && basename(dirname(nitroOutputRoot)) === "v1" ? dirname(dirname(nitroOutputRoot)) : nitroOutputRoot
+  return { entry: plan.output.entry, nitroFunctions: resolve(root, "v1", "functions"), root }
 }
 
 /**
@@ -152,9 +140,6 @@ export function describeDeploymentPlanOutput(plan: DeploymentPlan, rootDir: stri
   }
   if (output.nitroFunctions) {
     entries.push({ description: "Nitro Netlify server functions", owner: "vite-hub", path: output.nitroFunctions })
-  }
-  if (output.netlifyWrapper) {
-    entries.push({ description: "Netlify function entrypoint", owner: "vite-hub", path: resolve(output.root, "functions/server.mjs") })
   }
   if (plan.host === "netlify") {
     entries.push({ description: "Netlify function and static config output", owner: "vite-hub", path: resolve(output.root, "v1") })
@@ -204,17 +189,4 @@ export async function finalizeDeploymentPlanOutput(options: FinalizeDeploymentPl
   const manifestPath = resolve(output.root, "deployment.json")
   await mkdir(dirname(manifestPath), { recursive: true })
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8")
-  if (options.plan.host !== "netlify") return
-  const functionEntry = resolve(output.root, "functions/server.mjs")
-  if (output.netlifyWrapper) {
-    await mkdir(dirname(functionEntry), { recursive: true })
-    await writeFile(functionEntry, netlifyWrapperSource, "utf8")
-    return
-  }
-  // A wrapper left by an earlier build would point at a missing functions-internal entry.
-  const previous = await readFile(functionEntry, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined
-    throw error
-  })
-  if (previous === netlifyWrapperSource) await rm(functionEntry)
 }

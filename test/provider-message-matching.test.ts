@@ -22,29 +22,10 @@ import {
 } from "typescript"
 import { describe, expect, it } from "vitest"
 
-/**
- * Provider error contract. Provider, driver, and provision code must not decide what a failure means from its
- * message. Read the failure kind from `@vite-hub/internal/provider-failure`, a provider code, or an SDK error class.
- *
- * The scan covers `packages/*\/src` TypeScript files under a `providers/` or `drivers/` folder, and files whose
- * name has `provision`, `cloudflare`, `vercel`, or `netlify`, plus the files in `extraProviderFiles` that handle provider
- * errors under another name. `packages/agent` and `packages/content` are not scanned.
- * It fails on:
- *
- * - `.includes(...)`, `.match(...)`, `.startsWith(...)`, `.endsWith(...)`, or `.search(...)` on a message read
- *   (`.message`, `["message"]`, or `Reflect.get(x, "message")`) or an expression derived directly from one.
- * - `/regex/.test(...)` or `.exec(...)`, or `<name>.test(...)` with a name that ends in `re`, `regex`, `pattern`, or
- *   `retryable`, when an argument reads `.message`, or a variable named `message` or `messages` that is set from a
- *   `.message` read. A parameter named `message`, such as a commit message, does not count.
- *
- * A site that has no other signal keeps the match with `// provider-message-match: <reason>` on the line above.
- */
-
 const repoRoot = resolve(import.meta.dirname, "..")
 const allowMarker = /provider-message-match:\s*(\S.*)?$/
 const stringMethods = new Set(["endsWith", "includes", "match", "search", "startsWith"])
 const regexName = /(?:^|[a-z_])(?:re|regex|pattern|retryable)$/i
-// Files that handle provider errors but do not have a provider name.
 const extraProviderFiles = new Set(["packages/blob/src/media/records.ts"])
 
 interface MessageMatch {
@@ -62,7 +43,6 @@ function isProviderFile(file: string): boolean {
   return /\/(?:providers|drivers)\//.test(file) || /provision|cloudflare|vercel|netlify/i.test(name)
 }
 
-/** `x.message`, `x["message"]`, or `Reflect.get(x, "message")`. */
 function isMessageRead(node: Node): boolean {
   if (isPropertyAccessExpression(node)) return node.name.text === "message"
   if (isElementAccessExpression(node)) return isStringLiteralLike(node.argumentExpression) && node.argumentExpression.text === "message"
@@ -75,7 +55,6 @@ function readsMessageProperty(node: Node): boolean {
   return forEachChild(node, readsMessageProperty) ?? false
 }
 
-/** True when a variable with this name, in a function that holds the use, is set from a `.message` read. */
 function isMessageVariable(use: Identifier): boolean {
   for (let scope: Node | undefined = use.parent; scope; scope = scope.parent) {
     if (!isFunctionLike(scope)) continue
@@ -102,7 +81,6 @@ function isRegexReceiver(node: Node): boolean {
   return isIdentifier(node) && regexName.test(node.text)
 }
 
-/** True when the line above the call, or above a node that holds it inside the same block, has an allow reason. */
 function isAllowed(sourceFile: SourceFile, lines: readonly string[], node: Node): boolean {
   for (let current: Node = node; !isBlock(current) && !isSourceFile(current); current = current.parent) {
     const { line } = sourceFile.getLineAndCharacterOfPosition(current.getStart(sourceFile))

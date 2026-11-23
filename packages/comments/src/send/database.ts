@@ -16,14 +16,10 @@ export const commentSends = sqliteTable("vitehub_comment_sends", {
   subjectId: text("subject_id").notNull(),
   page: text("page").notNull(),
   threads: text("threads").notNull(),
-  /** The idempotency key of the delivery: a hash of the member, the threads, and their last messages. */
   key: text("key").notNull(),
   state: text("state", { enum: ["pending", "sent", "working", "done", "failed"] }).notNull(),
-  /** The id of the Webhooks delivery. */
   delivery: text("delivery"),
-  /** The member endpoint that the send went to. Later sends to the same endpoint keep its `thread`. */
   endpoint: text("endpoint"),
-  /** The link of the agent's thread, such as `t3-thread://v2/<environmentId>/<threadId>`, when the agent gave one. */
   thread: text("thread"),
   error: text("error"),
   sender: text("sender").notNull(),

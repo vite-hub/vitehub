@@ -137,7 +137,6 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
 }
 
 
-/** Gives an operation error its HTTP status and the redacted message that the CLI and the Console report. */
 function withStatus<TError extends Error>(error: TError, status: number, fix?: string): TError {
   return Object.defineProperties(error, {
     ...(fix && !Reflect.get(error, "fix") ? { fix: { configurable: true, enumerable: false, value: fix, writable: true } } : {}),
@@ -152,14 +151,12 @@ const errorFix: Readonly<Record<string, string>> = {
 
 const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_DEFINITION_NOT_FOUND: 404,
-  SCHEDULE_HISTORY_INCOMPLETE: 503,
   SCHEDULE_INVALID_SCHEDULED_AT: 400,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
   SCHEDULE_OPERATION_FAILED: 500,
   SCHEDULE_RUN_NOT_FOUND: 404,
 }
 
-/** Gives a Schedule error the status and the redacted message that every surface reports. */
 async function attempt<T>(work: () => Promise<T>): Promise<T> {
   try {
     return await work()
@@ -200,7 +197,6 @@ export async function runScheduleAttempts(input: { id: string }): Promise<Schedu
   })
 }
 
-/** The manual Static Schedule Definitions that the Console installed. Only `console.invoke` installs them. */
 const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
 
 /**

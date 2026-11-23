@@ -140,6 +140,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ issue }: { issue: string }) => `defineComments(): ${issue}`,
       fix: "Pass rateLimit as { limit, window }, such as { limit: 5, window: \"1m\" }, or remove it to let guests write without a limit.",
     },
+    COMMENTS_RESOLVE_INTERRUPTED: {
+      why: ({ completed, threadId, replied }: { completed: string[], threadId: string, replied: boolean }) => `Resolution stopped at ${JSON.stringify(threadId)}${replied ? " after its reply was saved" : ""}. Completed threads: ${completed.map(id => JSON.stringify(id)).join(", ") || "none"}.`,
+      fix: "Read the affected thread again and resolve the remaining threads.",
+    },
     COMMENTS_SECRET_TOO_SHORT: {
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
       fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",

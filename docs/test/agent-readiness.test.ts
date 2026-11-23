@@ -10,6 +10,7 @@ import config from "../nuxt.config";
 const docsRoot = resolve(import.meta.dirname, "..");
 const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
+const workspacePages = ["learn/choices", "learn/first-agent", "learn/first-server-primitive", "playground"];
 
 describe("agent-ready HTTP contracts", () => {
   it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", async () => {
@@ -26,7 +27,7 @@ describe("agent-ready HTTP contracts", () => {
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
-    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
+    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual([...trustPages, ...workspacePages].sort().map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
   });
@@ -35,7 +36,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
     expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
     expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
-    expect(config.docs?.sitemap).toEqual(["/learn", "/playground", "/examples", "/projects", "/templates"]);
+    expect(config.docs?.sitemap).toEqual(["/learn", "/examples", "/projects", "/templates"]);
     expect(typeof config.docs?.rawMarkdown).toBe("function");
   });
 

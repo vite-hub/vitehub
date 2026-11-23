@@ -1,8 +1,5 @@
-import { existsSync } from "node:fs"
-
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { createNetlifyApiClient, isProvisionRequestError } from "@vite-hub/internal/provision"
-import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
@@ -15,11 +12,8 @@ interface NetlifySite {
   accountId?: string
 }
 
-/** Nitro's Netlify preset writes static files to `dist` (`output.publicDir`). */
 const publishDir = "dist"
 
-// Netlify CLI 27.11: `netlify deploy --help`, recorded in test/fixtures/host-cli-help/. The CLI reads NETLIFY_AUTH_TOKEN
-// from the environment.
 export function netlifyAdapter(context: DeployContext): DeployAdapter {
   const netlify = hostCli("netlify", "netlify-cli", context.root, context.env)
   const linked = context.link?.host === "netlify" && context.link.project.id ? context.link : undefined
@@ -28,8 +22,6 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
   return {
     async deploy() {
       const args = ["deploy", "--no-build", "--dir", publishDir, "--json", ...(context.preview ? ["--context", "deploy-preview"] : ["--prod"])]
-      // ViteHub writes this wrapper for the older Nitro layout. Netlify finds `.netlify/v1/functions` by itself.
-      if (existsSync(join(context.outputDir, "functions", "server.mjs"))) args.push("--functions", join(context.outputDir, "functions"))
       args.push(...(site ? ["--site", site.id] : ["--site-name", context.projectName]))
       if (context.commit) args.push("--message", commitMessage(context.commit))
       const result = await context.run(netlify[0], [...netlify.slice(1), ...args], { cwd: context.root, env: context.env, show: true })
@@ -46,10 +38,8 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
   }
 }
 
-/** The Netlify deploy context of a host env target. */
 const netlifyContexts = { preview: "deploy-preview", production: "production" } as const
 
-/** The contexts that one `all` value stands for, as the Netlify UI lists them for "different value for each context". */
 const allContexts = ["production", "deploy-preview", "branch-deploy", "dev", "dev-server"] as const
 
 interface NetlifyValue {
@@ -68,13 +58,6 @@ function netlifyValues(value: unknown): NetlifyValue[] | undefined {
   return values
 }
 
-/**
- * The `updateEnvVar` body that gives an existing variable Functions scope and, for a secret, secret storage. Undefined
- * when the variable already has both, so PATCH can set the one value. PUT replaces every value, so the body keeps the
- * values of the other contexts. Netlify masks secret values of every context except `dev`, so a secret with values
- * in other contexts cannot be rewritten without losing them: that is refused before any write.
- * https://docs.netlify.com/build/environment-variables/secrets-controller/
- */
 function netlifyUpdate(existing: unknown, name: string, context: string, value: string, secret: boolean) {
   const refuse = (reason: string) => setupFailure(cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host: "netlify", name, reason }), setupExitCodes.conflict)
   if (!isRecord(existing) || !Array.isArray(existing.scopes)) throw refuse("The Netlify API returned the variable without its scopes.")
@@ -91,7 +74,6 @@ function netlifyUpdate(existing: unknown, name: string, context: string, value: 
   return {
     is_secret: isSecret,
     key: name,
-    // A secret cannot have the post-processing scope.
     scopes: [...new Set([...scopes, "functions"])].filter(scope => !isSecret || !/^post[-_]processing$/u.test(scope)),
     values: [...others, { context, value }],
   }
@@ -142,8 +124,6 @@ export function netlifyEnv(context: HostEnvContext): HostEnv {
         return
       }
       const update = netlifyUpdate(existing, name, deployContext, value, secret)
-      // PATCH sets the value of one context and keeps the others. PUT replaces the whole variable, so it carries
-      // every other value too.
       if (update) await request(`${path}/${encodeURIComponent(name)}`, { body: update, method: "PUT", query })
       else await request(`${path}/${encodeURIComponent(name)}`, { body: { context: deployContext, value }, method: "PATCH", query })
     },
@@ -164,7 +144,6 @@ function parseNetlifyDeploys(value: unknown, published: string | undefined): Hos
   return value.flatMap((item: unknown) => {
     const id = isRecord(item) ? optionalString(item.id) : undefined
     if (!id || !isRecord(item)) return []
-    // `netlify deploy --message` is the deploy `title`. A Git build has `commit_ref`.
     const marked = parseCommitMessage(item.title)
     const ref = optionalString(item.commit_ref)
     const commit: HostDeployment["commit"] = marked ? { ...marked, from: "vitehub" } : ref ? { dirty: false, from: "host", sha: ref } : undefined

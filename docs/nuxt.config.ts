@@ -5,7 +5,7 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
-  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org", "vite-hub/nuxt"],
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "nuxt-schema-org", "vite-hub/nuxt"],
   // The site serves /_vitehub/rpc so that a ViteHub Console can link it. Only calls that the Console signs with the key
   // in a VITEHUB_CONSOLE_KEY_<NAME> secret pass. Site access in that Console signs the team in to comment on pages
   // (server/auth.ts).
@@ -19,12 +19,15 @@ export default defineNuxtConfig({
     workspace: false,
     console: true,
     publicUrl: "https://vitehub.dev",
-    // Runnable tutorials and the playground boot a WebContainer (modules/tutorials).
-    webContainer: { routes: ["/learn/**", "/playground"] },
   },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
+    runnable: {
+      fixtures: "../fixtures/tutorials",
+      start: "/docs/getting-started/installation",
+      pnpmWorkspace: "..",
+    },
     site: {
       name: "ViteHub",
       url: "https://vitehub.dev",
@@ -55,7 +58,7 @@ export default defineNuxtConfig({
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
     mcp: { name: "vitehub", guide: "/docs/console/mcp" },
-    sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
+    sitemap: ["/learn", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.

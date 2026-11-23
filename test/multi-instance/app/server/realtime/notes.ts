@@ -1,6 +1,5 @@
 import { defineRealtime } from "vite-hub/realtime"
 
-// The check uses presence only, so the stored document can stay empty.
 export default defineRealtime({
   access: "public",
   document: {

@@ -5,7 +5,6 @@ import { runScheduleNow } from "../src/runtime/operations.ts"
 
 const codes = {
   SCHEDULE_DEFINITION_NOT_FOUND: scheduleErrorDiagnostics.SCHEDULE_DEFINITION_NOT_FOUND(),
-  SCHEDULE_HISTORY_INCOMPLETE: scheduleErrorDiagnostics.SCHEDULE_HISTORY_INCOMPLETE({ maxRecords: 1000, recordCount: 1001 }),
   SCHEDULE_OPERATION_FAILED: scheduleErrorDiagnostics.SCHEDULE_OPERATION_FAILED(),
   SCHEDULE_RUN_NOT_FOUND: scheduleErrorDiagnostics.SCHEDULE_RUN_NOT_FOUND(),
 }

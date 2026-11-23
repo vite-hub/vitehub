@@ -18,7 +18,6 @@ interface AgentStateCliContext {
 interface ParsedArgs {
   agent: string
   apply: boolean
-  /** Adapter name to the Channel id that scopes its keys. */
   channels: Map<string, string>
   tablePrefix: string
   url: string
@@ -36,16 +35,13 @@ interface StateKeyMove {
 
 interface StateMigrationPlan {
   conflicts: StateKeyMove[]
-  /** Unscoped locks. They expire, so the command leaves them. */
   locks: number
   moves: StateKeyMove[]
-  /** Unscoped keys that name no listed adapter. */
   unmatched: string[]
 }
 
 const usageText = "vitehub agent state migrate --agent <name> --channel <adapter>[=<channel>]... [--url <libsql-url>] [--table-prefix <prefix>] [--apply]"
 
-/** Key prefixes that ViteHub scopes itself. A key that starts with one of them is never an unscoped Chat key. */
 const scopedKeyPrefixes = new Set(["chat", "transcripts", "webhook"])
 
 const keyColumns: Record<StateTable, string> = { cache: "key", lists: "key", queue: "thread_id", subscriptions: "thread_id" }
@@ -86,7 +82,6 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs | "help" {
       if (flag === "--channel") {
         const [adapter, channel = adapter] = value.split("=", 2)
         if (!adapter || !channel) throw invalid(`--channel ${value} needs an adapter name, such as --channel teams or --channel teams=support.`)
-        // The keys name the adapter, not the Channel, so one adapter cannot move to two Channels.
         const listed = parsed.channels.get(adapter)
         if (listed !== undefined && listed !== channel) throw invalid(`--channel ${adapter} names the Channels ${listed} and ${channel}. Keys name only the adapter, so the command cannot tell them apart. Move them by hand.`)
         parsed.channels.set(adapter, channel)
@@ -102,7 +97,6 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs | "help" {
   if (!parsed.agent) throw invalid("Pass --agent with the name of the Agent that owns the keys.")
   if (!parsed.channels.size) throw invalid("Pass --channel for each adapter whose keys move, such as --channel teams.")
   if (!parsed.url) throw invalid("Pass --url with the Agent State database, or set VITEHUB_AGENT_STATE_URL.")
-  // A plain path names a local file, as in `file:` URLs.
   if (!/^[a-z][a-z0-9+.-]*:/i.test(parsed.url)) parsed.url = `file:${parsed.url}`
   return parsed
 }
@@ -114,7 +108,6 @@ function localFilePath(url: string): string | undefined {
 }
 
 function keyAdapter(key: string, channels: ReadonlyMap<string, string>): string | undefined {
-  // The default transcript identity is `<adapter>:<user>`.
   if (key.startsWith("transcripts:user:")) {
     const identity = key.slice("transcripts:user:".length)
     const separator = identity.indexOf(":")
@@ -122,17 +115,13 @@ function keyAdapter(key: string, channels: ReadonlyMap<string, string>): string 
     const adapter = identity.slice(0, separator)
     return channels.has(adapter) ? adapter : undefined
   }
-  // Chat SDK concurrency keys are `concurrency:["<adapter>",<scope>,<key>]`.
   const concurrency = /^concurrency:\["([^"\\]*)"/.exec(key)
   if (concurrency) return channels.has(concurrency[1]!) ? concurrency[1] : undefined
-  // Thread ids start with the adapter name, such as `teams:<conversation>`. Other Chat keys put one word before it,
-  // such as `thread-state:teams:<conversation>` or `dedupe:teams:<message>`.
   const [first = "", second] = key.split(":", 2)
   if (channels.has(first)) return first
   if (second !== undefined && !scopedKeyPrefixes.has(first) && channels.has(second)) return second
 }
 
-/** The key that the provider default State reads for an unscoped key, or undefined when no listed Channel owns it. */
 function scopedChatStateKey(key: string, agent: string, channels: ReadonlyMap<string, string>): string | undefined {
   const adapter = keyAdapter(key, channels)
   const channel = adapter === undefined ? undefined : channels.get(adapter)
@@ -147,7 +136,6 @@ async function tableKeys(execute: Execute, table: string, column: string): Promi
 async function planMigration(execute: Execute, parsed: ParsedArgs): Promise<StateMigrationPlan> {
   const plan: StateMigrationPlan = { conflicts: [], locks: 0, moves: [], unmatched: [] }
   const unmatched = new Set<string>()
-  // Read the tables as they are. The State adapter would create missing tables and delete expired rows.
   const tables = new Set((await execute(`SELECT name FROM sqlite_master WHERE type = 'table'`)).map(row => String(row.name)))
   if (!["cache", "lists", "queue", "subscriptions"].some(table => tables.has(`${parsed.tablePrefix}${table}`))) {
     throw agentDiagnostics.AGENT_STATE_MIGRATE_ARGUMENT_INVALID({ reason: `The database has no Agent State tables with the prefix ${parsed.tablePrefix}. Check --url and --table-prefix.` })
@@ -163,8 +151,6 @@ async function planMigration(execute: Execute, parsed: ParsedArgs): Promise<Stat
         unmatched.add(key)
         continue
       }
-      // Queue entries append to the scoped queue, and a subscription is the same in both scopes.
-      // A cache value or a list would replace newer data, so it stays.
       const conflict = (table === "cache" || table === "lists") && existing.has(to)
       plan[conflict ? "conflicts" : "moves"].push({ from: key, table, to })
     }
@@ -233,8 +219,6 @@ export async function runAgentStateCli(args: string[], context: AgentStateCliCon
     context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_STATE_MIGRATE_DATABASE_MISSING({ path }))}\n`)
     return 1
   }
-  // A plain libSQL client, not the State adapter: opening the adapter migrates the schema, deletes expired rows, and
-  // sets the journal mode. A dry run must leave the database as it is.
   const { createClient } = await import("@libsql/client")
   const client = createClient({
     ...(context.env.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: context.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),

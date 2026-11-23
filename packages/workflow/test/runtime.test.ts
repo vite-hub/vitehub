@@ -37,9 +37,7 @@ import { unwrap } from "./unwrap.ts"
 const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
   const definitions = new Map<string, any>()
-  // The run that started first with the idempotency key `key`, as the OpenWorkflow backends read it.
   const findByKey = (name: unknown, key: unknown) => [...runs.values()].find(run => run.workflowName === name && run.idempotencyKey === key)
-  // Other tests replace the backend with one that has no `pg` connection.
   const connect = vi.fn(async (_url: string, _options?: unknown): Promise<{
     getWorkflowRun: ReturnType<typeof vi.fn>
     pg?: (first: unknown, ...values: unknown[]) => unknown
@@ -140,9 +138,7 @@ const openWorkflowMock = vi.hoisted(() => {
     }
   }
 
-  // The advisory lock around OpenWorkflow's Postgres setup. Each tagged query records its SQL text.
   const lockQueries: string[] = []
-  // The results of `pg_try_advisory_xact_lock`, in order. The lock is free when the list is empty.
   const lockResults: boolean[] = []
   const transaction = Object.assign(
     async (strings: TemplateStringsArray) => {
@@ -156,7 +152,6 @@ const openWorkflowMock = vi.hoisted(() => {
       },
     },
   )
-  // `true` when the probe for a second connection never gets one, as behind a pool of one connection.
   const probe = { hangs: false }
   const postgres = vi.fn((_url: string, _options?: unknown) => Object.assign(
     (strings: TemplateStringsArray) => {
@@ -212,7 +207,6 @@ it("types handler-owned results and unknown named Workflow results honestly", ()
 
 type OpenWorkflowMockBackend = Awaited<ReturnType<typeof openWorkflowMock.connect>>
 
-/** OpenWorkflow runs a definition durably only when the build registry has it, as it has a discovered file. */
 function durableOpenWorkflow(name: string, handler: WorkflowHandler) {
   setWorkflowRuntimeRegistry({ ...getWorkflowRuntimeRegistry(), [name]: async () => ({ default: { handler } }) })
   return createWorkflow(name)
@@ -386,7 +380,6 @@ describe("workflow runtime", () => {
     cause: unknown,
     expected: { acknowledgement?: "rejected" | "unknown", operation: string, provider: string, reason?: string, status?: number },
   ) {
-    // Every provider failure carries a short redacted reason. A case that does not name one accepts any reason.
     const details = { reason: expect.any(String), ...expected }
     const [error, data] = await request
     expect(data).toBeUndefined()
@@ -403,7 +396,6 @@ describe("workflow runtime", () => {
       name: "WORKFLOW_PROVIDER_OPERATION_FAILED",
       why: expect.stringContaining(`The ${expected.provider} Workflow provider failed during ${expected.operation}.`),
     })
-    // The reason keeps the first line of the provider message. A value after a secret name is redacted.
     expect(JSON.stringify(error)).not.toMatch(/provider-secret:(?!\[redacted\])/)
   }
 
@@ -848,7 +840,6 @@ describe("workflow runtime", () => {
     const started = await unwrap(workflow.start())
     await unwrap(workflow.start())
 
-    // Another worker could claim the run and never know this definition, so the run does not go to storage.
     expect(started).toMatchObject({ metadata: { mode: "inline", workflow: "late-inline" }, provider: "openworkflow", status: "queued" })
     expect(openWorkflowMock.runOptions).toHaveLength(0)
     expect(warn).toHaveBeenCalledOnce()
@@ -859,7 +850,6 @@ describe("workflow runtime", () => {
     warn.mockRestore()
   })
 
-  // An Agent turn on OpenWorkflow is durable or it fails. It never runs inline in the request process.
   it("rejects a turn of an Agent Workflow that is not in the registry", async () => {
     setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
     const handler = vi.fn(async () => "turn")
@@ -1253,7 +1243,6 @@ describe("workflow runtime", () => {
     setWorkflowRuntimeRegistry({
       welcome: async () => ({
         default: {
-          // A folder Workflow orchestrator: only it may sleep.
           rootStep: false,
           handler: async ({ payload, sleep }) => {
             await sleep("1 second")
@@ -1558,7 +1547,6 @@ describe("workflow runtime", () => {
     finally {
       delete process.env.DATABASE_URL
     }
-    // Like Queue and Realtime, Workflow shares the Default Database or an explicit URL, never an ambient one.
     expect(openWorkflowMock.connect).not.toHaveBeenCalled()
     expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", expect.anything())
   })
@@ -1592,21 +1580,18 @@ describe("workflow runtime", () => {
       "select 1",
       "commit",
     ])
-    // OpenWorkflow sets up the schema while the transaction holds the lock, after the second connection answered.
     expect(order).toEqual(["connect after 3 lock queries"])
     expect(openWorkflowMock.postgres.mock.results[0]!.value.end).toHaveBeenCalledOnce()
   })
 
   it("waits for the setup lock without holding a connection, then sets up the schema", async () => {
     vi.useFakeTimers()
-    // Another server holds the lock for the first two tries.
     openWorkflowMock.lockResults.push(false, false)
     const acquired = getOpenWorkflowRuntime(normalizeWorkflowOptions({ postgres: { url: "postgres://localhost/wait" }, driver: "openworkflow" })!)
     await vi.advanceTimersByTimeAsync(1_000)
     await acquired
     vi.useRealTimers()
 
-    // Each try commits its own short transaction, so the waiting server does not keep one open.
     expect(openWorkflowMock.lockQueries.filter(query => query === "begin")).toHaveLength(3)
     expect(openWorkflowMock.lockQueries.filter(query => query === "commit")).toHaveLength(3)
     expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
@@ -1644,7 +1629,6 @@ describe("workflow runtime", () => {
     await vi.advanceTimersByTimeAsync(10 * 60_000)
     vi.useRealTimers()
 
-    // Ten minutes later the lock transaction is still open, so no other server can run the setup.
     expect(openWorkflowMock.lockQueries.at(-1)).toBe("select 1")
     finishSetup()
     await expect(acquired).resolves.toMatchObject({ backend: expect.anything() })
@@ -1662,7 +1646,6 @@ describe("workflow runtime", () => {
     const codes: unknown[] = []
     for (let error: unknown = await failure; error instanceof Error; error = error.cause) codes.push(Reflect.get(error, "code"))
     expect(codes).toContain("WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE")
-    // The lock transaction rolled back, and OpenWorkflow never started a migration.
     expect(openWorkflowMock.lockQueries.at(-1)).toBe("rollback")
     expect(openWorkflowMock.connect).not.toHaveBeenCalled()
   })
@@ -1679,7 +1662,6 @@ describe("workflow runtime", () => {
       await getOpenWorkflowRuntime(normalizeWorkflowOptions({ driver: "openworkflow" })!)
       expect(openWorkflowMock.connect).toHaveBeenLastCalledWith("postgres://localhost/openworkflow", expect.anything())
 
-      // A Default Database without a URL does not send runs to a SQLite file of one host.
       delete process.env.OPENWORKFLOW_POSTGRES_URL
       setOpenWorkflowDatabaseUrl(() => undefined)
       await expect(getOpenWorkflowRuntime(normalizeWorkflowOptions({ driver: "openworkflow" })!)).rejects.toMatchObject({ code: "WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING" })
@@ -2257,7 +2239,6 @@ describe("workflow runtime", () => {
     expect(worker.start).toHaveBeenCalled()
   })
 
-  // OpenWorkflow runs one run at a time by default. An Agent turn holds two runs: the turn and its recovery run.
   it("runs 10 runs at once by default", async () => {
     setWorkflowRuntimeConfig({ postgres: { url: "postgres://localhost/vitehub" }, driver: "openworkflow" })
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }) })
@@ -2526,7 +2507,6 @@ describe("workflow runtime", () => {
       driver: "openworkflow",
     })
     setWorkflowRuntimeRegistry({ discovered: async () => ({ default: { handler: async () => "discovered" } }) })
-    // Its runs execute inline, so no worker needs it.
     createWorkflow("inline-worker", async () => ({ ok: true }))
 
     await createOpenWorkflowWorker()
@@ -3429,7 +3409,6 @@ describe("workflow runtime", () => {
 
     expect(deferWorkflow("welcome", {}, { id: "deferred-1" })).toBeUndefined()
 
-    // The start is registered before the call returns. The inline run then registers its handler.
     expect(waitUntil).toHaveBeenCalledTimes(1)
     await waitUntil.mock.calls[0]?.[0]
     expect(waitUntil).toHaveBeenCalledTimes(2)
@@ -3698,7 +3677,6 @@ describe("Workflow input dispatch", () => {
       "input-owner": async () => ({ default: { handler: async () => "done", native: async () => "native" } }),
     })
     enterWorkflowRuntimeEvent({ onDispatch })
-    // A Workflow DevKit that does not load is a setup error, so it throws. A failed start is returned.
     if (fails) await expect(startWorkflow("input-owner")).rejects.toMatchObject({ code: "VERCEL_WORKFLOW_SDK_LOAD_FAILED" })
     else expect(await startWorkflow("input-owner")).toMatchObject([{ code: "WORKFLOW_PROVIDER_OPERATION_FAILED" }, undefined])
     expect(start).toHaveBeenCalledTimes(fails ? 0 : 1)

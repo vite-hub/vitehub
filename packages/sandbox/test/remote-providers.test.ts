@@ -35,7 +35,6 @@ describe("remote Sandbox providers", () => {
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
-  // A login shell reads the profiles. Debian's /etc/profile, as in a custom Sandbox image, sets PATH again and drops env.PATH.
   it("runs Vercel commands without a login shell, so a profile keeps the PATH", async () => {
     const home = await mkdtemp(join(tmpdir(), "vitehub-vercel-profile-"));
     try {
@@ -117,7 +116,6 @@ describe("remote Sandbox providers", () => {
     const { child, session } = await spawnVercelCommand({
       ...vercelCommand(""),
       async *logs() {
-        // Eight MiB of UTF-8 output must not remain queued in the unread channel.
         for (let index = 0; index < 128; index++) {
           yield { data: "é".repeat(32 * 1024), stream: unread };
         }
@@ -243,6 +241,60 @@ describe("remote Sandbox providers", () => {
       expect(signal?.aborted).toBe(true);
     } finally {
       resume();
+      await session.close();
+    }
+  });
+
+  it.each([
+    ["ignores", new DOMException("Log transport aborted", "AbortError"), undefined],
+    ["reports", new Error("log transport close failed"), "log transport close failed"],
+  ] as const)("%s a Vercel log iterator close failure when both channels are cancelled", async (_label, failure, message) => {
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs(options?: { signal?: AbortSignal }) {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => new Promise<IteratorResult<{ data: string; stream: "stdout" }>>((_resolve, reject) => {
+              options?.signal?.addEventListener("abort", () => reject(options.signal?.reason), { once: true });
+            }),
+            return: () => Promise.reject(failure),
+          }),
+        };
+      },
+    });
+    try {
+      await child.stdout.cancel();
+      if (message) await expect(child.stderr.cancel()).rejects.toThrow(message);
+      else await expect(child.stderr.cancel()).resolves.toBeUndefined();
+    } finally {
+      await session.close();
+    }
+  });
+
+  it.each([false, true])("reports Vercel log close failures without masking read failures (read failed: %s)", async (readFailed) => {
+    const readError = new Error("log transport read failed");
+    const closeError = new Error("log transport close failed");
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      logs() {
+        return {
+          [Symbol.asyncIterator]: () => ({
+            async next() {
+              if (readFailed) throw readError;
+              return { done: true as const, value: undefined };
+            },
+            return: () => Promise.reject(closeError),
+          }),
+        };
+      },
+    });
+    try {
+      await Promise.all([child.stdout, child.stderr].map((stream) => readFailed
+        ? expect(stream.getReader().read()).rejects.toMatchObject({
+            name: "AggregateError", errors: [readError, closeError],
+          })
+        : expect(stream.getReader().read()).rejects.toBe(closeError)));
+    } finally {
       await session.close();
     }
   });
@@ -405,7 +457,6 @@ describe("remote Sandbox providers", () => {
         let index = 0;
         return new ReadableStream<Uint8Array>({
           pull(controller) {
-            // Eight MiB of UTF-8 output must not remain queued in the unread channel.
             if (index < 128) controller.enqueue(event({ data: "é".repeat(32 * 1024), type: unread }));
             else if (index === 128) controller.enqueue(event({ data: "still live\n", type: consumed }));
             else {

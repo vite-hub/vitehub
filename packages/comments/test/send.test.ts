@@ -17,7 +17,6 @@ import type { CommentsDatabase } from "../src/operations-core/store.ts"
 import type { CommentsUser, CommentThread, DefineCommentsOptions } from "../src/types.ts"
 import type { WebhookWakeSender } from "../../webhooks/src/runtime.ts"
 
-// The guard resolves names. A real lookup would make the test depend on the network.
 vi.mock("node:dns/promises", () => {
   const records: Record<string, string[]> = { "relay.t3.codes": ["104.21.3.218"], "hooks.example.com": ["93.184.215.14"], "intranet.example.com": ["10.0.0.7"] }
   const lookup = async (host: string) => {
@@ -61,7 +60,6 @@ interface Delivery {
 
 let deliveries: Delivery[] = []
 let receiverStatus = 202
-/** Threads that the policy hides from everyone, to check that a token reads as the sender now. */
 let hidden = new Set<string>()
 
 async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookWakeSender) {
@@ -80,7 +78,6 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
   })
   installComments(comments, { database, webhooks: () => import("../../webhooks/src/index.ts") })
   const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
-  /** `base` is the origin that the server sees in the request URL. The `origin` header defaults to it. */
   const call = async (path: string, init: { method?: string, as?: keyof typeof people, json?: unknown, origin?: string | null, base?: string, headers?: Record<string, string> } = {}) => {
     const base = init.base ?? origin
     const headers = new Headers(init.headers)
@@ -101,7 +98,6 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
     const [error] = await comments.reply(threadId, { body, author: { id: people[as]!.id, name: people[as]!.name } })
     if (error) throw error
   }
-  /** Start, pair with `url`, and Allow, as the pill and the agent do. Returns the result of Allow. */
   const connect = async (as: keyof typeof people = "ana", url = relay, thread?: unknown) => {
     const started = await call(`/send/start?page=${page}`, { method: "POST", as })
     const code: string = started.body.data.code
@@ -328,7 +324,6 @@ describe("sends", () => {
     expect(deliveries).toHaveLength(1)
     await reply(other.id, "bob", "Also the bus times")
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
-    // Ana's send does not count for Bob: both threads still wait for his agent.
     expect((await call(`/send/status?page=${page}`, { as: "bob" })).body.data.count).toBe(2)
   })
 
@@ -350,7 +345,6 @@ describe("sends", () => {
     const commented = Date.now()
     vi.setSystemTime(commented + 5000)
     await connect()
-    // A server whose clock is 5 seconds slow stores a reply. Its time is before the send, which did not carry it.
     vi.setSystemTime(commented)
     await reply(thread.id, "bob", "And the ferry times")
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
@@ -448,7 +442,6 @@ describe("sends", () => {
     expect(opened.body.data.send).toMatchObject({ id: send, page, state: "working" })
     expect(opened.body.data.threads.map((thread: { id: string, role: string }) => [thread.id, thread.role]).sort()).toEqual([[first.id, "ask"], [second.id, "quote"]].sort())
     expect(opened.body.data.threads.map((thread: { id: string }) => thread.id)).not.toContain(later.id)
-    // The sender lost read access to the second thread, so the token no longer reads it.
     hidden.add(second.id)
     expect((await call(path, { headers: { authorization: `Bearer ${read!.token}` } })).body.data.threads.map((thread: { id: string }) => thread.id)).toEqual([first.id])
     expect((await call(path, { headers: { authorization: "Bearer vhs_wrong" } })).status).toBe(401)
@@ -504,7 +497,6 @@ describe("sends", () => {
     expect(sentTo()).toBe("/a")
     await comment("ana", "Second")
     await connect("ana", "https://hooks.example.com/b", otherThread)
-    // Allow sends to the agent it just paired, whatever `send.address` says.
     expect(sentTo()).toBe("/b")
 
     await comment("ana", "Third")
@@ -541,7 +533,6 @@ describe("sends", () => {
     await comment("ana", "First")
     await connect("ana", "https://hooks.example.com/t3")
     expect(deliveries).toHaveLength(1)
-    // The app narrows `hosts` and deploys: the endpoint that the wider list allowed gets nothing.
     hosts.splice(1)
     await comment("ana", "Second")
     const refused = (await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data
@@ -736,7 +727,6 @@ describe("the server API of Send", () => {
     expect((await call(`/threads/${own.id}/reopen`, { method: "POST", as: "ana" })).status).toBe(200)
     expect(await status()).toMatchObject({ count: 0, working: { id } })
 
-    // A quote does not bring back a send that has asks.
     await comments.resolve(own.id, { by: { id: "ana" } })
     await comments.resolve(quote.id, { by: { id: "ana" } })
     await comments.reopen(quote.id)

@@ -1,3 +1,4 @@
+import { logFailure } from "@vite-hub/internal/runtime/request-log"
 import type { Result } from "@vite-hub/runtime"
 
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -21,7 +22,6 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
     const wait = options.wait ?? 0
     if (ttl === undefined) return [kvErrorDiagnostics.KV_INVALID_TTL(), undefined]
     if (!Number.isFinite(wait) || wait < 0) return [kvErrorDiagnostics.KV_INVALID_WAIT(), undefined]
-    // Config errors, for example an unknown store, throw as they do for the other KV operations.
     const storage = await resolveStorage()
     return kvResult("lock", store, async (): Promise<KVLockAcquisition> => {
       const claim = storage.setIfAbsentItem
@@ -33,7 +33,6 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
       while (true) {
         const started = performance.now()
         if (await claim(key, owner, ttl)) {
-          // Count the entire provider round trip against the lease, including response latency.
           if (performance.now() - started < ttl * 1000) {
             return { acquired: true, release: () => kvResult("lock", store, () => free(key, owner)) }
           }
@@ -42,7 +41,6 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
         }
         const left = deadline - performance.now()
         if (left <= 0) return { acquired: false }
-        // Jitter keeps waiting runners from polling the store at the same moment.
         await sleep(Math.min(left, delay / 2 + Math.random() * delay / 2))
         delay = Math.min(delay * 2, maxRetryMs)
       }
@@ -60,8 +58,12 @@ export function createKVLock(store: string, resolveStorage: () => Promise<Runtim
         value = await fn()
       }
       catch (cause) {
-        // The callback's error matters more than a failed release. The lock expires after `ttl` anyway.
-        await lock.release()
+        const [releaseError] = await lock.release()
+        if (releaseError) {
+          logFailure({ field: "kv", fields: { op: "lock-release", store }, message: "KV could not release a lock after its callback threw", error: releaseError.cause }, () => {
+            console.warn(`[vitehub] KV could not release the lock "${key}" after its callback threw. The lock expires after its ttl.`, releaseError)
+          })
+        }
         throw cause
       }
       const [releaseError] = await lock.release()

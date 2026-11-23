@@ -85,7 +85,6 @@ function serial(): <T>(key: string, task: () => Promise<T>) => Promise<T> {
 
 export function createForgeSync(options: CommentsForgeOptions, input: { database: CommentsDatabase, store: CommentsStore, table?: typeof commentForge, github?: GitHubClient, waitUntil?: WaitUntil }): ForgeSync {
   const { database } = input
-  // The sync runs after the answer. `flush()` waits for `waitUntil` work, and the Comments handler passes it to the request's `waitUntil()`.
   const logOptions = (thread?: string) => ({ ...(thread ? { thread } : {}), ...(input.waitUntil ? { waitUntil: input.waitUntil } : {}) })
   const links = input.table ?? commentForge
   // The sync reads threads by id and finds the thread of a message.

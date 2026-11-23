@@ -326,7 +326,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
     const signIn = !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
-    // Send shows for signed-in people who may write, when the app turned it on.
     const send = Boolean(comments.options.send && user && !user.guest && comment && await commentSendOf(comments))
     return json({
       data: {
@@ -507,10 +506,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     },
   }
 
-  /**
-   * Send: `GET /send/status`, `POST /send/start`, `POST /send/pair` from the agent, `GET` and `DELETE /send/pair/<code>`,
-   * `POST /send/allow`, `POST /send`, and `GET /send/<id>` with a read token. The routes of the page take `?page=`.
-   */
   async function sendRoute(request: CommentsRequest, url: URL, parts: string[], pageOf: () => Promise<{ subject: CommentSubject } | undefined>): Promise<Response> {
     const service = await commentSendOf(comments)
     if (!service) return failure(commentsErrors.COMMENTS_SEND_OFF())
@@ -549,7 +544,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       const body = await readJson(request)
       const given: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "code") : undefined
       if (typeof given !== "string" || !given) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the setup code that the agent used." }))
-      // Without the selection that the member confirmed, Allow answers `changed` with the current one.
       const selection: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "selection") : undefined
       return respond(await service.allow(who, given, typeof selection === "string" ? selection : ""))
     }
@@ -568,7 +562,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     // Only the routes that read the subject call `page` of `defineComments()`.
     const pageOf = async () => page ? await resolveCommentsPage(comments, request, request, page) : subjectKind && subjectId ? { subject: { kind: subjectKind, id: subjectId } } : undefined
     const subjectOf = async (): Promise<CommentSubject | undefined> => (await pageOf())?.subject
-    // The agent posts its setup code from its own machine, so the pair route takes any origin. The code is its only key.
     const pairing = method === "POST" && path === "/send/pair"
     if (method !== "GET" && !pairing && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
     if (parts[0] === "send") return await sendRoute(request, url, parts, pageOf)
@@ -617,7 +610,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
       const threadId = decodeURIComponent(parts[1])
       const action = parts[2]
       const messageId = parts[3] ? decodeURIComponent(parts[3]) : undefined
-      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(who, thread))
+      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ threadId }, who), (thread, who) => threadResponse(who, thread))
       if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)

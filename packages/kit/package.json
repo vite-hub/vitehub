@@ -74,7 +74,7 @@
     "nuxt": "catalog:nuxt",
     "playwright-core": "catalog:browser",
     "postcss": "^8.5.29",
-    "postcss-selector-parser": "^7.1.6",
+    "postcss-selector-parser": "^7.2.1",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -85,7 +85,7 @@
   "peerDependencies": {
     "@nuxt/kit": "^4.0.0 || ^5.0.0-0",
     "@nuxt/schema": "^4.0.0 || ^5.0.0-0",
-    "nuxt": "^4.0.0 || ^5.0.0-0",
+    "nuxt": ">=5.0.0-0",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {

@@ -57,7 +57,6 @@ export async function collectQueueContributions(
   for (const contribution of contributions) {
     const { export: exportName, module } = contribution.definition
     const prefix = `[vitehub] Plugin ${JSON.stringify(contribution.plugin)} contributed an invalid Queue:`
-    // The generated registry and types import the module by a relative path and read its default export.
     if (!isAbsolute(module)) {
       throw invalid(`${prefix} \`definition.module\` of Queue ${JSON.stringify(contribution.name)} must be an absolute file path or a file: URL.`)
     }

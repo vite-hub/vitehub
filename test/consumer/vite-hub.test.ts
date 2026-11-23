@@ -33,7 +33,6 @@ const optionalPackages = [
   "vitest",
 ]
 const storageSdkPackages = [...new Set(Object.values(filesSdkDriverPeers).flat())]
-// The consumer fixture enables these opt-in features, so it installs their owner packages next to `vite-hub`.
 const fixtureViteHubPackages = [
   "@vite-hub/agent",
   "@vite-hub/auth",
@@ -99,7 +98,6 @@ async function availablePort() {
   return port
 }
 
-/** Starts a built server with `env`. Resolves with the status of `/api/ping` when it serves, or with its exit code. */
 async function startNodeServer(entry: string, cwd: string, env: NodeJS.ProcessEnv): Promise<{ code?: number | null, output: string, status?: number }> {
   const port = await availablePort()
   const child = spawn(process.execPath, [entry], {
@@ -167,7 +165,6 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
-/** Runs a development server until its log matches `ready`. The server can answer 500 while it still builds. */
 async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
   const port = await availablePort()
   const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
@@ -189,16 +186,10 @@ async function withDevServer<T>(command: string, args: string[], cwd: string, re
     return { logs: () => logs, value: await callback(`http://127.0.0.1:${port}`) }
   }
   finally {
-    // The package manager starts the server in a child process, so stop the whole group.
     await stopProcessGroup(child.pid!)
   }
 }
 
-/**
- * Stops a process group and waits until all of it is gone. The package manager exits as soon as it gets the signal, but
- * the server can still write files while it stops. A caller that removes the app after the package manager exits then
- * fails with `ENOTEMPTY`.
- */
 async function stopProcessGroup(pid: number) {
   signalProcessGroup(pid, "SIGTERM")
   for (let attempt = 0; attempt < 150 && signalProcessGroup(pid, 0); attempt++) {
@@ -207,7 +198,6 @@ async function stopProcessGroup(pid: number) {
   }
 }
 
-/** Sends `signal` to a process group. Returns false when no process of the group is left. */
 function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0) {
   try {
     process.kill(-pid, signal)
@@ -352,8 +342,6 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
 }
 
 async function usePackedPeerManifests(appDir: string, specs: Record<string, string>) {
-  // pnpm 10 can resolve an optional peer's dependency graph from registry metadata
-  // even when overrides select a tarball. Keep that graph on the exact release too.
   const manifests = Object.fromEntries(await Promise.all(Object.values(specs).map(async (spec) => {
     const manifest = await packedManifest(spec.slice("file:".length))
     return [`${manifest.name}@${manifest.version}`, manifest]
@@ -371,12 +359,6 @@ async function usePackedPeerManifests(appDir: string, specs: Record<string, stri
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
   const overrides = Object.entries({
     ...specs,
-    // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
-    "mdast-util-gfm-table": "2.0.0",
-    // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
-    "msgpackr@^2": "2.1.0",
-    "msgpackr-extract": "3.0.4",
-    // Match the exact Vue peer published by the workspace packages.
     vue: "3.5.44",
     ...additionalOverrides,
   })
@@ -404,11 +386,9 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
-    // Match the workspace-tested runtime and keep its Emnapi peers on compatible 1.x versions.
     "  \"@napi-rs/wasm-runtime\": \"1.2.4\"",
     "  \"@emnapi/core\": \"1.9.2\"",
     "  \"@emnapi/runtime\": \"1.9.2\"",
-    // Keep Workflow's broad Nest peer pair on the same major in isolated installs.
     "  \"@nestjs/common\": \"11.2.3\"",
     "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
@@ -416,12 +396,6 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
   ].join("\n")
 }
 
-/**
- * Installs a consumer app and checks that every ViteHub package that the app's dependencies require comes from a packed
- * tarball. A registry copy tests an older release instead of this checkout, and on a release branch the new version is
- * not on npm yet. pnpm still adds a registry copy of an optional peer that it finds elsewhere in the graph, even when an
- * override packs that package. Such a copy is marked optional and pnpm skips it when the version is not on npm.
- */
 async function installApp(appDir: string, peers: "--strict-peer-dependencies" | "--no-strict-peer-dependencies") {
   await run("pnpm", ["install", "--no-hoist", peers], appDir)
   const lockfile = parseYaml(await readFile(join(appDir, "pnpm-lock.yaml"), "utf8")) as { snapshots?: Record<string, { optional?: boolean }> }
@@ -465,11 +439,6 @@ async function assertOptionalPackagesUnreachable(appDir: string) {
   expect(JSON.parse(stdout), "optional packages must not resolve from the consumer root").toEqual([])
 }
 
-// Agent bundles @t3tools/provider-runtime, which is published only on pkg.pr.new, with the Effect copy it imports
-// (#2480). The packed Agent must load its provider entry from its own files and must not name the runtime or Effect
-// as installable dependencies. The bundle has no msgpackr, so there is no native addon fallback to exercise. If a
-// bundle starts to include msgpackr, this check fails and the pack and unpack round trip with
-// MSGPACKR_NATIVE_ACCELERATION_DISABLED must come back.
 async function assertProviderRuntimeLoads(appDir: string) {
   const script = [
     "import { readdirSync, readFileSync } from \"node:fs\"",
@@ -494,7 +463,6 @@ async function assertProviderRuntimeLoads(appDir: string) {
   await run("node", ["--input-type=module", "--eval", script], appDir)
 }
 
-// Blob driver SDKs are optional peers. A vite-hub-only app must not install them.
 async function assertStorageSdksNotInstalled(appDir: string) {
   const script = [
     "import { createRequire } from \"node:module\"",
@@ -509,8 +477,6 @@ async function assertStorageSdksNotInstalled(appDir: string) {
   expect(JSON.parse(stdout), "storage SDKs must not install without the app").toEqual([])
 }
 
-// vite-hub and @vite-hub/agent must resolve the same ai. A second ai gives a second @vite-hub/workspace,
-// because ai is a Workspace peer, and the two copies reject each other's writable facades.
 async function assertOneWorkspaceCopy(appDir: string) {
   const entries = await readdir(join(appDir, "node_modules/.pnpm"))
   const aiVersions = new Set(entries.filter(entry => entry.startsWith("ai@")).map(entry => entry.split("_")[0]))
@@ -529,7 +495,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const specs = await packWorkspacePackages(packDir)
       await Promise.all([
         writeFile(join(appDir, "package.json"), JSON.stringify({
-          // ssh2 is an optional peer of @vite-hub/sandbox, and Sandbox is an optional peer of `vite-hub`.
           dependencies: { "@vite-hub/sandbox": specs["@vite-hub/sandbox"], "ssh2": "1.17.0", "vite-hub": specs["vite-hub"] },
           packageManager: "pnpm@10.33.0",
           private: true,
@@ -580,7 +545,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  // #3190: an app that enables only Blob and Queue must not install the packages of other features.
   it("installs and builds a Blob and Queue app without the packages of other features", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-lean-consumer-"))
     const appDir = join(root, "app")
@@ -589,8 +553,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     try {
       await Promise.all([mkdir(join(appDir, "server/queues"), { recursive: true }), mkdir(packDir)])
       const specs = await packWorkspacePackages(packDir)
-      // pnpm installs an overridden optional peer, so override only the ViteHub packages that the app's dependencies
-      // require. That set includes optional peers of `vite-hub` that another package depends on, such as Forge for Source.
       const required = new Set(await packedWorkspacePackages(repoRoot, ["blob", "queue", "vite-hub"]))
       const requiredSpecs = Object.fromEntries(Object.entries(specs).filter(([name]) => required.has(name.replace(/^@vite-hub\//, ""))))
       const config = (features: string) => `
@@ -612,7 +574,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: { "@vite-hub/blob": specs["@vite-hub/blob"], "@vite-hub/queue": specs["@vite-hub/queue"], h3: "2.0.8", nitro: "3.0.261102-rc", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
           packageManager: "pnpm@10.33.0",
-          // AI SDK 7's provider declarations need app-visible types with pnpm's hoisting disabled.
           devDependencies: { "@types/json-schema": "7.0.15", "@types/node": "24.19.1", typescript: "6.0.3" },
           private: true,
           type: "module",
@@ -665,7 +626,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await Promise.all([
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            // Match the exact Nitro peer that ViteHub packages publish from the unjs catalog.
             nitro: "3.0.261102-rc",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
@@ -749,7 +709,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -757,7 +716,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
-      // Markdown Template is the only feature package that this app installs.
       expect(await readdir(join(appDir, "node_modules/@vite-hub"))).toEqual(["markdown-template"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
@@ -794,8 +752,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, host: "node" },
           }
         `),
-        // No \`kv\` import: the module auto-imports \`kv\` in server code. Nuxt 5 does not auto-import
-        // Nitro 3's \`defineCachedHandler\`, so the route imports it from Nitro.
         writeFile(join(appDir, "server/api/visits.get.ts"), `
           import { defineCachedHandler } from "nitro/cache"
 
@@ -828,7 +784,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -842,13 +797,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         const first = await fetch(`${origin}/api/visits`)
         expect(first.status).toBe(200)
         expect(await first.json()).toEqual({ visits: 1 })
-        // The cached handler answers again without running, so KV still holds 1.
         const second = await fetch(`${origin}/api/visits`)
         expect(await second.json()).toEqual({ visits: 1 })
       })
       if (cache === true) expect(existsSync(join(appDir, ".vitehub/data/cache"))).toBe(true)
       else {
-        // fs-lite prefixes key files with `key-`, with `:` escaped as `%3A`.
         const files = await readdir(join(appDir, ".vitehub/data/kv"))
         expect(files.some(file => file.startsWith("key-nitro-cache%3A") && file.endsWith(".json"))).toBe(true)
       }
@@ -898,7 +851,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -908,7 +860,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await installApp(appDir, "--no-strict-peer-dependencies")
       await run("pnpm", ["run", "build"], appDir)
 
-      // The default fs-lite KV store keeps files on one host, so 3 instances must not start.
       const split = await startNodeServer(join(appDir, ".output/server/index.mjs"), appDir, { VITEHUB_INSTANCES: "3" })
       expect(split.status).toBeUndefined()
       expect(split.code).not.toBe(0)
@@ -937,7 +888,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir)
-      // No file imports a ViteHub helper. The module auto-imports them in server code.
       await Promise.all([
         writeFile(join(appDir, "app/app.vue"), "<template><main>Server auto-imports</main></template>"),
         writeFile(join(appDir, "nuxt.config.ts"), `
@@ -947,7 +897,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vitehub: { agent: false, kv: true, host: "node", queue: true },
           }
         `),
-        // `defineQueue<...>()` does not compile when `defineQueue` is untyped (TS2347).
         writeFile(join(appDir, "server/queues/welcome.ts"), `
           export default defineQueue<{ id: string }>({ handler: async ({ payload }) => {
             const [error] = await kv.set(\`welcome:\${payload.id}\`, "done")
@@ -1004,7 +953,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -1013,7 +961,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
       await run("pnpm", ["run", "typecheck"], appDir)
-      // Nuxt writes the server auto-imports and their types here.
       const declarations = await readFile(join(appDir, ".nuxt/types/server-imports.d.ts"), "utf8")
       for (const name of ["defineQueue", "kv", "sendQueue", "useServerEnv"]) expect(declarations).toContain(name)
       await run("pnpm", ["run", "build"], appDir)
@@ -1139,7 +1086,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n', "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -1239,7 +1185,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          // The `vite` override selects vite-plus-core, which loads its native binding from vite-plus.
           devDependencies: { "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
@@ -1247,7 +1192,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -1268,7 +1212,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
 
       expect(server.value.sections.status, server.value.sections.body).toBe(200)
-      // The app declares no Server Env, so the navigation hides the empty Env section.
       const sections = JSON.parse(server.value.sections.body)
       expect(sections).toMatchObject({ i: "sections", r: { sections: expect.arrayContaining(["kv"]) }, t: "s" })
       expect(sections.r.sections).not.toContain("env")
@@ -1332,7 +1275,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
           nitro: "3.0.261102-rc",
           "nitro>h3": "2.0.8",
           rolldown: "1.2.4",
@@ -1345,7 +1287,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["run", "build"], appDir)
 
       const middleware = await readFile(join(appDir, ".vitehub/nitro/database/middleware.ts"), "utf8")
-      // The middleware imports the Database runtime of the app's own @vite-hub/database by path (#4887).
       expect(middleware).toMatch(/ from "[^"]*@vite-hub\+database@[^"]*\/runtime\/state[^"]*"/u)
       expect(middleware).not.toContain("from 'nitro'")
 
@@ -1403,7 +1344,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         import { defineChannel, defineChannelTrigger, ignored } from 'vite-hub/channels'
         const channel = defineChannel({ adapter: { kind: 'log', send: text => ({ id: text }) } })
         assert.deepEqual(await channel.adapter.send('sent'), { id: 'sent' })
-        // The trigger helpers need no Agent either. Only the adapters, in vite-hub/channels/adapters, do.
         assert.equal(defineChannelTrigger({ invoke: () => ignored('later') }).invoke().status, 200)
       `], appDir)
     }
@@ -1481,7 +1421,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         mkdir(packDir, { recursive: true }),
       ])
       const specs = await packWorkspacePackages(packDir, new Set([
-        // Workspace depends on Forge for its source credentials.
         "@vite-hub/forge",
         "@vite-hub/sandbox",
         "@vite-hub/markdown-template",
@@ -1586,7 +1525,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
       await installApp(appDir, "--strict-peer-dependencies")
 
-      // The owner packages of opt-in features come from the app. `vite-hub` installs its own packages out of sight.
       await run("node", [
         "--input-type=module",
         "--eval",
@@ -1621,7 +1559,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       }), "utf8")
       await run("pnpm", ["exec", "tsc", "-p", "env-typecheck.json"], appDir)
 
-      // Nitro writes the Node server to .output/server (#2566).
       const nodeEmailSources = await readJavaScriptSources(join(appDir, ".output/server"))
       const nodeEmailOutput = Object.values(nodeEmailSources).join("\n")
       expect(nodeEmailOutput).toContain("RESEND_API_KEY")

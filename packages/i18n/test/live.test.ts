@@ -18,7 +18,6 @@ import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/
 
 import type { WritableTranslationsWorkspace } from "../src/live.ts"
 
-/** A Workspace history in memory: each ref is a list of revisions with a full file set. */
 function memoryWorkspace() {
   const revisions = new Map<string, Record<string, string>>()
   const heads = new Map<string, string>()
@@ -97,7 +96,6 @@ describe("Workspace records", () => {
       head = revision.id
       await live.refresh()
       expect(live.revision).toBe(revision.id)
-      // Invalid records keep the build or source fallback, as file-backed records do.
       expect(live.messages("es")).toEqual({ ...snapshot, [deploy.id]: compileMessage(translation) })
       expect(live.clientMessages("es")).toEqual({ [deploy.id]: compileMessage(translation) })
     }
@@ -257,7 +255,6 @@ describe("translations in a Workspace", () => {
     const translations = useTranslations()
     const commit = store.workspace.history.commit
     store.workspace.history.commit = async (options) => {
-      // Another save lands between the head read and this commit.
       store.workspace.history.commit = commit
       await commit({ ...options, onHeadConflict: undefined, message: "Other save" })
       return await commit(options)
@@ -607,6 +604,29 @@ describe("the browser with a Workspace", () => {
       expect(await setLocale("es")).toEqual([undefined, "es"])
       expect(getI18n()._(deploy)).toBe("Despliega tu agente")
       expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code: "I18N_LIVE_CATALOG_INVALID" }))
+    }
+    finally {
+      warn.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+  it.each<[string, () => Promise<Response>, string]>([
+    ["a network failure", async () => { throw new TypeError("Failed to fetch") }, "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["an error status", async () => new Response("Service Unavailable", { status: 503 }), "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["a body that is not JSON", async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }), "I18N_LIVE_CATALOG_INVALID"],
+  ])("keeps the build catalog and warns for %s", async (_name, answer, code) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", answer)
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code }))
     }
     finally {
       warn.mockRestore()

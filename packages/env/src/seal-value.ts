@@ -3,7 +3,7 @@ import { defineErrors, parseDuration } from "@vite-hub/runtime"
 
 import { invalidRuntimeEnvValue } from "./core/errors.ts"
 import { runtimeEnv } from "./internal/runtime-env.ts"
-import { createSealUses, deleteSealUses, takeSealUse } from "./seal-uses.ts"
+import { createSealUses, deleteSealUses, isSealUseCount, takeSealUse } from "./seal-uses.ts"
 import { SecretEnv } from "./secret.ts"
 import { deriveSecret } from "./server.ts"
 
@@ -14,11 +14,10 @@ import type { SealUsesDatabase } from "./seal-uses.ts"
 
 export type { SealUsesDatabase } from "./seal-uses.ts"
 
-// Keep published codes stable. Explicit URLs also support runtimes that use anchor links.
 const sealErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/env/diagnostics",
   codes: {
-    // Runtime errors. `unseal()` returns them as `[error, undefined]`.
+    // Runtime errors.
     ENV_SEAL_EXPIRED: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_expired",
       why: ({ expiresAt }: { expiresAt: number }) => `The sealed value expired at ${new Date(expiresAt).toISOString()}.`,
@@ -45,7 +44,7 @@ const sealErrors = /*#__PURE__*/ defineErrors({
       fix: "Pass the purpose that `seal()` used. Each purpose has its own key, so a value cannot pass as a value of another purpose.",
     },
 
-    // Config errors. `seal()` and `unseal()` throw them because the code must change.
+    // Config errors.
     ENV_SEAL_ARGUMENT_INVALID: {
       docs: "https://vitehub.dev/docs/env/diagnostics/env_seal_argument_invalid",
       why: ({ problem }: { problem: string }) => problem,
@@ -102,9 +101,7 @@ export interface Sealing {
 }
 
 const version = 1
-// A value with `uses` adds the 16-byte id of its row in `db` to the header.
 const countedVersion = 2
-// version (1 byte) + purpose fingerprint (4) + expiry in Unix milliseconds, 0 for none (8)
 const headerLength = 13
 const idLength = 16
 const ivLength = 12
@@ -119,7 +116,6 @@ function checkPurpose(purpose: unknown): asserts purpose is string {
   if (typeof purpose !== "string" || !purpose) argumentError("`purpose` must be a non-empty string.")
 }
 
-// Validate the input before JSON.stringify can omit members or change them to null.
 function checkJsonValue(value: unknown, ancestors = new Set<object>()): void {
   if (value === null || typeof value === "string" || typeof value === "boolean") return
   if (typeof value === "number" && Number.isFinite(value)) return
@@ -153,10 +149,6 @@ function rootSecret(secret: string | SecretEnv<string>): string {
   return value
 }
 
-/**
- * The root secrets in order: the one that seals first, then the old ones that `unseal()` also tries. `undefined` is
- * `VITEHUB_SECRET` (or the development secret). Only `unseal()` passes `previous`, to add `VITEHUB_SECRET_PREVIOUS`.
- */
 function rootSecrets(options: UnsealOptions, previous: boolean): (string | undefined)[] {
   const { secret } = options
   if (secret === undefined) return previous ? [undefined, ...previousSecrets(options.event)] : [undefined]
@@ -223,7 +215,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         argumentError("`ttl` must be a positive number of seconds or a duration such as \"15m\".")
       }
       const { uses, db } = options
-      if (uses !== undefined && (typeof uses !== "number" || !Number.isSafeInteger(uses) || uses < 1)) {
+      if (uses !== undefined && !isSealUseCount(uses)) {
         argumentError("`uses` must be a positive integer.")
       }
       const usesDb = uses === undefined ? undefined : usesDatabase(db, "`uses` needs a `db`, such as `db` from `vite-hub/database`, that every instance of the app shares.")
@@ -263,7 +255,6 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
 
     async unseal(purpose, sealed, options = {}) {
       checkPurpose(purpose)
-      // Derive first, so that a missing root secret throws for every input.
       const [current, ...previous] = rootSecrets(options, true)
       const key = await purposeKey(derive, purpose, options.event, current, "decrypt")
       const bytes = typeof sealed === "string" ? fromBase64Url(sealed) : undefined
@@ -282,16 +273,13 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         candidate,
         bytes.subarray(length + ivLength),
       ).catch(() => undefined)
-      // Try the current secret, then each previous secret in order, so that values sealed before a rotation still open.
       let plaintext = await decrypt(key)
       for (const root of previous) {
         if (plaintext) break
         plaintext = await decrypt(await purposeKey(derive, purpose, options.event, root, "decrypt"))
       }
       if (!plaintext) return [sealErrors.ENV_SEAL_INVALID(), undefined]
-      // Require the database only after authenticating the counted header.
       const db = counted ? usesDatabase(options.db, "This value was sealed with `uses`. Pass the same `db` to `unseal()`, so that it can take a use.") : undefined
-      // Check the expiry after decryption, so that a changed expiry reads as ENV_SEAL_INVALID.
       const expiresAt = new DataView(header.buffer, header.byteOffset).getFloat64(5)
       const id = db && toHex(header.subarray(headerLength))
       if (expiresAt !== 0 && Date.now() >= expiresAt) {
@@ -304,7 +292,6 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         if (result.issues) return [sealErrors.ENV_SEAL_SCHEMA_MISMATCH({ cause: result.issues }), undefined]
         value = result.value
       }
-      // Take the use last, so that a value that does not open or does not match the schema keeps its uses.
       if (db && id && !(await takeSealUse(db, id))) return [sealErrors.ENV_SEAL_USED_UP(), undefined]
       return [undefined, value]
     },

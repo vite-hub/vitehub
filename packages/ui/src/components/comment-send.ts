@@ -10,7 +10,6 @@ import { useCopy } from "./copy-button.ts";
 const time = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const comments = (count: number) => `${count} ${count === 1 ? "comment" : "comments"}`;
 
-/** What a screen reader hears when the segment changes to `state`. */
 function message(state: CommentSendState): string | undefined {
   switch (state.status) {
     case "pairing":
@@ -42,7 +41,6 @@ function message(state: CommentSendState): string | undefined {
 export const CommentSend = defineComponent({
   name: "CommentSend",
   props: {
-    /** The client from `createCommentSend(transport)`. */
     // SAFETY: Vue's runtime constructor cannot express an interface.
     client: { required: true, type: Object as PropType<CommentSendClient> },
   },
@@ -77,7 +75,6 @@ export const CommentSend = defineComponent({
       if (text) announce(root.value, text);
     });
 
-    // × and Escape stop pairing. The button that was pressed is gone by then, so Escape listens on the document.
     const onKeydown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (state.value.status !== "pairing" && state.value.status !== "confirm") return;
@@ -90,8 +87,6 @@ export const CommentSend = defineComponent({
     });
     onBeforeUnmount(() => document.removeEventListener("keydown", onKeydown));
 
-    // The segment grows and shrinks with the shared width spring. When the pressed button goes, the focus would fall to the
-    // page, so it moves to the next button of the segment, unless the person moved it somewhere else meanwhile.
     let before = 0;
     let focused = false;
     const clearWidth = (element: HTMLElement) => {
@@ -148,7 +143,6 @@ export const CommentSend = defineComponent({
     const close = (label: string) => action("cancel", [icon("i-lucide-x")], { "aria-label": label, "data-icon": "", onClick: () => props.client.cancel(), title: `${label} (Esc)` });
     const copyAgain = () => action("copy-again", [icon("i-lucide-copy"), "Copy again"], { onClick: () => void props.client.copyAgain(copyPrompt) });
     const sendContent = (count: number, inbox: boolean) => [icon(inbox ? "i-lucide-inbox" : "i-lucide-send"), inbox ? "To inbox" : "Send", h("span", { "data-slot": "comment-send-count" }, String(count))];
-    // Sending has no agent of its own, so it takes the words of the Send N it replaces.
     let lastInbox = false;
     const sendButton = (count: number, toInbox: boolean) => {
       lastInbox = toInbox;
@@ -181,7 +175,6 @@ export const CommentSend = defineComponent({
             close("Don't allow"),
           ];
         case "sending":
-          // A hidden copy of Send N shares the cell, so Sending is as wide as the button it replaces and the pill holds still.
           return [h("span", { "data-slot": "comment-send-hold" }, [
             status(undefined, [icon("i-lucide-loader-circle", true), "Sending"]),
             h("span", { "aria-hidden": "true", "data-slot": "comment-send-hold-copy" }, sendContent(current.count, lastInbox)),

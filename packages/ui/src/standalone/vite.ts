@@ -23,7 +23,6 @@ const standIns: Record<string, string> = {
   "@nuxt/ui/runtime/vue/components/Icon.vue": "UIcon",
 };
 
-// The Lucide icons that the comment parts, CommentSend, the Prompt Input, and the image preview ask for by class name.
 const icons: Record<string, string> = Object.fromEntries([
   "arrow-left",
   "arrow-up",

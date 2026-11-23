@@ -6,7 +6,7 @@ import { callOperationRpc, operationRpcPath, readOperationRpcError } from "./ope
 import { readConsoleSigningKey, signConsoleRequest } from "./console-signature.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import { invalidDefinition, isOperation, isSectionId, reservedOperationNamespaces } from "./operation-definition.ts"
+import { invalidDefinition, isOperation, isSectionId, operationInputJsonSchema, reservedOperationNamespaces } from "./operation-definition.ts"
 import type { AnyOperation, OperationAccess, OperationActor, OperationContext, OperationFailure, OperationKind, OperationResult, OperationUser } from "./operation-definition.ts"
 
 export * from "./operation-definition.ts"
@@ -178,12 +178,24 @@ export function describeInputIssues(issues: readonly StandardSchemaV1.Issue[]): 
   }).join(" ")
 }
 
+function describeInputFields(schema: Record<string, unknown>): string | undefined {
+  const shapes = (Array.isArray(schema.anyOf) ? schema.anyOf : [schema]).map((shape) => {
+    if (!isObject(shape) || !isObject(shape.properties)) return undefined
+    const required = Array.isArray(shape.required) ? shape.required : []
+    const fields = Object.keys(shape.properties).map(field => required.includes(field) ? field : `${field}?`)
+    return fields.length ? `{ ${fields.join(", ")} }` : "{}"
+  })
+  return shapes.every(shape => shape !== undefined) ? shapes.join(" or ") : undefined
+}
+
 /** Validate `input` with the schema of the operation. Throws `INTERNAL_R0022` with `status: 400`. */
 export async function parseOperationInput(operation: AnyOperation, input: unknown): Promise<unknown> {
   const result = await operation.input["~standard"].validate(input ?? {})
   if (!result.issues) return result.value
-  const error = internalErrorDiagnostics.INTERNAL_R0022({ message: `Invalid input for ${operation.name}. ${describeInputIssues(result.issues)}` })
-  throw Object.assign(error, { status: 400 })
+  const fields = describeInputFields(operationInputJsonSchema(operation))
+  const issues = describeInputIssues(result.issues)
+  const message = `Invalid input for ${operation.name}. ${issues}${fields ? `${/[.!?]$/.test(issues) ? "" : "."} ${operation.name} takes ${fields}.` : ""}`
+  throw Object.assign(internalErrorDiagnostics.INTERNAL_R0022({ message }), { status: 400 })
 }
 
 /**

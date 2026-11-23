@@ -26,7 +26,6 @@ export interface FormField {
   maximum?: number
 }
 
-/** A field that a surface cannot draw: its name, or `""` for the root, and what it is. */
 interface FieldProblem {
   field: string
   found: string
@@ -76,7 +75,6 @@ function describeJsonType(property: object): string {
   return typeof type === "string" ? `a ${type}` : "a value with no single type"
 }
 
-/** The options of a JSON Schema `enum`, or of an `anyOf` of `const` values, such as a Zod union of literals. */
 function jsonOptions(property: object): (string | number)[] | undefined {
   const list = read(property, "enum")
   if (Array.isArray(list)) return list.every(isChoice) ? list : undefined
@@ -138,7 +136,6 @@ function fromValibot(root: SchemaNode): { fields: FormField[], problems: FieldPr
   const fields: FormField[] = []
   const problems: FieldProblem[] = []
   for (const [name, entry] of Object.entries(root.entries)) {
-    // `v.pipe(v.optional(v.string()), v.title("Name"))` keeps its title on the outer pipe.
     const { node, required, actions } = unwrap(entry)
     const action = (type: string) => actions.find(item => item.type === type)
     const requirement = (type: string) => {
@@ -153,7 +150,6 @@ function fromValibot(root: SchemaNode): { fields: FormField[], problems: FieldPr
       fields.push({ ...base, type: action("integer") ? "integer" : "number", ...optional({ minimum: requirement("min_value"), maximum: requirement("max_value") }) })
     }
     else if (node.type === "picklist" || node.type === "enum") {
-      // `options` of a Valibot enum holds its values without the reverse keys of a TypeScript numeric enum.
       const options = (node.options ?? []).filter(isChoice)
       fields.push({ ...base, type: choiceType(options), options })
     }
@@ -176,7 +172,6 @@ export function collectFields(source: FormSource): { fields: FormField[], proble
       json = standard.jsonSchema.input({ target: "draft-2020-12" })
     }
     catch (error) {
-      // A custom check, such as `z.custom()`, has no JSON Schema. The schema still validates, so only drawing fails.
       return { fields: [], problems: [{ field: "", found: `a schema with no JSON Schema (${error instanceof Error ? error.message : String(error)})` }] }
     }
     return fromJsonSchema(json)
@@ -207,14 +202,12 @@ export function formFields(source: FormSource): FormField[] {
 /** The value of a control, which is text, as the type of its field. `undefined` leaves the field out. */
 export function decodeFieldValue(field: FormField, value: unknown): unknown {
   if (field.type === "boolean") {
-    // A checkbox sends "on" when checked and nothing when not. A chat choice sends "true" or "false".
     if (value === undefined || value === "" || value === "false") return false
     return value === "on" || value === "true" ? true : value
   }
   if (typeof value !== "string") return value
   if (field.options) {
     const option = field.options.find(option => String(option) === value)
-    // Leave out an empty placeholder. Keep valid empty choices and invalid values for validation.
     return option === undefined && value === "" ? undefined : option ?? value
   }
   if (field.type === "number" || field.type === "integer") return value === "" ? undefined : Number(value)
@@ -240,7 +233,6 @@ function issuePath(path: StandardSchemaV1.Issue["path"]): (string | number)[] {
   })
 }
 
-/** Keep schema output in the same JSON representation for hooks, notifications, and both stores. */
 function jsonData<T>(value: T): { value: T } | undefined {
   const ancestors = new Set<object>()
   const valid = (value: unknown): boolean => {

@@ -28,7 +28,6 @@ async function project(files: Record<string, string> = {}): Promise<string> {
   return root
 }
 
-/** Runs the `config` hook as Vite does, with the sibling plugins in `plugins`. */
 async function configure(root: string, options: HubWebhooksOptions, plugins: unknown[], command: "build" | "serve" = "build") {
   const plugin = hubWebhooks(options)
   const config: Record<PropertyKey, unknown> = { root, plugins: [plugin, [plugins]] }

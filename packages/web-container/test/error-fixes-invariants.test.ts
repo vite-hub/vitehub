@@ -5,7 +5,6 @@ import { webContainerErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { toFileSystemTree } from "../src/index.ts"
 import { packSnapshot } from "../src/snapshot.ts"
 
-/** The codes that replaced the marked plain errors of the browser entries and the snapshot builder. */
 const codes = [
   "WEB_CONTAINER_CONNECT_PROVIDER_UNKNOWN",
   "WEB_CONTAINER_DEV_RUNNING",
@@ -17,7 +16,6 @@ const codes = [
 ] as const
 
 it.each(codes)("gives %s a fix and its own docs page", (code) => {
-  // Each code takes its own params. One object that has all of them fits every code.
   const create = webContainerErrorDiagnostics[code] as (params: { choices: string, code: number, detail: string, name: string, path: string, reason: "invalid", status: number, url: string }) => Error & { docs?: string, fix?: string }
   const error = create({ choices: "github", code: 1, detail: "m", name: "gitlab", path: "/a", reason: "invalid", status: 404, url: "/parts/0" })
   expect(error.fix).toMatch(/\S/)

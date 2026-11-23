@@ -29,7 +29,6 @@ function gnuTimeout() {
 
 const signals = { SIGINT: 2, SIGKILL: 9, SIGTERM: 15 } as const;
 
-/** A PATH with the tools the process-group shells use, except the named one. Custom images can lack it. */
 function imageWithout(tool: string) {
   const bin = mkdtempSync(join(tmpdir(), "vitehub-image-"));
   for (const name of ["bash", "cat", "rm", "sleep"].filter(name => name !== tool))
@@ -37,7 +36,6 @@ function imageWithout(tool: string) {
   return bin;
 }
 
-/** Running `sleep <mark>` processes. Zombies do not count. */
 function markedProcesses(mark: string) {
   return execFileSync("ps", ["-eo", "pid=,stat=,args="], { encoding: "utf8" })
     .trim()
@@ -180,7 +178,6 @@ function fakeFiles() {
   return { Files, directories, files };
 }
 
-/** The `kill` commands that signal a spawned process group: `[signal, group file]`. */
 function groupKills(executions: Execution[]) {
   return executions
     .filter(execution => execution.command[2]?.includes("kill -"))
@@ -191,7 +188,6 @@ function groupFile(execution: Execution) {
   return execution.command.at(-1);
 }
 
-/** The `ctx.exports` loopback of the outbound entrypoint: it binds props and returns a Fetcher. */
 const outbound = (options: { props: unknown }) => ({ fetcher: options.props });
 
 function setup(
@@ -278,7 +274,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const sandbox = new Sandbox({ container, id: { name: "a", toString: () => "a" }, storage: { get, put: async () => {} } }, {});
 
     await expect(sandbox.mkdir("/workspace/a")).rejects.toThrow("transient storage failure");
-    // The Container went to sleep, so the next call starts it again.
     (container as { running: boolean }).running = false;
     await expect(sandbox.mkdir("/workspace/a")).resolves.toEqual({ success: true });
     expect(timeouts).toEqual([30_000]);
@@ -403,7 +398,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      // GNU timeout reserves these codes too; an early command exit must retain its status.
       for (const exitCode of [124, 137]) {
         await expect(objects.get("Task-1")!.exec(`exit ${exitCode}`, { timeout: 10_000 }))
           .resolves.toMatchObject({ exitCode, success: false });
@@ -417,7 +411,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
         objects.get("Task-1")!.exec(command, { timeout: 50 }),
         deadline,
       ])).rejects.toThrow("Command timed out after 50ms.");
-      // Output closing alone does not prove that every descendant stopped.
       const processes = execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" });
       const group = children.at(-1)!.pid;
       const running = processes.trim().split("\n").filter((line) => {
@@ -477,7 +470,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
       await expect(child.waitForExit()).resolves.toEqual({ exitCode: 128 + signals[signal] });
       await vi.waitFor(() => expect(markedProcesses(mark)).toEqual([]));
-      // The wrapper's job notice ("Killed ...") stays out of the command output.
       await expect(child.getLogs()).resolves.toEqual({ stderr: "", stdout: "started\n" });
       const groupFile = children[0]!.spawnargs.at(-1)!;
       expect(groupFile).toMatch(/^\/tmp\/vitehub-process-.+\.pgid$/);
@@ -548,7 +540,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
     await vi.waitFor(() => expect(running()).toHaveLength(1));
     controller.abort(new Error("cancel exec"));
     const rejection = expect(cancelled).rejects.toThrow("cancel exec");
-    // GNU timeout treats SIGALRM as its deadline and kills the command's process group.
     await vi.waitFor(() => expect(running()[0]!.signals).toEqual([14]));
     running()[0]!.exit(137);
     await rejection;
@@ -680,7 +671,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
     const fetch = vi.fn(async () => new Response("upstream"));
     vi.stubGlobal("fetch", fetch);
     try {
-      // HTTPS with SNI registry.npmjs.org and `Host: example.com` reaches the entrypoint as https://example.com/.
       const denied = await entrypoint.fetch(new Request("https://example.com/"));
       expect(denied.status).toBe(403);
       expect(await denied.text()).toContain("example.com is not in the Sandbox networkPolicy");
@@ -720,7 +710,6 @@ describe("Cloudflare Sandbox Durable Object", () => {
     await new Sandbox(ctx, {}).exec("true");
     expect(container.starts).toEqual([{ enableInternet: true }]);
 
-    // A new Durable Object instance, as after an eviction, with the same policy keeps the Container.
     await new Sandbox(ctx, {}).configure({ networkPolicy: "allow-all", sleepAfter: "30s" });
     expect(container.destroyed).toBe(0);
     expect(timeouts.at(-1)).toBe(30_000);

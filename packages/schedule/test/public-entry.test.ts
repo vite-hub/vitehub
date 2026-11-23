@@ -43,8 +43,6 @@ it("keeps build dependencies out of the runtime Process entry", async () => {
 })
 
 it("loads every published JavaScript entry", async () => {
-  // A source file that only fails to parse after bundling (for example a duplicate
-  // top-level function declaration) still builds, so import each packed target.
   const packageJson = JSON.parse(await readFile(resolve(import.meta.dirname, "../package.json"), "utf8")) as {
     exports: Record<string, string | { import?: string }>
   }

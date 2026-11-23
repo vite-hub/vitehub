@@ -15,6 +15,7 @@ import type { ContributionContext } from "@vite-hub/internal/contributions"
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
+import { isRecord } from "@vite-hub/internal/object"
 
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { installContentTypesWriter } from "./internal/content-types-writer.ts"
@@ -33,8 +34,6 @@ export { inspectCollectionDefinitions, type CollectionInspectionOptions } from "
 const collectionTypesEntry = ".vitehub/types/source/collections.d.ts"
 const sourceTypesEntry = ".vitehub/types/source/sources.d.ts"
 const sourceRegistryEntry = ".vitehub/source/registry.mjs"
-// Earlier versions wrote this wrapper around `collections.d.ts`. Generation removes it, so an upgraded app with no
-// Collection does not keep a declaration that points at a deleted file.
 const retiredCollectionTypesWrapper = ".vitehub/types/source/vitehub-source-registry.d.ts"
 const collectionRoutesDirectory = ".vitehub/source/routes"
 const contentRouteEntry = ".vitehub/content/route.mjs"
@@ -48,13 +47,10 @@ const contentLlmsEntry = ".vitehub/content/llms.mjs"
 const contentSqliteEntry = ".vitehub/content/sqlite.mjs"
 const contentGitHubWebhookEntry = ".vitehub/content/github-webhook.mjs"
 const contentPrewarmQueueEntry = ".vitehub/content/prewarm-queue.mjs"
-// `contentPrewarmQueueName` of `@vite-hub/content`. The Source plugin does not import Content.
 const contentPrewarmQueue = "vitehub-content-prewarm"
 const contentPreviewRoutesEntry = ".vitehub/content/preview-routes.mjs"
 const contentTypesPluginEntry = ".vitehub/content/types.mjs"
-// The Content types plugin writes this file in development. `.vitehub/types.d.ts` references every file in `.vitehub/types`.
 const contentTypesEntry = ".vitehub/types/content.d.ts"
-// Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
 const maximumHostRefreshRetryDelay = 1_000
@@ -297,15 +293,12 @@ export function mergeGeneratedSourceNitroConfig(
     const duplicate = handler.middleware ? undefined : handlers.find(candidate =>
       !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate && handler.route === "/mcp") {
-      // The app MCP server of `vitehub({ mcp })` writes its entry below .vitehub/nitro/mcp/.
       const other = duplicate.handler.replaceAll("\\", "/").includes("/.vitehub/nitro/mcp/") ? "the app MCP server of vitehub({ mcp })" : `the handler ${duplicate.handler}`
       throw sourceErrorDiagnostics.SOURCE_B0010({ route: handler.route, other })
     }
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
-    // Content routes import the Markdown parser and the Sources. Loaded on their first request, they stay out of the
-    // server's start.
     kit.addHandler({ ...handler, lazy: handler.lazy ?? true })
   }
 
@@ -396,10 +389,6 @@ async function writeCollectionArtifacts(
   }))
 }
 
-/**
- * Writes the `ViteHubSourceMap` types and a Nitro plugin that registers a loader for each file in `server/sources/`
- * by its name, so `useSource("docs")` opens the default export of `server/sources/docs.ts`.
- */
 async function writeSourceArtifacts(options: SourceGenerationOptions, sources: DiscoveredSource[]): Promise<GeneratedSourceHandler[]> {
   const types = resolve(options.projectRoot, sourceTypesEntry)
   const registry = resolve(options.projectRoot, sourceRegistryEntry)
@@ -417,7 +406,6 @@ async function writeSourceArtifacts(options: SourceGenerationOptions, sources: D
     "export {}",
     "",
   ].join("\n"))
-  // Each Source file loads on the first read of its name, so a large bundled `glob()` costs nothing at server start.
   await writeFileIfChanged(registry, [
     `import { registerSourceLoaders } from ${JSON.stringify(toRuntimeModuleSpecifier(ownModule(import.meta.url, "internal/registry")))}`,
     "",
@@ -428,7 +416,6 @@ async function writeSourceArtifacts(options: SourceGenerationOptions, sources: D
     "export default () => {}",
     "",
   ].join("\n"))
-  // Register before plugin callbacks read their Sources. Creating a reader does not require registration yet.
   return [{ handler: registry, plugin: true, position: "start" }]
 }
 
@@ -461,7 +448,6 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
   const exports = exportNames(await readFile(file, "utf8"), file)
   if (!exports.includes("default")) {
     const name = JSON.stringify(relative(options.projectRoot, file))
-    // A named `content` export was the form before the default export.
     if (exports.includes("content")) {
       throw sourceErrorDiagnostics.SOURCE_B0009({ message: `[vitehub] Content file ${name} exports \`content\` by name. Content is now the default export: \`export default defineContent({ ... })\`.` })
     }
@@ -516,7 +502,6 @@ function astName(node: unknown): string | undefined {
   if (node.type === "Literal" && String(node.value) === node.value) return node.value
 }
 
-/** Drops `as`, `satisfies`, `!`, and parentheses around an expression. */
 function unwrapAst(node: unknown): unknown {
   let current = node
   while (isAstNode(current) && ["TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "ParenthesizedExpression"].includes(String(current.type))) {
@@ -627,8 +612,6 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
   if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, llms: false, live: true, previews: false }
   const options = rest.length ? undefined : properties(resolveNode(argument))
-  // Unknown option shapes may still enable SEO at runtime (for example via a spread).
-  // Keep generated handlers enabled rather than silently omitting valid routes.
   if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true }
 
   const route = resolveNode(options.get("route"))
@@ -659,22 +642,25 @@ function inspectContentOptions(program: unknown, contentImportBase?: string): Om
       if (key === "mcp" && (!isAstNode(value) || (value.type !== "Literal" && value.type !== "ObjectExpression"))) features.mcp = "unknown"
       else features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
     }
-    // The llms files link to the `.md` copies.
     if (features.llms) features.markdown = true
   }
   return features
 }
 
+async function inspectContentEntryForGeneration(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
+  const { parseAst } = await import("vite")
+  const code = await readFile(file, "utf8")
+  return inspectContentModule(parseAst(code, { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+}
+
 /** Read what the Content module defines without running it. A file that does not parse counts as defining everything. */
 export async function inspectContentEntry(file: string, contentImportBase?: string): Promise<ContentEntryFeatures> {
-  // `vite` is an optional peer. Content discovery runs inside Vite, so it is installed there.
-  const { parseAst } = await import("vite")
   try {
-    return inspectContentModule(parseAst(await readFile(file, "utf8"), { lang: /\.[cm]?ts$/.test(file) ? "ts" : "js" }), contentImportBase)
+    return await inspectContentEntryForGeneration(file, contentImportBase)
   }
-  catch {
-    // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, rss: false, mcp: false, llms: false, live: true, previews: false, sqlite: false, github: false }
+  catch (error) {
+    if (!isRecord(error) || error.code !== "PARSE_ERROR") throw error
+    return { route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true, sqlite: false, github: false }
   }
 }
 
@@ -702,11 +688,8 @@ async function writeContentArtifact(
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
-  const inspected = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
-  // `vitehub({ seo })` serves these routes for the whole app and lists the Content pages there.
+  const inspected = await inspectContentEntryForGeneration(file, options.contentImportBase ?? "@vite-hub/content")
   const features = { ...inspected, ...options.appSeo?.sitemap ? { sitemap: false } : {}, ...options.appSeo?.robots ? { robots: false } : {} }
-  // With Auth, every reader of published Content passes the session user of each request to `authorize` for
-  // `action: "read"`. Entries that load when the server starts import Auth on the first request that asks.
   const sessionUser = (useAuth: string) => `async request => (await ${useAuth}(request).api.getSession({ headers: request.headers }))?.user ?? null`
   const authImport = options.auth ? [`import { useAuth } from ${JSON.stringify(authServerModuleId)}`] : []
   const readerOptions = options.auth ? `, { user: ${sessionUser("useAuth")} }` : ""
@@ -721,8 +704,6 @@ async function writeContentArtifact(
   ].join("\n"))
   else await rm(output, { force: true })
   const handlers: GeneratedSourceHandler[] = []
-  // Cookie previews and signed Source links must bypass Nitro's cache, including apps without collections.
-  // The small preview entry keeps the Content runtime and its Markdown renderer lazy.
   await writeFileIfChanged(preview, [
     `import { defineContentPreviewPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
     "",
@@ -730,8 +711,6 @@ async function writeContentArtifact(
     "",
   ].join("\n"))
   handlers.push({ handler: preview, plugin: true })
-  // A Nitro plugin: loads `vite-hub/content/sqlite` while the server starts. Content loads on its first request, and a
-  // Cloudflare Worker compiles WebAssembly only while it starts, which SQLite WASM needs. On Node it loads Node SQLite.
   if (features.sqlite) {
     await writeFileIfChanged(sqlite, [
       `import { sqlite } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/sqlite`)}`,
@@ -743,15 +722,11 @@ async function writeContentArtifact(
     handlers.push({ handler: sqlite, plugin: true })
   }
   else await rm(sqlite, { force: true })
-  // A Nitro plugin: writes the types of `content.get()`, `content.list()`, and `content.query()` in development.
   await writeFileIfChanged(typesPlugin, renderContentTypesPlugin(importBase, contentModule))
   handlers.push({ handler: typesPlugin, plugin: true })
-  // Until the first development server writes the types, an empty file keeps the reference in `.vitehub/types.d.ts`.
   if (!await readFile(types, "utf8").then(() => true, () => false)) await writeFileIfChanged(types, "export {}\n")
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
-  // `github()` Sources serve a head commit. A signed GitHub push moves it through this route.
   if (features.github) {
-    // With Queue, each page that a push changed is one job of the prewarm Queue, which `vitehub.queues` contributes.
     const queueImport = JSON.stringify(options.queueImport ?? "@vite-hub/queue")
     await writeFileIfChanged(githubWebhook, options.queue
       ? [
@@ -773,12 +748,7 @@ async function writeContentArtifact(
     handlers.push({ handler: githubWebhook, meta: { ...ownAccessRouteMeta }, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
-  // `vitehub.queues` writes the Queue module. It goes when the app has no Queue or no `github()` Source.
   if (!features.github || !options.queue) await rm(prewarmQueue, { force: true })
-  // `previews: true` serves refs of a `github()` Source at `/tree`, `/blob`, and `/pr` URLs. A Nitro plugin, not a route:
-  // the page runs with its production path through every route of the app. It loads server/content.ts on the first
-  // preview URL only. In a preview request, the app base in the runtime config starts with the prefix, so Nuxt links
-  // and data requests stay in the preview.
   if (features.previews) {
     await writeFileIfChanged(previewRoutes, [
       `import { defineContentPreviewRoutesPlugin } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/preview`)}`,
@@ -790,8 +760,6 @@ async function writeContentArtifact(
     handlers.push({ handler: previewRoutes, plugin: true, position: "start" })
   }
   else await rm(previewRoutes, { force: true })
-  // `defineContent({ seo: { sitemap, robots, rss, mcp, llms } })` adds the site-wide SEO routes. One llms entry serves
-  // three routes. The MCP server answers POST and refuses other methods itself.
   for (const [enabled, path, helper, routes] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", ["/sitemap.xml"]],
     [features.robots, robots, "defineContentRobotsHandler", ["/robots.txt"]],
@@ -803,9 +771,7 @@ async function writeContentArtifact(
       await rm(path, { force: true })
       continue
     }
-    // Unknown configuration must not reserve /mcp: a disabled Content server passes through to the app's handler.
     const conditionalMcp = routes[0] === "/mcp" && enabled === "unknown"
-    // robots.txt names no page, so it does not ask `authorize`.
     const helperOptions = helper === "defineContentRobotsHandler" ? "" : readerOptions
     await writeFileIfChanged(path, [
       `import { ${helper} } from ${importBase}`,
@@ -823,10 +789,6 @@ async function writeContentArtifact(
     ].join("\n"))
     for (const route of routes) handlers.push(conditionalMcp ? { handler: path, middleware: true, route } : route === "/mcp" ? { handler: path, route } : { handler: path, method: "get", route })
   }
-  // `seo: { markdown }` serves copies at every page URL plus `.md`, which no Nitro route pattern matches, so they are
-  // middleware. It loads when the server starts, because it reads the response of later handlers for the Markdown 404.
-  // It imports only the Markdown negotiation entry and loads server/content.ts on the first request that asks for Markdown
-  // or gets an HTML page. `seo: { markdown: { pages: true } }` renders other pages through Nitro, without a network hop.
   if (features.markdown) {
     await writeFileIfChanged(markdown, [
       `import { defineContentMarkdownHandler } from ${JSON.stringify(`${options.contentImportBase ?? "@vite-hub/content"}/markdown`)}`,
@@ -851,7 +813,6 @@ async function prepareSourceArtifacts(options: SourceGenerationOptions): Promise
     ...await writeSourceArtifacts(options, sources),
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
-  // Plugins have no route and sort first.
   ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
   return { handlers, ...(content ? { content: { handler: content } } : {}) }
 }
@@ -860,7 +821,6 @@ export async function prepareSourceGeneration(options: SourceGenerationOptions):
   return (await prepareSourceArtifacts(options)).handlers
 }
 
-/** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */
 function applicationBaseURL(config: { base?: string }): string {
   const configured: unknown = Reflect.get(config, VITEHUB_APP_BASE_URL)
   const base = typeof configured === "string" ? configured : config.base
@@ -947,7 +907,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
-  // The legacy SSR build hook has no Vite environment, so hints go to the resolved config.
   let resolvedConfig: ResolvedConfig | undefined
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
@@ -1042,8 +1001,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     name: "@vite-hub/source/vite",
     enforce: "post",
     api: { getContentDefinition, onGeneratedHandlersChanged, prepareSources },
-    // glob() in a server build: calls with literal options become their files, bundled (internal/bundle-glob.ts).
-    // The filters keep Rolldown from calling these hooks for every other module.
     resolveId: {
       filter: { id: BUNDLED_GLOB_ID_PATTERN },
       handler(id) {
@@ -1082,7 +1039,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       },
     },
     vitehub: {
-      // With Queue, a `github()` Source of `server/content.ts` prewarms the pages of each push through this Queue.
       async queues(context) {
         if (!options.queue) return []
         const projectRoot = resolve(context.projectRoot)
@@ -1186,7 +1142,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         : resolveViteHubProjectRoot(config.root)
       latestProjectRoot = projectRoot
       bindUnresolvedListenerRoots(projectRoot)
-      // Auth owns discovery. Refresh it during preparation so watcher listener order cannot leave stale imports.
       const authPlugin = (config.plugins ?? []).flat(Infinity).find(plugin => plugin.name === "@vite-hub/auth/vite")
       const refreshAuth: unknown = Reflect.get(Object(Reflect.get(Object(authPlugin), "api")), "refresh")
       if (refreshAuth instanceof Function) refreshAuthByRoot.set(projectRoot, () => refreshAuth())
@@ -1200,8 +1155,6 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         const handlers = await prepareSources({ projectRoot, serverDirs })
         const handlerKey = await generatedHandlerKey(handlers)
         if (nitroHost && !viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-          // Nitro initializes before post-enforced config hooks. Reconcile its routes once
-          // Vite has resolved the root and server directories from all config contributions.
           assertGeneratedRoutes(nitroHost, handlers)
           const nitro = replaceConfiguredNitroContribution(nitroHost.options, handlers, nitroHostContribution)
           nitroHostContribution = {

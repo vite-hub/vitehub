@@ -127,7 +127,6 @@ describe("Env errors", () => {
 
   it("reports declaration misuse with Nostics and preserves schema errors", () => {
     expect.assertions(5)
-    // JavaScript config can still pass the removed `required` key.
     expect(capture(() => env({ required: false } as never))).toMatchObject({
       code: "ENV_R0006",
       message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing.",

@@ -126,7 +126,6 @@ export async function createMemberEndpoint(options: CreateMemberEndpointOptions)
     ?? (options.ownerEmail === undefined ? undefined : text(options.ownerEmail, "ownerEmail", limits.email))
     ?? (options.address === undefined ? undefined : text(options.address, "address", limits.address))
   if (problem) return invalid(problem)
-  // The options can come from a request body, so check the kind at runtime too.
   const kind: unknown = options.kind
   if (kind !== "url" && kind !== "inbox") return invalid(`\`kind\` must be "url" or "inbox", not ${JSON.stringify(kind)}`)
   const now = Date.now()
@@ -305,9 +304,7 @@ export async function sendToMemberEndpoint(owner: string, body: unknown, options
     const recorded = await store.recordOnce({ id: options.deliveryId ?? createDeliveryId(), webhook, owner: endpoint.owner, key: options.key, event: options.event, body: json, dueAt: now, now })
     const done = target ? "sent" : "inbox"
     if (!recorded.created) return [undefined, { id: recorded.id, status: recorded.state === "sent" ? done : "pending" }]
-    // `0` claims only a pending delivery, never one that another server is sending.
     const claim = await store.claim(recorded.id, recorded.revision, now, 0)
-    // Another server, such as a Queue flush, claimed it first.
     if (!claim) return [undefined, { id: recorded.id, status: "pending" }]
     return await deliverMemberClaim(installed, claim, target)
   }

@@ -387,7 +387,6 @@ app.post("/api/workflows/welcome", async (event) => {
 app.post("/api/workflows/welcome-defer", async (event) => {
   const body = await readValidatedBody(event, workflowBody)
   const marker = resolveMarker(body, event)
-  // `deferWorkflow()` returns nothing, so the route picks the run ID that the caller polls.
   const id = resolveWorkflowId(body, marker) || crypto.randomUUID()
   deferWorkflow(workflowName, { email: body?.email || "ava@example.com", marker }, { id })
   return { ok: true, result: { id } }

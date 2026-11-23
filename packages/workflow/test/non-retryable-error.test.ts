@@ -18,13 +18,11 @@ import { unwrap } from "./unwrap.ts"
 const calls: string[] = []
 const caught: unknown[] = []
 
-/** A single-file Workflow: the handler runs in the root step. */
 const declineInRootStep = defineWorkflow({ handler: async () => {
   calls.push("charge")
   throw new NonRetryableError("card declined")
 } })
 
-/** The shape that the generated registry gives a folder Workflow without `index.ts`. */
 const declineInStepFile: WorkflowDefinition = {
   rootStep: false,
   handler: async (context) => {
@@ -44,7 +42,6 @@ const declineInStepFile: WorkflowDefinition = {
   },
 }
 
-/** A folder Workflow whose `index.ts` catches the error, then sleeps, so OpenWorkflow replays it. */
 const refundAfterDecline: WorkflowDefinition = {
   rootStep: false,
   handler: async (context) => {
@@ -87,7 +84,6 @@ describe("NonRetryableError", () => {
 })
 
 describe("Cloudflare", () => {
-  /** Cloudflare retries a step that throws, unless the error is its own NonRetryableError. */
   class CloudflareNonRetryableError extends Error {}
   function cloudflareStep(): WorkflowProviderStep {
     return {

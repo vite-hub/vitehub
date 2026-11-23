@@ -449,6 +449,14 @@ Unavailable
     })).toBe("<policy>Use Acme.</policy>")
   })
 
+  it.each([
+    'A <span title="&amp;copy; &amp;#169;">note</span>.',
+    '<div title="&amp;copy; &amp;#169;">\nNote\n</div>',
+    '<img src="https://example.com/?a=1&amp;b=2">',
+  ])("preserves literal entity text in HTML attributes: %s", async (template) => {
+    await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+  })
+
   it("rejects unsafe URLs in authored HTML tags", async () => {
     await expect(renderMarkdownTemplate("[status](<http://[::1]/>)"))
       .resolves.toBe("[status](http://%5B::1%5D/)")
@@ -462,7 +470,6 @@ Unavailable
       .resolves.toContain("https://example.com/?x=1&copy=2")
     await expect(renderMarkdownTemplate('<policy note="x=1&copy=2">Use it.</policy>'))
       .resolves.toBe('<policy note="x=1&amp;copy=2">Use it.</policy>')
-    // Attribute entities are decoded once, so a double-encoded reference stays a reference.
     await expect(renderMarkdownTemplate('<a href="https://example.com/?q=&amp;lt;">Open</a>'))
       .rejects.toThrow("must resolve to a safe destination")
     await expect(renderMarkdownTemplate('<a href="javascript:alert(1)">Open</a>'))

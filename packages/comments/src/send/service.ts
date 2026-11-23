@@ -13,7 +13,6 @@ import type { CommentSendData, CommentSendOptions, CommentsUser, CommentSubject,
 import type { CommentSendState } from "./database.ts"
 import type { CommentSendStore, SendRow, SentThread } from "./store.ts"
 
-/** The member endpoint, as Webhooks returns it. */
 interface EndpointLike {
   id: string
   kind: "url" | "inbox"
@@ -22,7 +21,6 @@ interface EndpointLike {
   disabledAt: number | null
 }
 
-/** A pairing code, as Webhooks returns it. */
 interface PairingLike {
   state: "waiting" | "paired" | "used" | "refused"
   agent: string | null
@@ -154,13 +152,11 @@ function agentOf(endpoint: { agent: string | null, host: string | null } | undef
 
 const lastOf = (thread: CommentThread) => thread.messages.at(-1)
 
-/** The member's email when Auth verified it, so a ViteHub Console account with that email acts as the endpoint's owner. */
 function verifiedEmail(user: CommentsUser): string | undefined {
   const email = user.email
   return user.emailVerified === true && typeof email === "string" && email.trim() ? email : undefined
 }
 
-/** The string fields of JSON that Send wrote itself, such as a sealed secret or the sender snapshot. */
 function readFields(text: string): Record<string, unknown> {
   const value: unknown = JSON.parse(text)
   return typeof value === "object" && value !== null && !Array.isArray(value) ? { ...value } : {}
@@ -178,7 +174,6 @@ export function commentThreadWaits(thread: CommentThread): boolean {
   return thread.status === "open" && Boolean(last) && !last!.actor
 }
 
-/** The sender's own threads, and threads where the sender spoke last, are asks. The others are quotes. */
 function roleOf(thread: CommentThread, member: string): "ask" | "quote" {
   return thread.author.id === member || lastOf(thread)?.author.id === member ? "ask" : "quote"
 }
@@ -202,7 +197,6 @@ export function commentSendText(input: { id: string, asks: readonly string[], qu
   ].join(" ")
 }
 
-/** The prompt that each delivery starts in the T3 thread. `{{…}}` are T3 placeholders for the delivered body. */
 function taskPrompt(origin: string, grant: boolean): string {
   return [
     `People sent comments from ${origin} to this thread. {{body.text}}`,
@@ -250,14 +244,12 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   })
   const t3 = (): CommentSendAgent => ({ ...agents.t3!, host: hosts[0]! })
 
-  /** Signed-in people who may write on the subject may send. A guest name proves nothing, so guests may not. */
   async function maySend(caller: CommentSendCaller): Promise<CommentsUser | undefined> {
     const { user } = caller
     if (!user || user.guest) return undefined
     return await comments.can({ user, action: "write", subject: caller.subject }, caller.gate) ? user : undefined
   }
   const forbidden = (): [ResultError<"COMMENTS_FORBIDDEN">, undefined] => [commentsErrors.COMMENTS_FORBIDDEN({ action: "send" }), undefined]
-  /** Start answers with the code and the secret, and Allow and Send build `read.url`, so plain http would leak them. */
   const insecure = (origin: string): [ResultError<"COMMENTS_SEND_INSECURE">, undefined] | undefined => isSecureOrigin(origin) ? undefined : [commentsErrors.COMMENTS_SEND_INSECURE({ origin }), undefined]
 
   const deliveryFailed = "The agent's receiver did not take the send."
@@ -273,7 +265,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return { ...row, state, error }
   }
 
-  /** The open threads of the subject that `user` may read. */
   async function readable(caller: CommentSendCaller, user: CommentsUser): Promise<CommentThread[]> {
     const [error, threads] = await comments.list({ subject: caller.subject, status: "open", limit: 500 })
     if (error) throw error
@@ -281,7 +272,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return threads.filter((_, index) => allowed[index])
   }
 
-  /** For each thread and message, match successful sends against the attempts that reopening made available. */
   async function sendHistory(member: string, subject: CommentSubject) {
     const history = new Map<string, Map<string, { sent: number, available: number }>>()
     for (const row of await Promise.all((await store.listSends({ member, subject, states: ["pending", "sent", "working", "done"] }, 200)).map(reconcile))) {
@@ -300,10 +290,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return history
   }
 
-  /**
-   * The threads that wait for an answer and whose last message no send of the member carried. The sends of other
-   * members do not count: each member hands the threads to their own agent.
-   */
   async function waiting(caller: CommentSendCaller, user: CommentsUser): Promise<WaitingSelection> {
     const [open, history] = await Promise.all([readable(caller, user), sendHistory(user.id, caller.subject)])
     const attempts = new Map<string, number>()
@@ -318,16 +304,11 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return { open, waiting: ready, attempts }
   }
 
-  /** The hash of the subject, the waiting threads, and their last messages. Allow sends only the threads that it names. */
   async function selectionOf(subject: CommentSubject, threads: readonly CommentThread[]): Promise<string> {
     const entries = threads.map(thread => [thread.id, lastOf(thread)!.id]).sort(([left], [right]) => left! < right! ? -1 : 1)
     return sha256(JSON.stringify([subject.kind, subject.id, entries]))
   }
 
-  /**
-   * Whether the agent finished a send: every thread that the sender wrote left the waiting set (resolved, deleted, or
-   * answered by an agent). A send of quotes only is finished when all of its threads did.
-   */
   function finished(row: SendRow, threadOf: (id: string) => CommentThread | undefined): boolean {
     const sent = threadsOf(row)
     const own = sent.filter(entry => entry.role === "ask")
@@ -342,7 +323,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return times.length >= commentSendLimit ? times[times.length - commentSendLimit]! + window : undefined
   }
 
-  /** The address of the agent that should get a send from the caller's page, from `send.address`. */
   async function addressOf(caller: CommentSendCaller, user: CommentsUser): Promise<string | undefined> {
     return (await config.address?.({ user, subject: caller.subject })) || undefined
   }
@@ -353,7 +333,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return endpoint && endpoint.disabledAt === null ? endpoint : undefined
   }
 
-  /** The threads of a send that still exist. */
   async function threadsOfSend(row: SendRow): Promise<Map<string, CommentThread>> {
     const found = new Map<string, CommentThread>()
     for (const entry of threadsOf(row)) {
@@ -363,7 +342,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return found
   }
 
-  /** Exactly the threads of the send, and only those that the sender may still read. */
   async function viewOf(row: SendRow, user: CommentsUser, policy?: CommentSendPolicy): Promise<CommentSendView> {
     const found = await threadsOfSend(row)
     const threads: CommentSendThread[] = []
@@ -374,18 +352,12 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return { send: { id: row.id, page: row.page, subject: { kind: row.subjectKind, id: row.subjectId }, state: row.state, createdAt: row.createdAt }, threads }
   }
 
-  /** Opens a send for its agent: the agent works on it from now. */
   async function view(row: SendRow, user: CommentsUser, policy?: CommentSendPolicy): Promise<CommentSendView> {
     const opened = await viewOf(row, user, policy)
     await store.setSendState(row.id, ["sent"], "working", Date.now())
     return { ...opened, send: { ...opened.send, state: row.state === "sent" ? "working" : row.state } }
   }
 
-  /**
-   * Sends the waiting threads to the member's endpoint: the one paired from `send.address`, else their newest. `thread`
-   * is the thread link of a pairing that Allow just used, and the send goes to that endpoint; else the send keeps the
-   * link of the last send to the same endpoint.
-   */
   async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, thread: string | null }, confirmed?: WaitingSelection): Promise<CommentSendResult> {
     const now = Date.now()
     const endpoint = paired ?? await endpointOf(user.id, await addressOf(caller, user))
@@ -393,7 +365,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     const resultOf = (row: SendRow): CommentSendResult => row.state === "failed" ? { status: "failed", reason: row.error ?? deliveryFailed }
       : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}) }
     const live = ["pending", "sent", "working", "done"] as const
-    // Allow passes the threads that the member confirmed, so a thread that started waiting since stays for the next send.
     const ready = confirmed ?? await waiting(caller, user)
     const threads = [...ready.waiting].sort((left, right) => left.id < right.id ? -1 : 1)
     if (!threads.length) {
@@ -432,7 +403,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       endpoint: endpoint.id,
       thread,
       error: null,
-      // The sender as Comments knew them, so the read token reads as them, with the roles they had.
       sender: JSON.stringify(user),
       tokenHash: token ? await sha256(token) : null,
       tokenExpiresAt: token ? expiresAt : null,
@@ -464,7 +434,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       text: commentSendText({ id, asks, quotes, grant, expiresAt }),
       data,
     }
-    // The current `hosts`, so an endpoint that an older, wider list allowed gets nothing.
     const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, endpointId: endpoint.id, deliveryId: delivery, sealBody: true, hosts })
     if (error || delivered.status === "failed") return fail(error?.why ?? deliveryFailed)
     const status = delivered.status === "pending" ? "pending" : "sent"
@@ -559,7 +528,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const [pairingError, pairing] = await tools.getMemberPairing(user.id, code)
       if (pairingError) throw pairingError
       if (pairing && pairing.state !== "paired") return [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
-      // The member confirms the threads that they saw. When they changed, the code stays, and the member sees the new ones.
       const confirmed = await waiting(caller, user)
       const current = await selectionOf(caller.subject, confirmed.waiting)
       if (pairing && selection !== current) return [undefined, { status: "changed", count: confirmed.waiting.length, selection: current }]
@@ -572,7 +540,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         hosts,
       })
       if (error) return [undefined, { status: "failed", reason: error.why }]
-      // Only the member who copied the code may allow the agent that used it, and only once.
       if (allowed.status !== "allowed") return allowed.status === "not-owner" ? forbidden() : [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
       return [undefined, await deliver(caller, user, { id: allowed.endpoint.id, thread: allowed.pairing.address }, confirmed)]
     },

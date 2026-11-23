@@ -19,13 +19,8 @@ interface FsMultipartState {
   pathname: string
 }
 
-// The ops that already logged a failure. `list()` reads every file, so a broken cache folder would log once per file.
 const loggedFsFailures = new Set<string>()
 
-/**
- * Logs a failed cache or metadata write that the operation survives, once per process for each `op`. The driver does
- * not know the request or a `waitUntil()`, so the failure is an event of its own.
- */
 function logFsFailure(op: string, message: string, error: unknown, fallback: () => void): void {
   if (loggedFsFailures.has(op)) return
   loggedFsFailures.add(op)

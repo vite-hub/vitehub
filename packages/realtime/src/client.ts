@@ -28,7 +28,6 @@ export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 /** Answers one request from the server. Its value goes back as JSON. */
 export type RealtimeRequestHandler = (body: unknown) => unknown
 
-// A WebSocket message from the browser may be up to 1 MiB, with the frame's own bytes.
 const maxAnswerBytes = 1024 * 1024 - 1024
 
 export interface RealtimeRoomOptions {
@@ -123,7 +122,6 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
         current.params.epoch = control.epoch
         return
       }
-      // The room re-seeded. Presence holds no document state, so join the new seed.
       current.destroy()
       document.destroy()
       if (destroyed) return
@@ -135,7 +133,6 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       const frame = decodeRealtimeRequestFramePayload(decoder as decoding.Decoder)
       if (frame?.kind === "request") void answer(current, frame.id, frame.body)
     }
-    // Send only this client's awareness: the server closes a connection that changes clients it does not own.
     current.awareness.off("update", current._awarenessUpdateHandler)
     current.awareness.on("update", ({ added, removed, updated }: { added: number[], removed: number[], updated: number[] }) => {
       const own = [...added, ...updated, ...removed].filter(client => client === current.doc.clientID)
@@ -149,7 +146,6 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     const identity = options.identity ?? { id: `guest:${document.clientID}` }
     current.awareness.setLocalState({ ...localState, user: createRealtimeIdentity({ ...identity, id: identity.id || `guest:${document.clientID}` }) })
     current.awareness.on("change", emit)
-    // Only the server writes the status map, so a change there is a save, a refresh, or the first sync.
     document.getMap(realtimeDocumentLayout.status).observe(emit)
     current.on("sync", (value: boolean) => {
       if (provider !== current) return
@@ -183,7 +179,6 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   }
 
   async function answer(current: WebsocketProvider, id: string, body: unknown) {
-    // The caller gets the reason of a refusal as text.
     const refusal = (why: string) => encodeRealtimeRequestFrame({ kind: "answer", id, ok: false, why })
     let frame: Uint8Array
     try {

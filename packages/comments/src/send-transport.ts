@@ -40,7 +40,6 @@ export function createCommentSendTransport(options: CommentSendTransportOptions 
     allow: async (value, selection) => {
       const path = pairingPages.get(value) ?? page()
       const result = (await request<CommentSendResult>(`/send/allow?page=${path}`, post({ code: value, selection }))).data
-      // After `changed`, the member may allow the same code again, from the same page.
       if (result.status !== "changed") pairingPages.delete(value)
       return result
     },

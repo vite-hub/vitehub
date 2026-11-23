@@ -1,5 +1,3 @@
-// Drag a value in Chromium: the slider effect and the divider effect of `@vite-hub/ui/motion` on the motion page.
-// Run: pnpm --filter @vite-hub/ui test:motion
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -44,7 +42,6 @@ async function open(query = "", options = {}) {
   return { context, errors, page }
 }
 
-/** The box of an element after it is scrolled into view, so the mouse can reach it on a page that grows with each unit. */
 async function boxInView(locator) {
   await locator.scrollIntoViewIfNeeded()
   return locator.boundingBox()
@@ -56,10 +53,6 @@ const sliders = [
   { name: "plain slider", root: "[data-test=plain-slider]", track: "[data-test=plain-slider]", value: "[data-test=plain-slider] [role=slider]", thumb: "[data-test=plain-slider] [role=slider]" },
 ]
 
-/**
- * Records on every frame, until `stop()`: the thumb's computed `scale` on the travel axis and across it, and the box of
- * the tail and of the track along x.
- */
 async function sampleSlider(page, slider) {
   await page.evaluate(({ thumb, track, root }) => {
     const thumbElement = document.querySelector(thumb)
@@ -85,7 +78,6 @@ async function sampleSlider(page, slider) {
   return { stop: () => page.evaluate(() => window.stopSlider()) }
 }
 
-/** Drags from 20% to 85% of the track in a few big steps, a fast flick, holds, then lets go. */
 async function flick(page, slider, { hold = 400 } = {}) {
   const box = await boxInView(page.locator(slider.track))
   const y = box.y + box.height / 2
@@ -125,7 +117,6 @@ describe("slider", () => {
       for (const { tail, track } of tails) {
         assert.ok(tail.left >= track.left - 1 && tail.right <= track.right + 1, `the tail ${tail.left}..${tail.right} stays in the track ${track.left}..${track.right}`)
       }
-      // While it is held after the flick it is round and 12% larger, and once let go it is round at rest.
       const last = frames.at(-1)
       assert.equal(last.x, 1)
       assert.equal(last.y, 1)
@@ -165,7 +156,6 @@ describe("slider", () => {
       const trace = await sampleSlider(page, slider)
       const start = await page.locator(slider.thumb).evaluate(node => node.getBoundingClientRect().left)
       await page.keyboard.press("Shift+ArrowRight")
-      // The next frame still shows the thumb near where it was.
       const next = await page.locator(slider.thumb).evaluate(node => new Promise(resolve => requestAnimationFrame(() => resolve(node.getBoundingClientRect().left))))
       await settled(page, slider)
       await trace.stop()
@@ -179,13 +169,11 @@ describe("slider", () => {
   })
 })
 
-/** The drawn bend of a divider: how far its middle point leaves the straight line, or 0 when there is none. */
 function bendOf(page) {
   return page.evaluate(() => {
     const path = document.querySelector("svg[data-motion=bend] path")
     if (!path) return 0
     const numbers = path.getAttribute("d").match(/-?[\d.]+/g).map(Number)
-    // M x,y C c1 c2 tip C ...: the start x and the tip x.
     return Math.abs(numbers[6] - numbers[0])
   })
 }
@@ -217,7 +205,6 @@ test("fill follows visible thumb endpoints at zero and on simultaneous updates",
     const frame = await page.locator(slider.value).evaluate((node, { root, thumb }) => {
       node.focus()
       node.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))
-      // A native range's default action is not run for a synthetic key.
       if (node instanceof HTMLInputElement) {
         node.value = "0"
         node.dispatchEvent(new Event("input", { bubbles: true }))
@@ -316,7 +303,6 @@ test("live reduced motion clears held drag visuals without stopping the drag", a
 
 describe("divider", () => {
   const handles = [
-    // The Files panel of the USplitter has a maxSize of 40%, and the panels share the group less the 8px handle.
     { name: "USplitter", handle: "[data-test=splitter] [role=separator]", panel: "[data-test=splitter] [data-panel-id=files]", max: page => page.locator("[data-test=splitter]").evaluate(node => (node.clientWidth - 8) * 0.4) },
     { name: "plain resize handle", handle: "[data-test=resize]", panel: "[data-test=files]", max: () => 220 },
   ]
@@ -374,7 +360,6 @@ describe("divider", () => {
       }, subject.handle)
       await page.mouse.move(x, y)
       await page.mouse.down()
-      // 8 moves of 3px stay inside the limits of both: 150px to 126px, and 30% to 25.6%.
       for (let step = 1; step <= 8; step++) {
         await page.mouse.move(x - step * 3, y)
         await page.waitForTimeout(16)
@@ -382,7 +367,6 @@ describe("divider", () => {
       await page.mouse.up()
       await page.waitForTimeout(100)
       const frames = await page.evaluate(() => window.stopHandle())
-      // A frame shows the pointer's last move once the component and the effect have run, so compare from the frame after it.
       const lag = frames.slice(1).map(frame => Math.abs(frame.center - frame.pointer))
       assert.ok(frames.length > 6, "frames were recorded")
       assert.ok(Math.max(...lag) <= 1.5, `${subject.name} stays under the pointer, at most ${Math.max(...lag)}px away`)
@@ -412,7 +396,6 @@ describe("drag motion off", () => {
   test("reduced motion: no stretch, no tail, no bend", async () => {
     const { context, page } = await open("", { reducedMotion: "reduce" })
     await noMotion(page)
-    // The value still changes.
     assert.notEqual(await page.locator(sliders[0].value).getAttribute("aria-valuenow"), "40")
     await context.close()
   })
@@ -454,10 +437,6 @@ if (recordDir) {
   })
 }
 
-/**
- * Plays one gesture at ¼× and records each frame that Chromium paints: a flick from 20% to 85% of a slider, or a pull of
- * a divider 150px to the right, past its limit, then a release. Writes `<name>.mp4` and a tiled `<name>.png`.
- */
 async function record({ name, gesture, query, url, target, handle, prototype }) {
   const context = await browser.newContext({ viewport: { width: 800, height: 1600 } })
   const page = await context.newPage()
@@ -468,7 +447,6 @@ async function record({ name, gesture, query, url, target, handle, prototype }) 
   }
   const element = page.locator(target)
   await element.scrollIntoViewIfNeeded()
-  // A headless browser draws no pointer, so draw an arrow whose tip follows the mouse.
   await page.evaluate(() => {
     const tip = document.body.appendChild(document.createElement("div"))
     tip.innerHTML = "<svg viewBox=\"0 0 14 20\" width=\"14\" height=\"20\"><path d=\"M1 1v16l4-4 3 6 2-1-3-6h6z\" fill=\"#111\" stroke=\"#fff\" stroke-width=\"1.2\" stroke-linejoin=\"round\"/></svg>"
@@ -486,7 +464,6 @@ async function record({ name, gesture, query, url, target, handle, prototype }) 
   await page.mouse.move(0, 0)
   await page.waitForTimeout(600)
   const box = await element.boundingBox()
-  // A flick keeps room above the track for the prototype's value bubble.
   const pad = gesture === "flick" ? 16 : 8
   const above = gesture === "flick" && prototype ? 40 : 0
   const clip = { x: Math.floor(box.x - pad), y: Math.floor(box.y - pad - above), width: Math.ceil(box.width + 2 * pad), height: Math.ceil(box.height + 2 * pad + above) }
@@ -540,6 +517,5 @@ async function record({ name, gesture, query, url, target, handle, prototype }) 
   writeFileSync(join(dir, "frames.txt"), `${list}file '${frames.length - 1}.png'\n`)
   const ffmpeg = (...args) => execFileSync("ffmpeg", ["-y", "-loglevel", "error", ...args])
   ffmpeg("-f", "concat", "-i", join(dir, "frames.txt"), "-vf", `${crop},scale=iw*2:ih*2:flags=lanczos,pad=ceil(iw/2)*2:ceil(ih/2)*2:color=white,fps=30,format=yuv420p`, "-c:v", "libx264", "-crf", "18", "-movflags", "+faststart", "-an", join(recordDir, `${name}.mp4`))
-  // The tiled image: 24 frames from the press to the rest, 4 per row.
   ffmpeg("-ss", "0.4", "-i", join(recordDir, `${name}.mp4`), "-vf", `fps=24/${gesture === "flick" ? 4.6 : 4.2},tile=4x6:padding=4:color=white`, "-frames:v", "1", join(recordDir, `${name}.png`))
 }

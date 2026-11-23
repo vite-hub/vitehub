@@ -5,13 +5,11 @@ import type { CompiledMessage } from "@lingui/message-utils/compileMessage"
 function collect(message: CompiledMessage, names: Set<string>): void {
   for (const token of message) {
     if (typeof token === "string") {
-      // Lingui keeps `<Trans>` tags such as `<0>` and `</0>` as text.
       for (const match of token.matchAll(/<\/?(\d+)\/?>/g)) names.add(`<${match[1]}>`)
       continue
     }
     const [name, , format] = token
     names.add(`{${name}}`)
-    // Plural and select forms are messages too. Their text is not a placeholder.
     if (format && typeof format === "object") {
       for (const [key, choice] of Object.entries(format)) if (key !== "offset" && Array.isArray(choice)) collect(choice as CompiledMessage, names)
     }
@@ -24,14 +22,24 @@ function placeholders(message: CompiledMessage): string[] {
   return [...names].sort()
 }
 
-/** The arguments such as `{name}` and the tags such as `<0>` of an ICU message, sorted. Throws for invalid ICU. */
-export function messagePlaceholders(message: string): string[] {
-  return placeholders(compileMessageOrThrow(message))
+function compile(message: string): CompiledMessage | Error {
+  try {
+    return compileMessageOrThrow(message)
+  }
+  catch (error) {
+    if (error instanceof Error) return error
+    throw error
+  }
+}
+
+/** The arguments such as `{name}` and the tags such as `<0>` of an ICU message, sorted, or the parse error for invalid ICU. */
+export function messagePlaceholders(message: string): string[] | Error {
+  const compiled = compile(message)
+  return compiled instanceof Error ? compiled : placeholders(compiled)
 }
 
 const maxTagPaths = 256
 
-/** Tag sequences for each rendered ICU branch, bounded before further expansion. Equal branches count once. */
 function tagPaths(message: CompiledMessage): Set<string> | undefined {
   let paths = new Set([""])
   for (const token of message) {
@@ -92,13 +100,8 @@ function richTextProblem(source: CompiledMessage, translation: CompiledMessage):
 
 /** Why a translation does not fit its source text, or `undefined` when it fits. */
 export function translationProblem(source: string, translation: string): string | undefined {
-  let compiled: CompiledMessage
-  try {
-    compiled = compileMessageOrThrow(translation)
-  }
-  catch (error) {
-    return `It is not valid ICU MessageFormat: ${(error as Error).message}`
-  }
+  const compiled = compile(translation)
+  if (compiled instanceof Error) return `It is not valid ICU MessageFormat: ${compiled.message}`
   const sourceMessage = compileMessageOrThrow(source)
   const expected = placeholders(sourceMessage)
   const actual = placeholders(compiled)

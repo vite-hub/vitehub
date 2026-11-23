@@ -3,7 +3,6 @@ import { expect, it, vi } from "vitest"
 import { createPortableRedisKeyLister } from "../src/runtime/redis-shared.ts"
 
 it("follows each returned SCAN cursor while deleting pages across server instances", async () => {
-  // COUNT can cross more buckets after deletion. Replaying cursor 0 would skip a and b after filtering on m.
   const remaining = new Set(["m", "n", "a", "b"])
   const scan = vi.fn(async (cursor: string): Promise<[string, string[]]> => {
     if (cursor === "1") return ["0", ["a", "b"].filter(key => remaining.has(key))]

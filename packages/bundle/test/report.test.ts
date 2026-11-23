@@ -31,7 +31,6 @@ function graph(edges: Record<string, string[]>, entries: string[], dynamic: Reco
   return id => ({ importedIds: edges[id] ?? [], dynamicallyImportedIds: dynamic[id] ?? [], isEntry: entries.includes(id) })
 }
 
-/** Nuxt 5: Nitro bundles the SSR output from the buildDir under `node_modules/.cache`. */
 function nuxtBuild(build = "2026-11-06T10:00:00.000Z") {
   const ssrOut = `${root}/node_modules/.cache/nuxt/.nuxt/dist/server`
   const ssr = collectEnvironmentReport({
@@ -80,6 +79,19 @@ describe("module ids and groups", () => {
       expect(report.chunks[0]!.modules[0]!.id).toBe(`node_modules/${name}/dist/index.js`)
       expect(createBundleReport([report])!.client!.groups).toMatchObject([{ name, kind: name.startsWith("@vite-hub/") ? "vitehub" : "dependency", bytes: 4 }])
       expect(explainBundle([report], name)[0]?.bytes).toBe(4)
+    }
+    finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
+  it("fails on an unreadable manifest instead of treating its folder as a plain directory", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vitehub-bundle-workspace-"))
+    try {
+      const packageDir = join(workspace, "packages", "shared")
+      mkdirSync(packageDir, { recursive: true })
+      writeFileSync(join(packageDir, "package.json"), "{ \"name\": ")
+      expect(() => moduleId(join(packageDir, "dist", "index.js"), join(workspace, "apps", "site"))).toThrow(SyntaxError)
     }
     finally {
       rmSync(workspace, { recursive: true, force: true })
@@ -183,7 +195,6 @@ describe("environment reports", () => {
     const secondModule = report.chunks.find(row => row.file === "second.js")!.modules.find(module => module.id === "second.js")!
     expect(secondModule.imports).toEqual(["node_modules/zod/index.js"])
     expect(secondModule.dynamicImports).toEqual(["lazy.js"])
-    // Remove the first entry to prove that the later traversal also has a usable chain.
     const withoutFirst = { ...report, chunks: report.chunks.filter(row => row.file !== "first.js") }
     expect(explainBundle([withoutFirst], "zod")[0]!.chain.map(step => step.id)).toEqual(["second.js", "node_modules/zod/index.js"])
   })
@@ -233,7 +244,6 @@ describe("app report", () => {
     expect(report.server!.bytes).toBe(1100)
     expect(report.server!.startup).toMatchObject({ bytes: 1000, chunks: 1 })
     const groups = Object.fromEntries(report.server!.groups.map(group => [group.name, group]))
-    // 400 of 1000 rendered bytes in a 1000 B file, and the 200 B SSR module split 67/33/100.
     expect(groups["@libsql/client"]).toMatchObject({ bytes: 400, startupBytes: 400, kind: "dependency" })
     expect(groups.zod).toMatchObject({ bytes: 100, startupBytes: 100 })
     expect(groups.app).toMatchObject({ bytes: 67 })

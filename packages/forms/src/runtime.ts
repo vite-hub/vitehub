@@ -52,7 +52,6 @@ export type FormsSharedRateLimit = SharedRateLimit
 const installedKey = Symbol.for("vitehub.forms.installed")
 const rejectMissingStore = () => Promise.reject(new Error("[vitehub] Forms has no store."))
 
-/** The inbox of an app without a store. No submission was stored, and a form that needs a store answers 503. */
 const emptyFormsStore: FormsStore = {
   insert: rejectMissingStore,
   insertWith: rejectMissingStore,
@@ -74,6 +73,16 @@ export function installedForms(): InstalledForms | undefined {
   return value === undefined ? undefined : value as InstalledForms
 }
 
+function decodePathSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment)
+  }
+  catch (error) {
+    if (error instanceof URIError) return undefined
+    throw error
+  }
+}
+
 /**
  * The `{ fetch }` route of every form at `<base>_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
@@ -87,7 +96,6 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
   const { useDatabase } = options
   const store: FormsStore | undefined = useDatabase
     ? createDrizzleFormsStore(() => {
-        // The registry also holds a placeholder `default` that throws, so ask it which Database the forms use.
         try {
           return useDatabase(options.database).db
         }
@@ -98,7 +106,6 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     : options.memory ? createMemoryFormsStore() : undefined
   Reflect.set(globalThis, installedKey, { names: [...forms.keys()].sort(), inbox: createFormsInbox(store ?? emptyFormsStore) } satisfies InstalledForms)
   const { sendEmail, session, context } = options
-  // Rate Limit on Cloudflare needs each limit name at build time, so a Worker counts in the memory of its isolate.
   const rateLimit = createClientRateLimit({ name: "forms", unavailable: "Forms could not count this message in Rate Limit", ...(options.rateLimit ? { shared: options.rateLimit } : {}) })
   const services = (request: Request): FormServices => {
     const host = context?.(request)
@@ -121,15 +128,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
-      let name = segment
-      try {
-        name = decodeURIComponent(segment)
-      }
-      catch {
-        // A broken escape, such as `%E0`, names no form: the lookup below answers 404.
-      }
-      const form = forms.get(name)
-      if (!form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name)}.` }), { status: 404, headers: { "content-type": "application/json" } })
+      const name = decodePathSegment(segment)
+      const form = name === undefined ? undefined : forms.get(name)
+      if (name === undefined || !form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name ?? segment)}.` }), { status: 404, headers: { "content-type": "application/json" } })
       return await handleFormRequest(name, form, request, services(request))
     },
   }

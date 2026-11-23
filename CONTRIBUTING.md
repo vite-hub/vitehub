@@ -59,7 +59,7 @@ Keep one owner responsible for integration and completion. Record commands and i
 
 ## Verify the changed behavior
 
-Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) and [`test/tasks.ts`](test/tasks.ts) define root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
+Package scripts own package-local build, test, and typecheck behavior. [`vite.config.ts`](vite.config.ts) defines root tasks. [`test/layers.ts`](test/layers.ts) defines test discovery. Use these files when task details change; do not create a second task registry.
 
 Start with the affected package's full `test` script so every package-owned test invocation runs, including suites with a separate configuration:
 
@@ -137,7 +137,7 @@ A check that guards a sensitive action returns a grant, and the action requires 
 
 Familiar interfaces such as filesystems, tools, and shells are useful. Keep their contracts honest. State durability, isolation, security, persistence, cost, and production readiness explicitly.
 
-Keep changes small. Use existing code or a suitable library before building infrastructure. Prefer inferred types that make invalid states hard to represent. Avoid cast-only wrappers. Comments should explain use or a non-obvious constraint. Measure before and after when claiming a performance improvement.
+Keep changes small. Use existing code or a suitable library before building infrastructure. Prefer inferred types that make invalid states hard to represent. Avoid cast-only wrappers. Write no comments: [AGENTS.md](AGENTS.md#comments) gives the rule. Measure before and after when claiming a performance improvement.
 
 ViteHub is in active development. Breaking changes and removal of unused compatibility are welcome when they clarify the final contract. Use Better Auth as a composition reference and UnJS for host-independent behavior. Document public behavior in `docs/content/docs/` and the affected package README.
 

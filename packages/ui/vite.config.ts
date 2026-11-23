@@ -5,7 +5,7 @@ import { normalizePackageExports, packDefaults } from "@vite-hub/internal/packag
 
 // One build input for each component module. The package exports only the entries below, but separate files let an
 // app's bundler drop every component that it does not import, with the code of their dependencies.
-const parts = Object.fromEntries(["components", "composables", "headless", "playground", "workspace"].flatMap((dir) =>
+const parts = Object.fromEntries(["components", "composables", "headless", "playground", "workspace", "workspace/runners"].flatMap((dir) =>
   readdirSync(new URL(`src/${dir}/`, import.meta.url))
     .filter((file) => file.endsWith(".ts"))
     .map((file) => [`parts/${dir}/${file.slice(0, -3)}`, `src/${dir}/${file}`]),

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest"
 
 import { github } from "../../src/sources/github/lazy.ts"
 
-// The GitHub Source fails to load once, as an import can fail during a development rebuild.
 const loader = vi.hoisted(() => ({ failures: 1 }))
 
 vi.mock("../../src/sources/github/index.ts", () => {

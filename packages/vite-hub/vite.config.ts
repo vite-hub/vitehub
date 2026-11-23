@@ -551,7 +551,10 @@ export default defineConfig({
               if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
               const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
               for (const file of files) {
-                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
+                const source = readFileSync(resolve(root, file));
+                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
+                // Also publish it at `node_modules/vite-hub/dist/skills/<name>/`, where `npx skills add` and agents find it.
+                this.emitFile({ type: "asset", fileName: `skills/${name}/${file}`, source });
               }
               return { name, description, files };
             });

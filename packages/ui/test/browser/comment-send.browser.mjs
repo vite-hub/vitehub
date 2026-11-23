@@ -1,10 +1,3 @@
-// Renders every state of CommentSend in headless Chromium, in the ViteHub page pill and in a Vue app's own pill, and
-// walks the real createCommentSend() through pairing, Allow, Sending, Sent, and Working. happy-dom has no layout, so
-// the one-row pill and the width that Sending keeps need a real browser.
-//
-// Run: pnpm --filter @vite-hub/ui test:comment-send
-// It needs the Playwright Chromium of the workspace's playwright-core: `pnpm exec playwright-core install chromium`.
-// Set COMMENT_SEND_SCREENSHOTS=<dir> to save a screenshot of each state.
 import assert from "node:assert/strict"
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
@@ -20,7 +13,6 @@ const root = fileURLToPath(new URL("./comment-send/", import.meta.url))
 const screenshots = process.env.COMMENT_SEND_SCREENSHOTS
 if (screenshots) mkdirSync(screenshots, { recursive: true })
 
-// The stand-ins draw the icons without Nuxt UI, as in the ViteHub pill.
 const server = await createServer({ configFile: false, logLevel: "warn", optimizeDeps: { noDiscovery: true }, plugins: [standaloneUI(), vue()], resolve: { dedupe: ["vue"] }, root, server: { host: "127.0.0.1", port: 0 } })
 await server.listen()
 const base = server.resolvedUrls.local[0]
@@ -53,19 +45,16 @@ async function open(query, options = {}) {
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`${base}?${query}`)
-  // The first page waits for Vite to transform the sources, which takes long on a busy machine.
   await page.locator("[data-slot=comment-send]").first().waitFor({ state: "attached", timeout: 120_000 })
   await page.evaluate(() => document.fonts.ready)
   return { page, errors, close: () => context.close() }
 }
 
-/** The pill's toolbar and the Send segment, as the person sees them. */
 async function measure(page) {
   return page.evaluate(() => {
     const pill = document.querySelector("vitehub-pill")?.shadowRoot?.querySelector("[role=toolbar]") ?? document.querySelector(".app-pill")
     const segment = document.querySelector("vitehub-tool")?.shadowRoot?.querySelector("[data-slot=comment-send]") ?? document.querySelector("[data-slot=comment-send]")
     const rows = new Set([...segment.querySelectorAll("[data-slot=comment-send-content] > *")].map(item => Math.round(item.getBoundingClientRect().top)))
-    // What the person reads: the hidden copy of Send N that holds the width of Sending is not text.
     const visible = segment.cloneNode(true)
     for (const copy of visible.querySelectorAll("[data-slot=comment-send-hold-copy]")) copy.remove()
     return { text: visible.textContent, state: segment.dataset.state, pill: pill.getBoundingClientRect().height, rows: rows.size, width: segment.getBoundingClientRect().width }

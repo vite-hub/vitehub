@@ -258,7 +258,8 @@ describe("env declarations", () => {
   it("reports the declaration diagnostic when any option read throws", () => {
     for (const property of ["optional", "required", "schema", "default", "source", "mode", "secret", "type"]) {
       const options = new Proxy({}, {
-        ownKeys: () => [],
+        ownKeys: () => [property],
+        getOwnPropertyDescriptor: () => ({ configurable: true, enumerable: true }),
         get: (_, key) => {
           if (key === property) throw new Error("boom")
           return undefined
@@ -303,6 +304,22 @@ describe("env declarations", () => {
     expect(() => env({ required: true } as never)).toThrow("does not accept required")
     expect(() => env({ optional: true, required: true } as never)).toThrow("does not accept required")
     expect(() => env.boolean({ default: false, optional: true } as never)).toThrow("cannot use both optional and default")
+  })
+
+  it("rejects options that env() does not know", () => {
+    expect(() => env({ secret: true, description: "API token" } as never)).toThrow("env() does not accept description.")
+    expect(() => env.number({ min: 1 } as never)).toThrow("env() does not accept min.")
+  })
+
+  it("keeps non-enumerable declaration options", () => {
+    const source = env.source("ENV_TOKEN")
+    const options = Object.defineProperties({}, {
+      default: { value: "fallback" },
+      secret: { value: true },
+      source: { value: source },
+    })
+    expect(env(options)).toMatchObject({ default: "fallback", secret: true, source })
+    expect(() => env(Object.defineProperty({}, "required", { value: true }))).toThrow("does not accept required")
   })
 
   it("reads the canonical name before the inferred path name", () => {
@@ -430,7 +447,6 @@ describe("env declarations", () => {
     })
     expect(await github.git.commit()).toBe("github-sha")
     expect(await github.git.tag()).toBe("v1.2.3")
-    // A tag push sets GITHUB_REF_NAME to the tag, so the branch comes from Git.
     await expect(github.git.branch()).rejects.toThrow()
 
     const githubBranch = createSourceContext({
@@ -440,7 +456,6 @@ describe("env declarations", () => {
     })
     expect(await githubBranch.git.branch()).toBe("main")
 
-    // A pull request sets GITHUB_REF_NAME to "<number>/merge" and GITHUB_HEAD_REF to the source branch.
     const githubPullRequest = createSourceContext({
       env: { GITHUB_HEAD_REF: "feature", GITHUB_REF_NAME: "12/merge", GITHUB_REF_TYPE: "branch" },
       mode: "build",

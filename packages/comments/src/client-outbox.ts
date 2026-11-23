@@ -453,7 +453,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       }
       else {
         const threadId = realId(entry.input.threadId)
-        const subject = entry.subject ?? serverThread(threadId)?.subject ?? (files.files?.length ? (await host.transport.get({ id: threadId }))?.subject : undefined)
+        const subject = entry.subject ?? serverThread(threadId)?.subject ?? (files.files?.length ? (await host.transport.get({ threadId }))?.subject : undefined)
         if (files.files?.length && !subject) throw Object.assign(new Error("The thread for this reply does not exist."), { status: 404 })
         if (!await withClaim(() => true)) return
         writing = true

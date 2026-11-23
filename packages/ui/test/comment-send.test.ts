@@ -10,7 +10,6 @@ const UIcon = defineComponent({ props: { name: String }, setup: (props) => () =>
 const t3: CommentSendAgent = { name: "T3 Code", logo: "t3", host: "relay.t3.codes" };
 const retryAt = new Date(2026, 10, 19, 15, 10).getTime();
 
-/** A client whose state the test sets, and that records the presses. */
 function stubClient(initial: CommentSendState) {
   let state = initial;
   const listeners = new Set<() => void>();
@@ -56,7 +55,6 @@ describe("CommentSend", () => {
     const { client } = stubClient(state);
     const send = mount(CommentSend, { global: { components: { UIcon } }, props: { client } });
     expect(send.attributes()).toMatchObject({ "data-slot": "comment-send", "data-state": state.status, role: "group" });
-    // The hidden copy of Send N that holds the width of Sending is not text that a person reads.
     send.findAll("[data-slot=comment-send-hold-copy]").forEach(copy => copy.element.remove());
     expect(send.text()).toBe(text);
     send.unmount();
@@ -93,7 +91,6 @@ describe("CommentSend", () => {
     await send.find("[data-action=cancel]").trigger("click");
     expect(client.cancel).toHaveBeenCalledOnce();
 
-    // Escape cancels too, from anywhere on the page.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
     expect(client.cancel).toHaveBeenCalledTimes(2);
 
@@ -106,14 +103,12 @@ describe("CommentSend", () => {
     await send.vm.$nextTick();
     const open = send.find("a[data-action=open]");
     expect(open.attributes()).toMatchObject({ href: "https://app.t3.codes/threads/42", target: "_blank", "aria-label": "Open the T3 Code thread" });
-    // A new comment brings Send 1 back beside Working.
     expect(send.find("[data-action=send]").text()).toBe("Send1");
 
     set({ status: "failed", count: 2, reason: "The relay answered 502." });
     await send.vm.$nextTick();
     await send.find("[data-action=retry]").trigger("click");
     expect(client.send).toHaveBeenCalledTimes(2);
-    // Escape does nothing outside pairing.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
     expect(client.cancel).toHaveBeenCalledTimes(2);
     send.unmount();

@@ -26,7 +26,6 @@ afterEach(async () => {
 
 const databaseUrl = "file:.vitehub/data/database/sqlite.db"
 
-/** Runs SQL on the local database file, as another tool left it. */
 async function seedDatabase(rootDir: string, sql: string) {
   await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
   const client = createClient({ url: `file:${join(rootDir, ".vitehub/data/database/sqlite.db")}` })
@@ -680,7 +679,6 @@ describe("vitehub database migrate", () => {
     await expect(project.run("generate", ["--custom", "--name", "seed"])).resolves.toMatchObject({ exitCode: 0 })
     const [, seed] = await migrationTags(migrationsDir)
     const file = join(migrationsDir, seed!, "migration.sql")
-    // Written by hand as one script, as Wrangler and the SQLite shell run it. The trigger body has its own semicolon.
     const sql = [
       await readFile(file, "utf8"),
       "CREATE TABLE `note_events` (`note_id` integer);",
@@ -692,10 +690,8 @@ describe("vitehub database migrate", () => {
     await writeFile(file, sql)
     const config = { databaseNames: ["default"], databases: { default: project.database }, rootDir: project.rootDir } as unknown as ResolvedDBViteConfig
 
-    // Migrate on start runs the statements that the build reads.
     const shipped = JSON.parse(renderShippedMigrationsModule(config, { allowDataLoss: false }).replace(/^export default /, ""))
     expect(shipped.databases.default.migrations[1].statements).toHaveLength(4)
-    // Test mode applies the folder to an in-memory database.
     const testClient = createTestDatabaseClient(project.rootDir, "migrations")
     try {
       await expect(testClient.execute("SELECT note_id FROM note_events ORDER BY note_id")).resolves.toMatchObject({ rows: [{ note_id: 1 }, { note_id: 2 }] })

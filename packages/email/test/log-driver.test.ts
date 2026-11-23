@@ -11,7 +11,7 @@ import { hubEmail } from "../src/vite.ts"
 
 import type { EmailDefinition, EmailMessage } from "../src/types.ts"
 
-type ConfigHook = (config: Record<string, unknown>, env?: { command: "build" | "serve", mode: string }) => Promise<unknown>
+type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []
@@ -35,7 +35,6 @@ async function generatedDefinition(options: Parameters<typeof hubEmail>[0], comm
   await (plugin.configResolved as ConfigResolvedHook)({ root })
   const handler = plugin.api.getDefinition()!.handler
   const code = await readFile(handler, "utf8")
-  // A Cloudflare definition imports `cloudflare:workers`, which Node cannot load, so the test reads its source.
   if (hosting === "cloudflare") return { code }
   const module: { definition: EmailDefinition & { canSend?: boolean } } = await import(`${pathToFileURL(handler).href}?${command}`)
   return { code, definition: module.definition }

@@ -72,7 +72,6 @@ describe("member pairing", () => {
     expect(allowed).toMatchObject({ status: "allowed", endpoint: { owner: "user_ana", ownerName: "Ana", name: "t3 thread", kind: "url", host: "relay.t3.codes", address: thread } })
     expect((await getMemberEndpoint("user_ana", { address: thread }))[1]?.address).toBe(thread)
     expect(await allowMemberPairing("user_ana", code, { name: "again" })).toEqual([undefined, { status: "expired" }])
-    // Neither the code, the secret, nor the relay token is stored in plain text.
     const stored = JSON.stringify((await client.execute("SELECT * FROM vitehub_webhook_pairings")).rows)
     for (const value of [code, secret, "relay-token-7c1d"]) expect(stored).not.toContain(value)
   })

@@ -6,32 +6,21 @@ import { expect, it } from "vitest"
 import { readDiagnosticCodes } from "../docs/modules/diagnostics/catalog.ts"
 
 const repoRoot = resolve(import.meta.dirname, "..")
-// One baseline file per package, so pull requests that change different packages edit different files.
-// One shared file made concurrent pull requests conflict and made the Babysitter rerun their checks.
 const baselineDir = join(import.meta.dirname, "fixtures/diagnostics-ratchet")
-// Lower the baseline after you remove plain errors or add fixes:
-// VITEHUB_UPDATE_DIAGNOSTICS_BASELINE=1 vp test --config vitest.config.ts test/diagnostics-ratchet.test.ts
-// A lower count never fails, so a PR that removes errors can merge before the baseline changes.
 const update = process.env.VITEHUB_UPDATE_DIAGNOSTICS_BASELINE === "1"
 
-/** A plain error that the reader of an app sees has no code, fix, or docs link. */
 const rawErrors = /\bthrow\s+new\s+(?:Error|TypeError|RangeError|SyntaxError)\s*\(|\bclass\s+\w+\s+extends\s+(?:Error|TypeError|RangeError|SyntaxError)\b/g
-/** A call of `invariant()` or `invariantError()` from `@vite-hub/internal/invariant`: a state that only a ViteHub bug can reach. */
 const invariantCalls = /\binvariant(?:Error)?\(/g
 
 interface Baseline {
-  /** Plain errors by source file. */
   rawErrors: Record<string, number>
-  /** Diagnostic codes without a `fix`. A list, so a fix for one code does not allow a new code without a fix. */
   codesWithoutFix: string[]
-  /** `INTERNAL_INVARIANT_FAILED` sites by source file, so each new one shows in review. */
   invariants: Record<string, number>
 }
 
 function sourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return []
   return readdirSync(dir, { recursive: true, withFileTypes: true })
-    // A `*.injected.ts` file holds source text that runs elsewhere, such as a CDP script or generated app code, so its errors stay plain.
     .filter(entry => entry.isFile() && /\.(?:[cm]?ts|vue)$/.test(entry.name) && !/\.(?:d|injected)\.ts$/.test(entry.name))
     .map(entry => join(entry.parentPath, entry.name))
 }
@@ -66,17 +55,14 @@ function sortKeys(record: Record<string, number>): Record<string, number> {
   return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)))
 }
 
-/** Each key whose count differs from the baseline, with both counts. */
 function changes(current: Record<string, number>, baseline: Record<string, number>) {
   return [...new Set([...Object.keys(current), ...Object.keys(baseline)])]
     .filter(key => (current[key] ?? 0) !== (baseline[key] ?? 0))
     .map(key => ({ key, baseline: baseline[key] ?? 0, current: current[key] ?? 0 }))
 }
 
-/** The package folder of `packages/<pkg>/...`. */
 const packageOf = (file: string) => file.split("/")[1]!
 
-/** `baseline` split into one object per package; packages with no entries are left out. */
 function byPackage(baseline: Baseline): Map<string, Baseline> {
   const packages = new Map<string, Baseline>()
   const of = (pkg: string) => packages.get(pkg) ?? packages.set(pkg, { rawErrors: {}, codesWithoutFix: [], invariants: {} }).get(pkg)!
@@ -118,7 +104,7 @@ it("adds no plain errors to package sources", () => {
 
 it("adds no invariant without a baseline change", () => {
   const added = changes(current.invariants, baseline.invariants ?? {}).filter(change => change.current > change.baseline)
-  expect(added, "These files raise INTERNAL_INVARIANT_FAILED more often than test/fixtures/diagnostics-ratchet/<package>.json lists. Use it only for a state that a developer cannot cause; otherwise throw a code from the package catalog. Then update the baseline with the command at the top of this test.").toEqual([])
+  expect(added, "These files raise INTERNAL_INVARIANT_FAILED more often than test/fixtures/diagnostics-ratchet/<package>.json lists. Use it only for a state that a developer cannot cause; otherwise throw a code from the package catalog. Then update the baseline: VITEHUB_UPDATE_DIAGNOSTICS_BASELINE=1 vp test --config vitest.config.ts test/diagnostics-ratchet.test.ts").toEqual([])
 })
 
 it("adds no diagnostic codes without a fix", () => {

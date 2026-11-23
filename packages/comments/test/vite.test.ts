@@ -396,7 +396,6 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
     expect(contributions.map(contribution => contribution.name)).toEqual(send ? ["comments", "comment-sends"] : ["comments"])
     if (send) expect(contributions[1]).toMatchObject({ definition: { export: "commentSendsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", tables: commentSendsTableNames })
-    // Send turns on the member endpoints of Webhooks, and the plugin loads Webhooks on the first send.
     expect(await plugin.vitehub.webhooks({ root, projectRoot: root })).toEqual(send ? { memberEndpoints: true, reason: expect.stringContaining("agent") } : undefined)
     const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(generated.includes("webhooks: () => import(\"vite-hub/webhooks\")")).toBe(send)

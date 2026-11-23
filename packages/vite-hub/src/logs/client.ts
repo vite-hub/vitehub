@@ -19,7 +19,6 @@ export interface BrowserReportOptions {
  * the server, or when `browserErrors` is off, it does nothing.
  */
 export function reportBrowserError(error: unknown, options: BrowserReportOptions = {}): void {
-  // The page reporter of `browserErrors` sets this. Without it, there is nowhere to send the report.
   const report: unknown = Reflect.get(globalThis, Symbol.for("vite-hub.browserErrors"))
   if (typeof report === "function") report("handled", error, options)
 }

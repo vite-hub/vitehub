@@ -4,8 +4,6 @@ const dynamicError = {
   why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
 }
 
-// Each code identifies one ViteHub failure site. Keep published codes stable.
-// Retired codes. Do not reuse them: CLI_R0006, SETUP_CONSOLE_INVALID, SETUP_DEPLOY_SECRET_UNSUPPORTED, and SETUP_DEPLOY_SECRET_UNVERIFIED.
 export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/cli/diagnostics",
   codes: {
@@ -33,7 +31,6 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check that the Console stores env values, that the key opens the project, and that you are an owner or admin of the team.",
       why: ({ code, message }: { code?: unknown, message?: unknown }) => `The Console refused the pull (${String(code)}). ${String(message)}`,
     },
-    /** A host API answered with a shape that the CLI cannot read. */
     CLI_HOST_RESPONSE_INVALID: {
       fix: "Run the command again. If the error stays, check the status page of the host and update `@vite-hub/cli`.",
       why: ({ host }: { host: string }) => `[vitehub] The ${host} API returned an unexpected response.`,
@@ -48,7 +45,6 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Start `vite dev` in this project, or pass `--url <origin>` of a running or deployed app. `VITEHUB_DEV_SERVER_URL` also names a server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
-    /** A setup command failed with an error that has no code, and `--json` reports it. */
     CLI_SETUP_FAILED: {
       fix: "Fix the cause that the message names, then run the command again.",
       why: ({ message }: { message: string }) => message,
@@ -162,7 +158,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: () => "The project name is not known. vitehub() has no literal `name` and package.json has no name.",
     },
     SETUP_LINK_PROJECT_NOT_FOUND: {
-      fix: ({ rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
+      fix: ({ host, rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => host === "deno"
+        ? "Create the app in Deno Deploy first, then run `vitehub link --host deno`, or pass --project with the name of an existing app."
+        : `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
       why: ({ host, project, account }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `The ${String(host)} project ${JSON.stringify(String(project))} does not exist${account ? ` in account ${String(account)}` : ""}.`,
     },
     SETUP_INIT_DIR_NOT_EMPTY: {
@@ -236,7 +234,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         : `The app needs ${String(names)}, and neither ${String(host)} nor a local value for the ${String(stage)} stage has one. Nothing was deployed.`,
     },
     SETUP_DEPLOY_ENV_NOT_LINKED: {
-      fix: ({ host }: { host?: unknown, names?: unknown }) => `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
+      fix: ({ host }: { host?: unknown, names?: unknown }) => host === "deno"
+        ? "Create the app in Deno Deploy if needed, run `vitehub link --host deno`, then deploy again."
+        : `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
       why: ({ host, names }: { host?: unknown, names?: unknown }) => `The ${String(host)} project is not linked, so deploy cannot set ${String(names)} before the first deploy. Nothing was deployed.`,
     },
     SETUP_DEPLOY_ENV_STAGE_UNSAFE: {

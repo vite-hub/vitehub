@@ -265,7 +265,7 @@ import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentE
 interface CommentsTransport {
   supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;
-  get(input: CommentGetInput): Promise<CommentThread | null>; // { id } or { scope, n }
+  get(input: CommentGetInput): Promise<CommentThread | null>; // { threadId } or { scope, n }
   create(input: CommentCreateInput & CommentFiles): Promise<CommentThread>; // `files` to store before the comment
   reply(input: CommentReplyInput & CommentFiles): Promise<CommentThread>; // and `subject` of the thread, for the upload
   edit(input: CommentEditInput): Promise<CommentThread>;

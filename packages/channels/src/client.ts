@@ -20,50 +20,35 @@ function toError(cause: unknown): Error {
   }
 }
 
-function channelSendErrorMessage(error: Error): string {
+function unlessItThrows<T>(read: () => T): T | undefined {
   try {
-    const message = error.message
-    if (typeof message === "string") return message.slice(0, 2_000)
+    return read()
   }
   catch {
-    // Connector error getters and proxies can throw while reading the message.
+    return undefined
   }
-  return uninspectableSendErrorMessage
+}
+
+function channelSendErrorMessage(error: Error): string {
+  const message = unlessItThrows(() => error.message)
+  return typeof message === "string" ? message.slice(0, 2_000) : uninspectableSendErrorMessage
 }
 
 function logDelivery(event: string, deliveryId: string, channel: string, kind: string, extra?: () => Record<string, unknown>): void {
-  try {
-    console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() }))
-  }
-  catch {
-    // Logging must not change delivery results or encourage retrying a delivered message.
-  }
+  unlessItThrows(() => console.info(JSON.stringify({ scope: "vitehub.channel.send", event, deliveryId, channel, kind, ...extra?.() })))
 }
 
 function normalizeSendReceipt(result: object): ChannelSendReceipt {
   const entries: Array<[PropertyKey, unknown]> = []
-  try {
-    for (const key of Reflect.ownKeys(result)) {
-      if (key === "id") continue
-      try {
-        if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
-      }
-      catch {
-        // Optional metadata must not turn an accepted delivery into a retry.
-      }
-    }
-  }
-  catch {
-    // An adapter proxy can reject enumeration while still exposing its ID.
+  for (const key of unlessItThrows(() => Reflect.ownKeys(result)) ?? []) {
+    if (key === "id") continue
+    unlessItThrows(() => {
+      if (Object.prototype.propertyIsEnumerable.call(result, key)) entries.push([key, Reflect.get(result, key)])
+    })
   }
   const normalized: ChannelSendReceipt = Object.fromEntries(entries)
-  try {
-    const id: unknown = Reflect.get(result, "id")
-    if (typeof id === "string") normalized.id = id
-  }
-  catch {
-    // Delivery already succeeded. An inaccessible optional ID must not encourage a resend.
-  }
+  const id = unlessItThrows(() => Reflect.get(result, "id"))
+  if (typeof id === "string") normalized.id = id
   return normalized
 }
 
@@ -78,7 +63,6 @@ export function createChannel<TAdapter extends ChannelAdapter<never, never>>(
     name,
     async send(message: unknown, options?: unknown): Promise<Result<ChannelSendResult, ChannelErrorCode>> {
       const invalid = (detail: string): Result<ChannelSendResult, ChannelErrorCode> => [channelErrors.CHANNEL_INVALID_SEND({ detail }), undefined]
-      // Text must have content. The adapter checks the shape of an object message, such as a card.
       if (typeof message === "string" ? message.trim().length === 0 : (!message || typeof message !== "object" || Array.isArray(message))) {
         return invalid("Channel message must be non-empty text or an object that the adapter accepts.")
       }

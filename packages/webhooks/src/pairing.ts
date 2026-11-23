@@ -11,10 +11,8 @@ import type { CreateMemberEndpointErrorCode, MemberPairingErrorCode } from "./er
 /** How long a pairing code works: 10 minutes. */
 export const memberPairingLifetime = 10 * 60_000
 
-/** The agents that pair as an inbox, by the name that their pair post gives, such as `{ "code": "...", "inbox": "Codex" }`. */
 const inboxes = new Map([["Claude Code", "claude-code"], ["Codex", "codex"]])
 
-/** A T3 thread link as `t3_thread_read` gives it: `t3-thread://v2/<environmentId>/<threadId>`. */
 const t3ThreadLink = /^t3-thread:\/\/v2\/[\w.~-]{1,128}\/[\w.~:-]{1,256}$/
 
 /**
@@ -47,7 +45,6 @@ export type MemberPairResult =
 const hex = (bytes: ArrayBuffer | Uint8Array) => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("")
 const random = (bytes: number) => hex(crypto.getRandomValues(new Uint8Array(bytes)))
 
-/** Twelve letters and digits without look-alikes, as `K7QM-4XPA-9RTC`: 60 bits, read aloud without mistakes. */
 function pairingCode(): string {
   const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
   const bytes = crypto.getRandomValues(new Uint8Array(12))
@@ -55,7 +52,6 @@ function pairingCode(): string {
   return `${letters.slice(0, 4)}-${letters.slice(4, 8)}-${letters.slice(8)}`
 }
 
-/** The key of a pairing code: its hash, so the Database never holds a code that works. */
 async function codeKey(code: string): Promise<string> {
   return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`vitehub:webhooks:pairing:${code.trim().toUpperCase()}`)))
 }
@@ -71,7 +67,6 @@ function storeError(error: unknown): ResultError<"WEBHOOKS_DATABASE_MISSING" | "
   throw error
 }
 
-/** The fields of the JSON that pairing sealed itself. */
 function sealedFields(text: string): { secret: string, url?: string } {
   const value: unknown = JSON.parse(text)
   const secret = typeof value === "object" && value !== null ? Reflect.get(value, "secret") : undefined
@@ -229,7 +224,6 @@ export async function allowMemberPairing(owner: string, code: string, options: A
   let used: StoredMemberPairing | undefined
   try {
     const row = await endpoints.pairing(id)
-    // Only the member who minted the code may allow the agent that used it.
     if (row && row.owner !== owner) return [undefined, { status: "not-owner" }]
     if (!row) return [undefined, { status: "expired" }]
     used = await endpoints.movePairing(id, "paired", "used", Date.now())

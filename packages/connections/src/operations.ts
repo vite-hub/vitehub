@@ -6,7 +6,7 @@ import { isConnectionError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { errorStatus } from "./internal/http-routes.ts"
 import { CONNECTIONS_ROUTE } from "./route.ts"
-import { CONNECTION_NAME_MAX_LENGTH } from "./types.ts"
+import { connectionNameSchema } from "./types.ts"
 
 import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ConnectionInspection, ConnectionStatus } from "./types.ts"
@@ -18,6 +18,7 @@ export interface ConnectionsConsoleItem {
   connectedAt?: number
   credential: ConnectionInspection["credential"]
   expiresAt?: number
+  keyError?: ConnectionInspection["keyError"]
   /** Declared scopes that the grant lacks. */
   missingScopes: string[]
   name: string
@@ -32,12 +33,10 @@ async function runtime() {
   return (await import("./runtime/state.ts")).getConnectionsRuntime()
 }
 
-/** The manager of a Console call, as Connections records it. A Console without accounts, in development, is `user:local`. */
 function manager(context: OperationContext): string {
   return `user:${context.user?.id ?? "local"}`
 }
 
-/** A Connections error keeps its HTTP status, so the Console shows the message and fix of the code. */
 async function withStatus<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run()
@@ -60,6 +59,7 @@ function item(connection: ConnectionInspection): ConnectionsConsoleItem {
     ...(connection.connectedAt ? { connectedAt: time(connection.connectedAt) } : {}),
     credential: connection.credential,
     ...(connection.expiresAt ? { expiresAt: time(connection.expiresAt) } : {}),
+    ...(connection.keyError ? { keyError: connection.keyError } : {}),
     missingScopes: connection.scopes.missing,
     name: connection.name,
     provider: connection.provider,
@@ -69,11 +69,10 @@ function item(connection: ConnectionInspection): ConnectionsConsoleItem {
 }
 
 function defineConnectionsOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section">): OperationDefinition<Input, Output> {
-  // `vitehub connections` is the Connections CLI, so these operations serve the Console and MCP.
   return defineOperation({ ...definition, run: (input, context) => withStatus(async () => await definition.run(input, context)), section: "connections" })
 }
 
-const name = v.pipe(v.string(), v.minLength(1), v.maxLength(CONNECTION_NAME_MAX_LENGTH), v.description("The Connection name, such as github or portal:acme."))
+const name = v.pipe(connectionNameSchema, v.description("The Connection name, such as github or portal:acme."))
 
 const list = defineConnectionsOperation<Record<string, never>, ConnectionsConsoleItem[]>({
   description: "List the Connections of the app with their status and account.",
@@ -92,7 +91,6 @@ const connect = defineConnectionsOperation<{ name: string }, { expiresAt: string
   name: "connections.connect",
   run: async (input, context) => {
     const request = context.request
-    // The provider sends the browser to the app's own callback, never to the Console.
     const origin = request ? resolvePublicUrl({ request }) : undefined
     if (!request || !origin) throw connectionsErrorDiagnostics.CONNECTIONS_ORIGIN_REJECTED({ problem: "origin" })
     const { pathname } = new URL(request.url)

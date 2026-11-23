@@ -106,7 +106,6 @@ describe("@vite-hub/runtime/internal/h3", () => {
       return event["~standard"].runtime?.clientAddress
     }
     const request = (fields: Record<string, unknown>) => Object.assign(new Request("http://localhost/"), fields)
-    // A host adapter sets `request.context.clientAddress`, as H3 2's getRequestIP() reads it.
     expect(h3V2(request({ context: { clientAddress: "203.0.113.7" } }))).toBe("203.0.113.7")
     expect(h3V2(request({ ip: "203.0.113.8" }))).toBe("203.0.113.8")
     expect(h3V2(request({ runtime: { node: { req: { socket: { remoteAddress: "203.0.113.9" } } } } }))).toBe("203.0.113.9")

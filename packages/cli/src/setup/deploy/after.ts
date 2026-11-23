@@ -98,7 +98,6 @@ export function rollbackFor(host: DeployHost, input: { previous: HostDeployment 
 
 const xmlEntities: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", quot: "\"" }
 
-/** Text of an XML element: CDATA kept as it is, named and numeric character references decoded. */
 function decodeXml(text: string): string {
   return text.split(/(<!\[CDATA\[[\s\S]*?\]\]>)/u).map(part => part.startsWith("<![CDATA[")
     ? part.slice(9, -3)
@@ -113,9 +112,7 @@ function locations(xml: string): string[] {
   return [...xml.matchAll(/<loc>([\s\S]*?)<\/loc>/gu)].map(match => decodeXml(match[1]!)).filter(Boolean)
 }
 
-/** IndexNow takes at most 10,000 URLs in one request. */
 const indexNowBatch = 10_000
-/** A sitemap index may list sitemaps on other paths. Read at most this many. */
 const nestedSitemapLimit = 50
 
 /**

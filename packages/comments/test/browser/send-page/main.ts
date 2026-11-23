@@ -1,5 +1,3 @@
-// The real ViteHub page pill with the real comments overlay in its `comments` segment, as the page tools loader mounts
-// them. The test server answers the Comments API, with Send on.
 import { mountViteHubPagePill, viteHubPageSvgIcon } from "../../../../internal/src/runtime/page-pill.ts"
 import start from "../../../src/overlay/index.ts"
 

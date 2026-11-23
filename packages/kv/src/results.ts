@@ -1,5 +1,3 @@
-/** Results of the `kv.*` operations, as `vitehub kv` and the Console read them. */
-
 /** Largest `--limit` of one `list` page. */
 export const kvDevMaximumListLimit = 1_000
 /** Default `--limit` of one `list` page. */

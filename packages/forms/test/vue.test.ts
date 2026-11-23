@@ -7,7 +7,6 @@ import { renderToString } from "vue/server-renderer"
 import { createMemoryFormsStore, defineForm, handleFormRequest } from "../src/index.ts"
 import { AutoForm, describeFormFields } from "../src/vue.ts"
 
-// `@vite-hub/forms/vue` works without Formisch. Only `@vite-hub/forms/formisch` needs it.
 vi.mock("@formisch/vue", () => {
   throw new Error("@vite-hub/forms/vue must not load @formisch/vue")
 })
@@ -34,7 +33,6 @@ describe("describeFormFields", () => {
       ["notes", "textarea", undefined, true],
     ])
     expect(() => describeFormFields(v.string())).toThrow("Valibot object schema")
-    // A TypeScript numeric enum has reverse keys. The select lists only its values, with their type.
     enum Size { Small = 1, Large = 2 }
     expect(describeFormFields(v.object({ size: v.enum(Size), count: v.picklist([1, 2]) })).map(field => field.options)).toEqual([[1, 2], [1, 2]])
   })
@@ -65,8 +63,8 @@ describe("AutoForm", () => {
     }
     const submit = async () => {
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
-      // AutoForm checks the schema before it sends, so let that run first.
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await nextTick()
+      expect(root.querySelector("button")?.getAttribute("aria-disabled")).toBe("true")
       await vi.waitFor(async () => {
         await nextTick()
         if (root.querySelector("button")?.getAttribute("aria-disabled") === "true") throw new Error("still sending")
@@ -96,9 +94,7 @@ describe("AutoForm", () => {
     expect(root.querySelector("[data-field=message] :is(input, select, textarea)")?.tagName).toBe("TEXTAREA")
     const message = root.querySelector("[data-field=message] :is(input, select, textarea)")!
     expect(root.querySelector(`#${message.getAttribute("aria-describedby")}`)?.textContent).toBe("A few lines is plenty.")
-    // Without JavaScript, or before it loads, the form posts to its route.
     expect([root.querySelector("form")?.getAttribute("method"), root.querySelector("form")?.getAttribute("action")]).toEqual(["post", "/_vitehub/forms/contact"])
-    // The live region is there before the message, so screen readers announce it.
     expect(root.querySelector("[role=status]")?.textContent).toBe("")
     expect(root.querySelector("input[name=website]")?.getAttribute("tabindex")).toBe("-1")
     expect(root.querySelector("button[type=submit]")?.textContent).toBe("Send")
@@ -107,7 +103,6 @@ describe("AutoForm", () => {
   it("shows client errors under each field and sends nothing", async () => {
     const { root, store, submit, type } = await mount()
     await type("[data-field=email] :is(input, select, textarea)", "nope")
-    // When focus arrives, the field already points to its error, so a screen reader reads it.
     const described: (string | null)[] = []
     root.querySelector("[data-field=email] input")!.addEventListener("focus", event => described.push((event.target as Element).getAttribute("aria-describedby")))
     await submit()
@@ -115,26 +110,19 @@ describe("AutoForm", () => {
     expect(described.at(-1)).toContain("-error")
     expect(root.querySelector("[data-field=email] [data-error]")?.textContent).toBe("Enter a valid email.")
     expect(root.querySelector("[data-field=email] :is(input, select, textarea)")?.getAttribute("aria-invalid")).toBe("true")
-    // One announcement: focus goes to the field, which reads its error. Field errors are not alerts.
     expect(root.querySelectorAll("[data-field] [role=alert]")).toHaveLength(0)
     expect(await store.list()).toEqual([])
-    // The form is submitted, so fixing the field clears its error as the user types.
     await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
     await vi.waitFor(() => expect(root.querySelector("[data-field=email] [data-error]")).toBeNull())
     expect(root.querySelector("[data-field=email] input")?.hasAttribute("aria-invalid")).toBe(false)
   })
 
   it("renders the result of a post without JavaScript on the server", async () => {
-    // No mount on the server: the route query comes in as `result`.
     const html = await renderToString(createSSRApp(AutoForm, { name: "contact", schema: ContactSchema, result: "contact.error" }))
     expect(html).toContain("The message was not sent. Check the form and try again.")
-    // Until the app runs, the browser checks `required` and `type` itself.
     expect(html).not.toContain("novalidate")
-    // A number input allows decimals, as `v.number()` does.
     expect(await renderToString(createSSRApp(AutoForm, { name: "contact", schema: v.object({ price: v.number() }) }))).toContain('step="any"')
-    // The browser checks lengths too, so a short message is not lost to a round trip.
     expect(html).toContain('minlength="5"')
-    // An empty select shows "Choose one", not its first option, before the app runs.
     expect(html).toMatch(/<option value(="")? disabled selected>Choose one<\/option>/)
     expect(html).not.toMatch(/<option value="bug" selected/)
   })
@@ -164,9 +152,7 @@ describe("AutoForm", () => {
       const { root, type, element } = await mount()
       await nextTick()
       expect(root.querySelector("[role=status]")?.textContent).toBe("The message was not sent. Check the form and try again.")
-      // The page loads at the top, so focus moves to the result. The app's own checks take over.
       expect(document.activeElement).toBe(root.querySelector("[role=status]"))
-      // A reload must not show it again.
       expect(location.search).toBe("")
       expect(root.querySelector("form")?.hasAttribute("novalidate")).toBe(true)
       await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
@@ -174,7 +160,6 @@ describe("AutoForm", () => {
       await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
       await nextTick()
-      // The old result goes away, and the label does not change, so the button keeps its width.
       expect(root.querySelector("[role=status]")?.textContent).toBe("")
       expect(root.querySelector("button")?.textContent).toBe("Send")
     }
@@ -189,17 +174,14 @@ describe("AutoForm", () => {
     await type("[data-field=topic] :is(input, select, textarea)", "idea")
     await type("[data-field=message] :is(input, select, textarea)", "Add dark mode.")
     await submit()
-    // An unchecked optional box is `false`, as in a post without JavaScript.
     expect((await store.list()).map(row => row.data)).toEqual([{ email: "ada@example.com", topic: "idea", message: "Add dark mode.", newsletter: false }])
     expect(root.querySelector("[data-sent]")?.textContent).toBe("Thanks. Your message was sent.")
     expect(sent).toHaveBeenCalledWith(expect.any(String))
-    // A success empties the fields.
     expect(root.querySelector<HTMLInputElement>("[data-field=email] input")?.value).toBe("")
     expect(root.querySelector<HTMLSelectElement>("[data-field=topic] select")?.value).toBe("")
   })
 
   it("sends an unchecked box as false, a number option as a number, and the input before transforms", async () => {
-    // The server parses the text again, so the client must send the text, not the number of `toNumber()`.
     const schema = v.object({
       age: v.pipe(v.string(), v.toNumber()),
       count: v.picklist([1, 2]),
@@ -227,7 +209,6 @@ describe("AutoForm", () => {
     await type("[data-field=count] select", "2")
     await type("[data-field=message] textarea", " Hello ")
     const form = element<HTMLFormElement>("form")
-    // FormData reads the successful HTML controls without using the submit listener.
     const body = new URLSearchParams()
     for (const [key, value] of new FormData(form)) body.append(key, String(value))
     expect(Object.fromEntries(body)).toEqual({ age: "42", count: "2", message: " Hello ", extra: "", size: "", website: "" })
@@ -243,7 +224,6 @@ describe("AutoForm", () => {
   })
 
   it("keeps the labels of two forms with one name apart", async () => {
-    // One app with the form twice, such as in the footer and in a dialog.
     const root = document.createElement("div")
     document.body.append(root)
     createApp({ render: () => [h(AutoForm, { name: "contact", schema: ContactSchema }), h(AutoForm, { name: "contact", schema: ContactSchema })] }).mount(root)
@@ -265,7 +245,6 @@ describe("AutoForm", () => {
   })
 
   it("shows that it is busy while a slow check runs, and sends one message for two clicks", async () => {
-    // The check waits until the test releases it, then passes at once, as the second validation of handleSubmit runs it again.
     let released = false
     const waiting: Array<() => void> = []
     const release = () => {
@@ -300,7 +279,6 @@ describe("AutoForm", () => {
     await vi.waitFor(() => expect(root.querySelector("button")?.hasAttribute("aria-busy")).toBe(false))
     expect(await store.list()).toEqual([])
     expect(sent).not.toHaveBeenCalled()
-    // A fresh click may submit the current input.
     await submit()
     expect((await store.list()).map(row => row.data)).toEqual([{ message: restore ? "Clicked value" : "Edited after click" }])
   })
@@ -312,7 +290,6 @@ describe("AutoForm", () => {
       const root = document.createElement("div")
       document.body.append(root)
       const app = createApp(AutoForm, { name: "contact", schema: ContactSchema })
-      // The router keeps its own copy of the address, so native history would come back on the next navigation.
       app.config.globalProperties.$router = { currentRoute: { value: { query: { plan: "pro", form: "contact.sent" }, hash: "#top" } }, isReady: async () => {}, replace }
       app.mount(root)
       await nextTick()
@@ -365,18 +342,15 @@ describe("AutoForm", () => {
   })
 
   it("puts a server issue under its field", async () => {
-    // The server is stricter than the client, as when a server rule changes first.
     const strict = v.object({ ...ContactSchema.entries, message: v.pipe(v.string(), v.minLength(50, "Tell us more on the server.")) })
     const { root, store, submit, type } = await mount(strict)
     await type("[data-field=email] :is(input, select, textarea)", "ada@example.com")
     await type("[data-field=topic] :is(input, select, textarea)", "bug")
     await type("[data-field=message] :is(input, select, textarea)", "Short but valid here.")
-    // When focus arrives, the field already points to its error, so a screen reader reads it.
     const described: (string | null)[] = []
     root.querySelector("[data-field=message] textarea")!.addEventListener("focus", event => described.push((event.target as Element).getAttribute("aria-describedby")))
     await submit()
     expect(root.querySelector("[data-field=message] [data-error]")?.textContent).toBe("Tell us more on the server.")
-    // Focus moves to the field, as with a client error.
     expect(document.activeElement).toBe(root.querySelector("[data-field=message] textarea"))
     expect(described.at(-1)).toContain("-error")
     expect(await store.list()).toEqual([])

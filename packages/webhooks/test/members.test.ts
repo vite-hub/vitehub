@@ -12,7 +12,6 @@ import type { Client } from "@libsql/client"
 import type { RequestOptions } from "node:https"
 import type { WebhookWake } from "../src/runtime.ts"
 
-// Names that the guard resolves. A real lookup would make the test depend on the network.
 vi.mock("node:dns/promises", () => {
   const records: Record<string, string[]> = {
     "relay.t3.codes": ["104.21.3.218", "2606:4700:3035::ac43:999b"],
@@ -41,9 +40,7 @@ interface Received {
 }
 
 const secret = "whsec_member_secret"
-// The token stands for the T3 relay token in the URL. No stored row may hold it.
 const token = "relay-token-7c1d"
-// A public address in TEST-NET-3. The receiver is stubbed.
 const publicHost = "203.0.113.10"
 const endpointUrl = `https://${publicHost}/hooks/abc?token=${token}`
 
@@ -184,7 +181,6 @@ describe("checkWebhookUrl", () => {
 
   it("refuses a name that resolves to a private address", async () => {
     expect((await checkWebhookUrl("https://intranet.example.com/hook"))[0]?.message).toContain("resolves to a private address")
-    // One private address among public ones is enough to refuse.
     expect((await checkWebhookUrl("https://rebind.example.com/hook"))[0]?.message).toContain("resolves to a loopback address")
     expect((await checkWebhookUrl("https://metadata.example.com/hook"))[0]?.message).toContain("metadata")
     expect((await checkWebhookUrl("https://missing.example.com/hook"))[0]?.message).toContain("does not resolve")
@@ -194,7 +190,6 @@ describe("checkWebhookUrl", () => {
     expect((await checkWebhookUrl("http://relay.t3.codes/hook"))[0]?.message).toContain("does not use https")
     expect((await checkWebhookUrl("https://user:pass@relay.t3.codes/hook"))[0]?.message).toContain("user name or a password")
     expect((await checkWebhookUrl("https://evil.example.com/hook", { hosts: ["relay.t3.codes"] }))[0]?.message).toContain("is not relay.t3.codes")
-    // A subdomain of an allowed host is another host.
     expect((await checkWebhookUrl("https://x.relay.t3.codes/hook", { hosts: ["relay.t3.codes"] }))[0]).toMatchObject({ code: "WEBHOOKS_URL_REFUSED" })
   })
 
@@ -309,7 +304,6 @@ describe("member endpoints", () => {
     expect(received).toHaveLength(2)
     expect(received[1]!.headers["x-vitehub-delivery"]).toBe(sent!.id)
     expect((await getWebhookDelivery(sent!.id))[1]).toMatchObject({ state: "sent", attempts: 2 })
-    // While the delivery waits or after it is sent, the same key posts nothing.
     expect(await sendToMemberEndpoint("user_ana", { n: 2 }, { event: "comments.send", key: "queued" })).toEqual([undefined, { id: sent!.id, status: "sent" }])
   })
 
@@ -324,7 +318,6 @@ describe("member endpoints", () => {
 
   it("keeps one endpoint per address, sends to the one with the send's address, and else to the newest", async () => {
     const threadA = "t3-thread://v2/env-1/thread-a"
-    // A millisecond apart, so the inbox is the newest endpoint.
     const now = Date.now()
     vi.useFakeTimers({ toFake: ["Date"] })
     vi.setSystemTime(now)
@@ -347,7 +340,6 @@ describe("member endpoints", () => {
     expect(toNewest?.status).toBe("inbox")
     expect(received).toHaveLength(1)
 
-    // Pairing thread A again replaces its endpoint and leaves the inbox.
     const [, again] = await createMemberEndpoint({ owner: "user_ana", name: "Thread A", agent: "t3", address: threadA, kind: "url", url: endpointUrl, secret, hosts: [publicHost] })
     expect((await client.execute("SELECT id FROM vitehub_webhook_endpoints ORDER BY id")).rows.map(row => row.id).toSorted()).toEqual([again!.id, inbox!.id].toSorted())
   })
@@ -355,7 +347,6 @@ describe("member endpoints", () => {
   it("lists the deliveries of the endpoint a send reaches, newest first, page by page", async () => {
     expect(await listMemberDeliveries("user_mei")).toEqual([undefined, null])
     const [, endpoint] = await createMemberEndpoint({ owner: "user_mei", name: "Codex", agent: "codex", kind: "inbox" })
-    // One millisecond apart, so newest first is one order.
     vi.useFakeTimers({ toFake: ["Date"] })
     for (const n of [1, 2, 3]) {
       vi.setSystemTime(1_800_000_000_000 + n)
@@ -379,7 +370,6 @@ describe("member endpoints", () => {
     expect((await listWebhookDeliveries({ owner: "user_tom", webhook: `@${endpoint!.id}` }))[1]).toEqual([])
     await removeMemberEndpoint("user_mei", endpoint!.id)
     expect((await sendToMemberEndpoint("user_mei", {}, { event: "comments.send", key: "removed", endpointId: endpoint!.id }))[0]?.code).toBe("WEBHOOKS_ENDPOINT_NOT_FOUND")
-    // Another member's deliveries stay theirs.
     await connect("user_tom")
     expect((await listMemberDeliveries("user_tom"))[1]?.deliveries).toEqual([])
   })
@@ -420,7 +410,6 @@ describe("member endpoints", () => {
     process.env.VITEHUB_WEBHOOKS_KEY = btoa("a".repeat(32))
     await connect("user_ana")
     await connect("user_tom")
-    // A sealed URL copied to another member's row does not open there.
     await client.execute("UPDATE vitehub_webhook_endpoints SET sealed = (SELECT sealed FROM vitehub_webhook_endpoints WHERE owner = 'user_ana') WHERE owner = 'user_tom'")
     expect((await sendToMemberEndpoint("user_tom", {}, { event: "comments.send", key: "copied" }))[0]).toMatchObject({ code: "WEBHOOKS_KEY_INVALID" })
     process.env.VITEHUB_WEBHOOKS_KEY = btoa("b".repeat(32))

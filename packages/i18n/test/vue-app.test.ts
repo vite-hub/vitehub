@@ -49,7 +49,6 @@ async function cliWith(workspace: string | undefined, ...args: string[]): Promis
 }
 
 beforeAll(async () => {
-  // Inside the package, so the copy resolves `vue` from the package dependencies.
   await mkdir(join(packageRoot, "test/.tmp"), { recursive: true })
   root = await mkdtemp(join(packageRoot, "test/.tmp/vue-app-"))
   await cp(fixture, root, { recursive: true })
@@ -91,7 +90,6 @@ describe("a Vue app with messages in templates and scripts", () => {
     const status = await inspectI18n(linguiConfig())
     expect(status.locales[1]).toMatchObject({ translated: 0, missing: 7, problems: [] })
     const { records } = await readRecords(join(root, "locales"), "es")
-    // The server keeps the source descriptor; the browser gets the source from its build catalog.
     expect(compileMessages(records)).not.toHaveProperty(id)
     expect(compileMessages(records, status.messages)[id]).toEqual(compileMessages({}, status.messages)[id])
   })
@@ -148,7 +146,6 @@ describe("a Vue app with messages in templates and scripts", () => {
   })
 
   it("compiles messages to IDs and keeps the source text out of the app code", async () => {
-    // Vitest sets NODE_ENV=test, and Vite drops message text only in production builds.
     const nodeEnv = process.env.NODE_ENV
     process.env.NODE_ENV = "production"
     await build({
@@ -171,12 +168,10 @@ describe("a Vue app with messages in templates and scripts", () => {
     expect(app.code).not.toContain("Search agents")
     expect(app.code).not.toContain("Deploy finished")
     expect(app.code).toContain(`id: "${messageId("Deploy your agent")}"`)
-    // `<script setup>` imports the `t` macro, so the template `t` needs a runtime binding after the build removes it.
     expect(app.code).not.toContain("Changes saved")
     expect(app.code).toContain("translateInTemplate")
     expect(spanish, "the Spanish catalog is its own chunk").toBeDefined()
     expect(spanish!.file).not.toBe(app.file)
-    // A message without a translation falls back to its source text, even though `extract` never ran.
     expect(spanish!.code).toContain("Deploy finished")
     expect(spanish!.code).toContain("Changes saved")
     expect(spanish!.code).not.toContain("__VITEHUB_I18N_CATALOG_")

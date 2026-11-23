@@ -244,7 +244,6 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
       },
     },
   ]
-  // With Send on, the member's agent reads what they sent.
   if (comments.options.send) {
     tools.push({
       name: "comments_get_send",

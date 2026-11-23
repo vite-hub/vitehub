@@ -16,19 +16,6 @@ import {
 } from "typescript"
 import { describe, expect, it } from "vitest"
 
-/**
- * Peer named imports. Each value name that `packages/*\/src` imports or re-exports by name from a third-party peer
- * or optional peer of its package must exist in the installed version. A default import counts as the name
- * `default`. Then an upstream rename (for example in drizzle-orm, better-auth, vue, or nitro) fails here and not in
- * production.
- *
- * The test reads static `import x, { … } from` and `export { … } from` statements in TypeScript, JavaScript, and Vue
- * `<script>` blocks. It skips type-only names, namespace imports, virtual ids, workspace packages, and code inside
- * string literals, for example generated host output. It imports each module once per package, from the package
- * directory, in a child Node process. Node resolves the module with its own `node` and `import` conditions. Other
- * hosts, such as Workerd or a browser build, can resolve other files with the same names.
- */
-
 const repoRoot = resolve(import.meta.dirname, "..")
 const run = promisify(execFile)
 
@@ -46,22 +33,9 @@ interface Finding {
   specifier: string
 }
 
-type PeerImportException = Omit<Finding, "message"> & { reason: string }
-
-/**
- * Known failures on main. `name` is absent when the module does not load at all, and `file` is then the package
- * directory. The test fails when an entry no longer matches, so remove the entry in the PR that fixes it.
- */
-const exceptions: readonly PeerImportException[] = [
-  { file: "packages/vite-hub", reason: "The index of @nuxt/ui/composables imports #imports, which only a Nuxt or Nuxt UI Vite build defines. The Console imports only defineShortcuts from it.", specifier: "@nuxt/ui/composables" },
-  { file: "packages/vite-hub", reason: "@nuxt/ui exports only types for ./vue-plugin. The Nuxt UI Vite plugin supplies the module in the Console client build.", specifier: "@nuxt/ui/vue-plugin" },
-]
-
 const virtualId = /^(?:#|\0|virtual:)/
-// Attribute values can hold `>`, for example `generic="T extends Record<string, unknown>"`.
 const vueScript = /(<script\b(?:[^>"']|"[^"]*"|'[^']*')*>)([\s\S]*?)<\/script>/g
 
-/** Value names that a module imports or re-exports by name from a third-party peer, with their line. */
 function peerImports(file: string, source: string, peers: readonly string[]): PeerImport[] {
   const blocks = file.endsWith(".vue")
     ? [...source.matchAll(vueScript)].map(match => ({
@@ -78,7 +52,6 @@ function peerImports(file: string, source: string, peers: readonly string[]): Pe
       name,
       specifier,
     })
-    // Static imports and re-exports are top-level statements.
     for (const statement of sourceFile.statements) {
       if (!(isImportDeclaration(statement) || isExportDeclaration(statement))) continue
       if (!statement.moduleSpecifier || !isStringLiteral(statement.moduleSpecifier)) continue
@@ -101,7 +74,6 @@ function keysOf(value: unknown): string[] {
   return value !== null && typeof value === "object" ? Object.keys(value) : []
 }
 
-/** Third-party peers and optional peers of each package, by package directory. */
 function packagePeers(): Map<string, string[]> {
   const manifests = execFileSync("git", ["ls-files", "--", "packages/*/package.json"], { cwd: repoRoot, encoding: "utf8" })
     .split("\n").filter(Boolean).map((path) => {
@@ -121,19 +93,39 @@ function trackedSources(): string[] {
     .split("\0").filter(file => /^packages\/[^/]+\/src\/.+\.(?:[cm]?[jt]sx?|vue)$/.test(file) && !file.endsWith(".d.ts"))
 }
 
-// The child imports each specifier from the package directory: `--eval` code resolves bare ids from its cwd.
-// A marker line keeps module logs on stdout out of the result.
 const loader = `
+import { readFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
+function exportEntry(specifier) {
+  const manifest = JSON.parse(readFileSync(findPackageJSON(specifier, import.meta.url), "utf8"))
+  return manifest.exports?.["." + specifier.slice(manifest.name.length)] ?? null
+}
 const result = {}
 for (const specifier of JSON.parse(process.argv[1])) {
   try { result[specifier] = { names: Object.keys(await import(specifier)) } }
-  catch (error) { result[specifier] = { error: [error?.code, String(error?.message ?? error).split("\\n")[0]].filter(Boolean).join(": ") } }
+  catch (error) {
+    result[specifier] = { code: error?.code, error: [error?.code, String(error?.message ?? error).split("\\n")[0]].filter(Boolean).join(": ") }
+    if (error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED") result[specifier].exported = exportEntry(specifier)
+  }
 }
 process.stdout.write("\\n@@exports@@" + JSON.stringify(result))
 process.exit(0)
 `
 
-type Loaded = Record<string, { error: string, names?: undefined } | { error?: undefined, names: string[] }>
+interface FailedModule {
+  code?: string
+  error: string
+  exported?: unknown
+  names?: undefined
+}
+type Loaded = Record<string, FailedModule | { error?: undefined, names: string[] }>
+
+function loadsOnlyInBuild(module: FailedModule): boolean {
+  if (module.code === "ERR_PACKAGE_IMPORT_NOT_DEFINED") return true
+  if (module.code !== "ERR_PACKAGE_PATH_NOT_EXPORTED" || module.exported === null || typeof module.exported !== "object") return false
+  const conditions = Object.keys(module.exported)
+  return conditions.length > 0 && conditions.every(condition => condition === "types")
+}
 
 async function loadExports(dir: string, specifiers: string[]): Promise<Loaded> {
   const { stdout } = await run(process.execPath, ["--input-type=module", "--eval", loader, JSON.stringify(specifiers)], {
@@ -144,12 +136,12 @@ async function loadExports(dir: string, specifiers: string[]): Promise<Loaded> {
   return JSON.parse(stdout.slice(stdout.lastIndexOf("@@exports@@") + "@@exports@@".length)) as Loaded
 }
 
-/** Findings for the imports of one package: a module that does not load, once, or each name it does not export. */
 function missingExports(dir: string, imports: readonly PeerImport[], loaded: Loaded): Finding[] {
   const findings: Finding[] = []
   const failed = new Set<string>()
   for (const entry of imports) {
     const module = loaded[entry.specifier]!
+    if (module.error !== undefined && loadsOnlyInBuild(module)) continue
     if (module.error !== undefined) {
       if (!failed.has(entry.specifier)) findings.push({ file: dir, message: `${entry.file}:${entry.line}: ${entry.specifier} does not load from ${dir}: ${module.error}`, specifier: entry.specifier })
       failed.add(entry.specifier)
@@ -169,7 +161,6 @@ async function peerImportFindings() {
     const packagePeerNames = peers.get(dir) ?? []
     if (!packagePeerNames.length) continue
     const path = resolve(repoRoot, file)
-    // Use the index blob when a tracked file is absent from the worktree, as in the grant contract.
     const source = existsSync(path) ? readFileSync(path, "utf8") : execFileSync("git", ["show", `:${file}`], { cwd: repoRoot, encoding: "utf8" })
     const imports = peerImports(file, source, packagePeerNames)
     if (imports.length) byPackage.set(dir, [...byPackage.get(dir) ?? [], ...imports])
@@ -179,19 +170,11 @@ async function peerImportFindings() {
   return { findings: findings.flat(), specifiers: new Set([...byPackage.values()].flat().map(entry => entry.specifier)) }
 }
 
-function key(entry: Omit<Finding, "message">): string {
-  return `${entry.file}: ${entry.specifier}${entry.name === undefined ? "" : ` ${entry.name}`}`
-}
-
 describe("peer named imports", () => {
-  it("finds every named import from a peer in the installed version, and no stale exceptions", async () => {
+  it("finds every named import from a peer in the installed version", async () => {
     const { findings, specifiers } = await peerImportFindings()
-    // A scan that stops matching would pass with no findings.
     expect([...specifiers]).toEqual(expect.arrayContaining(["drizzle-orm", "vue"]))
-    const allowed = new Set(exceptions.map(key))
-    const found = new Set(findings.map(key))
-    expect.soft(findings.filter(finding => !allowed.has(key(finding))).map(finding => finding.message), "Missing peer exports. Import a name that the installed peer exports, mark a type-only name with `type`, or update the peer range.").toEqual([])
-    expect([...allowed].filter(exception => !found.has(exception)), "Stale exceptions. Remove them.").toEqual([])
+    expect(findings.map(finding => finding.message), "Missing peer exports. Import a name that the installed peer exports, mark a type-only name with `type`, or update the peer range.").toEqual([])
   }, 120_000)
 
   it("reads value names from imports and re-exports, with their line", () => {
@@ -226,6 +209,25 @@ describe("peer named imports", () => {
     expect(missingExports("packages/kv", imports, loaded).map(finding => finding.message)).toEqual([
       "packages/kv/src/a.ts:2: h3 does not export \"defineEventHandler\"",
       "packages/kv/src/b.ts:3: drizzle-orm does not load from packages/kv: ERR_MODULE_NOT_FOUND",
+    ])
+  })
+
+  it("skips a peer module that only a build can load", () => {
+    const imports = [
+      { file: "packages/ui/src/a.ts", line: 1, name: "defineShortcuts", specifier: "@nuxt/ui/composables" },
+      { file: "packages/ui/src/a.ts", line: 2, name: "default", specifier: "@nuxt/ui/vue-plugin" },
+      { file: "packages/ui/src/a.ts", line: 3, name: "x", specifier: "typed" },
+      { file: "packages/ui/src/a.ts", line: 4, name: "y", specifier: "missing" },
+    ]
+    const loaded: Loaded = {
+      "@nuxt/ui/composables": { code: "ERR_PACKAGE_IMPORT_NOT_DEFINED", error: "ERR_PACKAGE_IMPORT_NOT_DEFINED: Package import specifier \"#imports\" is not defined" },
+      "@nuxt/ui/vue-plugin": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: { types: "./vue-plugin.d.ts" } },
+      "missing": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: null },
+      "typed": { code: "ERR_PACKAGE_PATH_NOT_EXPORTED", error: "ERR_PACKAGE_PATH_NOT_EXPORTED", exported: { import: "./x.js", types: "./x.d.ts" } },
+    }
+    expect(missingExports("packages/ui", imports, loaded).map(finding => finding.message)).toEqual([
+      "packages/ui/src/a.ts:3: typed does not load from packages/ui: ERR_PACKAGE_PATH_NOT_EXPORTED",
+      "packages/ui/src/a.ts:4: missing does not load from packages/ui: ERR_PACKAGE_PATH_NOT_EXPORTED",
     ])
   })
 

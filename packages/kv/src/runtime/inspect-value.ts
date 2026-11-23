@@ -21,34 +21,13 @@ export function kvValueType(value: unknown): string {
 }
 
 function encodeBase64(bytes: Uint8Array): string {
-  try {
-    const lengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "length")?.get
-    if (!lengthGetter) throw unsupported()
-    const length = Reflect.apply(lengthGetter, bytes, [])
-    for (const key of ["byteLength", "length"]) {
-      const descriptor = Object.getOwnPropertyDescriptor(bytes, key)
-      if (descriptor && (!("value" in descriptor) || descriptor.value !== length)) throw unsupported()
-    }
-    const encoded: string[] = []
-    let chunk: number[] = []
-    // The intrinsic iterator reads native slots and validates detached buffers.
-    for (const byte of Reflect.apply(Uint8Array.prototype.values, bytes, [])) {
-      chunk.push(byte)
-      // Whole three-byte groups avoid padding between chunks. Keep each call below argument limits.
-      if (chunk.length === 12_288) {
-        encoded.push(btoa(String.fromCharCode(...chunk)))
-        chunk = []
-      }
-    }
-    if (chunk.length) encoded.push(btoa(String.fromCharCode(...chunk)))
-    return encoded.join("")
+  const encoded: string[] = []
+  for (let offset = 0; offset < bytes.byteLength; offset += 12_288) {
+    encoded.push(btoa(String.fromCharCode(...bytes.subarray(offset, offset + 12_288))))
   }
-  catch {
-    throw unsupported()
-  }
+  return encoded.join("")
 }
 
-/** JSON inspection accepts JSON values and represents bigint values as decimal strings. */
 function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === "bigint") return value.toString()
   if (value === null || typeof value === "string" || typeof value === "boolean") return value

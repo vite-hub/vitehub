@@ -136,7 +136,6 @@ it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
     await prerender(nitro)
     await build(nitro)
 
-    // Nitro chooses the chunk names, so find the route chunk by the marker in its handler.
     const serverDir = join(root, ".output/server")
     const chunks = await Promise.all((await readdir(serverDir, { recursive: true }))
       .filter(file => file.endsWith(".mjs"))
@@ -147,7 +146,6 @@ it("bundles the Agent AI SDK module into Nitro Cloudflare output", async () => {
     const aiSpecifier = routeSource.match(/import\(["']([^"']+)["']\)/)?.[1]
     expect(aiSpecifier).toMatch(/^\.\.?\//)
     expect(existsSync(resolve(dirname(route), aiSpecifier!))).toBe(true)
-    // The handler loads the AI SDK from the bundled module, as the Worker does.
     const handler = (await import(pathToFileURL(route).href) as { default: (event: unknown) => Promise<unknown> }).default
     await expect(handler({})).resolves.toEqual(["agent-ai-route", "function"])
   } finally {
@@ -288,8 +286,6 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     expect(emittedSource).toContain(generatedQueue)
     expect(emittedSource).toContain('requireRateLimit(event, "image-upload"')
     expect(emittedSource).toContain('bindingPrefix = "RATE_LIMIT"')
-    // Provider-specific diagnostics may mention the Vercel SDK, but the
-    // Cloudflare bundle must not import either Vercel runtime implementation.
     expect(emittedSource).not.toMatch(/(?:from|import\()\s*["']@vercel\/(?:functions|queue)["']/)
     expect(existsSync(join(root, ".vercel/output"))).toBe(false)
   } finally {
@@ -357,7 +353,6 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const require = createRequire(join(workspaceRoot, "packages/internal/package.json"))
   const sharpEntry = await realpath(require.resolve("sharp"))
   const sharpRoot = dirname(dirname(sharpEntry))
-  // Sharp names its native files by release. Read the names from the installed packages so a dependency refresh keeps this test valid.
   const sharpRequire = createRequire(sharpEntry)
   const sharpAddon = `sharp-linux-x64-${(sharpRequire("@img/sharp-linux-x64/package") as { version: string }).version}.node`
   const libvipsLibrary = basename(sharpRequire.resolve("@img/sharp-libvips-linux-x64/binary"))
@@ -365,11 +360,12 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and e
   const remote = await mkdtemp(join(tmpdir(), "vitehub-deno-native-remote-"))
   const bin = join(root, "bin")
   const invocationsFile = join(root, "invocations.jsonl")
-  let nitro: Awaited<ReturnType<typeof createNitro>> | undefined
   try {
     await mkdir(join(root, "node_modules"), { recursive: true })
     await mkdir(join(root, "server/api"), { recursive: true })
     await symlink(sharpRoot, join(root, "node_modules/sharp"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "deno-native-fixture" }), "utf8")
+    await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
     await writeFile(join(root, "server/api/optimize.get.ts"), `import { createRequire } from "node:module"
 import { join, relative } from "node:path"
 import { defineHandler } from "nitro/h3"
@@ -384,33 +380,26 @@ export default defineHandler(async () => {
   return [...png.subarray(0, 4)]
 })
 `, "utf8")
-    const config = await resolveConfig({
+    const builder = await createBuilder({
+      nitro: { serverDir: true },
+      plugins: [
+        vitehub({
+          host: "deno",
+          agent: false,
+          blob: false,
+          database: false,
+          env: false,
+          queue: false,
+          rateLimit: false,
+          workflow: false,
+          workspace: false,
+        }),
+        nitro(),
+      ],
       root,
-      // This test builds with Nitro alone, without the Vite resolver that bundles generated plugins into the server.
-      // Nitro leaves generated runtime plugins external, so `deno check` follows their ViteHub imports
-      // outside the artifact. These plugins do not affect native package uploads.
-      plugins: flattenPlugins([vitehub({
-        host: "deno",
-        agent: false,
-        blob: false,
-        database: false,
-        env: false,
-        queue: false,
-        rateLimit: false,
-        workflow: false,
-        workspace: false,
-      })]).filter(plugin => plugin.name !== "vite-hub/error-log" && plugin.name !== "vite-hub/standard-context"),
-    }, "build")
-    const nitroConfig = (config as typeof config & { nitro?: Parameters<typeof createNitro>[0] }).nitro
-    expect(nitroConfig).toBeDefined()
+    })
+    await builder.buildApp()
 
-    nitro = await createNitro({ ...nitroConfig, dev: false, rootDir: root, serverDir: "./server" })
-    await prepare(nitro)
-    await copyPublicAssets(nitro)
-    await prerender(nitro)
-    await build(nitro)
-
-    // Nitro traces Sharp and its native packages into the artifact. Find them as the server entry resolves them.
     const artifactRequire = createRequire(join(output, "server/index.mjs"))
     const nativeFiles = [
       join(dirname(artifactRequire.resolve("@img/sharp-linux-x64/package")), "lib", sharpAddon),
@@ -489,13 +478,9 @@ process.exit(result.status ?? 1)
     for (const invocation of invocations) expect(invocation).toContain("--allow-node-modules")
     for (const file of nativeFiles) expect(existsSync(join(remote, file)), file).toBe(true)
   } finally {
-    try {
-      await nitro?.close()
-    } finally {
-      await Promise.all([
-        rm(root, { force: true, recursive: true }),
-        rm(remote, { force: true, recursive: true }),
-      ])
-    }
+    await Promise.all([
+      rm(root, { force: true, recursive: true }),
+      rm(remote, { force: true, recursive: true }),
+    ])
   }
 }, 60_000)

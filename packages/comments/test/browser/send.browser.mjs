@@ -1,6 +1,3 @@
-// Send in ViteHub's own pill: the real page pill and the real overlay in headless Chromium, over the real Send routes.
-// It walks every state of the Send segment, as a member and their agent do, and takes a screenshot of each one.
-// Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
 import { mkdir } from "node:fs/promises"
 import { test } from "node:test"
@@ -11,7 +8,6 @@ import { createServer } from "vite"
 import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 
 const port = Number(process.env.COMMENTS_SEND_BROWSER_PORT ?? 4798)
-/** A folder for the screenshots, for pull request evidence. */
 const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
 const helper = fileURLToPath(new URL("./send-api.ts", import.meta.url))
 
@@ -34,7 +30,6 @@ function sendApi() {
   }
 }
 
-/** The agent: it reads the code of the setup prompt and posts its webhook URL from another origin. */
 async function agentPairs(prompt, url = "https://relay.t3.codes/hooks/wh_azores") {
   const code = /"code":"([^"]+)"/.exec(prompt)?.[1]
   assert.ok(code, "the prompt holds the code")
@@ -77,7 +72,6 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
   const pill = page => page.locator("vitehub-pill")
   async function shot(page, name) {
     if (!evidence) return
-    // Let the width change of the segment settle.
     await page.waitForTimeout(300)
     await pill(page).screenshot({ path: `${evidence}/${name}.png` })
   }
@@ -93,7 +87,6 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
     const send = segment(ana).locator("[data-action='send']")
     await send.waitFor()
     assert.equal(await send.getAttribute("aria-label"), "Send: 2 comments")
-    // The order of the toolbar: Comments, the eye, Send, Highlight.
     const order = await ana.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelector(".toolbar").children].map(child => child.dataset.slot ?? child.getAttribute("aria-label") ?? child.textContent.trim()))
     assert.deepEqual(order.slice(0, 4), ["Comments, 2 open", "Hide comments", "comment-send", "Highlight"])
     await shot(ana, "1-idle")
@@ -184,7 +177,6 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
     await waitState(bob, "pairing", "expired")
     assert.match(await segment(bob).textContent(), /Setup code expired/)
     await shot(bob, "10-expired")
-    // × drops the code, and nothing was saved.
     await segment(bob).locator("[data-action='cancel']").click()
     await waitState(bob, "idle")
   })

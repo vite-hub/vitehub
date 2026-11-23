@@ -423,7 +423,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
     for (let attempt = 0; ; attempt++) {
       const uploads = await register()
       await uploadAll(uploads)
-      // Check the exact generations whose bytes this writer verified, not just their content digests.
       const objectsReady = sql`${uploads.length === contents.size} and not exists (
         select 1 from json_each(${JSON.stringify(uploads.map(([, key]) => key))}) as verified
         where not exists (
@@ -431,7 +430,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           where ${objects.workspace} = ${workspace} and ${objects.digest} = verified.value and ${objects.size} >= 0
         )
       )`
-      // All supported Database drivers execute batch atomically. No interactive transaction is needed.
       const [, , changed] = await this.#db.batch([
         this.#db.insert(refs).select(sql`
           select ${workspaces.workspace}, ${ref}, null, 0
@@ -447,7 +445,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
           eq(refs.workspace, workspace),
           eq(refs.ref, ref),
           sql`${refs.head} is ${options.ifHead}`,
-          // Check the other refs in the same statement that advances this ref, including absent refs.
           ...Object.entries(options.ifHeads ?? {}).map(([expectedRef, expectedHead]) => expectedHead === null
             ? sql`(not exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef}) or exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is null))`
             : sql`exists (select 1 from ${refs} as cross_ref where cross_ref.workspace = ${workspace} and cross_ref.ref = ${expectedRef} and cross_ref.head is ${expectedHead})`),
@@ -464,7 +461,6 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       }
       const actual = (await this.#ref(workspace, ref))?.head ?? null
       if (actual !== options.ifHead) rejectHistoryHead(options, this.#conflict(ref, options.ifHead, actual))
-      // A `deleteRef()` removed bytes that this commit reuses. Wait until it finishes, then register and upload them again.
       if (attempt === 4) throw workspaceConflict("[vitehub] History objects of this commit are being deleted by history.deleteRef(). Retry the commit.", { details: { workspace: this.options.workspace, ref } })
       await new Promise(resolve => setTimeout(resolve, 50 * 2 ** attempt))
     }

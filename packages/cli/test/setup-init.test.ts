@@ -31,7 +31,6 @@ async function snapshot(root: string): Promise<Record<string, string>> {
   return Object.fromEntries(await Promise.all(files.map(async file => [relative(root, file), await readFile(file, "utf8")] as const)))
 }
 
-/** Features that build on `host` without an option, a few per host. */
 function nativeFeatures(host: typeof hosts[number]): string[] {
   return ["kv", "queue", "blob", "cache"].filter(id => featureSupport(id as "kv", host).level === "native").slice(0, 3)
 }
@@ -53,7 +52,6 @@ describe("vitehub init", () => {
     expect(files["server/api/health.get.ts"]).toBe(await readFile(join(installation, "server/api/health.get.ts"), "utf8"))
     expect(files[".gitignore"]!.split("\n")).toContain(".vitehub")
 
-    // The config is the fixture with the host and one key per feature.
     const fixture = (await readFile(join(installation, "vite.config.ts"), "utf8")).replace("vitehub()", "VITEHUB")
     const config = files["vite.config.ts"]!
     expect(config.replace(/vitehub\(\{.*\}\)/u, "VITEHUB")).toBe(fixture)
@@ -65,7 +63,6 @@ describe("vitehub init", () => {
     expect(result.json.install.devPackages).toEqual([...initPackages.vite.dev])
     expect(result.json.nextSteps).toContain(`Install the packages: ${result.json.install.command}`)
 
-    // The status reads the same stack back.
     const status = await runSetup<StatusResult>(["status", "--json"], root)
     expect(status.json.host).toEqual({ name: host, source: "config" })
     for (const id of features) expect(status.json.features.find(item => item.id === id)?.enabled).toBe("on")
@@ -79,7 +76,6 @@ describe("vitehub init", () => {
     const root = join(parent, "my-app")
     execFileSync("git", ["init", "--quiet"], { cwd: root, env: { ...process.env, LC_ALL: "C" } })
     const files = [".env", ".env.local", ".env.production", ".env.staging.local", ".env.example"]
-    // `git check-ignore` prints the ignored paths and exits 1 when none is ignored.
     const ignored = execFileSync("git", ["check-ignore", ...files], { cwd: root, encoding: "utf8", env: { ...process.env, LC_ALL: "C" } })
     expect(ignored.trim().split("\n")).toEqual([".env", ".env.local", ".env.production", ".env.staging.local"])
   })
@@ -175,7 +171,6 @@ describe("vitehub init", () => {
     expect(await readFile(join(root, ".gitignore"), "utf8")).toBe("node_modules\n.vitehub\n")
     expect(await readFile(join(root, "README.md"), "utf8")).toMatch(/^# Shop\n\nMy app.\n\n<!-- vitehub:stack -->\n/u)
     expect(await readFile(join(root, "index.html"), "utf8")).toBe("<div id=app></div>\n")
-    // vite is declared, so only the missing base packages install.
     expect(result.json.install.devPackages).toEqual(["typescript@^6", "@types/node@^24"])
   })
 
@@ -390,7 +385,6 @@ describe("vitehub init", () => {
     const spawn: ViteHubCliSpawn = async (command, args) => {
       calls.push([command, ...args])
       if (args.includes("init")) {
-        // The pinned starter with `nuxi init --nightly 5x` declares the resolved nightly version.
         await mkdir(join(parent, "site/server"), { recursive: true })
         await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt: "npm:nuxt-nightly@5.0.0-2611071848-2d8337c", vue: "^3.5.44", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
         await writeFile(join(parent, "site/nuxt.config.ts"), "// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true }\n})\n")

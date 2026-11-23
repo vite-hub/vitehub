@@ -4552,6 +4552,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
       fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
     },
+    AGENT_INVOCATION_STORE_OPEN_FAILED: {
+      why: "[vitehub] The Agent Invocation store could not open, so the Invocation did not start.",
+      fix: "Read `error.cause` for the store error. Check that the Invocations store in `defineAgentInvocations({ store })` or the file of `agent.invocations.databaseUrl` can open, then retry the Invocation.",
+    },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,
       fix: "Check that the Invocations store in `defineAgentInvocations({ store })` is reachable and answers in time. A retry helps when the store was only slow.",

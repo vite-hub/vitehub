@@ -30,7 +30,6 @@ type KeyError = ReturnType<typeof webhooksErrors.WEBHOOKS_KEY_UNSET | typeof web
 
 let cached: { value: string, key: Promise<SealKey> } | undefined
 
-/** App tests get a random key that lives until the next reset, so they need no variable. */
 function testKey(): string | undefined {
   return getViteHubTestMode()?.backend("webhooks:key", () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))))
 }
@@ -46,7 +45,6 @@ async function endpointKey(developmentKey: string | undefined): Promise<[KeyErro
   return [undefined, await cached.key]
 }
 
-/** The sealed text belongs to one endpoint row, so it cannot be copied to the row of another endpoint or owner. */
 function additionalData(endpoint: { id: string, owner: string }): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`vitehub:webhooks:endpoint:${JSON.stringify([endpoint.id, endpoint.owner])}`)
 }

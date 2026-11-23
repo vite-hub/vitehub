@@ -1080,7 +1080,6 @@ describe("@vite-hub/shell just-bash runtime", () => {
     const list = vi.spyOn(workspace, "list")
 
     createReadonlyWorkspaceFs(workspace)
-    // A refresh starts in a later microtask, so wait for the next macrotask before checking.
     await setImmediate()
 
     expect(list).not.toHaveBeenCalled()
@@ -1252,6 +1251,15 @@ describe("shell timeout policy", () => {
       timedOut: true,
     })
     expect(aborted).toBe(true)
+  })
+
+  it("reports the timeout when the driver rejects after the runtime aborts it", async () => {
+    const driver = timeoutDriver("runtime", (_command, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => reject(new DOMException("Driver aborted", "AbortError")), { once: true })
+    }))
+    const runtime = createShellRuntime({ driver, policy: { timeout: 20 } })
+    await expect(runtime.exec("hang")).resolves.toMatchObject({ event: "command_timed_out", timedOut: true })
+    await new Promise(resolve => setTimeout(resolve, 0))
   })
 
   it("stops a background process when the runtime enforces the timeout", async () => {

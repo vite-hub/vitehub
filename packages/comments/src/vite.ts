@@ -76,7 +76,6 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       const { runnerImport } = await import("vite")
       const { module } = await runnerImport<{ comments?: unknown, default?: unknown }>(entry, { configFile: false, root: projectRoot, resolve: { alias: resolved.resolve?.alias }, logLevel: "silent" })
       validateCommentsDefinition(module.comments ?? module.default, display)
-      // Send keeps its sends in SQLite tables and delivers through the member endpoints of Webhooks.
       if (await readCommentsSend(entry)) {
         if (liveOptions.dialect === "postgresql") throw commentsErrorDiagnostics.COMMENTS_SEND_POSTGRES()
         if (!resolved.plugins.some(plugin => plugin.name === "@vite-hub/webhooks/vite")) throw commentsErrorDiagnostics.COMMENTS_SEND_WEBHOOKS_OFF({ file: display })

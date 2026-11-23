@@ -56,7 +56,6 @@ function reject(status: number, code: string, message: string, fix?: string): Co
 }
 
 const managerSchema = v.pipe(v.string(), v.regex(/^user:[^\s]{1,256}$/))
-// Worker runtimes can run without `process`.
 const developmentProcessSchema = v.looseObject({ env: v.looseObject({ NODE_ENV: v.literal("development") }) })
 
 /**
@@ -64,7 +63,6 @@ const developmentProcessSchema = v.looseObject({ env: v.looseObject({ NODE_ENV: 
  * through {@link connectionsRuntimeFor}.
  */
 export async function checkConnectionsAccess(
-  // JavaScript callers can omit the policy.
   policy: ConnectionsAccessPolicy | undefined,
   request: Request,
   runtime: () => ConnectionsRuntime,
@@ -75,8 +73,6 @@ export async function checkConnectionsAccess(
     if (!v.is(developmentProcessSchema, globalThis.process)) {
       return reject(500, "CONNECTIONS_AUTH_REQUIRED", "Connections management requires an actor module outside local development.", connectionsErrorDiagnostics.CONNECTIONS_AUTH_REQUIRED({ problem: "development" }).fix)
     }
-    // The development policy has no sign-in, so it trusts only this machine. The dev server front process signs
-    // loopback requests for its worker, which never sees the client address.
     if (!await isViteHubLoopbackPeer(request, getStandardContext(request).runtime?.clientAddress)) {
       return reject(403, "CONNECTIONS_FORBIDDEN", "The development policy allows Connections management only from this machine.")
     }

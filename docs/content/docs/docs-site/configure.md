@@ -235,6 +235,8 @@ Set `layout` in the frontmatter:
 | `article` (default) | Guides, concepts, and reference pages | Title, description, text, and outline. |
 | `tutorial` | Steps that build one result | Numbered `::tutorial-step` blocks. With `codePanel: true`, a code panel beside the text. |
 | `landing` | Section Overviews | A wide page with no outline, ending with the catalog of every section. |
+| `playground` | Apps that the reader runs and edits | A workspace that fills the page, with the apps of `examples`. |
+| `learn` | A lesson that the reader codes along | A workspace with the `::tutorial-step` blocks as steps beside the code. |
 | `home` | A product home page | Your `components/content/` blocks at full width, and the Markdown between them as on a docs page. No title or docs sidebar. |
 
 ### Tutorials
@@ -260,6 +262,62 @@ codePanel: true
 With `codePanel: true`, wide screens show a sticky panel beside the text. It lists every file the reader has passed and shows the current step's file. Name each code block with its path. Blocks named `commands/...` or `output/...`, and `bash` or `sh` blocks, stay in the text, because they are commands, not project files. The panel tracks files by name, so give each file one name in the whole tutorial.
 
 `tutorial: project` or `tutorial: quickstart` is stored in the manifest for your components, such as a tutorials catalog. The shell ignores it.
+
+### Workspace pages
+
+`playground` and `learn` fill the page with a code workspace: an editor, a file tree, a preview, and a terminal. The frontmatter sets everything, so you write no app page. On a phone, the page shows its text instead.
+
+A playground lists its apps in `examples`. Each `dir` is a folder of the app. The workspace runs `npm install`, then `npm run dev`, in a WebContainer, and previews port 3000 or `port`:
+
+```md [content/docs/try/playground.md]
+---
+title: Playground
+layout: playground
+examples:
+  - { id: hello, label: Hello, dir: examples/hello, open: message.txt }
+  - { id: clock, label: Clock, dir: examples/clock, open: server.mjs }
+---
+
+This text shows when the workspace cannot run.
+```
+
+`?example=clock` opens an example. With more than one example and no `?example=`, the page opens on a start screen. `tabs: [{ value: messages, label: Messages }]` adds an output tab that renders `app/components/playground/PlaygroundTabMessages.vue`. That component reads the files and edits with `useWorkspace()` from `@vite-hub/ui/workspace`. `connect: [github, vercel]` adds a Connect tab where the reader pastes a token. The token stays in the browser tab, and the app gets it as an environment variable of the dev server, such as `GITHUB_TOKEN`.
+
+A playground that only turns files into HTML needs no WebContainer. Set `render` to a module whose default export takes the files and returns `{ html, issues? }`. The page runs it 200 ms after each edit, on every device:
+
+```ts [app/playground/render.ts]
+import type { DocsRenderFunction } from "@vite-hub/docs/runnable"
+
+const render: DocsRenderFunction = files => ({ html: files["index.html"] ?? "" })
+
+export default render
+```
+
+A `learn` page is a lesson. Its `::tutorial-step` blocks become the steps, and the guide beside the code shows the text of the current step. `fixture` is the app after the last step, in the `fixtures` folder. Each step loads the files that its code blocks name, so every file code block must equal the fixture file:
+
+````md [content/docs/try/first-server.md]
+---
+title: Your first server
+layout: learn
+fixture: first-server
+---
+
+::tutorial-step{title="Write a greeting"}
+## Write a greeting
+
+Create `greeting.mjs`:
+
+```js [greeting.mjs]
+export default () => "Hello."
+```
+::
+````
+
+A file name in inline code opens the file. A file code block gets **Show in editor**, and a `curl` block gets **Run in workspace**, which shows the response under the block. **Solve** writes the files of the step, and `?step=2` opens step 2. `guide: top` puts the text over the code. `lesson: /docs/kv/get-started` takes the steps from another page, so a guide and its lesson share one text.
+
+A WebContainer needs a cross-origin isolated page. The module passes every `learn` page and every `playground` page without `render` to `vite-hub/nuxt` as `webContainer.routes`, so the app needs `vite-hub/nuxt` and `@vite-hub/web-container`. A `render` page stays a plain page.
+
+The frontmatter is the one source for workspace pages. The `runnable` option keeps `lessons` and `examples` for app pages that read `#build/runnable-tutorials.mjs` and `#build/playground-templates.mjs`. Both share one snapshot build, so an example with the dependencies of a lesson mounts the snapshot of that lesson.
 
 ### Landing pages
 

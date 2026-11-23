@@ -35,7 +35,6 @@ export interface ApiKeyProviderOptions<TApis extends object = object> {
   verify?: (key: string, context: ConnectionApiKeyVerifyContext) => Promise<ConnectionApiKeyVerification>
 }
 
-// RFC 9110 token characters. Header names and authentication schemes use them.
 const tokenPattern = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 
 /** Whether a host name is a loopback host. Plain `http` is allowed only for these hosts. */
@@ -76,7 +75,6 @@ export function isValidApiKeyProvider(provider: { header: string, origins: reado
     const candidateOrigins = provider.origins
     const scheme = provider.scheme
     if (typeof header !== "string" || !Array.isArray(candidateOrigins)) return false
-    // structuredClone rejects Proxy values and gives us a stable, ordinary-array snapshot.
     const origins = structuredClone(candidateOrigins)
     if (Object.getPrototypeOf(origins) !== Array.prototype) return false
     const originIndexes = Object.getOwnPropertyNames(origins).filter(key => {
@@ -137,7 +135,6 @@ export function apiKey<const TApis extends object = object>(options: ApiKeyProvi
       return false
     }
   })
-  // `new URL()` accepts `*` in a host name, but a request origin never equals it. Reject it, so the key goes only to exact origins.
   const wildcard = options.origins.find(origin => typeof origin === "string" && origin.includes("*"))
   if (wildcard !== undefined) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_PROVIDER({ origin: wildcard })
   if (!/^\S+$/.test(id) || origins.includes(undefined) || !catalogsSafe || !isValidApiKeyProvider(provider)) {

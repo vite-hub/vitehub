@@ -79,7 +79,6 @@ export function setEvlogBridge(bridge: EvlogBridge | undefined): void {
   else delete runtime[Symbol.for(evlogBridgeKey)]
 }
 
-/** The bridge when the app registers evlog and has it on. With evlog off, its request loggers drop every line too. */
 function activeBridge(): EvlogBridge | undefined {
   const bridge = evlogBridge()
   try {

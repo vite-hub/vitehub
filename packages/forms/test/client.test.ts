@@ -49,7 +49,6 @@ describe("submitForm", () => {
     const lossy: typeof fetch = async (input, init) => {
       keys.push(new Headers(init?.headers).get("idempotency-key"))
       const response = await server(store)(input, init)
-      // The server stored the message, but the answer did not arrive.
       if (lose) throw new TypeError("network error")
       return response
     }
@@ -61,7 +60,6 @@ describe("submitForm", () => {
     expect(keys[1]).toBe(keys[0])
     expect(data?.id).toBe(keys[0])
     expect(await store.list()).toHaveLength(1)
-    // After the success, the same values are a new message with a new key.
     await submitForm("feedback", { message: "Retry me" }, { fetch: lossy, page: "/docs" })
     expect(keys[2]).not.toBe(keys[0])
     expect(await store.list()).toHaveLength(2)
@@ -93,7 +91,6 @@ describe("submitForm", () => {
     await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
     lose = false
     await submitForm("feedback", { message: "Second note" }, { fetch: lossy, page: "/docs" })
-    // The person writes the first note again later: a new message, not a retry.
     await submitForm("feedback", { message: "First note" }, { fetch: lossy, page: "/docs" })
     expect(new Set(keys).size).toBe(3)
     expect(await store.list()).toHaveLength(3)

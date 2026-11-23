@@ -1,6 +1,3 @@
-// The Comments API with Send on, for send.browser.mjs: the real handler and the real Send service on an in-memory
-// Database. Webhooks pairs and keeps endpoints for real, but answers each delivery as the test says, so the pill can
-// show every state without posting anywhere.
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 import { H3 } from "h3"
@@ -53,19 +50,16 @@ export async function createSendApi() {
       if (error) throw error
       return thread.id
     },
-    /** The agent answers: it resolves every open thread. */
     resolveAll: async () => {
       const [, threads] = await comments.list({ page, status: "open" })
       for (const thread of threads ?? []) await comments.resolve(thread.id, { by: people.ana! })
     },
-    /** Fills the hour of `member` with 30 sends, so the next one is limited. */
     fillHour: async (member: string) => {
       const now = Date.now()
       for (let index = 0; index < 30; index++) {
         await client.execute({ sql: "INSERT INTO vitehub_comment_sends (id, member, subject_kind, subject_id, page, threads, key, state, sender, created_at, updated_at) VALUES (?, ?, 'page', '/', '/', '[]', ?, 'done', '{}', ?, ?)", args: [`send_fill_${index}`, member, `fill_${index}`, now - 1000 * (60 - index), now] })
       }
     },
-    /** Makes every setup code too old. */
     expireCodes: async () => {
       await client.execute("UPDATE vitehub_webhook_pairings SET expires_at = 0")
     },

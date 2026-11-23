@@ -68,10 +68,6 @@ async function derive(args: string[], context: SecretCliContext): Promise<number
   return 0
 }
 
-/**
- * Print a new Ed25519 key pair for signed Console requests: the public key line for the app, and the private key line
- * for the machine or CI job that calls it with `--url`. The name defaults to `CLI`.
- */
 async function consoleKey(args: string[], context: Pick<SecretCliContext, "stderr" | "stdout">): Promise<number> {
   if (help(args)) {
     context.stdout.write([

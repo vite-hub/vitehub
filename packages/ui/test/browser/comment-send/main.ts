@@ -1,7 +1,3 @@
-// CommentSend in a real browser, in the two pills that render it: the ViteHub page pill (a shadow root in the pill of
-// `@vite-hub/internal`, with the comments overlay's toolbar styles) and a Vue app's own dark pill (light DOM, with
-// `@vite-hub/ui/styles.css`, as Drop's). `?surface=vitehub|app` picks the pill, `?state=<name>` the state, and `?live`
-// drives the real `createCommentSend()` over an in-page transport. comment-send.browser.mjs takes the screenshots.
 import { createApp, defineComponent, h, type Component } from "vue";
 
 import "./page.css";
@@ -35,7 +31,6 @@ const states: Record<string, CommentSendState> = {
   codex: { status: "confirm", count: 3, agent: { name: "Codex", logo: "codex", host: "example.com" } },
 };
 
-/** A client that stays in one state, for a screenshot. */
 function still(state: CommentSendState): CommentSendClient {
   const noop = async () => {};
   return { state, onChange: () => () => {}, start: () => () => {}, refresh: noop, send: noop, pairAnother: noop, allow: noop, copyAgain: noop, cancel: () => {} };
@@ -43,12 +38,10 @@ function still(state: CommentSendState): CommentSendClient {
 
 declare global {
   interface Window {
-    /** The live flow: `paste()` plays the agent using the setup code, `done()` the agent finishing. */
     flow: { paste: () => void, done: () => void, calls: string[] };
   }
 }
 
-/** A server in the page: no agent yet, two waiting threads. */
 function liveTransport(): CommentSendTransport {
   let pasted = false;
   let working = false;
@@ -91,7 +84,6 @@ const eyeIcon = () => h("svg", { "aria-hidden": "true", fill: "none", stroke: "c
   h("circle", { cx: 12, cy: 12, r: 3 }),
 ]);
 
-/** The comments overlay's toolbar, as `toolbar()` of packages/comments/src/overlay/app.ts draws it, with Send after the eye. */
 const ViteHubToolbar = defineComponent({
   setup: () => () => h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
     h("button", { "aria-label": "Comments, 2 open", "aria-pressed": "false", type: "button" }, [commentIcon(), "Comments", h("span", { class: "count" }, "2")]),
@@ -101,7 +93,6 @@ const ViteHubToolbar = defineComponent({
   ]),
 });
 
-/** A Vue app's own pill, dark on a light page, as Drop's: the Comments track holds the Send segment. */
 const AppPill = defineComponent({
   setup: () => () => h("div", { class: "app-pill", role: "toolbar", "aria-label": "Document tools" }, [
     h("button", { class: "app-pill-button", type: "button" }, "Drop"),

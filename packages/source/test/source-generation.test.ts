@@ -34,7 +34,6 @@ async function project(files: Record<string, string>) {
   return projectRoot
 }
 
-// Each generated test Source adds its file name here when its module runs.
 const evaluatedKey = "__vitehubSourceTestEvaluated"
 const evaluated = () => Reflect.get(globalThis, evaluatedKey) ?? []
 const trackedSource = (name: string, keys: string[]) => `(globalThis.${evaluatedKey} ??= []).push(${JSON.stringify(name)})
@@ -60,7 +59,6 @@ it("registers each server/sources file by its name and loads it on the first rea
   expect(types).toContain(`"team/handbook": typeof import(`)
   expect(await readFile(registry, "utf8")).toContain(`["team/handbook"]: () => import(${JSON.stringify(pathToFileURL(join(projectRoot, "server/sources/team/handbook.mjs")).href)}),`)
 
-  // Server start and opening a reader evaluate no Source module.
   const reader = useSource("custom")
   await import(pathToFileURL(registry).href)
   expect(evaluated()).toEqual([])

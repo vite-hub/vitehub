@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { withViteStageServer } from "@vite-hub/internal/vite-stage"
+import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEnvCliContributor } from "../src/cli.ts"
@@ -153,7 +154,6 @@ async function createStageFixture(): Promise<string> {
   await symlink(packageRoot, join(root, "node_modules", "@vite-hub", "env"), "dir")
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-cli-fixture", private: true, type: "module" }), "utf8")
   await mkdir(join(root, "server"), { recursive: true })
-  // The provider reveals which region value won without printing it.
   await writeFile(join(root, "server", "region-provider.mjs"), [
     "import { defineEnvProvider } from \"@vite-hub/env\"",
     "export default defineEnvProvider({",
@@ -272,7 +272,6 @@ describe("Env CLI stage regeneration for Nuxt", () => {
     const kitRoot = join(root, "node_modules", "nuxt")
     await mkdir(kitRoot, { recursive: true })
     await writeFile(join(kitRoot, "package.json"), JSON.stringify({ type: "module", exports: { "./kit": "./kit.mjs" } }))
-    // Nuxt 5 replaces the ssr environment with Nitro's, which is not a RunnableDevEnvironment.
     await writeFile(join(kitRoot, "kit.mjs"), [
       'import { appendFileSync } from "node:fs"',
       'import { DevEnvironment } from "vite"',
@@ -323,7 +322,7 @@ describe("Env CLI stage regeneration for Nuxt", () => {
 })
 
 describe("env CLI with Vite stage files", () => {
-  it.each([false, true])("closes an unsupported SSR environment (initialization failure: %s)", async (failInit) => {
+  it.each(["none", "early", "partial"])("closes the SSR environment after a stage load failure (%s)", async (failInit) => {
     const root = await createStageFixture()
     const events = join(root, "runtime.log")
     await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
@@ -335,7 +334,8 @@ describe("env CLI with Vite stage files", () => {
       '  plugins: [hubEnv({ diagnostics: "off", server: { apiToken: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })],',
       '  environments: { ssr: { dev: { createEnvironment(name, config) {',
       '    const environment = new DevEnvironment(name, config, { hot: false })',
-      `    if (${failInit}) environment.init = async () => { throw new Error("Runtime initialization failed") }`,
+      '    const init = environment.init.bind(environment)',
+      `    environment.init = async () => { if (${failInit !== "early"}) await init(); if (${failInit !== "none"}) throw new Error("Runtime initialization failed") }`,
       '    const close = environment.close.bind(environment)',
       `    environment.close = async () => { appendFileSync(${JSON.stringify(events)}, "close\\n"); await close() }`,
       '    return environment',
@@ -343,8 +343,36 @@ describe("env CLI with Vite stage files", () => {
       '}',
     ].join("\n"))
     const { context } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
-    await expect(realFeature("check").run(["--json"], context)).rejects.toThrow(failInit ? "Runtime initialization failed" : "The SSR environment does not support runnable imports.")
-    expect(await readFile(events, "utf8")).toBe("close\n")
+    const message = failInit === "none" ? "The SSR environment does not support runnable imports." : "Runtime initialization failed"
+    await expect(realFeature("check").run(["--json"], context)).rejects.toMatchObject({ message })
+    expect(await readFile(events, "utf8").then(String, () => "")).toBe("close\n")
+  }, 60_000)
+
+  it("keeps the load error when closing the SSR environment also fails", async () => {
+    const root = await createStageFixture()
+    await symlink(join(packageRoot, "node_modules", "vite"), join(root, "node_modules", "vite"), "dir")
+    await writeFile(join(root, "vite.config.mjs"), [
+      'import { DevEnvironment } from "vite"',
+      'import { env, hubEnv } from "@vite-hub/env/vite"',
+      'export default {',
+      '  plugins: [hubEnv({ diagnostics: "off", server: { apiToken: env({ source: env.source("ENV_CLI_API_TOKEN") }) } })],',
+      '  environments: { ssr: { dev: { createEnvironment(name, config) {',
+      '    const environment = new DevEnvironment(name, config, { hot: false })',
+      '    environment.close = async () => { throw new Error("Runtime close failed") }',
+      '    return environment',
+      '  } } } },',
+      '}',
+    ].join("\n"))
+    const { context } = captureContext(root, { ENV_CLI_API_TOKEN: secretValue })
+    const error: unknown = await Promise.resolve(realFeature("check").run(["--json"], context)).then(() => undefined, (error: unknown) => error)
+    expect(error).toBeInstanceOf(AggregateError)
+    expect(error).toMatchObject({
+      cause: { message: "The SSR environment does not support runnable imports." },
+      errors: [{ message: "The SSR environment does not support runnable imports." }, { message: "Runtime close failed" }],
+    })
+    const diagnostic = formatRuntimeDiagnosticError(error)
+    expect(diagnostic).toContain("ENV_R0030")
+    expect(diagnostic).toContain("Configure Vite's SSR environment with a RunnableDevEnvironment")
   }, 60_000)
 
   it.each(["check", "list"] as const)("uses the configured SSR runtime for %s without starting other environments", async (command) => {
@@ -443,7 +471,6 @@ describe("env CLI with Vite stage files", () => {
     expect(await realFeature("check").run(["--stage", "staging", "--json"], context)).toBe(1)
     const report: { entries: Array<{ path?: string, status: string }>, ok: boolean } = JSON.parse(output.stdout)
     expect(report.ok).toBe(false)
-    // The stage file provides the region, so the provider does not see the process value.
     expect(report.entries.find(entry => entry.path === "env.server.region")?.status).toBe("available")
     expect(report.entries.find(entry => entry.path === "env.server.regionToken")?.status).toBe("missing")
   }, 60_000)

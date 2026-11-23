@@ -1,5 +1,3 @@
-// Lockfile helpers of `createNodeModulesSnapshot`. Internal: no package entry exports them.
-
 /** Dependencies named like this install a wasm build. They are aliases, so the lockfile pins them with the rest. */
 export const aliasPrefix = "vitehub-wasm-"
 

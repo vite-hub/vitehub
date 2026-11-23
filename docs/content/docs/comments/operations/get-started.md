@@ -109,7 +109,7 @@ The answer is the new thread. Its `id` starts with `thread_`, and its author is 
 
 ```bash [commands/read-thread]
 pnpm vitehub comments list --json
-pnpm vitehub comments get --input '{"id":"<id>"}'
+pnpm vitehub comments get --thread-id '<id>'
 ```
 
 On a deployed app, the Comments section of the [Console](/docs/console) shows the same threads. It shows only the threads that `authorize` lets you read. Click a row to read the thread, reply, or resolve it.

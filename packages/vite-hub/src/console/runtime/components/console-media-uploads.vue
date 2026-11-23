@@ -9,15 +9,13 @@ import Icon from "./console-icon.vue";
 
 /**
  * The upload queue: one row per file with its progress, then a check, a duplicate note, or the reason it failed with a
- * retry. It sits in the corner of the library and folds away once everything is done and dismissed. The bar is the
- * progress helper of @vite-hub/ui: a head while the file uploads, a wave while the server makes previews, then a check.
+ * retry. It sits in the corner of the library and folds away once everything is done and dismissed.
  */
 const props = defineProps<{ uploads: ConsoleMediaUploads }>();
 
 const entries = computed(() => props.uploads.entries.value);
 const done = computed(() => entries.value.filter(entry => entry.state === "done").length);
 const failed = computed(() => entries.value.filter(entry => entry.state === "failed").length);
-/** The bar of an entry: empty while queued, a fraction while it uploads, the wave while the server works on it. */
 function barValue(entry: ConsoleMediaUploadEntry): number | null | undefined {
   if (entry.state === "queued") return undefined;
   if (entry.state === "uploading") return entry.progress >= 1 ? null : entry.progress;

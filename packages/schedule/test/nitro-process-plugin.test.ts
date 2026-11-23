@@ -259,7 +259,6 @@ describe("generated Nitro Process Runtime files", () => {
     }
     const files = ["plugin.ts", "static-registry.js", "static-registry.d.ts"].map(file => join(root, ".vitehub", "nitro", "schedule", file))
 
-    // The dev server writes the files first. A `vitehub` command then loads the same project while the server watches them.
     await configure()
     const written = new Date("2020-01-01T00:00:00Z")
     await Promise.all(files.map(file => utimes(file, written, written)))

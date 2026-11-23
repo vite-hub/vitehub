@@ -2,7 +2,6 @@ import { defineErrors } from "@vite-hub/runtime"
 
 import type { ErrorCatalog } from "@vite-hub/runtime"
 
-// A type alias, not an interface, so it fits the index signature of `defineErrors()`.
 type StartedScheduleErrorCodes = {
   SCHEDULE_INVALID_OPTIONS: { fix: string, why: (data: { problem: string }) => string }
   SCHEDULE_NOT_FOUND: { fix: string, why: (data: { id: string }) => string }
@@ -11,8 +10,6 @@ type StartedScheduleErrorCodes = {
   SCHEDULE_STORE_MISSING: { fix: string, why: string }
 }
 
-// Errors that `startSchedule()`, `getSchedule()`, `listSchedules()`, and `cancelSchedule()` return as
-// `[error, undefined]`. Keep published codes stable. Each code has a heading on the docs page.
 export const startedScheduleErrors: ErrorCatalog<StartedScheduleErrorCodes> = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/schedule/diagnostics",
   codes: {

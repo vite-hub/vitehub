@@ -137,12 +137,10 @@ function others(people: readonly RealtimePerson[], me: string | undefined): { pe
   return [...byId.values()]
 }
 
-/** The open count on the Comments button. Its digits roll when it changes. */
 const OpenCount = defineComponent({
   props: { value: { required: true, type: Number } },
   setup(props) {
     const element = ref<HTMLElement>()
-    // Vue renders the first count only. Later counts go through the roll, which owns the children of the element.
     const first = String(props.value)
     onMounted(() => element.value && rollNumber(element.value, props.value))
     watch(() => props.value, value => element.value && rollNumber(element.value, value), { flush: "post" })
@@ -407,7 +405,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
-  /** Send, for signed-in people who may write, when the app turned it on. It counts the threads of the current page. */
   const send = computed(() => {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
@@ -766,7 +763,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       onMounted(moveCursors)
       onUpdated(moveCursors)
       onBeforeUnmount(() => cursorList?.motion.destroy())
-      // A new comment, a reply, or another page changes how many threads Send carries.
       if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
@@ -965,7 +961,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             type: "button",
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
-      // Send N hands the threads that wait for an answer to the person's agent, and pairs one in place first.
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [

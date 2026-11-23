@@ -138,17 +138,13 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   let agent: CommentSendAgent | undefined
   let count = 0
   let countRevision = 0
-  // The threads that the member sees while they pair, as the server named them.
   let selection = ""
   let selections = 0
-  // The setup code while the member pairs, and whether a new one is on its way.
   let code: string | undefined
   let fetching = false
-  // The send that the agent works on, so a late event of an older send changes nothing.
   let sendId: string | undefined
   let thread: string | undefined
   let pushed: Map<string, { thread?: string, done?: boolean }> | undefined
-  // Each new state starts a step. A timer or an answer of an older step changes nothing.
   let step = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let run = 0
@@ -178,7 +174,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   }
   const working = (): void => {
     set({ status: "working", count, ...(agent ? { agent } : {}), ...(thread ? { thread } : {}) })
-    // Without pushed events, ask until the agent is done. A failed ask tries again later.
     if (!transport.subscribe) later(statusInterval, () => void refresh(working))
   }
   const limited = (retryAt: number): void => {
@@ -196,7 +191,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (status.working) {
       sendId = status.working.id
       thread = status.working.thread
-      // Sent keeps its 2 seconds. Working follows on its own.
       if (state.status === "sent") {
         state = { ...state, count, inbox: inbox() }
         return notify()
@@ -230,7 +224,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     const updates = pushed
     pushed = undefined
     if (result.status === "changed") {
-      // Other threads wait now. The member confirms them, and the agent keeps its code.
       count = result.count
       selection = result.selection
       if (!paired) return set({ status: "failed", count, reason: "The waiting comments changed." })
@@ -263,7 +256,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (at === step) settle(result, revision, paired)
   }
 
-  // A code that the member dropped expires on its own, so a failed cancel changes nothing that they can see.
   const drop = (dropped: string): void => void transport.cancel(dropped).catch(() => undefined)
   const poll = (): void => {
     later(pairingInterval, async () => {
@@ -283,7 +275,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     const at = ++step
     try {
       const pairing = transport.startPairing()
-      // The copy starts now, inside the press, as Safari asks. It writes the prompt once it loads.
       const prompt = pairing.then(next => next.prompt)
       void prompt.catch(() => undefined)
       const copied = (async () => copy ? copy(prompt) : true)().then(ok => ({ ok }), (error: unknown) => ({ ok: false, error }))
@@ -311,7 +302,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     }
   }
 
-  // While the member pairs, a new count loads the status again, so the count and the selection that Allow sends stay one.
   const reselect = async (): Promise<void> => {
     const at = ++selections
     const pairing = code
@@ -341,7 +331,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
           countRevision++
           if (state.status === "pairing" || state.status === "confirm") return void reselect()
           count = event.count
-          // A new count keeps the step: its timers and its answers on the way still count.
           if (state.status !== "sending") {
             state = state.status === "idle" ? idleState() : { ...state, count }
             notify()
@@ -363,7 +352,6 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
         }
         if (event.id === sendId) finish()
       })
-      // Until a status loads, the segment shows nothing: Send of zero threads is hidden.
       void refresh(() => undefined)
       return () => {
         stop?.()

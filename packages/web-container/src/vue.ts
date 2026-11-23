@@ -45,6 +45,12 @@ export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WebContainerFiles;
   /**
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. Text files at an asset path,
+   * or at a path that would replace one with a folder or a file, are dropped, so edits, `modified`, `setFiles()`
+   * and `reset()` never touch them.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /**
    * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
    * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
    */
@@ -113,7 +119,6 @@ export interface UseWebContainerReturn {
   teardown: () => void;
 }
 
-/** The browser globals that the composable reads. This package compiles without the DOM library. */
 interface BrowserWindow {
   navigator: { onLine: boolean };
   addEventListener(type: "online" | "offline", listener: () => void): void;
@@ -139,7 +144,10 @@ function parentDirectory(path: string): string | undefined {
  * or your own. Only one WebContainer runs per page.
  */
 export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
-  const initial: WebContainerFiles = { ...options.files };
+  const assetPaths = Object.keys(options.assets ?? {});
+  const textFiles = (next: Readonly<WebContainerFiles>): WebContainerFiles => Object.fromEntries(Object.entries(next).filter(([path]) =>
+    !assetPaths.some(asset => asset === path || asset.startsWith(`${path}/`) || path.startsWith(`${asset}/`))));
+  const initial: WebContainerFiles = textFiles(options.files);
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";
 
@@ -152,7 +160,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   const container = shallowRef<ViteHubWebContainer>();
   const previewUrl = ref<string>();
   const logs = shallowRef<WebContainerLogs>(Object.assign([], { offset: 0 }));
-  // The server renders online. The browser state applies with the boot, after mount in a component.
   const online = ref(true);
 
   const modified = computed(() => {
@@ -161,7 +168,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
     return [...paths].filter(path => initial[path] !== current[path]).sort();
   });
 
-  // Bound the buffer before batching, including output that arrives between flushes.
   const logLimit = 64 * 1024;
   const logChunkLimit = 1000;
   const retainedLogs: string[] = [];
@@ -186,25 +192,21 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
         retainedLength -= excess;
       }
     }
-    // Copy once per flush rather than once per process chunk.
     flushTimer ??= setTimeout(() => {
       flushTimer = undefined;
       logs.value = Object.assign([...retainedLogs], { offset: logEnd - retainedLength });
     }, 32);
   }
 
-  // What the container has on disk. Edits made before mount differ from it and are written when mount ends.
   let written: WebContainerFiles = {};
   let writes: Promise<void> = Promise.resolve();
   let booting: Promise<void> | undefined;
   let devRun: WebContainerRun | undefined;
-  // The port of the running dev server: its `env.PORT`, else `port`, else 3000, the `PORT` that `bootWebContainer()` sets.
   let devPort: number | undefined;
   let serverActive = false;
   let recovery = Promise.resolve();
   let disposed = false;
 
-  /** Writes `files` to the container. Rejects when a write fails. A later call tries the remaining writes again. */
   function sync(): Promise<void> {
     const pending = writes.then(async () => {
       const target = fs.value;
@@ -221,7 +223,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
           directory = parentDirectory(directory);
         }
       }
-      // Remove empty owned directories from the leaves up before replacing them with a file.
       for (const directory of [...conflictingDirectories].sort((a, b) => b.length - a.length)) {
         await target.rm(directory, { force: true });
       }
@@ -274,15 +275,19 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       }
       devRun = run;
       pipe(run);
-      void run.exit.then((exitCode) => {
+      const stopped = (stop: WebContainerFailure) => {
         if (devRun !== run) return;
         devRun = undefined;
         serverActive = false;
         if (disposed) return;
         previewUrl.value = undefined;
-        failure.value = { kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) };
+        failure.value = stop;
         status.value = "error";
-      });
+      };
+      void run.exit.then(
+        exitCode => stopped({ kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) }),
+        (cause: unknown) => stopped({ kind: "server", error: toError(cause) }),
+      );
     }
     catch (cause) {
       serverActive = false;
@@ -325,7 +330,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       written = { ...files.value };
       try {
         const target = await bootWebContainer({
-          files: written,
+          files: { ...options.assets, ...written },
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
           previewScript: options.previewScript,
@@ -338,7 +343,6 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
               };
               previewUrl.value = undefined;
             }
-            // Only an explicit recovery action clears a failure, not a late status update.
             status.value = failure.value ? "error" : next.stage;
             steps.value = next.steps;
           },
@@ -402,7 +406,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   }
 
   async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
-    files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
+    files.value = setOptions.mode === "replace" ? textFiles(next) : { ...files.value, ...textFiles(next) };
     await sync();
   }
 

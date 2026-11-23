@@ -37,7 +37,6 @@ export interface CommentSendStore {
 
 const tableNames = ["vitehub_comment_sends"]
 
-/** The first column of each row: libSQL and D1 return objects, the SQLite proxy returns arrays. */
 function names(rows: unknown): string[] {
   const list = Array.isArray(rows) ? rows : []
   return list.map(row => String(Array.isArray(row) ? row[0] : Object.values(Object(row))[0]))

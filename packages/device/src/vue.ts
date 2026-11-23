@@ -51,62 +51,33 @@ export interface UseStoredFetchOptions<TData, TDefault> extends UseStoredDataOpt
   query?: MaybeRefOrGetter<StoredFetchQuery>
 }
 
-/**
- * A loader with the key of the read that calls it. A read keeps the loader of its last call, and that loader can belong
- * to a component that moved to another key, so a loader must not find its URL from component state.
- */
 type Loader = (context: StoredDataContext, key: string) => Promise<unknown>
 
-/** The state of one key, which every read of that key shares. */
 interface SharedRead {
   key: string
   data: ShallowRef<unknown>
   status: ShallowRef<StoredDataStatus>
   error: ShallowRef<Error | undefined>
   storedAt: ShallowRef<Date | undefined>
-  /** The loader answered in this page, so `data` is not a stored copy. */
   answered: boolean
   users: number
   controller: AbortController | undefined
-  /** The loader of each user of the read, by user. A user that goes takes its loader with it. */
   loaders: Map<object, Loader>
-  /** The loader of the last call, which a reset of the device or the naming of the account calls again. */
   loader: Loader
   fallback: () => unknown
   maxAge: number
-  /** The account of an answer, for the read that says who is signed in. */
   account: ((value: unknown) => string | null) | undefined
-  /**
-   * While the read is held, what `refresh()` returns. It resolves when the latest call after the hold ends, or when the
-   * read goes.
-   */
   heldUntil: { promise: Promise<void>, resolve: () => void } | undefined
 }
 
 const week = 7 * 24 * 60 * 60 * 1000
 const reads = new Map<string, SharedRead>()
 let watching = false
-/**
- * The read whose answer names the account right now, and the epoch of the event of that naming. For that event only, it
- * keeps its answer and does not start over. A later event, such as a naming that the event started, applies to it.
- */
 let claiming: { read: SharedRead, epoch: number } | undefined
-/** The reads with `account` whose loader runs. */
 const identifying = new Set<SharedRead>()
-/**
- * The reads that show a stored copy and wait for the naming before they call their loader. A held read always starts
- * its loader, at the naming or when the last running read with `account` ends or goes. The hold only saves the call that
- * the naming would start over: it never decides what is stored. It applies to reads that start after the session read,
- * and not to reads that wait for the mount during hydration.
- */
 const held = new Set<SharedRead>()
 
-/**
- * Calls the loaders of the held reads, when the read that says who is signed in failed or went before it named an
- * account. A naming calls them through its event.
- */
 function startHeld(device: Device): void {
-  // A loader that starts can start a read that says who is signed in, and then the other held reads wait again.
   const waiting = [...held]
   for (const read of waiting) {
     if (identifying.size) return
@@ -114,10 +85,6 @@ function startHeld(device: Device): void {
   }
 }
 
-/**
- * Follows the device: a copy that loads late shows, a naming of the account calls every loader again, and a reset starts
- * every read over.
- */
 function watchDevice(device: Device): void {
   if (watching) return
   watching = true
@@ -131,15 +98,12 @@ function watchDevice(device: Device): void {
     }
     for (const read of reads.values()) {
       if (read === claiming?.read && device.epoch() === claiming.epoch) continue
-      // Another account, a sign-out, or a clear: the read shows its default, also when its loader answered.
       if (event.type === "reset") {
         read.answered = false
         read.data.value = read.fallback()
         read.storedAt.value = undefined
         read.error.value = undefined
       }
-      // The answer of the older call never shows, and only the answer of the new call can be stored. A read that waits
-      // for its component to mount calls its loader then.
       if (read.status.value !== "idle") void load(read, read.loader, device)
     }
   })
@@ -153,14 +117,11 @@ function show(read: SharedRead, device: Device): void {
 }
 
 async function load(read: SharedRead, loader: Loader, device: Device): Promise<void> {
-  // No component shows a released read, and its answer must not replace the answer of a newer read of the key.
   if (!read.users) return
   read.controller?.abort()
   read.loader = loader
   read.status.value = "pending"
   held.delete(read)
-  // A read that shows a stored copy waits while the read that says who is signed in runs, and the page named no
-  // account: an answer of a call that starts before the naming is never stored, so its call would run twice.
   if (!read.account && read.storedAt.value && identifying.size && !device.named()) {
     read.controller = undefined
     held.add(read)
@@ -177,7 +138,6 @@ async function load(read: SharedRead, loader: Loader, device: Device): Promise<v
   const since = device.epoch()
   try {
     const value = await loader({ signal: controller.signal }, read.key)
-    // A newer call, the release of the read, or a change of the epoch came first.
     if (controller.signal.aborted || device.epoch() !== since) return
     const account = read.account?.(value)
     if (account === undefined) {
@@ -185,28 +145,19 @@ async function load(read: SharedRead, loader: Loader, device: Device): Promise<v
       return device.write(read.key, value, read.maxAge, since)
     }
     checkAccount(account)
-    // The answer names the account before it shows, so no code that watches it runs between the check and the naming.
-    // The naming waits for the copies of the disk, also when `openDevice()` starts while it waits. A change of the epoch
-    // meanwhile, such as a message of another tab or a naming that the event of this one started, decides instead, and
-    // the read starts over.
-    for (;;) {
-      while (device.loading()) {
-        await device.whenOpen()
-        if (controller.signal.aborted || device.epoch() !== since) return
-      }
-      claiming = { read, epoch: since + 1 }
-      let claimed: boolean
-      try {
-        claimed = device.claim(read.key, value, read.maxAge, since, account)
-      }
-      finally {
-        claiming = undefined
-      }
-      if (claimed) break
-      if (controller.signal.aborted || device.epoch() !== since || !device.loading()) return
+    if (device.loading()) {
+      await device.whenOpen()
+      if (controller.signal.aborted || device.epoch() !== since) return
     }
-    // A loader that the naming started can call this read again, and then the newer call shows its answer.
-    if (controller.signal.aborted) return
+    claiming = { read, epoch: since + 1 }
+    let claimed: boolean
+    try {
+      claimed = device.claim(read.key, value, read.maxAge, since, account)
+    }
+    finally {
+      claiming = undefined
+    }
+    if (!claimed || controller.signal.aborted) return
     publish(read, value)
   }
   catch (error) {
@@ -223,7 +174,6 @@ async function load(read: SharedRead, loader: Loader, device: Device): Promise<v
   }
 }
 
-/** Shows an answer of the loader in the read. */
 function publish(read: SharedRead, value: unknown): void {
   read.answered = true
   read.data.value = value
@@ -232,7 +182,6 @@ function publish(read: SharedRead, value: unknown): void {
   read.status.value = "success"
 }
 
-/** Returns the shared read of `key`. A new read calls its loader at once, unless `start` is `false`: then it stays `idle`. */
 function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: number, account: SharedRead["account"], device: Device, owner: object, start = true): SharedRead {
   const existing = reads.get(key)
   if (existing) {
@@ -263,11 +212,6 @@ function acquire(key: string, loader: Loader, fallback: () => unknown, maxAge: n
   return read
 }
 
-/**
- * When a user of a read goes, such as a component that unmounts or moves to another key, its loader goes too: a reset
- * calls the loader of a user that still reads this key, not one that now reads another key. When the last user goes,
- * the loader call stops, so a late answer cannot replace a newer one.
- */
 function release(read: SharedRead, device: Device, owner: object): void {
   read.users--
   const gone = read.loaders.get(owner)
@@ -325,7 +269,6 @@ export function useStoredData<TData, TDefault = undefined>(
  */
 export function useStoredFetch<TData = unknown>(
   url: MaybeRefOrGetter<string>,
-  // With `<Project[]>` in the call, the default takes the type of the data, such as `() => []`.
   options: UseStoredFetchOptions<TData, TData> & { default: () => NoInfer<TData> },
 ): UseStoredDataReturn<TData, TData>
 export function useStoredFetch<TData = unknown, TDefault = undefined>(
@@ -340,14 +283,7 @@ export function useStoredFetch<TData, TDefault>(
   return useRead(() => fetchKey(toValue(url), toValue(query)), fetchJSON, read)
 }
 
-/**
- * The key of a `useStoredFetch()` read, which is also the URL that it requests: the path and the query of a URL on the
- * origin of the page, or the whole URL on another origin. The query is sorted by name, so the order in the code does
- * not make another key. The hash goes.
- */
 function fetchKey(url: string, query: StoredFetchQuery | undefined): string {
-  // `fetch()` reads a relative URL from the base URL of the document. The server has no document, and its key only has
-  // to be valid, because the server reads nothing.
   const page = typeof document === "undefined" ? "http://localhost/" : document.baseURI
   const target = new URL(url, page)
   for (const [name, value] of Object.entries(query ?? {})) {
@@ -358,7 +294,6 @@ function fetchKey(url: string, query: StoredFetchQuery | undefined): string {
   return target.origin === new URL(page).origin ? target.pathname + target.search : target.href
 }
 
-/** Asks for the JSON at `key`. An answer that is not 2xx throws, so the device never stores an error body. */
 async function fetchJSON({ signal }: StoredDataContext, key: string): Promise<unknown> {
   const response = await fetch(key, { signal, headers: { accept: "application/json" } })
   if (!response.ok) throw deviceErrors.DEVICE_FETCH_FAILED({ url: key, status: response.status })
@@ -366,7 +301,6 @@ async function fetchJSON({ signal }: StoredDataContext, key: string): Promise<un
   return value
 }
 
-/** The shared read of `key` for one component, or the server render of it. */
 function useRead<TData, TDefault>(
   key: MaybeRefOrGetter<string>,
   loader: Loader,
@@ -388,13 +322,8 @@ function useRead<TData, TDefault>(
     }
   }
   watchDevice(device)
-  // A component that hydrates server HTML renders what the server rendered until it mounts: the default, and `idle`.
-  // The shared read can show more already, such as a stored copy when the device opened before the app mounted, or the
-  // answer of a component of the same key that hydrated first. Vue sets the element of a component before its setup
-  // only when it hydrates that element.
   const hydrating = shallowRef(Boolean(getCurrentInstance()?.vnode.el))
   const rendered = shallowRef(hydrating.value ? fallback() : undefined)
-  // The user of the reads of this call, so the loader of this call leaves a read when the call leaves it.
   const owner = {}
   const current = shallowRef(acquire(checkKey(toValue(key)), loader, fallback, maxAge, account, device, owner, !hydrating.value))
   if (hydrating.value) {

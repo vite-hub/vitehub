@@ -6,7 +6,6 @@ import { forgeMemoryCache, forgeProvider, useForge } from "../src/index.ts"
 
 interface Resource { body: unknown, etag: string, link?: string }
 
-/** A GitHub REST fake that answers `If-None-Match` with a 304 and counts the requests GitHub would charge. */
 function fakeGitHub(resources: Record<string, Resource>) {
   const calls: { url: string, authorization: string | null, ifNoneMatch: string | null, status: number }[] = []
   let tokens = 0

@@ -80,7 +80,7 @@ const plans = {
   netlify: {
     host: "netlify",
     nitroPreset: "netlify",
-    output: { directory: ".netlify", entry: "functions-internal/server/server.mjs", packaging: "none" },
+    output: { directory: ".netlify", entry: "v1/functions/server/server.mjs", packaging: "none" },
     runtime: "node",
     services: {
       blob: { driver: "netlify-blobs", guarantee: "native", supported: true },

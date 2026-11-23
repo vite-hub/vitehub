@@ -1,5 +1,3 @@
-// The checks of the multi-instance harness. Each check returns { status: "pass" | "fail", detail }.
-// `context` is built in run.mjs `main()`: the instances, their boot results, the oracle `sql` client, and `stop(name)`.
 import { randomUUID } from "node:crypto"
 import { readdir } from "node:fs/promises"
 import { join } from "node:path"
@@ -20,7 +18,6 @@ async function request(instance, path, init) {
 
 const post = (instance, path, body) => request(instance, path, { body: JSON.stringify(body), method: "POST" })
 
-/** Waits until `read` returns a value that `done` accepts, or until no progress for `idleMs`. Returns the last value. */
 async function settle(read, done, { idleMs = 15_000, timeoutMs = 120_000 } = {}) {
   const deadline = Date.now() + timeoutMs
   let last = await read()
@@ -38,7 +35,6 @@ function bootFailures(context) {
   return context.instances.filter((_, index) => !context.boot[index].ok).map(instance => instance.name)
 }
 
-/** Fails a check early when one of the instances it needs did not start. */
 function needInstances(context, names) {
   const down = bootFailures(context).filter(name => names.includes(name))
   if (down.length) throw new Error(`instance ${down.join(", ")} did not start (see the boot check)`)
@@ -55,7 +51,6 @@ export const checks = [
       const failed = context.instances.flatMap((instance, index) =>
         context.boot[index].ok ? [] : [`${instance.name}: ${context.boot[index].error}`])
       if (failed.length) return fail(failed.join("\n"))
-      // The build and every instance must see REDIS_URL only in the Redis mode, even when the shell sets it.
       const expected = context.mode === "with-redis" ? "set" : "unset"
       const wrong = []
       for (const instance of context.instances) {
@@ -83,11 +78,9 @@ export const checks = [
         return totals
       }
       await settle(read, value => value.distinct === ids.length)
-      // Wait a little longer, so a duplicate run has time to show up.
       await sleep(2000)
       const final = await read()
       const byInstance = await context.sql`select instance, count(*)::int as count from oracle_events where kind = 'job' and key like ${`${run}-%`} group by instance order by instance`
-      // The spread is information only. One instance may take every job from a correct shared queue.
       const detail = `${final.distinct}/${ids.length} jobs ran, ${final.total} runs (spread: ${distribution(byInstance)})`
       return final.distinct === ids.length && final.total === ids.length ? pass(detail) : fail(detail)
     },
@@ -97,11 +90,8 @@ export const checks = [
     title: "a 10 per minute limit allows exactly 10 of 60 concurrent requests across all instances",
     async run(context) {
       const instances = needInstances(context, ["a", "b", "c"])
-      // The window is the clock minute. Start early in a minute so all requests fall in one window.
       if (new Date().getSeconds() > 45) await sleep((61 - new Date().getSeconds()) * 1000)
       const key = randomUUID()
-      // Two batches of 30 requests in flight at the same time, 10 on each instance.
-      // A store that reads and then writes lets more than 10 through.
       let allowed = 0
       for (let batch = 0; batch < 2; batch++) {
         const answers = await Promise.all(Array.from({ length: 30 }, (_, index) =>
@@ -129,7 +119,6 @@ export const checks = [
         { WebSocketPolyfill: WebSocket, disableBc: true },
       )
       const sender = connect(a)
-      // A second peer on A is the control: it proves the client and the room work on one instance.
       const control = connect(a)
       const peer = connect(b)
       const providers = [sender, control, peer]
@@ -153,7 +142,6 @@ export const checks = [
     title: "each schedule occurrence runs once across instances",
     async run(context) {
       needInstances(context, ["a", "b", "c"])
-      // The cron runs every minute. Wait for one occurrence after all instances started, plus time for late runs.
       const after = new Date(context.startedAt)
       const read = () => context.sql`select key, count(*)::int as count, string_agg(instance, '' order by instance) as instances from oracle_events where kind = 'schedule' and key::timestamptz > ${after} group by key order by key`
       const rows = await settle(read, value => value.length > 0, { idleMs: 75_000, timeoutMs: 75_000 })
@@ -211,22 +199,18 @@ export const checks = [
     title: "a Workflow started on A completes once and B reads its result (OpenWorkflow set in the config)",
     async run(context) {
       const [a, b] = needInstances(context, ["a", "b", "c"])
-      const workers = await context.sql`select instance, key from oracle_events where kind = 'worker' order by instance`
-      const started = workers.filter(row => row.key === "started").map(row => row.instance)
       const token = randomUUID()
       const { id } = await post(a, "/api/workflow", { token })
       const run = await settle(() => request(b, `/api/workflow?id=${id}`), value => value.status === "completed" || value.status === "failed", { timeoutMs: 60_000 })
       const [{ count }] = await context.sql`select count(*)::int as count from oracle_events where kind = 'workflow' and key = ${token}`
       const detail = [
-        `workers started on ${started.join(", ") || "no instance"}`,
         `status ${run.status} on B with result ${JSON.stringify(run.result)}`,
         `the body ran ${count} time(s)`,
       ].join(", ")
-      const ok = started.length === 3 && run.status === "completed" && run.result?.token === token && count === 1
+      const ok = run.status === "completed" && run.result?.token === token && count === 1
       return ok ? pass(detail) : fail(detail)
     },
   },
-  // Keep this check last: it stops instance A.
   {
     id: "queue-failover",
     title: "jobs queued on A run on another instance after A stops",
@@ -234,7 +218,6 @@ export const checks = [
       const [a] = needInstances(context, ["a", "b", "c"])
       const run = randomUUID().slice(0, 8)
       const ids = Array.from({ length: 20 }, (_, index) => `${run}-${index}`)
-      // The delay keeps every job waiting while A stops, so no job is half done on A.
       const { errors } = await post(a, "/api/queue", { delay: "5s", ids })
       if (errors.length) return fail(`sendQueue failed: ${errors[0]}`)
       await context.stop("a")

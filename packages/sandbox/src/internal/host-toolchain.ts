@@ -73,7 +73,6 @@ export async function provisionHostToolchain(
     }
     catch (error) {
       options.abortSignal?.throwIfAborted();
-      // execFile rejects a non-zero exit with its numeric code and captured output.
       const code = error instanceof Error && "code" in error ? error.code : undefined;
       if (typeof code !== "number") throw error;
       const output = (name: "stderr" | "stdout") => {

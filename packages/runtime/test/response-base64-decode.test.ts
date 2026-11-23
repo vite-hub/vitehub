@@ -22,7 +22,6 @@ it.each([false, true])("restores binary response bodies with Buffer disabled: %s
         })
       }
       finally {
-        // Node's Response body reader needs Buffer even when our decoder does not.
         vi.unstubAllGlobals()
       }
       expect(NodeBuffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true)

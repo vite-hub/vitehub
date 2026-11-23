@@ -49,7 +49,6 @@ describe("database Env store keyring", () => {
     expect(await withBA.rotate()).toEqual({ rotated: 0, skipped: 3 });
 
     const withB = createDatabaseEnvStore({ db, encryptionKeys: [keyB] });
-    // Rotation keeps the revision, so related records and optimistic writes stay valid.
     expect(await withB.secrets.read("github")).toEqual({ value: "token-a", revision: github.revision });
     expect((await withB.secrets.read("slack"))?.value).toBe("token-s");
     expect((await withB.secrets.read("linear"))?.value).toBe("token-b");

@@ -18,7 +18,6 @@ interface GitOptions {
 type GitRunner = (args: string[], options?: GitOptions) => Promise<string | Uint8Array>
 
 interface GitArchiveInput<TKey extends string> {
-  /** Remote URL and the basic auth pair from `forgeGitCredentials()`. */
   credentials: ForgeGitCredentials
   env?: NodeJS.ProcessEnv
   keyForRepoPath: (path: string) => TKey | undefined

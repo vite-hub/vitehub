@@ -5,10 +5,6 @@ import { cmsAccess } from "vite-hub/cms/access"
 
 import { playgroundRoleOf } from "./roles"
 
-// Users and sessions live in the `content` Database. `authDatabase()` adds the Better Auth tables to it, and
-// `server/databases/content/migrations/20261102185656_auth/migration.sql` creates them. Sign in at /login.
-// `admin(cmsAccess)` keeps each user's CMS role in `user.role`. A playground user gets its role at sign-up; anyone else
-// gets `user`, which has no CMS permission. Admins change roles in the Auth section of the Console.
 export default defineAuth({
   appName: "Content playground",
   database: authDatabase("content"),

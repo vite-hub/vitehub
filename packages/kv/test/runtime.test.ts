@@ -278,7 +278,6 @@ describe("kv runtime", () => {
   it("reads numeric-looking strings back as text with { type: \"text\" }", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
-    // The Upstash adapter keeps raw text so both read paths decode it only when requested.
     upstashGetdel = vi.fn(async () => "123456")
     const { kv } = await import("../src/runtime/storage.ts")
 
@@ -497,7 +496,6 @@ describe("kv runtime", () => {
     expect(driver.getMeta).toBeUndefined()
     expect(driver.setItemRaw).toBeUndefined()
     expect(driver.removeItems).toBeUndefined()
-    // Every driver gets the batch methods, which call the single-key methods when the driver has no batch command.
     expect(driver.getItems).toEqual(expect.any(Function))
     expect(driver.setItems).toEqual(expect.any(Function))
     expect(driver.watch).toBeUndefined()

@@ -18,7 +18,6 @@ describe.runIf(providerEnabled("vercel"))("vercel provider output", () => {
   })
 
   it("bundle excludes Cloudflare-only sandbox runtime code", () => {
-    // Match module specifiers only: the shared Sandbox error catalog names `@cloudflare/sandbox` in its fix text.
     expect(bundle().match(/["'](?:cloudflare:workers|@cloudflare\/sandbox(?:\/[^"'\s]*)?)["']/)?.[0]).toBeUndefined()
   })
 

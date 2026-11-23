@@ -323,7 +323,6 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
       await onComment({ mentions, message, thread })
     }
     catch (error) {
-      // The answer waits for onComment, so the failure goes on the wide event of the request.
       logFailure({ field: "comments", fields: { hook: "onComment", thread: thread.id }, message: "Comments onComment failed", error, ...(options.request ? { request: options.request } : {}) }, () => globalThis.console.error("[vitehub] Comments onComment failed:", error))
     }
   }
@@ -338,7 +337,6 @@ async function announce(runtime: CommentsRuntime, thread: CommentThread, message
       await onMention({ message, thread, users: fresh, ...(link ? { link } : {}) })
     }
     catch (error) {
-      // onMention runs after the answer, when the wide event of the request is gone. It gets an event of its own.
       logFailure({ field: "comments", fields: { hook: "onMention", thread: thread.id }, message: "Comments onMention failed", error, waitUntil: keep }, () => globalThis.console.error("[vitehub] Comments onMention failed:", error))
     }
   })()

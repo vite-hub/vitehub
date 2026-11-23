@@ -33,7 +33,6 @@ function parseIPv4(host: string): IPv4 | undefined {
   return bytes.every(byte => byte <= 255) ? bytes : undefined
 }
 
-/** The 8 groups of an IPv6 address, or `undefined` when it is not one. Accepts a dotted IPv4 tail, as in `::ffff:1.2.3.4`. */
 function parseIPv6(input: string): number[] | undefined {
   let text = input.toLowerCase()
   const dotted = /^(?<head>.*:)(?<tail>\d+\.\d+\.\d+\.\d+)$/.exec(text)?.groups
@@ -54,12 +53,10 @@ function parseIPv6(input: string): number[] | undefined {
   return [...head, ...zeros, ...rest].map(group => Number.parseInt(group, 16))
 }
 
-/** Why an IPv4 address is not public: loopback, private, link-local, cloud metadata, or another range that no receiver uses. */
 function privateIPv4([a, b, c]: IPv4): string | undefined {
   if (a === 127) return "a loopback address"
   if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return "a private address"
   if (a === 169 && b === 254) return "a link-local or cloud metadata address"
-  // 100.64.0.0/10 is carrier-grade NAT. Alibaba Cloud serves its metadata on 100.100.100.200.
   if (a === 100 && b >= 64 && b <= 127) return "a shared or cloud metadata address"
   if (a === 0) return "an unspecified address"
   if (a === 192 && b === 0 && c === 0) return "a reserved address"
@@ -75,16 +72,12 @@ function privateIPv6(groups: readonly number[]): string | undefined {
   const zeroUntil = (end: number) => groups.slice(0, end).every(group => group === 0)
   if (zeroUntil(8)) return "an unspecified address"
   if (zeroUntil(7) && eighth === 1) return "a loopback address"
-  // ::ffff:0:0/96 is an IPv4 address written as IPv6, and ::/96 is the deprecated IPv4-compatible form of it.
-  // 64:ff9b::/96 reaches IPv4 through NAT64.
   const mapped = zeroUntil(5) && sixth === 0xFFFF
   const compatible = zeroUntil(6)
   const nat64 = first === 0x64 && second === 0xFF9B && groups.slice(2, 6).every(group => group === 0)
   if (mapped || nat64) return privateIPv4(embeddedIPv4(seventh, eighth))
   if (compatible) return privateIPv4(embeddedIPv4(seventh, eighth)) ?? "a deprecated IPv4-compatible address"
-  // 64:ff9b:1::/48 is NAT64 for local networks, so it can reach any address behind the translator.
   if (first === 0x64 && second === 0xFF9B && third === 1) return "a local-use NAT64 address"
-  // 2002::/16 is 6to4: the next 32 bits are the IPv4 address of the tunnel.
   if (first === 0x2002) {
     const reason = privateIPv4(embeddedIPv4(second, third))
     if (reason) return `a 6to4 address of ${reason}`
@@ -95,7 +88,6 @@ function privateIPv6(groups: readonly number[]): string | undefined {
   return undefined
 }
 
-/** Why an IP address is not public, or `undefined` for a public address and for a value that is not an IP address. */
 function privateAddress(address: string): string | undefined {
   const v4 = parseIPv4(address)
   if (v4) return privateIPv4(v4)

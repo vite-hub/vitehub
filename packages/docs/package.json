@@ -50,6 +50,11 @@
       "import": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./runnable": {
+      "types": "./dist/runnable.d.ts",
+      "import": "./dist/runnable.js",
+      "default": "./dist/runnable.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -76,6 +81,7 @@
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "comark-content": "catalog:markdown-ui",
@@ -111,6 +117,7 @@
     "linkedom": "^0.18.13",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
+    "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
