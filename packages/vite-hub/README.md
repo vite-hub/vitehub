@@ -41,6 +41,8 @@ pnpm add vite-hub
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm valibot` |
+| `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |
@@ -48,6 +50,8 @@ pnpm add vite-hub
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
@@ -60,9 +64,11 @@ pnpm add vite-hub
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/web-container` | `@vite-hub/web-container` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
+| `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
 
@@ -142,7 +148,7 @@ Discovered Database Definitions do not enable Database. Without `database`, impo
 
 If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
-The Deno host uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
+On the Deno host, `schedule: true` writes static Schedules as `Deno.cron` registrations. The generated `.output/main.ts` loads them before the Nitro server. Use the default Agent runtime for deployed routes. The host rejects `agent.runtime: "deno"` because it generates a separate server outside the deployed entrypoint. See the [Deno host guide](https://vitehub.dev/docs/frameworks-hosts/deno).
 
 The Deno host emits `.output/deno.json`, stages under `.output/node_modules` the packages that the server bundle keeps external and the Linux glibc binaries that bundled packages load at runtime, such as libSQL's native module, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` before deployment. The runner uses the resolved deployment identity as its app name, with `DENO_DEPLOY_APP` as an optional override, and uploads node modules when it creates or updates an app. The Node host emits a plain Node server artifact suitable for a VPS or container image; Docker is not a host.
 

@@ -96,7 +96,7 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript. `nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
-pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
+pnpm add vite-hub nitro@3.0.261103-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
@@ -215,13 +215,17 @@ If another third-party dependency version falls outside the range supported by y
 | `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
 | `email` | `@vite-hub/email` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm valibot` |
 | `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `mcp` | `@vite-hub/mcp`, and with `auth` also `@better-auth/oauth-provider` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark`, `@comark/html`, and `comark-ui`, which pnpm and npm install with it |
@@ -230,12 +234,15 @@ If another third-party dependency version falls outside the range supported by y
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
+| `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/web-container` | `@vite-hub/web-container` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
+| `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
 
 Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
@@ -243,6 +250,8 @@ Some hosts and providers add an SDK, and the build names it in the same error. O
 ::
 
 ## Update ViteHub
+
+For the API and configuration changes in 0.5.0, see [Upgrade from 0.4.1 to 0.5.0](/docs/codemods/upgrade-vitehub).
 
 Upgrade `vite-hub` and every `@vite-hub/*` package to the latest release together:
 

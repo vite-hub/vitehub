@@ -16,6 +16,17 @@ It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
+## Upgrade from 0.4.1 to 0.5.0
+
+[Update ViteHub](/docs/getting-started/installation#update-vitehub) and its feature packages together. Preview the changes with `vitehub migrate --dry-run`, then run `vitehub migrate` and review its manual follow-ups.
+
+- **Channels.** Install `@vite-hub/channels` in the app if it uses Channel adapters, including Agent web chat. Import adapters from `vite-hub/channels/adapters` and Channel Definitions from `vite-hub/channels`. See [the Channels codemod](#channels).
+- **Agent Invocations.** On Node, a production build with a Postgres `default` Database stores the default journal there. Existing SQLite records stay in the SQLite file. Check [Invocation storage](/docs/agents/invocation-storage#use-the-default-journal) before deploying.
+- **Email templates.** Template modules and `renderEmailMarkdown()` return `RenderedEmail` with `subject`, when set, plus `html` and `text`. If a caller used the filled Markdown string from `#vitehub/emails/<name>`, read `text` from the result. See [Email templates](/docs/email/server-api#send-a-template).
+- **WebContainer.** Replace `hubWebContainer({ routes })` with `vitehub({ webContainer: { routes } })`. For the UI workspace, use `Workspace` with the `webContainer()` or `render()` runner. See [isolation headers](/docs/web-container/configure#isolation-headers) and [Workspace](/docs/ui/workspace).
+- **CLI.** Update scripts that read one record to use `get` and scripts that read many to use `list`. Agent commands now live under `vitehub agent`. See [CLI reads](#cli-get-list) and [Agent commands](#cli-agent-tree).
+- **Nuxt.** Import ViteHub server helpers explicitly, or opt in to [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). The [codemod](#nuxt-server-imports) adds imports.
+
 ## define-forms
 
 ViteHub keeps one define form for each primitive. `define-forms` rewrites the former forms:
