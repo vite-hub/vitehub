@@ -686,13 +686,14 @@ describe("cloudflare queue runtime", () => {
   })
 
   it.each([
-    ["a prefixed name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--77656c636f6d65"],
-    ["a bounded name", { queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" as const } }, getCloudflareQueueName("welcome", `${"deployment".repeat(8)}-`)],
-    ["a generated mapping", { definitions: { "preview-queue--77656c636f6d65": "welcome" } }, "preview-queue--77656c636f6d65"],
-  ])("names the Queue Definition in delivery reports of %s", async (_case, options, physicalName) => {
+    ["a prefixed name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a bounded name", { queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" as const } }, getCloudflareQueueName("welcome", `${"deployment".repeat(8)}-`), "welcome", "welcome"],
+    ["a generated mapping", { definitions: { "preview-queue--77656c636f6d65": "welcome" } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a non-ASCII name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--636166c3a9", "café", "preview-queue--636166c3a9"],
+  ])("identifies the queue in delivery reports of %s", async (_case, options, physicalName, definitionName, reportedName) => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const handler = vi.fn(async () => { throw new Error("SMTP down") })
-    const worker = createQueueCloudflareWorker({ ...options, registry: { welcome: async () => ({ default: { handler } }) } })
+    const worker = createQueueCloudflareWorker({ ...options, registry: { [definitionName]: async () => ({ default: { handler } }) } })
     const retry = vi.fn()
 
     await worker.queue({
@@ -704,7 +705,7 @@ describe("cloudflare queue runtime", () => {
 
     expect(handler).toHaveBeenCalledOnce()
     expect(retry).toHaveBeenCalledOnce()
-    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "welcome" })
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: reportedName })
   })
 
   it("derives bounded physical names from manual worker registries", async () => {

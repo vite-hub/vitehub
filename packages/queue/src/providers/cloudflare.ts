@@ -1,6 +1,6 @@
 import { readQueueTimes } from "../duration.ts"
 import { normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
+import { normalizePublicQueueIdentifier, queueProviderResult, queueRemovedOptionsError, queueUnsupportedOptionsError } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
@@ -111,7 +111,7 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
             attempts: message.attempts,
             id: message.id,
             provider: "cloudflare",
-            queue: options.queue ?? getCloudflareQueueDefinitionName(batch.queue),
+            queue: normalizePublicQueueIdentifier(options.queue) ?? normalizePublicQueueIdentifier(getCloudflareQueueDefinitionName(batch.queue)) ?? batch.queue,
           } as const
           reportQueueDeliveryError(error, reportContext)
           let action: CloudflareQueueBatchErrorAction | void = undefined
