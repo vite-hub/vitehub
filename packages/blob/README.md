@@ -150,7 +150,7 @@ Blob stores binary objects and small object metadata. Keep catalogs, indexes, pe
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
-`limit` must be a safe integer of 0 or more, or omitted. Another value, such as `-1`, `2.5`, `9007199254740992`, or `NaN` from `Number(query.limit)`, throws `BLOB_R0034` as an H3 `HTTPError` with status `400` before `list()` reads the store. `limit: 0` returns an empty page.
+`limit` must be a safe integer of 0 or more, or omitted. Another value, such as `-1`, `2.5`, `9007199254740992`, or `NaN` from `Number(query.limit)`, throws `BLOB_R0034` as an H3 `HTTPError` with status `400` before `list()` reads the store. On the `fs` driver, `limit: 0` returns an empty page.
 
 A Netlify Blobs listing makes one request for each page and returns the pathname, ETag, size, and upload time of each file, without its content type or custom metadata. Call `blob.head()` for those.
 
