@@ -1636,6 +1636,139 @@ describe("provider deployment outputs", () => {
     expect(resolvePackages).not.toHaveBeenCalled()
   })
 
+  it("traces each Vercel runtime package once when several contributions need it", async () => {
+    vi.resetModules()
+    const rootDir = await createTempProject()
+    const traced: string[] = []
+    vi.doMock("@vercel/nft", () => ({
+      nodeFileTrace: vi.fn(async (_files: string[], options: { base: string }) => {
+        traced.push(relative(join(rootDir, "node_modules"), options.base))
+        return { fileList: new Set(["index.js"]) }
+      }),
+    }))
+
+    try {
+      const {
+        contributeProviderDeploymentOutput,
+        createDefaultVercelOutputRoot,
+        createProviderOutputCatalog,
+        finalizeProviderDeploymentOutputs,
+      } = await import("../src/build/deployment-output.ts")
+      const nodeModules = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "node_modules")
+      for (const name of ["shared", "agent-only", "workspace-only"]) await writePackage(rootDir, name, { exports: { ".": "./index.js" } })
+      await mkdir(dirname(nodeModules), { recursive: true })
+      const catalog = createProviderOutputCatalog()
+      const contribute = (owner: "agent" | "workflow" | "workspace", names: string[]) => contributeProviderDeploymentOutput(catalog, {
+        owner,
+        rootDir,
+        write: async ({ addVercelRuntimePackages }) => {
+          addVercelRuntimePackages({ packages: () => names.map(name => ({ name })), rootDir })
+        },
+      })
+      contribute("agent", ["shared", "agent-only"])
+      contribute("workflow", ["shared"])
+      contribute("workspace", ["workspace-only", "shared"])
+
+      await finalizeProviderDeploymentOutputs(catalog)
+
+      expect(traced.sort()).toEqual(["agent-only", "shared", "workspace-only"])
+      for (const name of ["shared", "agent-only", "workspace-only"]) {
+        expect(existsSync(join(nodeModules, name, "index.js")), name).toBe(true)
+      }
+    }
+    finally {
+      vi.doUnmock("@vercel/nft")
+      vi.resetModules()
+    }
+  })
+
+  it.for(["finishes", "resets"] as const)("%s provider output after the Vercel runtime package pass", async (outcome) => {
+    vi.resetModules()
+    let traceStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      traceStarted = resolve
+    })
+    let releaseTrace!: () => void
+    const released = new Promise<void>((resolve) => {
+      releaseTrace = resolve
+    })
+    vi.doMock("@vercel/nft", () => ({
+      nodeFileTrace: vi.fn(async () => {
+        traceStarted()
+        await released
+        return { fileList: new Set(["index.js"]) }
+      }),
+    }))
+
+    try {
+      const rootDir = await createTempProject()
+      const {
+        contributeProviderDeploymentOutput,
+        createDefaultVercelOutputRoot,
+        createProviderOutputCatalog,
+        finalizeProviderDeploymentOutputs,
+        resetProviderDeploymentOutputs,
+      } = await import("../src/build/deployment-output.ts")
+      const nodeModules = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "node_modules")
+      await writePackage(rootDir, "runtime-package", { exports: { ".": "./index.js" } })
+      await writeFile(join(rootDir, "node_modules", "runtime-package", "index.js"), "export const version = 'new'\n", "utf8")
+      await mkdir(join(nodeModules, "runtime-package"), { recursive: true })
+      await writeFile(join(nodeModules, "runtime-package", "index.js"), "export const version = 'old'\n", "utf8")
+      const catalog = createProviderOutputCatalog()
+      contributeProviderDeploymentOutput(catalog, {
+        owner: "workspace",
+        rootDir,
+        write: async ({ addVercelRuntimePackages }) => {
+          addVercelRuntimePackages({ packages: [{ name: "runtime-package" }], rootDir })
+        },
+      })
+      let settled = false
+      const finalizing = finalizeProviderDeploymentOutputs(catalog).finally(() => {
+        settled = true
+      })
+
+      await started
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(settled).toBe(false)
+      if (outcome === "resets") {
+        const resetting = resetProviderDeploymentOutputs(catalog, new Error("build failed"))
+        releaseTrace()
+        await expect(finalizing).rejects.toThrow("Provider Output finalization reset")
+        await resetting
+        await expect(readFile(join(nodeModules, "runtime-package", "index.js"), "utf8")).resolves.toBe("export const version = 'old'\n")
+      }
+      else {
+        releaseTrace()
+        await finalizing
+        await expect(readFile(join(nodeModules, "runtime-package", "index.js"), "utf8")).resolves.toBe("export const version = 'new'\n")
+      }
+    }
+    finally {
+      vi.doUnmock("@vercel/nft")
+      vi.resetModules()
+    }
+  })
+
+  it("rejects two installations of one Vercel runtime package in one function", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { createVercelFunctionRuntimePackagesPass } = await import("../src/build/vercel-runtime-packages.ts")
+    const nodeModules = join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func", "node_modules")
+    await writePackage(rootDir, "runtime-package")
+    await writePackage(join(rootDir, "feature"), "runtime-package", { version: "2.0.0" })
+    await mkdir(join(nodeModules, "existing"), { recursive: true })
+    const pass = createVercelFunctionRuntimePackagesPass()
+    pass.add({ packages: [{ name: "runtime-package" }], rootDir })
+    pass.add({ packages: [{ name: "runtime-package", resolveFrom: join(rootDir, "feature", "package.json") }], rootDir })
+
+    await expect(pass.copy()).rejects.toMatchObject({
+      code: "INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT",
+      message: expect.stringContaining(join(rootDir, "feature", "node_modules", "runtime-package")),
+    })
+    expect(existsSync(join(nodeModules, "existing"))).toBe(true)
+    expect(existsSync(join(nodeModules, "runtime-package"))).toBe(false)
+  })
+
   it("copies runtime packages into an explicit Node output", async () => {
     const rootDir = await createTempProject()
     const outputNodeModules = join(rootDir, ".output", "server", "node_modules")

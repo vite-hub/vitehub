@@ -8,14 +8,17 @@ import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from
 import { bundleEsmEntry } from "./rolldown.ts"
 import { cleanProviderOutputConfig, stringifyProviderOutputConfig, writeProviderOutputConfig } from "./provider-output-config.ts"
 import { removeProviderOutputArtifactDir } from "./provider-output-sources.ts"
-import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+import { createDefaultVercelOutputRoot, createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+import { createVercelFunctionRuntimePackagesPass } from "./vercel-runtime-packages.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
+import type { VercelFunctionRuntimePackagesRequest } from "./vercel-runtime-packages.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog as ProviderOutputCatalogType } from "./provider-output-catalog.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 import { invariant, invariantError } from "../invariant.ts"
 
 export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { createDefaultVercelOutputRoot } from "./vercel-config.ts"
 export { composeNitroCloudflareProviderOutput } from "./cloudflare-provider-output.ts"
 export {
   contributeCloudflareProviderOutput,
@@ -161,6 +164,8 @@ export interface ProviderDeploymentOutputContribution {
   ready?: () => boolean
   rootDir: string
   write: (context: {
+    /** Adds packages to a Vercel function. They are traced and copied once, after every contribution of the root writes. */
+    addVercelRuntimePackages: (request: VercelFunctionRuntimePackagesRequest) => void
     readCloudflareState: CloudflareProviderDeploymentOutputStateReader
     signal: AbortSignal
     write: ProviderDeploymentOutputWriter
@@ -326,10 +331,6 @@ async function writeProviderOutputOwnershipFiles(
     await mkdir(outputRoot, { recursive: true })
     await writeFile(file, `${JSON.stringify(values, null, 2)}\n`, "utf8")
   }))
-}
-
-export function createDefaultVercelOutputRoot(rootDir: string): string {
-  return resolve(rootDir, ".vercel", "output")
 }
 
 export function createDefaultNetlifyOutputRoot(rootDir: string): string {
@@ -1248,9 +1249,11 @@ export async function finalizeProviderDeploymentOutputs(
             const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
                 try {
+                  const vercelRuntimePackages = createVercelFunctionRuntimePackagesPass()
                   for (const contribution of rootContributions) {
                     throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({
+                      addVercelRuntimePackages: request => vercelRuntimePackages.add(request),
                       readCloudflareState: async options => await readCloudflareProviderDeploymentOutputState(rootDir, options),
                       signal: controller.signal,
                       write: async (writeOptions) => {
@@ -1260,6 +1263,8 @@ export async function finalizeProviderDeploymentOutputs(
                     })
                     throwIfProviderOutputAborted(controller.signal)
                   }
+                  await vercelRuntimePackages.copy(controller.signal)
+                  throwIfProviderOutputAborted(controller.signal)
                   ready()
                   const rollback = await rootDecision
                   if (rollback !== undefined) throw rollback

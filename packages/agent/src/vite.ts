@@ -15,7 +15,7 @@ import { sqliteUrlInput } from "@vite-hub/runtime/durability"
 import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/bundle-options"
 import { scanModule } from "@vite-hub/internal/build/scan-module"
 import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
-import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
+import { copyNodeRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { ownModule } from "@vite-hub/internal/build/paths"
@@ -3666,7 +3666,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           discard: contributionArtifactDir ? async () => await removeProviderOutputArtifactDir(contributionArtifactDir) : undefined,
           owner: "agent",
           rootDir: config.root,
-          write: async ({ signal, write }) => {
+          write: async ({ addVercelRuntimePackages, signal, write }) => {
           if (normalized && normalized.runtime === "deno") return
           if (normalized && hostedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
@@ -3683,14 +3683,13 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             await cleanupNetlifyAgentProviderOutput(config, write)
           }
           signal.throwIfAborted()
-          await copyVercelFunctionRuntimePackages({
+          addVercelRuntimePackages({
             packages: () => [
               { includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true },
               { includePeerDependencies: true, name: "@t3tools/provider-runtime", optional: true },
               ...resolveProviderRuntimePackages({ rootDir: config.root }),
             ],
             rootDir: config.root,
-            signal,
           })
           },
         }, providerOutputGenerations.get(this))

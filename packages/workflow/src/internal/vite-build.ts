@@ -30,7 +30,7 @@ import { generatedNativeEntryKey, workflowStartAtKey } from "../runtime/delay.ts
 
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowOptions, WorkflowDriver, WorkflowStepOptions } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, ProviderDeploymentOutputOptions, ProviderDeploymentOutputWriter, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
-import type { VercelFunctionRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
+import type { VercelFunctionRuntimePackage, VercelFunctionRuntimePackagesRequest } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Rolldown, Plugin as VitePlugin } from "vite"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -821,6 +821,7 @@ interface GeneratedWorkflowArtifacts {
 }
 
 interface GenerateProviderOutputsOptions {
+  addVercelRuntimePackages?: (request: VercelFunctionRuntimePackagesRequest) => void
   artifacts?: GeneratedWorkflowArtifacts
   agentModules?: AgentWorkflowModules
   clientOutDir: string
@@ -1914,11 +1915,13 @@ async function generateProviderOutputsWithinLock(
     if (vercelOutput) deploymentOutput.vercel = vercelOutput
     await writeProviderDeploymentOutputs(deploymentOutput)
     if (vercelOutput) {
-      await copyVercelFunctionRuntimePackages({
+      const request = {
         packages: options.vercelRuntimePackages ?? [],
         rootDir: options.rootDir,
         serverFunctionName: options.serverFunctionName ?? "__server.func",
-      })
+      }
+      if (options.addVercelRuntimePackages) options.addVercelRuntimePackages(request)
+      else await copyVercelFunctionRuntimePackages(request)
     }
   }
   try {

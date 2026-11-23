@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { updateRuntimePackageDirectory } from "./runtime-package-directory.ts"
 import { copyRuntimePackageFiles } from "./runtime-package-files.ts"
-import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
+import { createDefaultVercelOutputRoot } from "./vercel-config.ts"
 import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
@@ -27,18 +27,56 @@ interface NodeRuntimePackagesOptions {
   rootDir: string
 }
 
-interface VercelFunctionRuntimePackagesOptions {
+export interface VercelFunctionRuntimePackagesRequest {
   outputRoot?: string
   packages: VercelFunctionRuntimePackage[] | (() => VercelFunctionRuntimePackage[] | Promise<VercelFunctionRuntimePackage[]>)
   rootDir: string
   serverFunctionName?: string
+}
+
+interface VercelFunctionRuntimePackagesOptions extends VercelFunctionRuntimePackagesRequest {
   signal?: AbortSignal
 }
 
+/** Copies runtime packages into one Vercel function. A build with several features uses `createVercelFunctionRuntimePackagesPass()`. */
 export async function copyVercelFunctionRuntimePackages(options: VercelFunctionRuntimePackagesOptions): Promise<void> {
-  const outputRoot = options.outputRoot ?? createDefaultVercelOutputRoot(options.rootDir)
-  const serverFunctionName = options.serverFunctionName ?? "__server.func"
-  const serverDir = resolve(outputRoot, "functions", serverFunctionName)
+  const pass = createVercelFunctionRuntimePackagesPass()
+  pass.add(options)
+  await pass.copy(options.signal)
+}
+
+/** Collects the runtime packages that features add to Vercel functions, then traces and copies them once per function. */
+export function createVercelFunctionRuntimePackagesPass(): {
+  add: (request: VercelFunctionRuntimePackagesRequest) => void
+  copy: (signal?: AbortSignal) => Promise<void>
+} {
+  const requests: VercelFunctionRuntimePackagesRequest[] = []
+  return {
+    add(request) {
+      requests.push(request)
+    },
+    async copy(signal) {
+      const functions = new Map<string, { requests: VercelFunctionRuntimePackagesRequest[], rootDir: string }>()
+      for (const request of requests.splice(0)) {
+        const outputRoot = request.outputRoot ?? createDefaultVercelOutputRoot(request.rootDir)
+        const serverDir = resolve(outputRoot, "functions", request.serverFunctionName ?? "__server.func")
+        const entry = functions.get(serverDir) ?? { requests: [], rootDir: request.rootDir }
+        entry.requests.push(request)
+        functions.set(serverDir, entry)
+      }
+      for (const [serverDir, entry] of functions) {
+        await copyFunctionRuntimePackages(serverDir, entry.rootDir, entry.requests, signal)
+      }
+    },
+  }
+}
+
+async function copyFunctionRuntimePackages(
+  serverDir: string,
+  rootDir: string,
+  requests: VercelFunctionRuntimePackagesRequest[],
+  signal: AbortSignal | undefined,
+): Promise<void> {
   try {
     await access(serverDir)
   }
@@ -48,16 +86,22 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
     throw error
   }
 
-  const packages = Array.isArray(options.packages) ? options.packages : await options.packages()
+  const packages: NodeRuntimePackage[] = []
+  for (const request of requests) {
+    const requested = Array.isArray(request.packages) ? request.packages : await request.packages()
+    for (const runtimePackage of requested) {
+      packages.push({ ...runtimePackage, resolveFrom: runtimePackage.resolveFrom ?? join(request.rootDir, "package.json") })
+    }
+  }
   if (!packages.length) return
 
   await updateRuntimePackageDirectory({
     directory: resolve(serverDir, "node_modules"),
-    signal: options.signal,
+    signal,
     update: outputNodeModules => copyNodeRuntimePackages({
       outputNodeModules,
       packages,
-      rootDir: options.rootDir,
+      rootDir,
     }),
   })
 }
@@ -67,10 +111,17 @@ export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOption
 
   const copied = new Set<string>()
   const expanded = new Set<string>()
+  const requested = new Map<string, string>()
   for (const runtimePackage of options.packages) {
     const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
     const resolver = createRequire(resolveFrom)
-    await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
+    const packageJsonPath = await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
+    if (!packageJsonPath) continue
+    const previous = requested.get(runtimePackage.name)
+    if (previous && previous !== packageJsonPath) {
+      throw internalErrorDiagnostics.INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT({ first: dirname(previous), name: runtimePackage.name, second: dirname(packageJsonPath) })
+    }
+    requested.set(runtimePackage.name, packageJsonPath)
   }
 }
 
@@ -82,10 +133,10 @@ async function copyPackageToNodeModules(
   copied: Set<string>,
   expanded: Set<string>,
   options: NodeRuntimePackage = { name },
-): Promise<void> {
+): Promise<string | undefined> {
   const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
   if (!packageJsonPath) {
-    if (options.optional) return
+    if (options.optional) return undefined
     throw internalErrorDiagnostics.INTERNAL_B0046({ message: `Could not resolve package.json for ${name}.` })
   }
 
@@ -113,7 +164,7 @@ async function copyPackageToNodeModules(
   }
 
   const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
-  if (expanded.has(expansionKey)) return
+  if (expanded.has(expansionKey)) return resolvedPackageJsonPath
   expanded.add(expansionKey)
 
   const packageRequire = createRequire(resolvedPackageJsonPath)
@@ -137,6 +188,7 @@ async function copyPackageToNodeModules(
       optional: optionalDependencyNames.has(dependencyName) && !requiredPeerDependencyNames.has(dependencyName),
     })
   }
+  return resolvedPackageJsonPath
 }
 
 async function copyTracedPackageFiles(

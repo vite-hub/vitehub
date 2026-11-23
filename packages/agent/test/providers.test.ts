@@ -16,6 +16,7 @@ import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provid
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
+import type { VercelFunctionRuntimePackagesRequest } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -38,13 +39,27 @@ const chatMessageHeader = expect.objectContaining({ id: "message-header", type: 
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyNodeRuntimePackages: vi.fn(async () => undefined),
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
-vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
-  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
-  writeProviderDeploymentOutputs: vi.fn(async () => undefined),
-}))
+const addVercelRuntimePackages = vi.hoisted(() => vi.fn((_request: VercelFunctionRuntimePackagesRequest) => {}))
+
+vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>()
+  return {
+    ...actual,
+    contributeProviderDeploymentOutput: (...[catalog, contribution, generation]: Parameters<typeof actual.contributeProviderDeploymentOutput>) => actual.contributeProviderDeploymentOutput(catalog, {
+      ...contribution,
+      write: async writeContext => await contribution.write({
+        ...writeContext,
+        addVercelRuntimePackages: (request) => {
+          addVercelRuntimePackages(request)
+          writeContext.addVercelRuntimePackages(request)
+        },
+      }),
+    }, generation),
+    writeProviderDeploymentOutputs: vi.fn(async () => undefined),
+  }
+})
 
 vi.mock("@vite-hub/internal/build/provider-output-sources", async (importOriginal) => {
   const original = await importOriginal<typeof import("@vite-hub/internal/build/provider-output-sources")>()
@@ -1194,7 +1209,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("materializes Agent runtime packages for Vercel build output", async () => {
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { resolveProviderRuntimePackages } = await import("../src/internal/provider-runtime-packages.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-vercel-runtime-"))
@@ -1210,7 +1224,7 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
-      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+      addVercelRuntimePackages.mockClear()
       vi.mocked(resolveProviderRuntimePackages).mockReturnValueOnce([
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
         { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
@@ -1219,8 +1233,8 @@ describe("agent Vite plugin", () => {
       await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
-      expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledOnce()
-      const call = vi.mocked(copyVercelFunctionRuntimePackages).mock.calls[0]?.[0]
+      expect(addVercelRuntimePackages).toHaveBeenCalledOnce()
+      const call = addVercelRuntimePackages.mock.calls[0]?.[0]
       expect(call?.rootDir).toBe(root)
       if (!call || Array.isArray(call.packages)) throw new Error("Expected deferred Vercel runtime packages.")
       const packages = await call.packages()
@@ -1231,7 +1245,6 @@ describe("agent Vite plugin", () => {
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
         { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
       ])
-      expect(call.signal).toEqual(expect.any(AbortSignal))
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2660,7 +2673,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("does not materialize Vercel runtime packages for Deno output", async () => {
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-close-bundle-"))
     try {
@@ -2669,12 +2681,12 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent({ runtime: "deno" })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
-      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+      addVercelRuntimePackages.mockClear()
 
       await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
-      expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
+      expect(addVercelRuntimePackages).not.toHaveBeenCalled()
     } finally {
       await rm(root, { force: true, recursive: true })
     }

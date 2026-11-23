@@ -3,7 +3,6 @@ import { dirname, extname, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
-import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNativePackageLoading, createNoExternalAddition, isProductionBuild, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint, setViteHubDevResponseHeaders } from "@vite-hub/internal/dev-endpoint"
@@ -1087,12 +1086,11 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       providerOutputGenerations.defer(this, providerOutput, {
         owner: "workspace",
         rootDir: roots.projectRoot,
-        write: async ({ readCloudflareState, signal, write }) => {
+        write: async ({ addVercelRuntimePackages, readCloudflareState, write }) => {
           const definitions = discoverDefinitions(roots, serverDirs, contributions)
-          await copyVercelFunctionRuntimePackages({
+          addVercelRuntimePackages({
             packages: vercelFunctionRuntimePackages(),
             rootDir: roots.projectRoot,
-            signal,
           })
           await writeCloudflareArtifactsProviderOutput(
             roots.projectRoot,
