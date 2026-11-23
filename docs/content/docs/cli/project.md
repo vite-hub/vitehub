@@ -127,7 +127,7 @@ A starter Definition file exists and has other content, or another file already 
 
 ### `SETUP_SERVER_DIR_MANUAL`
 
-The CLI could not determine Nuxt's application server directory statically. For example, the app may use a dynamic `serverDir`, layers, directory overrides for a Nuxt environment, or a `.nuxtrc` file. Create the Definition in Nuxt's resolved server directory and rerun without `--name`.
+The CLI could not determine Nuxt's application server directory statically. For example, the app may use a dynamic `serverDir`, layers, directory overrides for a Nuxt environment, or a `.nuxtrc` file that sets directory or layer options or that the CLI cannot read or parse. Create the Definition in Nuxt's resolved server directory and rerun without `--name`.
 
 ### `SETUP_INSTALL_FAILED`
 
