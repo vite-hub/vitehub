@@ -55,7 +55,7 @@ async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<strin
   return keys.map(key => key.replaceAll("/", ":")).filter(key => key.startsWith(prefix))
 }
 
-export async function consoleSiteEntries(kv: ConsoleSiteKV, prefix: string) {
+export async function consoleSiteEntries(kv: ConsoleSiteKV, prefix: string): Promise<{ key: string, value: string | null | undefined }[]> {
   const keys = await consoleSiteKeys(kv, prefix)
   if (!keys.length) return []
   const values = kv.getMany
@@ -312,7 +312,6 @@ export async function listConsoleSiteSessions(known: ReadonlySet<string>): Promi
     .map(record => ({
       id: record.id,
       kind: record.kind,
-      // A guest has no email.
       person: { ...record.person },
       grants: record.roles.filter(role => known.has(role)),
       device: record.device,
