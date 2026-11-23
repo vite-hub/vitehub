@@ -1,7 +1,7 @@
 import { defineEventHandler, readValidatedBody } from "h3"
 import { kv } from "@vite-hub/kv"
 import * as v from "valibot"
-import { getQueueMarkerKey, queueMarkerStages } from "../../../../_shared/queue-test"
+import { getQueueMarkerKey, getQueueMarkerValue, queueMarkerStages } from "../../../../_shared/queue-test"
 
 const markerBody = v.object({
   error: v.optional(v.string()),
@@ -11,7 +11,7 @@ const markerBody = v.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, markerBody)
-  const [error] = await kv.set(getQueueMarkerKey(body.marker, body.stage), body.stage === "failed" ? body.error || "unknown error" : true)
+  const [error] = await kv.set(getQueueMarkerKey(body.marker, body.stage), getQueueMarkerValue(body.stage, body.error))
   if (error) throw error
   return { ok: true }
 })
