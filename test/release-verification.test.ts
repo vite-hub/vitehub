@@ -337,11 +337,17 @@ describe("shared release verifier", () => {
       .toContain("does not match root version 0.4.0")
   })
 
-  it("writes a synthetic version only for a branch dry run", () => {
+  it("restores checked-in versions before the branch dry run checks source manifests", () => {
     const branch = workspace("0.5.0", "0.5.0")
-    expect(runScript(applyScript, { cwd: branch.directory, env: { RELEASE_EXACT: "false", RELEASE_VERSION: "0.0.0-dev.42" } }).status).toBe(0)
+    const env = { RELEASE_EXACT: "false", RELEASE_VERSION: "0.0.0-dev.42" }
+    const options = { cwd: branch.directory, env }
+    expect(runScript(applyScript, options).status).toBe(0)
     expect(branch.read("packages/public/package.json")).toBe("0.0.0-dev.42")
     expect(branch.read("packages/private/package.json")).toBe("0.0.1")
+    expect(runScript(step(steps, "Pin release dependency versions"), options).status).toBe(0)
+    expect(branch.read("packages/public/package.json")).toBe("0.0.0-dev.42")
+    expect(runScript(step(steps, "Restore checked-in manifests"), options).status).toBe(0)
+    expect(branch.read("packages/public/package.json")).toBe("0.5.0")
   })
 
   it("runs every check in order and publishes only as a dry run", () => {
@@ -354,7 +360,7 @@ describe("shared release verifier", () => {
       (candidate: Step) => candidate.run === 'vp run --no-cache --filter "./packages/*" build',
       (candidate: Step) => candidate.name === "Pin release dependency versions",
       (candidate: Step) => candidate.run?.includes("release-packages.mjs pack") && candidate.run.includes("--verify-reproducible"),
-      (candidate: Step) => candidate.name === "Restore workspace dependency ranges",
+      (candidate: Step) => candidate.name === "Restore checked-in manifests",
       (candidate: Step) => candidate.run?.includes("release-packages.mjs verify") && candidate.run.includes("publint run"),
       (candidate: Step) => candidate.run === "vp run test:contracts" && Boolean(candidate.env?.VITEHUB_RELEASE_MANIFEST),
       (candidate: Step) => candidate.run === "vp run test:consumer" && Boolean(candidate.env?.VITEHUB_RELEASE_MANIFEST),

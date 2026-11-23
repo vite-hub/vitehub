@@ -91,7 +91,7 @@ runs:
         RELEASE_VERSION: ${{ inputs.version }}
       run: |
         node <<'NODE'
-        const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
+        const { mkdirSync, readdirSync, readFileSync, writeFileSync } = require("node:fs")
         const { join } = require("node:path")
 
         const exact = process.env.RELEASE_EXACT === "true"
@@ -107,25 +107,30 @@ runs:
         for (const entry of readdirSync("packages", { withFileTypes: true })) {
           if (!entry.isDirectory()) continue
           const path = join("packages", entry.name, "package.json")
-          let manifest
+          let source
           try {
-            manifest = JSON.parse(readFileSync(path, "utf8"))
+            source = readFileSync(path, "utf8")
           }
           catch (error) {
             if (error.code === "ENOENT") continue
             throw error
           }
+          const manifest = JSON.parse(source)
           if (manifest.private === true) continue
-          manifests.push({ manifest, path })
-        }
-        if (manifests.length === 0) throw new Error("No publishable packages found")
-
-        for (const { manifest, path } of manifests) {
           if (exact && manifest.version !== process.env.RELEASE_VERSION) {
             throw new Error(`Release version ${process.env.RELEASE_VERSION} does not match ${manifest.name} version ${manifest.version}`)
           }
-          manifest.version = process.env.RELEASE_VERSION
-          writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+          manifests.push({ manifest, path, source })
+        }
+        if (manifests.length === 0) throw new Error("No publishable packages found")
+
+        mkdirSync(".release", { recursive: true })
+        writeFileSync(".release/workspace-manifests.json", JSON.stringify(Object.fromEntries(manifests.map(({ path, source }) => [path, source]))))
+        if (!exact) {
+          for (const { manifest, path } of manifests) {
+            manifest.version = process.env.RELEASE_VERSION
+            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+          }
         }
         NODE
 
@@ -142,28 +147,10 @@ runs:
       env:
         RELEASE_VERSION: ${{ inputs.version }}
       run: |
-        mkdir -p .release
         node <<'NODE'
-        const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
-        const { join } = require("node:path")
-
-        const manifests = []
-        for (const entry of readdirSync("packages", { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue
-          const path = join("packages", entry.name, "package.json")
-          let manifest
-          try {
-            manifest = JSON.parse(readFileSync(path, "utf8"))
-          }
-          catch (error) {
-            if (error.code === "ENOENT") continue
-            throw error
-          }
-          if (manifest.private === true) continue
-          manifests.push({ manifest, path })
-        }
-
-        writeFileSync(".release/workspace-manifests.json", JSON.stringify(Object.fromEntries(manifests.map(({ path }) => [path, readFileSync(path, "utf8")]))))
+        const { readFileSync, writeFileSync } = require("node:fs")
+        const sources = JSON.parse(readFileSync(".release/workspace-manifests.json", "utf8"))
+        const manifests = Object.keys(sources).map(path => ({ path, manifest: JSON.parse(readFileSync(path, "utf8")) }))
         const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
         for (const { manifest, path } of manifests) {
           for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
@@ -186,7 +173,7 @@ runs:
           --source-sha "$RELEASE_SHA" \
           --verify-reproducible
 
-    - name: Restore workspace dependency ranges
+    - name: Restore checked-in manifests
       shell: bash
       run: |
         node <<'NODE'
@@ -201,10 +188,12 @@ runs:
       shell: bash
       env:
         RELEASE_SHA: ${{ inputs.source-sha }}
+        RELEASE_VERSION: ${{ inputs.version }}
       run: |
         node .github/scripts/release-packages.mjs verify \
           --manifest .release/npm/release-manifest.json \
           --workspace . \
+          --workspace-version "$RELEASE_VERSION" \
           --source-sha "$RELEASE_SHA"
 
         while IFS= read -r tarball; do
