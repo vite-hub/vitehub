@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { homedir } from "node:os"
 import { delimiter, sep } from "node:path"
@@ -7,10 +7,11 @@ import process from "node:process"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
+import { parse as parseRc } from "rc9"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { JsonValue, LocateResult } from "@vite-hub/internal/config-edit"
+import type { LocateResult } from "@vite-hub/internal/config-edit"
 
 export type SetupFramework = "vite" | "nuxt" | "none"
 export type SetupPackageManager = "pnpm" | "npm" | "yarn" | "bun"
@@ -87,12 +88,23 @@ export function detectPackageManager(root: string, manifest: PackageManifest | u
 
 const nuxtLayerKeys = ["extends", "_extends", "theme", "_layers"]
 
-function nuxtDirectoryOverride(value: JsonValue): boolean {
+function nuxtDirectoryOverride(value: unknown): boolean {
   return value !== null && typeof value === "object"
     && ["rootDir", "serverDir", ...nuxtLayerKeys].some(key => Object.hasOwn(value, key))
 }
 
-function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
+async function nuxtRcAllowsStaticDiscovery(folder: string): Promise<boolean> {
+  const file = join(folder, ".nuxtrc")
+  try {
+    if (!(await stat(file)).isFile()) return false
+    return !nuxtDirectoryOverride(parseRc(await readFile(file, "utf8")))
+  }
+  catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT"
+  }
+}
+
+async function nuxtServerDirs(root: string, config: LocateResult | undefined, env: NodeJS.ProcessEnv): Promise<string[] | undefined> {
   const nuxt = config?.ok ? config.site.nuxt : undefined
   if (!nuxt || nuxt.spread) return
   for (const key of nuxtLayerKeys) {
@@ -107,13 +119,17 @@ function nuxtServerDirs(root: string, config: LocateResult | undefined): string[
     }
     else if (nuxtDirectoryOverride(override.value)) return
   }
-  if (existsSync(join(root, "layers")) || [...parentFolders(root), homedir()].some(folder => existsSync(join(folder, ".nuxtrc")))) return
+  if (existsSync(join(root, "layers"))) return
   const rootDir = nuxt.keys.rootDir
   const serverDir = nuxt.keys.serverDir
   if (rootDir && (rootDir.kind !== "literal" || typeof rootDir.value !== "string")) return
   if (serverDir && (serverDir.kind !== "literal" || typeof serverDir.value !== "string")) return
   const appRoot = rootDir?.kind === "literal" && typeof rootDir.value === "string" ? resolve(root, rootDir.value) : root
   if (existsSync(join(appRoot, "layers"))) return
+  const home = homedir()
+  for (const folder of new Set([...parentFolders(root), home, env.XDG_CONFIG_HOME || join(home, ".config")])) {
+    if (!await nuxtRcAllowsStaticDiscovery(folder)) return
+  }
   return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
 }
 
@@ -166,6 +182,6 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     },
     ...detectPackageManager(root, manifest, env),
     root,
-    serverDirs: framework === "nuxt" ? nuxtServerDirs(root, config) : [join(root, "server")],
+    serverDirs: framework === "nuxt" ? await nuxtServerDirs(root, config, env) : [join(root, "server")],
   }
 }

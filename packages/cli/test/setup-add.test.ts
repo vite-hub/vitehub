@@ -355,7 +355,10 @@ describe("vitehub add", () => {
     ['srcDir: "src", theme: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
     ['srcDir: "src", _extends: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
     ['srcDir: "src"', { ".nuxtrc": "serverDir=backend\n" }],
-  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options, files) => {
+    ["devtools: false", { ".nuxtrc": "extends[]=./base\n" }],
+    ["devtools: false", { ".nuxtrc": "rootDir.0=app\n" }],
+    ["devtools: false", { ".nuxtrc": "devtools=true\ndevtools[]=false\n" }],
+  ])("rejects Nuxt starters when the application server directory is unresolved: %s %j", async (options, files) => {
     const root = await createProject({
       ...files,
       "package.json": pnpmManifest,
@@ -450,6 +453,30 @@ describe("vitehub add", () => {
     expect(files).toContain(`${serverDir}/databases/jobs.ts`)
     expect(files.filter(file => file.endsWith("/jobs.ts")).every(file => file.startsWith(`${serverDir}/`))).toBe(true)
     expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it("adds, discovers, and removes Nuxt starters with unrelated RC settings", async () => {
+    const workspace = await createProject({
+      ".nuxtrc": "devtools.enabled=false\n",
+      "pnpm-workspace.yaml": "packages: ['apps/*']\n",
+      "apps/site/.nuxtrc": "# Project settings\napp.head.title=Example\n",
+      "apps/site/nuxt.config.ts": 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], srcDir: "src", vitehub: { host: "node" } })',
+      "apps/site/package.json": pnpmManifest,
+      "user/.nuxtrc": 'modules[]="@nuxt/devtools"\n',
+    })
+    const root = join(workspace, "apps/site")
+    const env = { XDG_CONFIG_HOME: join(workspace, "user") }
+    const starter = join(root, "server/queues/jobs.ts")
+    const result = await runSetup<AddResult>(["add", "queue", "--name", "jobs", "--no-install", "--yes", "--json"], root, env)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(true)
+
+    const status = await runSetup<SetupStatus>(["status", "--json"], root, env)
+    expect(status.json.features).toContainEqual(expect.objectContaining({ id: "queue", enabled: "on", reason: "default" }))
+
+    const removed = await runSetup(["remove", "queue", "--yes", "--json"], root, env)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(false)
   })
 
   it.each(["schedule.runtime.intervalMs=1000", "schedule.runtime.driver=other", "schedule.runtime=false"])("requires a valid Node Schedule runtime driver for %s", async (option) => {
