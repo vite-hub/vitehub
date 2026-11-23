@@ -952,7 +952,10 @@ jobs:
           git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
           git checkout --quiet --detach "$BASE_SHA"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
-          if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
+          if [ "$install" = "true" ]; then
+            vp install --frozen-lockfile
+            ./packages/vite-hub/node_modules/.bin/playwright-core install --only-shell chromium
+          fi
           for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
           node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
       - name: Compare
