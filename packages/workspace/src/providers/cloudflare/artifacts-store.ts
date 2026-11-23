@@ -276,10 +276,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
-    const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
+    const entry = this.#fs!.entries.get(this.#fs!.normalize(this.#absolute(normalized)))
     const fileMetadata = stat.isFile() ? this.#files.get(normalized) : undefined
     return {
-      digest: bytes ? await sha256(bytes) : undefined,
+      digest: entry?.kind === "file" ? await this.#digest(entry.data) : undefined,
       mediaType: fileMetadata?.mediaType,
       metadata: structuredClone(fileMetadata?.metadata),
       mtime: stat.mtimeMs,
