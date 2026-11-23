@@ -50,6 +50,20 @@ describe("Blob + Database Store on PGlite", () => {
     useDatabase.mockReset()
   })
 
+  it("explains how to apply missing Postgres history migrations and retries after they run", async () => {
+    const { db, migrate } = await historyDatabase()
+    const store = createBlobDatabaseWorkspaceStore({ blob: await sharedBlob(), database: db, workspace: "handbook" })
+
+    await expect(store.history.head()).rejects.toMatchObject({
+      code: "WORKSPACE_R0078",
+      fix: expect.stringContaining("vitehub database migrate"),
+      cause: { cause: { code: "42P01" } },
+    })
+
+    await migrate()
+    await expect(store.history.head()).resolves.toBeNull()
+  })
+
   it("applies the Postgres history schema and keeps history by Database name", async () => {
     const db = await migratedDatabase()
     useDatabase.mockImplementation((name: string) => {
@@ -124,14 +138,24 @@ describe("Blob + Database Store on PGlite", () => {
 })
 
 async function migratedDatabase() {
+  const { db, migrate } = await historyDatabase()
+  await migrate()
+  return db
+}
+
+async function historyDatabase() {
   const dataDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-pglite-"))
   cleanup.push(() => rm(dataDir, { force: true, recursive: true }))
   const definition = defineDatabase({ dialect: "postgresql", driver: "pglite", schema: workspaceHistorySchema })
   const db = await createDevPostgresDatabase(definition, { binding: "DB" }, { dataDir, migrationsDir: join(dataDir, "migrations") })
   const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
   cleanup.push(() => client.close())
-  for (const statement of await historyMigration()) await client.exec(statement)
-  return db
+  return {
+    db,
+    async migrate() {
+      for (const statement of await historyMigration()) await client.exec(statement)
+    },
+  }
 }
 
 describe.skipIf(!url)("Blob + Database Store on a Postgres server", () => {
