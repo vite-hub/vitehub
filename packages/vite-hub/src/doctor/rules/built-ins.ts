@@ -6,7 +6,7 @@ import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
 import { callArguments, isIdentifier, isNode, isNodeType, isTestFile, numberValue, parentOf, resolver, stringValue, unwrap } from "../ast.ts"
 import type { AstNode } from "../ast.ts"
-import { configObject } from "../config-object.ts"
+import { configObject, configProgram } from "../config-object.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { viteHubInventory } from "../inventory.ts"
 import { generatedFile, viteHubPackage } from "./imports.ts"

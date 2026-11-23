@@ -32,8 +32,8 @@ export function installNuxtServerAutoImports(nuxt: Nuxt, entries: readonly Impor
     if (event === "add" || event === "unlink") await refresh?.(resolve(srcDir, path))
   })
   nuxt.hook("modules:done", () => {
-    nuxt.hook("nitro:config", async (config: { imports?: false | ImportOptions }) => {
-      const options = config.imports
+    nuxt.hook("nitro:config", async (config) => {
+      const options = "imports" in config ? config.imports as false | ImportOptions | undefined : undefined
       refresh = undefined
       if (!options || options.autoImport === false) return
       const imports = options.imports ??= []

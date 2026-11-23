@@ -169,13 +169,13 @@ function nuxtConfigLayers(project: ProjectInfo): ConfigValue[] {
     const config = source === undefined ? undefined : configObject(source) ?? unknownConfig
     if (inherited.length) return [config, ...inherited.flatMap(layer => read(layer))]
     const extended = configProperty(config, "extends")
-    const layers = extended !== unknownConfig && extended?.type === "ArrayExpression" ? extended.elements : [extended]
+    const layers: readonly (ConfigValue | null)[] = extended !== unknownConfig && extended?.type === "ArrayExpression" ? extended.elements : [extended]
     const dir = resolve(root, "layers")
     const auto = isDirectory(dir) ? readdirSync(dir).sort().reverse().flatMap(name => {
       const layer = resolve(dir, name)
       return isDirectory(layer) ? read(layer) : []
     }) : []
-    return [config, ...auto, ...layers.flatMap(layer => {
+    return [config, ...auto, ...layers.flatMap((layer): ConfigValue[] => {
       if (layer === undefined) return []
       if (layer && layer !== unknownConfig && layer.type === "StringLiteral" && layer.value.startsWith(".")) return read(resolve(root, layer.value))
       return [unknownConfig]
