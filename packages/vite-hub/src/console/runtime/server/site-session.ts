@@ -126,11 +126,14 @@ type ResolvedSiteKV =
 async function resolveConsoleSiteKV(): Promise<ResolvedSiteKV> {
   if (isConsoleDevelopmentRuntime()) return { store: { kind: "memory" }, open: async () => memorySiteKV() }
   const site = consoleState().siteDatabase
-  const database = site && "open" in site ? await site.open() : undefined
-  if (database) return { store: { kind: "database", name: database.name, table: consoleSiteTable }, open: async () => await databaseSiteKV(database.name, database.db) }
+  const openSite = site && "open" in site ? site : undefined
+  const named = openSite?.configured ? await openSite.open() : undefined
+  if (named) return { store: { kind: "database", name: named.name, table: consoleSiteTable }, open: async () => await databaseSiteKV(named.name, named.db) }
   const kv = getConsoleSections().includes("kv") ? await import("@vite-hub/kv") : undefined
   const driver = await kv?.getKVStoreDriver()
   if (kv && driver && atomicDrivers.includes(driver)) return { store: { kind: "kv", driver }, open: async () => kv.kv }
+  const database = openSite && !openSite.configured ? await openSite.open() : undefined
+  if (database) return { store: { kind: "database", name: database.name, table: consoleSiteTable }, open: async () => await databaseSiteKV(database.name, database.db) }
   const kvCause = driver ? `The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.` : "The app has no KV store."
   const why = site && "choices" in site
     ? `The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. Set \`console: { siteAccess: { database: "<name>" } }\` to one of them. ${kvCause}`
@@ -139,20 +142,25 @@ async function resolveConsoleSiteKV(): Promise<ResolvedSiteKV> {
 }
 
 /**
- * Where Site access keeps links and site sessions without Auth, as plain data: memory on a development server, else the
- * `vitehub_console_site` table of the app's default or only Database, else the app's default KV store when its driver
- * takes a key out atomically, else `none` with the cause. It reads no row and creates no table.
+ * Where Site access keeps links and site sessions without Auth, as plain data. It reads no row and creates no table.
+ * The order is the one of {@link consoleSiteKV}.
  */
 export async function describeConsoleSiteKV(): Promise<SiteStore> {
   return (await resolveConsoleSiteKV()).store
 }
 
-/** The KV store of tickets without Auth, and of site sessions. Without one, it fails closed with `CONSOLE_TICKET_STORE_MISSING`, which names the cause. */
+/**
+ * The KV store of tickets without Auth, and of site sessions, in this order: the `vitehub_console_site` table of the
+ * Database that `console.siteAccess.database` names, the app's default KV store when its driver takes a key out
+ * atomically, then the `vitehub_console_site` table of the app's default or only Database. A development server keeps
+ * them in memory. Otherwise it fails closed with `CONSOLE_TICKET_STORE_MISSING`, which names the cause.
+ */
 export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (installedKV) return installedKV
   const resolved = await resolveConsoleSiteKV()
   if (!resolved.open) throw consoleRequestError(500, resolved.store.why, "CONSOLE_TICKET_STORE_MISSING")
   return await resolved.open()
+}
 }
 
 function serverEnv(name: string): string | undefined {
@@ -301,10 +309,9 @@ export async function readConsoleSiteVisitor(request: Request): Promise<ViteHubS
   return { ...claims.person, roles: claims.roles }
 }
 
-/** The browsers that Site access signed in without Auth, most recently signed in first. None when no store keeps them. */
+/** The browsers that Site access signed in without Auth, most recently signed in first. */
 export async function listConsoleSiteSessions(known: ReadonlySet<string>): Promise<SiteSession[]> {
-  const kv = installedKV ?? await (await resolveConsoleSiteKV()).open?.()
-  if (!kv) return []
+  const kv = await consoleSiteKV()
   const records = (await consoleSiteEntries(kv, sessionPrefix)).map(({ value }) => readRecord(value))
   return records
     .filter((record): record is SiteRecord => record !== undefined && record.expiresAt > Date.now())

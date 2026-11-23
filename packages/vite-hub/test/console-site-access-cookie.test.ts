@@ -1,11 +1,16 @@
+import { execFile } from "node:child_process"
 import { DatabaseSync } from "node:sqlite"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import { defineRelations } from "drizzle-orm"
+import { resolveConfig } from "vite"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { hubDatabase } from "@vite-hub/database/vite"
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { installRequestStandardContext, installStandardContext } from "@vite-hub/runtime/internal/h3"
@@ -19,7 +24,8 @@ import { normalizeKVOptions } from "../../kv/src/config.ts"
 import createDatabaseKVDriver, { kvSqlClientFromDatabase } from "../../kv/src/runtime/database.ts"
 import { consoleState } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { resolveConsoleOptions } from "../src/console/vite.ts"
+import { resolveConsoleOptions, resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
+import { vitehub } from "../src/index.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
@@ -29,6 +35,7 @@ import { installConsoleSiteDatabase } from "../src/console/runtime/server/setup.
 import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-session.ts"
 import { describeConsoleSiteStore } from "../src/console/runtime/server/tickets.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
+import { createProject } from "./support/content-cms.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -379,7 +386,7 @@ it("generates the Site storage loader when Database inspection is hidden", async
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-database-"))
   try {
     const file = join(root, "plugin.mjs")
-    await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv", "databases"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["databases"] }, pageTool: { base: "/" } })
+    await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv", "databases"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["databases"] }, pageTool: { base: "/" }, siteDatabaseNames: ["default"] })
     const plugin = await readFile(file, "utf8")
     expect(plugin).toContain('installConsoleSiteDatabase({ name: "default", load: async () => (await import("@vite-hub/database/runtime/registry")).databases })')
     expect(plugin).not.toContain("installConsoleDatabase")
@@ -391,12 +398,11 @@ it("generates the Site storage loader when Database inspection is hidden", async
 })
 
 describe("Site access without Auth picks its store as useDatabase() does", () => {
-  async function generated(names: string[], { sections = ["databases"], siteDatabase }: { sections?: ConsoleSectionId[], siteDatabase?: string } = {}): Promise<string> {
+  async function generated(siteDatabaseNames: string[] | undefined, { sections = ["databases"], siteDatabase, pill = true }: { sections?: ConsoleSectionId[], siteDatabase?: string, pill?: boolean } = {}): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-store-"))
     try {
       const file = join(root, "plugin.mjs")
-      const definitions = names.map(name => ({ fields: [], file: `server/databases/${name}.ts`, name, source: "database" }))
-      await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: { databases: { definitions, kind: "definition-catalog" } } }, blobStores: [], access: { mode: "token" }, pageTool: { base: "/" }, siteDatabase })
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token" }, ...(pill ? { pageTool: { base: "/" } } : {}), siteDatabase, siteDatabaseNames })
       return await readFile(file, "utf8")
     }
     finally {
@@ -411,13 +417,31 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
   })
 
   it("uses the Database that console.siteAccess.database names", async () => {
-    expect(await generated(["primary", "analytics"], { siteDatabase: "primary" })).toContain("installConsoleSiteDatabase({ name: \"primary\", ")
+    expect(await generated(["primary", "analytics"], { siteDatabase: "primary" })).toContain("installConsoleSiteDatabase({ name: \"primary\", configured: true, ")
     expect(await generated(["analytics", "default"], { siteDatabase: "analytics" })).toContain("installConsoleSiteDatabase({ name: \"analytics\", ")
   })
 
   it("fails the build when console.siteAccess.database names no Database of the app", async () => {
     await expect(generated(["primary", "analytics"], { siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN", message: expect.stringContaining('"analytics", "primary"') })
-    await expect(generated([], { sections: [], siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN", message: expect.stringContaining("the app has no Database") })
+    await expect(generated([], { siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN", message: expect.stringContaining("the app has no Database") })
+    expect(await generated(undefined, { siteDatabase: "main" })).not.toContain("installConsoleSiteDatabase(")
+  })
+
+  it.each(["primary", "default"])("accepts %s from a standalone Vite Database owner", async (name) => {
+    const root = await createProject({
+      "package.json": '{"name":"site-access-database","type":"module"}',
+      ...(name === "primary" ? {
+        "data/server/databases/primary.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ name: "primary", schema: {} })\n',
+        "data/server/databases/analytics.ts": 'import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ name: "analytics", schema: {} })\n',
+      } : {}),
+    })
+    await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [vitehub({ console: { siteAccess: { database: name } }, host: "node" }), hubDatabase({ projectRoot: "data" })],
+      root,
+    }, "build", "production")
+    expect(await readFile(resolveGeneratedConsolePlugin(root), "utf8")).toContain(`installConsoleSiteDatabase({ name: ${JSON.stringify(name)}, `)
   })
 
   it("warns at build time when several Databases have no default, unless the app has Auth", async ({ onTestFinished }) => {
@@ -426,9 +450,25 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     await generated(["primary", "analytics"])
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]?.[0])).toMatch(/VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS[\s\S]*"analytics", "primary"[\s\S]*siteAccess: \{ database/)
+    expect(String(warn.mock.calls[0]?.[0])).toContain("Unless the default KV store is on Redis, Upstash, or the `database` driver")
     await generated(["primary", "analytics"], { sections: ["databases", "auth"] })
     await generated(["primary", "analytics"], { siteDatabase: "analytics" })
     expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it("warns at build time when console.siteAccess.database has no effect, and still checks the name", async ({ onTestFinished }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    onTestFinished(() => warn.mockRestore())
+    expect(await generated(["primary", "analytics"], { sections: ["databases", "auth"], siteDatabase: "primary" })).toContain("installConsoleSiteDatabase({ name: \"primary\", ")
+    expect(await generated(["primary", "analytics"], { siteDatabase: "primary", pill: false })).not.toContain("installConsoleSiteDatabase(")
+    const messages = warn.mock.calls.map(call => String(call[0]))
+    expect(messages).toHaveLength(2)
+    expect(messages[0]).toMatch(/VITE_HUB_CONSOLE_SITE_DATABASE_UNUSED[\s\S]*"primary", but the app has Auth/)
+    expect(messages[1]).toMatch(/VITE_HUB_CONSOLE_SITE_DATABASE_UNUSED[\s\S]*Site access is off/)
+    await expect(generated(["primary"], { sections: ["databases", "auth"], siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN" })
+    await expect(generated(["primary"], { siteDatabase: "main", pill: false })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN" })
+    await generated(["primary", "analytics"], { pill: false })
+    expect(warn).toHaveBeenCalledTimes(2)
   })
 
   it("accepts console.siteAccess with a Database name only", () => {
@@ -453,16 +493,54 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     })
   })
 
-  it("keeps links in the Database before an atomic KV store", ({ onTestFinished }) => {
+  it("keeps links in the Database that console.siteAccess.database names, also when the default KV store is on Redis", ({ onTestFinished }) => {
     const d1 = createD1()
     onTestFinished(d1.close)
-    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB" } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
-    installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
+    const db = createDrizzleSqliteAdapter({ name: "primary", cloudflare: { binding: "DB" } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    installConsoleSiteDatabase({ name: "primary", configured: true, load: async () => ({ primary: { db } }) })
     return runWithActiveCloudflareEnv({ DB: d1.binding }, async () => {
-      await link("site.link")
+      const { response, cookie } = await open(await link("site.link"))
+      expect(response.status).toBe(303)
       expect(d1.rows()).toBe(1)
       expect(kv.entries.size).toBe(0)
+      expect(await tools(cookie)).toEqual(["console", "comments"])
     })
+  })
+
+  it.each(["redis", "upstash", "database"])("keeps links in a default KV store on %s and does not open the Database", async (driver) => {
+    kv.driver = driver
+    const load = vi.fn(async () => ({ default: { db: { $client: { query: vi.fn() } } } }))
+    installConsoleSiteDatabase({ name: "default", load })
+    const url = await link("site.link")
+    expect(kv.entries.size).toBe(1)
+    const { response, cookie } = await open(url)
+    expect(response.status).toBe(303)
+    expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("consumes a Database-backed ticket from the built Console without the KV peer", async () => {
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict"
+      import { registerHooks } from "node:module"
+      import { DatabaseSync } from "node:sqlite"
+
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (specifier === "@vite-hub/kv" || specifier.startsWith("@vite-hub/kv/")) throw new Error("KV is not installed: " + specifier)
+        return nextResolve(specifier, context)
+      } })
+      const { installConsoleSections, installConsoleSiteDatabase } = await import("./dist/console/runtime/server/setup.js")
+      const { consoleSiteKV } = await import("./dist/console/runtime/server/site-session.js")
+      process.env.VITEHUB_SECRET = ${JSON.stringify(secret)}
+      const sqlite = new DatabaseSync(":memory:")
+      const db = { $client: { async execute({ sql, args }) { return { rows: sqlite.prepare(sql).all(...args) } } } }
+      installConsoleSections("console-site-cookie", ["site"])
+      installConsoleSiteDatabase({ name: "default", load: async () => ({ default: { db } }) })
+      const store = await consoleSiteKV()
+      await store.set("ticket", "value", { ttl: 60 })
+      assert.deepEqual(await store.getAndDelete("ticket", { type: "text" }), [undefined, "value"])
+      assert.deepEqual(await store.getAndDelete("ticket", { type: "text" }), [undefined, null])
+    `], { cwd: fileURLToPath(new URL("../", import.meta.url)), timeout: 10_000 })
   })
 
   it("names the Databases when several have no default and no KV store takes a link out once", async () => {

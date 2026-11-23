@@ -1638,6 +1638,13 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
+  it("rejects an unknown Site access Database during Nitro configuration", async () => {
+    const application = createNuxt(false)
+    await viteHubNuxtModule({ console: { siteAccess: { database: "main" } }, database: true, host: "node" }, application.nuxt)
+    await expect(application.runNitroConfigHook(nitroOptions(application.nuxt)))
+      .rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN" })
+  })
+
   it.each([true, false])("builds the Connections Console section (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
