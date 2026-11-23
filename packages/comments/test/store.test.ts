@@ -1,6 +1,6 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createCommentsStore } from "../src/operations-core/store.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
@@ -168,4 +168,90 @@ it("checks for surviving replies and the current resolver after locking the thre
   finally {
     client.close()
   }
+})
+
+describe.each(["batch", "statements"] as const)("people search with %s reads", (driver) => {
+  async function peopleStore() {
+    const client = createClient({ url: ":memory:" })
+    await client.executeMultiple(commentsMigration)
+    const calls = { count: 0 }
+    const counted = new Proxy(client, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key)
+        if (typeof value !== "function") return value
+        return (...args: unknown[]) => {
+          if (key === "execute" || key === "batch") calls.count++
+          return Reflect.apply(value, target, args)
+        }
+      },
+    }) satisfies Client
+    const database = drizzle({ client: counted })
+    const db = driver === "batch" ? database : new Proxy(database, { get: (target, key, receiver) => key === "batch" ? undefined : Reflect.get(target, key, receiver) })
+    // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+    const store = createCommentsStore(db as unknown as CommentsDatabase)
+    const lin = { id: "lin", name: "Lin" }
+    const ids: string[] = []
+    for (let index = 0; index < 60; index++) {
+      const created = await store.createThread({ ...thread(`Thread ${index}`), author: { ...ada, name: `Ada ${index}` } })
+      ids.push(created.id)
+      if (index === 2) await store.addMessage(created.id, message("Reply", grace))
+      if (index % 2) await store.addMessage(created.id, message("Reply", lin))
+    }
+    return { calls, client, ids, store }
+  }
+
+  it("finds the newest readable name of each person, checks each thread once, and reads candidate threads together", async () => {
+    const { calls, client, ids, store } = await peopleStore()
+    try {
+      const checked: string[] = []
+      const evenThreads = async (found: { id: string }) => {
+        checked.push(found.id)
+        return ids.indexOf(found.id) % 2 === 0
+      }
+      calls.count = 0
+      expect(await store.knownUsers("", 16, evenThreads)).toEqual([{ id: "ada", name: "Ada 58" }, { id: "grace", name: "Grace" }])
+      expect(new Set(checked).size).toBe(checked.length)
+      expect(calls.count).toBeLessThanOrEqual(driver === "batch" ? 9 : 16)
+
+      checked.length = 0
+      calls.count = 0
+      expect(await store.knownUsersByIds(["lin", "grace", "ada"], evenThreads)).toEqual([{ id: "ada", name: "Ada 58" }, { id: "grace", name: "Grace" }])
+      expect(new Set(checked).size).toBe(checked.length)
+      expect(calls.count).toBeLessThanOrEqual(driver === "batch" ? 8 : 15)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("reads one thread when the newest candidate is readable", async () => {
+    const { calls, client, store } = await peopleStore()
+    try {
+      calls.count = 0
+      expect(await store.knownUsers("ada", 1, async () => true)).toEqual([{ id: "ada", name: "Ada 59" }])
+      expect(calls.count).toBe(driver === "batch" ? 2 : 3)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("skips a candidate thread that is deleted during the search", async () => {
+    const { client, ids, store } = await peopleStore()
+    try {
+      const deleted = ids[58]!
+      const readable = async (found: { id: string }) => {
+        if (found.id === ids[59]) {
+          await client.execute({ sql: "DELETE FROM vitehub_comment_messages WHERE thread_id = ?", args: [deleted] })
+          await client.execute({ sql: "DELETE FROM vitehub_comment_threads WHERE id = ?", args: [deleted] })
+          return false
+        }
+        return true
+      }
+      expect(await store.knownUsers("ada", 1, readable)).toEqual([{ id: "ada", name: "Ada 57" }])
+    }
+    finally {
+      client.close()
+    }
+  })
 })

@@ -322,6 +322,34 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       .orderBy(desc(messages.createdAt), desc(messages.id))
   }
 
+  type CandidateAuthor = Awaited<ReturnType<typeof candidateAuthors>>[number]
+
+  function candidateThreadAccess(canRead: (thread: CommentThread) => Promise<boolean>) {
+    const loaded = new Map<string, CommentThread | null>()
+    const decided = new Map<string, Promise<boolean>>()
+    let batchSize = 1
+    return async function readable(rows: readonly CandidateAuthor[], index: number, seen: ReadonlyMap<string, CommentUser>): Promise<boolean> {
+      const { threadId } = rows[index]!
+      const earlier = decided.get(threadId)
+      if (earlier) return earlier
+      if (!loaded.has(threadId)) {
+        const ids = new Set([threadId])
+        for (let ahead = index + 1; ahead < rows.length && ids.size < batchSize; ahead++) {
+          const row = rows[ahead]!
+          if (!seen.has(row.id) && !decided.has(row.threadId) && !loaded.has(row.threadId)) ids.add(row.threadId)
+        }
+        batchSize = Math.min(batchSize * 2, chunkSize)
+        for (const id of ids) loaded.set(id, null)
+        for (const thread of await read(inArray(threads.id, [...ids]), ids.size)) loaded.set(thread.id, thread)
+      }
+      const thread = loaded.get(threadId)
+      loaded.delete(threadId)
+      const allowed = thread ? canRead(thread) : Promise.resolve(false)
+      decided.set(threadId, allowed)
+      return allowed
+    }
+  }
+
   return {
     async list(query) {
       const subject = query.subject ?? (query.page === undefined ? undefined : { id: query.page, kind: "page" })
@@ -525,20 +553,12 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     },
     async knownUsersByIds(ids, canRead) {
       const seen = new Map<string, CommentUser>()
-      const readable = new Map<string, Promise<boolean>>()
+      const readable = candidateThreadAccess(canRead)
       for (const part of chunks([...new Set(ids)])) {
         const rows = await candidateAuthors(inArray(messages.authorId, part))
-        for (const row of rows) {
+        for (const [index, row] of rows.entries()) {
           if (seen.has(row.id)) continue
-          let allowed = readable.get(row.threadId)
-          if (!allowed) {
-            allowed = (async () => {
-              const found = await find(row.threadId)
-              return found ? await canRead(found) : false
-            })()
-            readable.set(row.threadId, allowed)
-          }
-          if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
+          if (await readable(rows, index, seen)) seen.set(row.id, user(row.id, row.name, row.image))
         }
       }
       return [...seen.values()]
@@ -547,23 +567,15 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const pattern = `%${escapeLike(query.toLowerCase())}%`
       const matching = sql`lower(coalesce(${messages.authorName}, ${messages.authorId})) like ${pattern} escape '\\'`
       const seen = new Map<string, CommentUser>()
-      const readable = new Map<string, Promise<boolean>>()
+      const readable = candidateThreadAccess(canRead)
       let before: { createdAt: number, messageId: string } | undefined
       while (seen.size < limit) {
         const rows = await candidateAuthors(and(matching, before
           ? or(lt(messages.createdAt, before.createdAt), and(eq(messages.createdAt, before.createdAt), lt(messages.id, before.messageId)))
           : undefined)!).limit(candidateLimit)
-        for (const row of rows) {
+        for (const [index, row] of rows.entries()) {
           if (seen.has(row.id)) continue
-          let allowed = readable.get(row.threadId)
-          if (!allowed) {
-            allowed = (async () => {
-              const found = await find(row.threadId)
-              return found ? await canRead(found) : false
-            })()
-            readable.set(row.threadId, allowed)
-          }
-          if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
+          if (await readable(rows, index, seen)) seen.set(row.id, user(row.id, row.name, row.image))
           if (seen.size >= limit) break
         }
         if (rows.length < candidateLimit) break
