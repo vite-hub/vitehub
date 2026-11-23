@@ -169,4 +169,24 @@ describe.each(backends)("Agent State on the database clock ($name)", ({ skip, ur
     expect(await behind.call("queueDepth", "queue-ahead")).toBe(0)
     expect(await ahead.call("claimWebhookDelivery", scope)).toMatchObject({ attempts: 1, deliveryId: "delivery-behind" })
   })
+
+  it.skipIf(skip)("keeps queue entries that never expire readable from a host behind the database", { timeout: 30_000 }, async () => {
+    const url = await createUrl()
+    const tablePrefix = `clock_never_${process.pid}_${Date.now()}_`
+    const database = createClient({ url })
+    cleanups.push(async () => {
+      const tables = await database.execute({ args: [`${tablePrefix}%`], sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE ?" })
+      for (const row of tables.rows) await database.execute(`DROP TABLE IF EXISTS "${String(row.name)}"`)
+      database.close()
+    })
+    const behind = await startHost(url, tablePrefix, -skewMs)
+    const durable = { enqueuedAt: { hostIn: 0 }, expiresAt: Number.MAX_SAFE_INTEGER, message: { text: "durable" } }
+
+    await behind.call("enqueue", "durable", durable, 10)
+    await behind.call("enqueue", "durable", { ...durable, message: { text: "next" } }, 10)
+    const head = await behind.call("queuePeek", "durable")
+    expect(head).toMatchObject({ expiresAt: Number.MAX_SAFE_INTEGER, message: { text: "durable" } })
+    expect(await behind.call("queueReplaceHead", "durable", head, [], 10)).toBe(true)
+    expect(await behind.call("dequeue", "durable")).toMatchObject({ expiresAt: Number.MAX_SAFE_INTEGER, message: { text: "next" } })
+  })
 })

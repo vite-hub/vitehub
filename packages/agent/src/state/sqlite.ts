@@ -20,7 +20,7 @@ import { startWalCheckpointer } from "../internal/sqlite-wal-checkpointer.ts"
 type MaybePromise<T> = T | Promise<T>
 
 const SQLITE_STATE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
-const DB_TIME = `(${DB_NOW} + ?)`
+const DB_TIME = `MIN(${DB_NOW} + ?, ${Number.MAX_SAFE_INTEGER})`
 
 function untilHostTime(hostTime: number): number {
   return hostTime - Date.now()
@@ -470,11 +470,13 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ${DB_NOW}`, [threadId])
-      const queueRows = await execute(tx, `SELECT id, value, expires_at - ${DB_NOW} AS remaining_ms
+      const queueRows = await execute(tx, `SELECT id, value, expires_at, expires_at - ${DB_NOW} AS remaining_ms
         FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at > ${DB_NOW} ORDER BY id ASC LIMIT 1`, [threadId])
       const row = queueRows[0]
       if (!row) return null
-      const expiresAt = Date.now() + numberValue(row.remaining_ms)
+      const expiresAt = numberValue(row.expires_at) >= Number.MAX_SAFE_INTEGER
+        ? Number.MAX_SAFE_INTEGER
+        : Math.min(Date.now() + numberValue(row.remaining_ms), Number.MAX_SAFE_INTEGER)
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE id = ?`, [row.id])
       return typeof row.value === "string" ? { ...parseAgentStateQueueEntry(row.value), expiresAt } : null
     })
