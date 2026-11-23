@@ -166,12 +166,10 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
   }
 }
 
-// Earlier releases sorted keys with the host locale, which is en-US on English, C and serverless hosts.
-// A fixed en-US order keeps the fingerprints that those hosts stored.
-const payloadKeyOrder = new Intl.Collator("en-US")
+const englishHostKeyOrder = new Intl.Collator("en-US")
 
 function comparePayloadKeys(left: string, right: string): number {
-  return payloadKeyOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0)
+  return englishHostKeyOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0)
 }
 
 function stablePayload(value: unknown): string {

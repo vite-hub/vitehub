@@ -40,7 +40,6 @@ describe("Agent Channel delivery source identity", () => {
         localeCompare.mockRestore()
       }
     }
-    // Values that earlier releases stored on English hosts.
     expect(await fingerprintIn("en", slack)).toBe("e7c0c61d03ca4194d549dd17dc989b45b5f183f2547ce69264f697c11d35259c")
     expect(await fingerprintIn("en", teams)).toBe("a1f14ea58e09a8b403f7738ff409c890c95d17723cf19182be1594d550c15da0")
     for (const locale of ["cs", "lt", "et"]) {
