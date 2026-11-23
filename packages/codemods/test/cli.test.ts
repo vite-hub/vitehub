@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process"
+import { EventEmitter, once } from "node:events"
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { codemods, runCli } from "../src/index.ts"
 
@@ -31,6 +32,42 @@ async function app(name: string, files: Record<string, string>): Promise<string>
 afterAll(() => rm(scratch, { recursive: true, force: true }))
 
 describe("codemods CLI", () => {
+  it("keeps defineNuxtConfig available across overlapping dry runs", async () => {
+    const gates = [new EventEmitter(), new EventEmitter()]
+    const previous = Object.getOwnPropertyDescriptor(globalThis, "defineNuxtConfig")
+    vi.stubGlobal("waitForCodemodConfig", (index: number) => {
+      const gate = gates[index]!
+      gate.emit("entered")
+      return once(gate, "release")
+    })
+    const runs: ReturnType<typeof cli>[] = []
+    try {
+      for (const [index, gate] of gates.entries()) {
+        const directory = await app(`concurrent-config-${index}`, {
+          "nuxt.config.mjs": `await globalThis.waitForCodemodConfig(${index}); const file = '.env.example'; export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: file } })`,
+          "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}',
+          ".env.example": "NUXT_NAME=demo\n",
+        })
+        const entered = once(gate, "entered")
+        const run = cli(["nuxt-safe-runtime-config", directory, "--dry-run"])
+        runs.push(run)
+        await Promise.race([entered, run.then(result => { throw new Error(result.stderr) })])
+      }
+      for (const [index, run] of runs.entries()) {
+        gates[index]!.emit("release")
+        expect(await run).toMatchObject({ code: 0 })
+      }
+      expect(Object.getOwnPropertyDescriptor(globalThis, "defineNuxtConfig")).toEqual(previous)
+    }
+    finally {
+      for (const gate of gates) gate.emit("release")
+      await Promise.allSettled(runs)
+      vi.unstubAllGlobals()
+      if (previous) Object.defineProperty(globalThis, "defineNuxtConfig", previous)
+      else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
+    }
+  })
+
   it("lists every codemod with one line for --help", async () => {
     const result = await cli(["--help"])
     expect(result.code).toBe(0)

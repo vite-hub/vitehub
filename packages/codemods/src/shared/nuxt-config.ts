@@ -129,11 +129,16 @@ export function defaultExport(module: unknown): unknown {
   return typeof module === "object" && module !== null && "default" in module ? module.default : module
 }
 
+let configLoads = 0
+let previousDefineNuxtConfig: { value: unknown } | undefined
+
 /** Runs nuxt.config with a `defineNuxtConfig` stub and returns the exported object. */
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
-  const hadPrevious = Reflect.has(globalThis, "defineNuxtConfig")
-  const previous: unknown = Reflect.get(globalThis, "defineNuxtConfig")
-  Reflect.set(globalThis, "defineNuxtConfig", (config: unknown) => config)
+  if (configLoads === 0) {
+    previousDefineNuxtConfig = Object.hasOwn(globalThis, "defineNuxtConfig") ? { value: Reflect.get(globalThis, "defineNuxtConfig") } : undefined
+    Reflect.set(globalThis, "defineNuxtConfig", (config: unknown) => config)
+  }
+  configLoads++
   try {
     const jiti = createJiti(path, { moduleCache: false, fsCache: false, interopDefault: false })
     const loaded = defaultExport(await jiti.import(path))
@@ -146,8 +151,12 @@ export async function loadNuxtConfig(path: string): Promise<Record<string, unkno
     throw codemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
-    if (hadPrevious) Reflect.set(globalThis, "defineNuxtConfig", previous)
-    else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
+    configLoads--
+    if (configLoads === 0) {
+      if (previousDefineNuxtConfig) Reflect.set(globalThis, "defineNuxtConfig", previousDefineNuxtConfig.value)
+      else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
+      previousDefineNuxtConfig = undefined
+    }
   }
 }
 
