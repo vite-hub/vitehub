@@ -95,6 +95,11 @@ export interface AuthConsole {
    * runs the app's `databaseHooks.user.create` for a new user.
    */
   hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
+  /**
+   * Run the checks of `hostUser()` and `hostSession()` without a change: a database and a `user.role` field that users
+   * cannot set and that sessions return. Hosts call it before they give out a sign-in link, so the link never fails later.
+   */
+  checkHost(): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */
   hostSession(userId: string, request: Request): Promise<Result<Headers, AuthConsoleErrorCode>>;
   /** Live sessions matching `roles`, newest first. `guest` matches only users created as guests by the host. */
@@ -1391,6 +1396,10 @@ export function createAuthConsole(
         await (await verifications()).deleteVerificationByIdentifier(identifier);
       }),
     hostUser: (input) => result(() => hostUser(input)),
+    checkHost: () =>
+      result(async () => {
+        await hostContext();
+      }),
     hostSession: (userId, request) => result(() => hostSession(userId, request)),
     hostSessions: (roles) => result(() => hostSessions(roles)),
     revokeHostSession: (id) =>
