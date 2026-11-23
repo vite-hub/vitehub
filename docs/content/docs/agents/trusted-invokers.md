@@ -23,6 +23,7 @@ Configure Invokers with `defineAgent({ invoker })`, pass one through
 Authenticate first. Then pass only checked identity facts:
 
 ```ts [server/api/support.post.ts] fragment
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime'
 import support from '../agents/support'
@@ -30,7 +31,7 @@ import support from '../agents/support'
 export default defineEventHandler(async (event) => {
   const user = await requireAuthenticatedUser(event)
   const body = await readBody<{ prompt?: string }>(event)
-  if (!body?.prompt) throw new HTTPError({ status: 400, message: 'Prompt is required.' })
+  if (typeof body?.prompt !== 'string' || !body.prompt) throw new HTTPError({ status: 400, message: 'Prompt is required.' })
 
   const runtime = getRuntimeContext(event)
   try {

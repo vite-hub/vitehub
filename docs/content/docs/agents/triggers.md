@@ -60,6 +60,7 @@ export default defineAgent({
 Call the Trigger from a server route:
 
 ```ts [server/api/support-chat.post.ts] fragment
+import { defineEventHandler, HTTPError, readBody } from 'h3'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
@@ -71,7 +72,7 @@ export default defineEventHandler(async (event) => {
     text?: string
     threadId?: string
   }>(event)
-  if (!body?.text) throw new HTTPError({ status: 400, message: 'Message text is required.' })
+  if (typeof body?.text !== 'string' || !body.text) throw new HTTPError({ status: 400, message: 'Message text is required.' })
   const { text, threadId } = body
   const runId = crypto.randomUUID()
   const messages = await loadAuthorizedSupportThreadMessages({

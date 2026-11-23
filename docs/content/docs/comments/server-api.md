@@ -100,7 +100,7 @@ import { comments } from '../../../comments'
 export default defineEventHandler(async (event) => {
   const threadId = getRouterParam(event, 'id')!
   const payload = await readBody<{ body?: string, requestId?: string }>(event)
-  if (!payload?.body || !payload.requestId) {
+  if (typeof payload?.body !== 'string' || typeof payload.requestId !== 'string' || !payload.requestId) {
     throw new HTTPError({ status: 400, message: 'Body and requestId are required.' })
   }
   const { body, requestId } = payload
