@@ -167,6 +167,7 @@ Available namespaces:
 | `vitehub cache delete` | Available | ViteHub Framework | Invalidate one cache entry, or the entries under a prefix. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
+| `vitehub schedule runs` | Available | Schedule Package | Inspect recorded Schedule Runs with `list` or `get`. Run `vitehub schedule runs --help` to list its subcommands. |
 | `vitehub schedule runs list` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule runs get` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
