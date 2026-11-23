@@ -1,11 +1,13 @@
 import { createDatabaseEnvStore } from "@vite-hub/env/database"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
+import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { createDatabaseConnectionStore } from "../src/store.ts"
 import { createTestRuntime, mailConnection } from "./helpers.ts"
+import type { EnvDatabase } from "@vite-hub/env/database"
 import type { ConnectionStore } from "../src/store.ts"
 
 describe("Connections store on D1", () => {
@@ -76,6 +78,55 @@ describe("Connections store on D1", () => {
     const rows = await db.all<{ id: string }>(sql`SELECT id FROM vitehub_env_activity ORDER BY sequence`)
     expect(rows.map(row => row.id)).toEqual(["broken", "current"])
     const indexes = await db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'vitehub_env_activity' AND sql IS NOT NULL ORDER BY name`)
-    expect(indexes.map(index => index.name)).toEqual(["vitehub_env_activity_key", "vitehub_env_activity_namespace", "vitehub_env_activity_time"])
+    expect(indexes.map(index => index.name)).toEqual(["vitehub_connections_activity_sequence", "vitehub_connections_activity_time", "vitehub_env_activity_key"])
+  })
+
+  it("finds the events to prune through the Connections indexes on D1", async () => {
+    const d1 = await worker.getD1Database("DB")
+    const db = drizzle(d1)
+    const prunes: Array<{ params: unknown[], sql: string }> = []
+    const recording: EnvDatabase = {
+      all: query => db.all(query),
+      run(query) {
+        const built = new SQLiteDialect().sqlToQuery(query)
+        if (built.sql.startsWith("DELETE FROM vitehub_env_activity")) prunes.push(built)
+        return db.run(query)
+      },
+    }
+    await createDatabaseConnectionStore({ db: recording, encryptionKeys: [new Uint8Array(32).fill(3)] }).access.append({ action: "use", actor: { id: "agent", kind: "agent" }, id: "planned", key: "connection/gmail", operationId: "planned", outcome: "succeeded", timestamp: new Date().toISOString() })
+    expect(prunes).toHaveLength(1)
+    const plan = await d1.prepare(`EXPLAIN QUERY PLAN ${prunes[0]!.sql}`).bind(...prunes[0]!.params).all<{ detail: string }>()
+    const details = plan.results.map(row => row.detail)
+    expect(details.some(detail => detail.includes("vitehub_connections_activity_sequence"))).toBe(true)
+    expect(details.some(detail => detail.includes("vitehub_connections_activity_time"))).toBe(true)
+    expect(details.filter(detail => /^SCAN vitehub_env_activity\b/.test(detail))).toEqual([])
+  })
+
+  it("adds no index writes to the activity of other namespaces", async () => {
+    const db = drizzle(await worker.getD1Database("DB"))
+    const rowsWritten: number[] = []
+    const recording: EnvDatabase = {
+      all: query => db.all(query),
+      async run(query) {
+        const result: unknown = await db.run(query)
+        if (new SQLiteDialect().sqlToQuery(query).sql.startsWith("INSERT INTO vitehub_env_activity")) rowsWritten.push(writtenRows(result))
+        return result
+      },
+    }
+    const other = createDatabaseEnvStore({ db: recording, encryptionKeys: [new Uint8Array(32).fill(3)], namespace: "project:production" })
+    const event = (id: string) => ({ action: "use" as const, actor: { id: "agent", kind: "agent" as const }, id, key: "API_TOKEN", operationId: id, outcome: "succeeded" as const, timestamp: new Date().toISOString() })
+    await createDatabaseConnectionStore({ db, encryptionKeys: [new Uint8Array(32).fill(3)] }).access.append(event("connections-event"))
+    await other.access.append(event("with-connections-indexes"))
+    await db.run(sql`DROP INDEX vitehub_connections_activity_sequence`)
+    await db.run(sql`DROP INDEX vitehub_connections_activity_time`)
+    await other.access.append(event("without-connections-indexes"))
+    expect(rowsWritten[0]).toBeGreaterThan(0)
+    expect(rowsWritten[0]).toBe(rowsWritten[1])
   })
 })
+
+function writtenRows(result: unknown): number {
+  if (typeof result !== "object" || result === null || !("meta" in result)) return -1
+  const meta: unknown = result.meta
+  return typeof meta === "object" && meta !== null && "rows_written" in meta && typeof meta.rows_written === "number" ? meta.rows_written : -1
+}

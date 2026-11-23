@@ -91,12 +91,6 @@ async function createEnvTables(db: EnvDatabase): Promise<void> {
     sql`CREATE INDEX IF NOT EXISTS vitehub_env_activity_key ON vitehub_env_activity (namespace, key, sequence)`,
   );
   await db.run(
-    sql`CREATE INDEX IF NOT EXISTS vitehub_env_activity_namespace ON vitehub_env_activity (namespace, sequence)`,
-  );
-  await db.run(
-    sql`CREATE INDEX IF NOT EXISTS vitehub_env_activity_time ON vitehub_env_activity (namespace, json_extract(payload, '$.timestamp')) WHERE json_valid(payload)`,
-  );
-  await db.run(
     sql`CREATE TABLE IF NOT EXISTS vitehub_env_grants (namespace TEXT NOT NULL, key TEXT NOT NULL, actor_kind TEXT NOT NULL, actor_id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (namespace, key, actor_kind, actor_id))`,
   );
 }

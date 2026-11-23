@@ -161,7 +161,7 @@ describe("Connection activity retention", () => {
     const current = event()
     await store.access.append(current)
     const indexes = await db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'vitehub_env_activity' AND sql IS NOT NULL ORDER BY name`)
-    expect(indexes.map(index => index.name)).toEqual(["vitehub_env_activity_key", "vitehub_env_activity_namespace", "vitehub_env_activity_time"])
+    expect(indexes.map(index => index.name)).toEqual(["vitehub_connections_activity_sequence", "vitehub_connections_activity_time", "vitehub_env_activity_key"])
     expect(await ids(db)).toEqual(["legacy-broken", current.id])
   })
 
@@ -181,8 +181,8 @@ describe("Connection activity retention", () => {
     expect(prunes).toHaveLength(1)
     const plan = await db.$client.execute({ args: prunes[0]!.params as Array<string | number>, sql: `EXPLAIN QUERY PLAN ${prunes[0]!.sql}` })
     const details = plan.rows.map(row => String(row.detail))
-    expect(details.some(detail => detail.includes("vitehub_env_activity_namespace"))).toBe(true)
-    expect(details.some(detail => detail.includes("vitehub_env_activity_time"))).toBe(true)
+    expect(details.some(detail => detail.includes("vitehub_connections_activity_sequence"))).toBe(true)
+    expect(details.some(detail => detail.includes("vitehub_connections_activity_time"))).toBe(true)
     expect(details.filter(detail => /^SCAN vitehub_env_activity\b/.test(detail))).toEqual([])
   })
 
