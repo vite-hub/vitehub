@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto"
 
 import { describe, expect, it } from "vitest"
 
-import { forgeMemoryCache, forgeProvider, useForge } from "../src/index.ts"
+import { conditionalFetch, forgeMemoryCache, forgeProvider, useForge } from "../src/index.ts"
 
 interface Resource { body: unknown, etag: string, link?: string }
 
@@ -51,6 +51,14 @@ async function readAll(provider: Awaited<ReturnType<typeof forgeProvider>>, path
 }
 
 describe("conditional Forge requests", () => {
+  it("uses the replacement headers when called with a Request and an init", async () => {
+    const echo: typeof fetch = async (input, init) => Response.json(Object.fromEntries(new Request(input, init).headers))
+    const request = new Request("https://api.github.com/user", { headers: { "accept-language": "es" } })
+    const init = { headers: { accept: "application/json", authorization: "Bearer test" } }
+    const result = await conditionalFetch(echo)(request, init)
+    expect(await result.json()).toEqual(await (await echo(request, init)).json())
+  })
+
   it("revalidates a repeated GET and returns the cached body on a 304", async () => {
     const github = fakeGitHub({ "/repos/acme/web/pulls/1": { body: { number: 1, title: "Fix" }, etag: "W/\"pr-1\"" } })
     const cache = forgeMemoryCache()

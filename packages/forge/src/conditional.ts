@@ -78,8 +78,7 @@ export function conditionalFetch(fetcher: typeof fetch, options: ForgeConditiona
   return async (input, init) => {
     const request = input instanceof Request ? input : undefined
     const method = (init?.method ?? request?.method ?? "GET").toUpperCase()
-    const headers = new Headers(request?.headers)
-    for (const [name, value] of new Headers(init?.headers)) headers.set(name, value)
+    const headers = new Headers(init?.headers ?? request?.headers)
     const authorization = headers.get("authorization")
     if (method !== "GET" || !authorization || headers.has("if-none-match") || headers.has("if-modified-since")) return await fetcher(input, init)
     const url = request?.url ?? String(input)
