@@ -7,22 +7,25 @@ import { glob } from "tinyglobby"
 
 import { isCodemodError } from "../error-diagnostics.ts"
 import { readDependencies } from "../shared/detect.ts"
-import { localLayerDirectories } from "../shared/layers.ts"
-import { findModuleEntry, literalValue, objectProperty, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
-import { addServerImports, appServerImportNames, freeReferences, serverDirectory, viteHubServerImportSources } from "../shared/server-imports.ts"
+import { findModuleEntry, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
+import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
+import { addServerImports, appServerImports, freeReferences, serverLayoutFollowUps, unknownServerImports, viteHubServerImportSources } from "../shared/server-imports.ts"
 
 import type { File } from "@babel/types"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
+import type { NuxtServerLayout } from "../shared/nuxt-server-layout.ts"
 
 const moduleName = "vite-hub/nuxt"
 const ignoredPatterns = ["**/node_modules/**", "**/*.d.ts", "**/*.d.mts", "**/*.d.cts"]
 const helperPattern = new RegExp(`\\b(?:${[...viteHubServerImportSources.keys()].join("|")})\\b`)
+const helperNames = new Set(viteHubServerImportSources.keys())
 
 const reportedNitroHelpers = new Set(["createError", "defineEventHandler", "eventHandler", "getQuery", "getRouterParam", "readBody", "useRuntimeConfig"])
 
 interface Project {
   config: NuxtConfigFile
+  layout: NuxtServerLayout
   serverFiles: string[]
 }
 
@@ -43,24 +46,6 @@ function listsViteHub(config: NuxtConfigFile): boolean {
   })
 }
 
-/**
- * Whether nuxt.config turns on Nuxt's server auto-imports, as `vite-hub/nuxt` reads them: `experimental.nitroAutoImports`,
- * `nitroLegacy: true`, or a `nitroLegacy` object without `imports: false`. A value that is not a literal counts as on,
- * so the codemod leaves an app that may keep its auto-imports.
- */
-export function serverAutoImportsOn(config: NuxtConfigFile): boolean {
-  const experimental = objectProperty(config.root, "experimental")
-  const switchProperty = experimental ? findProperty(experimental, "nitroAutoImports") : undefined
-  if (switchProperty && literalValue(switchProperty.value) !== false) return true
-  const legacy = findProperty(config.root, "nitroLegacy")
-  if (!legacy) return false
-  const value = unwrapExpression(legacy.value)
-  if (value.type === "BooleanLiteral") return value.value
-  if (value.type !== "ObjectExpression") return true
-  const imports = findProperty(value, "imports")
-  return !imports || literalValue(imports.value) !== false
-}
-
 async function readProject(cwd: string): Promise<Project | undefined> {
   let config: NuxtConfigFile
   try {
@@ -71,9 +56,10 @@ async function readProject(cwd: string): Promise<Project | undefined> {
     throw error
   }
   if (!listsViteHub(config) && !(await readDependencies(cwd)).has("vite-hub")) return undefined
-  const dirs = (await localLayerDirectories(cwd, config)).map(layer => serverDirectory(config, layer))
-  const files = await glob(dirs.map(dir => `${dir}/**/*.{ts,mts,cts,js,mjs,cjs,tsx,jsx}`), { cwd, ignore: ignoredPatterns })
-  return { config, serverFiles: files.sort() }
+  const layout = await nuxtServerLayout(cwd, config)
+  const dirs = new Set(layout.layers.flatMap(layer => layer.server ?? []))
+  const files = await glob([...dirs].map(dir => `${dir}/**/*.{ts,mts,cts,js,mjs,cjs,tsx,jsx}`), { cwd, ignore: ignoredPatterns })
+  return { config, layout, serverFiles: files.sort() }
 }
 
 function parse(file: string, code: string): File {
@@ -84,13 +70,17 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const project = await readProject(cwd)
   const empty = { edits: [], followUps: [], notes: [], nextSteps: [] }
   if (!project) return { summary: `found no Nuxt app with ${moduleName}`, ...empty }
-  if (serverAutoImportsOn(project.config)) {
+  if (project.layout.state === "on") {
     return { summary: `found Nuxt server auto-imports on in ${project.config.fileName}, so server files keep the ViteHub auto-imports`, ...empty }
   }
-  const appNames = await appServerImportNames(cwd, project.config)
+  if (project.layout.state === "unknown") {
+    const message = "The effective Nuxt server auto-import settings could not be determined statically. Check which server files need explicit ViteHub imports."
+    return { ...empty, summary: message, followUps: [{ file: project.config.fileName, message }] }
+  }
+  const { names: appNames, unknown } = await appServerImports(cwd, project.layout)
   const skip = new Set(appNames.keys())
   const edits: FileEdit[] = []
-  const followUps: FollowUp[] = []
+  const followUps: FollowUp[] = serverLayoutFollowUps(project.layout)
   const kept = new Map<string, Set<string>>()
   const nitroFiles: string[] = []
   let added = 0
@@ -108,9 +98,13 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     }
     if (freeReferences(program, reportedNitroHelpers).size) nitroFiles.push(file)
     if (!helpers) continue
+    if (unknown.size) {
+      const uncertain = [...freeReferences(program, helperNames).keys()].filter(name => !skip.has(name))
+      if (uncertain.length) followUps.push({ file, message: unknownServerImports(unknown, uncertain) })
+    }
     const output = new MagicString(source)
-    const result = addServerImports({ code: source, program, output, style: detectStyle(source, program), skip })
-    for (const name of result.skipped) kept.set(name, (kept.get(name) ?? new Set()).add(file))
+    const result = addServerImports({ code: source, program, output, style: detectStyle(source, program), skip: unknown.size ? helperNames : skip })
+    for (const name of result.skipped) if (skip.has(name)) kept.set(name, (kept.get(name) ?? new Set()).add(file))
     if (!result.added.length) continue
     added += result.added.length
     edits.push({ path: file, before: source, after: output.toString() })
@@ -125,7 +119,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     notes.push(`Nuxt 5 also stops auto-importing the Nitro and H3 helpers, such as defineEventHandler, in ${nitroFiles.length} server file(s), for example ${nitroFiles[0]}. Import each one from the module that the Nuxt 5 build error names: "nitro/h3" or "nuxt/server".`)
   }
   return {
-    summary: edits.length ? `added ${added} vite-hub import(s) to ${edits.length} server file(s)` : "found no server file that uses a ViteHub helper without an import",
+    summary: edits.length ? `added ${added} vite-hub import(s) to ${edits.length} server file(s)` : followUps.length ? "left server files that need a manual check" : "found no server file that uses a ViteHub helper without an import",
     edits,
     followUps,
     notes,
@@ -140,9 +134,11 @@ export const nuxtServerImports: Codemod = {
   detectAfterEdits: true,
   async detect({ cwd }) {
     const project = await readProject(cwd)
-    if (!project || serverAutoImportsOn(project.config)) return undefined
-    const skip = new Set((await appServerImportNames(cwd, project.config)).keys())
-    const names = new Set([...viteHubServerImportSources.keys()].filter(name => !skip.has(name)))
+    if (!project || project.layout.state === "on") return undefined
+    if (project.layout.state === "unknown") return { reason: "the effective Nuxt server auto-import settings could not be determined statically" }
+    if (serverLayoutFollowUps(project.layout).length) return { reason: "a Nuxt server directory could not be resolved statically" }
+    const { names: appNames, unknown } = await appServerImports(cwd, project.layout)
+    const names = new Set([...helperNames].filter(name => !appNames.has(name)))
     for (const file of project.serverFiles) {
       const source = await readFile(join(cwd, file), "utf8")
       if (!helperPattern.test(source)) continue
@@ -154,7 +150,7 @@ export const nuxtServerImports: Codemod = {
         continue
       }
       const [name] = freeReferences(program, names).keys()
-      if (name) return { reason: `${file} uses ${name} without an import, and Nuxt server auto-imports are off` }
+      if (name) return { reason: unknown.size ? `${file} uses ${name}, whose auto-import source could not be determined statically` : `${file} uses ${name} without an import, and Nuxt server auto-imports are off` }
     }
     return undefined
   },

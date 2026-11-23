@@ -1,11 +1,11 @@
 import packageJson from "../../package.json" with { type: "json" }
 import { detectNuxtModule } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
+import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
 import { findRedisKVSource } from "./kv-env.ts"
-import { appServerImportNames } from "../shared/server-imports.ts"
 import { rewriteSources } from "./sources.ts"
 import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
@@ -77,7 +77,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const database: DatabasePlan | undefined = features.database ? { dialect: features.database, ...readDatabaseOptions(config, features.database) } : undefined
   if (database) schema = await moveSchema(cwd, database.dialect, database)
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
-  const sources = await rewriteSources({ cwd, features, schema, skip, appNames: new Set((await appServerImportNames(cwd, config)).keys()) })
+  const sources = await rewriteSources({ cwd, features, schema, skip, layout: await nuxtServerLayout(cwd, config) })
 
   // `vite-hub` resolves each feature from its own package, and the build fails while one is missing.
   const featurePackages = [features.database && "@vite-hub/database", features.kv && "@vite-hub/kv", features.blob && "@vite-hub/blob"].filter(name => typeof name === "string")

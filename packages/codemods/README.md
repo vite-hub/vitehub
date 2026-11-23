@@ -576,8 +576,8 @@ On Nuxt 5, `vite-hub/nuxt` auto-imports its server helpers only when the app set
 
 - It reads the server directory (`serverDir`) of the app and of each local layer, and the helper list of `vite-hub/nuxt`.
 - It joins a name with an existing value import of the same `vite-hub/*` entry. It leaves a name that the file declares or imports.
-- It does not import a name that the app gives itself, from a file in `server/utils/` or `shared/utils/`, or from `nitro.imports.imports`. Nuxt still auto-imports those names. The report lists them.
-- It does nothing when `nuxt.config` turns server auto-imports on.
+- It preserves app-owned server auto-imports, including utility re-exports and names set in `nitro.imports`. The report lists the preserved names.
+- It leaves files alone when Nuxt still injects the ViteHub helpers. If it cannot resolve the effective config or an auto-import source statically, it reports what to check instead of guessing.
 - The report names the files that still use Nitro and H3 helpers, such as `defineEventHandler`, without an import. The Nuxt 5 build error lists their import paths.
 
 `vitehub migrate` runs it last, so it imports the names that the other codemods write, such as `useAuth` and `sendQueue`.

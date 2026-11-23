@@ -1,18 +1,18 @@
 import { readFile } from "node:fs/promises"
-import { basename, dirname, extname, join, posix } from "node:path"
+import { basename, dirname, extname, join, posix, relative, resolve } from "node:path"
 
-import { end, findProperty, isReference, keyName, parseProgram, quoteString, walk } from "@vite-hub/internal/ast"
+import { end, isReference, keyName, parseProgram, quoteString, walk } from "@vite-hub/internal/ast"
 import { viteHubServerImportSources } from "@vite-hub/internal/nuxt-server-imports"
 import { glob } from "tinyglobby"
 
 import { bindingResolver } from "./binding-resolver.ts"
-import { localLayerDirectories } from "./layers.ts"
-import { literalValue, objectProperty, unwrapExpression } from "./nuxt-config.ts"
+import { unwrapExpression } from "./nuxt-config.ts"
+import { setting, unknownSetting } from "./nuxt-server-layout.ts"
 
 import type { File, ImportDeclaration } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type MagicString from "magic-string"
-import type { NuxtConfigFile } from "./nuxt-config.ts"
+import type { NuxtServerLayout } from "./nuxt-server-layout.ts"
 
 export { viteHubServerImportSources }
 
@@ -29,6 +29,7 @@ export function freeReferences(program: File, candidates: ReadonlySet<string>): 
     if (node.type !== "Identifier" || !candidates.has(node.name) || found.has(node.name)) return
     const parent = ancestors.at(-1)
     if (!parent || !isReference(node, parent)) return
+    if (parent.type === "ExportNamespaceSpecifier" || parent.type === "ExportDefaultSpecifier") return
     if (parent.type.startsWith("TS") && !valueReadingTypeParents.has(parent.type)) return
     if (parent.type === "ExportSpecifier" && ancestors.at(-2)?.type === "ExportNamedDeclaration" && (ancestors.at(-2) as { source?: unknown }).source) return
     if (resolve(node)) return
@@ -105,70 +106,160 @@ function offsetAfterShebang(code: string): number {
 const sourceFile = /\.[cm]?[jt]sx?$/
 const declarationFile = /\.d\.[cm]?ts$/
 
-/**
- * The names that the app's own server auto-imports give, mapped to where each comes from: the exports of files
- * directly in `server/utils/` and `shared/utils/` of the app and its local layers, as Nuxt 5 scans them, and the
- * `nitro.imports.imports` entries of nuxt.config.
- */
-export async function appServerImportNames(cwd: string, config: NuxtConfigFile): Promise<Map<string, string>> {
+export async function appServerImports(cwd: string, layout: NuxtServerLayout) {
   const names = new Map<string, string>()
-  for (const layer of await localLayerDirectories(cwd, config)) {
-    for (const dir of [posix.join(serverDirectory(config, layer), "utils"), posix.join(layer, "shared/utils")]) {
-      for (const file of (await glob([`${dir}/*`], { cwd, onlyFiles: true })).sort()) {
-        if (!sourceFile.test(file) || declarationFile.test(file)) continue
-        for (const name of await exportNames(join(cwd, file), file)) if (!names.has(name)) names.set(name, file)
+  const unknown = new Set<string>()
+  if (layout.injection === false) return { names, unknown }
+  for (const source of layout.unknownLayers) unknown.add(source)
+  const add = (name: string, from: string) => {
+    if (!names.has(name)) names.set(name, from)
+  }
+  const scan = async (directory: string) => {
+    const pattern = /[*?[{]/.test(directory) ? directory : `${directory}/*`
+    for (const file of (await glob(pattern, { cwd, onlyFiles: true })).sort()) {
+      if (!sourceFile.test(file) || declarationFile.test(file)) continue
+      const exports = await exportNames(cwd, file, unknown)
+      for (const name of exports) add(name === "default" ? defaultExportName(file) : name, file)
+    }
+  }
+  const scanSetting = layout.effective("imports", "scan")
+  if (scanSetting === unknownSetting || (scanSetting !== undefined && scanSetting.type !== "BooleanLiteral")) unknown.add("imports.scan")
+  const legacy = layout.effective("nitroLegacy")
+  const legacyImports = layout.effective("nitroLegacy", "imports")
+  const nested = legacy !== unknownSetting && (legacy?.type === "BooleanLiteral" && legacy.value
+    || legacy?.type === "ObjectExpression" && (legacyImports === undefined || (legacyImports !== unknownSetting && legacyImports.type === "BooleanLiteral" && legacyImports.value)))
+  if (scanSetting === undefined || (scanSetting !== unknownSetting && scanSetting.type === "BooleanLiteral" && scanSetting.value)) {
+    for (const layer of layout.layers) {
+      const layerScan = setting(layer.config?.root, "imports", "scan")
+      if (layerScan !== undefined && (layerScan === unknownSetting || layerScan.type !== "BooleanLiteral")) unknown.add(`${layer.config?.path ?? layer.directory} imports.scan`)
+      if (layerScan !== unknownSetting && layerScan?.type === "BooleanLiteral" && !layerScan.value) continue
+      if (layer.server) {
+        await scan(posix.join(layer.server, nested ? "utils/**/*" : "utils"))
+        await scan(posix.join(layer.server, "types"))
+      }
+      else unknown.add(`${layer.config?.path ?? layer.directory} serverDir`)
+      if (layer.shared) {
+        await scan(posix.join(layer.shared, "utils"))
+        await scan(posix.join(layer.shared, "types"))
+      }
+      else unknown.add(`${layer.config?.path ?? layer.directory} dir.shared`)
+    }
+  }
+  for (const layer of layout.layers) {
+    for (const key of ["dirs", "imports", "presets"] as const) {
+      const list = setting(layer.config?.root, "nitro", "imports", key)
+      if (list === undefined) continue
+      const from = `${posix.join(layer.directory, layer.config?.fileName ?? "nuxt.config")} nitro.imports.${key}`
+      if (list === unknownSetting || list.type !== "ArrayExpression") {
+        unknown.add(from)
+        continue
+      }
+      for (const element of list.elements) {
+        if (!element) continue
+        const entry = unwrapExpression(element)
+        if (key === "dirs" && entry.type === "StringLiteral" && !/^[@~#]/.test(entry.value)) {
+          await scan(relative(cwd, resolve(cwd, entry.value)).replaceAll("\\", "/") || ".")
+        }
+        else if (key === "imports" && entry.type === "ObjectExpression") {
+          const name = setting(entry, "as") ?? setting(entry, "name")
+          if (name !== unknownSetting && name?.type === "StringLiteral") {
+            const type = setting(entry, "type")
+            if (type === undefined || (type !== unknownSetting && type.type === "BooleanLiteral" && !type.value)) add(name.value, from)
+            else if (type === unknownSetting || type.type !== "BooleanLiteral") unknown.add(from)
+          }
+          else unknown.add(from)
+        }
+        else if (key === "presets" && entry.type === "ObjectExpression") {
+          const imports = setting(entry, "imports")
+          if (imports === unknownSetting || imports?.type !== "ArrayExpression") unknown.add(from)
+          else {
+            for (const item of imports.elements) {
+              const value = item && unwrapExpression(item)
+              if (value?.type === "StringLiteral") add(value.value, from)
+              else if (value?.type === "ArrayExpression" && value.elements[0]?.type === "StringLiteral" && value.elements[1]?.type === "StringLiteral") add(value.elements[1].value, from)
+              else if (value?.type === "ObjectExpression") {
+                const name = setting(value, "as") ?? setting(value, "name")
+                const type = setting(value, "type")
+                if (name === unknownSetting || name?.type !== "StringLiteral" || type === unknownSetting || (type !== undefined && type.type !== "BooleanLiteral")) unknown.add(from)
+                else if (!type?.value) add(name.value, from)
+              }
+              else unknown.add(from)
+            }
+          }
+        }
+        else unknown.add(from)
       }
     }
   }
-  const nitro = objectProperty(config.root, "nitro")
-  const nitroImports = nitro ? objectProperty(nitro, "imports") : undefined
-  const entries = nitroImports ? findProperty(nitroImports, "imports") : undefined
-  const list = entries ? unwrapExpression(entries.value) : undefined
-  if (list?.type === "ArrayExpression") {
-    for (const element of list.elements) {
-      const entry = element ? unwrapExpression(element) : undefined
-      if (entry?.type !== "ObjectExpression") continue
-      const as = findProperty(entry, "as")
-      const name = findProperty(entry, "name")
-      const value = as ? literalValue(as.value) : name ? literalValue(name.value) : undefined
-      if (typeof value === "string" && !names.has(value)) names.set(value, `${config.fileName} nitro.imports.imports`)
-    }
-  }
-  return names
+  return { names, unknown }
 }
 
-/** The server directory of a layer: `serverDir` of nuxt.config for the app, and `server/` otherwise. */
-export function serverDirectory(config: NuxtConfigFile, layer: string): string {
-  const property = layer === "." ? findProperty(config.root, "serverDir") : undefined
-  const value = property ? literalValue(property.value) : undefined
-  const dir = typeof value === "string" ? value.replace(/^\.\//, "").replace(/\/$/, "") : "server"
-  return posix.normalize(posix.join(layer, dir))
+export function serverLayoutFollowUps(layout: NuxtServerLayout) {
+  return layout.layers.filter(layer => !layer.server).map(layer => ({
+    file: posix.join(layer.directory, layer.config?.fileName ?? "nuxt.config"),
+    message: "The server directory could not be resolved statically. Check this layer for server files that need explicit ViteHub imports.",
+  }))
 }
 
-async function exportNames(path: string, file: string): Promise<string[]> {
+export function unknownServerImports(sources: ReadonlySet<string>, names: Iterable<string>): string {
+  return `The codemod could not determine whether the app provides ${[...names].sort().join(", ")} as server auto-imports (${[...sources].sort().join(", ")}). Check those bindings before changing the code.`
+}
+
+function patternExports(node: Node | null | undefined): string[] {
+  if (node?.type === "Identifier") return [node.name]
+  if (node?.type === "ArrayPattern") return node.elements.flatMap(patternExports)
+  if (node?.type === "ObjectPattern") return node.properties.flatMap(property => patternExports(property.type === "RestElement" ? property.argument : property.value))
+  if (node?.type === "RestElement") return patternExports(node.argument)
+  if (node?.type === "AssignmentPattern") return patternExports(node.left)
+  return []
+}
+
+async function exportNames(cwd: string, file: string, unknown: Set<string>, seen = new Set<string>()): Promise<Set<string>> {
+  const names = new Set<string>()
+  if (seen.has(file)) return names
+  seen.add(file)
   let program: File
   try {
-    program = parseProgram(await readFile(path, "utf8"), { jsx: file.endsWith("x"), typescript: /\.[cm]?tsx?$/.test(file) })
+    program = parseProgram(await readFile(join(cwd, file), "utf8"), { jsx: file.endsWith("x"), typescript: /\.[cm]?tsx?$/.test(file) })
   }
   catch {
-    return []
+    unknown.add(file)
+    return names
   }
-  const names: string[] = []
   for (const statement of program.program.body) {
-    if (statement.type === "ExportDefaultDeclaration") names.push(defaultExportName(file))
+    if (statement.type === "ExportDefaultDeclaration" && !["TSInterfaceDeclaration", "TSDeclareFunction"].includes(statement.declaration.type)) names.add("default")
+    if (statement.type === "ExportAllDeclaration" && statement.exportKind !== "type") {
+      const specifier = statement.source.value
+      const base = posix.join(posix.dirname(file), specifier)
+      const target = specifier.startsWith(".") ? await resolveBarrel(cwd, base) : undefined
+      if (!target) unknown.add(`${file} (export * from ${JSON.stringify(specifier)})`)
+      else for (const name of await exportNames(cwd, target, unknown, seen)) if (name !== "default") names.add(name)
+    }
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
     const declaration = statement.declaration
-    if ((declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") && declaration.id) names.push(declaration.id.name)
-    if (declaration?.type === "VariableDeclaration") {
-      for (const declarator of declaration.declarations) if (declarator.id.type === "Identifier") names.push(declarator.id.name)
+    if (declaration && !("declare" in declaration && declaration.declare)) {
+      if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration" || declaration.type === "TSEnumDeclaration" || declaration.type === "TSModuleDeclaration") {
+        if (declaration.id?.type === "Identifier") names.add(declaration.id.name)
+      }
+      else if (declaration.type === "VariableDeclaration") {
+        for (const declarator of declaration.declarations) for (const name of patternExports(declarator.id)) names.add(name)
+      }
     }
     for (const specifier of statement.specifiers) {
-      if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue
+      if (specifier.type === "ExportSpecifier" && specifier.exportKind === "type") continue
       const name = keyName(specifier.exported)
-      if (name) names.push(name === "default" ? defaultExportName(file) : name)
+      if (name) names.add(name)
     }
   }
   return names
+}
+
+async function resolveBarrel(cwd: string, base: string): Promise<string | undefined> {
+  const source = base.replace(/\.[cm]?js$/, "")
+  const extensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs", ".tsx", ".jsx"]
+  const paths = [base, ...extensions.map(extension => `${source}${extension}`), ...extensions.map(extension => `${base}/index${extension}`)]
+  const files = new Set(await glob(paths, { cwd, onlyFiles: true }))
+  return paths.find(file => files.has(file) && sourceFile.test(file) && !declarationFile.test(file))
 }
 
 function defaultExportName(file: string): string {

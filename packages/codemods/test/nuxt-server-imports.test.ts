@@ -51,7 +51,6 @@ describe("nuxt-server-imports", () => {
 
   it.each([
     "experimental: { nitroAutoImports: true }",
-    "experimental: { nitroAutoImports: process.env.AUTO === \"1\" }",
     "nitroLegacy: true",
     "nitroLegacy: { imports: true }",
     "nitroLegacy: {}",
@@ -62,6 +61,16 @@ describe("nuxt-server-imports", () => {
     })
     expect(await nuxtServerImports.detect({ cwd })).toBeUndefined()
     expect((await runCodemod("nuxt-server-imports", { cwd, dryRun: true })).result.edits).toEqual([])
+  })
+
+  it("reports an indeterminate effective setting instead of treating it as on", async () => {
+    const { cwd, run } = await migrate({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], experimental: { nitroAutoImports: process.env.AUTO === '1' } })\n",
+      "server/api/a.ts": "export const store = kv\n",
+    })
+    expect(run.result.edits).toEqual([])
+    expect(run.result.followUps[0]?.message).toContain("could not be determined statically")
+    expect(await nuxtServerImports.detect({ cwd })).toBeDefined()
   })
 
   it.each([
@@ -135,6 +144,61 @@ describe("nuxt-server-imports", () => {
     })
     expect(after("api-server/routes/a.ts")).toContain("import { kv } from \"vite-hub/kv\"")
     expect(after("server/api/b.ts")).toBeUndefined()
+  })
+
+  it("follows a layer's serverDir and preserves its barrel exports across the app", async () => {
+    const route = "export const store = db\n"
+    const { run, after } = await migrate({
+      "layers/site/nuxt.config.ts": "export default defineNuxtConfig({ serverDir: 'backend' })\n",
+      "layers/site/backend/api/rows.ts": "export const rows = kv\n",
+      "layers/site/backend/utils/index.ts": "export * from '../lib/store.js'\n",
+      "layers/site/backend/lib/store.ts": "export const { db } = { db: new Map() }\n",
+      "server/api/rows.ts": route,
+    })
+    expect(after("layers/site/backend/api/rows.ts")).toContain("vite-hub/kv")
+    expect(after("server/api/rows.ts")).toBeUndefined()
+    expect(run.result.notes.join("\n")).toContain("layers/site/backend/utils/index.ts gives `db`")
+  })
+
+  it.each(["imports: { autoImport: false }", "nitro: { imports: false }", "nitro: { imports: { autoImport: false } }"])("honors %s even when a layer enables presets", async (option) => {
+    const files = {
+      "layers/site/nuxt.config.ts": "export default defineNuxtConfig({ experimental: { nitroAutoImports: true } })\n",
+      "server/utils/kv.ts": "export const kv = new Map()\n",
+      "server/api/rows.ts": "export const rows = kv\n",
+    }
+    expect((await migrate(files)).after("server/api/rows.ts")).toBeUndefined()
+    const { after, run } = await migrate({ ...files, "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], ${option} })\n` })
+    expect(after("server/api/rows.ts")).toContain("vite-hub/kv")
+    expect(run.result.notes).toEqual([])
+  })
+
+  it("does not import value namespaces or namespace re-export aliases", async () => {
+    const { run } = await migrate({
+      "server/api/rows.ts": "namespace schema { export const users = [] }\nexport const users = schema.users\nexport * as db from './tables'\n",
+    })
+    expect(run.result.edits).toEqual([])
+  })
+
+  it("recognizes app bindings from server types, custom shared dirs, Nitro dirs and presets", async () => {
+    const { run } = await migrate({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], dir: { shared: 'common' }, nitro: { imports: { dirs: ['custom'], presets: [{ from: './auth', imports: [['getAuth', 'useAuth']] }] } } })\n",
+      "server/types/values.ts": "export enum db { Active }\n",
+      "common/utils/exports.ts": "export * as schema from './tables'\n",
+      "common/utils/tables.ts": "export const users = []\n",
+      "custom/store.ts": "export const kv = new Map()\n",
+      "server/api/rows.ts": "export const values = [db, schema, kv, useAuth, blob]\n",
+    })
+    expect(run.result.edits.map(edit => edit.after)).toEqual(["import { blob } from \"vite-hub/blob\"\n\nexport const values = [db, schema, kv, useAuth, blob]\n"])
+    expect(run.result.notes).toHaveLength(4)
+  })
+
+  it("reports an unresolved utility barrel rather than replacing an unknown binding", async () => {
+    const { run } = await migrate({
+      "server/utils/index.ts": "export * from 'app-store'\n",
+      "server/api/rows.ts": "export const store = kv\n",
+    })
+    expect(run.result.edits).toEqual([])
+    expect(run.result.followUps).toEqual([expect.objectContaining({ file: "server/api/rows.ts", message: expect.stringContaining("app-store") })])
   })
 
   it("reports a file that does not parse", async () => {

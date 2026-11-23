@@ -655,6 +655,6 @@ npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
 
 The codemod reads the server directory of the app and of each local layer. It uses the helper list of [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). It joins a name with an existing import of the same entry, and it leaves a name that the file declares or imports.
 
-It does not import a name that your app gives itself, such as `db` from `server/utils/db.ts`, or an entry of `nitro.imports.imports`. Nuxt still auto-imports those. The report lists them. It does nothing when `nuxt.config` sets `experimental.nitroAutoImports: true`, `nitroLegacy: true`, or a `nitroLegacy` object without `imports: false`.
+It preserves names that Nuxt still auto-imports from your app, such as `db` re-exported by `server/utils/index.ts` or an entry in `nitro.imports`. The report lists them. If the app or one of its layers enables the ViteHub auto-imports and no option disables injection, the codemod leaves the files unchanged. If it cannot determine the settings or the source of a binding statically, it reports what to check instead of guessing.
 
 `vitehub migrate` runs it last, so it imports the names that the other codemods write. The report also names the files that use Nitro and H3 helpers, such as `defineEventHandler`, without an import. Import them as the Nuxt 5 build error lists.
