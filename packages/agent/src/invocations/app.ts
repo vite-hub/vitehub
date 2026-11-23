@@ -128,7 +128,7 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     pending = undefined
     throw error
   })
-  return {
+  const deferred: AgentInvocationStore = {
     claim: async (...args) => await (await store()).claim(...args),
     create: async input => await (await store()).create(input),
     delete: async (id) => {
@@ -151,17 +151,17 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
     release: async (...args) => await (await store()).release(...args),
     update: async (...args) => await (await store()).update(...args),
   }
+  registerChatStreamSql(deferred, () => databaseChatStreamSql(options.database))
+  return deferred
 }
 
 function journal(setting: AgentInvocationsStoreName | AgentInvocationsStoreOptions): AgentInvocations {
   if (setting === "database" || setting === "memory") return journal({ store: setting })
   const { database, store, ...options } = setting
-  const invocations = defineAgentInvocations({
+  return defineAgentInvocations({
     ...options,
     store: store === "database" ? deferredDatabaseStore(database === undefined ? {} : { database }) : createMemoryAgentInvocationStore(),
   })
-  if (store === "database") registerChatStreamSql(invocations, async () => await databaseChatStreamSql(database))
-  return invocations
 }
 
 /** Resolve an `invocations` setting to its journal. `false` and `undefined` resolve to no journal. */

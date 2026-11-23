@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent, getAgentInvocations } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
+import { chatStreamSqlSource, registerChatStreamSql } from "../src/internal/chat-stream-sql.ts"
 import { agentInvocationsDisabledKey, agentInvocationsFallbackKey, installAgentInvocations, installAgentInvocationsOverride, resolveDefaultAgentInvocations } from "../src/invocations/app.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 
@@ -14,6 +15,15 @@ afterEach(() => {
 })
 
 describe("defineAgent() and the app-wide journal", () => {
+  it("uses the stream connection of the store wrapped by a journal", () => {
+    const store = createMemoryAgentInvocationStore()
+    const open = vi.fn()
+    registerChatStreamSql(store, open)
+
+    expect(chatStreamSqlSource(defineAgentInvocations({ store }))).toBe(open)
+    expect(open).not.toHaveBeenCalled()
+  })
+
   it("records an Agent without its own journal in the app-wide journal", async () => {
     installAgentInvocations({ default: "memory" })
     const agent = defineAgent({ driver, name: "support" })
