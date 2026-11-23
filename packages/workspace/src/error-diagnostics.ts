@@ -127,7 +127,7 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING: {
       why: "The Postgres Database for this Workspace is missing its history catalog table.",
-      fix: "Apply the migrations for `workspaceHistorySchema` from `vite-hub/workspace/blob-database/postgres`. For a ViteHub Database, add the schema to its Definition and run `vitehub database generate` and `vitehub database migrate`.",
+      fix: "Apply the migrations for `workspaceHistorySchema` from `vite-hub/workspace/blob-database/postgres`. For a ViteHub Database, add the schema to its Definition and run `vitehub database generate` and `vitehub database migrate`. With PGlite, stop the dev server before running `vitehub database migrate` and start it again afterward, because only one process can open the local PGlite folder at a time.",
     },
     // Registry errors. The generated Workspace registry loads each Definition module when the app first uses it.
     WORKSPACE_REGISTRY_LOAD_FAILED: {
