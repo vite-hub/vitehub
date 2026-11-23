@@ -42,6 +42,7 @@ describe("SMTP Email driver", () => {
       auth: { pass: "secret", user: "mailer" },
       host: "smtp.example.com",
       port: 2525,
+      requireTLS: true,
       secure: false,
     })
     expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({
@@ -72,6 +73,20 @@ describe("SMTP Email driver", () => {
     ])
   })
 
+  it("requires STARTTLS for login unless the connection already uses TLS", async () => {
+    const auth = { user: "mailer", pass: "secret" }
+    const host = "smtp.example.com"
+    sendMail.mockResolvedValue({ messageId: "<tls@example.com>" })
+
+    await smtp({ host, ...auth }).send(message, context)
+    await smtp({ host, ...auth, port: 465 }).send(message, context)
+
+    expect(createTransport.mock.calls).toEqual([
+      [{ auth, host, port: 587, requireTLS: true, secure: false }],
+      [{ auth, host, port: 465, requireTLS: false, secure: true }],
+    ])
+  })
+
   it.each([
     [{ host: "" }, "host is required."],
     [{ host: "smtp.example.com", port: "smtp" }, "port must be an integer from 1 to 65535."],
@@ -86,6 +101,10 @@ describe("SMTP Email driver", () => {
     [{ code: "ECONNECTION" }, "NETWORK", true],
     [{ code: "ETIMEDOUT" }, "TIMEOUT", true],
     [{ code: "EENVELOPE", responseCode: 550 }, "INVALID_OPTIONS", false],
+    [{ code: "ECONNECTION", responseCode: 421 }, "RATE_LIMIT", true],
+    [{ code: "EENVELOPE", responseCode: 450 }, "RATE_LIMIT", true],
+    [{ code: "EENVELOPE", responseCode: 451 }, "RATE_LIMIT", true],
+    [{ code: "EENVELOPE", responseCode: 452 }, "RATE_LIMIT", true],
     [{ code: "EMESSAGE", responseCode: 451 }, "RATE_LIMIT", true],
     [{ code: "EMESSAGE", responseCode: 554 }, "PROVIDER", false],
   ])("maps nodemailer error %o to %s", async (failure, code, retryable) => {
@@ -109,6 +128,42 @@ describe("SMTP Email driver", () => {
 
     await expect(createEmail({ driver: smtp({ host: "smtp.example.com" }) }).send(message))
       .resolves.toEqual([undefined, { driver: "smtp", id: "<3@example.com>" }])
+  })
+
+  it("adds unsubscribe headers on direct sends and through createEmail()", async () => {
+    const driver = smtp({ host: "smtp.example.com" })
+    const subscription = { ...message, unsubscribe: { url: "https://example.com/unsubscribe" } }
+    sendMail.mockResolvedValue({ messageId: "<subscription@example.com>" })
+
+    await expect(driver.send(subscription, context)).resolves.toEqual([undefined, expect.anything()])
+    await expect(createEmail({ driver }).send(subscription)).resolves.toEqual([undefined, expect.anything()])
+    expect(sendMail).toHaveBeenCalledTimes(2)
+    expect(sendMail.mock.calls[0]?.[0].headers).toEqual({
+      "X-Trace-Id": "trace-1",
+      "List-Unsubscribe": "<https://example.com/unsubscribe>",
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    })
+    expect(sendMail.mock.calls[1]?.[0].headers).toEqual(sendMail.mock.calls[0]?.[0].headers)
+  })
+
+  it("reports rejected recipients without suggesting a retry of the entire message", async () => {
+    const accepted = ["ada@example.com", "audit@example.com"]
+    const rejected = ["grace@example.com"]
+    const messageId = "<partial@example.com>"
+    sendMail.mockResolvedValueOnce({ accepted, rejected, messageId })
+    const email = createEmail({ driver: smtp({ host: "smtp.example.com" }) })
+
+    await expect(email.send(message)).resolves.toEqual([
+      expect.objectContaining({
+        code: "EMAIL_PROVIDER_FAILED",
+        cause: expect.objectContaining({
+          retryable: false,
+          cause: { accepted, rejected, messageId },
+        }),
+      }),
+      undefined,
+    ])
+    expect(close).toHaveBeenCalledOnce()
   })
 })
 

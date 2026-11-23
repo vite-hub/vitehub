@@ -242,10 +242,12 @@ export default defineConfig({
 | --- | --- | --- |
 | `host` | Required | The SMTP server, such as `smtp.example.com`. |
 | `port` | `465` when `secure` is true, else `587` | A number, or a string from `env()`. |
-| `secure` | `true` on port 465, else `false` | `true` opens a TLS connection. `false` upgrades the connection with STARTTLS when the server offers it. Also accepts the strings `'true'` and `'false'`. |
-| `user`, `pass` | No login | Set both, or neither. |
+| `secure` | `true` on port 465, else `false` | `true` opens a TLS connection. `false` uses STARTTLS when available and requires it when you set login credentials. Also accepts the strings `'true'` and `'false'`. |
+| `user`, `pass` | No login | Set both or neither. If the connection cannot be encrypted, the driver does not log in or send the message. |
 
 The driver opens a new connection for each send. A successful result has `driver: 'smtp'` and the `Message-ID` as `id`. SMTP has no tags, metadata, scheduled delivery, or idempotency keys, so a message with one of them fails with `EMAIL_PROVIDER_FAILED`. A rejected login is `EMAIL_AUTHENTICATION`, and a server that answers `421`, `450`, `451`, or `452` is `EMAIL_RATE_LIMITED`.
+
+If the server accepts only some recipients, `email.send()` returns `EMAIL_PROVIDER_FAILED`. The provider error at `error.cause` sets `retryable` to `false` and carries `{ accepted, rejected, messageId }` in its own `cause`. Do not retry the original message: the accepted recipients can already have received it. Check the relay logs before resending to any rejected recipients.
 
 The `smtp` driver runs on Node hosts. Cloudflare Workers cannot open SMTP connections, so a Cloudflare build fails with [`EMAIL_HOST_UNSUPPORTED`](/docs/email/limits-and-errors#email_host_unsupported). A build without `nodemailer` fails with [`EMAIL_SMTP_NODEMAILER_MISSING`](/docs/email/diagnostics/email_smtp_nodemailer_missing).
 

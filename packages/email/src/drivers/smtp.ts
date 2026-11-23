@@ -2,6 +2,7 @@ import { emailErrorDiagnostics } from "../error-diagnostics.ts"
 import { emailProviderError, isEmailProviderError } from "../provider.ts"
 import {
   addresses,
+  applyUnsubscribe,
   formatAddress,
   requiredOption,
   validateAddresses,
@@ -12,9 +13,7 @@ import type { EmailDriver, EmailMessage, EmailProviderError, EmailProviderErrorC
 
 export interface SmtpEmailDriverOptions {
   host: string
-  /** Defaults to 465 when `secure` is true, else 587. A string from `env()` is read as a number. */
   port?: number | string
-  /** `true` opens a TLS connection. `false` upgrades with STARTTLS when the server offers it. Defaults to `true` on port 465. */
   secure?: boolean | string
   user?: string
   pass?: string
@@ -65,6 +64,7 @@ function readSecure(secure: SmtpEmailDriverOptions["secure"], port: SmtpEmailDri
 }
 
 function smtpErrorCode(error: { code?: unknown, responseCode?: unknown }): EmailProviderErrorCode {
+  if (error.responseCode === 421 || error.responseCode === 450 || error.responseCode === 451 || error.responseCode === 452) return "RATE_LIMIT"
   switch (error.code) {
     case "EAUTH":
     case "ENOAUTH":
@@ -79,7 +79,6 @@ function smtpErrorCode(error: { code?: unknown, responseCode?: unknown }): Email
     case "EENVELOPE":
       return "INVALID_OPTIONS"
   }
-  if (error.responseCode === 421 || error.responseCode === 450 || error.responseCode === 451 || error.responseCode === 452) return "RATE_LIMIT"
   return "PROVIDER"
 }
 
@@ -120,10 +119,6 @@ function mailOptions(message: EmailMessage) {
   }
 }
 
-/**
- * Sends each message to an SMTP server with `nodemailer`. Install `nodemailer` in the app: the driver imports it on
- * the first send. Runs on Node hosts. Cloudflare Workers cannot open SMTP connections.
- */
 export default function smtpEmailDriver(options: SmtpEmailDriverOptions): EmailDriver {
   requiredOption("smtp", options?.host, "host")
   if (Boolean(options.user) !== Boolean(options.pass)) {
@@ -147,16 +142,23 @@ export default function smtpEmailDriver(options: SmtpEmailDriverOptions): EmailD
         if (context.signal?.aborted) {
           return [emailProviderError("smtp", "CANCELLED", "SMTP send was cancelled.", { retryable: false }), undefined]
         }
+        const mail = mailOptions(applyUnsubscribe(message, "smtp"))
         const { createTransport } = await loadNodemailer()
         const transport = createTransport({
           host: options.host,
           port,
           secure,
-          ...(options.user ? { auth: { user: options.user, pass: options.pass } } : {}),
+          ...(options.user ? { auth: { user: options.user, pass: options.pass }, requireTLS: !secure } : {}),
         })
         try {
-          const info = await transport.sendMail(mailOptions(message))
-          return [undefined, { at: new Date(), driver: "smtp", id: info.messageId }]
+          const { accepted, rejected, messageId } = await transport.sendMail(mail)
+          if (rejected?.length) {
+            return [emailProviderError("smtp", "PROVIDER", "The SMTP server accepted the message for only some recipients. Do not retry the entire message.", {
+              cause: { accepted, rejected, messageId },
+              retryable: false,
+            }), undefined]
+          }
+          return [undefined, { at: new Date(), driver: "smtp", id: messageId }]
         }
         finally {
           transport.close()

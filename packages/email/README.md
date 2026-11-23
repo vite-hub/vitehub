@@ -15,6 +15,8 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
+The SMTP driver requires TLS when you configure a login. If the relay accepts only some recipients, the driver returns an error; do not retry the entire send.
+
 The Vite integration composes one provider driver from a built-in name or an app driver module, and runtime Env declarations.
 
 ## Quickstart
