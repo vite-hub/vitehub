@@ -644,13 +644,17 @@ npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
 ```
 
 ```diff [server/api/welcome.post.ts]
- import { defineEventHandler, readBody } from 'nitro/h3'
+ import { createError, defineEventHandler, readBody } from 'nitro/h3'
 +import { kv } from 'vite-hub/kv'
 +import { sendQueue } from 'vite-hub/queue'
 
  export default defineEventHandler(async (event) => {
-   const { email } = await readBody<{ email: string }>(event)
-   const [error] = await sendQueue('welcome', { email })
+   const body = await readBody<{ email?: string }>(event)
+   if (!body?.email) throw createError({ status: 400, message: 'Email is required.' })
+   const [queueError] = await sendQueue('welcome', { email: body.email })
+   if (queueError) throw queueError
+   const [kvError] = await kv.set(`welcome:${body.email}`, 'queued')
+   if (kvError) throw kvError
 ```
 
 The codemod reads the server directory of the app and of each local layer. It uses the helper list of [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). It joins a name with an existing import of the same entry, and it leaves a name that the file declares or imports.

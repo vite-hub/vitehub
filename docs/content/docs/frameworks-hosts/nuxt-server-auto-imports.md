@@ -14,13 +14,15 @@ helpers.
 ```ts [server/api/welcome.post.ts] fragment
 import { kv } from 'vite-hub/kv'
 import { sendQueue } from 'vite-hub/queue'
-import { defineEventHandler, readBody } from 'nitro/h3'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 
 export default defineEventHandler(async (event) => {
-  const { email } = await readBody<{ email: string }>(event)
-  const [error] = await sendQueue('welcome-email', { email })
-  if (error) throw error
-  await kv.set(`welcome:${email}`, 'queued')
+  const body = await readBody<{ email?: string }>(event)
+  if (!body?.email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email: body.email })
+  if (queueError) throw queueError
+  const [kvError] = await kv.set(`welcome:${body.email}`, 'queued')
+  if (kvError) throw kvError
   return { queued: true }
 })
 ```
@@ -58,10 +60,12 @@ turns them on.
 
 ```ts [server/api/welcome.post.ts] fragment
 export default defineEventHandler(async (event) => {
-  const { email } = await readBody<{ email: string }>(event)
-  const [error] = await sendQueue('welcome-email', { email })
-  if (error) throw error
-  await kv.set(`welcome:${email}`, 'queued')
+  const body = await readBody<{ email?: string }>(event)
+  if (!body?.email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email: body.email })
+  if (queueError) throw queueError
+  const [kvError] = await kv.set(`welcome:${body.email}`, 'queued')
+  if (kvError) throw kvError
   return { queued: true }
 })
 ```
