@@ -208,6 +208,15 @@ defineChannelTrigger({
 `webhook.serialize: key` queues a delivery until no other delivery with the same key runs.
 
 ```ts fragment
+const ticketChanged = v.object({
+  payload: v.object({
+    ticketId: v.string(),
+    summary: v.pipe(v.string(), v.trim(), v.minLength(1)),
+    changeId: v.string(),
+    fromAgent: v.optional(v.boolean()),
+  }),
+})
+
 defineChannelTrigger({
   input: ticketChanged,
   invoke: (context, { payload: event }) => ({
