@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
+import { createClient } from "@libsql/client"
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
 import postgres from "postgres"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -22,7 +24,7 @@ vi.mock("@vite-hub/database", () => ({ useDatabase }))
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
 const globalKeys = ["database-store", "default", "override"].map(name => Symbol.for(`vitehub.agent.invocations.${name}`))
 
-async function nodeServer(db: object, projectRoot: string): Promise<{ invocations: AgentInvocations, bind: typeof import("../src/invocations.ts").bindAgentInvocations }> {
+async function nodeServer(db: object, projectRoot: string, journalFile?: { databaseUrl: string }): Promise<{ invocations: AgentInvocations, bind: typeof import("../src/invocations.ts").bindAgentInvocations }> {
   vi.resetModules()
   for (const key of globalKeys) Reflect.deleteProperty(globalThis, key)
   useDatabase.mockImplementation((name: string) => {
@@ -30,7 +32,11 @@ async function nodeServer(db: object, projectRoot: string): Promise<{ invocation
     return { db }
   })
   const { getAgentInvocations, installAgentInvocations } = await import("../src/invocations/app.ts")
-  installAgentInvocations({ database: async () => await import("../src/invocations/database.ts"), journal: { database: "default", projectRoot } })
+  installAgentInvocations({
+    database: async () => await import("../src/invocations/database.ts"),
+    ...(journalFile ? { default: journalFile } : {}),
+    journal: { ...(journalFile ? {} : { database: "default" }), libsql: async () => await import("../src/invocations/default-libsql.ts"), projectRoot },
+  })
   const { bindAgentInvocations } = await import("../src/invocations.ts")
   return { bind: bindAgentInvocations, invocations: getAgentInvocations() }
 }
@@ -117,6 +123,49 @@ describe("default Agent journal on a Postgres default Database", () => {
         await expect(explicit.get("keep")).resolves.toMatchObject({ id: "keep" })
         const { resolveDefaultAgentInvocationsLocation } = await import("../src/invocations/default-core.ts")
         await expect(resolveDefaultAgentInvocationsLocation({ database: { name: "default", store: vi.fn() }, env: {}, projectRoot })).resolves.toEqual({ url: "database:default" })
+      }
+      finally {
+        await client.close()
+      }
+    }
+    finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  it("leaves the records of a 0.4 journal file in the file, and reads them when the file is pinned", async () => {
+    const file = join(projectRoot, ".vitehub/data/agent-invocations.sqlite")
+    mkdirSync(dirname(file), { recursive: true })
+    const legacy = createClient({ url: pathToFileURL(file).href })
+    await legacy.executeMultiple(readFileSync(new URL("./fixtures/agent-invocations-0.4.1.sql", import.meta.url), "utf8"))
+    legacy.close()
+    const dataDir = mkdtempSync(join(tmpdir(), "vitehub-agent-default-pglite-"))
+    const ids = (result: { invocations: ReadonlyArray<{ id: string }> }) => result.invocations.map(invocation => invocation.id)
+    try {
+      const definition = defineDatabase({ dialect: "postgresql", driver: "pglite", schema: {} })
+      const db = await createDevPostgresDatabase(definition, { binding: "DB" }, { dataDir, migrationsDir: join(dataDir, "migrations") })
+      const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
+      for (const statement of await journalMigration()) await client.exec(statement)
+      try {
+        const upgradedWithoutPin = await nodeServer(db, projectRoot)
+        expect(ids(await upgradedWithoutPin.invocations.list())).toEqual([])
+        vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:.vitehub/data/agent-invocations.sqlite")
+        try {
+          const pinnedByEnv = await nodeServer(db, projectRoot)
+          expect(ids(await pinnedByEnv.invocations.list())).toEqual(["inv-041-failed", "inv-041-completed"])
+        }
+        finally {
+          vi.unstubAllEnvs()
+        }
+        const pinnedByConfig = await nodeServer(db, projectRoot, { databaseUrl: "file:.vitehub/data/agent-invocations.sqlite" })
+        expect(ids(await pinnedByConfig.invocations.list())).toEqual(["inv-041-failed", "inv-041-completed"])
+        await expect(pinnedByConfig.invocations.get("inv-041-completed")).resolves.toMatchObject({
+          agentName: "support",
+          observations: [expect.objectContaining({ name: "agent.tool.call" })],
+          status: "completed",
+        })
+        await expect(pinnedByConfig.invocations.get("inv-041-failed")).resolves.toMatchObject({ error: { message: "card declined" }, status: "failed" })
+        expect(ids(await (await nodeServer(db, projectRoot)).invocations.list())).toEqual([])
       }
       finally {
         await client.close()

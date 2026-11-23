@@ -53,13 +53,13 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 | Host | Default journal |
 | --- | --- |
 | Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
-| Node production build with a Postgres `default` Database | That Database, tables `vitehub_agent_invocations` and `vitehub_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
+| Node production build with a Postgres `default` Database | That Database, tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
 The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem or a Postgres `default` Database. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
 
-On the Node host, a production build uses the resolved `default` Database, including plugin contributions. When it is Postgres, the default journal uses the [Postgres store](#store-invocations-in-a-postgres-database) of that Database, and the Database migrations create its tables. Development, a SQLite `default` Database, an explicit `databaseUrl`, and `dataDir` keep the local file. The `agent-invocations` line of the boot Durability report says `shared` only for a Postgres server, and `process` for PGlite. When no dev server runs, `vitehub agent invocations` reads the `default` Database Definition of the app and reads the journal from it. Run it in the app directory with the same environment variables as the server. Use `--url` if the Database comes from a plugin or the Nuxt app uses layers or custom `rootDir`, `srcDir`, or `serverDir` settings. The CLI does not infer the Database in those cases.
+On the Node host, a production build uses the resolved `default` Database, including plugin contributions. When it is Postgres, the default journal uses the [Postgres store](#store-invocations-in-a-postgres-database) of that Database, and the Database migrations create its tables. An app that upgrades from 0.4 does not see its old records there: see [Upgrade a Node app from 0.4](#upgrade-a-node-app-from-04). Development, a SQLite `default` Database, an explicit `databaseUrl`, and `dataDir` keep the local file. The `agent-invocations` line of the boot Durability report says `shared` only for a Postgres server, and `process` for PGlite. When no dev server runs, `vitehub agent invocations` reads the `default` Database Definition of the app and reads the journal from it. Run it in the app directory with the same environment variables as the server. Use `--url` if the Database comes from a plugin or the Nuxt app uses layers or custom `rootDir`, `srcDir`, or `serverDir` settings. The CLI does not infer the Database in those cases.
 
 The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
@@ -139,6 +139,40 @@ On the Cloudflare host, a production build includes the libSQL client only when 
 The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, for the memory journal of a Worker, and for the default journal in a Postgres Database. Query those tables with `useDatabase()`.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
+
+### Upgrade a Node app from 0.4
+
+In 0.4, a Node production build kept the default journal in a local SQLite file: `.vitehub/data/agent-invocations.sqlite` in the project root, or `agent-invocations.sqlite` next to a `file:` Agent State database. From 0.5, when the `default` Database uses Postgres, the build keeps it in the Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. ViteHub does not copy the old records to Postgres, and it does not change or delete the file. After the upgrade, the Console and `vitehub agent invocations` show only new runs. Choose one of these paths before you deploy.
+
+To keep the SQLite file, set `databaseUrl` to the file that the 0.4 server used. A relative `file:` path resolves from the ViteHub project root. The build then adds no default journal tables to the Postgres migrations:
+
+```ts [vite.config.ts] fragment
+vitehub({
+  agent: { invocations: { databaseUrl: 'file:.vitehub/data/agent-invocations.sqlite' } },
+})
+```
+
+To pin the file without a rebuild, set the runtime variable to the same file. It wins over the Postgres `default` Database:
+
+```dotenv [.env]
+VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/app/.vitehub/data/agent-invocations.sqlite
+```
+
+The journal updates the schema of the file when it first opens it, and keeps its records. The file stays local to one server instance. Without a dev server, the CLI does not read `databaseUrl` from the config. Pass `--database` with the file, or run the CLI with the same `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`.
+
+To move to Postgres, write and apply the migration of the journal tables with the other tables of the `default` Database. Run `migrate` with the connection of the production Database. Without the tables, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. See [Store invocations in a Postgres Database](#store-invocations-in-a-postgres-database):
+
+```sh
+pnpm vitehub database generate
+pnpm vitehub database migrate
+```
+
+The old records stay in the file. ViteHub has no command that imports them into Postgres. Keep the file, for example on its volume, while you need them, and read it without the app:
+
+```sh
+vitehub agent invocations list --database /app/.vitehub/data/agent-invocations.sqlite
+vitehub agent invocations export --database /app/.vitehub/data/agent-invocations.sqlite > old-invocations.jsonl
+```
 
 ### AGENT_R1029: Local file on a Cloudflare Worker
 
