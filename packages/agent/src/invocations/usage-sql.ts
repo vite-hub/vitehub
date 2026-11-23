@@ -124,7 +124,7 @@ export function agentUsageStatement(table: string, options: AgentUsageQuery, per
   const head = `source AS MATERIALIZED (
   ${[`>= ${arg(period.from)}`, "= ''"].map(range => `SELECT s.id, s.status, s.updated_at AS updatedColumn, s.agent_name AS agentColumn,
     CASE WHEN json_valid(s.record) THEN CASE WHEN json_type(s.record, '$.observations') = 'array' THEN s.record END END AS record
-  FROM ${table} s
+  FROM ${table} s INDEXED BY ${table}_status_updated_at
   WHERE s.status IN ('completed', 'failed', 'cancelled')${status} AND s.updated_at ${range}`).join("\n  UNION ALL\n  ")}
 ),
 fields AS MATERIALIZED (
