@@ -176,7 +176,7 @@ checkpoint.snapshot
   :::
 
   :::product-feature-item{title="Runs on Node or Cloudflare" icon="i-lucide-server" to="/docs/realtime/configure#host-support"}
-  Node instances share rooms over Postgres or Redis. Cloudflare gives each document its own Durable Object.
+  Node instances share rooms over Postgres or Redis. Cloudflare runs rooms in a SQLite-backed Durable Object.
   :::
 
   :::product-feature-item{title="Content documents edit live" icon="i-lucide-file-pen-line" to="/docs/content/editing-together#live-editing"}
