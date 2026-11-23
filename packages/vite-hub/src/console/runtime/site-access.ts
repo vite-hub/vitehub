@@ -58,13 +58,13 @@ export type SiteStore =
   | { kind: "memory" }
   | { kind: "none", why: string }
 
-/** The store in one sentence, such as ``Links and site sessions are kept in Database `default`, table `vitehub_console_site`.`` */
+/** The store in one sentence, such as ``Links are kept in Database `default`, table `vitehub_console_site`.`` */
 export function siteStoreText(store: SiteStore): string {
   switch (store.kind) {
     case "auth": return store.storage === "secondaryStorage" ? "Auth keeps the links in the Better Auth `secondaryStorage`." : "Auth keeps the links in the Better Auth `verification` table."
-    case "database": return `Links and site sessions are kept in Database \`${store.name}\`, table \`${store.table}\`.`
-    case "kv": return `Links and site sessions are kept in the default KV store, which uses the \`${store.driver}\` driver.`
-    case "memory": return "Links and site sessions are kept in the memory of the development server."
+    case "database": return `Links are kept in Database \`${store.name}\`, table \`${store.table}\`.`
+    case "kv": return `Links are kept in the default KV store, which uses the \`${store.driver}\` driver.`
+    case "memory": return "Links are kept in the memory of the development server."
     case "none": return store.why
   }
 }

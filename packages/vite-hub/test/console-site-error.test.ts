@@ -68,7 +68,7 @@ it.each([
   app.mount(container)
 
   await vi.waitFor(() => expect(container.querySelector("main [role=alert]")?.textContent).toContain("Auth could not list site browsers."))
-  expect(container.textContent).not.toContain("default KV store")
+  expect(container.textContent).toContain("Links are kept in the default KV store")
   const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === action)!
   await vi.waitFor(() => expect(trigger.disabled).toBe(false))
   trigger.click()
