@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
             The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
           </p>
           <ConsoleState v-if="storeMissing" compact :error="storeMissing" title="Site access can't make links" :retry="load" />
-          <p v-else-if="store" class="text-pretty text-xs text-dimmed"><ConsoleCodeText :text="siteStoreText(store)" /></p>
+          <p v-else-if="store && !sessionsError" class="text-pretty text-xs text-dimmed"><ConsoleCodeText :text="siteStoreText(store)" /></p>
         </div>
 
         <section v-for="group in sessionsError ? [] : [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">

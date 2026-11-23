@@ -48,7 +48,7 @@ it.each([
   const message = "Auth's user.role field can be set by the user."
   const fix = "Set input: false on the field."
   request.mockImplementation(async (name: string) => {
-    if (name === "site.invites") return { invites: [] }
+    if (name === "site.invites") return { invites: [], store: { kind: "kv", driver: "redis" } }
     if (name === "site.grants") return { grants: [{ id: "comments-read", label: "Read comments" }] }
     if (name === "site.sessions") throw new ConsoleRequestError(409, { code: "AUTH_CONSOLE_UNAVAILABLE", message: "Auth could not list site browsers.", fix })
     throw new ConsoleRequestError(409, { code: "AUTH_CONSOLE_UNAVAILABLE", message, fix })
@@ -68,6 +68,7 @@ it.each([
   app.mount(container)
 
   await vi.waitFor(() => expect(container.querySelector("main [role=alert]")?.textContent).toContain("Auth could not list site browsers."))
+  expect(container.textContent).not.toContain("default KV store")
   const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === action)!
   await vi.waitFor(() => expect(trigger.disabled).toBe(false))
   trigger.click()
