@@ -18,11 +18,17 @@ function r2Bucket(keys: string[]) {
         throw new Error("list: MaxKeys params must be positive integer <= 1000. (10022)")
       }
       const start = options.cursor ? Number(options.cursor) : 0
-      const page = sorted.filter(key => key.startsWith(options.prefix ?? "")).slice(start, start + limit)
+      const prefix = options.prefix ?? ""
+      const entries = new Set(sorted.filter(key => key.startsWith(prefix)).map(key => {
+        const delimiter = options.delimiter ? key.indexOf(options.delimiter, prefix.length) : -1
+        return delimiter < 0 ? key : key.slice(0, delimiter + 1)
+      }))
+      const page = [...entries].slice(start, start + limit)
       const next = start + page.length
-      const truncated = next < sorted.length
+      const truncated = next < entries.size
       return {
-        objects: page.map(key => ({ httpEtag: "\"etag\"", key, size: 1, uploaded: new Date(0) })),
+        delimitedPrefixes: page.filter(key => key.endsWith("/")),
+        objects: page.filter(key => !key.endsWith("/")).map(key => ({ httpEtag: "\"etag\"", key, size: 1, uploaded: new Date(0) })),
         truncated,
         ...(truncated ? { cursor: String(next) } : {}),
       }
@@ -63,6 +69,32 @@ describe("Cloudflare R2 blob.list({ limit })", () => {
     expect(error).toBeUndefined()
     expect(page).toMatchObject({ blobs: [], hasMore: true })
 
+    expect(page?.cursor).toBeTruthy()
+    const [firstError, first] = await storage.list({ cursor: page?.cursor, limit: 1 })
+    expect(firstError).toBeUndefined()
+    expect(first?.blobs.map(blob => blob.pathname)).toEqual(["a.txt"])
+    const [probeError, probe] = await storage.list({ cursor: first?.cursor, limit: 0 })
+    expect(probeError).toBeUndefined()
+    expect(probe?.cursor).toBe(first?.cursor)
+    const [nextError, next] = await storage.list({ cursor: probe?.cursor, limit: 1 })
+    expect(nextError).toBeUndefined()
+    expect(next?.blobs.map(blob => blob.pathname)).toEqual(["b.txt"])
+  })
+
+  it("resumes a partial prefix and preserves folded folders", async () => {
+    const { storage: tree } = r2Storage(["docs/reports/a.txt"])
+    const [partialError, partial] = await tree.list({ prefix: "docs/re", limit: 0 })
+    expect(partialError).toBeUndefined()
+    expect(partial?.cursor).toBeTruthy()
+    const [matchError, match] = await tree.list({ cursor: partial?.cursor, prefix: "docs/re", limit: 1 })
+    expect(matchError).toBeUndefined()
+    expect(match?.blobs.map(blob => blob.pathname)).toEqual(["docs/reports/a.txt"])
+    const [folderError, folders] = await tree.list({ folded: true, prefix: "docs/", limit: 0 })
+    expect(folderError).toBeUndefined()
+    expect(folders).toMatchObject({ blobs: [], folders: ["docs/reports/"], hasMore: false })
+  })
+
+  it("ends a zero-limit listing of an empty store", async () => {
     const { storage: empty } = r2Storage([])
     const [emptyError, emptyPage] = await empty.list({ limit: 0 })
     expect(emptyError).toBeUndefined()

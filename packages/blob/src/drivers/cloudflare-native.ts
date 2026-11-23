@@ -9,6 +9,7 @@ import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload,
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 import { assertValidPathname } from "../internal/pathname.ts"
 
 interface R2ObjectLike {
@@ -227,29 +228,21 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       return object ? mapObject(object) : null
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
-      const limit = listOptions.limit ?? r2MaximumListLimit
+      const { cursor, limit = r2MaximumListLimit } = listOptions
       const result = await getBucket(options).list({
-        cursor: listOptions.cursor,
+        cursor: toProviderListCursor(cursor),
         delimiter: listOptions.folded ? "/" : undefined,
         include: ["customMetadata", "httpMetadata"],
         limit: Math.min(Math.max(limit, 1), r2MaximumListLimit),
         prefix: listOptions.prefix,
       })
       assertListPageCursor(result)
-      if (limit === 0) {
-        const hasMore = Boolean(result.truncated || result.objects.length || result.delimitedPrefixes?.length)
-        return {
-          blobs: [],
-          cursor: hasMore ? listOptions.cursor : undefined,
-          folders: listOptions.folded ? [] : undefined,
-          hasMore,
-        }
-      }
+      const heldBlob = limit === 0 && result.objects.length > 0
       return {
-        blobs: result.objects.map(mapObject),
-        cursor: result.truncated ? result.cursor : undefined,
+        blobs: limit === 0 ? [] : result.objects.map(mapObject),
+        cursor: heldBlob ? unconsumedListCursor(cursor) : fromProviderListCursor(result.cursor),
         folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
-        hasMore: Boolean(result.truncated || result.cursor),
+        hasMore: heldBlob || Boolean(result.truncated),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {
