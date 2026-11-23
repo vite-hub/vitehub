@@ -625,7 +625,7 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-async function assertTrustedPublisher(pkg, oidc, options, runtime) {
+async function assertTrustedPublisherIdentity(pkg, oidc, options, runtime) {
   const idTokenUrl = new URL(oidc.requestUrl)
   idTokenUrl.searchParams.append("audience", `npm:${new URL(registry).hostname}`)
   const idTokenResponse = await registryFetch(runtime, idTokenUrl.href, options, `the GitHub OIDC token for ${pkg.name}`, {
@@ -663,12 +663,12 @@ async function preflightRegistry(packages, options, runtime) {
   for (const [index, pkg] of packages.entries()) {
     if (states[index]?.state !== "absent") continue
     if (!states[index].exists) {
-      problems.push(`${pkg.name} does not exist on npm. npm can trust a publisher only for an existing package, so publish it once by hand first.`)
+      problems.push(`${pkg.name} does not exist on npm. As a maintainer, run \`node .github/scripts/claim-npm-packages.mjs ${pkg.name}\` to reserve the name as 0.0.0-claim and configure the trusted publisher. Do not publish the release version by hand.`)
       continue
     }
     if (!hasOidc) continue
     try {
-      await assertTrustedPublisher(pkg, oidc, options, runtime)
+      await assertTrustedPublisherIdentity(pkg, oidc, options, runtime)
     }
     catch (error) {
       problems.push(error.message)
@@ -682,11 +682,12 @@ async function preflightRegistry(packages, options, runtime) {
   return states
 }
 
-function stagedConflictMessage(pkg, error) {
+function stagedConflictMessage(pkg, tag, error) {
   return [
     `${pkg.name}@${pkg.version} is staged on npm but not published, so npm refuses to publish it. Packages after it in the release order were not published.`,
-    `A package maintainer must review it: run \`npm stage list ${pkg.name}\` and \`npm stage download <stage-id>\`.`,
-    `Approve it with \`npm stage approve <stage-id>\` only if the downloaded tarball has integrity ${pkg.integrity}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
+    `A package maintainer must review it: run \`npm stage list ${pkg.name}\`, compare the staged dist-tag with ${tag} using \`npm stage view <stage-id>\`, and run \`npm stage download <stage-id>\`.`,
+    `Approve it with \`npm stage approve <stage-id>\` only if the dist-tag matches and the downloaded tarball has integrity ${pkg.integrity}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
+    "Matching bytes and dist-tag do not establish provenance. The rerun still requires npm provenance from this release tag.",
     "Then rerun the failed publish job. See Releases in CONTRIBUTING.md.",
     "",
     String(error?.message),
@@ -771,7 +772,7 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, error), { cause: error })
+      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, options.tag, error), { cause: error })
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/i.test(String(error?.message))) throw error
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
       await waitUntilVerified([pkg], { ...options, runtime }, verification)

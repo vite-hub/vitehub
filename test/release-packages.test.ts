@@ -726,6 +726,7 @@ describe("release publication", () => {
     await expect(failure).rejects.toThrow("Release preflight failed. This run published nothing.")
     await expect(failure).rejects.toThrow("npm rejected this workflow as the trusted publisher of @vite-hub/app (404: No matching trusted publisher)")
     await expect(failure).rejects.toThrow("@vite-hub/new does not exist on npm")
+    await expect(failure).rejects.toThrow("node .github/scripts/claim-npm-packages.mjs @vite-hub/new")
     await expect(failure).rejects.not.toThrow(/github-id-token|npm-publish-token|github-request-token/)
     expect(registry.calls).toEqual([])
     expect(registry.oidcRequests).toEqual([
@@ -755,7 +756,9 @@ describe("release publication", () => {
 
     const failure = publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
     await expect(failure).rejects.toThrow("@vite-hub/agent@1.2.3 is staged on npm but not published")
-    await expect(failure).rejects.toThrow(`only if the downloaded tarball has integrity ${agent.integrity}`)
+    await expect(failure).rejects.toThrow(`downloaded tarball has integrity ${agent.integrity}`)
+    await expect(failure).rejects.toThrow("compare the staged dist-tag with latest using `npm stage view <stage-id>`")
+    await expect(failure).rejects.toThrow("Matching bytes and dist-tag do not establish provenance")
     await expect(failure).rejects.toThrow("Cannot publish over previously staged version")
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
       `./${artifact.manifest.packages[0].tarball}`,
@@ -765,8 +768,13 @@ describe("release publication", () => {
 
     registry.setFailPublish()
     registry.state.set(agent.name, verifiedRegistryEntry(agent))
-    registry.setDistTag(agent.name, "latest", agent.version)
     registry.calls.splice(0)
+    registry.setDistTag(agent.name, "next", agent.version)
+    await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Registry dist-tag latest does not point to @vite-hub/agent@1.2.3")
+    expect(registry.calls).toEqual([])
+
+    registry.setDistTag(agent.name, "latest", agent.version)
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([`./${artifact.manifest.packages[2].tarball}`])
   })
