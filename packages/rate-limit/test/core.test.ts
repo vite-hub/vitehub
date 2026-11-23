@@ -120,6 +120,17 @@ describe("Rate Limit core", () => {
     await expect(sameBudget.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, reason: "limited", used: 1 })
   })
 
+  it("keeps windows of different lengths apart in one memory driver", async () => {
+    const driver = memoryRateLimitDriver({ now: () => 1 })
+    const minute = createRateLimiter({ driver, limit: 1, window: "1m" })
+    const hour = createRateLimiter({ driver, limit: 1, window: "1h" })
+
+    await expect(minute.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, resetAt: 60_000 })
+    await expect(hour.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, resetAt: 3_600_000, used: 1 })
+    await hour.reset({ key: "user" })
+    await expect(minute.peek({ key: "user" })).resolves.toMatchObject({ used: 1 })
+  })
+
   it("keeps counter state usable after the driver methods change", async () => {
     const driver = memoryRateLimitDriver({ now: () => 1 })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
