@@ -298,7 +298,7 @@ describe.skipIf(!url)("shared resumable chat on a Postgres server", () => {
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
     await admin.unsafe(`CREATE SCHEMA ${schema}`)
     for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...agentInvocationsPostgresSchema }))) {
-      await databases.a.execute(statement)
+      await databases.a.execute(statement.replaceAll('"public".', ""))
     }
     useDatabase.mockImplementation((name: "a" | "b") => ({ db: databases[name] }))
     installAgentInvocations({ database: () => import("../src/invocations/database.ts") })
