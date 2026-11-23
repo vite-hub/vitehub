@@ -411,6 +411,22 @@ describe("translations in a Workspace", () => {
     expect((await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/fr.json"))).status).toBe(404)
   })
 
+  it("answers a catalog request with 304 for every If-None-Match form that names the revision", async () => {
+    setup()
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: "Deploy your agent", translation: "Publica tu agente" })
+    const { revision } = await translations.publish()
+    const status = async (ifNoneMatch: string) =>
+      (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json", { headers: { "if-none-match": ifNoneMatch } }))).status
+
+    // A CDN that compresses the catalog, such as Cloudflare, sends the ETag back as a weak validator.
+    expect(await status(`W/"${revision}"`)).toBe(304)
+    expect(await status(`"old", "${revision}"`)).toBe(304)
+    expect(await status("*")).toBe(304)
+    expect(await status(`"old", W/"older"`)).toBe(200)
+    expect(await status(`${revision}`)).toBe(200)
+  })
+
   it("keeps its translations when the Workspace cannot be read", async () => {
     const { store, request } = setup()
     const translations = useTranslations()
