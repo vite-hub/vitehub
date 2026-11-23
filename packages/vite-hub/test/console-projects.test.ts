@@ -357,12 +357,14 @@ describe("account Console", () => {
 
   it("manages Site access of the open project through the Console API, not the app", async () => {
     const calls: [string, string, unknown][] = []
-    await account(async (url, init) => {
+    const { state } = await account(async (url, init) => {
       calls.push([url, init.method ?? "GET", init.body === undefined ? undefined : JSON.parse(String(init.body))])
       if (url.endsWith("/invites") && init.method === "POST") return Response.json({ code: "CONSOLE_SITE_INVITE_INVALID", message: "An invite lasts 1, 7, 30 days." }, { status: 400 })
       return Response.json({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }], members: [], url: "https://console.example.com/go/x", expiresAt: "2026-11-23T00:10:00.000Z" })
     })
+    state.info.value = { protocol: 1, name: "Shop", sections: ["kv"], operations: ["kv.list", "site.access"] }
     const site = await import("../src/console/runtime/client/site-access.ts")
+    expect(site.usesConsoleSiteAccess()).toBe(true)
     expect(await site.readSiteAccess()).toEqual({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }] })
     expect(await site.phoneLink()).toEqual(expect.objectContaining({ url: "https://console.example.com/go/x" }))
     const refused = await site.inviteGuest({ name: "Grace", grants: ["comments-read"], expiresInDays: 7 }).catch((error: unknown) => error)
@@ -375,6 +377,32 @@ describe("account Console", () => {
       ["/api/projects/p-1/site/invites", "POST", { name: "Grace", grants: ["comments-read"], expiresInDays: 7 }],
       ["/api/projects/p-1/site/sessions/g%2F1", "DELETE", undefined],
       ["/api/projects/p-1/site/invites/i-1", "DELETE", undefined],
+    ])
+  })
+
+  it("keeps the site.* operations of an app that does not answer site.access", async () => {
+    const sent: [string, string, unknown][] = []
+    const { state } = await account(async (url, init) => {
+      const { operation, input } = operationRpcRequest(init.body)
+      sent.push([url, operation, input])
+      if (operation === "site.sessions") return Response.json({ ok: false, code: "AUTH_CONSOLE_UNAVAILABLE", message: "Auth could not list site browsers.", status: 409 }, { status: 409 })
+      return Response.json({ ok: true, value: { invites: [], grants: [{ id: "comments-read", label: "Read comments" }], url: "https://app.example.com/portal/_vitehub/rpc?ticket=x", expiresAt: "2026-11-23T00:10:00.000Z" } })
+    })
+    state.info.value = { protocol: 1, name: "Shop", sections: ["kv"], operations: ["kv.list"] }
+    const site = await import("../src/console/runtime/client/site-access.ts")
+    expect(site.usesConsoleSiteAccess()).toBe(false)
+    const read = await site.readSiteAccess()
+    expect([read.sessions, read.grants, read.sessionsError?.code]).toEqual([[], [{ id: "comments-read", label: "Read comments" }], "AUTH_CONSOLE_UNAVAILABLE"])
+    expect(await site.phoneLink()).toEqual(expect.objectContaining({ url: "https://app.example.com/portal/_vitehub/rpc?ticket=x" }))
+    await site.revokeSession("g/1")
+    await site.revokeInvite("i-1")
+    expect(sent.sort()).toEqual([
+      ["/p/p-1/_vitehub/rpc", "site.grants", {}],
+      ["/p/p-1/_vitehub/rpc", "site.invites", {}],
+      ["/p/p-1/_vitehub/rpc", "site.link", { qr: true }],
+      ["/p/p-1/_vitehub/rpc", "site.revoke-invite", { id: "i-1" }],
+      ["/p/p-1/_vitehub/rpc", "site.revoke-session", { id: "g/1" }],
+      ["/p/p-1/_vitehub/rpc", "site.sessions", {}],
     ])
   })
 

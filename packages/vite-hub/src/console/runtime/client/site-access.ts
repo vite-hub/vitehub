@@ -1,9 +1,11 @@
 import { renderSVG } from "uqr"
 
 import { isRecord } from "@vite-hub/internal/object"
+import { siteAccessOperation } from "@vite-hub/internal/site-token"
 
+import { siteAccessOperations } from "../site-access"
 import { useConsoleProjects } from "./project-session"
-import { ConsoleRequestError, consoleResponseError } from "./request"
+import { ConsoleRequestError, consoleResponseError, requestConsoleOperation } from "./request"
 import { openConsoleTicket } from "./ticket"
 
 import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
@@ -11,9 +13,27 @@ import type { ConsoleTicketLink } from "./ticket"
 
 export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
 
-/** Whether the Console refused a Site access request with a reason to show, such as a missing role or a bad invite. */
+/**
+ * Whether the Console keeps the Site access of the open project: the account Console, with an app that answers
+ * `site.access`. Else the app keeps it, and the Console calls its `site.*` operations.
+ */
+export function usesConsoleSiteAccess(): boolean {
+  const projects = useConsoleProjects()
+  return projects.mode === "account" && Boolean(projects.current.value) && Boolean(projects.info.value?.operations.includes(siteAccessOperation))
+}
+
+/**
+ * Whether a Site access request was refused with a reason to show: any refusal of the Console, such as a missing role or
+ * a bad invite, or the Auth setup guidance of an app that keeps Site access itself.
+ */
 export function isSiteAccessProblem(error: unknown): error is ConsoleRequestError {
-  return error instanceof ConsoleRequestError
+  return error instanceof ConsoleRequestError && (usesConsoleSiteAccess() || error.code === "AUTH_CONSOLE_UNAVAILABLE")
+}
+
+async function appOperation(operation: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const body = await requestConsoleOperation(operation, input, signal ? { signal } : {})
+  if (!isRecord(body)) throw new ConsoleRequestError(502, `The app answered ${operation} with no JSON object.`)
+  return body
 }
 
 function currentProject(): { id: string, url: string } {
@@ -64,40 +84,66 @@ function isGrant(value: unknown): value is SiteGrant {
   return hasId(value) && typeof value.label === "string"
 }
 
-/** Everything the Site access section shows, read in one go from the Console. */
-export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
+async function readAppSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError }> {
+  const [sessions, invites, grants] = await Promise.all([
+    appOperation(siteAccessOperations.sessions, {}, signal).catch((error: unknown) => {
+      if (error instanceof ConsoleRequestError && error.code === "AUTH_CONSOLE_UNAVAILABLE") return error
+      throw error
+    }),
+    appOperation(siteAccessOperations.invites, {}, signal),
+    appOperation(siteAccessOperations.grants, {}, signal),
+  ])
+  return {
+    ...(sessions instanceof ConsoleRequestError ? { sessions: [], sessionsError: sessions } : { sessions: listOf(sessions, "sessions", isSession) }),
+    invites: listOf(invites, "invites", isInvite),
+    grants: listOf(grants, "grants", isGrant),
+  }
+}
+
+/**
+ * Everything the Site access section shows, read in one go: from the Console, or from the app when the app keeps Site
+ * access. `sessionsError` is the Auth setup guidance of an app that cannot list its site browsers.
+ */
+export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError }> {
+  if (!usesConsoleSiteAccess()) return await readAppSiteAccess(signal)
   const body = await siteApi("GET", "", signal ? { signal } : {})
   return { sessions: listOf(body, "sessions", isSession), invites: listOf(body, "invites", isInvite), grants: listOf(body, "grants", isGrant) }
 }
 
 /**
- * Opens the app in a new tab at `<app>/_vitehub/site`. The app sends the tab to the Console, which signs it in as you,
- * and back to the page.
+ * Opens the app in a new tab, signed in as you. With Site access in the Console, the tab opens `<app>/_vitehub/site`,
+ * which goes through the Console and back to the page. Else the app signs the tab in with a link of its own.
  */
-export async function openSite(path = "/"): Promise<void> {
+export async function openSite(path?: string): Promise<void> {
+  if (!usesConsoleSiteAccess()) {
+    await openConsoleTicket(() => appOperation(siteAccessOperations.link, path ? { path } : {}))
+    return
+  }
   const { url } = currentProject()
-  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path })}` }))
+  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/" })}` }))
 }
 
-/** A one-time code for a phone, `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */
+/** A one-time link for a phone, such as `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */
 export async function phoneLink(): Promise<ConsoleTicketLink> {
-  return linkOf(await siteApi("POST", "/codes", { body: {} }))
+  return linkOf(usesConsoleSiteAccess() ? await siteApi("POST", "/codes", { body: {} }) : await appOperation(siteAccessOperations.link, { qr: true }))
 }
 
-/** Invites a guest. The answer has the link, `/i/<id>` of the Console, which the Console shows once: it keeps only its hash. */
+/** Invites a guest. The answer has the link, which the Console shows once: the Console or the app keeps only its hash. */
 export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
-  const body = await siteApi("POST", "/invites", { body: input })
-  if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The Console answered without the invite.")
+  const body = usesConsoleSiteAccess() ? await siteApi("POST", "/invites", { body: input }) : await appOperation(siteAccessOperations.invite, input)
+  if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }
 }
 
-/** Revokes the pass of a browser. The Console signs no new token for it; the app keeps a token that it already took until its session ends. */
+/** Revokes the pass of a browser, or its app session when the app keeps Site access. */
 export async function revokeSession(id: string): Promise<void> {
-  await siteApi("DELETE", `/sessions/${encodeURIComponent(id)}`)
+  if (usesConsoleSiteAccess()) await siteApi("DELETE", `/sessions/${encodeURIComponent(id)}`)
+  else await appOperation(siteAccessOperations.revokeSession, { id })
 }
 
 export async function revokeInvite(id: string): Promise<void> {
-  await siteApi("DELETE", `/invites/${encodeURIComponent(id)}`)
+  if (usesConsoleSiteAccess()) await siteApi("DELETE", `/invites/${encodeURIComponent(id)}`)
+  else await appOperation(siteAccessOperations.revokeInvite, { id })
 }
 
 /** The QR code of a link as SVG markup. It draws with `currentColor`, so it follows the theme. */

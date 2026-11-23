@@ -8,22 +8,25 @@ import type { ConsoleSigningKey } from "./console-signature.ts"
  * Console sign a person in to a linked app without a user in the app's database:
  *
  * 1. The app's `GET /_vitehub/site?return=/docs` sets the {@link siteStateCookie} to a new {@link createSiteState} value
- *    and redirects to the Console's {@link siteVisitPath} with the app URL, the {@link siteStateHash} of the state, and
- *    the return path.
+ *    and redirects to the Console's {@link siteVisitPath} with {@link siteVisitUrl}: the app URL, the
+ *    {@link siteStateHash} of the state, the return path, and the `project` query of the request when it has one. An
+ *    invite or a one-time code of the Console sends the browser to `GET /_vitehub/site` with `project`, so the visit
+ *    uses the pass of that project.
  * 2. The Console checks the grant of the person: a member of the team that linked the app, or a guest that opened an
- *    invite in this browser. With a grant, it redirects to {@link siteTokenUrl}, `<app>/_vitehub/site?token=vst1.…`,
- *    with a token from {@link signSiteToken}: the key of the link signs it, it lasts 60 seconds, and it holds the hash of
- *    the state.
+ *    invite in this browser. For a member, it asks the app with the signed {@link siteAccessOperation} call, so
+ *    `console.authorize` decides, as for every Console call. With a grant, it redirects to {@link siteTokenUrl},
+ *    `<app>/_vitehub/site?token=vst1.…`, with a token from {@link signSiteToken}: the key of the link signs it, it lasts
+ *    60 seconds, and it holds the hash of the state.
  * 3. The app checks the token with {@link verifySiteToken}, the public keys that it already reads with
- *    `readConsolePublicKeys()`, its origin, and its state cookie. Then it sets {@link siteCookie} for 12 hours and goes
- *    to the return path. Before the cookie ends, the app sends the browser through the Console again: while the grant
- *    exists, the Console signs a new token, and after a revoke it signs none.
+ *    `readConsolePublicKeys()`, its URL, and its state cookie. Then it sets {@link siteCookie} for 12 hours and goes to
+ *    the `destination` of the match. Before the cookie ends, the app sends the browser through the Console again: while
+ *    the grant exists, the Console signs a new token, and after a revoke it signs none.
  *
  * The state binds a token to the browser that started the visit, so a token that leaks, or a link that someone else
  * made, does not sign in another browser. The module uses only Web Crypto, so it runs in Node, Workers, and browsers.
  */
 export const siteRoute = "/_vitehub/site"
-/** The Console route that the app sends a visit to: `?app=<app URL>&state=<state hash>&return=<path>`. */
+/** The Console route that the app sends a visit to: `?app=<app URL>&state=<state hash>&return=<path>&project=<id>`. */
 export const siteVisitPath = "/visit"
 /** The cookie of the app that holds the state of one visit until the token comes back. */
 export const siteStateCookie = "__Host-vitehub-site-state"
@@ -38,6 +41,25 @@ const tokenVersion = "vst1"
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 const maximumTokenLength = 8_192
+
+/**
+ * The app operation that tells the Console what Site access a Console member has in the app. The Console signs the call
+ * as the member before each Site access action, so `console.authorize` and its `"site:read"` and `grants` limits decide.
+ * An app that lists it in `project.get` verifies Site access tokens, and the Console page uses the Console for its Site
+ * access. Other apps keep the `site.*` operations of the app. The answer is a {@link SiteAccessPolicy}.
+ */
+export const siteAccessOperation = "site.access"
+
+/** The answer of {@link siteAccessOperation}. */
+export interface SiteAccessPolicy {
+  /** The member may change Site access: open the site, make codes and invites, and revoke. `false` for `"site:read"`. */
+  write: boolean
+  /**
+   * The page tool roles that the member gets with `console`, and the roles that the member may give a guest: the
+   * `grants` of `console.authorize`, or every page tool role of the app.
+   */
+  roles: SiteAccessRole[]
+}
 
 /**
  * Why the Console signed the token:
@@ -81,6 +103,7 @@ export type SiteTokenCode =
   | "SITE_TOKEN_KEY_UNKNOWN"
   | "SITE_TOKEN_KIND"
   | "SITE_TOKEN_MALFORMED"
+  | "SITE_TOKEN_PATH"
   | "SITE_TOKEN_SIGNATURE"
   | "SITE_TOKEN_STATE"
 
@@ -95,19 +118,33 @@ export interface SiteTokenMatch {
   claims: SiteTokenClaims
   /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` that matched. */
   key: string
+  /** The URL of `claims.path` below the app URL, where the app sends the browser. */
+  destination: string
 }
 
 /** A role that Site access gives, such as `comments-write`. `membersOnly` roles never go to guests. */
 export interface SiteAccessRole {
   id: string
   label: string
-  description: string
+  description?: string
   membersOnly?: true
 }
 
+/** Read an untrusted {@link siteAccessOperation} answer, or `undefined` when it is not a {@link SiteAccessPolicy}. */
+export function readSiteAccessPolicy(value: unknown): SiteAccessPolicy | undefined {
+  if (!isRecord(value) || typeof value.write !== "boolean" || !Array.isArray(value.roles)) return undefined
+  const roles: SiteAccessRole[] = []
+  for (const role of value.roles) {
+    if (!isRecord(role) || typeof role.id !== "string" || !/^[\w:-]{1,64}$/.test(role.id) || typeof role.label !== "string" || !role.label) return undefined
+    roles.push({ id: role.id, label: role.label, ...(typeof role.description === "string" && role.description ? { description: role.description } : {}) })
+  }
+  return { write: value.write, roles }
+}
+
 /**
- * The roles that Site access gives. Members of the Console team get all of them. Guests get the roles of their invite,
- * never `console`. The `comments-` roles are the ones that `commentsRoleAllows()` of `@vite-hub/comments` checks.
+ * The roles that Site access knows. Members of the Console team get `console` and the roles of the app's
+ * {@link SiteAccessPolicy}. Guests get the roles of their invite, never `console`. The `comments-` roles are the ones
+ * that `commentsRoleAllows()` of `@vite-hub/comments` checks.
  */
 export const siteAccessRoles: readonly SiteAccessRole[] = [
   { id: "console", label: "Console", description: "Open the app in the ViteHub Console. Members only.", membersOnly: true },
@@ -132,9 +169,24 @@ export function isSiteStateHash(value: string): boolean {
   return /^[\w-]{43}$/.test(value)
 }
 
-/** Whether a value is a path of the app, such as `/docs?tab=1`: it starts with one `/` and has no `\`. */
+/**
+ * Whether a value is a path of the app, such as `/docs?tab=1`: it starts with one `/`, and has no `\` and no control
+ * character, which URL parsers remove.
+ */
 export function isSitePath(value: string): boolean {
-  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && value.length <= 2_048
+  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/\p{Cc}/u.test(value) && value.length <= 2_048
+}
+
+/**
+ * The URL of a {@link isSitePath} path below an app URL, such as `https://app.example.com/portal` and `/docs`. It is
+ * `undefined` when the path is not a site path or resolves outside the origin or the base path of the app.
+ */
+export function siteDestination(app: string, path: string): string | undefined {
+  if (!isSitePath(path)) return undefined
+  const base = new URL(app)
+  const mount = base.pathname.replace(/\/+$/, "")
+  const url = new URL(`${mount}${path}`, base.origin)
+  return url.origin === base.origin && (url.pathname === mount || url.pathname.startsWith(`${mount}/`)) ? url.href : undefined
 }
 
 /** The app URL that ends a visit: `<app URL>/_vitehub/site?token=<token>`. `app` may have a base path, such as `/portal`. */
@@ -142,21 +194,24 @@ export function siteTokenUrl(app: string, token: string): string {
   return `${app.replace(/\/+$/, "")}${siteRoute}?token=${encodeURIComponent(token)}`
 }
 
-/** The Console URL that starts a visit, from the app's `GET /_vitehub/site`. */
-export function siteVisitUrl(input: { console: string, app: string, state: string, path: string }): string {
-  const query = new URLSearchParams({ app: input.app, state: input.state, return: input.path })
+/** The Console URL that starts a visit, from the app's `GET /_vitehub/site`, with the `project` query of that request. */
+export function siteVisitUrl(input: { console: string, app: string, state: string, path: string, project?: string }): string {
+  const query = new URLSearchParams({ app: input.app, state: input.state, return: input.path, ...(input.project ? { project: input.project } : {}) })
   return `${input.console.replace(/\/+$/, "")}${siteVisitPath}?${query}`
 }
 
 /**
  * Sign a token with the private key of a link: `vst1.<key name>.<claims as base64url JSON>.<Ed25519 signature>`. The
- * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state.
+ * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state. It throws a
+ * `RangeError` for a token longer than {@link verifySiteToken} accepts, such as one with a long path.
  */
 export async function signSiteToken(input: { key: ConsoleSigningKey, claims: Omit<SiteTokenClaims, "iat" | "exp">, now?: number }): Promise<string> {
   const iat = Math.floor((input.now ?? Date.now()) / 1_000)
   const claims: SiteTokenClaims = { ...input.claims, aud: new URL(input.claims.aud).origin, iat, exp: iat + siteTokenLifetimeSeconds }
   const signed = `${tokenVersion}.${input.key.name}.${encodeConsoleBase64url(encoder.encode(JSON.stringify(claims)))}`
-  return `${signed}.${await signConsoleBytes(input.key, encoder.encode(signed))}`
+  const token = `${signed}.${await signConsoleBytes(input.key, encoder.encode(signed))}`
+  if (token.length > maximumTokenLength) throw new RangeError(`The Site access token is ${token.length} characters, and an app accepts ${maximumTokenLength}. Use a shorter path or name.`)
+  return token
 }
 
 function failure(code: SiteTokenCode, message: string): SiteTokenFailure {
@@ -197,10 +252,11 @@ function parseJson(bytes: Uint8Array): unknown {
 }
 
 /**
- * Check a token in the app. `keys` are the public keys of `readConsolePublicKeys()`, `origin` is the origin that the
- * app serves, and `state` is the value of its {@link siteStateCookie}. `kinds` are the kinds that the route accepts,
- * `["site"]` by default. The token is refused when it is malformed, signed with an unknown key or another key, made for
- * another origin, expired, made for another browser, or of another kind.
+ * Check a token in the app. `keys` are the public keys of `readConsolePublicKeys()`, `origin` is the URL that the app
+ * serves, with its base path, such as `https://app.example.com/portal`, and `state` is the value of its
+ * {@link siteStateCookie}. `kinds` are the kinds that the route accepts, `["site"]` by default. The token is refused
+ * when it is malformed, signed with an unknown key or another key, made for another origin, expired, made for another
+ * browser, of another kind, or when its path resolves outside the app URL.
  */
 export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>>, origin: string, state: string, kinds?: readonly SiteTokenKind[], now?: number }): Promise<SiteTokenMatch | SiteTokenFailure> {
   const parts = input.token.length <= maximumTokenLength ? input.token.split(".") : []
@@ -223,5 +279,7 @@ export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<
     return failure("SITE_TOKEN_STATE", "The Site access token was made for another browser. Open the site again in this browser.")
   }
   if (!(input.kinds ?? ["site"]).includes(claims.kind)) return failure("SITE_TOKEN_KIND", `This route does not accept a \`${claims.kind}\` token.`)
-  return { claims, key: name, ok: true }
+  const destination = siteDestination(input.origin, claims.path)
+  if (!destination) return failure("SITE_TOKEN_PATH", "The path of the Site access token is not a page of this app.")
+  return { claims, destination, key: name, ok: true }
 }

@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import ConsoleSite from "../src/console/runtime/components/console-site.vue"
 
 vi.mock("../src/console/runtime/client/project-session", () => ({
-  useConsoleProjects: () => ({ current: { value: { id: "p-1", url: "https://app.example.com/portal" } } }),
+  useConsoleProjects: () => ({ mode: "account", current: { value: { id: "p-1", url: "https://app.example.com/portal" } }, info: { value: { operations: ["site.access"] } } }),
 }))
 vi.mock("../src/console/runtime/components/console-confirm.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
@@ -55,7 +55,7 @@ function mountSite(fetch: (url: string, init: RequestInit) => Promise<Response>)
   return { container, Event, tab }
 }
 
-const overview = { members: [], sessions: [], invites: [], grants: [{ id: "console", label: "Console", membersOnly: true }, { id: "comments-read", label: "Read comments" }] }
+const overview = { sessions: [], invites: [], grants: [{ id: "console", label: "Console", membersOnly: true }, { id: "comments-read", label: "Read comments" }] }
 
 it("opens the app's /_vitehub/site in a new tab, which signs in through the Console", async () => {
   const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json(overview))

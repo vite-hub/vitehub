@@ -36,6 +36,7 @@ describe("Site access tokens", () => {
     expect(result).toEqual({
       ok: true,
       key: name,
+      destination: `${origin}/docs`,
       claims: { aud: origin, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), iat: now / 1_000, exp: now / 1_000 + 60 },
     })
   })
@@ -91,5 +92,20 @@ describe("Site access tokens", () => {
     expect(`${visitUrl.origin}${visitUrl.pathname}`).toBe("https://console.vitehub.dev/visit")
     expect(Object.fromEntries(visitUrl.searchParams)).toEqual({ app: `${origin}/portal`, state: await siteStateHash(state), return: "/docs" })
     expect([isSitePath("/docs?a=1"), isSitePath("//evil.example"), isSitePath("https://evil.example"), isSitePath("/\\evil")]).toEqual([true, false, false, false])
+  })
+
+  it("refuses control characters in a path, and a token path outside the app URL", async () => {
+    expect(["/\t/evil.example", "/\n/evil.example", "/docs\u007f"].map(isSitePath)).toEqual([false, false, false])
+    const { keys, state, token } = await visit({ path: "/../admin" })
+    expect(await verifySiteToken({ token, keys, origin: `${origin}/portal`, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
+    expect(await verifySiteToken({ token, keys, origin, state, now })).toMatchObject({ ok: true, destination: `${origin}/admin` })
+    const inside = await visit({ path: "/docs?tab=1" })
+    expect(await verifySiteToken({ token: inside.token, keys: inside.keys, origin: `${origin}/portal/`, state: inside.state, now })).toMatchObject({ ok: true, destination: `${origin}/portal/docs?tab=1` })
+    const control = await visit({ path: "/\t/evil.example" })
+    expect(await verifySiteToken({ token: control.token, keys: control.keys, origin, state: control.state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
+  })
+
+  it("refuses to sign a token that the app would refuse for its length", async () => {
+    await expect(visit({ path: `/${"\u8a9e".repeat(2_047)}` })).rejects.toThrow(/8192/)
   })
 })

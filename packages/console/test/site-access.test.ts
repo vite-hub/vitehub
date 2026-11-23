@@ -8,6 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { createSiteState, siteStateHash, verifySiteToken } from "@vite-hub/internal/site-token"
 
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
+
+import type { OperationRpcTestResult } from "../../internal/test-utils/operation-rpc.ts"
 import type { ConsoleDatabase, ConsoleProject } from "../src/projects.ts"
 
 const state = vi.hoisted(() => ({ db: undefined as unknown, user: null as { id: string } | null }))
@@ -29,10 +32,28 @@ const { default: codePage } = await import("../server/routes/go/[code].ts")
 const consoleSecret = "c".repeat(64)
 const consoleOrigin = "https://console.test"
 const clients: ReturnType<typeof createClient>[] = []
+const commentRoles = ["comments-read", "comments-write", "comments-resolve", "comments-delete"].map(id => ({ id, label: id }))
+const app: { answer: OperationRpcTestResult, calls: { operation: string, user: string }[] } = { answer: { ok: true, value: { write: true, roles: commentRoles } }, calls: [] }
 
-beforeEach(() => { vi.stubEnv("VITEHUB_CONSOLE_SECRET", consoleSecret) })
+function callerOf(headers: Headers): string {
+  const caller: unknown = JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString())
+  return String(Reflect.get(Object(Reflect.get(Object(caller), "user")), "id"))
+}
+
+beforeEach(() => {
+  vi.stubEnv("VITEHUB_CONSOLE_SECRET", consoleSecret)
+  app.answer = { ok: true, value: { write: true, roles: commentRoles } }
+  app.calls.length = 0
+  vi.stubGlobal("fetch", vi.fn(async (target: Request | string | URL, init?: RequestInit) => {
+    expect(String(target)).toBe("https://app.example.com/portal/_vitehub/rpc")
+    const body: unknown = JSON.parse(init?.body instanceof ArrayBuffer ? new TextDecoder().decode(init.body) : String(init?.body ?? "{}"))
+    app.calls.push({ operation: operationRpcRequest(body).operation, user: callerOf(new Headers(init?.headers)) })
+    return operationRpcResponse(body, app.answer)
+  }))
+})
 afterEach(() => {
   vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
   state.user = null
   clients.splice(0).forEach(client => client.close())
 })
@@ -64,9 +85,9 @@ function cookieOf(response: Response): string {
   return response.headers.getSetCookie()[0]!.split(";")[0]!
 }
 
-async function visitApp(cookie: string | undefined) {
+async function visitApp(cookie: string | undefined, project?: string) {
   const appState = createSiteState()
-  const query = new URLSearchParams({ app: "https://app.example.com/portal", state: await siteStateHash(appState), return: "/docs" })
+  const query = new URLSearchParams({ app: "https://app.example.com/portal", state: await siteStateHash(appState), return: "/docs", ...(project ? { project } : {}) })
   const response = await visit.fetch(new Request(`${consoleOrigin}/visit?${query}`, { headers: cookie ? { cookie } : {} }))
   return { response, appState, location: response.headers.get("location") ?? "" }
 }
@@ -76,7 +97,7 @@ async function verifyAt(project: ConsoleProject, location: string, appState: str
   expect(`${url.origin}${url.pathname}`).toBe("https://app.example.com/portal/_vitehub/site")
   const keys = readConsolePublicKeys({ [project.keyVariable]: project.publicKey })
   if (!(keys instanceof Map)) throw new Error(keys.message)
-  return await verifySiteToken({ token: url.searchParams.get("token")!, keys, origin: "https://app.example.com", state: appState })
+  return await verifySiteToken({ token: url.searchParams.get("token")!, keys, origin: "https://app.example.com/portal", state: appState })
 }
 
 describe("Site access in the Console", () => {
@@ -91,7 +112,7 @@ describe("Site access in the Console", () => {
 
     const opened = await invitePage.fetch(new Request(link))
     expect(opened.status).toBe(303)
-    expect(opened.headers.get("location")).toBe("https://app.example.com/portal/_vitehub/site?return=%2Fdocs")
+    expect(opened.headers.get("location")).toBe(`https://app.example.com/portal/_vitehub/site?return=%2Fdocs&project=${project.id}`)
     expect(opened.headers.getSetCookie()[0]).toMatch(new RegExp(`^__Host-vitehub-site-pass-${project.id}=[\\w-]{43}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure$`))
     const again = await invitePage.fetch(new Request(link))
     expect(again.status).toBe(410)
@@ -99,7 +120,7 @@ describe("Site access in the Console", () => {
 
     const { location, appState } = await visitApp(cookieOf(opened))
     const verified = await verifyAt(project, location, appState)
-    expect(verified).toMatchObject({ ok: true, claims: { name: "Grace", roles: ["comments-write"], kind: "site", path: "/docs" } })
+    expect(verified).toMatchObject({ ok: true, destination: "https://app.example.com/portal/docs", claims: { name: "Grace", roles: ["comments-write"], kind: "site", path: "/docs" } })
     expect(verified.ok && verified.claims.sub).toMatch(/^site-guest:/)
     expect(verified.ok && verified.claims.email).toBeUndefined()
   })
@@ -167,6 +188,55 @@ describe("Site access in the Console", () => {
     const token = await api("POST", "/token", { path: "/runs/42", state: await siteStateHash(appState) })
     expect(await verifyAt(project, String(token.body.url), appState)).toMatchObject({ ok: true, claims: { path: "/runs/42", aud: "https://app.example.com" } })
     expect(await api("POST", "/token", { path: "/", state: "short" })).toMatchObject({ status: 400 })
+  })
+
+  it("asks the app for its Site access policy before each action, and gives only the roles of that policy", async () => {
+    const { project, api } = await setup()
+    app.answer = { ok: true, value: { write: false, roles: commentRoles.slice(0, 1) } }
+    const overview = await api("GET", "")
+    expect(overview.status).toBe(200)
+    expect(overview.body).not.toHaveProperty("members")
+    expect((overview.body.grants as { id: string }[]).map(role => role.id)).toEqual(["console", "comments-read"])
+    for (const [path, body] of [["/invites", { name: "Grace", grants: ["comments-read"] }], ["/codes", {}], ["/token", { path: "/", state: "a".repeat(43) }]] as const) {
+      expect(await api("POST", path, body), path).toMatchObject({ status: 403, body: { code: "CONSOLE_SITE_FORBIDDEN" } })
+    }
+
+    app.answer = { ok: true, value: { write: true, roles: commentRoles.slice(0, 1) } }
+    expect(await api("POST", "/invites", { name: "Grace", grants: ["comments-write"] })).toMatchObject({ status: 400, body: { message: expect.stringContaining("no role comments-write") } })
+    const appState = createSiteState()
+    const token = await api("POST", "/token", { path: "/docs", state: await siteStateHash(appState) })
+    expect(await verifyAt(project, String(token.body.url), appState)).toMatchObject({ ok: true, claims: { roles: ["console", "comments-read"] } })
+
+    app.answer = { ok: false, code: "CONSOLE_ACCESS_DENIED", message: "Only admins manage Site access.", status: 403 }
+    expect(await api("GET", "")).toMatchObject({ status: 403, body: { code: "CONSOLE_ACCESS_DENIED" } })
+    state.user = { id: "u-ada" }
+    expect((await visitApp(undefined)).location).toMatch(/^\/open\?/)
+    expect(app.calls.every(call => call.operation === "site.access" && call.user === "u-ada")).toBe(true)
+  })
+
+  it("keeps a pass to the project that issued it when two teams link the same app", async () => {
+    const { client, project, api } = await setup()
+    await client.execute({ sql: "insert into organization (id, name, slug, created_at) values (?, ?, ?, ?)", args: ["t-bob", "Bob's team", "t-bob", Date.now()] })
+    const other = (await createConsoleProjectStore(state.db as ConsoleDatabase, consoleSecret, "t-bob").create({ url: "https://app.example.com/portal", createdBy: "u-bob" }))!
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-read"] })
+    const opened = await invitePage.fetch(new Request(String(created.body.url)))
+    expect(new URL(opened.headers.get("location")!).searchParams.get("project")).toBe(project.id)
+    const cookie = cookieOf(opened)
+    expect((await visitApp(cookie, other.id)).location).toMatch(/^\/open\?/)
+    const { location, appState } = await visitApp(cookie, project.id)
+    expect(await verifyAt(project, location, appState)).toMatchObject({ ok: true, claims: { name: "Grace" } })
+    expect(await verifyAt(other, location, appState)).toMatchObject({ ok: false, code: "SITE_TOKEN_KEY_UNKNOWN" })
+  })
+
+  it("refuses the code of a removed member in one step, without a pass and without using the code", async () => {
+    const { client, api } = await setup()
+    const code = await api("POST", "/codes", { path: "/runs/42" })
+    await client.execute("delete from member where id = 'm1'")
+    const opened = await codePage.fetch(new Request(String(code.body.url)))
+    expect(opened.status).toBe(403)
+    expect(opened.headers.getSetCookie()).toEqual([])
+    expect((await client.execute("select count(*) as count from console_site_grants")).rows[0]!.count).toBe(0)
+    expect((await client.execute("select used_at from console_site_links")).rows).toEqual([expect.objectContaining({ used_at: null })])
   })
 
   it("refuses a malformed visit", async () => {

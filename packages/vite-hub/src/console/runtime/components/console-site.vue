@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { consoleDateTime, consoleInitials, consoleRelativeTime } from "../client/format";
-import { grantSummary, inviteGuest, isSiteAccessProblem, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession } from "../client/site-access";
+import { grantSummary, inviteGuest, isSiteAccessProblem, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession, usesConsoleSiteAccess } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
 import ConsoleConfirm from "./console-confirm.vue";
@@ -33,6 +33,7 @@ const invites = ref<SiteInvite[]>([]);
 const grants = ref<SiteGrant[]>([]);
 const loading = ref(true);
 const error = ref<unknown>();
+const sessionsError = ref<ConsoleRequestError>();
 const linkError = ref<{ title: string, cause: ConsoleRequestError }>();
 const now = ref(Date.now());
 let request: AbortController | undefined;
@@ -47,6 +48,7 @@ async function load(): Promise<void> {
     const next = await readSiteAccess(controller.signal);
     if (controller.signal.aborted) return;
     sessions.value = next.sessions;
+    sessionsError.value = next.sessionsError;
     invites.value = next.invites;
     grants.value = next.grants;
   }
@@ -186,7 +188,9 @@ const revokeOpen = ref(false);
 const revokeBusy = ref(false);
 const revokeTitle = computed(() => revoking.value?.kind === "session" ? `Revoke ${revoking.value.session.person.name} on ${revoking.value.session.device}?` : `Revoke the invite for ${revoking.value?.invite.name}?`);
 const revokeDescription = computed(() => revoking.value?.kind === "session"
-  ? (revoking.value.session.kind === "guest" ? "The Console stops signing this guest in. Their comments stay." : "The Console stops signing this browser in. Members still open the site from the Console.")
+  ? (usesConsoleSiteAccess()
+      ? (revoking.value.session.kind === "guest" ? "The Console stops signing this guest in. Their comments stay." : "The Console stops signing this browser in. Members still open the site from the Console.")
+      : (revoking.value.session.kind === "guest" ? "This signs the browser out and deletes the guest. Their comments stay." : "This signs the browser out of the app."))
   : "The link stops working. Nobody has opened it yet.");
 
 function askRevoke(target: NonNullable<typeof revoking.value>): void {
@@ -248,8 +252,8 @@ onBeforeUnmount(() => {
     </ConsolePageHeader>
 
     <main class="min-h-0 flex-1 overflow-auto">
-      <div v-if="linkError" class="vitehub-console-page !pb-0">
-        <ConsoleState compact :error="linkError.cause" :title="linkError.title" />
+      <div v-if="linkError || sessionsError" class="vitehub-console-page !pb-0">
+        <ConsoleState compact :error="linkError?.cause ?? sessionsError" :title="linkError?.title ?? 'Couldn’t load site browsers'" />
       </div>
       <ConsoleState v-if="error" :error="error" title="Couldn't load site access" :retry="load" />
       <div v-else-if="loading" class="vitehub-console-page grid gap-3" aria-busy="true">
@@ -261,7 +265,7 @@ onBeforeUnmount(() => {
           The Console signs these browsers in to the app, so they get the page tools. Every member of the team opens the site from the Console; guests get only the roles you picked.
         </p>
 
-        <section v-for="group in [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
+        <section v-for="group in sessionsError ? [] : [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
           <h2 :id="`site-${group.id}`" class="flex items-baseline gap-2 text-[13px] font-semibold text-highlighted">
             {{ group.title }}
             <span class="font-normal tabular-nums text-dimmed">{{ group.rows.length }}</span>
