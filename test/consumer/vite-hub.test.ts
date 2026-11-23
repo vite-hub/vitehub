@@ -528,6 +528,22 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         await expect(response.json()).resolves.toEqual({ settings: { theme: "system" } })
       }, env)
       expect(existsSync(join(appDir, "node_modules/unstorage"))).toBe(false)
+
+      await run("pnpm", ["add", "--no-hoist", "--strict-peer-dependencies", "--save-exact", "unstorage@2.0.0-alpha.10"], appDir)
+      await writeFile(join(appDir, "nitro.config.ts"), `
+const unstorage = import.meta.resolve("unstorage")
+export default {
+  deps: { paths: { unstorage } },
+  hooks: {
+    "build:before": (nitro) => {
+      if (nitro.options.deps.paths.unstorage !== unstorage) {
+        throw new Error("Nitro did not use the unstorage path from nitro.config.ts")
+      }
+    },
+  },
+}
+`)
+      await run(process.execPath, [vite, "build"], appDir, env)
     }
     finally {
       await rm(root, { recursive: true, force: true })
