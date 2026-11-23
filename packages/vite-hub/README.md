@@ -38,10 +38,10 @@ pnpm add vite-hub
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
-| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
-| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm valibot` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm@1.0.0-rc.5 valibot` |
 | `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `queue` | `@vite-hub/queue` |
@@ -50,14 +50,14 @@ pnpm add vite-hub
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
-| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm` |
-| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
-| Console with Agents | `@libsql/client drizzle-orm` |
+| Console with Agents | `@libsql/client drizzle-orm@1.0.0-rc.5` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/device` | `@vite-hub/device` |
@@ -69,6 +69,8 @@ pnpm add vite-hub
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 | `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
+
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations.
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
 

@@ -212,10 +212,10 @@ If another third-party dependency version falls outside the range supported by y
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels` |
-| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
-| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm valibot` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm@1.0.0-rc.5 valibot` |
 | `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `mcp` | `@vite-hub/mcp`, and with `auth` also `@better-auth/oauth-provider` |
@@ -224,14 +224,14 @@ If another third-party dependency version falls outside the range supported by y
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
-| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm` |
-| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark`, `@comark/html`, and `comark-ui`, which pnpm and npm install with it |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
-| Console with Agents | `@libsql/client drizzle-orm` |
+| Console with Agents | `@libsql/client drizzle-orm@1.0.0-rc.5` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/device` | `@vite-hub/device` |
@@ -243,6 +243,8 @@ If another third-party dependency version falls outside the range supported by y
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 | `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
+
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations.
 
 Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
