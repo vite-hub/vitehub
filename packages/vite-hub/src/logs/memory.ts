@@ -23,6 +23,7 @@ export function createLogBuffer(
   if (!Number.isSafeInteger(maxEntryBytes) || maxEntryBytes < 256 || maxEntryBytes > 262_144)
     throw viteHubErrorDiagnostics.VITE_HUB_LOGS_MAX_ENTRY_BYTES_INVALID();
   const entries: LogEntry[] = [];
+  const retainedIds = new Set<string>();
   let dropped = 0;
   const encoder = new TextEncoder();
   function append(entry: LogEntry): void {
@@ -33,10 +34,11 @@ export function createLogBuffer(
         return;
       }
       const snapshot = v.parse(logEntrySchema, JSON.parse(serialized));
-      if (entries.some((item) => item.id === snapshot.id)) return;
+      if (retainedIds.has(snapshot.id)) return;
+      retainedIds.add(snapshot.id);
       entries.push(snapshot);
       if (entries.length > maxEntries) {
-        entries.shift();
+        retainedIds.delete(entries.shift()!.id);
         dropped++;
       }
     } catch {
@@ -94,6 +96,7 @@ export function createLogBuffer(
     },
     clear() {
       entries.length = 0;
+      retainedIds.clear();
       dropped = 0;
     },
   };
