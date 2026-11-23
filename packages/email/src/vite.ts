@@ -380,12 +380,13 @@ export async function renderEmailTemplateTypes(templates: Array<{ file: string, 
   if (!templates.length) return { modules: "" }
   const typed = await Promise.all(templates.map(async (template) => {
     try {
-      const { content, subject } = parseEmailMarkdown(template.source)
-      const data = await inferMarkdownTemplateDataType(subject === undefined ? content : `${content}\n\n${subject}\n`, "      ")
+      const { content, subject } = parseEmailMarkdown(template.source, template.file)
+      const data = await inferMarkdownTemplateDataType(content, { indent: "      ", text: subject })
       await assertNoBindingsInCode(content)
       return { ...template, data, subject: subject !== undefined }
     }
     catch (cause) {
+      if (isRecord(cause) && cause.code === "EMAIL_TEMPLATE_FRONTMATTER_INVALID") throw cause
       throw emailErrorDiagnostics.EMAIL_TEMPLATE_SYNTAX_INVALID({ cause, file: template.file })
     }
   }))

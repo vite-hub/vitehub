@@ -105,8 +105,10 @@ export async function sendWelcome(name: string, to: string) {
 
 Put templates under `server/emails`. ViteHub finds Markdown files in all
 subfolders. A file or folder whose name starts with `_`, such as
-`server/emails/_partials/footer.md`, is a partial: it is not a template, and you
-can include it from a template. Pass the template name as `template` and its
+`server/emails/_partials/footer.md`, is a partial: ViteHub does not discover it
+as a template or include it automatically. To reuse a partial, load the trusted
+Markdown in your application and pass it as data to `:insert`, for example
+`:insert{:markdown="data.footer"}`. Pass the template name as `template` and its
 values as `data`. `email.send()` renders the template once to a subject, an HTML
 body, and a text body, then sends the message.
 
@@ -143,8 +145,8 @@ export async function sendWelcome(name: string, to: string) {
 A `subject` in the message overrides the subject of the template. A template
 without `subject:` frontmatter needs `subject` in the message: TypeScript
 requires it, and `send()` throws `EMAIL_TEMPLATE_SUBJECT_REQUIRED` for an
-untyped call without it. Frontmatter keys other than `subject` stop the build
-with `EMAIL_TEMPLATE_FRONTMATTER_INVALID`.
+untyped call without it. A non-string `subject` or any other frontmatter key
+stops the build with `EMAIL_TEMPLATE_FRONTMATTER_INVALID`.
 
 TypeScript completes `template` with the names under `server/emails`, and types
 `data` from the `data.*` values that the template and its subject read:

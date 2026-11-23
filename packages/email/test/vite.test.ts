@@ -320,7 +320,7 @@ describe("hubEmail", () => {
     const template = join(root, "server", "emails", "monthly-recap.md")
     const nestedTemplate = join(root, "server", "emails", "monthly-recap", "index.mjs", "detail.md")
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
-    await writeFile(template, "---\nsubject: Your recap for {{ data.month }}\n---\n\nHello there")
+    await writeFile(template, '---\nsubject: \'Your recap for `{{ data.month }}` :insert{:markdown="data.ignored"}\'\n---\n\nHello there')
     await writeFile(nestedTemplate, "Nested detail")
     await mkdir(join(root, "server", "emails", "_partials"), { recursive: true })
     await writeFile(join(root, "server", "emails", "_layout.md"), "Layout")
@@ -411,6 +411,18 @@ describe("hubEmail", () => {
     await writeFile(file, "Strata could not complete the run for **{{ data.repoPath }}**.\n")
     await plugin.api.prepareTypes({ projectRoot: root })
     expect(await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")).toContain("\"repoPath\": string | number | boolean")
+  })
+
+  it.each(["title: Hi", "subject: [Hi]"])("reports invalid template frontmatter: %s", async (frontmatter) => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "welcome.md")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, `---\n${frontmatter}\n---\n\nHello there`)
+
+    await expect(hubEmail({ driver: "log" }).api.prepareTypes({ projectRoot: root })).rejects.toMatchObject({
+      code: "EMAIL_TEMPLATE_FRONTMATTER_INVALID",
+      message: expect.stringContaining("server/emails/welcome.md"),
+    })
   })
 
   it("materializes templates before Cloudflare builds", async () => {

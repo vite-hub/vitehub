@@ -119,7 +119,8 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
     },
     EMAIL_TEMPLATE_FRONTMATTER_INVALID: {
-      why: ({ key, problem }: { key: string, problem: EmailFrontmatterProblem }) => frontmatterProblems[problem](key),
+      why: ({ file, key, problem }: { file?: string, key: string, problem: EmailFrontmatterProblem }) =>
+        `${file === undefined ? "" : `${file}: `}${frontmatterProblems[problem](key)}`,
       fix: "Keep only `subject:` in the frontmatter, as one string such as `subject: Welcome {{ data.user.name }}`.",
     },
     EMAIL_TEMPLATE_SYNTAX_INVALID: {
