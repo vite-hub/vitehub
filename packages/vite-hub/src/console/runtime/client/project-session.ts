@@ -433,7 +433,8 @@ function comparableProjectUrl(value: string): string | undefined {
 
 /**
  * The app and the page of a link from `hostedConsoleUrl()`, `/open?project=<app URL>&path=<Console path>`, among the
- * projects of the team. `undefined` when the link names no project of the team, or a path that is not a Console page.
+ * projects of the team. An `app=<id>` parameter picks the project when two teams link the same URL, as the Console's
+ * `/visit` sends it. `undefined` when the link names no project of the team, or a path that is not a Console page.
  */
 export function consoleOpenLink(search: string, projects: readonly { id: string, url: string }[]): { id: string, path: string } | undefined {
   const query = new URLSearchParams(search)
@@ -442,7 +443,8 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
   // A Console path starts with one `/`. Another form could leave the Console origin.
   if (!project || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return undefined
   const path = raw.replace(/^\/_vitehub(?=\/|$)/, "") || "/"
-  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project)
+  const id = query.get("app")
+  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project && (!id || candidate.id === id))
   return match ? { id: match.id, path } : undefined
 }
 
@@ -474,7 +476,8 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
   const site = consoleSiteLink(search)
   const back = site ? `&site=${encodeURIComponent(site.page)}&${site.visit ? "visit" : "state"}=${site.state}` : ""
-  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}`
+  const app = query.get("app")
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}${app ? `&app=${encodeURIComponent(app)}` : ""}`
 }
 
 /** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */

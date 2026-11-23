@@ -222,7 +222,8 @@ describe("Site access in the Console", () => {
     const opened = await invitePage.fetch(new Request(String(created.body.url)))
     expect(new URL(opened.headers.get("location")!).searchParams.get("project")).toBe(project.id)
     const cookie = cookieOf(opened)
-    expect((await visitApp(cookie, other.id)).location).toMatch(/^\/open\?/)
+    const fallback = (await visitApp(cookie, other.id)).location
+    expect(new URL(fallback, consoleOrigin).searchParams.get("app")).toBe(other.id)
     const { location, appState } = await visitApp(cookie, project.id)
     expect(await verifyAt(project, location, appState)).toMatchObject({ ok: true, claims: { name: "Grace" } })
     expect(await verifyAt(other, location, appState)).toMatchObject({ ok: false, code: "SITE_TOKEN_KEY_UNKNOWN" })
@@ -236,7 +237,57 @@ describe("Site access in the Console", () => {
     expect(opened.status).toBe(403)
     expect(opened.headers.getSetCookie()).toEqual([])
     expect((await client.execute("select count(*) as count from console_site_grants")).rows[0]!.count).toBe(0)
-    expect((await client.execute("select used_at from console_site_links")).rows).toEqual([expect.objectContaining({ used_at: null })])
+    await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m2", "t-ada", "u-ada", "owner", Date.now()] })
+    expect((await codePage.fetch(new Request(String(code.body.url)))).status).toBe(303)
+  })
+
+  it("checks the app policy of a code's member before it uses the code", async () => {
+    const { api } = await setup()
+    const code = await api("POST", "/codes", {})
+    app.answer = { ok: false, code: "CONSOLE_ACCESS_DENIED", message: "No Site access.", status: 403 }
+    const refused = await codePage.fetch(new Request(String(code.body.url)))
+    expect(refused.status).toBe(403)
+    expect(refused.headers.getSetCookie()).toEqual([])
+    app.answer = { ok: true, value: { write: true, roles: commentRoles } }
+    expect((await codePage.fetch(new Request(String(code.body.url)))).status).toBe(303)
+  })
+
+  it("applies the current app policy of the inviter before each guest token", async () => {
+    const { api } = await setup()
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"] })
+    const cookie = cookieOf(await invitePage.fetch(new Request(String(created.body.url))))
+    app.calls.length = 0
+    expect((await visitApp(cookie)).location).toMatch(/^https:\/\/app\.example\.com\//)
+    expect(app.calls).toEqual([{ operation: "site.access", user: "u-ada" }])
+    app.answer = { ok: true, value: { write: true, roles: commentRoles.slice(0, 1) } }
+    expect((await visitApp(cookie)).location).toMatch(/^\/open\?/)
+    app.answer = { ok: true, value: { write: false, roles: commentRoles } }
+    expect((await visitApp(cookie)).location).toMatch(/^\/open\?/)
+  })
+
+  it("refuses a guest invite with a membersOnly role", async () => {
+    const { api } = await setup()
+    app.answer = { ok: true, value: { write: true, roles: [...commentRoles, { id: "site-admin", label: "Site admin", membersOnly: true }] } }
+    expect(await api("POST", "/invites", { name: "Grace", grants: ["site-admin"] })).toMatchObject({ status: 400, body: { message: expect.stringContaining("Only members get site-admin") } })
+  })
+
+  it("leaves an invite open when its pass cannot be written", async () => {
+    const { client, api } = await setup()
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-read"] })
+    await client.execute("create trigger fail_pass before insert on console_site_grants begin select raise(abort, 'no pass'); end")
+    await expect(invitePage.fetch(new Request(String(created.body.url)))).rejects.toThrow()
+    expect((await api("GET", "")).body.invites).toMatchObject([{ name: "Grace" }])
+    await client.execute("drop trigger fail_pass")
+    expect((await invitePage.fetch(new Request(String(created.body.url)))).status).toBe(303)
+  })
+
+  it("shows the roles of the last token of each member browser", async () => {
+    const { api } = await setup()
+    const code = await api("POST", "/codes", {})
+    const cookie = cookieOf(await codePage.fetch(new Request(String(code.body.url))))
+    await visitApp(cookie)
+    app.answer = { ok: true, value: { write: true, roles: commentRoles.slice(0, 1) } }
+    expect((await api("GET", "")).body.sessions).toMatchObject([{ kind: "member", grants: ["console", ...commentRoles.map(role => role.id)] }])
   })
 
   it("refuses a malformed visit", async () => {

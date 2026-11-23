@@ -136,7 +136,7 @@ export function readSiteAccessPolicy(value: unknown): SiteAccessPolicy | undefin
   const roles: SiteAccessRole[] = []
   for (const role of value.roles) {
     if (!isRecord(role) || typeof role.id !== "string" || !/^[\w:-]{1,64}$/.test(role.id) || typeof role.label !== "string" || !role.label) return undefined
-    roles.push({ id: role.id, label: role.label, ...(typeof role.description === "string" && role.description ? { description: role.description } : {}) })
+    roles.push({ id: role.id, label: role.label, ...(typeof role.description === "string" && role.description ? { description: role.description } : {}), ...(role.membersOnly === true ? { membersOnly: true } : {}) })
   }
   return { write: value.write, roles }
 }

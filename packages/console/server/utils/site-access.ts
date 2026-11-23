@@ -23,7 +23,7 @@ import {
 import { callProjectOperation, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
 
 import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
-import type { ConsoleSitePerson } from "../../src/site-access.ts"
+import type { ConsoleSiteGrantRow, ConsoleSitePerson } from "../../src/site-access.ts"
 import type { ConsoleTeamCaller } from "./console.ts"
 
 const noStore = { "cache-control": "no-store", "referrer-policy": "no-referrer" }
@@ -54,8 +54,8 @@ function field(body: unknown, name: string): unknown {
   return body instanceof Object ? Reflect.get(body, name) : undefined
 }
 
-function openPage(app: string, path: string, state: string): string {
-  return `/open?${new URLSearchParams({ project: app, site: path, visit: state })}`
+function openPage(app: string, path: string, state: string, project: string | null): string {
+  return `/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(project ? { app: project } : {}) })}`
 }
 
 async function sitePolicy(caller: ConsoleTeamCaller, projectId: string, write: boolean): Promise<SiteAccessPolicy | Response> {
@@ -81,12 +81,25 @@ async function signedLocation(input: Parameters<typeof siteTokenLocation>[0]): P
   }
 }
 
-async function memberAccess(project: { id: string, teamId: string }, userId: string): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
+async function memberPolicy(project: { id: string, teamId: string }, userId: string): Promise<{ person: ConsoleSitePerson, policy: SiteAccessPolicy } | undefined> {
   const person = await siteMember(useDatabase("default").db, project, userId)
   const caller = person ? await consoleTeamCaller(consoleCallerUser({ id: userId, name: person.name }), project.teamId) : undefined
   if (!person || !caller || caller instanceof Response) return undefined
   const policy = await sitePolicy(caller, project.id, true)
-  return policy instanceof Response ? undefined : { person, roles: siteMemberRoles(policy) }
+  return policy instanceof Response ? undefined : { person, policy }
+}
+
+async function memberAccess(project: { id: string, teamId: string }, userId: string): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
+  const member = await memberPolicy(project, userId)
+  return member && { person: member.person, roles: siteMemberRoles(member.policy) }
+}
+
+async function guestAccess(project: { id: string, teamId: string }, grant: ConsoleSiteGrantRow): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
+  const inviter = await memberPolicy(project, grant.createdBy)
+  const allowed = new Set(inviter?.policy.roles.filter(role => !role.membersOnly).map(role => role.id))
+  const guest = siteGuest(grant)
+  const roles = guest.roles.filter(role => allowed.has(role))
+  return roles.length ? { person: guest.person, roles } : undefined
 }
 
 async function visitLocation(project: { id: string, teamId: string }, access: { person: ConsoleSitePerson, roles: string[] }, state: string, path: string, headers = new Headers()): Promise<Response | undefined> {
@@ -113,9 +126,10 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
     const pass = readCookie(request, sitePassCookie(project.id, secure))
     const grant = pass ? await createConsoleSiteStore(db, project.id).pass(pass) : undefined
     if (!grant || !pass) continue
-    const access = grant.kind === "guest" ? siteGuest(grant) : grant.userId ? await memberAccess(project, grant.userId) : undefined
+    const access = grant.kind === "guest" ? await guestAccess(project, grant) : grant.userId ? await memberAccess(project, grant.userId) : undefined
     if (!access) continue
     const visited = await visitLocation(project, access, state, path, new Headers({ "set-cookie": sitePassSetCookie(project.id, pass, secure) }))
+    if (visited?.status === 303) await createConsoleSiteStore(db, project.id).issued(grant.id, access.roles)
     if (visited) return visited
   }
   const userId = authorization.user?.id
@@ -124,7 +138,7 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
     const visited = access ? await visitLocation(project, access, state, path) : undefined
     if (visited) return visited
   }
-  return seeOther(openPage(app, path, state))
+  return seeOther(openPage(app, path, state, only))
 })
 
 export async function openSiteLink(request: Request, kind: "invite" | "code"): Promise<Response> {
@@ -133,8 +147,13 @@ export async function openSiteLink(request: Request, kind: "invite" | "code"): P
   const db = useDatabase("default").db
   const what = kind === "invite" ? "invite" : "code"
   if (!/^[\w-]{43}$/.test(secret)) return linkProblem(404, `There is no such ${what}.`)
-  const opened = await openConsoleSiteLink(db, kind, secret, request.headers.get("user-agent") ?? "")
-  if (opened === "forbidden") return linkProblem(403, "This code belongs to a person who is no longer a member of the team.")
+  const opened = await openConsoleSiteLink(db, {
+    kind,
+    secret,
+    userAgent: request.headers.get("user-agent") ?? "",
+    allow: async link => link.kind === "invite" || (link.userId !== null && Boolean(await memberAccess({ id: link.projectId, teamId: link.teamId }, link.userId))),
+  })
+  if (opened === "forbidden") return linkProblem(403, "The person of this code can no longer open this site from the Console.")
   const [project] = opened ? await db.select().from(consoleProjects).where(eq(consoleProjects.id, opened.projectId)).limit(1) : []
   if (opened && project) {
     const headers = new Headers()
@@ -174,7 +193,7 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
   switch (route) {
     case "GET ": {
       const consoleRole = siteAccessRoles.filter(role => role.id === siteConsoleRole)
-      return consoleJson({ sessions: await store.sessions(siteMemberRoles(policy)), invites: await store.invites(), grants: [...consoleRole, ...policy.roles.filter(role => role.id !== siteConsoleRole)] })
+      return consoleJson({ sessions: await store.sessions(), invites: await store.invites(), grants: [...consoleRole, ...policy.roles.filter(role => role.id !== siteConsoleRole)] })
     }
     case "POST invites": {
       const name = field(body, "name")

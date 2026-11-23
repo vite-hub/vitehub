@@ -63,7 +63,7 @@ it("opens the app's /_vitehub/site in a new tab, which signs in through the Cons
   const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === "Open site")!
   await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/projects/p-1/site", expect.objectContaining({ method: "GET" })))
   trigger.click()
-  await vi.waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/site?return=%2F"))
+  await vi.waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/site?return=%2F&project=p-1"))
 })
 
 it.each([

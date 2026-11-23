@@ -111,16 +111,17 @@ export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: 
 }
 
 /**
- * Opens the app in a new tab, signed in as you. With Site access in the Console, the tab opens `<app>/_vitehub/site`,
- * which goes through the Console and back to the page. Else the app signs the tab in with a link of its own.
+ * Opens the app in a new tab, signed in as you. With Site access in the Console, the tab opens
+ * `<app>/_vitehub/site?project=<id>`, which goes through the Console, with the pass and the policy of this project, and
+ * back to the page. Else the app signs the tab in with a link of its own.
  */
 export async function openSite(path?: string): Promise<void> {
   if (!usesConsoleSiteAccess()) {
     await openConsoleTicket(() => appOperation(siteAccessOperations.link, path ? { path } : {}))
     return
   }
-  const { url } = currentProject()
-  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/" })}` }))
+  const { id, url } = currentProject()
+  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
 }
 
 /** A one-time link for a phone, such as `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */

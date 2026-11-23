@@ -31,7 +31,6 @@ CREATE TABLE `console_site_links` (
 	`created_by_name` text NOT NULL,
 	`created_at` integer NOT NULL,
 	`expires_at` integer NOT NULL,
-	`used_at` integer,
 	`revoked_at` integer,
 	CONSTRAINT `fk_console_site_links_project_id_console_projects_id_fk` FOREIGN KEY (`project_id`) REFERENCES `console_projects`(`id`) ON DELETE CASCADE,
 	CONSTRAINT `fk_console_site_links_user_id_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE

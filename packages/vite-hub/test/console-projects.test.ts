@@ -266,6 +266,15 @@ describe("account Console", () => {
       expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent(path)}`, projects), path).toBeUndefined()
   })
 
+  it("opens the app that a site link names when two apps have the same URL", async () => {
+    const { consoleOpenLink, consoleOpenReturnPath } = await import("../src/console/runtime/client/project-session.ts")
+    const projects = [linked, { id: "p-2", url: linked.url }]
+    const search = `?project=${encodeURIComponent(linked.url)}&site=%2F&visit=abc&app=p-2`
+    expect(consoleOpenLink(search, projects)).toEqual({ id: "p-2", path: "/" })
+    expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&app=p-3`, projects)).toBeUndefined()
+    expect(consoleOpenReturnPath("/", search)).toContain("&app=p-2")
+  })
+
   it("keeps a hostedConsoleUrl() link through GitHub and passkey sign-in, then opens its page", async () => {
     const { hostedConsoleUrl } = await import("@vite-hub/runtime")
     const link = new URL(hostedConsoleUrl("https://app.example.com/portal", "/agents/bot/invocations/abc", "https://console.example.com"))

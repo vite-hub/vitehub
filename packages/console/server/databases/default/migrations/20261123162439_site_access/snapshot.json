@@ -682,16 +682,6 @@
     },
     {
       "table": "console_site_links",
-      "name": "used_at",
-      "type": "integer",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "entityType": "columns"
-    },
-    {
-      "table": "console_site_links",
       "name": "revoked_at",
       "type": "integer",
       "notNull": false,
