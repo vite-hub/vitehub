@@ -179,6 +179,16 @@ describe("one-time values and the app session", () => {
       get: async (key) => cache.get(key) ?? null,
       set: async (key, value) => { cache.set(key, value); },
       delete: async (key) => { cache.delete(key); },
+      getAndDelete: async (key) => {
+        const value = cache.get(key) ?? null;
+        cache.delete(key);
+        return value;
+      },
+      increment: async (key) => {
+        const value = Number(cache.get(key) ?? 0) + 1;
+        cache.set(key, String(value));
+        return value;
+      },
     };
     expect(await createAuthConsole((await app({ secondaryStorage })).auth).verificationStore()).toEqual([undefined, "secondaryStorage"]);
     const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
