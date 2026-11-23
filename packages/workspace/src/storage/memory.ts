@@ -188,11 +188,11 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    return this.#meta.get(key)
+    return structuredClone(this.#meta.get(key))
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    this.#meta.set(key, value)
+    this.#meta.set(key, structuredClone(value))
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {

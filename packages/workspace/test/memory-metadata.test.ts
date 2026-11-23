@@ -34,4 +34,16 @@ describe("Memory Store metadata isolation", () => {
     expect((await store.readFile("doc.md"))?.metadata).toEqual(metadata)
     expect((await store.stat("doc.md"))?.metadata).toEqual(metadata)
   })
+
+  it("detaches Store metadata on writes and reads", async () => {
+    const store = createMemoryWorkspaceStore()
+    const state = { configHash: "a", paths: { "doc.md": { digest: "1" } } }
+    await store.setMeta!("sync", state)
+    state.paths["doc.md"].digest = "2"
+
+    const read = await store.getMeta!("sync") as typeof state
+    read.configHash = "b"
+
+    expect(await store.getMeta!("sync")).toEqual({ configHash: "a", paths: { "doc.md": { digest: "1" } } })
+  })
 })
