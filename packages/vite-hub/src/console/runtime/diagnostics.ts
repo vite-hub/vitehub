@@ -171,7 +171,7 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ),
     CONSOLE_TICKET_STORE_MISSING: code(
       "One-time links need a store that every instance of the app shares, and the app has none.",
-      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, add a Database: the links go in the `vitehub_console_site` table of the Database named `default`, or of the only Database. When the app has several Databases, set `console: { siteAccess: { database: \"<name>\" } }` in `vitehub()`, or name one Database `default`. Or use a default KV store on Redis, Upstash, or the `database` driver.",
+      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, set `console: { siteAccess: { database: \"<name>\" } }` in `vitehub()` to keep the links in the `vitehub_console_site` table of that Database. Or use a default KV store on Redis, Upstash, or the `database` driver. Or add a Database named `default`, or only one Database.",
       `${consoleGuide}/site-access#one-time-links`,
       "docs",
     ),

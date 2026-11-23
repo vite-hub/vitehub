@@ -88,10 +88,13 @@ The store is the verification table of Better Auth when the app has [Auth with a
 
 Without Auth, ViteHub picks the store in this order:
 
-1. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database set in `console.siteAccess.database`, else the Database named `default`, else the only Database. This works on D1 on Cloudflare and D1 over HTTP too.
-2. The app's default [KV store](/docs/kv), when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it.
+1. The `vitehub_console_site` table of the Database that `console.siteAccess.database` names, when you set it.
+2. The app's default [KV store](/docs/kv), when its driver can read and delete a key in one operation: Redis, Upstash, or the `database` driver. The other KV drivers do not offer that guarantee to Site access.
+3. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database named `default`, else the only Database.
 
-To use another Database, name it in `console.siteAccess.database`:
+The Database store works without installing `@vite-hub/kv` and supports postgres.js, node-postgres, libSQL, and Cloudflare D1 (by binding or over HTTP).
+
+To pick the Database, name it in `console.siteAccess.database`. It then comes before the KV store:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -136,11 +139,11 @@ export default defineConfig({
 :::
 ::
 
-A production build with Site access enabled fails with `VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN` when the app has no Database with this name. When the app has several Databases, none is named `default`, and you do not set the option, ViteHub does not pick one: the build warns with `VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS`, and Site access tries the KV store. An app with Auth does not use this Database.
+A production build fails with `VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN` when the app has no Database with this name. The build warns with `VITE_HUB_CONSOLE_SITE_DATABASE_UNUSED` when the option has no effect: the app has Auth, or Site access is off (`console.pill: false`). When the app has several Databases, none is named `default`, and you do not set the option, ViteHub does not pick one: the build warns with `VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS`, and only a Redis, Upstash, or `database` KV store can keep the links.
 
 Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
 
-When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
+When you deploy multiple instances, use a store that all instances can access. Separate local SQLite files cannot share tickets or sessions. When apps or previews share a Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's Database-backed links and sessions.
 
 ## Link to the Console
 

@@ -122,19 +122,23 @@ async function databaseSiteKV(name: string, db: object): Promise<ConsoleSiteKV> 
 }
 
 /**
- * The KV store of tickets without Auth, and of site sessions: the `vitehub_console_site` table of the app's default or
- * only Database, else the app's default KV store when its driver takes a key out atomically. A development server keeps
+ * The KV store of tickets without Auth, and of site sessions, in this order: the `vitehub_console_site` table of the
+ * Database that `console.siteAccess.database` names, the app's default KV store when its driver takes a key out
+ * atomically, then the `vitehub_console_site` table of the app's default or only Database. A development server keeps
  * them in memory. Otherwise it fails closed with `CONSOLE_TICKET_STORE_MISSING`, which names the cause.
  */
 export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   if (installedKV) return installedKV
   if (isConsoleDevelopmentRuntime()) return memorySiteKV()
   const site = consoleState().siteDatabase
-  const database = site && "open" in site ? await site.open() : undefined
-  if (database) return await databaseSiteKV(database.name, database.db)
+  const openSite = site && "open" in site ? site : undefined
+  const named = openSite?.configured ? await openSite.open() : undefined
+  if (named) return await databaseSiteKV(named.name, named.db)
   const kv = getConsoleSections().includes("kv") ? await import("@vite-hub/kv") : undefined
   const driver = await kv?.getKVStoreDriver()
   if (kv && driver && atomicDrivers.includes(driver)) return kv.kv
+  const database = openSite && !openSite.configured ? await openSite.open() : undefined
+  if (database) return await databaseSiteKV(database.name, database.db)
   const store = driver ? `The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.` : "The app has no KV store."
   if (site && "choices" in site) throw storeMissing(`The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. Set \`console: { siteAccess: { database: "<name>" } }\` to one of them. ${store}`)
   throw storeMissing(`The app has no Database. ${store}`)

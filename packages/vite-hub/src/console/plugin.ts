@@ -135,32 +135,37 @@ function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], 
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
-type ConsoleSiteDatabase = { name: string } | { choices: readonly string[] }
+type ConsoleSiteDatabase = { name: string, configured: boolean } | { choices: readonly string[] }
 
-const warnedSiteDatabaseChoices = new Set<string>()
+const siteDatabaseWarnings = new Set<string>()
+
+function warnSiteDatabaseOnce(key: readonly string[], warning: Parameters<typeof formatDiagnostic>[0]): void {
+  const id = key.join("\0")
+  if (siteDatabaseWarnings.has(id)) return
+  siteDatabaseWarnings.add(id)
+  console.warn(formatDiagnostic(warning))
+}
 
 function resolveConsoleSiteDatabase(
-  { names, configured, auth, projectRoot }: { names: readonly string[], configured: string | undefined, auth: boolean, projectRoot: string },
+  { names, configured, auth, siteAccess, projectRoot }: { names: readonly string[], configured: string | undefined, auth: boolean, siteAccess: boolean, projectRoot: string },
 ): ConsoleSiteDatabase | undefined {
   if (configured !== undefined) {
     if (!names.includes(configured)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN({ database: configured, names: [...names].sort() })
-    return { name: configured }
+    const cause = !siteAccess ? "off" : auth ? "auth" : undefined
+    if (cause) warnSiteDatabaseOnce([projectRoot, "unused", cause, configured], viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_UNUSED({ database: configured, cause }))
+    return siteAccess ? { name: configured, configured: true } : undefined
   }
-  if (!names.length) return undefined
+  if (!siteAccess || !names.length) return undefined
   const resolution = requireOptionalOwner(ownerModules.databaseConfig, "database").resolveDefaultDatabase(names)
-  if (resolution.status === "resolved") return { name: resolution.name }
+  if (resolution.status === "resolved") return { name: resolution.name, configured: false }
   if (resolution.status === "none") return undefined
-  const warning = [projectRoot, ...resolution.names].join("\0")
-  if (!auth && !warnedSiteDatabaseChoices.has(warning)) {
-    warnedSiteDatabaseChoices.add(warning)
-    console.warn(formatDiagnostic(viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS({ names: resolution.names })))
-  }
+  if (!auth) warnSiteDatabaseOnce([projectRoot, "ambiguous", ...resolution.names], viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS({ names: resolution.names }))
   return { choices: resolution.names }
 }
 
 function renderConsoleSiteDatabase(database: ConsoleSiteDatabase): string {
   if ("choices" in database) return `{ choices: ${JSON.stringify(database.choices)} }`
-  return `{ name: ${JSON.stringify(database.name)}, load: async () => (await import("@vite-hub/database/runtime/registry")).databases }`
+  return `{ name: ${JSON.stringify(database.name)}, ${database.configured ? "configured: true, " : ""}load: async () => (await import("@vite-hub/database/runtime/registry")).databases }`
 }
 
 function renderConsoleNitroPlugin(
@@ -201,8 +206,8 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const siteDatabase = !development && sections.includes("site") && siteDatabaseNames !== undefined
-    ? resolveConsoleSiteDatabase({ names: siteDatabaseNames, configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), projectRoot })
+  const siteDatabase = !development && siteDatabaseNames !== undefined
+    ? resolveConsoleSiteDatabase({ names: siteDatabaseNames, configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), siteAccess: sections.includes("site"), projectRoot })
     : undefined
   const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")

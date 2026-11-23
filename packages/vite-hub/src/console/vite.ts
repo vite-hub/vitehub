@@ -333,7 +333,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
     const pluginOptions = consolePluginOptions()
-    const siteDatabaseNames = !development && pluginOptions.pageTool
+    const siteDatabaseNames = !development && (pluginOptions.pageTool || pluginOptions.siteDatabase !== undefined)
       ? await discoverViteSiteDatabaseNames(resolvedPlugins ?? [])
       : undefined
     await writeConsoleNitroPlugin({ ...pluginOptions, catalog, file: generatedPlugin, projectRoot, siteDatabaseNames })

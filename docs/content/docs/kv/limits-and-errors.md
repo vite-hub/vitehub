@@ -116,7 +116,7 @@ The serialized value is larger than 25 MiB, the Cloudflare KV limit. Store large
 
 ### KV_DATABASE_UNAVAILABLE
 
-A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is not on postgres.js, libSQL, or Cloudflare D1. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver.
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is not on postgres.js, node-postgres, libSQL, or Cloudflare D1. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver.
 
 ### KV_DENO_KV_UNAVAILABLE
 
