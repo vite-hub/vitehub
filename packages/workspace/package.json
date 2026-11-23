@@ -50,6 +50,11 @@
       "import": "./dist/blob-database.js",
       "default": "./dist/blob-database.js"
     },
+    "./blob-database/postgres": {
+      "types": "./dist/blob-database/postgres.d.ts",
+      "import": "./dist/blob-database/postgres.js",
+      "default": "./dist/blob-database/postgres.js"
+    },
     "./checkout": {
       "types": "./dist/checkout.d.ts",
       "import": "./dist/checkout.js",

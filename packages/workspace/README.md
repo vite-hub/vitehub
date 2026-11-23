@@ -148,12 +148,11 @@ Definition, apply its migrations, and pass
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
-`database` is a Drizzle database, or a function that returns one. In a
-Workspace Definition, pass `() => useDatabase("history").db`. The Store calls
-the function on first use, because the build loads the Workspace Definition
-without the app's Databases. Do not pass the Database Definition: it holds
-options only, and `useDatabase()` gives the database with the migrations and
-relations of the build.
+`blob` names a Blob store and `database` names a Database. The Store looks
+them up on first use, because the build loads the Workspace Definition without
+the app's Databases. `blob` also takes a `BlobStorage` object, and `database`
+takes a Drizzle database or a function that returns one. Do not pass the
+Database Definition: it holds options only.
 
 ```ts [server/databases/history/index.ts]
 import { defineDatabase } from "@vite-hub/database"
@@ -163,19 +162,30 @@ export default defineDatabase({ name: "history", schema: workspaceHistorySchema 
 ```
 
 ```ts [server/workspaces/notes.ts]
-import { blob } from "@vite-hub/blob"
-import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
 
 export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
-    blob: blob.store("workspace-history"),
-    database: () => useDatabase("history").db,
+    blob: "workspace-history",
+    database: "history",
     workspace: "notes-123",
   }),
 })
 ```
+
+On Postgres, import `workspaceHistorySchema` from
+`@vite-hub/workspace/blob-database/postgres` and set `dialect: "postgresql"`.
+If the Database uses Cloudflare Hyperdrive, disable query caching so all instances
+read the current head.
+
+Instances that use the same Blob store, Database, and workspace identity share
+one Workspace. The Database decides which commit wins: a commit from a stale
+head fails with `WORKSPACE_CONFLICT` on every instance. Postgres runs each
+commit in one transaction that locks the Workspace row. SQLite, libSQL, and D1
+run it as one batch of conditional statements. With names, the durability
+report shows the Store as `shared` only when the Blob store and the Database
+are both shared. With objects, it trusts them, as it does a custom Store.
 
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
