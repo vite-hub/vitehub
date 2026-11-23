@@ -136,9 +136,9 @@ export interface PullRequestInboxOptions {
    */
   admitApproved?: boolean
   /**
-   * The time in Unix milliseconds, for tests. By default the inbox follows the clock of its database: it measures
-   * how far the host clock is from it at most every 30 seconds and corrects a difference of one second or more, so
-   * servers with different host clocks agree when a lease expires.
+   * The time in Unix milliseconds, for tests. By default a shared `storage` inbox follows the clock of its database:
+   * it reads that clock at most every 30 seconds and counts elapsed time from there, so servers with different host
+   * clocks agree when a lease expires. A private `path` inbox has one host and uses `Date.now`.
    */
   clock?: () => number
   activityAuthors?: readonly string[]
@@ -299,8 +299,8 @@ export class PullRequestInbox {
       const fixed = repositories.map(repository => repository.toLowerCase())
       this.repositoryList = () => fixed
     }
-    this.usesDatabaseClock = clock === undefined
-    this.clock = clock ?? (() => {
+    this.usesDatabaseClock = clock === undefined && storage !== undefined
+    this.clock = clock ?? (!this.usesDatabaseClock ? () => Date.now() : () => {
       const sample = this.clockSample
       return sample ? sample.time + Math.floor(performance.now() - sample.sampledAt) : Date.now()
     })
