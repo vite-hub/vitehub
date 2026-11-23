@@ -2983,10 +2983,10 @@ describe("ViteHub Nuxt integration", () => {
       console: { ...productionConsole, invoke: true },
       host: "node",
     }, production.nuxt)
-    const options = consoleAgentOptions(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8"))
-    expect(options.get("invoke")).toBe("true")
-    // The Console reads the Agent journal. It does not configure one.
-    for (const key of ["observations", "retention", "databaseUrl"]) expect(options.has(key)).toBe(false)
+    const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
+    const registration = consoleAgentOptions(generated)
+    expect(registration.get("invoke")).toBe("true")
+    for (const key of ["observations", "retention", "databaseUrl"]) expect(registration.has(key)).toBe(false)
   })
 
   it.each(["databaseUrl", "observations", "retention"])("rejects the removed console.%s option in Nuxt", async (key) => {

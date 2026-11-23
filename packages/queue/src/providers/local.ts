@@ -74,6 +74,11 @@ export interface LocalQueueEngineOptions {
 }
 
 const maxTimerDelay = 2 ** 31 - 1
+const storeRetryMaxMs = 30_000
+
+function storeRetryDelayMs(failures: number): number {
+  return Math.min(10 * 2 ** (failures - 1), storeRetryMaxMs)
+}
 
 /** Retries after 1, 2, and 4 seconds, up to 60 seconds. The local and postgres providers use it. */
 export function defaultRetryDelayMs(attempts: number): number {
@@ -202,6 +207,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   const writingKeys = new Set<string>()
   const expiringKeys = new Set<string>()
   const concurrency = new Map<string, number>()
+  const storeFailures = new WeakMap<StoredJob, number>()
   let enqueueTail = Promise.resolve()
   let started: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -259,6 +265,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   }
 
   async function markDead(job: StoredJob, error: DeliveryError, reason = `after ${job.attempts} attempts`) {
+    storeFailures.delete(job)
     job.state = "dead"
     job.error = error
     job.failedAt = Date.now()
@@ -303,6 +310,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       }
       const attempts = job.attempts + 1
       await persist({ ...job, attempts })
+      storeFailures.delete(job)
       job.attempts = attempts
       let handled = false
       try {
@@ -331,7 +339,11 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       if (handled) await complete(job)
     }
     catch (storeError) {
-      job.availableAt = Date.now() + retryDelayMs(Math.max(1, job.attempts))
+      if (job.state === "pending") {
+        const failures = (storeFailures.get(job) ?? 0) + 1
+        storeFailures.set(job, failures)
+        job.availableAt = Date.now() + Math.max(retryDelayMs(Math.max(1, job.attempts)), storeRetryDelayMs(failures))
+      }
       console.error(`[vitehub:queue] The local provider cannot update the job file in ${base}.`, storeError)
     }
     finally {
