@@ -279,6 +279,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (id === "email" && driver === "cloudflare" && host !== "cloudflare") {
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare driver requires Cloudflare. Choose email.driver=resend, or email.driver=log to print each message and send nothing.", feature: id, host }), setupExitCodes.conflict)
     }
+    if (id === "email" && driver === "smtp" && host === "cloudflare") {
+      throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it. On Cloudflare, use the \"cloudflare\" or \"resend\" driver, or a driver module that sends over HTTP.", feature: id, host }), setupExitCodes.conflict)
+    }
     if (support.level === "unsupported") {
       throw setupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), setupExitCodes.conflict)
     }

@@ -17,6 +17,12 @@ describe("feature catalog", () => {
     expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
   })
 
+  it("adds nodemailer only for the SMTP Email driver", () => {
+    expect(featurePackages("email", { driver: "smtp" }, "node")).toEqual(["@vite-hub/email", "nodemailer"])
+    expect(featurePackages("email", { driver: "resend" }, "node")).toEqual(["@vite-hub/email"])
+    expect(featurePackages("email", true, "cloudflare")).toEqual(["@vite-hub/email"])
+  })
+
   it("has one definition per feature id, keyed by its id", () => {
     expect(Object.keys(features).sort()).toEqual([...featureIds].sort())
     for (const id of featureIds) expect(features[id].id).toBe(id)

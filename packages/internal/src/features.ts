@@ -334,6 +334,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     developmentOverrides: ["deno", "netlify", "vercel"],
     id: "email",
     packages: ["@vite-hub/email"],
+    providerPackages: { driver: { smtp: ["nodemailer"] } },
     summary: "Send email from server code and Agents, with a development outbox.",
     title: "Email",
   }),
