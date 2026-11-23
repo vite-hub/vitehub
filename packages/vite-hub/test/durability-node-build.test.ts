@@ -154,10 +154,10 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
     ].join("\n"));
     await writeFile(join(projectRoot, "server/databases/default.ts"), `import { defineDatabase } from "@vite-hub/database"\nconst options = { connection: { url: "file:instance.db" }, schema: {} }\nexport default defineDatabase(options)\n`);
     await writeFile(join(projectRoot, "server/workspaces/docs/config.ts"), [
-      'import { defineWorkspace } from "@vite-hub/workspace"',
+      'import { defineWorkspace, isWorkspaceName } from "@vite-hub/workspace"',
       'import { useNitroApp } from "nitro/app"',
       'const options = {',
-      '  store: { driver: "memory" },',
+      '  store: { driver: isWorkspaceName("unregistered") ? "local" : "memory" },',
       '  hooks: { "write:error": ({ error }) => {',
       '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
       '  } },',

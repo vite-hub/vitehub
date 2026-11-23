@@ -677,7 +677,7 @@ function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): 
           resolveId: {
             order: "pre",
             handler(id, importer) {
-              if (id === WORKSPACE_REGISTRY_ID || (id === registryImport && importer === importerFile)) return registry
+              if (id === registryImport && importer === importerFile) return registry
             },
           },
         }
