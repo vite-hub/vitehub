@@ -32,7 +32,6 @@ describe("trustProxy", () => {
   })
 
   it("reads the client address from the last X-Forwarded-For value, which the proxy adds", () => {
-    // Drop on a VPS behind Caddy: the server sees Caddy as the peer.
     const request = new Request("http://app.test/api/auth/sign-in/email", { headers: { "x-forwarded-for": "203.0.113.9, 198.51.100.7" } })
     Object.defineProperty(request, "ip", { configurable: true, value: "127.0.0.1" })
     const event = new H3Event(request)

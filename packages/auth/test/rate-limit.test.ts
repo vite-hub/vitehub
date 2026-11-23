@@ -126,8 +126,6 @@ describe("Auth rate limiting", () => {
 
   it("ignores client-sent X-Forwarded-For with advanced.trustedProxyHeaders", async () => {
     workerRuntime()
-    // A Node app that trusts its proxy for the origin. `vitehub({ trustProxy: true })` puts the address that the proxy
-    // adds in Standard Context; a client that reaches the server with its own X-Forwarded-For must not pick its bucket.
     const proxied = defineAuth(() => ({ advanced: { trustedProxyHeaders: true }, database: "memory" as const, emailAndPassword: { enabled: true }, secret }))
     const address = nextAddress()
     const send = (index: number) => () => handleAuthRequest(proxied, standardEvent(signIn({ "x-forwarded-for": `203.0.113.${index}` }), address))

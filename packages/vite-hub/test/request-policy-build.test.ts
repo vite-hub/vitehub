@@ -31,7 +31,6 @@ describe("trustProxy and sameOriginWrites in a built Node server", () => {
       // The route and code that reads the Web request, such as Better Auth, both see https.
       expect(proxied).toMatchObject({ url: `https://${base}/api/url`, req: `https://${base}/api/url` })
       expect(await (await server.fetch("/api/url")).json()).toMatchObject({ url: `http://${base}/api/url` })
-      // The proxy adds the client address at the end of X-Forwarded-For. A value that the client sends comes first.
       expect(await (await server.fetch("/api/url", { headers: { "x-forwarded-for": "203.0.113.9, 198.51.100.7" } })).json()).toMatchObject({ ip: "198.51.100.7" })
 
       const write = (path: string, headers: Record<string, string>) => server.fetch(path, { method: "POST", headers: { "x-reached": "fail", ...headers } })
