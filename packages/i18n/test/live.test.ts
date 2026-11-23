@@ -206,6 +206,21 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["draft", "published"])("checks the message identity of a record found on %s", async (ref) => {
+    const { store } = setup()
+    const existing = record("menu\u0000Open", "Abrir")
+    const target = messageSegment("Open", "menu")
+    expect(existing.hash).toBe(target.hash)
+    await store.workspace.history.commit({ ref, ifHead: null, changes: { put: { [recordPath("es", target.hash)]: JSON.stringify(existing) } } })
+
+    const translations = useTranslations()
+    const [error] = await translations.save({ locale: "es", source: "Open", context: "menu", translation: "", by: "ana" })
+    expect(error).toBeUndefined()
+    const [listError, records] = await translations.list("es", { ref: "draft" })
+    expect(listError).toBeUndefined()
+    expect(records?.[messageId("Open", "menu")]).toMatchObject({ source: "Open", salt: "menu", text: "Open", review: "rejected", by: "ana" })
+  })
+
   it.each(["verified", "rejected"] as const)("keeps machine provenance when marking unchanged text %s", async (review) => {
     setup()
     const translations = useTranslations()

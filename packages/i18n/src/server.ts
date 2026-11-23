@@ -322,8 +322,8 @@ export function useTranslations(): Translations {
       const id = generateMessageId(input.source, input.context)
       const segment = diglotSegment(messageSegment(input.source, input.context))
       const head = await workspace.history.head({ ref: draftRef })
-      const draft = await readRevisionRecord(workspace, head, entry, segment.hash)
-      const current = draft ?? await readRevisionRecord(workspace, await workspace.history.head({ ref: publishedRef }), entry, segment.hash)
+      const draft = await readRevisionRecord(workspace, head, entry, segment)
+      const current = draft ?? await readRevisionRecord(workspace, await workspace.history.head({ ref: publishedRef }), entry, segment)
       const at = new Date().toISOString()
       const by = input.by ?? current?.by ?? ""
       const record = nextRecord(current, input, { segment, by, at })
