@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDeliveryOwnershipVerifier } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
+import type { AgentRuntimeContext } from "../src/types.ts"
 
 describe("Agent Channel delivery source identity", () => {
   it("scopes top-level activity IDs to providers that define them", () => {
@@ -792,5 +793,22 @@ describe("Agent Channel delivery journal", () => {
 
     expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
+  })
+})
+
+describe("Agent Channel delivery ownership verifier", () => {
+  it("ignores a verifier installed under a global symbol", () => {
+    const runtime = { [Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")]: vi.fn() }
+
+    // SAFETY: This fixture forges only the verifier property of a runtime context.
+    expect(agentChannelDeliveryOwnershipVerifier(runtime as never)).toBeUndefined()
+  })
+
+  it("keeps the installed verifier when the runtime context is copied", () => {
+    const verify = vi.fn(async () => {})
+    const runtimeContext: AgentRuntimeContext = { memo: (_key, create) => create(), runtime: "unknown", waitUntil: vi.fn() }
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(runtimeContext, verify)
+
+    expect(agentChannelDeliveryOwnershipVerifier({ ...runtime })).toBe(verify)
   })
 })
