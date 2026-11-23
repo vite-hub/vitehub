@@ -74,12 +74,20 @@ Separately, when link checking is on, Nitro validates exact redirect rules durin
 | `credits` | `string` | None | Inline Markdown at the page end, such as projects the page builds on. The page route returns it parsed as `credits`. |
 | `keywords` | `string` or `string[]` | None | Extra search words. One string splits at commas. Search ranks them like headings, below the title. |
 | `icon` | `string` | `icons.page` | Sidebar icon, as an Iconify name. |
-| `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
+| `layout` | `'article'`, `'tutorial'`, `'landing'`, `'home'`, `'playground'`, or `'learn'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your tutorials catalog. |
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the current step's files beside the text. |
-| `sidebar` | `boolean \| "collapsed"` | `true` | `false` hides the left navigation on this page. `"collapsed"` starts it as a narrow column that the reader opens. |
-| `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
+| `sidebar` | `boolean \| "collapsed"` | `true`, `"collapsed"` on `playground` and `learn` | `false` hides the left navigation on this page. `"collapsed"` starts it as a narrow column that the reader opens. |
+| `toc` | `boolean` | `true`, `false` on `landing`, `home`, `playground`, and `learn` | `false` hides the "On this page" outline. |
 | `navigation` | `false` or `{ title?, order?, group?, kind?, panel? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. `panel: true` on the `index.md` of a folder inside a section makes the folder a [panel](/docs/docs-site/configure#panels). |
+| `examples` | `{ id, label, group?, description?, dir, open?, preview? }[]` | Required on `playground` | The apps of a playground, in menu order. `dir` is relative to the app root. See [Workspace pages](/docs/docs-site/configure#workspace-pages). |
+| `tabs` | `{ value, label }[]` | None | `playground` only. More output tabs. `messages` renders `app/components/playground/PlaygroundTabMessages.vue`. |
+| `render` | `string` | None | `playground` only. A module whose default export renders the files to HTML in the page, instead of a WebContainer. |
+| `port` | `number` | `3000` | `playground` without `render`, and `learn`. The port of the dev server. |
+| `fixture` | `string` | Required on `learn` | The folder of the app after the last step, in the `runnable.fixtures` folder. |
+| `guide` | `'side'` or `'top'` | `'side'` | `learn` only. Where the step text goes. |
+| `lesson` | `string` | This page | `learn` only. The URL of the docs page whose `::tutorial-step` blocks are the steps. |
+| `preview` | `string` | `/` | `learn` only. The path that the preview opens. |
 | `seo` | `{ title?, description?, image?, index? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. `index: false` marks the page `noindex` and leaves it out of the prerender, `sitemap.xml`, llms.txt, and the share images. See [Pages that search engines skip](/docs/docs-site/configure#pages-that-search-engines-skip). |
 
 Dotted keys, such as `navigation.order: 2`, equal nested keys. `navigation: false` hides the page even when dotted keys set other navigation fields.

@@ -125,5 +125,29 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ mount }: { mount: string }) => `Invalid docs source mount: ${mount}`,
       fix: "Set the `mount` of the docs source to a URL path such as `/guide`, without `.`, `..`, `?`, `#`, or backslash segments.",
     },
+    DOCS_WORKSPACE_DIR_MISSING: {
+      why: ({ dir, page }: { dir: string, page: string }) => `The docs page ${page} runs the folder ${dir}, which does not exist.`,
+      fix: "Set `dir` of each example in `examples` to a folder of the app relative to the app root, or set `fixture` of a learn page to a folder in the `docs.runnable.fixtures` folder (`fixtures` by default).",
+    },
+    DOCS_WORKSPACE_ID_COLLISION: {
+      why: ({ id, owners }: { id: string, owners: readonly string[] }) => `${owners.join(" and ")} get the same workspace id ${id}, so their lessons, examples, or snapshots would overwrite each other.`,
+      fix: "Rename a page, or change the `slug` of a lesson or the `id` of an example in `docs.runnable`. A page's id is its path in lower case with each run of other characters as `-`, so `/docs/a/b` and `/docs/a-b` are both `docs-a-b`, and its examples are `<page id>--<example id>`. An example `kv` also takes the snapshot id `playground-kv`.",
+    },
+    DOCS_WORKSPACE_READONLY_MISSING: {
+      why: ({ dir, example, page, path }: { dir: string, example: string, page: string, path: string }) => `The example ${example} of the docs page ${page} marks ${path} read-only, but ${dir} has no text file at that path.`,
+      fix: "Set each path in `readonly` to a text file of the example's `dir`, relative to that folder, such as `model.ts`. Binary files, such as `weights.bin`, are never editable, so leave them out.",
+    },
+    DOCS_WORKSPACE_RENDER_MISSING: {
+      why: ({ file, page }: { file: string, page: string }) => `The docs page ${page} renders with ${file}, which does not exist.`,
+      fix: "Set `render` to a module relative to the app root, such as `app/playground/render.ts`, whose default export takes the files and returns `{ html }`.",
+    },
+    DOCS_WORKSPACE_TAB_MISSING: {
+      why: ({ file, page, tab }: { file: string, page: string, tab: string }) => `The docs page ${page} has the tab \`${tab}\`, but ${file} does not exist.`,
+      fix: "Add the component that draws the tab, or remove the tab from `tabs`. The tab `messages` renders `app/components/playground/PlaygroundTabMessages.vue`, which reads the workspace with `useWorkspace()`.",
+    },
+    DOCS_WORKSPACE_VITEHUB_MISSING: {
+      why: ({ pages }: { pages: readonly string[] }) => `[@vite-hub/docs] These pages run apps in a WebContainer, which needs vite-hub/nuxt for cross-origin isolation: ${pages.join(", ")}.`,
+      fix: "Add `vite-hub/nuxt` and `@vite-hub/web-container` to the app, or give each playground page a `render` module, which runs without a WebContainer.",
+    },
   },
 })

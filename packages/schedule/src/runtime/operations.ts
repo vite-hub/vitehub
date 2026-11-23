@@ -151,7 +151,6 @@ const errorFix: Readonly<Record<string, string>> = {
 
 const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_DEFINITION_NOT_FOUND: 404,
-  SCHEDULE_HISTORY_INCOMPLETE: 503,
   SCHEDULE_INVALID_SCHEDULED_AT: 400,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
   SCHEDULE_OPERATION_FAILED: 500,

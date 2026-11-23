@@ -107,10 +107,12 @@ describe("app MCP server", () => {
     const tools = {
       missing: defineMcpTool({ description: "Not found.", handler: () => { throw new HTTPError({ message: "No drop 42.", status: 404 }) } }),
       broken: defineMcpTool({ description: "Broken.", handler: () => { throw new Error("database password is wrong") } }),
+      statusCodeOnly: defineMcpTool({ description: "H3 1 shape.", handler: () => { throw Object.assign(new Error("database host is down"), { statusCode: 404 }) } }),
     }
     expect((await rpc({ tools }, "tools/call", { name: "missing" })).body.result).toEqual({ content: [{ text: "No drop 42.", type: "text" }], isError: true })
     expect((await rpc({ tools }, "tools/call", { name: "broken" })).body.result).toEqual({ content: [{ text: "broken failed on the server.", type: "text" }], isError: true })
-    expect(error).toHaveBeenCalledOnce()
+    expect((await rpc({ tools }, "tools/call", { name: "statusCodeOnly" })).body.result).toEqual({ content: [{ text: "statusCodeOnly failed on the server.", type: "text" }], isError: true })
+    expect(error).toHaveBeenCalledTimes(2)
     error.mockRestore()
   })
 

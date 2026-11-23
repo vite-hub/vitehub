@@ -73,6 +73,16 @@ export function installedForms(): InstalledForms | undefined {
   return value === undefined ? undefined : value as InstalledForms
 }
 
+function decodePathSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment)
+  }
+  catch (error) {
+    if (error instanceof URIError) return undefined
+    throw error
+  }
+}
+
 /**
  * The `{ fetch }` route of every form at `<base>_vitehub/forms/<name>`. The generated Nitro handler of a ViteHub
  * app calls it with the forms of `server/forms/` and the services of the app.
@@ -118,13 +128,9 @@ export function createFormsHandler(options: FormsRuntimeOptions): { fetch: (requ
     },
     async fetch(request) {
       const segment = new URL(request.url).pathname.split("/").filter(Boolean).at(-1) ?? ""
-      let name = segment
-      try {
-        name = decodeURIComponent(segment)
-      }
-      catch {}
-      const form = forms.get(name)
-      if (!form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name)}.` }), { status: 404, headers: { "content-type": "application/json" } })
+      const name = decodePathSegment(segment)
+      const form = name === undefined ? undefined : forms.get(name)
+      if (name === undefined || !form) return new Response(JSON.stringify({ message: `No form is named ${JSON.stringify(name ?? segment)}.` }), { status: 404, headers: { "content-type": "application/json" } })
       return await handleFormRequest(name, form, request, services(request))
     },
   }

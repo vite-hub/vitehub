@@ -1,6 +1,6 @@
 import type { NodeRenderData } from "comark/render"
 
-import { resolveTemplateAttributes as resolveAttributes } from "./bindings.ts"
+import { isJsonLiteral, resolveTemplateAttributes as resolveAttributes } from "./bindings.ts"
 import { markdownTemplateErrorDiagnostics } from "./error-diagnostics.ts"
 
 type Ordered = number | string
@@ -33,10 +33,7 @@ export function matchesCondition(
       throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0024({ message: `[vitehub] Markdown template ${key} prop must be bound. Write :${key}="data.path" instead of ${key}="${String(value)}".` })
     }
     if (validatePath && key.startsWith(":") && typeof value === "string") {
-      let literal = false
-      try { JSON.parse(value); literal = true }
-      catch { }
-      if (!literal && (!value.startsWith("data.") || !validatePath(value.slice(5)))) {
+      if (!isJsonLiteral(value) && (!value.startsWith("data.") || !validatePath(value.slice(5)))) {
         throw markdownTemplateErrorDiagnostics.MARKDOWN_TEMPLATE_R0002({ message: `[vitehub] Unsafe Markdown template condition "${value}".` })
       }
     }

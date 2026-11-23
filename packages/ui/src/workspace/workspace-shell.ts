@@ -51,7 +51,7 @@ const builtInTabs: readonly WorkspaceTabItem[] = [
   { label: "Connect", value: "connect" },
 ];
 
-const layoutSlots = new Set(["bar", "editor", "editor-head", "files", "guide", "overlay", "status"]);
+const layoutSlots = new Set(["banner", "bar", "editor", "editor-head", "files", "guide", "overlay", "status"]);
 
 function clamp(key: keyof WorkspaceSplits, value: number) {
   const [min, max] = limits[key];
@@ -135,10 +135,10 @@ function separator(options: {
 }
 
 /**
- * The frame of a workspace. Slots: `bar` (44px, over everything), `files`, `editor-head` (32px, over the editor),
- * `editor`, `status` (24px, under the editor), `guide`, one slot per tab (`preview`, `terminal`, `connect`, or
- * `tab-<value>` for a custom tab), and `overlay` (over the body). The tab bar is 32px too, so its bottom line meets the
- * bottom line of `editor-head`.
+ * The frame of a workspace. Slots: `bar` (44px, over everything), `banner` (under the bar, such as a notice), `files`,
+ * `editor-head` (32px, over the editor), `editor`, `status` (24px, under the editor), `guide`, one slot per tab
+ * (`preview`, `terminal`, `connect`, or `tab-<value>` for a custom tab), and `overlay` (over the body). The tab bar is
+ * 32px too, so its bottom line meets the bottom line of `editor-head`.
  */
 export const WorkspaceShell = defineComponent({
   name: "WorkspaceShell",
@@ -154,6 +154,7 @@ export const WorkspaceShell = defineComponent({
     storageKey: { default: undefined, type: [String, Boolean] as PropType<string | false> },
     /** The accessible name of the workspace region. */
     label: { default: "Workspace", type: String },
+    covered: { default: false, type: Boolean },
   },
   emits: {
     "update:tab": (tab: WorkspaceTab) => typeof tab === "string",
@@ -315,7 +316,8 @@ export const WorkspaceShell = defineComponent({
         ref: root,
       }, [
         slots.bar ? h("div", { class: "vh-ws-bar" }, renderSlot(slots, "bar", slotProps())) : undefined,
-        h("div", { class: "vh-ws-body" }, children),
+        slots.banner ? h("div", { class: "vh-ws-banner" }, renderSlot(slots, "banner", slotProps())) : undefined,
+        h("div", { class: "vh-ws-body", inert: props.covered ? "" : undefined }, children),
         slots.overlay ? h("div", { class: "vh-ws-overlay" }, renderSlot(slots, "overlay", slotProps())) : undefined,
       ]);
     };

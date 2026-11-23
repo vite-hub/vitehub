@@ -18,6 +18,8 @@
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
+    "@vite-hub/ui": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "agents": "catalog:ai",

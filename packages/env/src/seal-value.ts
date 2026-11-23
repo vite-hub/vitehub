@@ -3,7 +3,7 @@ import { defineErrors, parseDuration } from "@vite-hub/runtime"
 
 import { invalidRuntimeEnvValue } from "./core/errors.ts"
 import { runtimeEnv } from "./internal/runtime-env.ts"
-import { createSealUses, deleteSealUses, takeSealUse } from "./seal-uses.ts"
+import { createSealUses, deleteSealUses, isSealUseCount, takeSealUse } from "./seal-uses.ts"
 import { SecretEnv } from "./secret.ts"
 import { deriveSecret } from "./server.ts"
 
@@ -215,7 +215,7 @@ export function createSealing(derive: SealSecretDerivation): Sealing {
         argumentError("`ttl` must be a positive number of seconds or a duration such as \"15m\".")
       }
       const { uses, db } = options
-      if (uses !== undefined && (typeof uses !== "number" || !Number.isSafeInteger(uses) || uses < 1)) {
+      if (uses !== undefined && !isSealUseCount(uses)) {
         argumentError("`uses` must be a positive integer.")
       }
       const usesDb = uses === undefined ? undefined : usesDatabase(db, "`uses` needs a `db`, such as `db` from `vite-hub/database`, that every instance of the app shares.")

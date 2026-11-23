@@ -2,7 +2,6 @@ import { defineNuxtConfig } from "nuxt/config";
 import { fileURLToPath } from "node:url";
 import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
-import { playgroundTemplates, runnableTutorials } from "./runnable";
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
@@ -20,17 +19,12 @@ export default defineNuxtConfig({
     workspace: false,
     console: true,
     publicUrl: "https://vitehub.dev",
-    // Runnable tutorials and the playground boot a WebContainer (`docs.runnable`).
-    webContainer: { routes: ["/learn/**", "/playground"] },
   },
   // The docs Worker's server maps exceed Cloudflare's 60 MiB encoded-sourcemap limit.
   sourcemap: { server: false },
   docs: {
-    // Fixtures use `catalog:` and `workspace:` specifiers, so the snapshots pack this repository's packages.
     runnable: {
       fixtures: "../fixtures/tutorials",
-      lessons: runnableTutorials,
-      examples: playgroundTemplates,
       start: "/docs/getting-started/installation",
       pnpmWorkspace: "..",
     },
@@ -64,7 +58,7 @@ export default defineNuxtConfig({
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
     mcp: { name: "vitehub", guide: "/docs/console/mcp" },
-    sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
+    sitemap: ["/learn", "/examples", "/projects", "/templates"],
     // Fail the build on pages that a site audit would flag: see DocsSeoError.
     seoAudit: "error",
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
@@ -281,7 +275,7 @@ export default defineNuxtConfig({
     prerender: {
       failOnError: true,
       // The docs module adds every content page. These are app routes.
-      routes: ["/openapi.json", "/robots.txt", "/playground", ...runnableTutorials.map(tutorial => `/learn/${tutorial.slug}`)],
+      routes: ["/openapi.json", "/robots.txt"],
     },
   },
   compatibilityDate: "2026-05-30",

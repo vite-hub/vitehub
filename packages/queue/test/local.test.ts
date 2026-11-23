@@ -583,6 +583,7 @@ describe("local queue review regressions", () => {
     await vi.waitFor(() => expect(completionFailed).toBe(true))
     expect(handler).toHaveBeenCalledOnce()
     expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 1, state: "pending" })])
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(expect.stringContaining("done either. The job runs again after a restart."), expect.objectContaining({ message: "EIO: cannot save completion" })))
     engine.close()
     vi.mocked(rm).mockImplementation(actual.rm)
     vi.mocked(writeFile).mockImplementation(actual.writeFile)

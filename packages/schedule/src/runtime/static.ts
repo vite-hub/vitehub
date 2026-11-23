@@ -147,12 +147,7 @@ function isScheduleRuntimeError(error: unknown): error is Error {
     return false
   }
   if (error === null || typeof error !== "object") return false
-  if (typeof intrinsicNativeErrorIsError === "function") {
-    try {
-      return intrinsicNativeErrorIsError(error)
-    }
-    catch {}
-  }
+  if (typeof intrinsicNativeErrorIsError === "function") return intrinsicNativeErrorIsError(error)
   try {
     return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
   }

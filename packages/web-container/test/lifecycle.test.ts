@@ -252,6 +252,25 @@ describe("WebContainer lifecycle", () => {
     expect(container.teardown).toHaveBeenCalledOnce()
   })
 
+  it("allows readiness to be awaited in a later turn after startup fails", async () => {
+    const { container } = fixture()
+    const error = new Error("spawn failed")
+    container.spawn.mockRejectedValueOnce(error)
+    const app = await bootWebContainer()
+    const ready = app.preview.ready
+    await expect(app.run("dev")).rejects.toBe(error)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect(ready).rejects.toBe(error)
+  })
+
+  it("rejects readiness that is first read after teardown", async () => {
+    fixture()
+    const app = await bootWebContainer()
+    app.teardown()
+    await expect(app.preview.ready).rejects.toThrow(/torn down/)
+    expect(app.preview.ready).toBe(app.preview.ready)
+  })
+
   it("keeps first readiness resolved across later lifecycle events", async () => {
     const { events, exited } = fixture()
     const app = await bootWebContainer()
@@ -361,5 +380,23 @@ describe("WebContainer lifecycle", () => {
     events.emit("server-ready", 4000, "https://app.example")
     await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
     expect(app.status.stage).toBe("ready")
+  })
+
+  it.each(["install", "dev"] as const)("leaves no unhandled rejection when teardown aborts %s", async (command) => {
+    const { exited } = fixture()
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const app = await bootWebContainer()
+      const run = await app.run(command)
+      app.teardown()
+      exited.reject(new Error("Process aborted"))
+      await expect(run.exit).rejects.toThrow("Process aborted")
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
   })
 })

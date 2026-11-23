@@ -27,7 +27,7 @@ const component = defineComponent({
       bar: () => [
         h(WorkspaceBar, { sidebar: sidebar.value, sidebarId: "sidebar", "onUpdate:sidebar": (open: boolean) => { sidebar.value = open; } }, {
           examples: () => h(WorkspaceExamples, { examples, modelValue: example.value, "onUpdate:modelValue": (id: string) => { example.value = id; } }),
-          default: () => h("span", { class: "vh-pc-run-state", "data-state": "" }, "Running"),
+          default: () => h("span", { class: "vh-workspace-run-state", "data-state": "" }, "Running"),
           actions: () => [
             h(UButton, { color: "neutral", icon: "i-lucide-rotate-ccw", label: "Reset", variant: "ghost" }),
             h(UButton, { color: "neutral", icon: "i-lucide-download", label: "Download", variant: "ghost" }),
