@@ -21,7 +21,7 @@ index b2427c25c494dcc04a445134354ed35f46dfb6d1..8b9e17861d2e2dd99d20b01c1a63d5d7
        document.addEventListener("keydown", onKey, true);
        cleanups.push(() => document.removeEventListener("keydown", onKey, true));
 diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
-index 7141700411334237c5bfd6b99d278dfa9245c28b..9bb823a8031be856489a3fd310f8a21cdc0d050c 100644
+index 7141700411334237c5bfd6b99d278dfa9245c28b..6a4a81823df598b6b1230c0c822df6a5d90f8799 100644
 --- a/dist/foundation/date/parse.js
 +++ b/dist/foundation/date/parse.js
 @@ -1,5 +1,5 @@
@@ -71,7 +71,7 @@ index 7141700411334237c5bfd6b99d278dfa9245c28b..9bb823a8031be856489a3fd310f8a21c
      return void 0;
    }
 -  return dateOf(values, locale, referenceYear);
-+  return dateOf(values, locale, referenceYear, era);
++  return dateOf(values, locale, referenceYear, era) ?? (dateParts(normalized) ? normalized : void 0);
  }
 -function dateOf(values, locale, referenceYear) {
 +function dateOf(values, locale, referenceYear, era) {
