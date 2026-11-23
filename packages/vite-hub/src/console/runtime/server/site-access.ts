@@ -48,9 +48,13 @@ async function auth(request: Request, event?: unknown) {
   return await authConsole(request, isRequestEvent(event) ? event : undefined)
 }
 
-/** Without Auth, Site access needs the secret of its cookie and a shared store before it makes a link. */
+/**
+ * Site access refuses a link that cannot sign a browser in. With Auth, it needs the database and the `user.role` field
+ * that the redemption uses. Without Auth, it needs the secret of its cookie and a shared store.
+ */
 async function assertSiteAccess(request: Request, event?: unknown): Promise<void> {
-  if (await auth(request, event)) return
+  const api = await auth(request, event)
+  if (api) return await unwrap(api.checkHost())
   await requireConsoleSiteKey()
   await consoleSiteKV()
 }

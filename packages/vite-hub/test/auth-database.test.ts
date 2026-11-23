@@ -135,6 +135,7 @@ describe("authDatabase()", () => {
     const auth = createAuthForRequest(definition, new Request(app))
     const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
     const api = createAuthConsole(auth)
+    expect(await api.checkHost()).toEqual([undefined, undefined])
     const [error, guest] = await api.hostUser({ name: "Grace", roles: ["guest", "comments-write"] })
     expect(error).toBeUndefined()
     const [, headers] = await api.hostSession(guest!.id, new Request(`${app}/_vitehub/rpc?ticket=t`))
