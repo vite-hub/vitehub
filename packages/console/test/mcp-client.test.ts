@@ -28,6 +28,7 @@ const migrations = resolve(import.meta.dirname, "../server/databases/default/mig
 
 let origin = ""
 let requireOAuth = false
+let toolPages = 2
 const grants = new Map<string, string>()
 const sessions = new Map<string, StreamableHTTPServerTransport>()
 let initializeRequests = 0
@@ -50,10 +51,13 @@ function fixtureServer(person: string): Server {
     { description: "Say who signed in.", inputSchema: { properties: {}, type: "object" as const }, name: "whoami" },
   ]
   server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
-    if (!extra.sessionId) return { tools }
-    if (!request.params?.cursor) return { nextCursor: extra.sessionId, tools: tools.slice(0, 1) }
-    if (request.params.cursor !== extra.sessionId) throw new McpError(ErrorCode.InvalidParams, "The cursor belongs to another session.")
-    return { tools: tools.slice(1) }
+    const sessionId = extra.sessionId
+    if (!sessionId) return { tools }
+    const cursor = request.params?.cursor
+    if (cursor && !cursor.startsWith(`${sessionId}:`)) throw new McpError(ErrorCode.InvalidParams, "The cursor belongs to another session.")
+    const page = cursor ? Number(cursor.slice(sessionId.length + 1)) : 0
+    const tool = tools[page] ?? { ...tools[1], name: `tool-${page + 1}` }
+    return { tools: [tool], ...(page + 1 < toolPages ? { nextCursor: `${sessionId}:${page + 1}` } : {}) }
   })
   server.setRequestHandler(CallToolRequestSchema, async request => ({
     content: [{ text: request.params.name === "whoami" ? person : String(request.params.arguments?.text), type: "text" }],
@@ -129,6 +133,7 @@ afterAll(() => new Promise<void>(done => http.close(() => done())))
 
 afterEach(async () => {
   requireOAuth = false
+  toolPages = 2
   grants.clear()
   initializeRequests = 0
   otherOriginRequests = 0
@@ -256,10 +261,24 @@ describe("Console MCP client", () => {
     expect(sessions.size).toBe(0)
     const tools = valueOf(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" }))
     expect(Array.from(Object(tools.items), item => Object(item).name)).toEqual(["echo", "whoami"])
-    expect(tools.nextCursor).toBeUndefined()
+    expect(Object.keys(tools)).toEqual(["connection", "items"])
     expect(sessions.size).toBe(0)
     expect(valueOf(await call(scope, "mcp-client.disconnect", { id: connection.id }))).toEqual({ revoked: false, sessionEnded: false })
     expect(sessions.size).toBe(0)
+  })
+
+  it("returns all items of a list of 20 pages, and refuses a list of 21 pages instead of a part of it", async () => {
+    const { db } = await database()
+    const scope = scopeOf(db)
+    const connection = Object(valueOf(await call(scope, "mcp-client.connect", { server: "/session-mcp" })).connection)
+    toolPages = 20
+    const tools = valueOf(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" }))
+    expect(Array.from(Object(tools.items), item => Object(item).name)).toEqual(["echo", "whoami", ...Array.from({ length: 18 }, (_, index) => `tool-${index + 3}`)])
+    expect(Object.keys(tools)).toEqual(["connection", "items"])
+    toolPages = 21
+    expect(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" })).toEqual({ error: expect.objectContaining({ code: "CONSOLE_MCP_LIST_INCOMPLETE", status: 502 }) })
+    expect(sessions.size).toBe(0)
+    expect(await call(scope, "mcp-client.items", { cursor: "next", id: connection.id, kind: "tools" })).toEqual({ error: expect.objectContaining({ code: "CONSOLE_REQUEST_INVALID" }) })
   })
 
   it("opens a new MCP session for each operation, so request ids never repeat in a session", async () => {
