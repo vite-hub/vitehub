@@ -3,7 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import type { DefaultDatabaseResolution } from "@vite-hub/database/config"
+import { formatDiagnostic } from "nostics"
+
 import type { ConsoleBuildCatalog } from "./build.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
@@ -117,6 +118,8 @@ export interface ConsoleNitroPluginOptions {
    * development RPC without Console options.
    */
   pageTool?: { base: string }
+  /** `console.siteAccess.database`: the Database of Site access links and site sessions without Auth. */
+  siteDatabase?: string
 }
 
 /** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
@@ -131,10 +134,32 @@ function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], 
   return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
 }
 
-function renderConsoleSiteDatabase(resolution: DefaultDatabaseResolution): string {
-  if (resolution.status === "ambiguous") return `{ choices: ${JSON.stringify(resolution.names)} }`
-  const name = resolution.status === "resolved" ? resolution.name : "default"
-  return `{ name: ${JSON.stringify(name)}, load: async () => (await import("@vite-hub/database/runtime/registry")).databases }`
+type ConsoleSiteDatabase = { name: string } | { choices: readonly string[] }
+
+const warnedSiteDatabaseChoices = new Set<string>()
+
+function resolveConsoleSiteDatabase(
+  { names, databases, configured, auth, projectRoot }: { names: readonly string[], databases: boolean, configured: string | undefined, auth: boolean, projectRoot: string },
+): ConsoleSiteDatabase | undefined {
+  if (configured !== undefined) {
+    if (!databases || (names.length && !names.includes(configured))) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN({ database: configured, names: databases ? [...names].sort() : [] })
+    return { name: configured }
+  }
+  if (!databases) return undefined
+  const resolution = requireOptionalOwner(ownerModules.databaseConfig, "database").resolveDefaultDatabase(names)
+  if (resolution.status === "resolved") return { name: resolution.name }
+  if (resolution.status === "none") return { name: "default" }
+  const warning = [projectRoot, ...resolution.names].join("\0")
+  if (!auth && !warnedSiteDatabaseChoices.has(warning)) {
+    warnedSiteDatabaseChoices.add(warning)
+    console.warn(formatDiagnostic(viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS({ names: resolution.names })))
+  }
+  return { choices: resolution.names }
+}
+
+function renderConsoleSiteDatabase(database: ConsoleSiteDatabase): string {
+  if ("choices" in database) return `{ choices: ${JSON.stringify(database.choices)} }`
+  return `{ name: ${JSON.stringify(database.name)}, load: async () => (await import("@vite-hub/database/runtime/registry")).databases }`
 }
 
 function renderConsoleNitroPlugin(
@@ -150,6 +175,7 @@ function renderConsoleNitroPlugin(
     runtimeCapabilityImports,
     development = false,
     pageTool,
+    siteDatabase: configuredSiteDatabase,
   }: ConsoleNitroPluginOptions,
   build: ConsoleProjectBuild | undefined,
 ): string {
@@ -174,8 +200,9 @@ function renderConsoleNitroPlugin(
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
   const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
-  const siteDatabaseEnabled = !development && sections.includes("site") && configuredSections.includes("databases")
-  const siteDatabase = siteDatabaseEnabled ? requireOptionalOwner(ownerModules.databaseConfig, "database").resolveDefaultDatabase(databaseNames) : undefined
+  const siteDatabase = !development && sections.includes("site")
+    ? resolveConsoleSiteDatabase({ names: databaseNames, databases: configuredSections.includes("databases"), configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), projectRoot })
+    : undefined
   const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
@@ -218,7 +245,7 @@ function renderConsoleNitroPlugin(
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, ${siteDatabaseEnabled ? "installConsoleSiteDatabase, " : ""}installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, ${siteDatabase ? "installConsoleSiteDatabase, " : ""}installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),

@@ -136,7 +136,7 @@ export async function consoleSiteKV(): Promise<ConsoleSiteKV> {
   const driver = await kv?.getKVStoreDriver()
   if (kv && driver && atomicDrivers.includes(driver)) return kv.kv
   const store = driver ? `The default KV store uses the ${driver} driver, which cannot take a link out once when two instances ask at the same time.` : "The app has no KV store."
-  if (site && "choices" in site) throw storeMissing(`The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. ${store}`)
+  if (site && "choices" in site) throw storeMissing(`The app has several Databases and none is named "default": ${site.choices.map(name => `"${name}"`).join(", ")}. Set \`console: { siteAccess: { database: "<name>" } }\` to one of them. ${store}`)
   throw storeMissing(`The app has no Database. ${store}`)
 }
 

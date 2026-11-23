@@ -74,6 +74,14 @@ export interface ConsoleOptions {
    * another page tool, such as Comments, is on. Site access needs the pill, so the Console has no Site access section.
    */
   pill?: false
+  /** Site access, which signs browsers in to the app from the Console. */
+  siteAccess?: {
+    /**
+     * The app Database that keeps Site access links and site sessions in an app without Auth. Leave it out to use the
+     * Database named `default`, or the only Database. The build fails when no Database has this name.
+     */
+    database?: string
+  }
   /**
    * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
    * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`.
@@ -136,11 +144,16 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   if (pill !== undefined && pill !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.pill must be false, to leave the Console link out of the page tools pill, or left out." })
   }
+  const siteAccess: unknown = Reflect.get(value, "siteAccess")
+  const siteDatabase: unknown = siteAccess instanceof Object ? Reflect.get(siteAccess, "database") : undefined
+  if (siteAccess !== undefined && (!(siteAccess instanceof Object) || Array.isArray(siteAccess) || (siteDatabase !== undefined && (typeof siteDatabase !== "string" || !siteDatabase)))) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.siteAccess must be an object, such as console: { siteAccess: { database: "primary" } }, and its database must be the name of an app Database.' })
+  }
   const sections: unknown = Reflect.get(value, "sections")
   if (sections !== undefined && (!(sections instanceof Object) || Array.isArray(sections) || Object.values(sections).some(entry => entry !== false))) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.sections maps a section id to false, such as { content: false }." })
   }
-  // SAFETY: `auth`, `impersonation`, `pill`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
+  // SAFETY: `auth`, `impersonation`, `pill`, `siteAccess`, and `sections` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
@@ -304,6 +317,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
       ...(options.rpcOnly || resolvedConsoleConfiguration?.pill === false ? {} : { pageTool: { base: applicationBase } }),
+      siteDatabase: resolvedConsoleConfiguration?.siteAccess?.database,
     }
   }
 

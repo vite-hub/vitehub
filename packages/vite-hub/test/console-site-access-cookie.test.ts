@@ -19,6 +19,7 @@ import { normalizeKVOptions } from "../../kv/src/config.ts"
 import createDatabaseKVDriver, { kvSqlClientFromDatabase } from "../../kv/src/runtime/database.ts"
 import { consoleState } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { resolveConsoleOptions } from "../src/console/vite.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
@@ -32,6 +33,7 @@ import { operationRpcResponseResult } from "../../internal/test-utils/operation-
 import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { CommentsUser } from "../../comments/src/index.ts"
 import type { CommentsRequestEvent } from "../../comments/src/types.ts"
+import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 
 const kv = vi.hoisted(() => {
   const entries = new Map<string, { value: string, expiresAt: number }>()
@@ -374,12 +376,12 @@ it("generates the Site storage loader when Database inspection is hidden", async
 })
 
 describe("Site access without Auth picks its store as useDatabase() does", () => {
-  async function generated(names: string[]): Promise<string> {
+  async function generated(names: string[], { sections = ["databases"], siteDatabase }: { sections?: ConsoleSectionId[], siteDatabase?: string } = {}): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-store-"))
     try {
       const file = join(root, "plugin.mjs")
       const definitions = names.map(name => ({ fields: [], file: `server/databases/${name}.ts`, name, source: "database" }))
-      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["databases"], catalog: { agents: [], content: { databases: { definitions, kind: "definition-catalog" } } }, blobStores: [], access: { mode: "token" }, pageTool: { base: "/" } })
+      await writeConsoleNitroPlugin({ file, projectRoot: root, sections, catalog: { agents: [], content: { databases: { definitions, kind: "definition-catalog" } } }, blobStores: [], access: { mode: "token" }, pageTool: { base: "/" }, siteDatabase })
       return await readFile(file, "utf8")
     }
     finally {
@@ -391,6 +393,35 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     expect(await generated(["analytics", "default"])).toContain("installConsoleSiteDatabase({ name: \"default\", ")
     expect(await generated(["content"])).toContain("installConsoleSiteDatabase({ name: \"content\", ")
     expect(await generated(["primary", "analytics"])).toContain("installConsoleSiteDatabase({ choices: [\"analytics\",\"primary\"] })")
+  })
+
+  it("uses the Database that console.siteAccess.database names", async () => {
+    expect(await generated(["primary", "analytics"], { siteDatabase: "primary" })).toContain("installConsoleSiteDatabase({ name: \"primary\", ")
+    expect(await generated(["analytics", "default"], { siteDatabase: "analytics" })).toContain("installConsoleSiteDatabase({ name: \"analytics\", ")
+  })
+
+  it("fails the build when console.siteAccess.database names no Database of the app", async () => {
+    await expect(generated(["primary", "analytics"], { siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN", message: expect.stringContaining('"analytics", "primary"') })
+    await expect(generated([], { sections: [], siteDatabase: "main" })).rejects.toMatchObject({ code: "VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN", message: expect.stringContaining("the app has no Database") })
+  })
+
+  it("warns at build time when several Databases have no default, unless the app has Auth", async ({ onTestFinished }) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    onTestFinished(() => warn.mockRestore())
+    await generated(["primary", "analytics"])
+    expect(warn).toHaveBeenCalledOnce()
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS[\s\S]*"analytics", "primary"[\s\S]*siteAccess: \{ database/)
+    await generated(["primary", "analytics"], { sections: ["databases", "auth"] })
+    await generated(["primary", "analytics"], { siteDatabase: "analytics" })
+    expect(warn).toHaveBeenCalledOnce()
+  })
+
+  it("accepts console.siteAccess with a Database name only", () => {
+    expect(resolveConsoleOptions({ siteAccess: { database: "primary" } })).toEqual({ siteAccess: { database: "primary" } })
+    expect(resolveConsoleOptions({ siteAccess: {} })).toEqual({ siteAccess: {} })
+    for (const siteAccess of [false, { database: "" }, { database: 1 }, ["primary"]]) {
+      expect(() => resolveConsoleOptions({ siteAccess })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004", message: expect.stringContaining("console.siteAccess") }))
+    }
   })
 
   it("keeps links in the Database when the app has no KV store", ({ onTestFinished }) => {
@@ -425,6 +456,7 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     const { body } = await call("site.link")
     expect(body).toMatchObject({ code: "CONSOLE_TICKET_STORE_MISSING", message: expect.stringContaining('several Databases and none is named "default": "analytics", "primary"') })
     expect(Reflect.get(Object(body), "message")).toContain("cloudflare-kv-binding driver")
+    expect(Reflect.get(Object(body), "message")).toContain('console: { siteAccess: { database: "<name>" } }')
     installConsoleSections("console-site-cookie", ["site"])
     expect((await call("site.link")).body).toMatchObject({ message: expect.stringContaining("The app has no KV store.") })
   })

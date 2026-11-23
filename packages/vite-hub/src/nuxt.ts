@@ -1245,6 +1245,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     development: nuxt.options.dev === true,
     target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
     ...(consoleOptions?.pill === false ? {} : { pageTool: { base: nuxt.options.app?.baseURL || "/" } }),
+    siteDatabase: consoleOptions?.siteAccess?.database,
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string

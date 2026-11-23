@@ -571,6 +571,16 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Enter a number.",
       fix: "Enter a number in the field before you save it.",
     },
+    VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS: {
+      why: ({ names }: { names: readonly string[] }) => `Site access in an app without Auth keeps its links and site sessions in one Database. The app has several Databases and none is named "default": ${names.map(name => `"${name}"`).join(", ")}. Site access will use the default KV store when its driver is Redis, Upstash, or \`database\`. With another KV store, or no KV store, each Site access link fails with CONSOLE_TICKET_STORE_MISSING.`,
+      fix: "Set `vitehub({ console: { siteAccess: { database: \"<name>\" } } })` to one of these Databases, or name one Database `default`. An app with Auth can ignore this warning.",
+    },
+    VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN: {
+      why: ({ database, names }: { database: string, names: readonly string[] }) => names.length
+        ? `console.siteAccess.database is "${database}", but the app has no Database with this name. The Databases of the app are: ${names.map(name => `"${name}"`).join(", ")}.`
+        : `console.siteAccess.database is "${database}", but the app has no Database.`,
+      fix: "Set `console.siteAccess.database` to the name of one of the Databases that the message lists, or remove the option. To use a new Database, add it first.",
+    },
     VITE_HUB_LOGS_FILTER_UNSUPPORTED: {
       why: ({ filter }: { filter: "level" | "service" | "text" }) => `The source does not support ${filter} filters.`,
       fix: "Remove the filter that the message names from the Logs query. The log source accepts only the filters in its `info.filters`.",

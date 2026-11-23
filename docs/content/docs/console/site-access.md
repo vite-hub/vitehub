@@ -91,7 +91,23 @@ Without Auth, ViteHub picks the store in this order:
 1. The `vitehub_console_site` table of the app's [Database](/docs/database): the Database named `default`, else the only Database. This works on D1 on Cloudflare and D1 over HTTP too.
 2. The app's default [KV store](/docs/kv), when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it.
 
-Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. When the app has several Databases and none is named `default`, ViteHub does not pick one. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
+To use another Database, name it in `console.siteAccess.database`:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { siteAccess: { database: 'primary' } },
+  }), nitro()],
+})
+```
+
+The build fails with `VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN` when the app has no Database with this name. When the app has several Databases, none is named `default`, and you do not set the option, ViteHub does not pick one: the build warns with `VITE_HUB_CONSOLE_SITE_DATABASE_AMBIGUOUS`, and Site access goes on to the KV store. An app with Auth does not use this Database.
+
+Tickets and site sessions use the same store. KV stores use the `vitehub_kv` table, so no KV store can read or clear the `vitehub_console_site` table. A development server keeps tickets in memory. A production app with no store refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`, and the message names the cause.
 
 When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
 
