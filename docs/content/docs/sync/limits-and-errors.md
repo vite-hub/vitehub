@@ -50,7 +50,7 @@ icon: i-lucide-circle-alert
 
 ## Browser storage
 
-The rows and the queue are in the IndexedDB database `vitehub-sync`, with one copy for each synced table and subset. When IndexedDB does not open, such as in some private windows, they stay in memory and `persisted` is `false`: a reload then loses the writes that wait. Clear them on sign-out, so the next person on the device does not see the rows, and the writes of other accounts go away. ViteHub Auth in Nuxt does this for you. See [Accounts and sign-out](/docs/sync/vue#accounts-and-sign-out).
+The rows and the queue are in the IndexedDB database `vitehub-sync`, with one copy for each synced table and subset. When IndexedDB does not open, such as in some private windows, they stay in memory and `persisted` is `false`: a reload then loses the writes that wait. Clear them on sign-out so the next person on the device does not see the rows. ViteHub Auth in Nuxt calls `clearSync({ keepWrites: true })` on sign-out, which clears cached rows and keeps queued writes for their account; call `clearSync()` without `keepWrites: true` to drop queued writes too. See [Accounts and sign-out](/docs/sync/vue#accounts-and-sign-out).
 
 When the table of a definition changes, such as after a deploy that adds a column, the client drops the rows that it stored for that definition and pulls them again. The writes that wait stay and go out.
 

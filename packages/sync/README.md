@@ -24,6 +24,7 @@ export default defineSync({
 | `write` | Without it, only a caller with a user writes (`SYNC_FORBIDDEN` for visitors). `true` lets visitors write too, `false` makes the table read-only in the browser, and a function of `{ request, user, session, op, row }` decides for each write. |
 | `identify` | `({ request }) => user \| null` for apps with their own sign-in. It replaces the ViteHub Auth user. The account of queued writes is `user.id`. |
 | `schema` | A Standard Schema that checks the whole row after each insert and update. |
+| `subsets` | Column names that clients may narrow a pull or live stream by, such as `["issueId"]`. Cannot include the primary key. |
 | `actions` | Named writes with server logic, such as `{ complete: async ({ get, update }, { id }: { id: string }) => update(id, { done: true }) }`. The browser calls them as `store.actions.complete({ id })`. `sync("comments")` in an action writes another definition, and `local.sync("comments")` in an optimistic function changes its open stores. |
 | `live` | `true` (default) lets browsers keep a live stream open. `false` leaves only pulls. |
 
@@ -61,11 +62,11 @@ Without a ViteHub app, make one services object, `{ db, identify, definitions }`
 
 ## Change capture
 
-Three SQLite triggers on each synced table write the change log: `vitehub_sync_<table>_insert`, `_update`, and `_delete`. So every write reaches the browsers, also a write of server code, a job, or plain SQL that does not go through Sync. `src/capture.ts` has them.
+Five SQLite triggers on each synced table write the change log: `vitehub_sync_<table>_insert`, `_update`, `_delete`, `_replace_insert`, and `_replace_update`. So every write reaches the browsers, also a write of server code, a job, or plain SQL that does not go through Sync. `src/capture.ts` has them.
 
 - After an insert or an update, the `put` of the key is the newest change. After a delete, an exit `delete` keeps the key and the scope columns of the old row. After an update that changes a scope column, an exit `move` keeps the old values. A new key is a delete of the old key.
 - The scope columns are the rows of `vitehub_sync_columns`: the columns of `subsets` and each column that a `where` result returned. A pull or a push adds the columns of its scope before it answers, so no browser holds rows before a move of their columns is recorded.
-- The triggers name only the key and the scope columns that the table has, as `pragma_table_info()` lists them. A migration can drop any other column, and a column that the code has before its migration stays out until the table has it.
+- The triggers name only the key, the scope columns, and the columns of unique indexes that the table has, as `pragma_table_xinfo()` lists them. A migration can drop any other column, and a column that the code has before its migration stays out until the table has it.
 - Each server process checks the triggers at its first request for each table and new scope column, and compares them with `sqlite_master`. It replaces old triggers in one batch that fails when another process registered a column at the same time. When the triggers were missing on a table that has a change log, such as after a migration rebuilt the table, it raises the floor, so every client gets a full snapshot.
 - The change log is kept by table, not by Sync name, so two definitions of one table see each other's writes.
 
@@ -95,4 +96,4 @@ At most once an hour for each name, a push removes its mutation ids older than 7
 - SQLite only: libSQL, D1, and the local default Database. Postgres comes later.
 - The last write wins for each column, in the order that the server applies them. An action reads and writes in two steps, not in one transaction (D1 has no interactive transactions).
 - `where` filters by equal column values, or lists of values, only.
-- A migration that drops a scope column must drop the triggers of the table and the row of the column in `vitehub_sync_columns` first. See the Sync docs.
+- A migration that drops a scope column or a column in a unique index must drop the triggers of the table first, and for a scope column also delete its row in `vitehub_sync_columns`. See the Sync docs.
