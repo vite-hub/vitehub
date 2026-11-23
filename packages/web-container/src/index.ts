@@ -348,16 +348,16 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
-    const loading = Promise.resolve(options.snapshot)
-    loading.catch(() => {})
+    const loading = Promise.allSettled([options.snapshot])
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.previewScript) await booted.setPreviewScript(options.previewScript)
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      const snapshot = await loading
-      if (snapshot) {
-        await booted.mount(snapshot)
+      const [loaded] = await loading
+      if (loaded.status === "rejected") throw loaded.reason
+      if (loaded.value) {
+        await booted.mount(loaded.value)
         await restoreSnapshotLinks(booted)
       }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
@@ -373,17 +373,28 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   const container = booted
 
   let server: WebContainerPreviewServer | undefined
-  let resolveReady!: (server: WebContainerPreviewServer) => void
-  let rejectReady!: (error: Error) => void
-  let readySettled = false
+  let readyResult: PromiseSettledResult<WebContainerPreviewServer> | undefined
+  let deliverReady: ((result: PromiseSettledResult<WebContainerPreviewServer>) => void) | undefined
+  let ready: Promise<WebContainerPreviewServer> | undefined
   let serverReadyCount = 0
   let devRunning = false
-  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
-  void ready.catch(() => {})
+  function settleReady(result: PromiseSettledResult<WebContainerPreviewServer>) {
+    if (readyResult) return
+    readyResult = result
+    deliverReady?.(result)
+  }
+  function readiness() {
+    if (!ready) {
+      ready = new Promise<WebContainerPreviewServer>((resolve, reject) => {
+        deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
+        if (readyResult) deliverReady(readyResult)
+      })
+      void ready.catch(() => undefined)
+    }
+    return ready
+  }
   function rejectPendingReady(error: Error) {
-    if (readySettled) return
-    readySettled = true
-    rejectReady(error)
+    settleReady({ status: "rejected", reason: error })
   }
   function fail(error: Error) {
     rejectPendingReady(error)
@@ -395,10 +406,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
-    if (!readySettled) {
-      readySettled = true
-      resolveReady(server)
-    }
+    settleReady({ status: "fulfilled", value: server })
     if (status.current.stage === "starting") status.enter("ready")
   })
   container.on("error", ({ message }) => fail(new Error(message)))
@@ -408,7 +416,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     preview: {
       get url() { return server?.url },
       get port() { return server?.port },
-      ready,
+      get ready() { return readiness() },
     },
     fs: container.fs,
     async run(command, runOptions = {}) {

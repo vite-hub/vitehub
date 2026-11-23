@@ -265,7 +265,7 @@ Admins read `bridge.activity(context, key, before?)`: up to 100 events per page,
 
 ## Export persisted events to evlog
 
-`emit` sends each saved event to your evlog drain. It does not retry. A failed export does not remove the record or undo the operation.
+`emit` sends each saved event to your evlog drain. It does not retry. A failed export logs a warning with the event ID. It does not remove the record or undo the operation.
 
 ```ts fragment
 import { createLogger } from 'evlog'

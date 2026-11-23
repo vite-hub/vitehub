@@ -1,6 +1,5 @@
 import { parseMarkdown } from "comark"
 import { renderMarkdown } from "comark/render"
-import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
 import type { NodeHandler, NodeRenderData, State } from "comark/render"
 
@@ -55,7 +54,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     const props = resolveScalarTemplateAttributes(attrs, renderData(state))
     const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
     const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-      [key, typeof value === "string" ? escapeHtml(value) : value]))
+      [key, typeof value === "string" ? value.replaceAll("&", "&amp;") : value]))
     const content = childPolicy === "markdown" && hasMarkdownHtmlChildren(node)
       ? (await parseMarkdown(children.join(""), parseOptions)).nodes
       : rawBlockTags.has(tag) && attrs.$?.block === 1 && typeof children[0] === "string"
@@ -200,7 +199,7 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
         && (svgUrlAttributes.has(tag.toLowerCase()) || tag.toLowerCase() === "img" && svgContext)
     if (typeof value !== "string" || !isUrl) continue
     const binding = source[`:${key}`]
-    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })
+    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decoded: binding === undefined })
   }
   return sanitized
 }

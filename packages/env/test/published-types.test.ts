@@ -30,14 +30,12 @@ it("publishes Env error codes for the shared ViteHubError contract", { timeout: 
       await cp(join(runtimeRoot, "node_modules", dependency), join(root, "node_modules", dependency), { dereference: true, recursive: true })
     }
 
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root], { timeout: 15_000, killSignal: "SIGKILL" })
-
     await writeFile(join(root, "tsconfig.cli.json"), JSON.stringify({
       compilerOptions: { types: ["node"], typeRoots: [join(workspaceRoot, "node_modules/@types")] },
       extends: "./tsconfig.json",
       files: ["cli-consumer.ts"],
     }))
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", join(root, "tsconfig.cli.json")], { timeout: 15_000, killSignal: "SIGKILL" })
+    await execFileAsync(process.execPath, [tsc, "--build", root, join(root, "tsconfig.cli.json")], { timeout: 30_000, killSignal: "SIGKILL" })
   }
   finally {
     await rm(root, { force: true, recursive: true })
