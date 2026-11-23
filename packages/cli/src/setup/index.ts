@@ -12,7 +12,7 @@ export type { SetupDeploymentsOutput, SetupLive, SetupLiveReason, SetupLiveStatu
 export type { DeployCommit, HostDeployment, HostDeploymentSource } from "./deploy/host.ts"
 export { setupExitCodes } from "./envelope.ts"
 export type { SetupChoice, SetupError, SetupFailure, SetupFailureDetails, SetupMissing } from "./envelope.ts"
-export { initCommandDefinition, initPackages, nuxiPackage, readInitArgs, readSetupStack } from "./init.ts"
+export { initCommandDefinition, initPackages, nuxiPackage, readInitArgs } from "./init.ts"
 export type { SetupInitArgs, SetupInitPlan } from "./init.ts"
 export { linkSetupProject, readSetupLinks, readSetupLinkState, readSetupLinkStatus, SETUP_LINK_FILE, selectSetupLink, unlinkSetupProject } from "./link.ts"
 export type { SetupLinkFile, SetupLink, SetupLinks, SetupLinkSelection, SetupLinkTarget, SetupLinkAccount, SetupLinkHost, SetupLinkOptions, SetupLinkResult, SetupLinkState, SetupLinkStatus, SetupLinkSummary } from "./link.ts"

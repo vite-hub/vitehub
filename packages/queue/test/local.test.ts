@@ -362,6 +362,44 @@ describe("local queue client", () => {
 })
 
 describe("local queue inspection", () => {
+  it("shows a job as running until its dead state is in the job file", async () => {
+    let fail = true
+    const engine = engineFor({ welcome: { handler: async () => { if (fail) throw new Error("SMTP down") } } })
+    const actual = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).writeFile
+    let reached!: () => void
+    const writingDead = new Promise<void>(resolve => { reached = resolve })
+    let release!: () => void
+    const held = new Promise<void>(resolve => { release = resolve })
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      if ((JSON.parse(String(data)) as { state: string }).state === "dead") {
+        reached()
+        await held
+      }
+      return await actual(path, data, options)
+    })
+
+    try {
+      await engine.enqueue("welcome", [{ id: "job-1", idempotencyKey: "same", payload: {} }])
+      await writingDead
+      await expect(engine.jobs()).resolves.toMatchObject([{ id: "job-1", state: "running" }])
+      await expect(engine.status()).resolves.toMatchObject({ queues: { welcome: { dead: 0, running: 1 } } })
+      await expect(engine.retry("job-1")).resolves.toBe("running")
+
+      await expect(engine.enqueue("welcome", [{ id: "job-2", idempotencyKey: "same", payload: {} }])).resolves.toEqual(["job-1"])
+
+      release()
+      await vi.waitFor(async () => expect(await engine.jobs()).toMatchObject([{ id: "job-1", state: "dead" }]))
+      fail = false
+      await expect(engine.retry("job-1")).resolves.toMatchObject({ attempts: 0, id: "job-1" })
+      await vi.waitFor(async () => expect(await engine.jobs()).toEqual([]))
+    }
+    finally {
+      release()
+      engine.close()
+      vi.mocked(writeFile).mockImplementation(actual)
+    }
+  })
+
   it("lists the storage, its durability, and the job counts", async () => {
     install({ digest: { handler: async () => {} }, welcome: { handler: async () => {} } })
     await dynamicQueue.send("welcome", {}, { delay: "1m" })
@@ -728,8 +766,8 @@ describe("local queue delivery with hosted provider rules", () => {
     await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
 
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
-    await vi.waitFor(async () => expect(Date.parse((await engine.jobs())[0]!.availableAt)).toBeGreaterThanOrEqual(before + 60_000))
-    expect((await engine.jobs())[0]).toMatchObject({ attempts: 1, error: { message: "[vitehub] Queue Delivery failed." }, state: "pending" })
+    await vi.waitFor(async () => expect((await engine.jobs())[0]).toMatchObject({ attempts: 1, error: { message: "[vitehub] Queue Delivery failed." }, state: "pending" }))
+    expect(Date.parse((await engine.jobs())[0]!.availableAt)).toBeGreaterThanOrEqual(before + 60_000)
   })
 
   it("keeps the message and stack of a plain Error in development, in the job and in the log", async () => {

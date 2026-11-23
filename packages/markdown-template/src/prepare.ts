@@ -27,7 +27,7 @@ export async function prepareTemplate(source: string) {
 
 function validateBranches(template: string): void {
   const stack: Array<{ tag: string, sawElse: boolean }> = []
-  for (const line of template.split(/\r?\n/)) {
+  for (const line of template.split(/\r\n|[\r\n]/)) {
     if (/^\s*::\s*$/.test(line)) { stack.pop(); continue }
     const match = line.match(/^\s*::([\w-]+)(?:\{(.*)\})?\s*$/)
     if (!match) continue

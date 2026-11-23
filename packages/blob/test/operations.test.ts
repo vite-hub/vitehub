@@ -255,6 +255,11 @@ describe("blob operations", () => {
     expect(folded.body).toMatchObject({ blobs: [], folders: ["docs"] })
   })
 
+  it("orders the folders of a folded listing by code unit", async () => {
+    for (const folder of ["a", "B", "_", "\u00E4", "Z"]) await blob.put(`${folder}/file.txt`, "x")
+    expect((await run({ folded: true, operation: "list" })).body).toMatchObject({ folders: ["B", "Z", "_", "a", "\u00E4"] })
+  })
+
   it.each([false, true])("counts folders toward a full provider page (with file: %s)", async withFile => {
     const [error, object] = await blob.put("a.txt", "a")
     expect(error).toBeUndefined()

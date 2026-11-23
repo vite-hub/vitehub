@@ -9,6 +9,11 @@ export interface QueueTimes {
   retentionSeconds?: number
 }
 
+function readRetentionSeconds(seconds: number, round: "ceil" | undefined): number {
+  if (!Number.isFinite(seconds) || seconds < 0) throw runtimeErrorDiagnostics.RUNTIME_DURATION_INVALID({ option: "retention", value: String(seconds) })
+  return round === "ceil" ? Math.ceil(seconds) : seconds
+}
+
 /**
  * Reads `delay` and `retention` of a send. `delay` is a duration such as `"1m"`. `retention` is a duration or a number
  * of seconds. A value that is not a duration returns `RUNTIME_DURATION_INVALID`. Pass `"ceil"` for a provider that
@@ -19,7 +24,7 @@ export function readQueueTimes(options: { delay?: Duration, retention?: Duration
   try {
     const delaySeconds = options.delay === undefined ? undefined : seconds(parseDuration(options.delay, "delay", undefined, "s"))
     const retentionSeconds = typeof options.retention === "number"
-      ? round === "ceil" ? Math.ceil(options.retention) : options.retention
+      ? readRetentionSeconds(options.retention, round)
       : options.retention === undefined ? undefined : seconds(parseDuration(options.retention, "retention"))
     return [undefined, {
       ...(delaySeconds === undefined ? {} : { delaySeconds }),
