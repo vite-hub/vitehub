@@ -4,6 +4,11 @@ import { normalizePackageExports, packDefaults } from "@vite-hub/internal/packag
 export default defineConfig({
   pack: {
     ...packDefaults,
+    outputOptions: {
+      codeSplitting: {
+        groups: [{ name: "vitehub-grants", test: /[/\\]storage[/\\](?:target|materialization)\.ts$/ }],
+      },
+    },
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/, /^@vite-hub\/markdown-template/],
       neverBundle: [

@@ -7,10 +7,11 @@ import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderEmailMarkdown } from "./markdown.ts"
 import { discoverEmailTemplates } from "./templates.ts"
 
-/** A rendered template. `file` is relative to the project root. */
+/** A rendered template. `file` is relative to the project root. `subject` is set when the template has one. */
 export interface EmailPreview {
   file: string
   html: string
+  subject?: string
   template: string
   text: string
 }
@@ -30,5 +31,5 @@ export async function previewEmailTemplate(roots: readonly string[], rootDir: st
   const template = templates.find(entry => entry.name === name)
   if (!template) throw emailTemplateNotFound(name, roots, rootDir, templates.map(entry => entry.name))
   const rendered = await renderEmailMarkdown(await readFile(template.file, "utf8"), { data })
-  return { file: relative(rootDir, template.file), html: rendered.html, template: template.name, text: rendered.text }
+  return { file: relative(rootDir, template.file), template: template.name, ...rendered }
 }

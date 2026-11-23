@@ -17,7 +17,7 @@ import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, sha256 } fro
 import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
-import { forwardWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, provideWorkspaceStoreTarget, resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { assertPublicWorkspaceMetaKey } from "../storage/metadata-keys.ts"
 import { forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataTarget, workspaceInternalMetadataCapability, attachWorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { createHostedWorkspaceSession } from "../session/host.ts"
@@ -348,10 +348,6 @@ function createLazyWorkspace(name: WorkspaceLookupName, definition?: WorkspaceDe
       const resolved = await resolveWorkspace()
       return await resolved.capabilities?.() ?? { conditionalWrites: false }
     },
-    async [workspaceStoreTarget]() {
-      const resolved = await resolveWorkspace() as Workspace & { [workspaceStoreTarget]?: () => unknown }
-      return await resolved[workspaceStoreTarget]?.()
-    },
     async sync(options) {
       const resolved = await resolveWorkspace()
       const sync = await workspaceDefinitionSyncState(resolved)
@@ -420,6 +416,7 @@ function createLazyWorkspace(name: WorkspaceLookupName, definition?: WorkspaceDe
       return await (await resolveSyncedWorkspace()).startSession(options)
     },
   } as Workspace
+  provideWorkspaceStoreTarget(workspace, async () => await resolveWorkspaceStoreTarget(await resolveWorkspace()))
   attachWorkspaceMetadataTarget(workspace, async () => await resolveWorkspaceMetadataTarget(await resolveWorkspace()))
 
   return attachWorkspaceSourceRequestExecution(workspace, {
@@ -610,10 +607,7 @@ export function createReadonlyFs<Name extends WorkspaceLookupName>(
 export function createWorkspaceFileRuntime<Name extends WorkspaceLookupName>(name: Name, options?: UseWorkspaceOptions) {
   if (options?.mode === "write") {
     const workspace = createLazyWorkspace(name, options.definition)
-    const facade: WritableWorkspaceFiles<Name> & WorkspaceStoreTargetCarrier = {
-      [workspaceStoreTarget]: async () => {
-        return await (workspace as Workspace & WorkspaceStoreTargetCarrier)[workspaceStoreTarget]?.()
-      },
+    const facade: WritableWorkspaceFiles<Name> = {
       capabilities: async () => await workspace.capabilities!(),
       diff: async options => await workspace.diff(options),
       fs: createWritableFs(name, workspace),
@@ -631,6 +625,7 @@ export function createWorkspaceFileRuntime<Name extends WorkspaceLookupName>(nam
       sync: async options => await workspace.sync(options),
     }
     forwardWorkspaceMetadataTarget(workspace, facade)
+    forwardWorkspaceStoreTarget(workspace, facade)
     return { mode: "write" as const, workspace, facade }
   }
 

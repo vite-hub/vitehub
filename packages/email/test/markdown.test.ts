@@ -89,4 +89,19 @@ describe("renderEmailMarkdown", () => {
       text: "[Open item](web+demo://host/folder%5Citem)",
     })
   })
+
+  it("fills the subject frontmatter as plain text and leaves it out of the body", async () => {
+    await expect(renderEmailMarkdown("---\nsubject: Your *recap* for {{ data.month }}\n---\n\nHello {{ data.month }}", {
+      data: { month: "{{ data.secret }}", secret: "leak" },
+    })).resolves.toEqual({
+      subject: "Your *recap* for {{ data.secret }}",
+      html: "<p>Hello {{ data.secret }}</p>",
+      text: "Hello {{ data.secret }}",
+    })
+  })
+
+  it("rejects frontmatter other than a string subject", async () => {
+    await expect(renderEmailMarkdown("---\ntitle: Hi\n---\n\nHello")).rejects.toMatchObject({ code: "EMAIL_TEMPLATE_FRONTMATTER_INVALID" })
+    await expect(renderEmailMarkdown("---\nsubject: [Hi]\n---\n\nHello")).rejects.toMatchObject({ code: "EMAIL_TEMPLATE_FRONTMATTER_INVALID" })
+  })
 })

@@ -351,7 +351,7 @@ function writePreviewUsage(stream: ViteHubCliStreams["stdout"]): void {
     "  --data <json|@file>  Template data as a JSON object, or @ and a JSON file path.",
     "  --html               Print only the rendered HTML.",
     "  --text               Print only the text body.",
-    "  --json               Print JSON with template, file, html, and text.",
+    "  --json               Print JSON with template, file, subject, html, and text.",
     "  -h, --help           Show this help.",
     "",
   ].join("\n"))
@@ -405,7 +405,7 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
     if (parsed.format === "html") context.stdout.write(`${rendered.html}\n`)
     else if (parsed.format === "text") context.stdout.write(`${rendered.text}\n`)
     else if (json) context.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`)
-    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
+    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, ...(rendered.subject === undefined ? [] : [`Subject: ${rendered.subject}`]), "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
     return 0
   }
   catch (error) {
