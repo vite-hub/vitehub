@@ -178,11 +178,6 @@ function come(icon: Element, kind: IconEnter, reducedMotion: boolean, from: numb
   }, finish);
 }
 
-/** True when the icon still has to show, for a test or a component that waits for the swap. */
-export function iconSwapping(icon: Element): boolean {
-  return !!states.get(icon)?.fade;
-}
-
 /**
  * Swaps the icon in `container` for `icon`, as rule 5 of docs/design/motion.md asks: the old icon blurs out, or leaves in
  * the direction it points, while the new one comes in, and a spinner or a check draws its stroke. `icon` may already be
