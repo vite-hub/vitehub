@@ -35,6 +35,12 @@ describe("Memory Store metadata isolation", () => {
     expect((await store.stat("doc.md"))?.metadata).toEqual(metadata)
   })
 
+  it("accepts nested URL metadata that the local Store persists as text", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.setMeta!("app:source", { url: new URL("https://example.com/docs") })
+    expect(await store.getMeta!("app:source")).toEqual({ url: "https://example.com/docs" })
+  })
+
   it("detaches Store metadata on writes and reads", async () => {
     const store = createMemoryWorkspaceStore()
     const state = { configHash: "a", paths: { "doc.md": { digest: "1" } } }
