@@ -1197,6 +1197,7 @@ The route drops a repeated submission from the same owner, replays the stream fr
 With `'shared'`, the process that runs the Agent writes the stream to the journal database, and any instance reads it back. A client that reconnects to another instance gets the same bytes in the same order. A `DELETE` on any instance stops the run within about two seconds.
 
 - The journal must keep its rows in a database: the default journal on SQLite, libSQL, or D1, or `invocations: 'database'`. A journal in memory or a custom store fails with `AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED`.
+- A reader of a stream whose first request failed before it started gets `AGENT_RESUMABLE_CHAT_STREAM_FAILED`. A claim that loses to other requests three times fails with `AGENT_RESUMABLE_CHAT_CLAIM_CONFLICT`.
 - The streams are only as shared as the journal. The default journal file is on one host, so set `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` to a libSQL endpoint, or use D1 or a Postgres Database, when instances run on different hosts. The `agent-chat-streams` line of the boot Durability report shows the scope.
 - A reader polls the database every 100 ms, so a reply on another instance arrives up to about 100 ms later.
 - On SQLite, libSQL, and D1, the tables are created on first use. On Postgres, ViteHub adds `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` to the [journal tables](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database). Run `vitehub database generate` and `vitehub database migrate`.

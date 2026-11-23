@@ -396,12 +396,12 @@ export function createSharedChatStreams(options: SharedChatStreamsOptions): { se
             return {
               kind: "existing",
               response: responseOnceOpen(query, Number(existing.sequence)).then((response) => {
-                if (!response) throw new Error("[vitehub] The resumable web chat stream failed before it started.")
+                if (!response) throw agentDiagnostics.AGENT_RESUMABLE_CHAT_STREAM_FAILED()
                 return response
               }),
             }
           }
-          throw new Error("[vitehub] Could not claim the resumable web chat stream. Retry the request.")
+          throw agentDiagnostics.AGENT_RESUMABLE_CHAT_CLAIM_CONFLICT()
         },
         async latest() {
           for (let attempt = 0; attempt < discoveryAttempts; attempt++) {
