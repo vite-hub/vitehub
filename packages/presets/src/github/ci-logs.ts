@@ -13,7 +13,8 @@ export function compactCiLog(log: string, limit: number = compactLimit): string 
   if (compact.length <= limit) return compact
   const cutoff = compact.length - limit
   const nextLine = compact.indexOf("\n", cutoff - 1) + 1
-  const start = nextLine && compact.slice(nextLine).trim() ? nextLine : cutoff
+  let start = nextLine && compact.slice(nextLine).trim() ? nextLine : cutoff
+  if ((compact.codePointAt(start - 1) ?? 0) > 0xFFFF) start++
   let omitted = 0
   for (let n = compact.indexOf("\n"); n !== -1 && n < start; n = compact.indexOf("\n", n + 1)) omitted++
   const partial = compact[start - 1] !== "\n" && start < compact.length

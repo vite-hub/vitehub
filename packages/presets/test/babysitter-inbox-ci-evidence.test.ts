@@ -66,6 +66,8 @@ it('keeps the bounded tail of a long final log line with or without a newline', 
   const compact = compactCiLog(log, 40)
   assert.equal(compact, '[1 earlier log lines omitted]\n…' + log.slice(-40))
  }
+ assert.equal(compactCiLog('setup\n😀DONE', 5), '[1 earlier log lines omitted]\n…DONE')
+ assert.equal(compactCiLog('setup\n😀DONE', 6), '[1 earlier log lines omitted]\n😀DONE')
  const whole = 'x'.repeat(40)
  assert.equal(compactCiLog('setup\n' + whole, 40), '[1 earlier log lines omitted]\n' + whole)
 })
