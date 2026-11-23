@@ -81,7 +81,7 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 ## Decide who can comment
 
-`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. Return `true` to allow. Any other value denies.
+`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. It also gets `development: true` on the dev server and `console: true` for [Console callers](#use-your-own-login). Return `true` to allow. Any other value denies.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -115,7 +115,16 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function. The `authorize` context has `development` and `console`, so pass it as the second argument to keep the default and add your own rule:
+
+```ts [server/comments.ts]
+import { defaultPolicy, defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  // Guests on the dev server, as by default, and admins everywhere.
+  authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === 'admin',
+})
+```
 
 On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 

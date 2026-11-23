@@ -10,7 +10,7 @@ import { anchor, createDatabase } from "./harness.ts"
 
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
-import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsAuthorizeContext, CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
 
 const origin = "http://site.test"
@@ -29,8 +29,8 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
   }
 }
 
-async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"], base?: string } = {}) {
-  const comments = defineComments({ identify: options.identify })
+async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], authorize?: DefineCommentsOptions["authorize"], session?: CommentsHandlerOptions["session"], base?: string } = {}) {
+  const comments = defineComments({ identify: options.identify, authorize: options.authorize })
   const database = await createDatabase()
   defineCommentsPlugin({ comments, database: () => database, overlay: "/overlay.js", development })({})
   const route = `${options.base ?? ""}/_vitehub/comments`
@@ -84,6 +84,35 @@ describe("default policy", () => {
       body: JSON.stringify({ page: "/", anchor, body: "Hello" }),
     })
     expect(created.response.status).toBe(development ? 200 : 403)
+  })
+})
+
+describe("authorize on the dev server", () => {
+  const guestPost = {
+    method: "POST",
+    headers: { "content-type": "application/json", "origin": origin, "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Lin" },
+    body: JSON.stringify({ page: "/", anchor, body: "Hello" }),
+  }
+
+  it.each([true, false])("gets development=%s from the generated plugin", async (development) => {
+    const seen: CommentsAuthorizeContext[] = []
+    const call = await setup(fakeLogin(null), development, { authorize: (context) => {
+      seen.push(context)
+      return true
+    } })
+    expect((await call("/threads")).response.status).toBe(200)
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every(context => context.development === development)).toBe(true)
+  })
+
+  it.each([true, false])("falls back to the default policy with development=%s", async (development) => {
+    const call = await setup(fakeLogin(null), development, {
+      authorize: context => defaultPolicy(context.user, context, context.action) || context.user?.role === "admin",
+    })
+    const { body } = await call("/session")
+    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development, delete: development })
+    expect((await call("/threads")).response.status).toBe(development ? 200 : 403)
+    expect((await call("/threads", guestPost)).response.status).toBe(development ? 200 : 403)
   })
 })
 

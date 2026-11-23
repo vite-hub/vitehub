@@ -34,7 +34,7 @@ icon: i-lucide-code-2
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `authorize({ user, actor?, action, thread?, subject? })` | GitHub users who can push to the repository, and users of other sign-ins, may do everything. Guests only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
+| `authorize({ user, actor?, action, thread?, subject?, console?, development? })` | GitHub users who can push to the repository, and users of other sign-ins, may do everything. Guests only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. `development` is `true` on the dev server, and `console` is `true` for Console callers. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
 | `identify({ event })` | On pages, the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github). Through the Console, the CLI, and MCP, the Console caller. | Return the request's user, with a string `id`, or `null`. `identify` and `authorize` then decide on every surface, instead of Console access. See [Use your own login](/docs/comments/configure#use-your-own-login). |
 | `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. Any other value fails the build with `COMMENTS_B0004`. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `subjects` | `page` and `content` | More subject kinds, from `defineCommentSubject({ kind, scope, emptyBody?, link? })`. |

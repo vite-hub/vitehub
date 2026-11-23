@@ -385,7 +385,7 @@ it("checks read access on the subject before creating a thread", async () => {
   const authorize = vi.fn(({ action }) => action !== "read")
   const store = setup(defineComments({ authorize }))
   expect(await call("comments.create", input)).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
-  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", console: true, subject: page, user: member })
+  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", console: true, development: false, subject: page, user: member })
   expect(await store.list({})).toEqual([])
 })
 
