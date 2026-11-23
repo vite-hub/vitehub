@@ -185,7 +185,7 @@ Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and 
 
 ```md
 ::agent-only
-Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+Run `pnpm vitehub schedule run weekday-report` to start a Schedule Definition with `manual: true`, the same run that the Console button starts.
 ::
 ```
 

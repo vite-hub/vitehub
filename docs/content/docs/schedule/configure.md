@@ -115,7 +115,7 @@ Every server checks every Schedule. While the holder keeps its lease, one server
 | A started Schedule is due | Each occurrence takes the same lease, so one server runs it. |
 | A manual run | The server that gets the request runs it once. Each manual run has its own run id. |
 
-Without a Database, the leases stay in the memory of each server, and the build reports the hint [`SCHEDULE_PROCESS_CLAIMS_IN_MEMORY`](/docs/schedule/diagnostics/schedule_process_claims_in_memory) in its output and in `.vitehub/hints.json`. Then each server runs every occurrence, so run one server only. With a shared Database, use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs`, and the Console see the runs of every server.
+Without a Database, the leases stay in the memory of each server, and the build reports the hint [`SCHEDULE_PROCESS_CLAIMS_IN_MEMORY`](/docs/schedule/diagnostics/schedule_process_claims_in_memory) in its output and in `.vitehub/hints.json`. Then each server runs every occurrence, so run one server only. With a shared Database, use a KV store that all servers share, such as Upstash, so catch-up, `vitehub schedule runs list`, and the Console see the runs of every server.
 
 Inspect the leases with SQL, for example `select "key", owner, expires_at from vitehub_leases where "key" like 'vitehub:schedule/schedule/%'`. Replace `vitehub:schedule` with the app's prefix. `owner` is the host name and process ID of the server.
 
