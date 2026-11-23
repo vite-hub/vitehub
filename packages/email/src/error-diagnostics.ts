@@ -13,8 +13,14 @@ const outboxProblems = {
   type: "`email.outbox` must be `false` or an object.",
 } as const
 
+const frontmatterProblems = {
+  key: (key: string) => `Email templates read only \`subject\` from frontmatter, and this template sets \`${key}\`.`,
+  subject: () => "The `subject` frontmatter of an Email template must be a string.",
+} as const
+
 export type EmailDriverProblem = keyof typeof driverProblems
 export type EmailOutboxProblem = keyof typeof outboxProblems
+export type EmailFrontmatterProblem = keyof typeof frontmatterProblems
 
 export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/email/diagnostics",
@@ -60,7 +66,11 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     EMAIL_TEMPLATE_NOT_FOUND: {
       why: ({ available, roots, template }: { available: string, roots: string, template: string }) => `Email template "${template}" was not found in ${roots}. ${available ? `Templates: ${available}.` : "No templates were found."}`,
-      fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`.",
+      fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`. Files and folders that start with `_` are partials, not templates.",
+    },
+    EMAIL_TEMPLATE_SUBJECT_REQUIRED: {
+      why: ({ template }: { template: string }) => `Email template "${template}" has no \`subject:\` frontmatter, and the message has no \`subject\`.`,
+      fix: "Add `subject:` frontmatter to the template, or pass `subject` to `email.send()`.",
     },
 
     // Config errors.
@@ -76,13 +86,21 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
 
     // Build errors.
+    EMAIL_DRIVER_MODULE_NOT_FOUND: {
+      why: ({ driver, file }: { driver: string, file: string }) => `\`email.driver\` is ${JSON.stringify(driver)}, but ${file} does not exist.`,
+      fix: "Create the driver module, or fix the path. The path is relative to the project root, for example `email: { driver: './server/email-driver.ts' }`, and the module default-exports a function that returns an `EmailDriver`.",
+    },
     EMAIL_DUPLICATE_TEMPLATE: {
       why: ({ name }: { name: string }) => `Two Email templates have the name ${JSON.stringify(name)}.`,
-      fix: "Rename or remove one of the two Markdown files under `server/emails`.",
+      fix: "Rename or remove one of the two template files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare\" driver needs a Cloudflare host.",
-      fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
+      why: ({ driver }: { driver: "cloudflare" | "smtp" }) => driver === "cloudflare"
+        ? "The \"cloudflare\" driver needs a Cloudflare host."
+        : "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it.",
+      fix: ({ driver }: { driver: "cloudflare" | "smtp" }) => driver === "cloudflare"
+        ? "Deploy to Cloudflare, or use the \"resend\" driver."
+        : "On Cloudflare, use the \"cloudflare\" or \"resend\" driver, or a driver module that sends over HTTP.",
     },
     EMAIL_INVALID_OUTBOX: {
       why: ({ problem }: { problem: EmailOutboxProblem }) => outboxProblems[problem],
@@ -94,7 +112,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     EMAIL_INVALID_TEMPLATE: {
       why: ({ id }: { id: string }) => `The Email template import ${JSON.stringify(id)} is not valid.`,
-      fix: "Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`.",
+      fix: "Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`. Files and folders that start with `_` are partials, so they have no import.",
     },
     EMAIL_REMOTE_REQUIRED: {
       why: "`email.outbox` is `false`, so a `vite dev` send has no outbox to stay in.",
@@ -104,9 +122,18 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ path }: { path: string }) => `The secret Email option ${path} has a default, and defaults are included in build output.`,
       fix: "Remove the default, and set the secret in the host environment.",
     },
+    EMAIL_SMTP_NODEMAILER_MISSING: {
+      why: "The \"smtp\" Email driver needs the `nodemailer` package, and it is not installed.",
+      fix: "Install it in the app, for example `pnpm add nodemailer`.",
+    },
     EMAIL_SYNC_OPTION_REQUIRED: {
       why: ({ path }: { path: string }) => `The Email option ${path} uses \`env.provider()\`, and Email resolves its options synchronously.`,
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
+    },
+    EMAIL_TEMPLATE_FRONTMATTER_INVALID: {
+      why: ({ file, key, problem }: { file?: string, key: string, problem: EmailFrontmatterProblem }) =>
+        `${file === undefined ? "" : `${file}: `}${frontmatterProblems[problem](key)}`,
+      fix: "Keep only `subject:` in the frontmatter, as one string such as `subject: Welcome {{ data.user.name }}`.",
     },
     EMAIL_TEMPLATE_SYNTAX_INVALID: {
       why: ({ file }: { file: string }) => `The Email template ${file} cannot render with any \`data\`.`,
@@ -115,10 +142,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     EMAIL_UNKNOWN_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
         ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
-        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", or "log".`,
+        : `The Email \`driver\` is ${driver}. It must be "resend", "smtp", "cloudflare", "log", or the path of a driver module that starts with "./" or "../".`,
       fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
         ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
-        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing.",
+        : "Set `email: { driver: 'resend' }`, `email: { driver: 'smtp' }`, or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing. For another provider, write a driver module and set `email: { driver: './server/email-driver.ts' }`.",
     },
 
     // Tool errors.

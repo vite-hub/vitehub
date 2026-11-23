@@ -21,7 +21,6 @@ import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
 import type { DatabaseContributionContext, DatabaseContributionEntry, DBVitePlugin } from "@vite-hub/database/vite"
 
-// Generated code imports this vite-hub module by path. It is not a package export.
 const agentInvocationsLibsqlModule = ownModule(import.meta.url, "internal/agent-invocations-libsql")
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
@@ -129,7 +128,6 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
   return [
     `import { installAgentInvocations } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@vite-hub/agent/invocations/app")))}`,
     "",
-    // Install at module evaluation, so Agent and Console plugins that load later read the journal.
     `installAgentInvocations({ ${settings.join(", ")} })`,
     "",
     "export default function viteHubAgentInvocationsPlugin() {}",
@@ -150,7 +148,6 @@ export async function writeAgentInvocationsNitroPlugin(options: AgentInvocations
   return plugin
 }
 
-/** The journal store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
 function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, store: { d1?: string, database?: string }, stateUrl: string | undefined): AgentInvocationsDurabilityInput | undefined {
   if (setting === false) return
   if (setting === "memory" || (typeof setting === "object" && setting.store === "memory")) return { store: "memory" }
@@ -172,7 +169,6 @@ export async function agentInvocationsDatabaseContributions(context: DatabaseCon
   const database = (typeof setting === "object" && "store" in setting && setting.store === "database" ? setting.database : undefined) ?? "default"
   const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const { collectDatabaseContributions } = requireOptionalOwner(ownerModules.databaseVite, "database")
-  // Leave this plugin out, so collecting the other contributions does not call this factory again.
   const plugins = (await flattenPluginOptions(context.plugins)).filter(plugin => Reflect.get(plugin, "name") !== agentInvocationsPluginName)
   const contributions = await collectDatabaseContributions(plugins, { ...context, plugins })
   const target = discoverDatabaseDefinitions(context.rootDir, { contributions, serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
@@ -182,8 +178,13 @@ export async function agentInvocationsDatabaseContributions(context: DatabaseCon
     database,
     dialect: "postgresql",
     definition: { module: "vite-hub/agent/invocations/postgres", export: "agentInvocationsPostgresSchema" },
-    tables: { agentInvocations: "vitehub_agent_invocations", agentInvocationObservations: "vitehub_agent_invocations_observations" },
-    reason: "Stores the Agent Invocations of `invocations: 'database'`. The journal does not create its tables on Postgres.",
+    tables: {
+      agentInvocations: "vitehub_agent_invocations",
+      agentInvocationObservations: "vitehub_agent_invocations_observations",
+      agentChatStreams: "vitehub_agent_chat_streams",
+      agentChatStreamChunks: "vitehub_agent_chat_stream_chunks",
+    },
+    reason: "Stores the Agent Invocations of `invocations: 'database'`, and the streams of web chat routes with `resumable.scope: 'shared'`. The journal does not create its tables on Postgres.",
   }]
   if (host === "node" && isDefaultAgentJournal(setting) && !setting?.databaseUrl) {
     entries.push({
@@ -214,7 +215,12 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       databases: async context => options.database ? await agentInvocationsDatabaseContributions(context, options.default, options.host) : [],
       durability: () => {
         const input = journalDurabilityInput(options.default, { d1: d1Binding, database: journalDatabase }, options.stateUrl)
-        return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
+        if (!input) return []
+        const module = resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability")
+        return [
+          { export: "agentInvocationsDurability", input, module, primitive: "agent-invocations" },
+          { export: "agentChatStreamsDurability", input, module, primitive: "agent-chat-streams" },
+        ]
       },
     },
     async config(config, environment) {
@@ -228,7 +234,6 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       journalDatabase = undefined
       postgresJournalRoot = undefined
       if (isDefaultAgentJournal(setting)) {
-        // Development and an explicit `databaseUrl` keep libSQL.
         const hostStore = viteConfig[VITEHUB_AGENT_JOURNAL_STORE]
         const build = environment?.command === "build" && !setting?.databaseUrl
         const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
@@ -248,7 +253,6 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       }
       const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, journalDatabase, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
-      // The Console plugin reads the app-wide journal while it loads, so this plugin loads first.
       kit.addPlugin(plugin, "start")
       viteConfig.nitro = kit.config
     },

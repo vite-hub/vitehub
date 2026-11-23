@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { collectDurability } from "@vite-hub/runtime/durability"
 import { describe, expect, it } from "vitest"
 
-import { agentInvocationsDurability, agentProcessHostDurability, agentRecoveryDurability, agentStateDurability } from "../src/durability.ts"
+import { agentChatStreamsDurability, agentInvocationsDurability, agentProcessHostDurability, agentRecoveryDurability, agentStateDurability } from "../src/durability.ts"
 import { resolveDefaultAgentInvocationsLocation } from "../src/invocations/default-core.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
@@ -87,5 +87,16 @@ describe("agentProcessHostDurability", () => {
     expect(agentProcessHostDurability({ lease: true }, context({}, [file]))).toMatchObject([{ store: "lease (sqlite)", scope: "process", fix: "Use a remote Database." }])
     expect(agentProcessHostDurability({ lease: true }, context())).toMatchObject([{ store: "process", scope: "process", fix: expect.stringContaining("agent-process-host:<agent>") }])
     expect(agentProcessHostDurability({ lease: false }, context({}, [postgres]))).toMatchObject([{ store: "process", scope: "process" }])
+  })
+})
+
+describe("agentChatStreamsDurability", () => {
+  it("says shared only when the journal database is shared", () => {
+    const postgres: Durability = { primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }
+    expect(agentChatStreamsDurability({ store: "database" }, context({}, [postgres]))).toMatchObject([{ primitive: "agent-chat-streams", store: "database (postgres)", scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "d1" }, context())).toMatchObject([{ primitive: "agent-chat-streams", scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "file", url: "remote" }, context())).toMatchObject([{ scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "file" }, context())).toMatchObject([{ primitive: "agent-chat-streams", store: "sqlite", scope: "host", fix: expect.any(String) }])
+    expect(agentChatStreamsDurability({ store: "memory" }, context())).toMatchObject([{ scope: "process", reason: expect.stringContaining("only `resumable.scope: \"process\"` works") }])
   })
 })

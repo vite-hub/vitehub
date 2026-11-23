@@ -111,7 +111,7 @@ async function withEnv<T>(env: Record<string, string>, callback: () => Promise<T
 }
 
 // Sends one Vercel Queue v2beta delivery (binary mode, payload in the body) to a built consumer
-// function in a child process, and returns the markers that the consumer reported back.
+// function in a child process, and returns the marker stages that the consumer reported back.
 async function deliverVercelQueueMessage(consumerFile: string, topic: string, consumer: string, marker: string): Promise<string[]> {
   const script = `
 import { createServer } from "node:http"
@@ -122,9 +122,10 @@ const callback = createServer((req, res) => {
   let body = ""
   req.on("data", chunk => body += chunk)
   req.on("end", () => {
-    markers.push(JSON.parse(body).marker)
+    const { marker, stage } = JSON.parse(body)
+    markers.push(\`\${marker}:\${stage}\`)
     res.setHeader("content-type", "application/json")
-    res.end("{}", delivery.resolve)
+    res.end("{}", stage === "done" ? delivery.resolve : undefined)
   })
 })
 await new Promise(done => callback.listen(0, "127.0.0.1", done))
@@ -374,7 +375,7 @@ describe("unified vite e2e hosted outputs", () => {
       type: "queue/v2beta",
     })
     const { consumer, topic } = vercelConsumerConfig.experimentalTriggers[0]
-    expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery"])
+    expect(await deliverVercelQueueMessage(vercelConsumer, topic, consumer, "vercel-delivery")).toEqual(["vercel-delivery:received", "vercel-delivery:done"])
   }, 180_000)
 
   it("builds the env and chat playground modes", async () => {

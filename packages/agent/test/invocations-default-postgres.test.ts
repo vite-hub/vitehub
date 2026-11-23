@@ -70,6 +70,10 @@ async function shareDefaultJournal(databases: { a: object, b: object }, projectR
   expect(finished).toMatchObject({ status: "cancelled" })
   await expect(a.invocations.get(started.id)).resolves.toMatchObject({ status: "cancelled" })
 
+  const { createSharedChatStreams } = await import("../src/internal/resumable-chat-shared.ts")
+  const streams = createSharedChatStreams({ journal: () => b.invocations, ttlMs: 60_000 })
+  await expect(streams.session(runId)).resolves.toMatchObject({ claim: expect.any(Function) })
+
   const previous = await b.invocations.getByRunId(`${runId}-match`, "support")
   expect(previous).toBeDefined()
   const { debugInputCommand } = await import("../src/capabilities/input-commands-debug.ts")

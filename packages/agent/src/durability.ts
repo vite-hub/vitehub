@@ -55,7 +55,6 @@ export function agentInvocationsDurability(input: AgentInvocationsDurabilityInpu
     if (!database) return [{ primitive: "agent-invocations", store: "database", scope: "process", reason: `The ${name} Database is off.`, fix: journalFix }]
     return [{ primitive: "agent-invocations", store: `database (${database.store})`, scope: database.scope, reason: `Rows in the ${name} Database. ${database.reason}`, ...(database.fix ? { fix: database.fix } : {}) }]
   }
-  // The same order as the journal: its env var, its configured URL, the file next to a `file:` State, the default file.
   const file: { stateUrl?: string, url?: string } = input.store === "file" ? input : {}
   const url = runtimeUrl || file.url || agentJournalBesideState(file.stateUrl, context.env)?.url || `file:${defaultAgentInvocationsPath}`
   const sqlite = classifySqliteUrl(url)
@@ -104,4 +103,18 @@ export function agentProcessHostDurability(input: AgentProcessHostDurabilityInpu
     reason: `One server at a time runs the process host of each Agent, under a Lease in the default Database. Another server takes over within about 30 seconds. ${database.reason}`,
     ...(database.fix ? { fix: database.fix } : {}),
   }]
+}
+
+/**
+ * The durability of web chat streams with `resumable.scope: "shared"`. They live in the database of the journal, so
+ * they are as shared as the journal. A journal in memory cannot hold them: such a route fails, and the row says `process`.
+ */
+export function agentChatStreamsDurability(input: AgentInvocationsDurabilityInput, context: DurabilityContext): Durability[] {
+  return agentInvocationsDurability(input, context).map(({ primitive: _primitive, reason, ...journal }) => ({
+    ...journal,
+    primitive: "agent-chat-streams",
+    reason: input.store === "memory"
+      ? "Shared resumable chat streams need a journal in a database. This journal lives in memory, so only `resumable.scope: \"process\"` works."
+      : `Resumable chat streams with \`scope: "shared"\` use the journal database. ${reason}`,
+  }))
 }

@@ -355,12 +355,13 @@ Use the direct SQLite adapter when the journal has its own URL, the [`d1` adapte
 
 ### Store invocations in a Postgres Database
 
-On a Postgres Database, the adapter uses two tables. It works with each Postgres driver of a Database: postgres.js, `driver: 'node-postgres'`, and `driver: 'pglite'` in development.
+On a Postgres Database, the adapter uses two tables, and shared resumable web chat streams use two more. It works with each Postgres driver of a Database: postgres.js, `driver: 'node-postgres'`, and `driver: 'pglite'` in development.
 
 | Table | Content |
 | --- | --- |
 | `vitehub_agent_invocations` | One row for each Invocation: the record and its summary as JSON text, the status, Agent name, and other columns that lists filter on, a revision, and the claim of the run that owns it (`claim_id`, `claim_token`, `claim_expires_at`). |
 | `vitehub_agent_invocations_observations` | The observations that a running Invocation appends, one row each. When the Invocation ends, the store moves them into its record and deletes the rows. Deleting an Invocation deletes its rows. |
+| `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` | The streams of web chat routes with [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat): one row for each stream, and its bytes as chunk rows. |
 
 The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. The default journal of a Node build uses separate tables, `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`, in the `default` Database. Its retention policy does not prune explicit journals. Write and apply their migration with the other tables:
 

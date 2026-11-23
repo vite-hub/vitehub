@@ -1,4 +1,5 @@
 import { boxedPrimitive } from "./internal/boxed-primitive.ts"
+import { chatStreamSqlSource, registerChatStreamSql } from "./internal/chat-stream-sql.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
 import { isRuntimeRecord, isUnbrandedValue } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
@@ -3310,6 +3311,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       return [...capabilityIds].sort()
     },
   }
+  const streamSql = chatStreamSqlSource(options.store)
+  if (streamSql) registerChatStreamSql(invocations, streamSql)
   return invocations
 }
 

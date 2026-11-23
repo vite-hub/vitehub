@@ -366,6 +366,7 @@ jobs:
           echo "url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
 
       - name: Resolve deployment URL
+        id: resolve_url
         env:
           CLOUDFLARE_DEPLOYMENT_URL: ${{ steps.deploy_cloudflare.outputs.url }}
           VERCEL_DEPLOYMENT_URL: ${{ steps.deploy_vercel.outputs.url }}
@@ -379,45 +380,55 @@ jobs:
       - name: Enter runtime stage
         run: echo "LIVE_SMOKE_STAGE=runtime" >> "$GITHUB_ENV"
 
+      # Every runtime check runs once the deploy has a URL, also after an earlier check failed, so
+      # one red feature does not hide the others. Any failed check still fails the job and the report.
       - name: KV Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 10
         run: vp run kv:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Queue Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 5
         run: vp run queue:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Rate Limit Live E2E (cloudflare)
-        if: matrix.provider == 'cloudflare'
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' && matrix.provider == 'cloudflare' }}
         timeout-minutes: 10
         run: vp run rate-limit:e2e --mode live --provider cloudflare --url "$LIVE_SMOKE_URL"
 
       # For a new Cloudflare Worker, allow 15 minutes for Cron Trigger propagation plus the first tick and KV visibility.
       - name: Schedule Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: ${{ matrix.provider == 'cloudflare' && 22 || 7 }}
         env:
           SCHEDULE_TIMEOUT_MS: ${{ matrix.provider == 'cloudflare' && '1080000' || '270000' }}
         run: vp run schedule:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL" --timeout "$SCHEDULE_TIMEOUT_MS"
 
       - name: Sandbox Task Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 10
         run: vp run sandbox-task:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 5
         run: vp run workflow:e2e --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Workspace Live E2E (${{ matrix.provider }})
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 10
         run: vp run workspace:e2e --mode live --provider "$LIVE_SMOKE_PROVIDER" --url "$LIVE_SMOKE_URL"
 
       - name: Blob Live E2E
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 10
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: vp run blob:e2e --mode live --url "$LIVE_SMOKE_URL"
 
       - name: DB Live E2E
+        if: ${{ !cancelled() && steps.resolve_url.outcome == 'success' }}
         timeout-minutes: 10
         run: vp run database:e2e --url "$LIVE_SMOKE_URL"
 

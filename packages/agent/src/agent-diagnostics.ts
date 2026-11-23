@@ -2558,7 +2558,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0570: {
       ...dynamicError,
-      fix: "Set route.resumable.scope to \"process\".",
+      fix: "Set route.resumable.scope to \"shared\" to keep streams in the database of the Agent journal, or to \"process\" when the chat runs in one process.",
     },
     AGENT_R0571: {
       ...dynamicError,
@@ -4773,6 +4773,22 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_REPLAY_TASK_OTHER_AGENT: {
       why: ({ task }: { task: string | undefined }) => `Task "${task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`,
       fix: "Send the item through the Channel webhook queue, or make the Channel trigger select a task of the replaying Agent.",
+    },
+    AGENT_RESUMABLE_CHAT_CLAIM_CONFLICT: {
+      why: "[vitehub] Could not claim the resumable web chat stream with `scope: \"shared\"`. Other requests for the same chat claimed and released it on each attempt.",
+      fix: "Retry the request. If it fails again, check that only one client sends each message of a chat, and that each instance reaches the same journal database.",
+    },
+    AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED: {
+      why: "[vitehub] A web chat route with `resumable.scope: \"shared\"` keeps its streams in the database of the Agent journal. This Agent has no journal, or keeps it in memory or a custom store.",
+      fix: "Keep the Agent on the default journal with D1 or a shared `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, or set `invocations: \"database\"`. Use `scope: \"process\"` when the chat runs in one process.",
+    },
+    AGENT_RESUMABLE_CHAT_POSTGRES_TABLES_MISSING: {
+      why: ({ tables }: { tables: string[] }) => `[vitehub] The Postgres Database of the Agent journal has no table ${tables.map(table => JSON.stringify(table)).join(" or ")} for resumable chat streams with \`scope: "shared"\`.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds these tables with the journal tables to the target Database of `invocations: 'database'`. For another Database, add `agentChatStreams` and `agentChatStreamChunks` of `agentInvocationsPostgresSchema` from `vite-hub/agent/invocations/postgres` to its schema.",
+    },
+    AGENT_RESUMABLE_CHAT_STREAM_FAILED: {
+      why: "[vitehub] The resumable web chat stream with `scope: \"shared\"` failed before it started. The request that claimed it on another instance or tab failed first.",
+      fix: "Read the error of the first request in the logs of the instance that ran it, fix that error, then send the message again.",
     },
     AGENT_ROUTE_NOT_STATIC: {
       why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
