@@ -13,6 +13,8 @@ it("keeps plain URLs as text without Comark deprecation warnings", async () => {
     .resolves.toBe("Try https://example.com and Ada")
   await expect(renderMarkdownTemplate("> [!NOTE]\n> Visit https://example.com\n\n- [x] Done"))
     .resolves.toBe("> [!NOTE]\n> Visit https://example.com\n\n- [x] Done")
+  await expect(renderMarkdownTemplate(":insert{:markdown=\"data.body\"}", { data: { body: "See https://example.org" } }))
+    .resolves.toBe("See https://example.org")
   expect(warn).not.toHaveBeenCalled()
 })
 
