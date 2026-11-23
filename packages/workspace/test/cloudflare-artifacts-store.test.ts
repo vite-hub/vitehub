@@ -130,6 +130,15 @@ describe("Cloudflare Artifacts workspace store", () => {
     await checkGlobCwd(store)
   })
 
+  it("lists the digest of the current content after a file changes", async () => {
+    const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
+    await store.writeFile("doc.md", { path: "doc.md", content: "first" })
+    expect(await store.list()).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("first") })])
+    await store.writeFile("doc.md", { path: "doc.md", content: "second" })
+    expect(await store.list()).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("second") })])
+    expect(await store.glob("*.md")).toEqual([expect.objectContaining({ path: "doc.md", digest: await sha256("second") })])
+  })
+
   it("removes only empty directories", async () => {
     const store = await createStore({ create: vi.fn(), get: vi.fn(async () => artifactsRepo()) })
     await store.mkdir("empty")

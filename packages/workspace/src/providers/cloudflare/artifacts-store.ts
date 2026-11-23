@@ -146,6 +146,7 @@ function isNonFastForward(error: unknown) {
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
+  #digests = new WeakMap<Uint8Array, string>()
   #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
   #head: string | undefined
@@ -233,7 +234,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       if (entry.kind === "file") {
         const fileMetadata = this.#files.get(path)
         entries.push({
-          digest: await sha256(entry.data),
+          digest: await this.#digest(entry.data),
           mediaType: fileMetadata?.mediaType,
           metadata: structuredClone(fileMetadata?.metadata),
           mtime: entry.mtimeMs,
@@ -248,6 +249,15 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
 
     return entries.sort((a, b) => a.path.localeCompare(b.path))
+  }
+
+  async #digest(data: Uint8Array): Promise<string> {
+    let digest = this.#digests.get(data)
+    if (digest === undefined) {
+      digest = await sha256(data)
+      this.#digests.set(data, digest)
+    }
+    return digest
   }
 
   async glob(pattern: string | string[], options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
