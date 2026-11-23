@@ -54,8 +54,9 @@ describe("setup stack replay", () => {
   })
 
   it.each([
-    ["netlify", "kv: { stores: { default: { driver: 'upstash' } } }", "kv.driver"],
     ["netlify", "kv: true", "kv.driver"],
+    ["netlify", "kv: { stores: { sessions: { driver: 'upstash' } } }", "kv.driver"],
+    ["netlify", "kv: { stores: { default: { driver: 'unknown' }, sessions: { driver: 'upstash' } } }", "kv.driver"],
     ["vercel", "comments: true, database: { connection: selectConnection() }", "database.connection"],
   ])("does not offer a command that init cannot plan on %s with %s", async (host, config, field) => {
     const root = await createProject({ "vite.config.ts": viteConfig(`{ host: '${host}', ${config} }`) })
@@ -65,12 +66,24 @@ describe("setup stack replay", () => {
     expect(source.json.stack?.omits).toContainEqual({ path: field, reason: "required-option" })
   })
 
-  it("replays a Netlify KV provider choice that init can plan", async () => {
-    const root = await createProject({ "app/vite.config.ts": viteConfig("{ host: 'netlify', kv: { driver: 'upstash' } }") })
+  it.each([
+    ["kv.driver", "{ driver: 'upstash' }", { driver: "upstash" }],
+    ["kv.stores.default.driver", "{ stores: { default: { driver: 'upstash' } } }", { stores: { default: { driver: "upstash" } } }],
+  ])("replays a Netlify KV provider set at %s", async (path, config, value) => {
+    const root = await createProject({ "app/vite.config.ts": viteConfig(`{ host: 'netlify', kv: ${config} }`) })
     const source = await status(join(root, "app"))
-    expect(source.json.stack?.omits).toEqual([])
-    const result = await replay(source.json.stack!.command, await createProject())
+    expect(source.exitCode, source.stdout).toBe(0)
+    expect(source.json.stack).toMatchObject({ command: expect.stringContaining(`--option ${path}=upstash`), omits: [] })
+    const destination = await createProject()
+    const result = await replay(source.json.stack!.command, destination)
     expect(result.exitCode, result.stdout).toBe(0)
+    const copied = join(destination, "app")
+    expect(locateViteHubConfig("vite.config.ts", await readFile(join(copied, "vite.config.ts"), "utf8"))).toMatchObject({
+      ok: true,
+      site: { keys: { kv: { value } } },
+    })
+    expect(result.json.stack).toEqual(source.json.stack)
+    expect((await status(copied)).json.stack).toEqual(source.json.stack)
   })
 
   it("replays the current features and options after add and remove", async () => {

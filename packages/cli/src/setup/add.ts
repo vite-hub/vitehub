@@ -344,7 +344,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
     if (support.level === "explicit" && !storageSelected) {
       const key = support.option.slice(id.length + 1)
-      if (!(options && key in options) && !setsOption(project, support.option)) {
+      const defaultKVStore = id === "kv" && isRecord(value) && isRecord(value.stores) ? value.stores.default : undefined
+      const driver = isRecord(defaultKVStore) ? defaultKVStore.driver : undefined
+      const hasDefaultKVDriver = driver === "upstash" || driver === "redis" || driver === "database"
+      if (!hasDefaultKVDriver && !(options && key in options) && !setsOption(project, support.option)) {
         const choices = optionChoices[support.option]
         missing.push({ field: support.option, ...(choices ? { choices: choices.values } : {}) })
         if (choices) setPath(defaults[id] ??= {}, [key], choices.values[0])
