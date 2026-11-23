@@ -340,6 +340,7 @@ const nitroRuntimeResolverNames = new Set([
   "vite-hub/cloudflare-sh-syntax",
   // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
   "vite-hub/durability",
+  "vite-hub/cloudflare-pkce-challenge",
   "vite-hub/unavailable-services",
 ])
 

@@ -91,7 +91,7 @@ catalogs:
     drizzle-kit: 1.0.0-rc.6
     drizzle-orm: 1.0.0-rc.6
     pg: ^8.23.1
-    # openworkflow 0.11.0, the latest, declares postgres ^3.4.9, and Workflow hands OpenWorkflow this postgres.
+    # Workflow hands OpenWorkflow a postgres ^3.4.9 client.
     # Move to 4 when openworkflow accepts it.
     postgres: ^3.4.9
   i18n:
@@ -116,7 +116,7 @@ catalogs:
   markdown-ui:
     "@comark/html": ^0.9.2
     comark: ^0.9.2
-    comark-content: 0.6.2
+    comark-content: 0.5.1
     comark-ui: ^0.12.2
     comark-zoom: ^0.12.2
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
@@ -240,7 +240,7 @@ catalogs:
   workflow:
     "@workflow/builders": ^5.1.4
     cron-schedule: ^8.0.1
-    openworkflow: ^0.11.0
+    openworkflow: 0.9.2
     workflow: ^5.7.1
   workspace:
     isomorphic-git: ^1.44.18

@@ -614,3 +614,37 @@ index 74773fd28e59d25532c19dea4592ab533f0f6b76..c408879e34100f81771d2f66df5eb4a5
      background: var(--ui-background);
      box-shadow: var(--ui-shadow);
      color: var(--ui-foreground);
+diff --git a/dist/foundation/popups/frame-guards.js b/dist/foundation/popups/frame-guards.js
+--- a/dist/foundation/popups/frame-guards.js
++++ b/dist/foundation/popups/frame-guards.js
+@@ -2,3 +2,4 @@
+ import { on } from "../kernel/events.js";
+-import { tabbables } from "../focus/tabbable.js";
++import { composedTabbables } from "../focus/tabbable.js";
++import { activeElement, composedContains } from "../platform/platform.js";
+ var hidden = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;outline:none";
+@@ -6,2 +7,3 @@
+   const doc = popup.ownerDocument;
++  let disposed = false;
+   let frame;
+@@ -21,4 +23,4 @@
+   const watch = () => {
+-    const active = doc.activeElement;
+-    if (guards.length || !trapping() || !(active instanceof HTMLIFrameElement) || !popup.contains(active)) {
++    const active = activeElement(doc);
++    if (disposed || guards.length || !trapping() || !(active instanceof HTMLIFrameElement) || !composedContains(popup, active)) {
+       return;
+@@ -37,3 +39,3 @@
+   const offFocus = on(doc, "focusin", (event) => {
+-    const side = guards.indexOf(event.target);
++    const side = guards.indexOf(event.composedPath()[0]);
+     const from = frame;
+@@ -43,3 +45,3 @@
+     }
+-    const stops = tabbables(popup);
++    const stops = composedTabbables(popup);
+     const step = side === 0 ? -1 : 1;
+@@ -49,2 +51,3 @@
+   return () => {
++    disposed = true;
+     offBlur();

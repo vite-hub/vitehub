@@ -56,6 +56,7 @@ import { redirectsVitePlugin, resolveRedirectsPolicy, type RedirectsOptions } fr
 import { staleChunkReloadVitePlugin } from "./stale-chunk-reload.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { cloudflarePkceChallengePlugin } from "./cloudflare-pkce-challenge.ts"
 import { cloudflareShSyntaxPlugin } from "./cloudflare-sh-syntax.ts"
 import { cloudflareRedirectsFileVitePlugin } from "./cloudflare-redirects-vite.ts"
 import { cloudflareEntryExportsModule } from "./cloudflare-entry-exports.ts"
@@ -1708,7 +1709,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
-  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflareRedirectsFileVitePlugin())
+  if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, configuredKV, kvHosting))
 
   // `logs: true` fills its buffer from Evlog. `logs: { source }` reads an existing pipeline, so it starts no logger.
