@@ -37,10 +37,9 @@ async function importPackage(packageJson: string): Promise<Record<string, unknow
   const root = isRecord(manifest) && isRecord(manifest.exports) ? manifest.exports["."] : undefined
   const conditions = isRecord(root) && isRecord(root.import) ? root.import : root
   const entry = typeof conditions === "string" ? conditions : isRecord(conditions) && typeof conditions.default === "string" ? conditions.default : undefined
-  if (!entry) throw new TypeError(`[vitehub] ${packageJson} has no ESM entry.`)
+  if (!entry) return {}
   const module: unknown = await import(pathToFileURL(resolve(dirname(packageJson), entry)).href)
-  if (!isRecord(module)) throw new TypeError(`[vitehub] ${packageJson} has no ESM entry.`)
-  return module
+  return isRecord(module) ? module : {}
 }
 
 async function findPluginVuePackage(projectRoot: string): Promise<string | undefined> {
