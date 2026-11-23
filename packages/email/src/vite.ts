@@ -15,7 +15,7 @@ import { bundleEsmEntry } from "@vite-hub/internal/build/rolldown"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { mergeNitroExternal } from "@vite-hub/internal/nitro-kit"
 import { assertNoBindingsInCode, inferMarkdownTemplateDataType } from "@vite-hub/markdown-template/internal/vite"
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { resolveHost } from "@vite-hub/internal/hosting"
 import { isRecord } from "@vite-hub/internal/object"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -34,6 +34,10 @@ import { emailCaptureKey } from "./runtime/capture.ts"
 import type { EmailTemplate } from "./templates.ts"
 
 const operationsModule = ownModule(import.meta.url, "operations")
+
+function resolveEmailProjectRoot(config: { root?: string, [VITEHUB_PROJECT_ROOT]?: string }): string {
+  return resolveViteHubProjectRoot(config.root ?? process.cwd(), { projectRoot: config[VITEHUB_PROJECT_ROOT] })
+}
 
 export { emailConsoleSection } from "./console.ts"
 
@@ -593,7 +597,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "smtp" })
       }
       vercel = hosting === "vercel" || internalOptions.workflowDriver === "vercel"
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       if (cloudflare && configureNitroCloudflareWorkers(config as Record<string, unknown>, cloudflareEmail)) addedEmailBinding = true
       if (isRecord(configRecord.nitro)) {
         const modules = Array.isArray(configRecord.nitro.modules)
@@ -622,7 +626,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       }
     },
     async configResolved(config) {
-      updateTemplateRoots(resolveViteHubProjectRoot(config.root))
+      updateTemplateRoots(resolveEmailProjectRoot(config))
       await prepareTypesOnce()
       definition = {
         ...configured,
