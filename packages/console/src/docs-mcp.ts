@@ -16,8 +16,8 @@ const requestId = 1
 
 function messages(body: string, type: string | null): unknown[] {
   if (!type?.includes("text/event-stream")) return [JSON.parse(body)]
-  return body.split(/\r\n\r\n|\n\n|\r\r/).flatMap((event) => {
-    const data = event.split(/\r\n|\n|\r/)
+  return body.replace(/\r\n?/g, "\n").split("\n\n").slice(0, -1).flatMap((event) => {
+    const data = event.split("\n")
       .filter(line => line.startsWith("data:"))
       .map(line => line.slice(line.startsWith("data: ") ? 6 : 5))
       .join("\n")

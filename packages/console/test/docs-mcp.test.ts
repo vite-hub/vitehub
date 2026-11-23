@@ -27,6 +27,17 @@ describe("callDocsTool", () => {
     expect(await callDocsTool("list-pages", {}, stream(body))).toEqual({ ...result, isError: false })
   })
 
+  it("reads events separated by mixed line endings", async () => {
+    const notice = event({ jsonrpc: "2.0", method: "notifications/progress" }).replace(/\n\n$/, "\n\r\n")
+    const answer = event({ id: 1, jsonrpc: "2.0", result }).replaceAll("\n", "\r")
+    expect(await callDocsTool("list-pages", {}, stream(notice + answer))).toEqual({ ...result, isError: false })
+  })
+
+  it("discards an incomplete event after a complete answer", async () => {
+    const body = event({ id: 1, jsonrpc: "2.0", result }) + "data: {\n"
+    expect(await callDocsTool("list-pages", {}, stream(body))).toEqual({ ...result, isError: false })
+  })
+
   it("reads a result split across data lines, with CRLF and a priming event", async () => {
     const json = JSON.stringify({ id: 1, jsonrpc: "2.0", result }, null, 2).split("\n").map(line => `data:${line}`).join("\r\n")
     expect(await callDocsTool("list-pages", {}, stream(`id: 0\r\ndata:\r\n\r\n: keep-alive\r\n\r\n${json}\r\n\r\n`))).toEqual({ ...result, isError: false })
