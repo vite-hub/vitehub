@@ -6,7 +6,7 @@ navigation.order: 5
 icon: i-lucide-book-open
 ---
 
-Each `vite-hub/web-container/*` path re-exports the same path of `@vite-hub/web-container`. The Vite plugin has only the `@vite-hub/web-container/vite` path.
+Each `vite-hub/web-container/*` path re-exports the same path of `@vite-hub/web-container`. The Vite plugin and Vue composable have only the `@vite-hub/web-container/vite` and `@vite-hub/web-container/vue` paths.
 
 ## `vite-hub/web-container`
 
@@ -23,6 +23,7 @@ Boots a WebContainer, mounts the snapshot and the files, and resolves with a con
 | `coep` | `"credentialless" \| "require-corp"` | `"credentialless"` | The Cross-Origin-Embedder-Policy of the page. |
 | `workdirName` | `string` | | Folder name of the working directory. |
 | `port` | `number` | `3000` | The port of the server to preview. `run()` passes it to every process as `PORT`. |
+| `previewScript` | `string` | | JavaScript that runs first in every HTML page of the preview. |
 | `onStatus` | `(status) => void` | | Called on every status change, from the first check on. |
 
 ### The container
@@ -68,12 +69,17 @@ Downloads the parts that `packSnapshot()` wrote, joins them in order, and inflat
 
 Turns `{ "server/index.js": "..." }` into the nested tree that a WebContainer mounts.
 
+### `matchesWebContainerRoute(pathname, routes)`
+
+Returns `true` when `pathname` matches one of the route patterns. Also exported from `@vite-hub/web-container/vite`.
+
 ## `@vite-hub/web-container/vite`
 
 | Export | Description |
 | --- | --- |
 | `webContainerVitePlugin({ routes })` | The Vite plugin that `vitehub({ webContainer })` adds. It sets the isolation headers on `routes` in `vite dev` and `vite preview`, and adds Nitro route rules for them. Each route starts with `/`. `/playground` matches that path only, and `/playground/**` matches it and every path below it. Throws without a route. |
-| `webContainerRouteRules(routes)` | The Nitro route rules that the plugin adds. |
+| `resolveWebContainerRoutes(options)` | Checks `routes` and returns a copy. Throws `WEB_CONTAINER_ROUTES_MISSING` or `WEB_CONTAINER_ROUTE_INVALID` for a missing or relative route. |
+| `webContainerRouteRules(routes, existing?)` | The Nitro route rules that the plugin adds. Merges into `existing` rules when passed. |
 | `webContainerHeaders` | `{ "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" }`. |
 | `hubWebContainer()` | Removed. Throws `WEB_CONTAINER_PLUGIN_MOVED`. Use `vitehub({ webContainer: { routes } })`. |
 | `matchesWebContainerRoute(pathname, routes)` | Returns `true` when `pathname` matches one of the route patterns. |
@@ -109,3 +115,25 @@ Compresses a snapshot with gzip and splits it into parts of at most `partBytes` 
 | `connectEnv(connect, credentials)` | Maps credentials keyed by provider name to the `env` variable of each provider. |
 
 `config` takes `vercel` (`true` or `{ clientId }`), `github` (`true` or `{ app }`), `netlify`, `openai`, and `anthropic` (`true`), and `cloudflare` (`{ relay: "reader" }`). The [provider table](/docs/web-container/configure#describe-connectable-accounts) lists each `env` variable.
+
+## `@vite-hub/web-container/vue`
+
+Runs in the browser in a Vue app.
+
+### `useWebContainer(options)`
+
+Boots a WebContainer, installs and starts the app, and keeps its state in Vue refs. Only one WebContainer runs per page.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `files` | `Record<string, string>` | | Text files to mount, keyed by relative path. `reset()` restores them. |
+| `assets` | `Readonly<Record<string, Uint8Array>>` | | Binary files mounted next to `files` on each boot. Edits and `reset()` never touch them. |
+| `snapshot` | `Uint8Array \| ArrayBuffer \| (() => Promise<Uint8Array \| ArrayBuffer>)` | | Snapshot mounted before `files`. A function runs on each boot. |
+| `install` | `WebContainerCommand \| false` | `"install"` | Command that installs dependencies, or `false` to skip install. |
+| `start` | `WebContainerCommand \| false` | `"dev"` | Command that starts the dev server, or `false` to boot and install only. |
+| `port` | `number` | `3000` | Port that the dev server listens on, passed as `PORT`. |
+| `previewScript` | `string` | | JavaScript that runs first in every HTML page of the preview. |
+| `env` | `MaybeRefOrGetter<Record<string, string> \| undefined>` | | Environment variables read again on each install and start run. |
+| `immediate` | `boolean` | `true` | Boot when the component mounts. Set `false` to call `boot()` yourself. |
+
+Returns reactive state (`status`, `steps`, `support`, `failure`, `error`, `files`, `modified`, `fs`, `container`, `previewUrl`, `logs`, `online`) and control methods (`boot()`, `install()`, `restart()`, `setFiles(files, { mode? })`, `reset()`, `teardown()`).
