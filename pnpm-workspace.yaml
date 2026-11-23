@@ -20,6 +20,7 @@ catalog:
 
 catalogMode: prefer
 linkWorkspacePackages: true
+preferWorkspacePackages: true
 # `@t3tools/provider-runtime` declares `@t3tools/contracts` by tarball URL.
 blockExoticSubdeps: false
 
@@ -184,7 +185,7 @@ catalogs:
     "@vercel/blob": ^2.9.0
     aws4fetch: ^1.0.20
     files-sdk: ^3.2.1
-    ioredis: ^6.0.0
+    ioredis: ^6.1.0
     unstorage: 2.0.0-beta.0
   tooling:
     "@yarnpkg/parsers": 3.1.0
@@ -299,6 +300,7 @@ minimumReleaseAgeExclude:
   - "@vercel/nft@1.11.12"
   - evlog@2.37.1
   - forges@0.4.1
+  - ioredis@6.1.0
   - knip@6.48.0
   - nuxt-nightly@5.0.0-2611222336-0ed8910
   - posthog-node@6.0.6
