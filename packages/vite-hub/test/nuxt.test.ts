@@ -205,7 +205,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: `${tmp}/vitehub-nuxt`,
       serverDir: `${tmp}/vitehub-nuxt/custom-server` as string | undefined,
       srcDir: `${tmp}/vitehub-nuxt/app`,
-      vite: { plugins } as UserConfig,
+      vite: { plugins } as UserConfig & { vue?: Record<string, unknown> },
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -3930,6 +3930,13 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       },
     ])
     const { buildBeforeHooks, nuxt } = createNuxt()
+    const compilerOptions = { delimiters: ["[[", "]]"] }
+    nuxt.options.vite.vue = { template: { compilerOptions } }
+    nuxt.options.vite.resolve = { alias: { "@mail": `${tmp}/vitehub-nuxt/custom-server/emails` } }
+    const vue = expect.objectContaining({
+      alias: expect.objectContaining({ "@mail": `${tmp}/vitehub-nuxt/custom-server/emails` }),
+      pluginOptions: { template: { compilerOptions } },
+    })
 
     await viteHubNuxtModule({ email: true, host: "cloudflare" }, nuxt)
 
@@ -3937,12 +3944,14 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue,
     })
     await Promise.all(buildBeforeHooks.map(hook => hook()))
     expect(prepareTypes).toHaveBeenLastCalledWith({
       materialize: true,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue,
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
@@ -4007,6 +4016,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue: expect.any(Object),
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
@@ -4033,6 +4043,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue: expect.any(Object),
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.

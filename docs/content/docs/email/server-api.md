@@ -208,14 +208,16 @@ const [error] = await email.send({
   data: { name: 'Ada', team: 'Docs', trial: true },
   from: 'verified-sender@example.com',
   to,
+  subject: 'Join Docs',
 })
 ```
 
 - The props of the component are the `data` of the template. TypeScript checks
   `data` against `defineProps`.
-- `<EmailSubject>` sets the subject to the text of its slot, and renders
-  nothing. A Vue template without `<EmailSubject>` needs `subject` in the
-  message. A `subject` in the message overrides `<EmailSubject>`.
+- `<EmailSubject>` sets the rendered subject to the text of its slot and adds
+  nothing to the HTML. A component may not render the subject on every path,
+  so TypeScript requires `subject` on Vue template sends. A subject supplied
+  in the message overrides the rendered subject.
 - `_layout.vue` is a partial, so it is not a template. Templates import partials
   as Vue components.
 - Import each component and function that the template uses. Email templates

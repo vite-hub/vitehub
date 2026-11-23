@@ -9,6 +9,7 @@ const blockWrapperTags = new Set(["article", "aside", "body", "caption", "center
 const inlineWrapperTags = new Set(["font", "label", "span"])
 const blockTags = new Set(["blockquote", "dl", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "ol", "p", "pre", "ul"])
 const namedEntities: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", nbsp: "\u00A0", quot: "\"" }
+const textAttributes = new Map([["a", ["href", "title"]], ["img", ["src", "alt", "title"]], ["ol", ["start"]]])
 
 function decodeEntities(text: string): string {
   return text.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, name: string) => {
@@ -47,7 +48,7 @@ function textNodes(node: Node): Node[] {
   const content = children.flatMap(child => textNodes(child))
   if (blockWrapperTags.has(tag)) return asBlocks(content)
   if (inlineWrapperTags.has(tag)) return content
-  const { $: _parser, ...props } = attrs
+  const props = Object.fromEntries((textAttributes.get(tag) ?? []).filter(key => Object.hasOwn(attrs, key)).map(key => [key, attrs[key]]))
   return [[tag, props, ...content]]
 }
 

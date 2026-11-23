@@ -328,7 +328,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
       deno: explicit("email.driver", "Resend", "Configure the built-in fetch-based Resend driver."),
       dev: native("log", "Log", "`email: true` keeps each message in the development outbox and sends nothing. Set `email.driver` for a production build.", "process-local"),
       netlify: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
-      node: explicit("email.driver", "Resend / custom", "Configure Resend, or set `email.driver` to a driver module for another provider."),
+      node: explicit("email.driver", "Resend / SMTP / custom", "Configure Resend, `smtp` with the `nodemailer` package, or a driver module for another provider."),
       vercel: explicit("email.driver", "Resend", "Configure the built-in Resend driver."),
     },
     developmentOverrides: ["deno", "netlify", "vercel"],

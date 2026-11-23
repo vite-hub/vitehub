@@ -4,7 +4,11 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
+import vue from "@vitejs/plugin-vue"
+import { createServer, resolveConfig } from "vite"
+
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { getEmailOutboxMessage, listEmailOutbox } from "../src/runtime/console.ts"
 import { hubEmail } from "../src/vite.ts"
@@ -168,15 +172,93 @@ it("sends a Vue template from a subfolder by its path", async () => {
   expect(message?.text).toBe("[Reset your password](https://example.com/reset?token=1&next=2)\n\nSent by Acme")
 })
 
-it("types the data of a Vue template from its props, and its subject from `<EmailSubject>`", async () => {
+it("types Vue props without promising that a component renders a subject", async () => {
   const root = await createProject({ vue: true })
+  const emails = join(root, "server/emails")
+  await writeFile(join(emails, "conditional.vue"), '<script setup lang="ts">import { EmailSubject } from "@vite-hub/email/vue"; defineProps<{ enabled: boolean }>()</script><template><EmailSubject v-if="enabled">Conditional</EmailSubject></template>')
+  await writeFile(join(emails, "commented.vue"), '<template><!-- <EmailSubject>Comment</EmailSubject> --><p>Body</p></template>')
+  await writeFile(join(emails, "partial.vue"), '<script setup>import Subject from "./_subject.vue"</script><template><Subject /></template>')
+  await writeFile(join(emails, "_subject.vue"), '<script setup>import { EmailSubject } from "@vite-hub/email/vue"</script><template><EmailSubject>Partial</EmailSubject></template>')
   await configure(root, [hostVuePlugin])
 
   const registry = await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")
   const props = (file: string) => `Omit<InstanceType<typeof import("../../server/emails/${file}").default>["$props"], keyof import("vue").AllowedComponentProps | keyof import("vue").VNodeProps>`
-  expect(registry).toContain(`"invite": {\n      data: ${props("invite.vue")}\n      subject: true\n    }`)
-  expect(registry).toContain(`"auth/reset": {\n      data: ${props("auth/reset.vue")}\n      subject: false\n    }`)
+  for (const name of ["invite", "auth/reset", "conditional", "commented", "partial"]) {
+    expect(registry).toContain(`"${name}": {\n      data: ${props(`${name}.vue`)}\n      subject: false\n    }`)
+  }
   expect(registry).not.toContain("_layout")
+  const modules = await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")
+  expect(modules.match(/subject\?: string/g)).toHaveLength(5)
+  const render = async (name: string) => (await import(pathToFileURL(join(root, ".vitehub/email/templates", `${name}.mjs`)).href)).default({ enabled: false })
+  expect((await render("conditional")).subject).toBeUndefined()
+  expect((await render("commented")).subject).toBeUndefined()
+  expect((await render("partial")).subject).toBe("Partial")
+})
+
+it("defers Cloudflare Nuxt replay until TypeScript project references exist", async () => {
+  const root = await createProject({ vue: true })
+  await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }] }))
+  const plugin = hubEmail({ driver: "log" })
+  const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, nitro: { preset: "cloudflare-module" }, root }
+  const renderer = join(root, ".vitehub/email/templates/invite.mjs")
+
+  await (plugin.config as ConfigHook)(config, { command: "build", mode: "production" })
+  await (plugin.configResolved as ConfigResolvedHook)({ ...config, plugins: [] })
+  await expect(readFile(renderer, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+  await mkdir(join(root, ".nuxt"))
+  await writeFile(join(root, ".nuxt/tsconfig.app.json"), JSON.stringify({ compilerOptions: { target: "ESNext" }, include: ["../**/*"] }))
+  await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
+  const { default: render } = await import(pathToFileURL(renderer).href)
+  await expect(render({ name: "Ada", team: "Docs" })).resolves.toMatchObject({ subject: "Join Docs" })
+})
+
+it("shares hosted Vite aliases and Vue compiler settings with CLI preview", async () => {
+  const root = await createProject({ vue: true })
+  const emails = join(root, "server/emails")
+  const invite = join(emails, "invite.vue")
+  await writeFile(invite, (await readFile(invite, "utf8")).replaceAll("{{", "[[").replaceAll("}}", "]]").replace('"./_layout.vue"', '"@mail/_layout.vue"'))
+  const plugin = hubEmail({ driver: "log" })
+  const inlineConfig = {
+    configFile: false,
+    plugins: [plugin, vue({ template: { compilerOptions: { delimiters: ["[[", "]]"] } } })],
+    resolve: { alias: { "@mail": emails } },
+    root,
+    nitro: { preset: "vercel" },
+  } satisfies import("vite").InlineConfig & { nitro: { preset: string } }
+  const config = await resolveConfig(inlineConfig, "build")
+  expect(config.resolve.alias).toContainEqual({ find: "@mail", replacement: emails })
+  const { default: render } = await import(pathToFileURL(join(root, ".vitehub/email/templates/invite.mjs")).href)
+  const data = { name: "Ada", team: "Docs" }
+  const rendered = await render(data)
+  expect(rendered).toMatchObject({ subject: "Join Docs", html: expect.stringContaining("<h1>Hi Ada</h1>") })
+  const cli = await plugin.vitehub.cli?.()
+  const preview = cli?.namespaces[0]?.features.find(feature => feature.name === "preview")
+  const write = vi.fn()
+  const context = { cwd: root, rootDir: root, env: {}, spawn: vi.fn(), stderr: { write: vi.fn() }, stdout: { write } }
+  await expect(preview?.run(["invite", "--json", "--data", JSON.stringify(data)], context)).resolves.toBe(0)
+  expect(JSON.parse(write.mock.calls[0]![0])).toMatchObject(rendered)
+})
+
+it("materializes the first Vue template added to the running Markdown app", async () => {
+  const root = await createProject({ vue: true })
+  const emails = join(root, "server/emails")
+  await Promise.all([rm(join(emails, "invite.vue")), rm(join(emails, "auth"), { recursive: true })])
+  const server = await createServer({ configFile: false, plugins: [hubEmail({ driver: "log" }), vue()], root, server: { middlewareMode: true } })
+  try {
+    const template = join(emails, "new.vue")
+    await vi.waitFor(() => expect(server.watcher.getWatched()[emails]).toContain("welcome.md"))
+    await writeFile(template, "<template><p>New email</p></template>")
+    await vi.waitFor(async () => {
+      const registry = await readFile(join(root, ".vitehub/email/preview.mjs"), "utf8")
+      expect(registry).toContain('"new": () => import("./templates/new.mjs")')
+      const { default: render } = await import(pathToFileURL(join(root, ".vitehub/email/templates/new.mjs")).href)
+      await expect(render({})).resolves.toMatchObject({ text: "New email" })
+    })
+  }
+  finally {
+    await server.close()
+  }
 })
 
 it("throws EMAIL_VUE_PLUGIN_MISSING when the Vite config has no `@vitejs/plugin-vue`", async () => {

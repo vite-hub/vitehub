@@ -12,6 +12,11 @@ import type { EmailTemplate } from "./templates.ts"
 /** The options of the host's `@vitejs/plugin-vue` that also apply to Email templates. */
 export type EmailVuePluginOptions = Record<string, unknown>
 
+export interface EmailVueBuildOptions {
+  pluginOptions?: EmailVuePluginOptions
+  alias?: NonNullable<InlineConfig["resolve"]>["alias"]
+}
+
 const entryPrefix = "\0vitehub-email-vue:"
 const vueImport = /^(?:vue|@vue\/[^/]+)(?:\/|$)/
 const hostPluginOptionKeys = ["compiler", "customElement", "exclude", "features", "include", "script", "style", "template"]
@@ -74,7 +79,7 @@ function isInside(directory: string, file: string): boolean {
  * app use one Vue and one HTML parser.
  * Returns the source files that the templates import.
  */
-export async function compileEmailVueTemplates(templates: EmailTemplate[], outputRoot: string, projectRoot: string, pluginOptions: EmailVuePluginOptions = {}): Promise<string[]> {
+export async function compileEmailVueTemplates(templates: EmailTemplate[], outputRoot: string, projectRoot: string, options: EmailVueBuildOptions = {}): Promise<string[]> {
   if (!templates.length) return []
   const file = relative(projectRoot, templates[0]!.file)
   if (!await findPackage(projectRoot, "vue")) throw emailErrorDiagnostics.EMAIL_VUE_MISSING({ file })
@@ -119,8 +124,9 @@ export async function compileEmailVueTemplates(templates: EmailTemplate[], outpu
     envFile: false,
     logLevel: "warn",
     mode: "production",
-    plugins: [entries, vue(pluginOptions), watch],
+    plugins: [entries, vue(options.pluginOptions ?? {}), watch],
     publicDir: false,
+    resolve: { alias: options.alias },
     root: projectRoot,
     ssr: { noExternal: true, target: "node" },
     build: {

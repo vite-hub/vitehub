@@ -15,6 +15,8 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 
+The SMTP driver requires TLS when you configure a login. If the relay accepts only some recipients, the driver returns an error; do not retry the entire send.
+
 The Vite integration composes one provider driver from a built-in name or an app driver module, and runtime Env declarations.
 
 ## Quickstart
@@ -158,6 +160,8 @@ defineProps<{ name: string, team: string }>()
 
 `_layout.vue` is a partial that templates import as a component. Import each component that a template uses: Nuxt auto-imports do not apply to Email templates. `text` comes from the rendered HTML, with the same Markdown markers as a Markdown template. The build stops with `EMAIL_VUE_MISSING` when the app cannot import `vue`, and with `EMAIL_VUE_PLUGIN_MISSING` when the Vite config has no `@vitejs/plugin-vue`.
 
+TypeScript requires a `subject` on Vue template sends because `<EmailSubject>` may not render on every path. A subject in the message overrides the rendered subject.
+
 ## Test without delivery
 
 `createTestEmail()` uses an isolated in-memory mailbox with the same message contract as a production client:
@@ -231,7 +235,7 @@ Pass this identity to each reader to inspect this application's configured Email
 
 ## Use another provider
 
-Set `driver` to `resend` or `cloudflare` and declare its options in `hubEmail({ driver, options })`. For another provider, set `driver` to the path of a driver module, such as `"./server/email-driver.ts"`. The path is relative to the project root. The module default-exports a function that gets `options`, with each `env()` value read, and returns an `EmailDriver`. The host compiles it with the app. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
+Set `driver` to `resend`, `smtp`, or `cloudflare` and declare its options in `hubEmail({ driver, options })`. The `smtp` driver reads `host`, `port`, `secure`, `user`, and `pass`, sends with the optional `nodemailer` peer, and runs on Node hosts only. For another provider, set `driver` to the path of a driver module, such as `"./server/email-driver.ts"`. The path is relative to the project root. The module default-exports a function that gets `options`, with each `env()` value read, and returns an `EmailDriver`. The host compiles it with the app. Set `driver` to `log` for a build without a provider: `email.send()` prints each message with `console.info` and sends nothing, and `email.canSend` is `false`. `email.canSend` is also `false` without Email, so the app can show a link on the page instead. Programmatic clients can implement the exported `EmailDriver` interface or import a built-in driver from `@vite-hub/email/drivers/*`. A driver's `send()` returns `[error, data]`, the same order as `email.send()`.
 
 `createEmail()` initializes a driver object once per client, shares pending initialization across concurrent sends, and retries after initialization fails. A driver factory resolves and initializes a driver for each send so request-scoped provider options stay current. The development outbox preserves these lifecycle rules.
 

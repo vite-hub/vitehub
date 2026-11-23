@@ -54,6 +54,11 @@
       "import": "./dist/drivers/resend.js",
       "default": "./dist/drivers/resend.js"
     },
+    "./drivers/smtp": {
+      "types": "./dist/drivers/smtp.d.ts",
+      "import": "./dist/drivers/smtp.js",
+      "default": "./dist/drivers/smtp.js"
+    },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
@@ -103,6 +108,7 @@
     "@vite-hub/workflow": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.10",
     "esbuild": "catalog:tooling",
+    "nodemailer": "10.6.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -111,10 +117,14 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "nodemailer": "^10.0.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "nodemailer": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     },

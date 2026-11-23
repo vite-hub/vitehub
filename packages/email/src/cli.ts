@@ -16,6 +16,7 @@ import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from
 import type { EmailOutboxDelivery, EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
 import type { EmailTemplate } from "./templates.ts"
 import type { RenderedEmail } from "./types.ts"
+import type { EmailVueBuildOptions } from "./vue-compile.ts"
 
 export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
@@ -25,6 +26,7 @@ export interface EmailCliOptions {
   fetch?: typeof fetch
   /** Directories that hold Email templates. The Vite plugin passes its `server/emails` roots. */
   templateRoots?: () => readonly string[]
+  vue?: (template: EmailTemplate) => EmailVueBuildOptions
 }
 
 type OutboxBodyFormat = "html" | "json" | "text"
@@ -384,12 +386,12 @@ async function readPreviewData(value: string | undefined, cwd: string): Promise<
   return data
 }
 
-async function renderVueTemplate(rootDir: string, template: EmailTemplate, data: Record<string, unknown>): Promise<RenderedEmail> {
+async function renderVueTemplate(rootDir: string, template: EmailTemplate, data: Record<string, unknown>, vue?: EmailVueBuildOptions): Promise<RenderedEmail> {
   const parent = resolve(rootDir, ".vitehub", "email")
   await mkdir(parent, { recursive: true })
   const outputRoot = await mkdtemp(resolve(parent, "preview-"))
   try {
-    await compileEmailVueTemplates([template], outputRoot, rootDir)
+    await compileEmailVueTemplates([template], outputRoot, rootDir, vue)
     const module: { default: (data: Record<string, unknown>) => Promise<RenderedEmail> } = await import(pathToFileURL(resolve(outputRoot, `${emailTemplateFileName(template.name)}.mjs`)).href)
     return await module.default(data)
   }
@@ -419,7 +421,7 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
   const json = parsed.format === "json"
   const roots = options.templateRoots?.() ?? [resolve(context.rootDir, "server", "emails")]
   try {
-    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd), (template, data) => renderVueTemplate(context.rootDir, template, data))
+    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd), (template, data) => renderVueTemplate(context.rootDir, template, data, options.vue?.(template)))
     if (parsed.format === "html") context.stdout.write(`${rendered.html}\n`)
     else if (parsed.format === "text") context.stdout.write(`${rendered.text}\n`)
     else if (json) context.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`)
