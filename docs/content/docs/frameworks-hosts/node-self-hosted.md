@@ -410,12 +410,13 @@ one disk, so they do not work across several instances.
 | Realtime | `auto`: Redis with `REDIS_URL`, else Postgres on the Default Database when it is on Postgres, else memory | With Redis or Postgres, each instance holds its rooms in memory and shares them with the other instances. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). With memory, one process. See [Share rooms across Node instances](/docs/realtime/configure#share-rooms-across-node-instances). |
 | Schedule | The Process Runtime runs Schedules in the server process. Set `providerOutput: false` to wake Schedules yourself. | Yes with a Postgres or remote libSQL Default Database. Servers claim occurrences in `vitehub_leases`. A run can repeat if its lease expires. With a local SQLite file or no Database, run one instance. See [Run on more than one server](/docs/schedule/configure#run-on-more-than-one-server). |
 | Workflow | OpenWorkflow. It picks storage in this order: `workflow.sqlite.path` or `workflow.postgres.url`, then `OPENWORKFLOW_SQLITE_PATH`, `OPENWORKFLOW_POSTGRES_URL`, a Postgres Default Database, and last `.vitehub/data/openworkflow.sqlite.db`. A Postgres `DATABASE_URL` alone fails with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_IGNORED` instead of using the SQLite file. See [Select OpenWorkflow storage](/docs/workflows/hosts#select-openworkflow-storage). | Yes with Postgres. Each server starts the OpenWorkflow worker, and the workers share the runs. `workflow: { worker: false }` turns the worker off. The SQLite file keeps runs on one host. See [Workflow hosts](/docs/workflows/hosts#run-workflows-on-node). |
+| Agent State | `VITEHUB_AGENT_STATE_URL` or `agent.providers.state.url`. A `file:` URL keeps a SQLite file on one host. | Only with a remote libSQL URL, such as Turso or `sqld`. Every instance then shares Chat History, locks, the Chat queue, and queued webhook deliveries. Expiry uses the database clock, so host clock differences do not change when an entry expires. |
 | Sandbox | None | `sandboxTask: true` fails the build. `sandboxTask: { driver: 'vercel' }` uses Vercel Sandbox with Vercel credentials. |
 
 Schedule needs one instance unless the Default Database is Postgres or remote libSQL.
 Queue needs one instance unless it uses Postgres. Workflow needs Postgres to share runs. Realtime needs one
 instance unless it uses Redis or Postgres. Rate Limit needs shared KV to
-share counts. Run features without shared storage on one instance, or run
+share counts. Agent State needs remote libSQL to share State. Run features without shared storage on one instance, or run
 the whole app as one instance.
 
 Set `dataDir` in `vitehub()`, for example `dataDir: '/var/lib/app'`, to keep

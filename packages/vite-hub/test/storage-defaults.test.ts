@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
-import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
+import { setResolvedFeatureOptions, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createLogger, resolveConfig } from "vite"
+import type { DurabilityContribution, DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
 import { defaultDatabaseD1Binding, agentJournalStateUrl, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
@@ -12,23 +13,27 @@ import { vitehub } from "../src/index.ts"
 import type { ViteHubOptions } from "../src/index.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
-/** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
-async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ durability: unknown, info: string[], plugin: string }> {
+async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}, extra: Plugin[] = []): Promise<{ durability: readonly DurabilityContribution[], info: string[], plugin: string }> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-storage-journal-"))
   try {
     for (const [file, contents] of Object.entries(files)) {
       await mkdir(dirname(join(root, file)), { recursive: true })
       await writeFile(join(root, file), contents)
     }
-    const plugin = vitehub(options)
-      .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/agent-invocations")
+    const owners = vitehub(options).filter((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && (plugin.name === "vite-hub/agent-invocations" || plugin.name === "@vite-hub/database/vite"))
+    const plugin = owners.find(plugin => plugin.name === "vite-hub/agent-invocations")
     const config = plugin?.config
     const configResolved = plugin?.configResolved
     if (!config || !configResolved) throw new TypeError("Expected Agent Invocations config hooks.")
-    await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
     const info: string[] = []
-    await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
-    const durability = plugin && "vitehub" in plugin ? (plugin.vitehub as DurabilityPluginMetadata).durability?.() : undefined
+    if (options.host === "node" && options.database && command === "build") {
+      await resolveConfig({ root, configFile: false, customLogger: { ...createLogger("silent"), info: message => { info.push(message) } }, plugins: [...owners, ...extra] }, command)
+    }
+    else {
+      await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
+      await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
+    }
+    const durability = (plugin && "vitehub" in plugin ? (plugin.vitehub as DurabilityPluginMetadata).durability?.() : undefined) ?? []
     return { durability, info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
   }
   finally {
@@ -119,8 +124,10 @@ describe("Node storage defaults", () => {
     const state = { driver: "libsql" as const, url: "file:.data/agent-state.db" }
     const { durability, plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
     expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
-    // The boot report reads the same State URL, so it names the file that the journal opens.
-    expect(durability).toMatchObject([{ input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" }])
+    expect(durability).toMatchObject([
+      { input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" },
+      { export: "agentChatStreamsDurability", input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-chat-streams" },
+    ])
     const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
     expect(stateUrl("libsql://state.example.com")).toBeUndefined()
     expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
@@ -135,7 +142,6 @@ describe("Node storage defaults", () => {
 })
 
 describe("Default Agent journal host defaults", () => {
-  // The Console is off: the default journal does not depend on it.
   const cloudflare = { host: "cloudflare", agent: true, database: { driver: "cloudflare", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
@@ -231,6 +237,57 @@ describe("Default Agent journal host defaults", () => {
   })
 })
 
+describe("Default Agent journal on a Node Postgres Database", () => {
+  const postgres = { "server/databases/default.ts": 'export default defineDatabase({ dialect: "postgresql", driver: "node-postgres", schema: {} })\n' }
+  const sqlite = { "server/databases/default.ts": "export default defineDatabase({ schema: {} })\n" }
+  const node = { host: "node", agent: true, database: true } satisfies ViteHubOptions
+
+  it("stores the default journal in the Postgres default Database of a Node build", async () => {
+    const { durability, info, plugin } = await generatedJournalPlugin(node, "build", postgres)
+    expect(plugin).toContain('database: "default"')
+    const input = { database: "default", defaultJournal: true, store: "database" }
+    expect(durability).toMatchObject([
+      { input, primitive: "agent-invocations" },
+      { input, primitive: "agent-chat-streams" },
+    ])
+    expect(info).toEqual(["[vitehub] Agent Invocation journal: the Postgres default Database. Its migrations create the journal tables."])
+  })
+
+  it("uses the Database owner's contributed dialect and discovery root", async () => {
+    const contribution = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
+    const movedDatabase: Plugin = { name: "move-database", config: config => setResolvedFeatureOptions(config, "database", { projectRoot: "storage" }) }
+    const implicit = await generatedJournalPlugin(node, "build", {}, [contribution])
+    const moved = await generatedJournalPlugin(node, "build", { ...sqlite, "storage/server/databases/default.ts": postgres["server/databases/default.ts"] }, [movedDatabase])
+    for (const journal of [implicit, moved]) {
+      expect(journal.plugin).toContain('database: "default"')
+      expect(journal.durability[0]).toMatchObject({ input: { database: "default", defaultJournal: true, store: "database" } })
+    }
+  })
+
+  it.each([
+    ["a SQLite default Database", node, "build", sqlite],
+    ["development", node, "serve", postgres],
+    ["no Database", { host: "node", agent: true }, "build", postgres],
+    ["an explicit databaseUrl", { ...node, agent: { invocations: { databaseUrl: "libsql://journal.example.com" } } }, "build", postgres],
+    ["another host", { ...node, host: "vercel" }, "build", postgres],
+  ] satisfies Array<[string, ViteHubOptions, "build" | "serve", Record<string, string>]>)("keeps the file journal with %s", async (_, options, command, files) => {
+    const { durability, plugin } = await generatedJournalPlugin(options, command, files)
+    expect(plugin).not.toContain('database: "default"')
+    expect(durability[0]).toMatchObject({ input: { store: "file" } })
+  })
+
+  it("keeps an explicit memory journal", async () => {
+    const { durability, plugin } = await generatedJournalPlugin({ ...node, agent: { invocations: "memory" } }, "build", postgres)
+    expect(plugin).not.toContain('database: "default"')
+    expect(durability[0]).toMatchObject({ input: { store: "memory" } })
+  })
+
+  it("rejects retention.maxSize for the Postgres journal", async () => {
+    await expect(generatedJournalPlugin({ ...node, agent: { invocations: { retention: { maxSize: "1GB" } } } }, "build", postgres))
+      .rejects.toThrow(expect.objectContaining({ code: "VITE_HUB_B0016", message: expect.stringContaining("default Database") }))
+  })
+})
+
 describe("Connections database default", () => {
   // SAFETY: vitehub() returns a flat list of concrete plugins in these tests.
   const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)
@@ -263,7 +320,6 @@ describe("Connections database default", () => {
     expect(withComments({ host: "node", console: { auth: false }, comments: false })).toEqual({ host: "node", console: { auth: false }, comments: false })
     expect(withComments({ host: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
     expect(withComments({ host: "node" })).toEqual({ host: "node" })
-    // `markCmsPresetFeaturesResolved()` marks the object, so a call that changes nothing keeps it.
     const resolved = { host: "node", comments: true, database: true } as const
     expect(withComments(resolved)).toBe(resolved)
   })

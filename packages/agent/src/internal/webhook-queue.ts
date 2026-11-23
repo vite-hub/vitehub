@@ -56,7 +56,7 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   /** Claims notification permanently; uncertain callback effects must not be replayed. */
   beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>
   markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false, publicErrorCode?: "TIMEOUT" }) => Promise<boolean>
-  enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
+  enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery, options?: { absoluteAvailableAt?: boolean }): Promise<boolean>
   /** Completed queue rows retain their Channel identity until the superseded journal event is persisted. */
   pendingWebhookDeliverySettlements?: (scope: string) => Promise<{ channelDeliveryId: string, deliveryId: string }[]>
   completeWebhookDeliverySettlement?: (scope: string, deliveryId: string) => Promise<void>

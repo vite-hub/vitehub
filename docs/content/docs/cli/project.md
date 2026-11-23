@@ -48,16 +48,25 @@ The Nuxt app does not declare a known Nuxt 5 version. ViteHub stops before adopt
 
 Other commands load the project config the way `nuxt dev` does: in a Nuxt app, the `$development` overrides apply, so a command next to a running dev server resolves the same config and leaves its generated files alone. `--stage <name>` loads `$<name>` instead.
 
-`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. `catalog` needs no project and works in an empty folder. `status` needs a project folder with `package.json`, `vite.config.*`, or `nuxt.config.*`. It parses the config file without running it, so it works on a config that throws. In an empty folder, `status` exits with `1` and `SETUP_NOT_A_PROJECT`.
+
+Without `vite-hub` installed, run both commands from the `vite-hub` package with `pnpm dlx`. There is no `vitehub` package on npm. Once `vite-hub` is installed in the project, run `pnpm vitehub`.
 
 ```bash [Terminal]
+# From any folder, without vite-hub installed
+pnpm dlx vite-hub catalog --json
+
+# From a project folder, without vite-hub installed
+pnpm dlx vite-hub status --json
+
+# From a project folder with vite-hub installed
 pnpm vitehub catalog --json
 pnpm vitehub status --json
 ```
 
-`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`.
 
-`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
+`status` reads `package.json`, `vite.config.*`, or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
 
 `status` reports:
 
@@ -118,7 +127,7 @@ A starter Definition file exists and has other content, or another file already 
 
 ### `SETUP_SERVER_DIR_MANUAL`
 
-Nuxt's application server directory needs config evaluation, for example because `serverDir` is an expression or the app uses layers. Create the Definition in that directory and rerun without `--name`, or use literal directory options without layers.
+The CLI could not determine Nuxt's application server directory statically. For example, the app may use a dynamic `serverDir`, layers, directory overrides for a Nuxt environment, or a `.nuxtrc` file that sets directory or layer options or that the CLI cannot read or parse. Create the Definition in Nuxt's resolved server directory and rerun without `--name`.
 
 ### `SETUP_INSTALL_FAILED`
 
@@ -159,7 +168,7 @@ The command deletes the `vitehub()` key. A feature that is on without a key, suc
 
 `remove` deletes a file only when it is exactly a starter that `add` writes. It refuses with `3` while the app still uses the feature: an import of `vite-hub/<feature>` or of a package that only this feature needs, a changed or extra file in the Definition folder, such as `server/queues/`, or a discovered file, such as `server/comments.ts`. The error lists each file and line in `references`. It uninstalls a package only when no enabled feature declares it and no source file imports it.
 
-When Nuxt directories cannot be resolved without running the config, for example with `srcDir`, layers, or a dynamic `serverDir`, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Use literal directory options without layers, or pass `--force` to turn it off while leaving those files in place.
+When the CLI cannot determine the Nuxt server directory statically, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Pass `--force` to turn it off while leaving those files in place.
 
 `remove` never deletes host resources, such as a D1 database or a KV namespace, the local data in `.vitehub/data`, host credentials, or `.vitehub/link.json`. `nextSteps` names the host resources to delete by hand.
 

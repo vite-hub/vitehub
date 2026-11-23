@@ -24,6 +24,7 @@ export default defineConfig({
     exclude: ["test/output/**", "test/local/**"],
     fileParallelism: false,
     include: ["test/**/*.test.ts"],
+    setupFiles: ["./test/support/setup.ts"],
     // Restore stubbed env before each test, so a test that times out cannot leave its hosting env to the next one.
     unstubEnvs: true,
     ...shard ? { shard } : {},

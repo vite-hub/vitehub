@@ -347,16 +347,25 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    'serverDir: process.env.SERVER_DIR || "backend"',
-    'rootDir: process.env.APP_ROOT || "app"',
-    'extends: ["./base"]',
-  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options) => {
+    ['serverDir: process.env.SERVER_DIR || "backend"', {}],
+    ['rootDir: process.env.APP_ROOT || "app"', {}],
+    ['extends: ["./base"]', {}],
+    ['srcDir: "src", $development: { serverDir: "backend" }', {}],
+    ['srcDir: "src", $env: { staging: { rootDir: "app" } }', {}],
+    ['srcDir: "src", theme: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src", _extends: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src"', { ".nuxtrc": "serverDir=backend\n" }],
+    ["devtools: false", { ".nuxtrc": "extends[]=./base\n" }],
+    ["devtools: false", { ".nuxtrc": "rootDir.0=app\n" }],
+    ["devtools: false", { ".nuxtrc": "devtools=true\ndevtools[]=false\n" }],
+  ])("rejects Nuxt starters when the application server directory is unresolved: %s %j", async (options, files) => {
     const root = await createProject({
+      ...files,
       "package.json": pnpmManifest,
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
     })
     const before = await snapshot(root)
-    const result = await add(["queue", "--name", "jobs", "--yes"], root)
+    const result = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
     expect(await snapshot(root)).toEqual(before)
@@ -428,6 +437,9 @@ describe("vitehub add", () => {
     ['rootDir: "app"', "app/server"],
     ['serverDir: "backend"', "backend"],
     ['rootDir: "app", serverDir: "backend"', "app/backend"],
+    ['srcDir: "src"', "server"],
+    ['srcDir: "src", serverDir: "backend"', "backend"],
+    ['srcDir: "src", $production: { devtools: { enabled: false } }', "server"],
   ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -439,8 +451,32 @@ describe("vitehub add", () => {
     const files = Object.keys(await snapshot(root))
     expect(files).toContain(`${serverDir}/queues/jobs.ts`)
     expect(files).toContain(`${serverDir}/databases/jobs.ts`)
-    expect(files.some(file => file.startsWith("server/"))).toBe(false)
+    expect(files.filter(file => file.endsWith("/jobs.ts")).every(file => file.startsWith(`${serverDir}/`))).toBe(true)
     expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it("adds, discovers, and removes Nuxt starters with unrelated RC settings", async () => {
+    const workspace = await createProject({
+      ".nuxtrc": "devtools.enabled=false\n",
+      "pnpm-workspace.yaml": "packages: ['apps/*']\n",
+      "apps/site/.nuxtrc": "# Project settings\napp.head.title=Example\n",
+      "apps/site/nuxt.config.ts": 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], srcDir: "src", vitehub: { host: "node" } })',
+      "apps/site/package.json": pnpmManifest,
+      "user/.nuxtrc": 'modules[]="@nuxt/devtools"\n',
+    })
+    const root = join(workspace, "apps/site")
+    const env = { XDG_CONFIG_HOME: join(workspace, "user") }
+    const starter = join(root, "server/queues/jobs.ts")
+    const result = await runSetup<AddResult>(["add", "queue", "--name", "jobs", "--no-install", "--yes", "--json"], root, env)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(true)
+
+    const status = await runSetup<SetupStatus>(["status", "--json"], root, env)
+    expect(status.json.features).toContainEqual(expect.objectContaining({ id: "queue", enabled: "on", reason: "default" }))
+
+    const removed = await runSetup(["remove", "queue", "--yes", "--json"], root, env)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(false)
   })
 
   it.each(["schedule.runtime.intervalMs=1000", "schedule.runtime.driver=other", "schedule.runtime=false"])("requires a valid Node Schedule runtime driver for %s", async (option) => {
@@ -616,6 +652,26 @@ describe("vitehub add", () => {
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
     expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("rejects the SMTP Email driver on Cloudflare before writing", async () => {
+    const root = await copyFixture("cloudflare")
+    const before = await snapshot(root)
+    const result = await add(["email", "--option", "email.driver=smtp", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_FEATURE_UNSUPPORTED", why: expect.stringContaining("\"smtp\" driver") })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    ["node-self-hosted", "smtp", true],
+    ["node-self-hosted", "resend", false],
+    ["cloudflare", "resend", false],
+  ])("plans Email on %s with the %s driver", async (fixture, driver, nodemailer) => {
+    const result = await add(["email", "--option", `email.driver=${driver}`, "--dry-run"], await copyFixture(fixture))
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("@vite-hub/email")
+    expect(result.json.install.packages.includes("nodemailer")).toBe(nodemailer)
   })
 
   it("builds the feature object from --option", async () => {

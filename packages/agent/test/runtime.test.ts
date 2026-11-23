@@ -5532,6 +5532,7 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const calls: string[] = []
+    const fetchMetadata = vi.fn(async () => new Response(null, { status: 404 }))
     const agent = defineAgent({
       capabilities: [inputCommands({
         commands: {
@@ -5554,11 +5555,11 @@ describe("agent message protocol", () => {
       })],
       channels: {
         github: github({
-          app: { webhookSecret: false },
+          app: { fetch: fetchMetadata, webhookSecret: false },
           pullRequest: { workspace: false },
         }),
         triage: github({
-          app: { webhookSecret: false },
+          app: { fetch: fetchMetadata, webhookSecret: false },
           pullRequest: { workspace: false },
         }),
       },
@@ -5589,11 +5590,13 @@ describe("agent message protocol", () => {
 
     const filtered = await runAgentTrigger(agent, runtime, "triage.webhook", delivery("/review please", 201))
     expect(filtered).toBeInstanceOf(Response)
+    expect(fetchMetadata).not.toHaveBeenCalled()
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect((filtered as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
 
     await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toContain("Request: please")
     await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toContain("Request: please")
+    expect(fetchMetadata).toHaveBeenCalledTimes(2)
     expect(calls).toEqual(["summary:please", "review:please"])
   })
 

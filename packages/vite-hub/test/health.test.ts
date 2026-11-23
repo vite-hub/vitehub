@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node
 import { createServer, type RequestListener } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { blob } from "@vite-hub/blob"
-import { checkBlobStoreHealth, setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
+import { setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
+import { blobHealthModule } from "@vite-hub/blob/vite"
 
-import { resolveConfig } from "vite"
+import { build, resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { healthVitePlugin, renderHealthHandler, selectHealthTargets, type HealthTargets } from "../src/health-vite.ts"
@@ -17,16 +17,16 @@ import { createProject, serverBuild } from "./support/content-cms.ts"
 
 type Handler = { fetch(): Promise<Response> }
 type Modules = Record<string, Record<string, unknown>>
-const blobRuntimeModule = fileURLToPath(import.meta.resolve("@vite-hub/blob/runtime/state"))
 
 /** Evaluates the generated handler, with stubs for the modules that it imports. */
 function handler(targets: Partial<HealthTargets>, modules: Modules = {}): Handler {
   const source = renderHealthHandler({ commit: "abc123", vitehub: "0.0.9", database: false, kv: [], blob: [], ...targets })
+    .replace(/^import (\{ \w+ \}) from (.+)$/gm, "const $1 = modules[$2]")
     .replace(/\bimport\(/g, "load(")
     .replace("export default", "return")
   const load = async (specifier: string) => modules[specifier]
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
-  return new Function("load", source)(load) as Handler
+  return new Function("modules", "load", source)(modules, load) as Handler
 }
 
 const roots: string[] = []
@@ -69,7 +69,7 @@ describe("health route", () => {
     const modules = (failingKV?: string): Modules => ({
       "@vite-hub/database/runtime/registry": { pingDatabases: async () => ({ default: true }) },
       "vite-hub/kv": { kv: { store: store("kv", failingKV) } },
-      [blobRuntimeModule]: { checkBlobStoreHealth: async (name: string) => { reads.push(`blob:${name}`) } },
+      [blobHealthModule]: { checkBlobStoreHealth: async (name: string) => { reads.push(`blob:${name}`) } },
     })
     const targets = { database: true, kv: ["default", "sessions"], blob: ["default"] }
 
@@ -81,7 +81,7 @@ describe("health route", () => {
       vitehub: "0.0.9",
       checks: { database: { default: true }, kv: { default: true, sessions: true }, blob: { default: true } },
     })
-    expect(reads).toEqual(["kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check", "blob:default"])
+    expect(reads.toSorted()).toEqual(["blob:default", "kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check"])
 
     const failing = await handler(targets, modules("sessions")).fetch()
     expect(failing.status).toBe(503)
@@ -94,7 +94,7 @@ describe("health route", () => {
   it("counts a store that does not answer within 2 seconds as failed", async () => {
     vi.useFakeTimers()
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
-    const modules: Modules = { [blobRuntimeModule]: { checkBlobStoreHealth: () => new Promise(() => {}) } }
+    const modules: Modules = { [blobHealthModule]: { checkBlobStoreHealth: () => new Promise(() => {}) } }
 
     const pending = handler({ blob: ["uploads"] }, modules).fetch()
     await vi.advanceTimersByTimeAsync(2_000)
@@ -128,6 +128,34 @@ describe("health route", () => {
     expect(source).toContain("pingDatabases")
     expect(source).not.toContain("checkBlobStoreHealth")
     expect(source).not.toContain("vite-hub/kv")
+  })
+
+  it("builds without a dynamic import warning when the app also imports Blob storage", async () => {
+    const source = renderHealthHandler({ commit: null, vitehub: "0.0.9", database: false, kv: [], blob: ["default"] })
+    const root = await createProject({
+      "server.mjs": 'export { default as health } from "./health.mjs"\nexport { blob } from "./blob.mjs"',
+      "blob.mjs": "export const blob = {}; export async function checkBlobStoreHealth() {}",
+      "health.mjs": source.replace(JSON.stringify(blobHealthModule), '"./blob.mjs"'),
+    })
+    const warnings: string[] = []
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      build: {
+        ssr: join(root, "server.mjs"),
+        write: false,
+        rolldownOptions: {
+          onLog(level, log, handleLog) {
+            if (level === "warn" && log.code) warnings.push(log.code)
+            handleLog(level, log)
+          },
+        },
+      },
+    })
+
+    expect(warnings).not.toContain("INEFFECTIVE_DYNAMIC_IMPORT")
   })
 
   it("checks the Database that Forms discovery turns on", async () => {
@@ -179,7 +207,8 @@ type BlobStore = Exclude<Parameters<typeof setBlobRuntimeConfig>[0], false | und
 /** The Blob check of the generated handler, run against the real Blob runtime with `store` as the `uploads` store. */
 async function checkUploads(store: BlobStore): Promise<{ status: number, uploads: boolean }> {
   setBlobRuntimeConfig({ store, stores: { uploads: store } })
-  const response = await handler({ blob: ["uploads"] }, { [blobRuntimeModule]: { checkBlobStoreHealth } }).fetch()
+  const runtime: Record<string, unknown> = await import(blobHealthModule)
+  const response = await handler({ blob: ["uploads"] }, { [blobHealthModule]: runtime }).fetch()
   const body = await response.json() as { checks: { blob: { uploads: boolean } } }
   return { status: response.status, uploads: body.checks.blob.uploads }
 }

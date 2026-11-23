@@ -22,9 +22,36 @@ const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async (_input?: { abortSig
   stdout: "ok\n",
 })))
 
-vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
+const providerOutput = vi.hoisted(() => ({
+  addVercelRuntimePackages: vi.fn((_request: { packages: unknown, rootDir: string }) => {}),
+  writeStarted: vi.fn(async () => {}),
 }))
+
+vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>()
+  return {
+    ...actual,
+    createProviderDeploymentOutputGenerationState: () => {
+      const state = actual.createProviderDeploymentOutputGenerationState()
+      return {
+        ...state,
+        defer: (...[context, catalog, contribution]: Parameters<typeof state.defer>) => state.defer(context, catalog, {
+          ...contribution,
+          write: async (writeContext) => {
+            await providerOutput.writeStarted()
+            await contribution.write({
+              ...writeContext,
+              addVercelRuntimePackages: (request) => {
+                providerOutput.addVercelRuntimePackages(request)
+                writeContext.addVercelRuntimePackages(request)
+              },
+            })
+          },
+        }),
+      }
+    },
+  }
+})
 
 vi.mock("../src/server.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/server.ts")>()
@@ -1577,84 +1604,24 @@ describe("hubWorkspace", () => {
 
   it("materializes the workspace runtime package for Vercel build output", async () => {
     const root = await createViteRoot()
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    providerOutput.addVercelRuntimePackages.mockClear()
 
     await configResolved({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+    expect(providerOutput.addVercelRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
-      signal: expect.any(AbortSignal),
     })
-  })
-
-  it("finishes Vercel runtime package copying before finalizing provider output", async () => {
-    const root = await createViteRoot()
-    const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
-    const { hubWorkspace } = await import("../src/vite.ts")
-    const copy = createDeferred()
-    const copyStarted = createDeferred()
-    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => {
-      copyStarted.resolve()
-      await copy.promise
-    })
-    const plugin = hubWorkspace({
-      store: {
-        binding: "WORKSPACES",
-        namespace: "workspaces",
-        driver: "cloudflare",
-      },
-    })
-
-    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
-    await prepareWorkspaceProviderOutput(plugin)
-    const closeBundle = testFunction(plugin.closeBundle, async () => {})
-    const close = closeBundle()
-    const wranglerPath = join(createDefaultCloudflareOutputRoot(root), "wrangler.json")
-
-    await copyStarted.promise
-    await expect(readFile(wranglerPath, "utf8")).rejects.toThrow()
-    copy.resolve()
-    await close
-    await expect(readFile(wranglerPath, "utf8")).resolves.toContain('"binding": "WORKSPACES"')
-  })
-
-  it("cancels Vercel runtime package copying when provider output resets", async () => {
-    const root = await createViteRoot()
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
-    const { hubWorkspace } = await import("../src/vite.ts")
-    const copyStarted = createDeferred()
-    let copySignal: AbortSignal | undefined
-    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async ({ signal }) => {
-      copySignal = signal
-      copyStarted.resolve()
-      await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }))
-      signal?.throwIfAborted()
-    })
-    const plugin = hubWorkspace()
-
-    await (plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>)({ command: "build", root })
-    await prepareWorkspaceProviderOutput(plugin)
-    const close = testFunction(plugin.closeBundle, async () => {})()
-    await copyStarted.promise
-
-    await testFunction(plugin.renderError, async (_error: Error) => {})(new Error("build failed"))
-
-    expect(copySignal?.aborted).toBe(true)
-    await expect(close).rejects.toThrow("Provider Output finalization reset")
   })
 
   it("ships Vercel Blob inside Workspace build output", async () => {
     const root = await createViteRoot()
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace({
       store: {
@@ -1663,16 +1630,15 @@ describe("hubWorkspace", () => {
     })
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    providerOutput.addVercelRuntimePackages.mockClear()
 
     await configResolved({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+    expect(providerOutput.addVercelRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
-      signal: expect.any(AbortSignal),
     })
   })
 
@@ -1684,21 +1650,19 @@ describe("hubWorkspace", () => {
       `  store: { driver: "vercel" },`,
       `})`,
     ].join("\n"))
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    providerOutput.addVercelRuntimePackages.mockClear()
 
     await configResolved({ command: "build", root })
     await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+    expect(providerOutput.addVercelRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
-      signal: expect.any(AbortSignal),
     })
   })
 
@@ -2386,15 +2350,14 @@ describe("hubWorkspace", () => {
   it("serializes concurrent Workspace Artifacts builds for the same root", async () => {
     const root = await createViteRoot()
     const { createDefaultCloudflareOutputRoot } = await import("@vite-hub/internal/build/cloudflare")
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
-    const firstCopy = createDeferred()
-    const firstCopyStarted = createDeferred()
-    vi.mocked(copyVercelFunctionRuntimePackages).mockImplementationOnce(async () => {
-      firstCopyStarted.resolve()
-      await firstCopy.promise
+    const firstWrite = createDeferred()
+    const firstWriteStarted = createDeferred()
+    providerOutput.writeStarted.mockClear()
+    providerOutput.writeStarted.mockImplementationOnce(async () => {
+      firstWriteStarted.resolve()
+      await firstWrite.promise
     })
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
     const outputRoot = createDefaultCloudflareOutputRoot(root)
     const first = hubWorkspace({
       store: { binding: "FIRST_WORKSPACE_FILES", namespace: "first", driver: "cloudflare" },
@@ -2411,10 +2374,10 @@ describe("hubWorkspace", () => {
     await prepareWorkspaceProviderOutput(first)
     await prepareWorkspaceProviderOutput(second)
     const firstClose = testFunction(first.closeBundle, async () => {})()
-    await firstCopyStarted.promise
+    await firstWriteStarted.promise
     const secondClose = testFunction(second.closeBundle, async () => {})()
-    await vi.waitFor(() => expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(1))
-    firstCopy.resolve()
+    await vi.waitFor(() => expect(providerOutput.writeStarted).toHaveBeenCalledTimes(1))
+    firstWrite.resolve()
     await Promise.all([firstClose, secondClose])
 
     const wrangler = await readFile(join(outputRoot, "wrangler.json"), "utf8").then(JSON.parse)
@@ -2424,17 +2387,16 @@ describe("hubWorkspace", () => {
       [{ binding: "SECOND_WORKSPACE_FILES", namespace: "second" }],
     ]).toContainEqual(wrangler.artifacts)
     expect(ownedBindings).toEqual([wrangler.artifacts[0].binding])
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(2)
+    expect(providerOutput.writeStarted).toHaveBeenCalledTimes(2)
   })
 
   it("writes hosted output for a build in any Vite mode", async () => {
     const root = await createViteRoot()
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", mode: string, root: string }) => Promise<void>
     const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
-    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    providerOutput.addVercelRuntimePackages.mockClear()
     // The playground's `e2e` mode and its `VITEHUB_VITE_MODE` variable once turned this output off.
     vi.stubEnv("VITEHUB_VITE_MODE", "e2e")
 
@@ -2442,7 +2404,7 @@ describe("hubWorkspace", () => {
     await prepareWorkspaceProviderOutput(plugin)
     await closeBundle.handler()
 
-    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledTimes(1)
+    expect(providerOutput.addVercelRuntimePackages).toHaveBeenCalledTimes(1)
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {

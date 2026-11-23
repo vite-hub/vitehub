@@ -330,7 +330,9 @@ health and queue. SIGUSR2 starts a drain. The build fails with `AGENT_B0022` on
 hosts that cannot keep a process running, and with `AGENT_B0023` without SQL
 Agent State. Hosts start in production builds, or in development only with
 `VITEHUB_AGENT_PROCESS_HOSTS=1`, so a development server does not repair real
-PRs by accident.
+PRs by accident. With a ViteHub Database, one server at a time runs the host,
+and another server takes over about 30 seconds after it stops. PR leases in the
+inbox end on the clock of the Agent State database, not on the server clock.
 
 The host reads the GitHub App from `env.server.github` or `VITEHUB_GITHUB_APP_ID`,
 `VITEHUB_GITHUB_PRIVATE_KEY` (or `VITEHUB_GITHUB_PRIVATE_KEY_PATH`), and

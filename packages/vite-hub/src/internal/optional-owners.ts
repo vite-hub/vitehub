@@ -7,7 +7,7 @@ import { formatDiagnostic } from "nostics"
 
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
-import { consoleFeaturePackages, featureIds, featurePackages, features } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, featurePackages, features, isOwnerCheckedPackage } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -226,7 +226,7 @@ export type FeatureHostPackages = Partial<Record<OptionalFeature, readonly strin
 export function hostFeaturePackages(enabled: readonly OptionalFeature[], host: ViteHubHost, options: object): FeatureHostPackages {
   return Object.fromEntries(enabled.flatMap((feature) => {
     if (!isFeatureId(feature)) return []
-    const added = featurePackages(feature, Reflect.get(options, feature), host).filter(name => !optionalFeaturePackages[feature].includes(name))
+    const added = featurePackages(feature, Reflect.get(options, feature), host).filter(name => !optionalFeaturePackages[feature].includes(name) && !isOwnerCheckedPackage(feature, name))
     return added.length ? [[feature, added]] : []
   }))
 }

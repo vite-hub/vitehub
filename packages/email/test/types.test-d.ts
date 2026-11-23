@@ -14,6 +14,7 @@ import {
   type EmailMessage,
   type EmailSendMessage,
   type EmailSendResult,
+  type RenderedEmail,
 } from "../src/index.ts"
 import { renderEmailMarkdown } from "../src/markdown.ts"
 import { email } from "../src/index.ts"
@@ -87,6 +88,6 @@ it("types the codes that send returns", async () => {
 })
 
 it("exports Markdown and test helpers from dedicated entrypoints", () => {
-  expectTypeOf(renderEmailMarkdown).returns.toEqualTypeOf<Promise<{ html: string; text: string }>>()
+  expectTypeOf(renderEmailMarkdown).returns.toEqualTypeOf<Promise<RenderedEmail>>()
   expectTypeOf(createTestEmail).returns.toEqualTypeOf<TestEmailClient>()
 })

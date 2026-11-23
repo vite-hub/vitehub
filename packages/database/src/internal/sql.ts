@@ -324,7 +324,7 @@ function formatCell(value: unknown): string {
 export function formatSqlResult(result: SqlStatementResult): string {
   if (!result.columns.length) return result.rowsAffected === null ? "OK\n" : `OK, ${result.rowsAffected} ${result.rowsAffected === 1 ? "row" : "rows"} changed.\n`
   const cells = result.rows.map(row => result.columns.map(column => formatCell(row[column])))
-  const widths = result.columns.map((column, index) => Math.max(column.length, ...cells.map(row => row[index]!.length)))
+  const widths = result.columns.map((column, index) => cells.reduce((width, row) => Math.max(width, row[index]!.length), column.length))
   const line = (values: string[]) => values.map((value, index) => value.padEnd(widths[index]!)).join(" | ").trimEnd()
   return [
     line(result.columns),
