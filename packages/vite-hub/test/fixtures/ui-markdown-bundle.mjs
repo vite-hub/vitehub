@@ -23,10 +23,12 @@ const visit = (fileName) => {
   if (initial.has(fileName)) return
   initial.add(fileName)
   const file = files.get(fileName)
-  if (file?.type === "chunk") file.imports.forEach(visit)
+  if (file?.type === "chunk") {
+    file.imports.forEach(visit)
+    file.viteMetadata?.importedCss.forEach(cssFileName => initial.add(cssFileName))
+  }
 }
 visit(entry.fileName)
-entry.viteMetadata?.importedCss.forEach(fileName => initial.add(fileName))
 const initialFiles = [...initial].map(fileName => files.get(fileName))
 process.stdout.write(JSON.stringify({
   files: output.length,
