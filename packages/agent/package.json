@@ -321,7 +321,7 @@
     "@ai-sdk/vue": "catalog:ai"
   },
   "peerDependencies": {
-    "@agntn/web": "catalog:ai",
+    "@agntn/web": "^0.5.5 || ^0.9.1",
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",

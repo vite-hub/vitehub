@@ -47,6 +47,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   const prepared = await prepareTemplate(template)
   const parseOptions = templateParserOptions(options.plugins)
   const tree = await parseMarkdown(prepared.template, parseOptions)
+  const bindingPositions = new WeakMap<ElementNode, Map<ElementNode, number>>()
   const data = snapshotTemplateData(options.data ?? {})
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
   const renderAuthoredHtml = async (node: ElementNode, state: State, parent: ElementNode | undefined, childPolicy: "preserve" | "markdown") => {
@@ -72,7 +73,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     components: {
       Binding: async (node, state, parent) => {
         if (typeof node[1][":value"] === "string") assertBindingRoot(node[1][":value"])
-        rejectLinkDestinationBinding(node, parent)
+        rejectLinkDestinationBinding(node, parent, bindingPositions)
         return state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true)
       },
       If: async (node, state, parent) => {
@@ -133,16 +134,25 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   })).trim())
 }
 
-function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined): void {
-  if (!parent) return
-  const siblings = parent.slice(2)
-  const index = siblings.indexOf(node)
-  const before = siblings[index - 1]
-  const after = siblings[index + 1]
-  if (index < 1 || typeof before !== "string" || typeof after !== "string") return
+function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined, positions: WeakMap<ElementNode, Map<ElementNode, number>>): void {
+  if (!parent || parent.length < 5) return
+  let indexes = positions.get(parent)
+  if (!indexes) {
+    indexes = new Map()
+    for (let index = 2; index < parent.length; index++) {
+      const child = parent[index]
+      if (Array.isArray(child) && child[0] !== null && !indexes.has(child)) indexes.set(child, index)
+    }
+    positions.set(parent, indexes)
+  }
+  const index = indexes.get(node)
+  if (index === undefined || index < 3) return
+  const before = parent[index - 1]
+  const after = parent[index + 1]
+  if (typeof before !== "string" || typeof after !== "string") return
   const destination = before.match(/\]\(\s*$/)
   if (!destination || !/^(?:\s+(?:"[\s\S]*"|'[\s\S]*'|\([\s\S]*\)))?\s*\)/.test(after)) return
-  const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
+  const text = parent.slice(2, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
   const labelText = text.slice(0, text.length - destination[0].length + 1)
   const label = labelStart(labelText)
   if (label === undefined || text[label - 1] === "!") return
