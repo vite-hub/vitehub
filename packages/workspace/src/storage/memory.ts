@@ -27,6 +27,7 @@ type MemoryNode = {
   mtime: number
   revision?: string
   digest?: string
+  size?: number
 }
 
 function now() {
@@ -230,7 +231,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
 
   async #entry(path: string, node: MemoryNode): Promise<WorkspaceEntry> {
     const content = node.content || ""
-    const size = node.type === "file" ? (typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength) : undefined
+    const size = node.type === "file" ? (node.size ??= typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength) : undefined
     return {
       path,
       type: node.type,

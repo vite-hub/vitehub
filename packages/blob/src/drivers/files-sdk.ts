@@ -252,7 +252,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           return {
             blobs: result.items.filter(item => item.key.startsWith(prefix)).map(mapFileInfo),
             cursor: result.cursor,
-            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort((left, right) => left.localeCompare(right)),
+            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort(),
             hasMore: Boolean(result.cursor),
           }
         }
@@ -317,7 +317,7 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         return {
           blobs,
           cursor: nextCursor,
-          folders: [...folders].sort((left, right) => left.localeCompare(right)),
+          folders: [...folders].sort(),
           hasMore: Boolean(nextCursor),
         }
       }

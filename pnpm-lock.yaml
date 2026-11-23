@@ -165,8 +165,8 @@ settings:
 catalogs:
   ai:
     '@agntn/web':
-      specifier: ^0.5.5
-      version: 0.5.5
+      specifier: ^0.9.1
+      version: 0.9.1
     '@ai-sdk/anthropic':
       specifier: 4.0.75
       version: 4.0.75
@@ -305,8 +305,8 @@ catalogs:
       specifier: 4.1.2
       version: 4.1.2
     vite-doctor:
-      specifier: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557
-      version: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557
+      specifier: 0.1.5
+      version: 0.1.5
     wrangler:
       specifier: 4.160.1
       version: 4.160.1
@@ -829,7 +829,7 @@ importers:
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
       vite-doctor:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt@4.6.4(a477bd8bc00f4357ec108d782e0404a9))(supports-color@8.1.1)
+        version: 0.1.5(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt@4.6.4(a477bd8bc00f4357ec108d782e0404a9))(supports-color@8.1.1)
       vite-hub:
         specifier: workspace:*
         version: link:packages/vite-hub
@@ -1120,7 +1120,7 @@ importers:
     devDependencies:
       '@agntn/web':
         specifier: catalog:ai
-        version: 0.5.5(@cfworker/json-schema@4.1.1)(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(zod@4.6.7)
+        version: 0.9.1(ai@7.0.130(zod@4.6.7))
       '@chat-adapter/discord':
         specifier: catalog:chat
         version: 4.45.0(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@10.2.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0)(supports-color@10.2.2))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(supports-color@10.2.2)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
@@ -4482,7 +4482,7 @@ importers:
         version: 0.1.3
       vite-doctor:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(supports-color@8.1.1)
+        version: 0.1.5(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(supports-color@8.1.1)
       vite-plus:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
@@ -4964,6 +4964,7 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+
   playground/logs:
     dependencies:
       evlog:
@@ -4991,17 +4992,55 @@ importers:
 
 packages:
 
-  '@agntn/web@0.5.5':
-    resolution: {integrity: sha512-JrZEk/Jliv3sT+r1Jxj3BLdA1wQku6uO6Uyles65xJXWNK6xGa6XKua1EVidfDMqiNnquE48YCqRG6FAS0Vp5g==}
-    engines: {node: '>=22'}
+  '@agntn/hashes@0.7.2':
+    resolution: {integrity: sha512-yrhws6tj5nNqnDXSTti+bIfqq4zEnt/3KPkYhduCHorX4U82UtaFulSf4tkvcCn8zmF1jVNnJH23NuOMOMFEWg==}
+    engines: {node: '>=26'}
     hasBin: true
     peerDependencies:
-      '@earendil-works/pi-coding-agent': '*'
-      '@earendil-works/pi-tui': '*'
+      '@earendil-works/pi-coding-agent': '>=0.84.2 <2'
       '@oh-my-pi/pi-coding-agent': '>=18.0.0 <19'
-      ai: ^6.0.116
-      typebox: ^1.1.33
-      zod: ^4.3.6
+      ai: 7.0.130
+    peerDependenciesMeta:
+      '@earendil-works/pi-coding-agent':
+        optional: true
+      '@oh-my-pi/pi-coding-agent':
+        optional: true
+      ai:
+        optional: true
+
+  '@agntn/tools@0.2.4':
+    resolution: {integrity: sha512-5fRpNr2WFaumfl+S7IkaCgkFXqD6hNRHqZfL90FEJb/yJdD5xoRBYgYXalSw6WNSoeoe7+qaVHgZP9bGsBo/Zw==}
+    engines: {node: '>=26'}
+    peerDependencies:
+      '@earendil-works/pi-coding-agent': '>=0.84.2 <2'
+      '@modelcontextprotocol/server': '>=2.2.0 <3'
+      '@oh-my-pi/pi-coding-agent': '>=18.0.0 <19'
+      ai: 7.0.130
+      h3-mcp: '>=0.2.0 <0.3'
+      zod: '>=4.1.13 <5'
+    peerDependenciesMeta:
+      '@earendil-works/pi-coding-agent':
+        optional: true
+      '@modelcontextprotocol/server':
+        optional: true
+      '@oh-my-pi/pi-coding-agent':
+        optional: true
+      ai:
+        optional: true
+      h3-mcp:
+        optional: true
+      zod:
+        optional: true
+
+  '@agntn/web@0.9.1':
+    resolution: {integrity: sha512-eTjgJ54hMhDep6ICORJnsLsZDyC3p0N77R9r1p+qWMVaz1K/2Et0pJ3LiIiqimgdrpmEqJE9VrutwNR6PrdkDQ==}
+    engines: {node: '>=26'}
+    hasBin: true
+    peerDependencies:
+      '@earendil-works/pi-coding-agent': '>=0.86.1 <2'
+      '@earendil-works/pi-tui': '>=0.86.1 <2'
+      '@oh-my-pi/pi-coding-agent': '>=18.0.0 <19'
+      ai: 7.0.130
     peerDependenciesMeta:
       '@earendil-works/pi-coding-agent':
         optional: true
@@ -5010,10 +5049,6 @@ packages:
       '@oh-my-pi/pi-coding-agent':
         optional: true
       ai:
-        optional: true
-      typebox:
-        optional: true
-      zod:
         optional: true
 
   '@ai-sdk/anthropic@4.0.75':
@@ -7599,6 +7634,10 @@ packages:
     resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
     engines: {node: '>=20'}
 
+  '@modelcontextprotocol/core@2.2.0':
+    resolution: {integrity: sha512-iLhmprRmWI8EcosOA3wVvww22z02NkgqhV4fBH6f/odQBsi7xnJc0HGmi21yWO+/iKw2yzqVE127Zhna5/+JXw==}
+    engines: {node: '>=20'}
+
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
     engines: {node: '>=18'}
@@ -7621,6 +7660,10 @@ packages:
 
   '@modelcontextprotocol/server@2.0.0':
     resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.2.0':
+    resolution: {integrity: sha512-qFnltjus6Gk8Lx6J1w2RXmr3YPN22MNT6qD6zjAkaiWIlFIFxWClz0rXHNuJF/KSUyn5YGhkSvXkWDbQHVLFEQ==}
     engines: {node: '>=20'}
 
   '@mongodb-js/zstd@7.0.0':
@@ -16910,10 +16953,6 @@ packages:
     resolution: {integrity: sha512-Z3lTE9pLaJF47NyMhd4ww1yFTAP8YhYI8SleJiHzM46Fgpm5cnNzSl9XfzFNqbaz+VlJrIj3fXQ4DeN1Rjm6cw==}
     engines: {node: '>=18'}
 
-  nodemailer@10.6.0:
-    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
-    engines: {node: '>=20.0.0'}
-
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
 
@@ -16957,6 +16996,10 @@ packages:
   node-releases@2.0.57:
     resolution: {integrity: sha512-kQK9LGGFiHtrWiNhZtA7Qbw17AQz+dmsEKODRIVTXA9+e5MS/2gZEBhYJt13GrAz5/IOZKddH/0Z3TP/Zgo+yw==}
     engines: {node: '>=18'}
+
+  nodemailer@10.6.0:
+    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
+    engines: {node: '>=20.0.0'}
 
   nopt@10.0.1:
     resolution: {integrity: sha512-df3sBr/6ax9hSGuC3CspvLlbnX8cP5L5nZwXF8cGN8l0zSWR6BvzmQ6jPUKjvo6+/xdpkNvEcucBNUdBeeV13g==}
@@ -19386,9 +19429,8 @@ packages:
     peerDependencies:
       vite: ^2.9.0 || ^3.0.0-0 || ^4.0.0-0 || ^5.0.0-0 || ^6.0.1 || ^7.0.0-0 || ^8.0.0
 
-  vite-doctor@https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557:
-    resolution: {integrity: sha512-Sw5NxZCgpyQF8y74yAbQTcZS8+3VbMY7qHiISZrfD5vljCr1rHRlVdj5GjCSJQ07o/JTlQri6idTQK3ZZthS9g==, tarball: https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557}
-    version: 0.1.3
+  vite-doctor@0.1.5:
+    resolution: {integrity: sha512-hxwKH/6w2WSHT46Wbp+fX+SikJtAeHCpUdYd1CZOOBI7mvMyjWMlTafTpOIjcIbr5t7lWAXVlqvDuvLWMx5F7w==}
     engines: {node: '>=22.20.0'}
     hasBin: true
     peerDependencies:
@@ -19874,6 +19916,9 @@ packages:
   zod@4.1.11:
     resolution: {integrity: sha512-WPsqwxITS2tzx1bzhIKsEs19ABD5vmCVa4xBo2tq/SrV4RNZtfws1EnCWQXM6yh8bD08a1idvkB5MZSBiZsjwg==}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -19891,20 +19936,33 @@ packages:
 
 snapshots:
 
-  '@agntn/web@0.5.5(@cfworker/json-schema@4.1.1)(ai@7.0.130(zod@4.6.7))(supports-color@10.2.2)(zod@4.6.7)':
+  '@agntn/hashes@0.7.2(ai@7.0.130(zod@4.6.7))(zod@4.3.6)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
-      citty: 0.2.2
-      consola: 3.4.2
-      ofetch: 1.5.1
-      string-width: 8.2.2
-      typebox: 1.1.38
+      '@agntn/tools': 0.2.4(@modelcontextprotocol/server@2.2.0)(ai@7.0.130(zod@4.6.7))(zod@4.3.6)
+      '@modelcontextprotocol/server': 2.2.0
     optionalDependencies:
       ai: 7.0.130(zod@4.6.7)
-      zod: 4.6.7
     transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
+      - h3-mcp
+      - zod
+
+  '@agntn/tools@0.2.4(@modelcontextprotocol/server@2.2.0)(ai@7.0.130(zod@4.6.7))(zod@4.3.6)':
+    optionalDependencies:
+      '@modelcontextprotocol/server': 2.2.0
+      ai: 7.0.130(zod@4.6.7)
+      zod: 4.3.6
+
+  '@agntn/web@0.9.1(ai@7.0.130(zod@4.6.7))':
+    dependencies:
+      '@agntn/hashes': 0.7.2(ai@7.0.130(zod@4.6.7))(zod@4.3.6)
+      '@agntn/tools': 0.2.4(@modelcontextprotocol/server@2.2.0)(ai@7.0.130(zod@4.6.7))(zod@4.3.6)
+      '@modelcontextprotocol/server': 2.2.0
+      string-width: 8.2.2
+      zod: 4.3.6
+    optionalDependencies:
+      ai: 7.0.130(zod@4.6.7)
+    transitivePeerDependencies:
+      - h3-mcp
 
   '@ai-sdk/anthropic@4.0.75(zod@4.6.7)':
     dependencies:
@@ -22966,6 +23024,10 @@ snapshots:
     dependencies:
       zod: 4.6.7
 
+  '@modelcontextprotocol/core@2.2.0':
+    dependencies:
+      zod: 4.6.7
+
   '@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.3(hono@4.13.12)
@@ -23065,6 +23127,11 @@ snapshots:
   '@modelcontextprotocol/server@2.0.0':
     dependencies:
       '@modelcontextprotocol/core': 2.0.0
+      zod: 4.6.7
+
+  '@modelcontextprotocol/server@2.2.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.2.0
       zod: 4.6.7
 
   '@mongodb-js/zstd@7.0.0':
@@ -37087,8 +37154,6 @@ snapshots:
 
   node-fetch-native@1.6.7: {}
 
-  nodemailer@10.6.0: {}
-
   node-fetch@2.7.0:
     dependencies:
       whatwg-url: 5.0.0
@@ -37123,6 +37188,8 @@ snapshots:
   node-mock-http@1.0.5: {}
 
   node-releases@2.0.57: {}
+
+  nodemailer@10.6.0: {}
 
   nopt@10.0.1:
     dependencies:
@@ -41827,7 +41894,7 @@ snapshots:
       vite-hot-client: 2.2.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))
     optional: true
 
-  vite-doctor@https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(supports-color@8.1.1):
+  vite-doctor@0.1.5(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt-nightly@5.0.0-2611052317-a04317f(79ad99c18e03579a06180897e3b2c9a2))(supports-color@8.1.1):
     dependencies:
       '@shadcn/lint': 0.2.5(@typescript-eslint/parser@8.71.0(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))
       '@typescript-eslint/parser': 8.71.0(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
@@ -41863,7 +41930,7 @@ snapshots:
       - magicast
       - supports-color
 
-  vite-doctor@https://pkg.pr.new/vite-doctor@084702c3600540b8125fabf9cfc442ad45448557(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt@4.6.4(a477bd8bc00f4357ec108d782e0404a9))(supports-color@8.1.1):
+  vite-doctor@0.1.5(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magicast@0.5.5)(nuxt@4.6.4(a477bd8bc00f4357ec108d782e0404a9))(supports-color@8.1.1):
     dependencies:
       '@shadcn/lint': 0.2.5(@typescript-eslint/parser@8.71.0(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))
       '@typescript-eslint/parser': 8.71.0(eslint@10.12.0(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@6.0.3)
@@ -42747,6 +42814,8 @@ snapshots:
     optional: true
 
   zod@4.1.11: {}
+
+  zod@4.3.6: {}
 
   zod@4.4.3: {}
 

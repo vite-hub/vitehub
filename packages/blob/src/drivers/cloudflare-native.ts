@@ -241,7 +241,7 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       return {
         blobs: limit === 0 ? [] : result.objects.map(mapObject),
         cursor: heldBlob ? unconsumedListCursor(cursor) : fromProviderListCursor(result.cursor),
-        folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
+        folders: listOptions.folded ? result.delimitedPrefixes?.sort() : undefined,
         hasMore: heldBlob || Boolean(result.truncated),
       }
     },

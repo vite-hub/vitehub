@@ -72,6 +72,31 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
+  it("can list missing Spanish messages when another locale directory is unavailable", async () => {
+    const store = memoryWorkspace()
+    const open = store.workspace.history.open.bind(store.workspace.history)
+    vi.spyOn(store.workspace.history, "open").mockImplementation(async (id) => {
+      const view = await open(id)
+      return {
+        ...view,
+        list: async (path, options) => {
+          if (path === "fr/segments") throw new Error("French records are unavailable")
+          return view.list(path, options)
+        },
+      }
+    })
+    await store.workspace.history.commit({ ref: "published", ifHead: null, changes: {}, message: "Start translations" })
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config: { ...config, locales: ["en", "es", "fr"] },
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null },
+    })
+    const [error, page] = await useTranslations().missing("es")
+    expect(error).toBeUndefined()
+    expect(page).toMatchObject({ items: [], total: 0 })
+  })
+
   it("skips invalid ICU without blocking valid translations in later revisions", async () => {
     const store = memoryWorkspace()
     const snapshot = { [note.id]: compileMessage("Nota del servidor") }
