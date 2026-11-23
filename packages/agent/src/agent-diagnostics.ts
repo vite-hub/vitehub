@@ -449,6 +449,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_INSTRUCTION_SLOT_INVALID",
   "AGENT_INVOCATIONS_DATABASE_DRIVER_UNSUPPORTED",
   "AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE",
+  "AGENT_INVOCATIONS_POSTGRES_DRIVER_MISSING",
   "AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED",
   "AGENT_MCP_BEARER_TOKEN_RENAMED",
   "AGENT_MCP_RETRIES_INVALID",
@@ -4536,6 +4537,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATIONS_DATABASE_WITHOUT_STORE: {
       why: "[vitehub] Agent invocations accept `database` only with `store: \"database\"`.",
       fix: "Set `store: \"database\"` next to `database` in the Agent `invocations` option, or remove `database`.",
+    },
+    AGENT_INVOCATIONS_POSTGRES_DRIVER_MISSING: {
+      why: ({ name }: { name: "pg" | "postgres" }) => `[vitehub] The Agent Invocation journal is in the Postgres default Database, but the project cannot load its driver "${name}".`,
+      fix: "Run the command in the app directory, where the app installed its Postgres driver. Or pass --url with the app URL.",
     },
     AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED: {
       why: ({ database }: { database: string }) => `[vitehub] The Postgres Database "${database}" uses a client that the Agent Invocation journal cannot use. The journal runs on postgres.js, a node-postgres Pool, and PGlite.`,

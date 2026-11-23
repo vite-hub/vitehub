@@ -61,3 +61,25 @@ export function agentInvocationsDurability(input: AgentInvocationsDurabilityInpu
   const sqlite = classifySqliteUrl(url)
   return [{ primitive: "agent-invocations", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: journalFix }) }]
 }
+
+/** What the build passes to `agentRecoveryDurability()`. `sweep` is true when the server sweeps under a Database Lease. */
+export interface AgentRecoveryDurabilityInput {
+  sweep: boolean
+}
+
+const recoveryFix = "Add a Database named `default`, so each server sweeps the journal under the Lease `agent-recovery:<agent>`."
+
+/** How a server finds the Invocations that a stopped server left running. */
+export function agentRecoveryDurability(input: AgentRecoveryDurabilityInput, context: DurabilityContext): Durability[] {
+  const database = input.sweep ? context.find("database") : undefined
+  if (!database) {
+    return [{ primitive: "agent-recovery", store: "startup", scope: "process", reason: "A server fails the Invocations of a stopped server only when it starts.", fix: recoveryFix }]
+  }
+  return [{
+    primitive: "agent-recovery",
+    store: `lease (${database.store})`,
+    scope: database.scope,
+    reason: `One server at a time sweeps the journal every 15 seconds, under a Lease in the default Database. ${database.reason}`,
+    ...(database.fix ? { fix: database.fix } : {}),
+  }]
+}

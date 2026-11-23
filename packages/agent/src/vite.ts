@@ -22,7 +22,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
-import type { AgentStateDurabilityInput } from "./durability.ts"
+import type { AgentRecoveryDurabilityInput, AgentStateDurabilityInput } from "./durability.ts"
 import { createNativePackageLoading, createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -1489,11 +1489,11 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
 
 function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = ""): string[] {
   return [
-    `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}) {`,
+    `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}, recoverySweep${typescript ? "?: NonNullable<Parameters<ReturnType<typeof createChannelWebhookRouteHandler>[\"resume\"]>[0]>[\"recoverySweep\"]" : ""}) {`,
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
     "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
     "  if (!viteHubChatStateOpens()) return async () => undefined",
-    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })] : [])`,
+    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, recoverySweep, webhookState: chatStateFromLibsql(), waitUntil })] : [])`,
     "  return async () => await Promise.all(stops.map(stop => stop()))",
     "}",
     "",
@@ -2239,10 +2239,12 @@ async function writeAgentWebhookRouteHandler(
     const persistent = !options.libsqlState.ephemeralHosting
     // A persistent server also drains inline Chat invocations when it stops.
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
+    const recoveryLeases = persistent && options.runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false)
     const internalImport = JSON.stringify(agentRuntimeModule("server/internal"))
     await writeFileIfChanged(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
+      ...(recoveryLeases ? ["import { useLeases } from '@vite-hub/database'"] : []),
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2261,8 +2263,20 @@ async function writeAgentWebhookRouteHandler(
       "  }",
       "  function startWebhookQueues(recoverInterruptedBefore) {",
       "    if (closed || stop || stopping) return",
-      "    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)",
+      `    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore${recoveryLeases ? ", recoverySweep()" : ""})`,
       "  }",
+      ...(recoveryLeases
+        ? [
+            "  function recoverySweep() {",
+            "    try {",
+            "      return { leases: useLeases() }",
+            "    }",
+            "    catch {",
+            "      console.warn('[vitehub:agent] The Agent recovery sweep needs the default or only Database, and the app has several without a `default`. Invocations of a stopped server are failed only when a server starts.')",
+            "    }",
+            "  }",
+          ]
+        : []),
       ...(persistent
         ? [
             "  const startedAt = performance.timeOrigin",
@@ -2841,6 +2855,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let resolved: ResolvedConfig | undefined
   // The Agent state store that the server uses, when the app has hosted Agents.
   let stateDurability: AgentStateDurabilityInput | undefined
+  let recoveryDurability: AgentRecoveryDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
@@ -3184,9 +3199,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       },
     },
     vitehub: {
-      durability: () => stateDurability
-        ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }]
-        : [],
+      durability: () => [
+        ...stateDurability ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }] : [],
+        ...recoveryDurability ? [{ export: "agentRecoveryDurability", input: recoveryDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-recovery" }] : [],
+      ],
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
       operations: () => [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: agentRuntimeModule("operations") }],
       providerOutput: {
@@ -3307,6 +3323,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         && !installCloudflareState
         && (stateDriver === "auto" || stateDriver === "sqlite" || stateDriver === "libsql"),
       )
+      const ephemeralHosting = (resolved && (resolved.runtime === "vercel" || resolved.runtime === "cloudflare-agents")) || Boolean(resolveAgentHosting(config))
+      recoveryDurability = installWebhookQueue && !ephemeralHosting
+        ? { sweep: Boolean(runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false)) }
+        : undefined
       const installProcessDiscordGateway = Boolean(
         resolved
         && hasHostedAgents

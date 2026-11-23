@@ -11,7 +11,7 @@ import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
 import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
-import { failInterruptedAgentInvocations } from "./server/invocation-health.ts"
+import { createInvocationClaimId, failInterruptedAgentInvocations } from "./server/invocation-health.ts"
 
 import type { AgentInvocationCancellationDriver } from "./internal/invocation-cancellation.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
@@ -2263,7 +2263,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (startedWithoutStore) void task.catch(() => undefined)
         else registerAgentInvocationRecovery(context, task)
       }
-      let claimId = createInvocationId()
+      let claimId = createInvocationClaimId()
       let claimConfirmed = false
       let claimUncertain = false
       let claimConflict = false
@@ -2438,7 +2438,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           return false
         }
         const attempt = ++claimAttempt
-        const attemptId = claimConfirmed && !claimUncertain && !rotate && pendingClaimIds.size === 0 ? claimId : createInvocationId()
+        const attemptId = claimConfirmed && !claimUncertain && !rotate && pendingClaimIds.size === 0 ? claimId : createInvocationClaimId()
         const expectedClaimIds = [...pendingClaimIds, ...(claimConfirmed ? [claimId] : [])]
         pendingClaimIds.add(attemptId)
         const claimOptions: NonNullable<Parameters<AgentInvocationStore["claim"]>[3]> = force ? { replaceExisting: true }
@@ -2686,7 +2686,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             // Recovery attempts can overlap after a bounded wait times out. Keep each
             // attempt's lease identity separate so late cleanup cannot release a newer
             // attempt that reused the invocation claim id.
-            const recoveryClaimId = createInvocationId()
+            const recoveryClaimId = createInvocationClaimId("recovery_")
             const claimToken = await recoveryStore(() => store.getClaimToken(recordId))
             if (claimToken === storeOperationTimedOut) return
             const claimOptions: { replaceClaimToken?: string } = {}

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { loadViteHubCliConfig } from "../src/internal/cli-config.ts"
-import { isAgentCliEnabled, isAgentEmulatorStandalone, loadConfigScanner, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
+import { isAgentCliEnabled, isAgentEmulatorStandalone, loadConfigScanner, readAgentJournalPostgres, readAgentJournalStateUrl } from "../src/internal/runtime-feature-guard.ts"
 import { operationRpcReply, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts";
 import { consoleTestKey } from "./support/console-signature.ts";
 
@@ -126,6 +126,30 @@ describe("ViteHub CLI config loading", () => {
     roots.push(root)
     await writeFile(join(root, file), source, "utf8")
     await expect(readAgentJournalStateUrl(root, env)).resolves.toBe(expected)
+  })
+
+  const postgresDatabase = (options: string) => `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', ${options}schema: {} })\n`
+  const envUrl = "connection: { url: process.env.DATABASE_URL }, "
+  it.each([
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, { url: "postgres://db/app" }],
+    [vite("agent: {}, database: {}"), postgresDatabase(`driver: 'node-postgres', ${envUrl}`), { DATABASE_URL: " postgres://db/app " }, { driver: "node-postgres", url: "postgres://db/app" }],
+    [vite("host: 'node', agent: { invocations: true }, database: true"), postgresDatabase(""), { PGHOST: "db" }, {}],
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(envUrl), {}, undefined],
+    [vite("host: 'node', agent: {}, database: true"), postgresDatabase(`driver: 'pglite', ${envUrl}`), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: {}, database: true"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ schema: {} })\n", { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'vercel', agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("agent: {}, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app", VERCEL: "1" }, undefined],
+    [vite("host: 'node', agent: { invocations: { store: 'journal' } }, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: { invocations: { databaseUrl: 'file:x.sqlite' } }, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: false, database: true"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+    [vite("host: 'node', agent: {}"), postgresDatabase(envUrl), { DATABASE_URL: "postgres://db/app" }, undefined],
+  ])("finds the Postgres default Database of the default journal: %#", async (config, definition, env, expected) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-cli-guard-"))
+    roots.push(root)
+    await writeFile(join(root, "vite.config.ts"), config, "utf8")
+    await mkdir(join(root, "server/databases/default"), { recursive: true })
+    await writeFile(join(root, "server/databases/default/index.ts"), definition, "utf8")
+    await expect(readAgentJournalPostgres(root, env)).resolves.toEqual(expected)
   })
 
   it("does not treat an unrelated local vitehub function as the ViteHub plugin", async () => {

@@ -3051,11 +3051,11 @@ export default defineAgent({
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number)")
+        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number, recoverySweep?: ")
         expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
         // A file: URL that the app set throws in workerd instead of running without State.
         expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
-        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })")
+        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, recoverySweep, webhookState: chatStateFromLibsql(), waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")

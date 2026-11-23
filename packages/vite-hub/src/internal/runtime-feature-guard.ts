@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+
+import { importOptionalOwner } from "./optional-owners.ts"
 
 import type { CallExpression, Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
@@ -163,4 +165,59 @@ export async function readAgentJournalStateUrl(rootDir: string, env: Readonly<Re
   if (driver !== undefined && !["auto", "libsql", "sqlite"].includes(staticString(driver) ?? "")) return
   const url = staticString(findProperty(state, "url")?.value)?.trim()
   return url && /^file:/i.test(url) ? url : undefined
+}
+
+/** The Postgres default Database that keeps the default Invocation journal of a Node server. */
+export interface AgentJournalPostgres {
+  driver?: "node-postgres"
+  /** The connection URL. Without it, the driver reads the PG* environment variables. */
+  url?: string
+}
+
+/**
+ * The Postgres default Database where a Node production build keeps the default Invocation journal, as
+ * `defaultJournalDatabase()` selects it, with the connection that the runtime uses. Reads only literal config values.
+ * Undefined when the journal is elsewhere, or when the Database runs on PGlite, which only the dev server opens.
+ */
+export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Record<string, string | undefined>>): Promise<AgentJournalPostgres | undefined> {
+  const config = await viteHubOptionObjects(rootDir)
+  const options = config?.active
+  if (!config || !options) return
+  const { findProperty, objectProperties, staticString, staticValue } = config.scan
+  const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
+    node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
+  const host = findProperty(options, "host")?.value
+  const configuredHost = host === undefined ? undefined : staticString(host)
+  if (host !== undefined && configuredHost !== "node") return
+  const { resolveBuildHost } = await import("@vite-hub/internal/deployment")
+  if (configuredHost === undefined && resolveBuildHost(undefined, env) !== "node") return
+  const agent = findProperty(options, "agent")?.value
+  if (agent === undefined || staticValue(agent) === false) return
+  const invocations = agent.type === "ObjectExpression" ? findProperty(agent, "invocations")?.value : undefined
+  if (invocations !== undefined && staticValue(invocations) !== true) {
+    const setting = literalObject(invocations)
+    if (!setting || findProperty(setting, "store") || findProperty(setting, "databaseUrl")) return
+  }
+  const database = findProperty(options, "database")?.value
+  if (database === undefined) return
+  const databaseOptions = staticValue(database) === true ? undefined : literalObject(database)
+  if (staticValue(database) !== true && !databaseOptions) return
+  const projectRootValue = databaseOptions && findProperty(databaseOptions, "projectRoot")?.value
+  const projectRoot = projectRootValue ? staticString(projectRootValue) : undefined
+  if (projectRootValue && projectRoot === undefined) return
+  const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config"))
+  if (!owner) return
+  const root = resolve(rootDir, projectRoot ?? ".")
+  let resolved: ReturnType<typeof owner.resolveDBViteConfig>
+  try {
+    resolved = owner.resolveDBViteConfig(undefined, root, { implicitDefault: true, provisionState: {}, ...(projectRoot === undefined ? {} : { serverDirs: [resolve(root, "server")] }) })
+  }
+  catch {
+    return
+  }
+  const target = resolved?.databases.default
+  if (target?.dialect !== "postgresql" || target.driver === "pglite") return
+  const url = owner.resolveConfigValue(target.connection?.url, { ...env })?.trim()
+  if (!url && !Object.entries(env).some(([name, value]) => name.startsWith("PG") && value?.trim())) return
+  return { ...(target.driver === "node-postgres" ? { driver: target.driver } : {}), ...(url ? { url } : {}) }
 }

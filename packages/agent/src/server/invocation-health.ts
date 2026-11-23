@@ -4,9 +4,15 @@ import type {
   AgentInvocationStore,
   AgentInvocationSummary,
 } from "../invocations.ts"
+import { getInstanceId } from "@vite-hub/runtime"
 import { emitRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { invocationDiagnostics } from "../invocation-diagnostics.ts"
+
+/** A claim id that starts with `getInstanceId()`, so the journal shows which instance holds an Invocation. */
+export function createInvocationClaimId(prefix = ""): string {
+  return `${getInstanceId().slice(0, 200)}/${prefix}${globalThis.crypto.randomUUID()}`
+}
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
@@ -17,6 +23,8 @@ export async function failInterruptedAgentInvocations(
     message?: string
     agentName?: string
     recoveryTimeoutMs?: number
+    /** Waits `recoveryTimeoutMs` and retries Invocations that a claim blocked. The periodic sweep turns it off. */
+    waitForBlocked?: boolean
     recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
   },
 ): Promise<number> {
@@ -30,7 +38,7 @@ export async function failInterruptedAgentInvocations(
   const seenCursors = new Set<string>()
   let paginationError: Error | undefined
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
-    const claimId = `recovery_${globalThis.crypto.randomUUID()}`
+    const claimId = createInvocationClaimId("recovery_")
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
       replaceClaimToken === undefined ? undefined : { replaceClaimToken })) return false
     const message = options.message || "The host stopped before this Agent Invocation finished."
@@ -61,7 +69,7 @@ export async function failInterruptedAgentInvocations(
       if (!await options.recover(invocation)) continue
       const blockedClaimToken = await store.getClaimToken(invocation.id)
       if (await fail(invocation)) failed += 1
-      else if (blockedClaimToken !== undefined) blocked.push({ ...invocation, blockedClaimToken })
+      else if (blockedClaimToken !== undefined && options.waitForBlocked !== false) blocked.push({ ...invocation, blockedClaimToken })
     }
     cursor = records.cursor
   } while (cursor)
