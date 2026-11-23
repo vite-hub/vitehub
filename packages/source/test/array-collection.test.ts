@@ -139,13 +139,22 @@ describe("array()", () => {
     const collator = vi.spyOn(Intl, "Collator").mockImplementation(() => {
       throw new Error("Intl.Collator differs between runtimes")
     })
-    const names = ["𪛙", "Zebra", "apple", "丁", "Åland", "ab", "Ab", "Banana"]
+    const names = ["𪛙", "Zebra", "apple", "丁", "Åland", "ab", "Ab", "Banana", "A\u030Aland"]
     const collection = defineCollection({ route: false, source: array(names.map(name => ({ name })), { facets: ["name"], sort: { field: "name" } }) })
     const page = await collection.page({ query: {} })
-    const order = ["Ab", "ab", "Åland", "apple", "Banana", "Zebra", "丁", "𪛙"]
+    const order = ["Ab", "ab", "A\u030Aland", "Åland", "apple", "Banana", "Zebra", "丁", "𪛙"]
     expect(page.items.map(item => item.name)).toEqual(order)
     expect(page.facets?.name?.map(facet => facet.value)).toEqual(order)
     expect(collator).not.toHaveBeenCalled()
+  })
+
+  it("keeps newer Unicode marks outside the Latin folding range in page and facet sort keys", async () => {
+    const items = [{ name: "A\u{1E6E3}" }, { name: "Ab" }]
+    const collection = defineCollection({ route: false, source: array(items, { facets: ["name"], sort: { field: "name" } }) })
+    const first = await collection.page({ limit: 1, query: {} })
+    const second = await collection.page({ cursor: first.nextCursor!, limit: 1, query: {} })
+    expect([...first.items, ...second.items]).toEqual([items[1], items[0]])
+    expect(first.facets?.name?.map(facet => facet.value)).toEqual(["Ab", "A\u{1E6E3}"])
   })
 
   it("reads updated sort keys on each load", async () => {
@@ -253,6 +262,13 @@ describe("array()", () => {
   })
 
   describe("cursors", () => {
+    it("rejects a sorted cursor from before the text order was versioned", async () => {
+      const items = [{ name: "Zebra" }, { name: "Åland" }]
+      const collection = defineCollection({ route: false, source: array(items, { sort: { field: "name" } }) })
+      const legacyCursor = "eyJkaWdlc3QiOiIzY2MwZWY5ZjA0YzE3OWI0NDFjMDM1NTAyMWJjMDFjYjdjZWQzYzBkNzEyYzM0YTFhMGZjM2M1ZjU1YjViMDFlIiwib2Zmc2V0IjoxLCJxdWVyeSI6IjdhM2Q1NjRjNzUwZDdhZjU3ZWU3MGIzODE4YjkxZjdkOWI3YzRiZTA4NmEwNGNhY2Y2N2I4ZjkyZDc0OWVkOGUifQ"
+      await expect(collection.page({ cursor: legacyCursor, limit: 1, query: {} })).rejects.toMatchObject({ code: "SOURCE_R0027", reason: "stale" })
+    })
+
     it("rejects malformed and non-canonical cursors", async () => {
       const collection = articles(Array.from({ length: 12 }, (_, id) => ({ id })))
       const first = await query(collection, {}, undefined, 1)
