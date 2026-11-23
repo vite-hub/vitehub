@@ -53,10 +53,7 @@ import { attachmentStringBytes, isArrayBufferValue, isAttachmentBlob, isAttachme
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
-  bindAgentChannelTriggerQueue,
-  bindAgentChannelWebhookState,
   bindAgentChannelTriggerState,
-  agentChannelOptions,
   agentTriggerTask,
   isResolvedAgentTriggerHandledInvocation,
   prepareAgentTriggerInvocation,
@@ -69,7 +66,6 @@ import {
   webhookSecretHeader,
 } from "../trigger-runtime.ts"
 import { serverVariable } from "../internal/server-variable.ts"
-import type { AgentChannelQueuedDispatch } from "../trigger-runtime.ts"
 import {
   acquireChannelStateLock,
   admitAgentChannelStateCommit,
@@ -100,7 +96,9 @@ import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAg
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
-import { channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
+import { agentChannelOptions } from "../internal/agent-definition-options.ts"
+import { bindAgentChannelTriggerQueue, bindAgentChannelWebhookState, channelHandlerTriggerName } from "../internal/channel-delivery-handlers.ts"
+import type { AgentChannelQueuedDispatch } from "../internal/channel-delivery-handlers.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
