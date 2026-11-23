@@ -65,7 +65,7 @@ export default defineConfig({
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `driver` | `'resend' \| 'cloudflare' \| 'log' \| './path'` | Required | Picks a built-in Email driver, or a [driver module](#configure-another-provider) that starts with `./` or `../`. `log` prints each message and sends nothing. |
+| `driver` | `'resend' \| 'smtp' \| 'cloudflare' \| 'log' \| './path'` | Required | Picks a built-in Email driver, or a [driver module](#configure-another-provider) that starts with `./` or `../`. `log` prints each message and sends nothing. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Plain non-secret values and `env()` declarations. The server reads `env()` sources on every send. Plain values and non-secret defaults go into the build output. A default on a secret is rejected. |
 | `remote` | `boolean` | `false` | `true` makes `vite dev` send real email through the provider. Else a dev send stays in the [development outbox](/docs/email/hosts#development-outbox). Builds ignore it. |
 | `outbox` | `false \| { limit?: number }` | `{ limit: 50 }` | Sets up the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. `false` needs `remote: true`, except with `log`. Never in build output. |
@@ -81,7 +81,7 @@ No `email`, or `email: false`, keeps Email off.
 | `cloudflare` | `cloudflare` | `cloudflare`, with an `EMAIL` `send_email` Worker binding |
 | Every other host | `log`, in the [development outbox](/docs/email/hosts#development-outbox) | Fails with [`VITE_HUB_R0089`](/docs/development/diagnostics/vite_hub_r0089) |
 
-Only Cloudflare has an Email provider of its own. On other hosts, set `driver` before you build, such as `driver: 'resend'`. Set `driver: 'log'` to build an app that sends no email.
+Only Cloudflare has an Email provider of its own. On other hosts, set `driver` before you build, such as `driver: 'resend'` or [`driver: 'smtp'`](#send-over-smtp). Set `driver: 'log'` to build an app that sends no email.
 
 ## Run without a provider
 
@@ -162,9 +162,96 @@ export default defineEventHandler(async () => {
 
 ViteHub writes the driver name, plain options, and `env()` declarations into a generated server-only module. A credential from an `env()` source without a default stays in the runtime environment.
 
+## Send over SMTP
+
+The `smtp` driver sends each message to an SMTP server with [Nodemailer](https://nodemailer.com). Install `nodemailer` in your app. ViteHub does not install it for you, and it imports it only when it sends:
+
+```bash [Terminal]
+pnpm add nodemailer
+```
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    email: {
+      driver: 'smtp',
+      options: {
+        host: env({ source: env.source('SMTP_HOST') }),
+        port: env({ source: env.source('SMTP_PORT') }),
+        user: env({ source: env.source('SMTP_USER') }),
+        pass: env({ secret: true, source: env.source('SMTP_PASS') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    email: {
+      driver: 'smtp',
+      options: {
+        host: env({ source: env.source('SMTP_HOST') }),
+        port: env({ source: env.source('SMTP_PORT') }),
+        user: env({ source: env.source('SMTP_USER') }),
+        pass: env({ secret: true, source: env.source('SMTP_PASS') }),
+      },
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    email: {
+      driver: 'smtp',
+      options: {
+        host: env({ source: env.source('SMTP_HOST') }),
+        port: env({ source: env.source('SMTP_PORT') }),
+        user: env({ source: env.source('SMTP_USER') }),
+        pass: env({ secret: true, source: env.source('SMTP_PASS') }),
+      },
+    },
+  })],
+})
+```
+:::
+::
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `host` | Required | The SMTP server, such as `smtp.example.com`. |
+| `port` | `465` when `secure` is true, else `587` | A number, or a string from `env()`. |
+| `secure` | `true` on port 465, else `false` | `true` opens a TLS connection. `false` upgrades the connection with STARTTLS when the server offers it. Also accepts the strings `'true'` and `'false'`. |
+| `user`, `pass` | No login | Set both, or neither. |
+
+The driver opens a new connection for each send. A successful result has `driver: 'smtp'` and the `Message-ID` as `id`. SMTP has no tags, metadata, scheduled delivery, or idempotency keys, so a message with one of them fails with `EMAIL_PROVIDER_FAILED`. A rejected login is `EMAIL_AUTHENTICATION`, and a server that answers `421`, `450`, `451`, or `452` is `EMAIL_RATE_LIMITED`.
+
+The `smtp` driver runs on Node hosts. Cloudflare Workers cannot open SMTP connections, so a Cloudflare build fails with [`EMAIL_HOST_UNSUPPORTED`](/docs/email/limits-and-errors#email_host_unsupported). A build without `nodemailer` fails with [`EMAIL_SMTP_NODEMAILER_MISSING`](/docs/email/diagnostics/email_smtp_nodemailer_missing).
+
 ## Configure another provider
 
-For a provider other than `resend` or `cloudflare`, write a driver module and set `driver` to its path. The path is relative to the project root. The module default-exports a function that gets `email.options`, with each `env()` value read, and returns an `EmailDriver`. `email.send()`, Forms, and the Agent `email()` Capability then send through it.
+For a provider other than `resend`, `smtp`, or `cloudflare`, write a driver module and set `driver` to its path. The path is relative to the project root. The module default-exports a function that gets `email.options`, with each `env()` value read, and returns an `EmailDriver`. `email.send()`, Forms, and the Agent `email()` Capability then send through it.
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}

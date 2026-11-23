@@ -53,7 +53,7 @@ const normalizeTemplateModulePath = (id: string) => {
   return /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/") ? normalized : `/${normalized}`
 }
 const normalizeWatchedPath = (file: string) => file.replaceAll("\\", "/")
-export type EmailDriverName = "cloudflare" | "log" | "resend"
+export type EmailDriverName = "cloudflare" | "log" | "resend" | "smtp"
 /**
  * The path of a module, relative to the project root, that default-exports a driver factory. The factory receives
  * `email.options` with Env values resolved, and returns an `EmailDriver`.
@@ -186,13 +186,25 @@ async function resolveDriverModule(driver: EmailDriverModulePath, projectRoot: s
   throw emailErrorDiagnostics.EMAIL_DRIVER_MODULE_NOT_FOUND({ driver, file })
 }
 
+async function assertNodemailerInstalled(entry: string): Promise<void> {
+  for (let directory = dirname(entry); ; directory = dirname(directory)) {
+    try {
+      if ((await stat(resolve(directory, "node_modules", "nodemailer", "package.json"))).isFile()) return
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" && (error as NodeJS.ErrnoException).code !== "ENOTDIR") throw error
+    }
+    if (dirname(directory) === directory) throw emailErrorDiagnostics.EMAIL_SMTP_NODEMAILER_MISSING()
+  }
+}
+
 function relativeImport(from: string, to: string): string {
   const path = relative(dirname(from), to).replaceAll("\\", "/")
   return path.startsWith(".") ? path : `./${path}`
 }
 
 function resolveDriverImport(driver: string): string {
-  if (driver !== "resend" && driver !== "cloudflare" && driver !== "log") {
+  if (driver !== "resend" && driver !== "smtp" && driver !== "cloudflare" && driver !== "log") {
     throw emailErrorDiagnostics.EMAIL_UNKNOWN_DRIVER({ driver: JSON.stringify(driver) ?? String(driver), renamed: renamedEmailDrivers.get(String(driver)) })
   }
   const extension = import.meta.url.endsWith(".ts") ? "ts" : "js"
@@ -474,6 +486,7 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
   let cloudflare = false
   let vercel = false
   const cloudflareEmail = configured.driver === "cloudflare"
+  const smtp = configured.driver === "smtp"
   let addedEmailBinding = false
   let definition: GeneratedEmailDefinition | undefined
   let serverDirs: string[] | undefined
@@ -574,7 +587,10 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
       cloudflare = hosting === "cloudflare"
       if (cloudflareEmail && !cloudflare) {
-        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED()
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "cloudflare" })
+      }
+      if (smtp && cloudflare) {
+        throw emailErrorDiagnostics.EMAIL_HOST_UNSUPPORTED({ driver: "smtp" })
       }
       vercel = hosting === "vercel" || internalOptions.workflowDriver === "vercel"
       updateTemplateRoots(resolveViteHubProjectRoot(config.root ?? process.cwd()))
@@ -622,11 +638,12 @@ export function hubEmail(options: EmailOptions): EmailVitePlugin {
         ? relativeImport(entry, await resolveDriverModule(driverSource, projectRoot))
         : undefined
       const driverImport = appCompiledDriverImport ?? driverSource
+      if (smtp && (command === "build" || remote)) await assertNodemailerInstalled(entry)
       await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, dev))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),
-          external: [previewImport, ...(appCompiledDriverImport ? [appCompiledDriverImport] : []), ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
+          external: [previewImport, ...(appCompiledDriverImport ? [appCompiledDriverImport] : []), ...(smtp ? ["nodemailer"] : []), ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
           format: "esm",
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
