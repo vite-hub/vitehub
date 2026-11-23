@@ -25,9 +25,10 @@ describe("Agent Channel delivery source identity", () => {
       .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
   })
 
-  it("fingerprints a payload the same on every host locale", async () => {
-    const payload = { event: { channel: "C1", text: "hi", ts: "1.2", type: "message", user: "U1" }, team_id: "T1", type: "event_callback" }
-    const fingerprintIn = async (locale: string) => {
+  it("fingerprints a payload the same on every host locale and keeps English fingerprints", async () => {
+    const slack = { event: { channel: "C1", text: "hi", ts: "1.2", type: "message", user: "U1" }, team_id: "T1", type: "event_callback" }
+    const teams = { channelData: { tenant: { id: "t" } }, channelId: "msteams", id: "1", localTimestamp: "2026-11-23T11:00:00.000+01:00", locale: "en-US", serviceUrl: "https://smba.trafficmanager.net/emea/", text: "hi", textFormat: "plain", type: "message" }
+    const fingerprintIn = async (locale: string, payload: unknown) => {
       const collator = new Intl.Collator(locale)
       const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
         return collator.compare(this, that)
@@ -39,7 +40,13 @@ describe("Agent Channel delivery source identity", () => {
         localeCompare.mockRestore()
       }
     }
-    expect(await fingerprintIn("lt")).toBe(await fingerprintIn("en"))
+    // Values that earlier releases stored on English hosts.
+    expect(await fingerprintIn("en", slack)).toBe("e7c0c61d03ca4194d549dd17dc989b45b5f183f2547ce69264f697c11d35259c")
+    expect(await fingerprintIn("en", teams)).toBe("a1f14ea58e09a8b403f7738ff409c890c95d17723cf19182be1594d550c15da0")
+    for (const locale of ["cs", "lt", "et"]) {
+      expect(await fingerprintIn(locale, slack)).toBe(await fingerprintIn("en", slack))
+      expect(await fingerprintIn(locale, teams)).toBe(await fingerprintIn("en", teams))
+    }
   })
 
   it("extracts Telegram message identity separately from provider event identity", () => {

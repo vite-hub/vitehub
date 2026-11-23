@@ -166,12 +166,20 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
   }
 }
 
+// Earlier releases sorted keys with the host locale, which is en-US on English, C and serverless hosts.
+// A fixed en-US order keeps the fingerprints that those hosts stored.
+const payloadKeyOrder = new Intl.Collator("en-US")
+
+function comparePayloadKeys(left: string, right: string): number {
+  return payloadKeyOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0)
+}
+
 function stablePayload(value: unknown): string {
   if (!value || typeof value !== "object") return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => comparePayloadKeys(left, right))
     .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry)}`)
     .join(",")}}`
 }
