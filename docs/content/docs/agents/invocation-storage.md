@@ -142,30 +142,21 @@ Earlier releases kept this journal in the Console, at `.vitehub/data/console.sql
 
 ### Upgrade a Node app from 0.4
 
-In 0.4, a Node production build kept the default journal in a local SQLite file: `.vitehub/data/agent-invocations.sqlite` in the project root, or `agent-invocations.sqlite` next to a `file:` Agent State database. From 0.5, when the `default` Database uses Postgres, the build keeps it in the Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. ViteHub does not copy the old records to Postgres, and it does not change or delete the file. After the upgrade, the Console and `vitehub agent invocations` show only new runs. Choose one of these paths before you deploy.
+In 0.4, a Node production build kept the default journal in a local SQLite file: `.vitehub/data/agent-invocations.sqlite` in the project root, or `agent-invocations.sqlite` next to a `file:` Agent State database. From 0.5, when the `default` Database uses Postgres, the build keeps it in the Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. ViteHub does not copy the old records to Postgres, and it does not change or delete the file. The Console and `vitehub agent invocations` read from the selected journal. Choose one of these paths before you deploy.
 
-To keep the SQLite file, set `databaseUrl` to the file that the 0.4 server used. A relative `file:` path resolves from the ViteHub project root. The build then adds no default journal tables to the Postgres migrations:
+To keep the SQLite file, follow the [configuration examples above](#use-the-default-journal) and set `agent.invocations.databaseUrl` to the absolute `file:` URL the 0.4 server used, such as `file:/app/.vitehub/data/agent-invocations.sqlite`. This selects SQLite at build time and keeps support for `retention.maxSize`.
 
-```ts [vite.config.ts] fragment
-vitehub({
-  agent: { invocations: { databaseUrl: 'file:.vitehub/data/agent-invocations.sqlite' } },
-})
-```
-
-To pin the file without a rebuild, set the runtime variable to the same file. It wins over the Postgres `default` Database:
+To select the file at runtime, set the same URL in your service environment. For example, save this variable in `.env` and start the server with `node --env-file=.env .output/server/index.mjs`.
 
 ```dotenv [.env]
 VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/app/.vitehub/data/agent-invocations.sqlite
 ```
 
+If your build selects Postgres, it validates retention before it reads this runtime override. Set `databaseUrl` in the build config to keep `maxSize`, or replace `maxSize` with `maxAge` or `maxRecords`.
+
 The journal updates the schema of the file when it first opens it, and keeps its records. The file stays local to one server instance. Without a dev server, the CLI does not read `databaseUrl` from the config. Pass `--database` with the file, or run the CLI with the same `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`.
 
-To move to Postgres, write and apply the migration of the journal tables with the other tables of the `default` Database. Run `migrate` with the connection of the production Database. Without the tables, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. See [Store invocations in a Postgres Database](#store-invocations-in-a-postgres-database):
-
-```sh
-pnpm vitehub database generate
-pnpm vitehub database migrate
-```
+To move to Postgres, run `pnpm vitehub database generate` and commit the generated migrations before you build. Run `pnpm vitehub database migrate` with the production Database connection before you start the upgraded server. Without the tables, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. See [Store invocations in a Postgres Database](#store-invocations-in-a-postgres-database).
 
 The old records stay in the file. ViteHub has no command that imports them into Postgres. Keep the file, for example on its volume, while you need them, and read it without the app:
 
