@@ -13,7 +13,7 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 - Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias. Older versions can hang when they resolve it.
-- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
+- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
 - For Nitro: a Nitro 3 app with `nitro()` in `vite.config.ts`.
 
 ## Set up the app
@@ -263,15 +263,15 @@ pnpm vitehub update
 
 This updates the version in every `package.json` of the workspace, in `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published. It also removes old ViteHub versions from that list.
 
-To try a [pkg.pr.new](https://pkg.pr.new) preview, pass its commit:
+To try a [pkg.pr.new](https://pkg.pr.new) preview, copy a 7 to 40 character commit SHA from a `vite-hub/vitehub` pull request's Continuous Releases comment or from a published `main` commit at `0.4.1` or newer:
 
 ```bash [commands/update-preview]
-pnpm vitehub update --preview 01898b8
+pnpm vitehub update --preview <commit>
 ```
 
-Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release.
+Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release. Previews from `0.4.1` onward include `vitehub update`. If you move to an older preview without it, run `pnpm dlx vite-hub@latest update` instead.
 
-`--dry-run` previews changes without writing files. `--no-install` updates the files and prints the install command.
+`--dry-run` checks that the target publishes every ViteHub package in your workspace and previews the diff without writing files. `--no-install` updates the files and prints the install command.
 
 ::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
 A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update vite-hub "@vite-hub/*"` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:
