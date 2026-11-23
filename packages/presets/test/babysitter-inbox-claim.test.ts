@@ -449,6 +449,25 @@ test('a fold into a parent branch and the parent merge never hold their fences a
   } finally { await inbox.close() }
 })
 
+test('a fold stops holding the parent once the folded child closes', async () => {
+  const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
+  const pr = (number: number, head: string, base: string, state = 'open') => ({ number, state, user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },
+    base: { sha: 'base', ref: base }, title: 'Test', html_url: `https://github.com/vite-hub/vitehub/pull/${number}`, updated_at: '2026-09-13T00:00:00Z' })
+  try {
+    await inbox.seed('vite-hub/vitehub', pr(1, 'parent', 'main'))
+    await inbox.seed('vite-hub/vitehub', pr(2, 'first', 'parent'))
+    await inbox.seed('vite-hub/vitehub', pr(3, 'second', 'parent'))
+    const claims = await inbox.claim(3)
+    const claim = (number: number) => claims.find(item => item.snapshot.number === number)!
+    assert.equal(await inbox.beginDirectMerge(claim(2), 'first-sha', true, 1), true)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 2)
+    // The fold merged and the child closed before its own pass could clear the attempt.
+    await inbox.seed('vite-hub/vitehub', { ...pr(2, 'first', 'parent', 'closed'), updated_at: '2026-09-14T00:00:00Z' })
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), undefined)
+    assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), true)
+  } finally { await inbox.close() }
+})
+
 test('a sibling fold never replaces an earlier fold that still holds the parent', async () => {
   const inbox = new PullRequestInbox({ path: ':memory:', repositories: ['vite-hub/vitehub'], claimStackChildren: true })
   const pr = (number: number, head: string, base: string) => ({ number, state: 'open', user: { login: 'onmax' }, head: { sha: `${head}-sha`, ref: head, repo: { full_name: 'vite-hub/vitehub' } },

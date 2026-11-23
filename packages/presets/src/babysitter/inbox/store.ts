@@ -809,12 +809,18 @@ export class PullRequestInbox {
   }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
   private stackFoldKey(repository: string, parent: number): string { return `stack-fold:${repository}:${parent}` }
-  /** The stacked pull request whose merge into this pull request's branch has an unknown outcome. */
+  /**
+   * The stacked pull request whose merge into this pull request's branch has an unknown outcome.
+   * A closed child has a known outcome: once its row turns terminal its pending-merge path never runs
+   * again to clear the fold, so the fold must not hold the parent past that point.
+   */
   private async foldingChildIn(tx: PullRequestInboxExecutor, repository: string, parent: number): Promise<number | undefined> {
     const fold = await this.metaIn(tx, this.stackFoldKey(repository, parent))
     if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
     const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
-    return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+    if (!isRuntimeRecord(attempt) || attempt.token !== fold.token || attempt.foldInto !== parent) return undefined
+    const child = await this.getIn(tx, repository, fold.child)
+    return child?.pr?.state === 'open' ? fold.child : undefined
   }
   async foldingChild(repository: string, parent: number): Promise<number | undefined> {
     await this.init()
