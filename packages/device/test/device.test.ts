@@ -195,14 +195,21 @@ describe("age and size", () => {
     expect(disk.keys).toEqual(["projects"])
   })
 
-  it("deletes the oldest copies when the device is over its size cap", async () => {
+  it.each([false, true])("evicts the oldest copy over the size cap (reload: %s)", async (reload) => {
     let time = 1
     const disk = createFakeDisk()
-    const page = openPage(disk, undefined, { maxBytes: 25, now: () => time++ })
+    const options = { maxBytes: 25, now: () => time++ }
+    let page = openPage(disk, undefined, options)
     await page.open()
     await page.setAccount("ada")
     answer(page, "a", "x".repeat(8))
     answer(page, "b", "x".repeat(8))
+    if (reload) {
+      await page.settled()
+      page = openPage(disk, undefined, options)
+      await page.open()
+      await page.setAccount("ada")
+    }
     answer(page, "c", "x".repeat(8))
     await page.settled()
     expect(page.inspect().entries.map(entry => entry.key)).toEqual(["b", "c"])
