@@ -77,6 +77,29 @@ describe("docsRedirectProblems", () => {
     ])
   })
 
+  it("passes a redirect from another spelling of a page to that page", () => {
+    expect(docsRedirectProblems(manifest, docsRedirects({
+      "/docs/kv/index/": { redirect: "/docs/kv" },
+      "/docs/kv/index": { redirect: "/docs/kv#intro" },
+      "/docs/kv/configure/": { redirect: "/docs/kv/configure" },
+      "/docs/old": { redirect: "/docs/kv" },
+    }))).toEqual([])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/", to: "/docs/kv/index/" }, { from: "/docs/kv/index/", to: "/docs/kv/" }])).toEqual([
+      "The redirect from /docs/kv/ hides the page docs/kv/index.md. Remove the route rule, or move the page.",
+      "The redirect from /docs/kv/ comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+      "The redirect from /docs/kv/index/ hides the page docs/kv/index.md. Remove the route rule, or move the page.",
+      "The redirect from /docs/kv/index/ comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/gone/", to: "/docs/gone" }])).toEqual([
+      "The redirect from /docs/gone/ goes to /docs/gone, which is not a docs page. Point it to a page, or remove the route rule.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/index/", to: "/docs/kv" }, { from: "/docs/kv", to: "/docs/kv/index/" }])).toEqual([
+      "The redirect from /docs/kv/index/ comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+      "The redirect from /docs/kv hides the page docs/kv/index.md. Remove the route rule, or move the page.",
+      "The redirect from /docs/kv comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+    ])
+  })
+
   it("checks targets inside sections on a site whose docs base is /", async () => {
     const root = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content/docs"), base: "/" })
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/kv/removed" }])).toHaveLength(1)

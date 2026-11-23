@@ -60,14 +60,16 @@ export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly
   const pages = docsPaths(manifest)
   const routes = createRouter()
   for (const { route, method } of serverRoutes) addRoute(routes, method, route, true)
-  const next = new Map(redirects.map(redirect => [normalizeDocsPath(redirect.from), redirect.to]))
+  const next = new Map(redirects.filter(redirect => !isSpellingRedirect(redirect)).map(redirect => [normalizeDocsPath(redirect.from), redirect.to]))
   const problems: string[] = []
-  for (const { from, to } of redirects) {
+  for (const redirect of redirects) {
+    const { from, to } = redirect
     const source = normalizeDocsPath(from)
-    const page = docsManifestPages(manifest).find(candidate => candidate.path === source || docsRawPath(candidate.path) === source)
+    const spelling = isSpellingRedirect(redirect)
+    const page = spelling ? undefined : docsManifestPages(manifest).find(candidate => candidate.path === source || docsRawPath(candidate.path) === source)
     if (page) problems.push(`The redirect from ${from} hides the page ${page.file}. Remove the route rule, or move the page.`)
     // A redirect to another redirect counts where the chain ends.
-    const seen = new Set([source])
+    const seen = new Set(spelling ? [] : [source])
     let end = to
     let target = targetPath(end)
     while (target !== undefined && next.has(target) && !seen.has(target)) {
@@ -85,6 +87,11 @@ export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly
     if (owned && !pages.has(target) && !findRoute(routes, "GET", end.replace(/[?#].*$/, ""))) problems.push(`The redirect from ${from} goes to ${end}, which is not a docs page. Point it to a page, or remove the route rule.`)
   }
   return problems
+}
+
+function isSpellingRedirect({ from, to }: DocsRedirect): boolean {
+  const target = to.replace(/[?#].*$/, "")
+  return target !== from && target === targetPath(to) && target === normalizeDocsPath(from)
 }
 
 function targetPath(to: string): string | undefined {

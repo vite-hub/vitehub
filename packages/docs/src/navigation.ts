@@ -92,7 +92,7 @@ export function docsManifestPages<Page extends DocsAppPage = DocsPage>(manifest:
 
 /** A URL path without a trailing slash or `/index`, as the manifest stores it. */
 export function normalizeDocsPath(path: string): string {
-  return path.replace(/(.)\/+$/, "$1").replace(/\/index$/, "") || "/"
+  return path.replace(/\/+(?:index\/*)?$/, "") || "/"
 }
 
 /** A browser URL for an app-relative route or asset. Router links keep their app-relative paths. */
