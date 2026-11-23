@@ -157,7 +157,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       'import { defineWorkspace, isWorkspaceName } from "@vite-hub/workspace"',
       'import { useNitroApp } from "nitro/app"',
       'const options = {',
-      '  store: { driver: isWorkspaceName("unregistered") ? "local" : "memory" },',
+      '  store: { driver: isWorkspaceName("docs") && !isWorkspaceName("unregistered") ? "memory" : "local" },',
       '  hooks: { "write:error": ({ error }) => {',
       '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
       '  } },',

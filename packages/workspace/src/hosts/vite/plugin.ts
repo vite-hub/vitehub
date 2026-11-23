@@ -54,6 +54,8 @@ const WORKSPACE_LOAD_ID_PATTERN = /(?:^\0#vitehub(?:-workspace-registry$|\/works
 const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const generatedNitroWorkspaceDurabilityRegistry = ".vitehub/nitro/workspace/durability-registry.js"
+const generatedNitroWorkspaceDurabilityFallback = ".vitehub/nitro/workspace/durability-fallback.js"
+const generatedNitroWorkspaceDurabilityLoader = ".vitehub/nitro/workspace/durability-loader.js"
 const cloudflareArtifactsBindingsFileName = ".vitehub-workspace-artifacts-bindings.json"
 const noExternalAddition = createNoExternalAddition(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
@@ -670,6 +672,7 @@ function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): 
       setup({ options }: { options: { plugins: string[], buildPlugins: unknown[] } }) {
         if (!options.plugins.some(file => file.replaceAll("\\", "/").endsWith("/.vitehub/nitro/durability/plugin.mjs"))) return
         const registry = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
+        const fallback = resolve(root, generatedNitroWorkspaceDurabilityFallback)
         const importerFile = pluginFile.replaceAll("\\", "/")
         const registryImport = moduleImportSpecifier(pluginFile, resolve(root, generatedNitroWorkspaceRegistry))
         const plugin: Plugin = {
@@ -677,6 +680,7 @@ function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): 
           resolveId: {
             order: "pre",
             handler(id, importer) {
+              if (id === WORKSPACE_REGISTRY_ID) return fallback
               if (id === registryImport && importer === importerFile) return registry
             },
           },
@@ -833,6 +837,16 @@ async function writeNitroWorkspacePlugin(
   // Durability reads Definitions synchronously at boot. Awaited imports here can cycle back through `nitro/app`.
   const durabilityRegistryFile = resolve(root, generatedNitroWorkspaceDurabilityRegistry)
   await writeFileIfChanged(durabilityRegistryFile, createWorkspaceRegistryContents(durabilityRegistryFile, definitions, definitionOverrides, true))
+  const fallbackFile = resolve(root, generatedNitroWorkspaceDurabilityFallback)
+  const loaderFile = resolve(root, generatedNitroWorkspaceDurabilityLoader)
+  const names = JSON.stringify(definitions.map(definition => definition.name))
+  await writeFileIfChanged(loaderFile, `export { default } from ${JSON.stringify(moduleImportSpecifier(loaderFile, durabilityRegistryFile))}\n`)
+  await writeFileIfChanged(fallbackFile, [
+    `const names = ${names}`,
+    `const loadRegistry = () => import(${JSON.stringify(moduleImportSpecifier(fallbackFile, loaderFile))})`,
+    "export default Object.fromEntries(names.map(name => [name, async () => (await loadRegistry()).default[name]()]))",
+    "",
+  ].join("\n"))
   await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
