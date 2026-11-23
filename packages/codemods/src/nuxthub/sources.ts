@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 
-import { end, indentAt, isReference, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, indentAt, isReference, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
@@ -9,6 +9,7 @@ import { glob } from "tinyglobby"
 import { blockBindings } from "../shared/bindings.ts"
 import { moduleSource } from "../shared/module-source.ts"
 import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { addServerImports } from "../shared/server-imports.ts"
 import { relativeSpecifier } from "./database.ts"
 
 import type { CallExpression, File, MemberExpression } from "@babel/types"
@@ -59,6 +60,8 @@ export interface SourceInput {
   schema?: SchemaMove
   /** Files that the codemod handles elsewhere, such as nuxt.config and moved schema files. */
   skip: ReadonlySet<string>
+  /** Names that the app's own server auto-imports give, such as `db` from `server/utils/db.ts`. */
+  appNames: ReadonlySet<string>
 }
 
 export interface SourceResult {
@@ -268,7 +271,7 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
   for (const file of files.sort()) {
     if (input.skip.has(file)) continue
     const source = await readFile(join(cwd, file), "utf8")
-    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|\b(?:kv|blob|db)[.[]|useUpload|useMultipartUpload|db\/schema/.test(source)) continue
+    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|\b(?:kv|blob|db|schema)[.[]|useUpload|useMultipartUpload|db\/schema/.test(source)) continue
     const output = new MagicString(source)
     const followUps: FollowUp[] = []
     const server = file.split("/").includes("server")
@@ -336,10 +339,12 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
           receivers.delete(name)
         }
       }
-      // NuxtHub auto-imports kv and blob in server code, and ViteHub does too.
+      // NuxtHub auto-imports kv, blob, db, and schema in server code. Nuxt 5 does not, so import them from vite-hub/*.
       if (server && script) {
         for (const feature of ["kv", "blob"] as const) if (features[feature] && !bindings.has(feature)) receivers.set(feature, feature)
         if (features.database && !bindings.has("db")) databases.add("db")
+        const names = new Set([features.kv && "kv", features.blob && "blob", ...features.database ? ["db", "schema"] : []].filter(name => typeof name === "string"))
+        addServerImports({ code: block.code, program, output, offset: block.offset, style: detectStyle(block.code, program), skip: input.appNames, names })
       }
       if (receivers.size && script) {
         result.calls += rewriteCalls(file, source, program, output, receivers, followUps)

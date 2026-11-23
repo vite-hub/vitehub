@@ -181,6 +181,7 @@ describe("nuxthub", () => {
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     expect(run.result.edits.find(edit => edit.path === "server/api/demo.ts")?.after).toBe([
       "import { kv as store } from 'vite-hub/kv'",
+      "import { blob } from 'vite-hub/blob'",
       "",
       "export default defineEventHandler(async () => {",
       "  const error = 1",

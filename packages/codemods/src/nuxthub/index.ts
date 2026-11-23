@@ -5,6 +5,7 @@ import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
 import { findRedisKVSource } from "./kv-env.ts"
+import { appServerImportNames } from "../shared/server-imports.ts"
 import { rewriteSources } from "./sources.ts"
 import { findNuxtHubModuleFollowUps } from "./modules.ts"
 import { findGlobalH3Overrides } from "./overrides.ts"
@@ -76,7 +77,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const database: DatabasePlan | undefined = features.database ? { dialect: features.database, ...readDatabaseOptions(config, features.database) } : undefined
   if (database) schema = await moveSchema(cwd, database.dialect, database)
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
-  const sources = await rewriteSources({ cwd, features, schema, skip })
+  const sources = await rewriteSources({ cwd, features, schema, skip, appNames: new Set((await appServerImportNames(cwd, config)).keys()) })
 
   // `vite-hub` resolves each feature from its own package, and the build fails while one is missing.
   const featurePackages = [features.database && "@vite-hub/database", features.kv && "@vite-hub/kv", features.blob && "@vite-hub/blob"].filter(name => typeof name === "string")
@@ -98,7 +99,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
 
   const enabled = [features.database && "database", features.kv && "kv", features.blob && "blob", features.cache && "cache"].filter(Boolean)
   const notes = [
-    "vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.",
+    "NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again.",
     "Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.",
   ]
   if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
