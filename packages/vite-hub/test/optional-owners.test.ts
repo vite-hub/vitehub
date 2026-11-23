@@ -402,6 +402,11 @@ describe("host packages", () => {
     expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
   })
 
+  it("leaves the SMTP nodemailer check to Email, which knows when the app loads it", () => {
+    expect(hostFeaturePackages(["email"], "node", { email: { driver: "smtp" } })).toEqual({})
+    expect(hostFeaturePackages(["email"], "cloudflare", { email: { driver: "smtp" } })).toEqual({})
+  })
+
   it("stops a Vercel Workflow build that misses @vercel/functions with the install command", async () => {
     const { assertFeaturePackages, hostFeaturePackages } = await importOptionalOwners()
     // `importOptionalOwners()` loads a new catalog, and a catalog guard matches only its own errors.

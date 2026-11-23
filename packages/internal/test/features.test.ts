@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, isOwnerCheckedPackage } from "../src/features.ts"
 
 const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
@@ -17,10 +17,13 @@ describe("feature catalog", () => {
     expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
   })
 
-  it("adds nodemailer only for the SMTP Email driver", () => {
+  it("adds nodemailer only for the SMTP Email driver off Cloudflare, and leaves its check to Email", () => {
     expect(featurePackages("email", { driver: "smtp" }, "node")).toEqual(["@vite-hub/email", "nodemailer"])
+    expect(featurePackages("email", { driver: "smtp" }, "cloudflare")).toEqual(["@vite-hub/email"])
     expect(featurePackages("email", { driver: "resend" }, "node")).toEqual(["@vite-hub/email"])
     expect(featurePackages("email", true, "cloudflare")).toEqual(["@vite-hub/email"])
+    expect(isOwnerCheckedPackage("email", "nodemailer")).toBe(true)
+    expect(isOwnerCheckedPackage("email", "@vite-hub/email")).toBe(false)
   })
 
   it("has one definition per feature id, keyed by its id", () => {
