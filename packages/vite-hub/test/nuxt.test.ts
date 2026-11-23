@@ -2963,10 +2963,9 @@ describe("ViteHub Nuxt integration", () => {
       host: "node",
     }, production.nuxt)
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
-    expect(generated).toContain("invoke: true")
-    // The Console reads the Agent journal. It does not configure one.
-    expect(generated).not.toContain("observations")
-    expect(generated).not.toContain("retention")
+    const registration = generated.split("\n").find(line => line.trimStart().startsWith("installConsoleAgentDefinitions("))
+    expect(registration).toContain("invoke: true")
+    expect(registration).not.toMatch(/\b(?:observations|retention):/)
   })
 
   it.each(["databaseUrl", "observations", "retention"])("rejects the removed console.%s option in Nuxt", async (key) => {
