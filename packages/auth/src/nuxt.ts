@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { kebabCase, pascalCase, splitByCase } from "scule"
 
 import { createEnvImportAliases, hubEnv } from "@vite-hub/env/vite"
-import { resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { addNuxtVueImports, resolveNuxtServerDirs, resolveViteHubProjectRoot, type NuxtServerDirOptions, type NuxtVueImportContext } from "@vite-hub/internal/build/vite"
 
 import { assertNoCachedPageGuards, assertSignInPagesOpen, type NuxtPageLike } from "./page-guard-cache.ts"
 import { AUTH_VITE_PLUGIN_NAME, createAuthNitroConfig, hubAuth, resolveAuthViteConfig, writeNuxtAuthDefinition } from "./vite.ts"
@@ -27,7 +27,10 @@ export interface AuthNuxtModuleOptions {
 
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>) => void
+  hook?: {
+    (name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => Promise<void>): void
+    (name: "imports:context", handler: (context: NuxtVueImportContext) => Promise<void>): void
+  }
   options: {
     dev?: boolean
     watch?: string[]
@@ -40,9 +43,6 @@ type NuxtLike = {
     }
     experimental?: {
       extraPageMetaExtractionKeys?: string[]
-    }
-    imports?: {
-      imports?: Array<{ as?: string, from: string, name: string, priority?: number }>
     }
     nitro?: {
       alias?: Record<string, string>
@@ -80,7 +80,6 @@ type NuxtComponent = {
 }
 
 const composables = ["useAbility", "useAuthClient", "useUserSession"]
-const composableWarnings = new WeakMap<object, Set<string>>()
 /** The components of `@vite-hub/auth/vue` that check the rules of `shared/abilities.ts`, by export name. */
 const abilityComponents = ["AuthPermission"]
 const nitroRegistered = new WeakSet<object>()
@@ -327,21 +326,7 @@ export default function hubAuthNuxt(options: AuthNuxtModuleOptions = {}, nuxt?: 
     })
   }
 
-  nuxt.options.imports ??= {}
-  nuxt.options.imports.imports ??= []
-  const importsFrom = options.importsFrom || "@vite-hub/auth/vue"
-  const priority = -(nuxt.options._layers?.length || 1)
-  for (const name of composables) {
-    const existing = nuxt.options.imports.imports.find(entry => (entry.as ?? entry.name) === name)
-    if (!existing) nuxt.options.imports.imports.push({ from: importsFrom, name, priority })
-    else if (existing.from !== importsFrom) {
-      const warned = composableWarnings.get(nuxt) ?? new Set<string>()
-      composableWarnings.set(nuxt, warned)
-      if (warned.has(`${name}\0${existing.from}`)) continue
-      warned.add(`${name}\0${existing.from}`)
-      console.warn(`[vitehub] ${existing.from} already auto-imports \`${name}\`, so ViteHub does not auto-import it from ${importsFrom}. Import ViteHub's composable from "${importsFrom}" where you need it.`)
-    }
-  }
+  addNuxtVueImports(nuxt, options.importsFrom || "@vite-hub/auth/vue", composables)
 
   if (nuxt.options.dev && options.auth !== false && nuxt.hook && !abilitiesWatchRegistered.has(nuxt)) {
     abilitiesWatchRegistered.add(nuxt)

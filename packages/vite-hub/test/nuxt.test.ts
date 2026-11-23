@@ -16,6 +16,7 @@ import {
   getResolvedFeatureOptions,
   resolveViteHubProjectRoot,
   setResolvedFeatureOptions,
+  type NuxtVueImportContext,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
   VITEHUB_PROJECT_ROOT,
@@ -154,7 +155,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const iconHooks: Array<(icons: Set<string>) => void> = []
   const modulesDoneHooks: Array<() => void> = []
   const buildBeforeHooks: Array<() => void> = []
-  const importsExtendHooks: Array<(imports: Array<{ as?: string, from: string, name: string }>) => void> = []
+  const importsContextHooks: Array<(context: NuxtVueImportContext) => Promise<void>> = []
   type TypeReference = { path: string } | { types: string }
   type TypeConfig = { compilerOptions?: { paths?: Record<string, string[]> } }
   type PrepareTypesContext = {
@@ -167,7 +168,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const prepareTypesHooks: Array<(context: PrepareTypesContext) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "imports:extend" | "nitro:config" | "prepare:types" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof importsExtendHooks)[number] | (typeof prepareTypesHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+    hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "imports:context" | "nitro:config" | "prepare:types" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof importsContextHooks)[number] | (typeof prepareTypesHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
       if (name === "pages:routerOptions") routerOptionsHooks.push(callback as (typeof routerOptionsHooks)[number])
       else if (name === "nitro:init") nitroInitHooks.push(callback as (typeof nitroInitHooks)[number])
       else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
@@ -183,7 +184,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
       else if (name === "prepare:types") prepareTypesHooks.push(callback as (typeof prepareTypesHooks)[number])
-      else if (name === "imports:extend") importsExtendHooks.push(callback as (typeof importsExtendHooks)[number])
+      else if (name === "imports:context") importsContextHooks.push(callback as (typeof importsContextHooks)[number])
     },
     options: {
       _installedModules: [] as Array<{ meta: { name: string } }>,
@@ -210,7 +211,14 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
   }
   return {
-    importsExtendHooks,
+    async vueImports() {
+      const imports: Array<{ as?: string, from: string, name: string }> = []
+      const addons: ReturnType<NuxtVueImportContext["getInternalContext"]>["addons"] = []
+      const context = { getImports: async () => imports, getInternalContext: () => ({ addons }) }
+      for (const hook of importsContextHooks) await hook(context)
+      for (const addon of addons) addon.extendImports?.(imports)
+      return imports.map(({ from, name }) => ({ from, name }))
+    },
     routerOptionsHooks,
     templatesGeneratedHooks,
     buildBeforeHooks,
@@ -4491,28 +4499,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("installs the Auth Vue and server runtime integration through module options", async () => {
-    const { nitroConfigHooks, nuxt } = createNuxt()
+    const { nitroConfigHooks, nuxt, vueImports } = createNuxt()
 
     await viteHubNuxtModule({ auth: true, host: "cloudflare" }, nuxt)
 
-    // SAFETY: The Auth integration initializes imports and Nitro runtime configuration.
+    // SAFETY: The Auth integration initializes Nitro runtime configuration.
     const options = nuxt.options as typeof nuxt.options & {
-      imports: { imports: Array<{ from: string; name: string }> }
       nitro: { alias: Record<string, string>; plugins: string[] }
     }
-    expect(options.imports.imports).toEqual([
-      { from: "vite-hub/source/client", name: "useCollection", priority: -1 },
-      { from: "vite-hub/choices/vue", name: "useChoices", priority: -1 },
-      { from: "vite-hub/forms/vue", name: "useFormAction", priority: -1 },
-      { from: "vite-hub/forms/formisch", name: "useFormSubmit", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredData", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredFetch", priority: -1 },
-      { from: "vite-hub/device", name: "setDeviceAccount", priority: -1 },
-      { from: "vite-hub/device", name: "clearDevice", priority: -1 },
-      { from: "vite-hub/device", name: "inspectDevice", priority: -1 },
-      { from: "vite-hub/auth/vue", name: "useAbility", priority: -1 },
-      { from: "vite-hub/auth/vue", name: "useAuthClient", priority: -1 },
-      { from: "vite-hub/auth/vue", name: "useUserSession", priority: -1 },
+    expect((await vueImports()).filter(entry => entry.from === "vite-hub/auth/vue").map(entry => entry.name)).toEqual([
+      "useAbility",
+      "useAuthClient",
+      "useUserSession",
     ])
     expect(options.nitro.alias["#vitehub/env/server"]).toBe(`${tmp}/vitehub-nuxt/.vitehub/env/server.mjs`)
     expect(options.nitro.alias["#vitehub/env/description"]).toBe(`${tmp}/vitehub-nuxt/.vitehub/env/description.mjs`)
@@ -4736,32 +4734,24 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("auto-imports Agent Vue clients only when Agent Definitions are enabled", async () => {
-    const { nuxt } = createNuxt()
+    const { nuxt, vueImports } = createNuxt()
 
     await viteHubNuxtModule({ agent: true, host: "cloudflare" }, nuxt)
 
-    // SAFETY: The Agent integration initializes Nuxt's imports collection.
-    expect(
-      (
-        // SAFETY: The Agent integration initializes Nuxt's imports collection.
-        nuxt.options as typeof nuxt.options & {
-          imports: { imports: Array<{ from: string; name: string }> }
-        }
-      ).imports.imports,
-    ).toEqual([
-      { from: "vite-hub/agent/vue", name: "useAgent", priority: -1 },
-      { from: "vite-hub/agent/vue", name: "useAgentInvocation", priority: -1 },
-      { from: "vite-hub/agent/vue", name: "useAgentInvocations", priority: -1 },
-      { from: "vite-hub/agent/vue", name: "useChat", priority: -1 },
-      { from: "vite-hub/source/client", name: "useCollection", priority: -1 },
-      { from: "vite-hub/choices/vue", name: "useChoices", priority: -1 },
-      { from: "vite-hub/forms/vue", name: "useFormAction", priority: -1 },
-      { from: "vite-hub/forms/formisch", name: "useFormSubmit", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredData", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredFetch", priority: -1 },
-      { from: "vite-hub/device", name: "setDeviceAccount", priority: -1 },
-      { from: "vite-hub/device", name: "clearDevice", priority: -1 },
-      { from: "vite-hub/device", name: "inspectDevice", priority: -1 },
+    expect(await vueImports()).toEqual([
+      { from: "vite-hub/agent/vue", name: "useAgent" },
+      { from: "vite-hub/agent/vue", name: "useAgentInvocation" },
+      { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
+      { from: "vite-hub/agent/vue", name: "useChat" },
+      { from: "vite-hub/source/client", name: "useCollection" },
+      { from: "vite-hub/choices/vue", name: "useChoices" },
+      { from: "vite-hub/forms/vue", name: "useFormAction" },
+      { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
+      { from: "vite-hub/device/vue", name: "useStoredData" },
+      { from: "vite-hub/device/vue", name: "useStoredFetch" },
+      { from: "vite-hub/device", name: "setDeviceAccount" },
+      { from: "vite-hub/device", name: "clearDevice" },
+      { from: "vite-hub/device", name: "inspectDevice" },
     ])
   })
 
@@ -4789,22 +4779,20 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ blob: true, host: "node" }, withBlob.nuxt)
     await viteHubNuxtModule({ host: "node" }, withoutBlob.nuxt)
 
-    // SAFETY: The module initializes Nuxt's imports collection.
-    const imports = (nuxt: typeof withBlob.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
-    expect(imports(withBlob.nuxt)).toEqual([
-      { from: "vite-hub/source/client", name: "useCollection", priority: -1 },
-      { from: "vite-hub/choices/vue", name: "useChoices", priority: -1 },
-      { from: "vite-hub/forms/vue", name: "useFormAction", priority: -1 },
-      { from: "vite-hub/forms/formisch", name: "useFormSubmit", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredData", priority: -1 },
-      { from: "vite-hub/device/vue", name: "useStoredFetch", priority: -1 },
-      { from: "vite-hub/device", name: "setDeviceAccount", priority: -1 },
-      { from: "vite-hub/device", name: "clearDevice", priority: -1 },
-      { from: "vite-hub/device", name: "inspectDevice", priority: -1 },
-      { from: "vite-hub/blob/vue", name: "useMultipartUpload", priority: -1 },
-      { from: "vite-hub/blob/vue", name: "useUpload", priority: -1 },
+    expect(await withBlob.vueImports()).toEqual([
+      { from: "vite-hub/source/client", name: "useCollection" },
+      { from: "vite-hub/choices/vue", name: "useChoices" },
+      { from: "vite-hub/forms/vue", name: "useFormAction" },
+      { from: "vite-hub/forms/formisch", name: "useFormSubmit" },
+      { from: "vite-hub/device/vue", name: "useStoredData" },
+      { from: "vite-hub/device/vue", name: "useStoredFetch" },
+      { from: "vite-hub/device", name: "setDeviceAccount" },
+      { from: "vite-hub/device", name: "clearDevice" },
+      { from: "vite-hub/device", name: "inspectDevice" },
+      { from: "vite-hub/blob/vue", name: "useMultipartUpload" },
+      { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
-    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection", priority: -1 }, { from: "vite-hub/choices/vue", name: "useChoices", priority: -1 }, { from: "vite-hub/forms/vue", name: "useFormAction", priority: -1 }, { from: "vite-hub/forms/formisch", name: "useFormSubmit", priority: -1 }, { from: "vite-hub/device/vue", name: "useStoredData", priority: -1 }, { from: "vite-hub/device/vue", name: "useStoredFetch", priority: -1 }, { from: "vite-hub/device", name: "setDeviceAccount", priority: -1 }, { from: "vite-hub/device", name: "clearDevice", priority: -1 }, { from: "vite-hub/device", name: "inspectDevice", priority: -1 }])
+    expect(await withoutBlob.vueImports()).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/choices/vue", name: "useChoices" }, { from: "vite-hub/forms/vue", name: "useFormAction" }, { from: "vite-hub/forms/formisch", name: "useFormSubmit" }, { from: "vite-hub/device/vue", name: "useStoredData" }, { from: "vite-hub/device/vue", name: "useStoredFetch" }, { from: "vite-hub/device", name: "setDeviceAccount" }, { from: "vite-hub/device", name: "clearDevice" }, { from: "vite-hub/device", name: "inspectDevice" }])
   })
 
   describe("WebContainer", () => {
@@ -4874,13 +4862,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     async function setup(options: Parameters<typeof viteHubNuxtModule>[0]) {
       const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-device-"))
       onTestFinished(() => rm(root, { recursive: true, force: true }))
-      const { nuxt } = createNuxt()
+      const { nuxt, vueImports } = createNuxt()
       nuxt.options.rootDir = root
       await viteHubNuxtModule({ host: "node", ...options }, nuxt)
       const src = resolve(root, ".vitehub/device/nuxt-plugin.mjs")
-      // SAFETY: The module initializes Nuxt's imports collection.
-      const imports = (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
-      return { imports, plugins: nuxt.options.plugins, src }
+      return { imports: await vueImports(), plugins: nuxt.options.plugins, src }
     }
 
     /** Runs the generated plugin with fake Nuxt, Device, and Auth modules, as the browser runs it. */
@@ -4930,11 +4916,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     it("auto-imports the stored reads and opens the device in a client plugin, after hydration when the server rendered the page", async () => {
       const { imports, plugins, src } = await setup({})
       expect(imports).toEqual(expect.arrayContaining([
-        { from: "vite-hub/device/vue", name: "useStoredData", priority: -1 },
-        { from: "vite-hub/device/vue", name: "useStoredFetch", priority: -1 },
-        { from: "vite-hub/device", name: "setDeviceAccount", priority: -1 },
-        { from: "vite-hub/device", name: "clearDevice", priority: -1 },
-        { from: "vite-hub/device", name: "inspectDevice", priority: -1 },
+        { from: "vite-hub/device/vue", name: "useStoredData" },
+        { from: "vite-hub/device/vue", name: "useStoredFetch" },
+        { from: "vite-hub/device", name: "setDeviceAccount" },
+        { from: "vite-hub/device", name: "clearDevice" },
+        { from: "vite-hub/device", name: "inspectDevice" },
       ]))
       // The plugin owns `openDevice()`.
       expect(imports).not.toContainEqual(expect.objectContaining({ name: "openDevice" }))
@@ -5011,11 +4997,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await viteHubNuxtModule({ host: "node" }, withSync.nuxt)
       await viteHubNuxtModule({ host: "node" }, withoutSync.nuxt)
 
-      // SAFETY: The module initializes Nuxt's imports collection.
-      const imports = (nuxt: typeof withSync.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
-      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/vue", name: "useSync", priority: -1 })
-      expect(imports(withSync.nuxt)).toContainEqual({ from: "vite-hub/sync/client", name: "clearSync", priority: -1 })
-      expect(imports(withoutSync.nuxt)).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync", priority: -1 })
+      expect(await withSync.vueImports()).toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
+      expect(await withSync.vueImports()).toContainEqual({ from: "vite-hub/sync/client", name: "clearSync" })
+      expect(await withoutSync.vueImports()).not.toContainEqual({ from: "vite-hub/sync/vue", name: "useSync" })
       // Without Auth, no plugin clears Sync on sign-out.
       expect(withSync.nuxt.options.plugins).not.toContainEqual({
         src: resolve(root, ".vitehub/sync/nuxt-sign-out.mjs"),
@@ -5129,82 +5113,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
   })
 
-  it("skips a configured Nuxt composable that binds a different useChat and warns once", async () => {
-    const { nuxt } = createNuxt()
-    Object.assign(nuxt.options, {
-      imports: { imports: [{ from: "@ai-sdk/vue", name: "useChat" }] },
-    })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      await viteHubNuxtModule({ agent: true, host: "cloudflare" }, nuxt)
-      // SAFETY: The Agent integration initializes Nuxt's imports collection.
-      const imports = (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ as?: string, from: string, name: string }> } }).imports.imports
-      expect(imports.filter(entry => entry.name === "useChat")).toEqual([{ from: "@ai-sdk/vue", name: "useChat" }])
-      expect(imports).toContainEqual({ from: "vite-hub/agent/vue", name: "useAgent", priority: -1 })
-      expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("useChat"))).toEqual([
-        "[vitehub] @ai-sdk/vue already auto-imports `useChat`, so ViteHub does not auto-import it from vite-hub/agent/vue. Import ViteHub's composable from \"vite-hub/agent/vue\" where you need it.",
-      ])
-    }
-    finally {
-      warn.mockRestore()
-    }
-  })
-
-  it("checks Nuxt composable collisions against their exposed aliases", async () => {
-    const { nuxt } = createNuxt()
-    Object.assign(nuxt.options, {
-      imports: { imports: [{ as: "useAiChat", from: "@ai-sdk/vue", name: "useChat" }] },
-    })
-
-    await viteHubNuxtModule({ agent: true, host: "cloudflare" }, nuxt)
-    expect(
-      (
-        // SAFETY: The Agent integration initializes Nuxt's imports collection.
-        nuxt.options as typeof nuxt.options & {
-          imports: { imports: Array<{ as?: string; from: string; name: string }> }
-        }
-      ).imports.imports,
-    ).toContainEqual({ from: "vite-hub/agent/vue", name: "useChat", priority: -1 })
-
-    const { nuxt: conflictingNuxt } = createNuxt()
-    Object.assign(conflictingNuxt.options, {
-      imports: { imports: [{ as: "useChat", from: "custom-chat", name: "chat" }] },
-    })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      await viteHubNuxtModule({ agent: true, host: "cloudflare" }, conflictingNuxt)
-      expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("custom-chat"))).toHaveLength(1)
-    }
-    finally {
-      warn.mockRestore()
-    }
-  })
-
-  it("lets an app composables/useChat.ts win and warns once", async () => {
-    const { importsExtendHooks, nuxt } = createNuxt()
-    Object.assign(nuxt.options, { _layers: [{ config: { rootDir: nuxt.options.rootDir, srcDir: nuxt.options.srcDir } }] })
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    try {
-      await viteHubNuxtModule({ agent: true, host: "cloudflare" }, nuxt)
-      const appComposable = { from: `${nuxt.options.srcDir}/composables/useChat.ts`, name: "useChat", priority: 0 }
-      for (const hook of importsExtendHooks) hook([appComposable, { from: `${nuxt.options.srcDir}/composables/useCart.ts`, name: "useCart" }])
-      for (const hook of importsExtendHooks) hook([appComposable])
-      // SAFETY: The Agent integration initializes Nuxt's imports collection.
-      const imports = (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string, priority?: number }> } }).imports.imports
-      const viteHubChat = imports.find(entry => entry.name === "useChat")
-      expect(viteHubChat).toEqual({ from: "vite-hub/agent/vue", name: "useChat", priority: -1 })
-      expect(viteHubChat!.priority).toBeLessThan(appComposable.priority)
-      expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("useChat"))).toEqual([
-        "[vitehub] app/composables/useChat.ts already auto-imports `useChat`, so ViteHub does not auto-import it from vite-hub/agent/vue. Import ViteHub's composable from \"vite-hub/agent/vue\" where you need it.",
-      ])
-    }
-    finally {
-      warn.mockRestore()
-    }
-  })
-
   it("auto-imports Realtime definition and Vue helpers", async () => {
-    const { nuxt } = createNuxt()
+    const { nuxt, vueImports } = createNuxt()
 
     await viteHubNuxtModule({ host: "cloudflare", realtime: true }, nuxt)
 
@@ -5213,21 +5123,14 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       preset: "cloudflare-module",
       wasm: { lazy: true },
     })
-    const imports = (
-      // SAFETY: The Realtime integration initializes Nuxt's imports collection.
-      nuxt.options as typeof nuxt.options & {
-        imports: { imports: Array<{ from: string; name: string }> }
-      }
-    ).imports.imports
+    const imports = await vueImports()
     expect(imports).toContainEqual({
       from: "vite-hub/realtime",
       name: "defineRealtime",
-      priority: -1,
     })
     expect(imports).toContainEqual({
       from: "vite-hub/realtime/vue",
       name: "useRealtimeTiptap",
-      priority: -1,
     })
   })
 
@@ -5244,16 +5147,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("keeps Auth composables without Env runtime wiring", async () => {
-    const { nuxt } = createNuxt()
+    const { nuxt, vueImports } = createNuxt()
 
     await viteHubNuxtModule({ auth: true, env: false, host: "cloudflare" }, nuxt)
 
-    // SAFETY: The Auth integration initializes imports and Nitro runtime configuration.
-    const options = nuxt.options as typeof nuxt.options & {
-      imports: { imports: Array<{ from: string; name: string }> }
-      nitro: Record<string, unknown>
-    }
-    expect(options.imports.imports.filter(entry => entry.from === "vite-hub/auth/vue").map(entry => entry.name)).toEqual([
+    const options = nuxt.options
+    expect((await vueImports()).filter(entry => entry.from === "vite-hub/auth/vue").map(entry => entry.name)).toEqual([
       "useAbility",
       "useAuthClient",
       "useUserSession",

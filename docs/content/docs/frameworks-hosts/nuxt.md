@@ -87,8 +87,9 @@ prefix.
 
 When the app gives the same name, the app wins. This is true for a file in
 `composables/` or `utils/` of the app or a layer, and for an entry in
-`imports.imports` or from another module. ViteHub skips its composable and logs
-one warning that names both sources. For example, `composables/useChat.ts`
+`imports.imports`, an import preset, or another module. ViteHub skips its
+composable and logs one warning per name, with the source Nuxt selects and the
+ViteHub import path. For example, `composables/useChat.ts`
 replaces the ViteHub `useChat`. Import the ViteHub composable from its
 `vite-hub/*` path where you need it.
 

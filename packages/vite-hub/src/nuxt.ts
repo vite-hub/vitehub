@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner, type ViteHubDevPeerUpgradeServer } from "@vite-hub/internal/dev-peer"
-import { getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { addNuxtVueImports, getResolvedFeatureOptions, resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PREPARE, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions, type NuxtVueImportContext } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -163,7 +163,7 @@ type NuxtLike = {
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
     (name: "build:before" | "modules:done" | "nitro:build:before", callback: () => void): void
     (name: "prepare:types", callback: (context: NuxtPrepareTypesContext) => void): void
-    (name: "imports:extend", callback: (imports: Array<{ as?: string, from: string, name: string }>) => void): void
+    (name: "imports:context", callback: (context: NuxtVueImportContext) => Promise<void>): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -185,9 +185,6 @@ type NuxtLike = {
       handler: (event: import("./console/runtime/server/request.ts").ConsoleRequestEvent) => void
       route?: string
     }>
-    imports?: {
-      imports?: Array<{ as?: string, from: string, name: string, priority?: number }>
-    }
     modules?: unknown[]
     nitro?: Record<string, unknown>
     plugins?: Array<string | { src: string, mode?: "client" | "server" | "all" }>
@@ -578,43 +575,6 @@ export default defineNuxtPlugin({
 `)
   const plugins = (nuxt.options.plugins ??= [])
   if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
-}
-
-const vueImportWarnings = new WeakMap<object, Set<string>>()
-const vueScanCheckRegistered = new WeakSet<object>()
-
-function addVueImports(nuxt: NuxtLike, from: string, names: string[]): void {
-  nuxt.options.imports ??= {}
-  const imports = (nuxt.options.imports.imports ??= [])
-  const priority = -(nuxt.options._layers?.length || 1)
-  for (const name of names) {
-    const existing = imports.find(entry => (entry.as ?? entry.name) === name)
-    if (!existing) imports.push({ from, name, priority })
-    else if (existing.from !== from) warnVueImportClash(nuxt, name, existing.from, from)
-  }
-  if (vueScanCheckRegistered.has(nuxt)) return
-  vueScanCheckRegistered.add(nuxt)
-  const rootDir = nuxt.options.rootDir || process.cwd()
-  nuxt.hook?.("imports:extend", (scanned) => {
-    const viteHubImports = new Map<string, string>()
-    for (const entry of nuxt.options.imports?.imports ?? []) {
-      if (/^@?vite-hub\//.test(entry.from)) viteHubImports.set(entry.as ?? entry.name, entry.from)
-    }
-    for (const entry of scanned) {
-      const name = entry.as ?? entry.name
-      const viteHubFrom = viteHubImports.get(name)
-      if (viteHubFrom && entry.from !== viteHubFrom) warnVueImportClash(nuxt, name, isAbsolute(entry.from) ? relative(rootDir, entry.from) : entry.from, viteHubFrom)
-    }
-  })
-}
-
-function warnVueImportClash(nuxt: NuxtLike, name: string, owner: string, from: string): void {
-  let warned = vueImportWarnings.get(nuxt)
-  if (!warned) vueImportWarnings.set(nuxt, (warned = new Set()))
-  const key = `${name}\0${owner}`
-  if (warned.has(key)) return
-  warned.add(key)
-  console.warn(`[vitehub] ${owner} already auto-imports \`${name}\`, so ViteHub does not auto-import it from ${from}. Import ViteHub's composable from "${from}" where you need it.`)
 }
 
 /**
@@ -1711,37 +1671,37 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     addNitroImports(config, serverAutoImports)
   })
   if (options.agent) {
-    addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
+    addNuxtVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)
     // Nuxt disables dependency discovery; prebundle the AI SDK's CommonJS browser dependencies.
     const optimizeDeps = (nuxt.options.vite.optimizeDeps ??= {})
     const include = (optimizeDeps.include ??= [])
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
-  addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  addNuxtVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
   if (options.observability && options.observability !== true && options.observability.browserErrors) await installBrowserErrorsNuxt(nuxt, projectRoot)
   await installStaleChunkReloadNuxt(nuxt, projectRoot)
-  if (isPackageInstalled("@vite-hub/choices")) addVueImports(nuxt, "vite-hub/choices/vue", ["useChoices"])
+  if (isPackageInstalled("@vite-hub/choices")) addNuxtVueImports(nuxt, "vite-hub/choices/vue", ["useChoices"])
   if (isPackageInstalled("@vite-hub/forms")) {
-    addVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
-    if (isPackageInstalled("@formisch/vue")) addVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
+    addNuxtVueImports(nuxt, "vite-hub/forms/vue", ["useFormAction"])
+    if (isPackageInstalled("@formisch/vue")) addNuxtVueImports(nuxt, "vite-hub/forms/formisch", ["useFormSubmit"])
   }
   if (options.device !== false && isPackageInstalled("@vite-hub/device")) {
     // `openDevice()` belongs to the plugin, so it is not auto-imported.
-    addVueImports(nuxt, "vite-hub/device/vue", ["useStoredData", "useStoredFetch"])
-    addVueImports(nuxt, "vite-hub/device", ["setDeviceAccount", "clearDevice", "inspectDevice"])
+    addNuxtVueImports(nuxt, "vite-hub/device/vue", ["useStoredData", "useStoredFetch"])
+    addNuxtVueImports(nuxt, "vite-hub/device", ["setDeviceAccount", "clearDevice", "inspectDevice"])
     await addDevicePlugin(nuxt, projectRoot, { version: options.device?.version, auth: Boolean(effectiveAuth) && options.device?.account !== false })
   }
   if (options.webContainer) await addWebContainerBoundaryPlugin(nuxt, projectRoot, options.webContainer.routes)
   // `server/sync/` turns Sync on, so `useSync()` is imported only then.
   if (isPackageInstalled("@vite-hub/sync") && hasSyncDirectory(projectRoot, resolveNuxtServerDirs(nuxt.options))) {
-    addVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])
-    addVueImports(nuxt, "vite-hub/sync/client", ["clearSync"])
+    addNuxtVueImports(nuxt, "vite-hub/sync/vue", ["useSync"])
+    addNuxtVueImports(nuxt, "vite-hub/sync/client", ["clearSync"])
     if (effectiveAuth) await addSyncSignOutPlugin(nuxt, projectRoot)
   }
   if (nuxt.options.dev && isPackageInstalled("@vite-hub/sync")) restartOnSyncDefinitions(nuxt, projectRoot)
   if (options.i18n) {
     await requireOptionalOwner(ownerModules.i18nNuxt, "i18n").installI18nNuxt({ options: { plugins: (nuxt.options.plugins ??= []) } }, { importBase: "vite-hub/i18n", nitroMajorVersion: 3, projectRoot })
-    addVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
+    addNuxtVueImports(nuxt, "vite-hub/i18n/vue", ["useLocale"])
   }
   if (effectiveAuth) {
     const envOptions = options.env || {}
@@ -1764,10 +1724,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     nuxtAlias[name] ??= path
     nitroAlias[name] ??= path
   }
-  if (options.blob) addVueImports(nuxt, "vite-hub/blob/vue", ["useMultipartUpload", "useUpload"])
+  if (options.blob) addNuxtVueImports(nuxt, "vite-hub/blob/vue", ["useMultipartUpload", "useUpload"])
   if (options.realtime) {
-    addVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
-    addVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
+    addNuxtVueImports(nuxt, "vite-hub/realtime", ["defineRealtime"])
+    addNuxtVueImports(nuxt, "vite-hub/realtime/vue", ["useRealtimeTiptap"])
   }
   if (consoleOptions) {
     generatedConsolePluginPath = await installConsole({
