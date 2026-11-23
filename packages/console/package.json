@@ -12,6 +12,7 @@
   "dependencies": {
     "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/mcp": "workspace:*",

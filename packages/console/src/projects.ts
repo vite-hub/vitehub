@@ -31,8 +31,31 @@ export const consoleProjects = sqliteTable("console_projects", {
   uniqueIndex("console_projects_team_url_uidx").on(table.teamId, table.url),
 ])
 
+/**
+ * The MCP connections that a person made from the Console page of a project. `sealed` is the whole connection, with its
+ * tokens, encrypted with `VITEHUB_CONSOLE_SECRET`. Unlinking the project or deleting the person deletes them.
+ */
+export const consoleMcpConnections = sqliteTable("console_mcp_connections", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => authSqliteSchema.user.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => consoleProjects.id, { onDelete: "cascade" }),
+  sealed: text("sealed").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, table => [index("console_mcp_connections_owner_idx").on(table.userId, table.projectId)])
+
+/**
+ * The OAuth clients that the Console registered with authorization servers, one for each server, callback, and MCP
+ * endpoint. `id` is a SHA-256 hash of those three, and `sealed` is the registration, encrypted like a connection.
+ */
+export const consoleMcpClients = sqliteTable("console_mcp_clients", {
+  id: text("id").primaryKey(),
+  sealed: text("sealed").notNull(),
+  createdAt: integer("created_at").notNull(),
+})
+
 /** The tables of the Console, for `defineDatabase({ schema })`. `deviceCode` is the key that Better Auth looks up. */
-export const consoleSchema = { consoleProjects, consoleApiKeys, deviceCode: consoleDeviceCodes }
+export const consoleSchema = { consoleProjects, consoleApiKeys, deviceCode: consoleDeviceCodes, consoleMcpConnections, consoleMcpClients }
 
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
 export type ConsoleDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>

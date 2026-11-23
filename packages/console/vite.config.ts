@@ -7,11 +7,14 @@ import { defineConfig } from "vite"
 import { detectHost, vitehub } from "vite-hub"
 import { env } from "vite-hub/env"
 
+import { readConsoleAssets } from "./src/assets-build.ts"
+
 const host = detectHost() ?? "node"
 const dataDir = resolve(process.env.VITEHUB_DATA_DIR ?? ".data")
 
 const page = resolve(import.meta.dirname, "../vite-hub/.vitehub/console-account")
 const pageModule = "#console-page"
+const assetsModule = "#console-assets"
 
 function database() {
   if (host === "node") return { migrateOnStart: true, connection: { url: pathToFileURL(resolve(dataDir, "database/sqlite.db")).href } }
@@ -59,6 +62,14 @@ export default defineConfig({
         return `export default ${JSON.stringify("<!doctype html><title>ViteHub Console</title><p>Build the Console page with <code>pnpm --filter vite-hub build:console-account</code>.</p>")}`
       },
     },
-    nitro({ publicAssets: [{ baseURL: "/assets", dir: resolve(page, "assets"), maxAge: 31_536_000 }] }),
+    {
+      name: "vitehub-console-assets",
+      resolveId: id => id === assetsModule ? `\0${assetsModule}` : undefined,
+      load: id => id === `\0${assetsModule}` ? `export default ${JSON.stringify(readConsoleAssets())}` : undefined,
+    },
+    nitro({
+      handlers: [{ handler: resolve(import.meta.dirname, "server/handlers/well-known-skills.ts"), route: "/.well-known/skills/**" }],
+      publicAssets: [{ baseURL: "/assets", dir: resolve(page, "assets"), maxAge: 31_536_000 }],
+    }),
   ],
 })

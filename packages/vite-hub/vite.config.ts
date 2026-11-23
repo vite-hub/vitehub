@@ -747,6 +747,17 @@ export default defineConfig({
       tsconfig: "tsconfig.build.json",
     },
     {
+      alias: motionCoreAlias,
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page-tool/account": "src/page/account.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      target: browserTarget,
+      tsconfig: "tsconfig.build.json",
+    },
+    {
       // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).
       alias: motionCoreAlias,
       deps: { alwaysBundle: [/./], onlyBundle: false },

@@ -94,6 +94,7 @@ export default defineConfig({
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/mcp-server.ts",
       "src/runtime/mcp-tools.ts",
+      "src/runtime/page-account.ts",
       "src/runtime/page-pill.ts",
       "src/runtime/page-tools.ts",
       "src/runtime/page-tools-loader.ts",
