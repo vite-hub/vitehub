@@ -275,7 +275,7 @@ Do not move, delete, or create again a release tag. The publish job stops when t
 
 - **Preflight or direct-publish permission failure.** Use the package settings or the claim script above to fix each affected package. Use the claim script for missing packages. Confirm **Allow npm publish** on the matching trusted publisher before rerunning the failed jobs of the release run.
 - **Failure after some packages were published.** Rerun the failed jobs of the same release run. The job skips each version that npm shows with the same integrity and with provenance from this tag. It publishes the other packages in release order. If the run artifact expired, run `gh workflow run release.yml --ref vX.Y.Z`. That run packs the tag again and must produce the same tarballs.
-- **Staged version.** npm returns `E409 Cannot publish over previously staged version` when a version waits for approval in staging. The job stops at that package and prints the dist-tag and tarball integrity that the release expects. A package maintainer checks the staged metadata and tarball:
+- **Staged version.** npm returns `E409 Cannot publish over previously staged version` when a version waits for approval in staging. The job stops at that package and prints the dist-tag, provenance source, and tarball integrity that the release expects. A package maintainer checks the staged metadata and tarball:
 
   ```sh
   npm stage list <package>
@@ -284,7 +284,7 @@ Do not move, delete, or create again a release tag. The publish job stops when t
   node -p "'sha512-' + require('node:crypto').createHash('sha512').update(require('node:fs').readFileSync(process.argv[1])).digest('base64')" <downloaded-file>
   ```
 
-  Run `npm stage approve <stage-id>` only if both the staged dist-tag and tarball integrity match. Otherwise run `npm stage reject <stage-id>`. Then rerun the failed jobs. Matching bytes and dist-tag do not prove provenance: the rerun still requires npm provenance from this release tag. After a reject, the rerun publishes the version again.
+  Run `npm stage approve <stage-id>` only if the staged dist-tag and tarball integrity match and you can verify provenance from `release.yml` at the exact release tag and commit. If you cannot verify all three before approval, run `npm stage reject <stage-id>`. Then rerun the failed jobs. The rerun still verifies npm provenance from this release tag. After a reject, the rerun publishes the version again.
 - **A version that does not verify.** npm does not let you replace a published version. If npm shows the version with other contents or without provenance from this tag, do not tag again. Release the fix as the next version through the release PR.
 
 ## Pull requests

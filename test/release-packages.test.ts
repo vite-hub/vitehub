@@ -758,7 +758,7 @@ describe("release publication", () => {
     await expect(failure).rejects.toThrow("@vite-hub/agent@1.2.3 is staged on npm but not published")
     await expect(failure).rejects.toThrow(`downloaded tarball has integrity ${agent.integrity}`)
     await expect(failure).rejects.toThrow("compare the staged dist-tag with latest using `npm stage view <stage-id>`")
-    await expect(failure).rejects.toThrow("Matching bytes and dist-tag do not establish provenance")
+    await expect(failure).rejects.toThrow(`verify release.yml provenance for ${sourceRef} at ${sourceSha}`)
     await expect(failure).rejects.toThrow("Cannot publish over previously staged version")
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
       `./${artifact.manifest.packages[0].tarball}`,

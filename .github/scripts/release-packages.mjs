@@ -682,12 +682,11 @@ async function preflightRegistry(packages, options, runtime) {
   return states
 }
 
-function stagedConflictMessage(pkg, tag, error) {
+function stagedConflictMessage(pkg, options, error) {
   return [
     `${pkg.name}@${pkg.version} is staged on npm but not published, so npm refuses to publish it. Packages after it in the release order were not published.`,
-    `A package maintainer must review it: run \`npm stage list ${pkg.name}\`, compare the staged dist-tag with ${tag} using \`npm stage view <stage-id>\`, and run \`npm stage download <stage-id>\`.`,
-    `Approve it with \`npm stage approve <stage-id>\` only if the dist-tag matches and the downloaded tarball has integrity ${pkg.integrity}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
-    "Matching bytes and dist-tag do not establish provenance. The rerun still requires npm provenance from this release tag.",
+    `A package maintainer must review it: run \`npm stage list ${pkg.name}\`, compare the staged dist-tag with ${options.tag} using \`npm stage view <stage-id>\`, and run \`npm stage download <stage-id>\`.`,
+    `Approve it with \`npm stage approve <stage-id>\` only if the dist-tag matches, the downloaded tarball has integrity ${pkg.integrity}, and you can verify release.yml provenance for ${options.sourceRef} at ${options.sourceSha}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
     "Then rerun the failed publish job. See Releases in CONTRIBUTING.md.",
     "",
     String(error?.message),
@@ -772,7 +771,7 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, options.tag, error), { cause: error })
+      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, options, error), { cause: error })
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/i.test(String(error?.message))) throw error
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
       await waitUntilVerified([pkg], { ...options, runtime }, verification)
