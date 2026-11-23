@@ -37,7 +37,7 @@ pnpm vitehub --help
 ```
 
 Every project includes `inspect` and `provision`. Other namespaces appear when their Vite integrations are active.
-When the config throws, help prints the error, lists only the commands that need no project, such as `status`, and exits with 1.
+When the config throws, `vitehub --help` and `vitehub env --help` print the error, show reduced help, and exit with code 1. Of the listed commands, only `deploy`, `provision run`, and `provision status` load the config.
 Each CLI invocation resolves every active plugin's CLI contributor once. Commands and Provision Steps use that contribution for the invocation; the next invocation resolves it again.
 
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored. Generated operations cannot use the built-in `inspect` or `provision` namespaces: registry creation rejects them. Set the operation's `cli.namespace` to another name.
