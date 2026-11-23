@@ -24,7 +24,7 @@ icon: i-lucide-circle-alert
 
 ## Errors
 
-A config error throws when the build starts. A runtime error comes back as `[error, undefined]`. Each error has a `code`, `why`, `fix`, and a `docs` link to its heading on this page.
+A config error throws when the build starts. A runtime error comes back as `[error, undefined]`. Each error has a `code`, `why`, `fix`, and a `docs` link to its page in [i18n diagnostics](/docs/i18n/diagnostics).
 
 ### I18N_INVALID_LOCALES
 
@@ -64,3 +64,15 @@ if (error?.code === "I18N_UNKNOWN_LOCALE") console.warn(error.fix)
 ### I18N_LOCALE_SUPERSEDED
 
 A newer `setLocale()` call superseded this selection before its catalog loaded. The older call returns `[error, undefined]` without applying its locale. Use the result of the latest call.
+
+### I18N_SAVE_CONFLICT
+
+Another save changed the `draft` ref while `useTranslations().save()` wrote the message. Nothing was saved. Call `save()` again so it reads the new draft first. `error.cause` holds the Workspace conflict, and the HTTP status is `409`.
+
+### I18N_LIVE_CATALOG_INVALID
+
+The live catalog route `/_vitehub/i18n/<locale>.json` answered with a body that is not `{ revision, messages }` with compiled messages. The browser falls back to the build catalog. Check that no proxy, middleware, or app route answers that path with another body.
+
+### I18N_LIVE_CATALOG_UNAVAILABLE
+
+The live catalog route `/_vitehub/i18n/<locale>.json` did not answer or returned a non-2xx status. The browser falls back to the build catalog. Check the server log and network; `error.cause` holds the fetch error.
