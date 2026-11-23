@@ -11,10 +11,13 @@ export function compactCiLog(log: string, limit: number = compactLimit): string 
   const plain = log.replace(/(?:\x1b|\^\[)\[[0-9;?]*[ -/]*[@-~]/g, "")
   const compact = plain.split("\n").filter(line => !/\s\* \[new (?:branch|tag)\]\s/.test(line)).join("\n")
   if (compact.length <= limit) return compact
-  const start = compact.indexOf("\n", compact.length - limit) + 1
+  const cutoff = compact.length - limit
+  const nextLine = compact.indexOf("\n", cutoff - 1) + 1
+  const start = nextLine && compact.slice(nextLine).trim() ? nextLine : cutoff
   let omitted = 0
   for (let n = compact.indexOf("\n"); n !== -1 && n < start; n = compact.indexOf("\n", n + 1)) omitted++
-  return `[${omitted} earlier log lines omitted]\n${compact.slice(start)}`
+  const partial = compact[start - 1] !== "\n" && start < compact.length
+  return `[${omitted} earlier log lines omitted]\n${partial ? "…" : ""}${compact.slice(start)}`
 }
 
 /** Bound log context explicitly; the full fetched log remains in the local cache. */
