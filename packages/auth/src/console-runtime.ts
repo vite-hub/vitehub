@@ -96,8 +96,8 @@ export interface AuthConsole {
    */
   hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
   /**
-   * Run the checks of `hostUser()` and `hostSession()` without a change: a database and a `user.role` field that users
-   * cannot set and that sessions return. Hosts call it before they give out a sign-in link, so the link never fails later.
+   * Check the Auth configuration without writing: a database and a `user.role` field that users cannot set and that
+   * sessions return. `hostUser()` and `hostSession()` still check the account and session when the link is redeemed.
    */
   checkHost(): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */

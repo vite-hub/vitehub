@@ -1,7 +1,7 @@
 import { renderSVG } from "uqr"
 
 import { siteAccessOperations } from "../site-access"
-import { requestConsoleOperation } from "./request"
+import { ConsoleRequestError, requestConsoleOperation } from "./request"
 import { openConsoleTicket } from "./ticket"
 
 import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
@@ -9,16 +9,27 @@ import type { ConsoleTicketLink } from "./ticket"
 
 export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
 
+export function isSiteAuthUnavailable(error: unknown): error is ConsoleRequestError {
+  return error instanceof ConsoleRequestError && error.code === "AUTH_CONSOLE_UNAVAILABLE"
+}
+
 /** Everything the Site access section shows, read in one go. */
-export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
+export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError }> {
   const options = signal ? { signal } : {}
   const [sessions, invites, grants] = await Promise.all([
-    requestConsoleOperation(siteAccessOperations.sessions, {}, options),
+    requestConsoleOperation(siteAccessOperations.sessions, {}, options).catch((error: unknown) => {
+      if (isSiteAuthUnavailable(error)) return error
+      throw error
+    }),
     requestConsoleOperation(siteAccessOperations.invites, {}, options),
     requestConsoleOperation(siteAccessOperations.grants, {}, options),
   ])
   // SAFETY: These operations answer with the shapes of `server/site-access.ts`.
-  return { sessions: (sessions as { sessions: SiteSession[] }).sessions, invites: (invites as { invites: SiteInvite[] }).invites, grants: (grants as { grants: SiteGrant[] }).grants }
+  return {
+    ...(isSiteAuthUnavailable(sessions) ? { sessions: [], sessionsError: sessions } : { sessions: (sessions as { sessions: SiteSession[] }).sessions }),
+    invites: (invites as { invites: SiteInvite[] }).invites,
+    grants: (grants as { grants: SiteGrant[] }).grants,
+  }
 }
 
 /** Opens the app in a new tab, and signs that browser in as you on the way. */
