@@ -100,8 +100,12 @@ async function run(command: string, args: string[], cwd: string) {
 
 async function workspaceConfig(specs: Record<string, string>) {
   const nuxtUi = createRequire(await realpath(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")))
+  const linkCheckerManifest = await realpath(join(repoRoot, "packages/docs/node_modules/nuxt-link-checker/package.json"))
+  const linkChecker = createRequire(linkCheckerManifest)
   const overrides = Object.entries({
     ...specs,
+    "@vite-hub/docs>nuxt-link-checker": await installedVersion(linkCheckerManifest),
+    "nuxt-link-checker>@vueuse/core": await installedVersion(linkChecker.resolve("@vueuse/core/package.json")),
     "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
   })
