@@ -12,8 +12,8 @@ import {
 } from "../../core/path.ts";
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
 import { workspaceStoreDiscard } from "../../storage/discard.ts";
-import { workspaceStoreTarget } from "../../storage/target.ts";
-import { workspaceRevisionMaterializer } from "../../storage/materialization.ts";
+import { provideWorkspaceStoreTarget } from "../../storage/target.ts";
+import { provideWorkspaceRevisionMaterializer, type WorkspaceRevisionMaterializer } from "../../storage/materialization.ts";
 import {
   assertNoGitHubRepositoryKey,
   commitGitHubChanges,
@@ -228,7 +228,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   constructor(
     private options: GitHubWorkspaceStoreOptions,
     private workspaceName: string,
-  ) {}
+  ) {
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget());
+    provideWorkspaceRevisionMaterializer(this, this.#revisionMaterializer);
+  }
 
   /**
    * The repository, branch, root, and token resolve on first use. The Store is created when the Workspace Definition
@@ -272,7 +275,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     });
   }
 
-  [workspaceStoreTarget]() {
+  #storeTarget() {
     return {
       provider: "github" as const,
       branch: this.#branch,
@@ -281,7 +284,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     };
   }
 
-  [workspaceRevisionMaterializer] = {
+  #revisionMaterializer: WorkspaceRevisionMaterializer = {
     currentRevision: async (options?: { abortSignal?: AbortSignal; refresh?: boolean }) => {
       await waitForGitHubOperation(
         this.#mutate(async () => await this.#ensure({ refresh: options?.refresh !== false })),

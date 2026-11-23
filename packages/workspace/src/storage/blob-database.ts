@@ -7,7 +7,7 @@ import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "../core/file-me
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryPath, normalizeHistoryRef, readHistoryDeleteRef, rejectHistoryHead, validateHistoryMessage } from "../core/history.ts"
 import { contentToBytes, decodeFile, isExcludedWorkspacePath, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createMemoryWorkspaceStore, forkMemoryWorkspaceStore } from "./memory.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "./utils.ts"
 import { workspaceHistorySchema, type HistoryManifestFile } from "./history-schema.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
@@ -97,9 +97,10 @@ class ContentAddressedWorkspaceStore implements BlobDatabaseWorkspaceStore {
       const legacy = `${legacyPrefix}/${digest}`
       return legacy === current ? [current] : [current, legacy]
     })
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget())
   }
 
-  [workspaceStoreTarget](): BlobDatabaseWorkspaceStoreTarget {
+  #storeTarget(): BlobDatabaseWorkspaceStoreTarget {
     return { provider: "blob-database", workspace: this.options.workspace, database: this.#db }
   }
 

@@ -5,10 +5,16 @@ import { runInNewContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
 import { resolveGitHubWorkspaceRoot, splitGitHubRepository } from "../src/providers/github/shared.ts";
-import { workspaceRevisionMaterializer } from "../src/storage/materialization.ts";
 
-import type { WorkspaceRevisionMaterializerCarrier } from "../src/storage/materialization.ts";
 import type { WorkspaceDefinition } from "../src/core/types.ts";
+import type { WorkspaceRevisionMaterializer } from "../src/storage/materialization.ts";
+
+async function loadRevisionMaterializer(store: object): Promise<WorkspaceRevisionMaterializer> {
+  const { resolveWorkspaceRevisionMaterializer } = await import("../src/storage/materialization.ts");
+  const materializer = resolveWorkspaceRevisionMaterializer(store);
+  if (!materializer) throw new Error("GitHub Store has no revision materializer.");
+  return materializer;
+}
 
 const requests: Array<{ body?: Record<string, unknown>; headers: Headers; method: string; operation?: string; path: string; rawPath: string }> = []
 let fake: ReturnType<typeof createFakeGitHub>
@@ -204,7 +210,7 @@ describe("GitHub workspace store", () => {
       { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
-    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+    const materializer = await loadRevisionMaterializer(store);
 
     await expect(materializer.materializeRevision()).resolves.toMatchObject({
       archive: archiveBytes,
@@ -231,7 +237,7 @@ describe("GitHub workspace store", () => {
       { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
-    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+    const materializer = await loadRevisionMaterializer(store);
 
     const results = await Promise.all([
       materializer.materializeRevision(),
@@ -254,7 +260,7 @@ describe("GitHub workspace store", () => {
       { driver: "github", repo: "onmax/repo", token: "token" },
       "docs",
     );
-    const materializer = (store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!;
+    const materializer = await loadRevisionMaterializer(store);
 
     const resolution = materializer.materializeRevision({ abortSignal: abort.signal });
     abort.abort();
@@ -270,7 +276,7 @@ describe("GitHub workspace store", () => {
       "docs",
     );
 
-    await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision()).resolves.toMatchObject({
+    await expect((await loadRevisionMaterializer(store)).materializeRevision()).resolves.toMatchObject({
       revision: fakeSha("base-sha"),
     });
     expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(3);
@@ -284,7 +290,7 @@ describe("GitHub workspace store", () => {
     );
     await store.writeFile("staged.txt", { content: "staged", path: "staged.txt" });
 
-    await expect((store as typeof store & WorkspaceRevisionMaterializerCarrier)[workspaceRevisionMaterializer]!.materializeRevision())
+    await expect((await loadRevisionMaterializer(store)).materializeRevision())
       .resolves.toMatchObject({ files: 0, revision: fakeSha("base-sha") });
     await expect(store.readFile("staged.txt")).resolves.toMatchObject({ content: textBytes("staged") });
     expect(requests.filter(request => request.path.includes("/tarball/"))).toHaveLength(0);

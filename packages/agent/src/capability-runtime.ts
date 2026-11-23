@@ -10,7 +10,7 @@ import { ViteHubError } from "@vite-hub/runtime"
 import { resolveRuntimeValue } from "@vite-hub/runtime/internal/context"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
-import { applyWorkspaceAccessWrapper, grantWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, trustedWorkspaceAccessScope, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { applyWorkspaceAccessWrapper, attachWorkspaceOverride, grantWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, isTrustedSourceFreeInspection, trustedWorkspaceAccessScope } from "./access-runtime.ts"
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
@@ -72,7 +72,6 @@ import type {
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
-import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
@@ -1523,7 +1522,7 @@ export async function resolveAgentCapabilities<
   }
   const capabilityContexts: Array<{
     capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
-    context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+    context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
   }> = []
 
   function recordDriverContribution(kind: AgentDriverContributionKind, capabilityId: string, names?: string[]) {
@@ -1643,7 +1642,7 @@ export async function resolveAgentCapabilities<
           workspaceDefinition: currentWorkspaceDefinition,
           workspaceMaterializationPaths,
         }
-        let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+        let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
         const input: AgentCapabilityInputContext = {
           get: () => currentInput,
           messages: () => messages,
@@ -1662,10 +1661,6 @@ export async function resolveAgentCapabilities<
         capabilityContext = {
           ...metadataContext,
           ...(invocationOptions.driver ? { agentDriver: invocationOptions.driver } : {}),
-          [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
-            currentWorkspace = nextWorkspace
-            syncCapabilityWorkspaceContext(capabilityContext)
-          },
           capability,
           mode: capability.mode,
           input,
@@ -1796,7 +1791,11 @@ export async function resolveAgentCapabilities<
             },
           },
           workspace: currentWorkspace,
-        } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+        } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+        attachWorkspaceOverride(capabilityContext, (nextWorkspace: ReadonlyWorkspaceFacade<Name>) => {
+          currentWorkspace = nextWorkspace
+          syncCapabilityWorkspaceContext(capabilityContext)
+        })
         if (inspection) {
           markCapabilityInspection(capabilityContext)
         }

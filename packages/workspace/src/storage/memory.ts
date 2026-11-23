@@ -2,7 +2,7 @@ import { assertWorkspaceDigest, workspaceConflictError, workspaceError } from ".
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { isExcludedWorkspacePath, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -34,8 +34,8 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
-  [workspaceStoreTarget]() {
-    return { provider: "memory" }
+  constructor() {
+    provideWorkspaceStoreTarget(this, () => ({ provider: "memory" }))
   }
 
   #nodes = new Map<string, MemoryNode>([["", { type: "directory", mtime: now() }]])

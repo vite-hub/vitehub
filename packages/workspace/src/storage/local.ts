@@ -12,7 +12,7 @@ import { assertWorkspaceDigest, workspaceConflictError, workspaceError } from ".
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { contentStreamChunks, contentToBytes, isExcludedWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -773,7 +773,7 @@ async function fileDigest(path: string): Promise<string> {
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
-  [workspaceStoreTarget]() {
+  #storeTarget() {
     return {
       provider: "local",
       containsPath: async (ancestor: string, path: string) => {
@@ -809,6 +809,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
     this.#processLocks = options.locks === "process"
     this.#fileMetadataRoot = `${root}/.vitehub/file-metadata`
     this.#metaPath = `${root}.meta.json`
+    provideWorkspaceStoreTarget(this, () => this.#storeTarget())
   }
 
   async #pathLock<T>(root: string, path: string, operation: () => Promise<T>, readOnly = false): Promise<T> {
