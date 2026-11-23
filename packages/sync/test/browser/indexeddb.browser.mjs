@@ -110,6 +110,33 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await page.close()
     })
 
+    await t.test("can write again after another tab deletes the database", async () => {
+      const page = await open()
+      const other = await open()
+      try {
+        await page.evaluate(async () => {
+          window.db = window.storage.createIndexedDBStorage(() => { throw new Error("unexpected fallback") })
+          await window.db.read("/reopen")
+        })
+        await other.evaluate(() => new Promise((resolve, reject) => {
+          const request = indexedDB.deleteDatabase("vitehub-sync")
+          request.onsuccess = () => resolve()
+          request.onerror = () => reject(request.error)
+        }))
+        const writes = await page.evaluate(async () => {
+          await window.db.write("/reopen", { add: [{ id: "m", account: "a", key: "k", op: "delete" }] })
+          const queue = await window.db.readQueue("/reopen")
+          await window.db.clear()
+          return queue.writes.map(write => write.id)
+        })
+        assert.deepEqual(writes, ["m"])
+      }
+      finally {
+        await other.close()
+        await page.close()
+      }
+    })
+
     await t.test("an offline insert survives a reload and is sent once when online", async () => {
       server.write({ id: "a", ownerId: "ada", title: "Milk" })
       const page = await open()

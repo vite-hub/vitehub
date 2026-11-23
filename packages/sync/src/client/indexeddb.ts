@@ -86,7 +86,12 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
   let opening: Promise<IDBDatabase | SyncStorage> | undefined
 
   function open(): Promise<IDBDatabase | SyncStorage> {
-    opening ??= openDatabase().catch(() => {
+    opening ??= openDatabase().then(database => {
+      database.addEventListener("versionchange", () => {
+        opening = undefined
+      })
+      return database
+    }).catch(() => {
       persisted = false
       return fallback()
     })
