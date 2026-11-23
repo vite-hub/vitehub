@@ -4,6 +4,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
+import { i18nLocaleListProblem, mcpPublicRouteNeedsSignedAuth } from "@vite-hub/internal/feature-inputs"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
@@ -111,7 +112,7 @@ export function readFeatureId(value: string, commandUsage = usage): FeatureId {
 }
 
 function optionValue(value: string, key: string): JsonValue {
-  if (value.trimStart().startsWith("[")) {
+  if (key === "i18n.locales" && value.trimStart().startsWith("[")) {
     try {
       return JSON.parse(value)
     }
@@ -393,9 +394,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   if (inputFeatures.includes("i18n") && site?.keys.i18n?.kind !== "expression") {
     const i18n = valueFor("i18n")
     const locales = isRecord(i18n) ? i18n.locales : undefined
-    if (!Array.isArray(locales) || !locales.length || !locales.every(locale => typeof locale === "string")) {
+    const problem = i18nLocaleListProblem(locales)
+    if (problem) {
       missing.push({ field: "i18n.locales" })
-      inputFixes.push(`Pass a nonempty JSON array, such as \`--option 'i18n.locales=["en","es"]'\`.`)
+      inputFixes.push(`${problem} Pass a nonempty JSON array, such as \`--option 'i18n.locales=["en","es"]'\`.`)
       rerunnable = false
     }
   }
@@ -409,14 +411,20 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const authEnabled = !args.options.auth && (selectedAuth || (configuredAuth?.kind === "literal" && configuredAuth.value === true) || discoveredAuth)
     const mcp = valueFor("mcp")
     const mode = isRecord(mcp) && Object.hasOwn(mcp, "auth") ? mcp.auth : undefined
-    if (!authEnabled && authStatus?.enabled === "unknown" && (mode === undefined || mode === true || mode === "optional")) {
+    const publicRoute = isRecord(mcp) && typeof mcp.publicRoute === "string" ? mcp.publicRoute : undefined
+    if ((typeof mode === "boolean" || mode === "optional") && mcpPublicRouteNeedsSignedAuth(publicRoute, mode)) {
+      missing.push({ field: "mcp.publicRoute" })
+      inputFixes.push("Remove `mcp.publicRoute`, or enable Auth, set `mcp.auth=true`, and add `mcpOAuth()` to the Auth Definition.")
+      rerunnable = false
+    }
+    else if (!authEnabled && authStatus?.enabled === "unknown" && (mode === undefined || mode === true || mode === "optional")) {
       const file = project.configFile ?? "vite.config.ts"
       const snippet = `mcp: ${toSource(isRecord(mcp) ? mcp : true)},`
       const fix = `Confirm Auth is enabled in the app. ${mcpOAuthSetup}. Add this key to the vitehub() options by hand:\n${snippet}`
       const reason = "Auth cannot be determined statically"
       throw setupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, fix, reason }), setupExitCodes.conflict, { data: { snippet } })
     }
-    if (mode === true || mode === "optional" || (mode === undefined && authEnabled)) {
+    else if (mode === true || mode === "optional" || (mode === undefined && authEnabled)) {
       if (authEnabled) needsMcpOAuth = true
       else {
         missing.push({ field: "auth" })

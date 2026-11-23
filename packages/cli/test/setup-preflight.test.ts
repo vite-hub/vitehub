@@ -37,13 +37,43 @@ describe("setup feature inputs", () => {
     expect(existsSync(join(root, "app"))).toBe(false)
   })
 
-  it("keeps arrays and scalar dotted options when replaying an init", async () => {
+  it("keeps locale arrays and bracket-prefixed strings in init and replay", async () => {
     const root = await createProject()
-    const options = ["--option", 'i18n.locales=["en","es"]', "--option", "mcp.auth=false", "--option", "mcp.serverInfo.name=Test"]
+    const options = [
+      "--option", 'i18n.locales=["en","es-MX"]',
+      "--option", "mcp.auth=false",
+      "--option", "mcp.instructions=[Read-only] Search project docs.",
+      "--option", 'mcp.serverInfo.name=["Docs"]',
+    ]
     const result = await runSetup<SetupInitPlan>([...init("i18n,mcp", ...options), "--no-install"], root)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.stack.command).toContain(`--option 'i18n.locales=["en","es"]' --option mcp.auth=false --option mcp.serverInfo.name=Test`)
-    expect(await readFile(join(root, "app/vite.config.ts"), "utf8")).toMatch(/i18n: \{ locales: \["en", "es"\] \}.*mcp: \{ auth: false, serverInfo: \{ name: "Test" \} \}/u)
+    expect(result.json.stack.command).toContain("'i18n.locales=[\"en\",\"es-MX\"]'")
+    expect(result.json.stack.command).toContain("'mcp.instructions=[Read-only] Search project docs.'")
+    expect(result.json.stack.command).toContain("'mcp.serverInfo.name=[\"Docs\"]'")
+    const config = await readFile(join(root, "app/vite.config.ts"), "utf8")
+    expect(config).toContain('i18n: { locales: ["en", "es-MX"] }')
+    expect(config).toContain('instructions: "[Read-only] Search project docs."')
+    expect(config).toContain('serverInfo: { name: "[\\"Docs\\"]" }')
+  })
+
+  it.each([
+    ['["en","en_US"]', "BCP 47"],
+    ['["en","EN"]', "listed twice"],
+  ])("rejects invalid locale lists before creating or adopting a project (%s)", async (locales, problem) => {
+    const root = await createProject()
+    const created = await runSetup<Result>(init("i18n", "--option", "i18n.locales=" + locales), root)
+    expect(created.exitCode, created.stdout).toBe(2)
+    expect(created.json.missing).toEqual([{ field: "i18n.locales" }])
+    expect(created.json.error?.fix).toContain(problem)
+    expect(existsSync(join(root, "app"))).toBe(false)
+
+    const before = viteConfig('{ host: "node", i18n: { locales: ' + locales + " } }")
+    const parent = await createProject({ "app/package.json": pnpmManifest, "app/vite.config.ts": before })
+    const adopted = await runSetup<Result>(init("i18n"), parent)
+    expect(adopted.exitCode, adopted.stdout).toBe(2)
+    expect(adopted.json.missing).toEqual([{ field: "i18n.locales" }])
+    expect(await readdir(join(parent, "app"))).toEqual(["package.json", "vite.config.ts"])
+    expect(await readFile(join(parent, "app/vite.config.ts"), "utf8")).toBe(before)
   })
 
   it("keeps valid literal locales on adopt and rejects empty locales on add before writing", async () => {
@@ -80,6 +110,21 @@ describe("setup feature inputs", () => {
     expect(result.exitCode, result.stdout).toBe(2)
     expect(result.json.missing).toEqual([{ choices: ["true", "optional", "false"], field: "mcp.auth" }])
     expect(result.json.error?.fix).toContain("anyone")
+    expect(result.json.rerun).toBeUndefined()
+    expect(await readdir(root)).toEqual(["package.json", "vite.config.ts"])
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(before)
+  })
+
+  it.each([
+    ['{ host: "node", mcp: { publicRoute: "/mcp/public" } }', "mcp.auth=false"],
+    ['{ host: "node", auth: true, mcp: { auth: "optional" } }', "publicRoute=/mcp/public"],
+  ])("rejects a public route on an unsigned or optional MCP endpoint (%s)", async (config, option) => {
+    const before = viteConfig(config)
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": before })
+    const result = await runSetup<Result>(["add", "mcp", "--option", option, ...flags], root)
+    expect(result.exitCode, result.stdout).toBe(2)
+    expect(result.json.missing).toEqual([{ field: "mcp.publicRoute" }])
+    expect(result.json.error?.fix).toContain("mcp.auth=true")
     expect(result.json.rerun).toBeUndefined()
     expect(await readdir(root)).toEqual(["package.json", "vite.config.ts"])
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(before)
