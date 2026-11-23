@@ -145,10 +145,25 @@ function serverAutoImports<Created extends { nuxt: { options: object } }>(create
   return created
 }
 
-function consoleAgentDefinitionsCall(generated: string): string {
-  const call = generated.split("\n").find(line => line.trimStart().startsWith("installConsoleAgentDefinitions(["))
-  expect(call).toBeDefined()
-  return call ?? ""
+function consoleAgentOptions(generated: string): Map<string, string> {
+  const source = ts.createSourceFile("plugin.mjs", generated, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
+  function findOptions(node: ts.Node): ts.ObjectLiteralExpression | undefined {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "installConsoleAgentDefinitions") {
+      const options = node.arguments[1]
+      if (options && ts.isObjectLiteralExpression(options)) return options
+    }
+    return ts.forEachChild(node, findOptions)
+  }
+  const options = findOptions(source)
+  if (!options) throw new Error("Missing installConsoleAgentDefinitions options")
+  const values = new Map<string, string>()
+  for (const property of options.properties) {
+    if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) {
+      values.set(property.name.text, property.initializer.getText(source))
+    }
+    else if (ts.isShorthandPropertyAssignment(property)) values.set(property.name.text, property.name.text)
+  }
+  return values
 }
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
@@ -1826,7 +1841,7 @@ describe("ViteHub Nuxt integration", () => {
     await expect(generatedAgentJournal(application)).resolves.toContain(
       `"databaseUrl":${JSON.stringify(pathToFileURL(`${tmp}/vitehub-nuxt/persistent data/agent-invocations.sqlite`).href)}`,
     )
-    if (consoleOn) expect(consoleAgentDefinitionsCall(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8"))).not.toMatch(/\bdatabaseUrl:/)
+    if (consoleOn) expect(consoleAgentOptions(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).has("databaseUrl")).toBe(false)
     await application.runCloseHook()
   })
 
@@ -2074,7 +2089,7 @@ describe("ViteHub Nuxt integration", () => {
     }, application.nuxt)
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
     expect(generated).toContain("invoke: true")
-    expect(consoleAgentDefinitionsCall(generated)).not.toMatch(/\bdatabaseUrl:/)
+    expect(consoleAgentOptions(generated).has("databaseUrl")).toBe(false)
     await application.runCloseHook()
   })
 
@@ -2968,10 +2983,10 @@ describe("ViteHub Nuxt integration", () => {
       console: { ...productionConsole, invoke: true },
       host: "node",
     }, production.nuxt)
-    const call = consoleAgentDefinitionsCall(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8"))
-    expect(call).toContain("invoke: true")
+    const options = consoleAgentOptions(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8"))
+    expect(options.get("invoke")).toBe("true")
     // The Console reads the Agent journal. It does not configure one.
-    expect(call).not.toMatch(/\b(?:observations|retention|databaseUrl):/)
+    for (const key of ["observations", "retention", "databaseUrl"]) expect(options.has(key)).toBe(false)
   })
 
   it.each(["databaseUrl", "observations", "retention"])("rejects the removed console.%s option in Nuxt", async (key) => {
