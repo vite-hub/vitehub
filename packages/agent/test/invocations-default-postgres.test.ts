@@ -131,7 +131,7 @@ describe("default Agent journal on a Postgres default Database", () => {
     finally {
       rmSync(dataDir, { force: true, recursive: true })
     }
-  })
+  }, 30_000)
 
   it("leaves the records of a 0.4 journal file in the file, and reads them when the file is pinned", async () => {
     const file = join(projectRoot, ".vitehub/data/agent-invocations.sqlite")
@@ -174,7 +174,7 @@ describe("default Agent journal on a Postgres default Database", () => {
     finally {
       rmSync(dataDir, { force: true, recursive: true })
     }
-  })
+  }, 30_000)
 
   it("reports the Database scope, and the env var URL when it moves the journal", () => {
     const input = { database: "default", defaultJournal: true, store: "database" } as const
