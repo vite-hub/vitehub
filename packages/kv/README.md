@@ -98,7 +98,7 @@ With `vitehub()`, `cache: { driver: "kv" }` mounts the same driver at Nitro's `c
 
 ## Listing keys
 
-`kv.list({ prefix })` returns every key that starts with `prefix`. Add `limit` when the caller needs bounded work: `kv.list({ prefix, limit, cursor })` reads one page. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete. On Cloudflare KV, each binding request returns at most 1,000 keys; when `limit` is larger, ViteHub caps the request at 1,000 keys and returns a `cursor` for the rest. `kv.clear({ prefix })` deletes the keys that `kv.list({ prefix })` lists.
+`kv.list({ prefix })` returns every key that starts with `prefix`. Add `limit` when the caller needs bounded work: `kv.list({ prefix, limit, cursor })` reads one page. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete. On Cloudflare KV, each binding request returns at most 1,000 keys: with `limit` above 1,000, `kv.list()` caps the request at 1,000 keys and returns a `cursor` only when more keys remain; without `limit`, it reads every page and returns no cursor. `kv.clear({ prefix })` deletes the keys that `kv.list({ prefix })` lists.
 
 Prefixes match text, and use the same key normalization as reads and writes. For example, `users/al` matches the stored key `users:alice`, and `user` matches `users:alice` and `user-old:1`. A trailing separator, such as `users/` or `users:`, limits the prefix to children and does not match `users-other`.
 
