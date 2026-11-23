@@ -37,6 +37,23 @@ interface D1Client {
   prepare(sql: string): { bind(...params: KVSqlParam[]): { all(): Promise<{ results: readonly Record<string, unknown>[] }> } }
 }
 
+interface D1HttpClient {
+  query(sql: string, params: KVSqlParam[], mode: "write"): Promise<readonly unknown[]>
+}
+
+function isD1HttpClient(value: unknown): boolean {
+  return typeof value === "object" && value !== null && Reflect.get(value, "protocol") === "d1-http" && hasMethod(value, "query")
+}
+
+function isRow(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function objectRows(rows: readonly unknown[]): readonly Record<string, unknown>[] {
+  if (rows.every(isRow)) return rows
+  throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "Cloudflare D1 returned rows without column names." })
+}
+
 const d1MaxParameters = 100
 
 function hasMethod(value: unknown, name: string): boolean {
@@ -45,7 +62,7 @@ function hasMethod(value: unknown, name: string): boolean {
 }
 
 /**
- * A SQL client over the Drizzle database of the app: postgres.js, libSQL, or primary Cloudflare D1. It resolves
+ * A SQL client over the Drizzle database of the app: postgres.js, libSQL, primary Cloudflare D1, or D1 over HTTP. It resolves
  * the client on each query because the Database connection can belong to the request.
  */
 export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClient {
@@ -65,6 +82,14 @@ export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClie
       maxParameters: d1MaxParameters,
       // SAFETY: The check above found `prepare()` and `batch()`, the methods of a D1 binding.
       query: async (sql, params) => (await (client() as D1Client).prepare(sql).bind(...params).all()).results,
+    }
+  }
+  if (isD1HttpClient(first)) {
+    return {
+      dialect: "sqlite",
+      maxParameters: d1MaxParameters,
+      // SAFETY: The check above found the `d1-http` client of `@vite-hub/database`, whose `query()` returns the rows of the statement.
+      query: async (sql, params) => objectRows(await (client() as D1HttpClient).query(sql, params, "write")),
     }
   }
   throw kvErrorDiagnostics.KV_DATABASE_UNAVAILABLE({ database, problem: "unsupported" })
@@ -97,10 +122,10 @@ type DatabaseKVDriver = KVRuntimeDriver & Required<Pick<KVRuntimeDriver, "getIte
 /**
  * KV in a table of the app's Database. Each atomic operation is one statement, so two servers that write one key at
  * the same time get one winner. Expiry uses the clock of the Database. Works on Postgres and on SQLite 3.35 or later,
- * such as libSQL and Cloudflare D1.
+ * such as libSQL and Cloudflare D1. `table` defaults to `vitehub_kv`. A caller that passes another table keeps its rows
+ * out of reach of every KV store.
  */
-export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>): DatabaseKVDriver {
-  const table = kvTable
+export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>, table: string = kvTable): DatabaseKVDriver {
   const namespace = options.namespace
   let pending: Promise<KVSqlClient> | undefined
   let sweptAt = 0

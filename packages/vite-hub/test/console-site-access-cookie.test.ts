@@ -15,6 +15,8 @@ import { defineCommentsPlugin } from "../../comments/src/runtime/plugin.ts"
 import { resolveCommentsIdentity } from "../../comments/src/runtime/session.ts"
 import { runWithDatabaseRequest } from "../../database/src/runtime/d1-sessions.ts"
 import { createDrizzleSqliteAdapter } from "../../database/src/runtime/drizzle-adapter.ts"
+import { normalizeKVOptions } from "../../kv/src/config.ts"
+import createDatabaseKVDriver, { kvSqlClientFromDatabase } from "../../kv/src/runtime/database.ts"
 import { consoleState } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -203,13 +205,13 @@ function createD1() {
     raw: async () => connection.prepare(query).all(...params).map(row => Object.values(row)),
     run: async () => ({ results: [], success: true, meta: connection.prepare(query).run(...params) }),
   })
-  const rows = () => Number(sqlite.prepare("select count(*) as count from vitehub_kv").get()?.count)
+  const rows = () => Number(sqlite.prepare("select count(*) as count from vitehub_console_site").get()?.count)
   const client = (connection: DatabaseSync) => ({ prepare: (query: string) => statement(connection, query), batch: async () => [] })
   const withSession = vi.fn((_constraint: string) => ({ ...client(replica), getBookmark: () => "stale" }))
   const snapshot = () => {
-    replica.exec(String(sqlite.prepare("select sql from sqlite_master where name = 'vitehub_kv'").get()?.sql))
-    const insert = replica.prepare("insert into vitehub_kv (namespace, key, value, expires_at) values (?, ?, ?, ?)")
-    for (const row of sqlite.prepare("select namespace, key, value, expires_at from vitehub_kv").all()) {
+    replica.exec(String(sqlite.prepare("select sql from sqlite_master where name = 'vitehub_console_site'").get()?.sql))
+    const insert = replica.prepare("insert into vitehub_console_site (namespace, key, value, expires_at) values (?, ?, ?, ?)")
+    for (const row of sqlite.prepare("select namespace, key, value, expires_at from vitehub_console_site").all()) {
       insert.run(row.namespace!, row.key!, row.value!, row.expires_at ?? null)
     }
   }
@@ -222,12 +224,13 @@ function createD1() {
 
 describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
   let d1: ReturnType<typeof createD1>
+  let db: object
 
   beforeEach(({ onTestFinished }) => {
     kv.driver = "cloudflare"
     d1 = createD1()
     onTestFinished(d1.close)
-    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB", readReplication: true } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { binding: "DB", readReplication: true } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
     installConsoleSiteDatabase(async () => ({ default: { db } }), "default")
   })
 
@@ -246,6 +249,20 @@ describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
     expect((await call("site.revoke-session", { id })).value).toEqual({ revoked: true, removedUser: false })
     expect(await tools(cookie)).toEqual([])
     expect(kv.entries.size).toBe(0)
+  }))
+
+  it("keeps links and site sessions out of reach of a KV store with the same name on the same Database", () => inD1(async () => {
+    const url = await link("site.link")
+    const { cookie } = await open(await link("site.link"))
+    const stores = normalizeKVOptions({ stores: { "default": { driver: "database" }, "vitehub-console-site": { driver: "database" } } })?.stores ?? {}
+    const store = stores["vitehub-console-site"]
+    if (store?.driver !== "database") throw new Error("No database KV store")
+    const app = createDatabaseKVDriver(store, async () => kvSqlClientFromDatabase(db, "default"))
+    expect(await app.getKeys("", {})).toEqual([])
+    await app.clear?.("", {})
+    expect(d1.rows()).toBe(2)
+    expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect((await open(url)).response.status).toBe(303)
   }))
 
   it("opens a link once when two browsers open it at the same time", () => inD1(async () => {
@@ -285,6 +302,47 @@ describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
     d1.limit(50)
     expect((await call("site.revoke-invite", { id: invites[0]!.id })).value).toEqual({ revoked: true })
   }))
+})
+
+function createD1HttpApiOverSqlite(rows: "objects" | "arrays") {
+  const sqlite = new DatabaseSync(":memory:")
+  const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const { sql, params } = JSON.parse(String(init?.body)) as { sql: string, params: (string | number | null)[] }
+    if (params.length > 100) return Response.json({ success: false, errors: [{ message: "too many SQL variables" }] }, { status: 400 })
+    const statement = sqlite.prepare(sql)
+    const found = statement.all(...params)
+    const results = rows === "objects" ? found : { columns: statement.columns().map(column => column.name), rows: found.map(row => Object.values(row)) }
+    return Response.json({ success: true, result: [{ success: true, results }] })
+  })
+  return { request, sqlite }
+}
+
+describe.each(["objects", "arrays"] as const)("Site access without Auth on fs-lite KV and a D1 Database over HTTP with rows as %s", (rows) => {
+  it("keeps one-time links and site sessions in the Database through the D1 HTTP API", async ({ onTestFinished }) => {
+    kv.driver = "fs-lite"
+    const api = createD1HttpApiOverSqlite(rows)
+    onTestFinished(() => api.sqlite.close())
+    vi.stubGlobal("fetch", api.request)
+    onTestFinished(() => {
+      vi.unstubAllGlobals()
+    })
+    const db = createDrizzleSqliteAdapter({ name: "default", cloudflare: { databaseId: "site-id", http: { url: "https://d1.example.com/query", authToken: "token" } } }, defineRelations({}), { missingConnection: "a D1 binding", requireRemoteUrl: true })
+    installConsoleSiteDatabase(async () => ({ default: { db } }), "default")
+
+    const url = await link("site.link", { path: "/guide" })
+    expect(api.sqlite.prepare("select count(*) as count from vitehub_console_site").get()?.count).toBe(1)
+    const { response, cookie } = await open(url)
+    expect(response.status).toBe(303)
+    expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect((await open(url)).response.status).toBe(401)
+    for (let index = 0; index < 101; index++) await link("site.invite", { name: `Guest ${index}`, grants: ["comments-write"] })
+    expect(Reflect.get(Object((await call("site.invites")).value), "invites")).toHaveLength(101)
+    const { value } = await call("site.sessions")
+    const id = String(Reflect.get(Object((value as { sessions: unknown[] }).sessions[0]), "id"))
+    expect((await call("site.revoke-session", { id })).value).toEqual({ revoked: true, removedUser: false })
+    expect(await tools(cookie)).toEqual([])
+    expect(kv.entries.size).toBe(0)
+  })
 })
 
 it("generates the Site storage loader when Database inspection is hidden", async () => {
