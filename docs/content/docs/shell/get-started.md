@@ -20,10 +20,10 @@ In this tutorial, you write a Markdown file to a Workspace, search it with `rg`,
 
 Shell runs commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
 
-Install Shell, Workspace, and Valibot:
+Install Shell and Workspace:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/shell @vite-hub/workspace valibot
+pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
 Create `server/workspaces/docs.ts` to define the `docs` Workspace that holds your file. This file turns Workspace on. Shell needs no option, because your route creates it:
