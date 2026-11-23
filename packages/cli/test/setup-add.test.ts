@@ -347,11 +347,17 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    'serverDir: process.env.SERVER_DIR || "backend"',
-    'rootDir: process.env.APP_ROOT || "app"',
-    'extends: ["./base"]',
-  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options) => {
+    ['serverDir: process.env.SERVER_DIR || "backend"', {}],
+    ['rootDir: process.env.APP_ROOT || "app"', {}],
+    ['extends: ["./base"]', {}],
+    ['srcDir: "src", $development: { serverDir: "backend" }', {}],
+    ['srcDir: "src", $env: { staging: { rootDir: "app" } }', {}],
+    ['srcDir: "src", theme: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src", _extends: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src"', { ".nuxtrc": "serverDir=backend\n" }],
+  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options, files) => {
     const root = await createProject({
+      ...files,
       "package.json": pnpmManifest,
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
     })
@@ -430,6 +436,7 @@ describe("vitehub add", () => {
     ['rootDir: "app", serverDir: "backend"', "app/backend"],
     ['srcDir: "src"', "server"],
     ['srcDir: "src", serverDir: "backend"', "backend"],
+    ['srcDir: "src", $production: { devtools: { enabled: false } }', "server"],
   ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
     const root = await createProject({
       "package.json": pnpmManifest,

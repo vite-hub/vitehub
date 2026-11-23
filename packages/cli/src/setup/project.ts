@@ -1,6 +1,7 @@
 import { existsSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { homedir } from "node:os"
 import { delimiter, sep } from "node:path"
 import process from "node:process"
 
@@ -9,7 +10,7 @@ import { dirname, join, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { LocateResult } from "@vite-hub/internal/config-edit"
+import type { JsonValue, LocateResult } from "@vite-hub/internal/config-edit"
 
 export type SetupFramework = "vite" | "nuxt" | "none"
 export type SetupPackageManager = "pnpm" | "npm" | "yarn" | "bun"
@@ -84,12 +85,29 @@ export function detectPackageManager(root: string, manifest: PackageManifest | u
   return agent ? { packageManager: agent, packageManagerSource: "user-agent" } : { packageManager: "npm", packageManagerSource: "default" }
 }
 
+const nuxtLayerKeys = ["extends", "_extends", "theme", "_layers"]
+
+function nuxtDirectoryOverride(value: JsonValue): boolean {
+  return value !== null && typeof value === "object"
+    && ["rootDir", "serverDir", ...nuxtLayerKeys].some(key => Object.hasOwn(value, key))
+}
+
 function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
   const nuxt = config?.ok ? config.site.nuxt : undefined
   if (!nuxt || nuxt.spread) return
-  const extended = nuxt.keys.extends
-  if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return
-  if (nuxt.keys._layers || existsSync(join(root, "layers"))) return
+  for (const key of nuxtLayerKeys) {
+    const layer = nuxt.keys[key]
+    if (layer && !(layer.kind === "literal" && Array.isArray(layer.value) && layer.value.length === 0)) return
+  }
+  for (const [key, override] of Object.entries(nuxt.keys)) {
+    if (!key.startsWith("$") || key === "$meta") continue
+    if (override.kind === "expression") return
+    if (key === "$env") {
+      if (override.value !== null && typeof override.value === "object" && Object.values(override.value).some(nuxtDirectoryOverride)) return
+    }
+    else if (nuxtDirectoryOverride(override.value)) return
+  }
+  if (existsSync(join(root, "layers")) || [...parentFolders(root), homedir()].some(folder => existsSync(join(folder, ".nuxtrc")))) return
   const rootDir = nuxt.keys.rootDir
   const serverDir = nuxt.keys.serverDir
   if (rootDir && (rootDir.kind !== "literal" || typeof rootDir.value !== "string")) return

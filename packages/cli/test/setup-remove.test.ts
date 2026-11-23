@@ -96,6 +96,7 @@ describe("vitehub remove", () => {
     ['extends: ["./base"]', "base/server/comments.ts", "comments"],
     ["", "layers/base/server/comments.ts", "comments"],
     ["serverDir: process.env.SERVER_DIR", "backend/comments.ts", "comments"],
+    ['srcDir: "src", $development: { serverDir: "backend" }', "backend/comments.ts", "comments"],
     ["serverDir: process.env.SERVER_DIR", "backend/schedules/nightly.ts", "schedule"],
   ])("requires --force when Nuxt Definition directories are unresolved: %s (%s)", async (options, path, feature) => {
     const content = feature === "comments" ? "export const comments = defineComments()\n" : "export default defineSchedule({})\n"

@@ -166,6 +166,7 @@ describe("vitehub status", () => {
 
   it.each([
     [`serverDir: process.env.SERVER_DIR`, {}],
+    ['srcDir: "src", $development: { serverDir: "backend" }', { "backend/comments.ts": "export default {}" }],
     [`extends: ["./base"]`, { "base/nuxt.config.ts": "export default {}", "base/server/comments.ts": "export default {}" }],
     ["", { "layers/base/nuxt.config.ts": "export default {}", "layers/base/server/comments.ts": "export default {}" }],
   ])("keeps unresolved Nuxt discovery unknown: %s", async (options, files) => {

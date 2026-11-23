@@ -127,7 +127,7 @@ A starter Definition file exists and has other content, or another file already 
 
 ### `SETUP_SERVER_DIR_MANUAL`
 
-Nuxt's application server directory needs config evaluation, for example because `serverDir` is an expression or the app uses layers. Create the Definition in that directory and rerun without `--name`, or use literal directory options without layers.
+The CLI could not determine Nuxt's application server directory statically. For example, the app may use a dynamic `serverDir`, layers, directory overrides for a Nuxt environment, or a `.nuxtrc` file. Create the Definition in Nuxt's resolved server directory and rerun without `--name`.
 
 ### `SETUP_INSTALL_FAILED`
 
@@ -168,7 +168,7 @@ The command deletes the `vitehub()` key. A feature that is on without a key, suc
 
 `remove` deletes a file only when it is exactly a starter that `add` writes. It refuses with `3` while the app still uses the feature: an import of `vite-hub/<feature>` or of a package that only this feature needs, a changed or extra file in the Definition folder, such as `server/queues/`, or a discovered file, such as `server/comments.ts`. The error lists each file and line in `references`. It uninstalls a package only when no enabled feature declares it and no source file imports it.
 
-When Nuxt directories cannot be resolved without running the config, for example with layers or a dynamic `serverDir`, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Use literal directory options without layers, or pass `--force` to turn it off while leaving those files in place.
+When the CLI cannot determine the Nuxt server directory statically, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Pass `--force` to turn it off while leaving those files in place.
 
 `remove` never deletes host resources, such as a D1 database or a KV namespace, the local data in `.vitehub/data`, host credentials, or `.vitehub/link.json`. `nextSteps` names the host resources to delete by hand.
 
