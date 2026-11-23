@@ -16,7 +16,8 @@ function status(root: string) {
   return runSetup<StatusResult>(["status", "--offline", "--json"], root)
 }
 
-function replay(command: string, parent: string) {
+function replay(command: string | null, parent: string) {
+  if (command === null) throw new Error("Expected a replay command")
   const args = execFileSync("sh", ["-c", `set -- ${command}; printf '%s\\0' "$@"`], { encoding: "utf8" }).split("\0").slice(3, -1)
   return runSetup<SetupInitPlan & { error?: SetupError }>([...args, "--no-install", "--json"], parent)
 }
@@ -26,6 +27,52 @@ function featureStates(result: StatusResult) {
 }
 
 describe("setup stack replay", () => {
+  it.each([
+    ["kv.token", "dummy-upstash-token", "upstash"],
+    ["kv.url", "redis://dummy-user:dummy-password@localhost:6379", "redis"],
+  ])("omits the credential in %s from init and status stacks", async (field, value, driver) => {
+    const parent = await createProject()
+    const root = join(parent, "app")
+    const args = ["init", "app", "--host", "node", "--features", "kv", "--option", `kv.driver=${driver}`, "--option", `${field}=${value}`, "--no-install", "--yes"]
+    const planned = await runSetup<SetupInitPlan>([...args, "--dry-run", "--json"], parent)
+    const dryRun = await runSetup([...args, "--dry-run"], parent)
+    const applied = await runSetup(args, parent)
+    const unchanged = await runSetup<SetupInitPlan>([...args, "--json"], parent)
+    const current = await status(root)
+    const text = await runSetup(["status", "--offline"], root)
+
+    for (const result of [planned, dryRun, applied, unchanged, current, text]) expect(result.exitCode, result.stdout).toBe(0)
+    for (const stack of [planned.json.stack, unchanged.json.stack, current.json.stack]) {
+      expect(JSON.stringify(stack)).not.toContain(value)
+      expect(stack?.omits).toContainEqual({ path: field, reason: "credential-option" })
+      expect(stack?.command).toContain(`kv.driver=${driver}`)
+    }
+    for (const result of [dryRun, applied, text]) {
+      expect(result.stdout).not.toContain(value)
+      expect(result.stdout).toContain(`${field} (credential-option)`)
+    }
+  })
+
+  it.each([
+    ["netlify", "kv: { stores: { default: { driver: 'upstash' } } }", "kv.driver"],
+    ["netlify", "kv: true", "kv.driver"],
+    ["vercel", "comments: true, database: { connection: selectConnection() }", "database.connection"],
+  ])("does not offer a command that init cannot plan on %s with %s", async (host, config, field) => {
+    const root = await createProject({ "vite.config.ts": viteConfig(`{ host: '${host}', ${config} }`) })
+    const source = await runSetup<StatusResult>(["status", "--offline", "--json"], root, { UPSTASH_REDIS_REST_URL: "https://redis.example.test", UPSTASH_REDIS_REST_TOKEN: "dummy" })
+    expect(source.exitCode, source.stdout).toBe(0)
+    expect(source.json.stack?.command).toBeNull()
+    expect(source.json.stack?.omits).toContainEqual({ path: field, reason: "required-option" })
+  })
+
+  it("replays a Netlify KV provider choice that init can plan", async () => {
+    const root = await createProject({ "app/vite.config.ts": viteConfig("{ host: 'netlify', kv: { driver: 'upstash' } }") })
+    const source = await status(join(root, "app"))
+    expect(source.json.stack?.omits).toEqual([])
+    const result = await replay(source.json.stack!.command, await createProject())
+    expect(result.exitCode, result.stdout).toBe(0)
+  })
+
   it("replays the current features and options after add and remove", async () => {
     const parent = await createProject({ "pnpm-workspace.yaml": "packages: []\n" })
     const app = "-team's app"
@@ -85,6 +132,7 @@ describe("setup stack replay", () => {
       { path: "email", reason: "expression" },
       { path: "env", reason: "disabled-feature" },
     ])
+    expect((await runSetup(["status", "--offline"], root)).stdout).toContain("env (disabled-feature)")
     const destination = await createProject()
     const recreated = await replay(source.json.stack!.command, destination)
     expect(recreated.exitCode, recreated.stdout).toBe(0)

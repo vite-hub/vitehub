@@ -13,7 +13,7 @@ import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddAr
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
-import { deriveSetupStack } from "./stack.ts"
+import { deriveSetupStack, setupStackLabels } from "./stack.ts"
 import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -24,6 +24,7 @@ import type { SetupAddArgs, SetupChange, SetupOptions, SetupRerun } from "./add.
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
 import type { SetupStack } from "./stack.ts"
+import type { SetupStatus } from "./status.ts"
 
 const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
@@ -238,7 +239,8 @@ interface InitInputs extends SetupInitArgs {
 }
 
 interface InitPlanned {
-  plan: SetupInitPlan
+  plan: Omit<SetupInitPlan, "stack">
+  stackProject: SetupProject
   writes: { path: string, before?: string, after: string }[]
   install: { prod: string[], dev: string[] }
   scaffold?: [string, string[]]
@@ -284,7 +286,7 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   return { after: edited.code, before, file }
 }
 
-async function planInit(args: InitInputs, root: string, state: DirState, context: ViteHubCliContext): Promise<InitPlanned> {
+async function planInit(args: InitInputs, root: string, state: DirState, context: Pick<ViteHubCliContext, "env" | "rootDir">): Promise<InitPlanned> {
   const name = packageNameOf(root)
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
@@ -334,7 +336,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     packageManager,
     packageManagerSource: args.pm ? "manifest" : detected.packageManagerSource,
     root,
-    serverDirs: state.kind === "adopt" ? state.project.serverDirs : [join(root, "server")],
+    serverDirs: state.kind === "adopt" ? state.project.serverDirs : [],
   }
   const addArgs = addArgsOf(args)
   const parts = (extra: SetupOptions = {}, extraFeatures: readonly FeatureId[] = []): InitCommandParts => {
@@ -388,7 +390,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     configSource: finalConfig,
     packageManager: args.install && (command || scaffold) ? packageManager : detected.packageManager,
   }
-  const plan: SetupInitPlan = {
+  const plan: InitPlanned["plan"] = {
     changes: writes.map(write => changeOf(write.path, write.before, write.after)),
     features: added.plan.features,
     framework,
@@ -400,10 +402,17 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     packageManager,
     root,
     ...(scaffold ? { scaffold: { command: [scaffold[0], ...scaffold[1]].join(" ") } } : {}),
-    stack: deriveSetupStack(stackProject, setupStatus(stackProject, context.env)),
     status: writes.length || scaffold || (command && args.install) ? "planned" : "unchanged",
   }
-  return { install, plan, rerun: rerunInit(args, parts()), writes, ...(scaffold ? { scaffold } : {}) }
+  return { install, plan, rerun: rerunInit(args, parts()), stackProject, writes, ...(scaffold ? { scaffold } : {}) }
+}
+
+export function setupStack(project: SetupProject, status: SetupStatus): Promise<SetupStack> {
+  return deriveSetupStack(project, status, async (args) => {
+    const inputs = await readInputs(readInitArgs(args))
+    const rootDir = dirname(project.root)
+    await planInit(inputs, resolve(rootDir, inputs.dir), { exists: false, kind: "create" }, { env: {}, rootDir })
+  })
 }
 
 async function applyInit(planned: InitPlanned, install: boolean, context: ViteHubCliContext, scaffolded = false): Promise<void> {
@@ -518,16 +527,21 @@ function writePlan(plan: SetupInitPlan, context: ViteHubCliContext): void {
   const lines = [
     ...(plan.install.command ? [`Install: ${plan.install.command}`] : []),
     ...(plan.implied.length ? [`Also turns on: ${plan.implied.join(", ")}`] : []),
-    `Stack: ${plan.stack.command}`,
+    ...stackLines(plan.stack),
   ]
   context.stdout.write(`${lines.join("\n")}\n`)
+}
+
+function stackLines(stack: SetupStack): string[] {
+  const { command, omissions } = setupStackLabels(stack)
+  return [`Stack: ${command}`, ...(omissions ? [`Stack omissions: ${omissions}`] : [])]
 }
 
 function writeResult(plan: SetupInitPlan, context: ViteHubCliContext): void {
   const features = plan.features.length ? ` with ${plan.features.join(", ")}` : ""
   if (plan.status === "unchanged") context.stdout.write(`${plan.root} already has this stack. Nothing to change.\n`)
   else context.stdout.write(`${plan.mode === "create" ? "Created" : "Set up"} ${plan.root} for ${plan.host}${features}.\n`)
-  context.stdout.write(`Stack: ${plan.stack.command}\n`)
+  context.stdout.write(`${stackLines(plan.stack).join("\n")}\n`)
   context.stdout.write(`\nNext steps:\n${plan.nextSteps.map(step => `- ${step}`).join("\n")}\n`)
 }
 
@@ -544,7 +558,10 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
     const root = resolve(context.rootDir, args.dir)
     const state = await readDir(root, context.env)
     let planned = await planInit(args, root, state, context)
-    const { plan } = planned
+    const plan: SetupInitPlan = {
+      ...planned.plan,
+      stack: await setupStack(planned.stackProject, setupStatus(planned.stackProject, context.env)),
+    }
     if (plan.status === "unchanged" || args.dryRun) {
       if (args.json) writeSetupJson(context, plan)
       else if (plan.status === "unchanged") writeResult(plan, context)
@@ -571,7 +588,7 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
     const applied: SetupInitPlan = {
       ...planned.plan,
       mode: plan.mode,
-      stack: deriveSetupStack(project, setupStatus(project, context.env)),
+      stack: await setupStack(project, setupStatus(project, context.env)),
       status: "applied",
       ...(plan.scaffold ? { scaffold: plan.scaffold } : {}),
     }

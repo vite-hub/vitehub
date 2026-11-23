@@ -4,6 +4,7 @@ import { features, impliedFeatures } from "@vite-hub/internal/features"
 import { basename } from "pathe"
 
 import { isRecord, readAddArgs, shellQuote } from "./add.ts"
+import { isSetupFailure } from "./envelope.ts"
 
 import type { JsonValue } from "@vite-hub/internal/config-edit"
 import type { FeatureId } from "@vite-hub/internal/features"
@@ -11,10 +12,10 @@ import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
 
 export interface SetupStack {
-  command: string
+  command: string | null
   omits: readonly {
     path: string
-    reason: "opaque-config" | "spread" | "expression" | "unresolved-host" | "unresolved-feature" | "disabled-feature" | "unsupported-feature" | "non-replayable-option"
+    reason: "opaque-config" | "spread" | "expression" | "unresolved-host" | "unresolved-feature" | "disabled-feature" | "unsupported-feature" | "non-replayable-option" | "credential-option" | "required-option" | "unplannable-stack"
   }[]
 }
 
@@ -33,19 +34,49 @@ function replayOption(id: FeatureId, keys: readonly string[], value: JsonValue):
   }
 }
 
-export function deriveSetupStack(project: SetupProject, status: SetupStatus): SetupStack {
+function credentialKey(key: string): boolean {
+  return /(?:token|secret|password|passphrase|apikey|privatekey|accesskey(?:id)?|connectionstring|credentials?|authorization|cookie|dsn)$/iu.test(key.replaceAll(/[-_]/gu, ""))
+    || /^(?:pass|auth|headers)$/iu.test(key)
+}
+
+function containsCredentials(value: JsonValue): boolean {
+  if (typeof value === "string") {
+    const url = URL.parse(value.startsWith("//") ? `https:${value}` : value)
+    return !!(url && (url.username || url.password || url.search || url.hash))
+  }
+  if (Array.isArray(value)) return value.some(containsCredentials)
+  return isRecord(value) && Object.entries(value).some(([key, child]) => credentialKey(key) || containsCredentials(child))
+}
+
+export function setupStackLabels(stack: SetupStack): { command: string, omissions: string } {
+  return {
+    command: stack.command ?? "Unavailable",
+    omissions: stack.omits.map(({ path, reason }) => `${path} (${reason})`).join(", "),
+  }
+}
+
+export async function deriveSetupStack(project: SetupProject, status: SetupStatus, validate: (args: readonly string[]) => Promise<void>): Promise<SetupStack> {
   const site = project.config?.ok ? project.config.site : undefined
   const omits: SetupStack["omits"][number][] = []
   const options: string[] = []
   const selected: FeatureId[] = []
 
   const collect = (id: FeatureId, keys: string[], value: JsonValue): void => {
+    const path = [id, ...keys].join(".")
+    if (keys.some(credentialKey)) {
+      omits.push({ path, reason: "credential-option" })
+      return
+    }
     if (isRecord(value) && Object.keys(value).length) {
       for (const [key, child] of Object.entries(value)) collect(id, [...keys, key], child)
       return
     }
+    if (containsCredentials(value)) {
+      omits.push({ path, reason: "credential-option" })
+      return
+    }
     const flag = keys.length ? replayOption(id, keys, value) : undefined
-    if (flag === undefined) omits.push({ path: [id, ...keys].join("."), reason: "non-replayable-option" })
+    if (flag === undefined) omits.push({ path, reason: "non-replayable-option" })
     else options.push(flag)
   }
 
@@ -81,7 +112,7 @@ export function deriveSetupStack(project: SetupProject, status: SetupStatus): Se
   const name = basename(project.root)
   const dir = name.startsWith("-") ? `./${name}` : name || "vitehub-app"
   const args = [
-    "pnpm", "dlx", "vite-hub", "init", dir,
+    dir,
     "--host", status.host.name === "unknown" ? "<host>" : status.host.name,
     "--features", selected.join(","),
     ...options.flatMap(option => ["--option", option]),
@@ -89,5 +120,17 @@ export function deriveSetupStack(project: SetupProject, status: SetupStatus): Se
     "--pm", status.packageManager,
     "--yes",
   ]
-  return { command: args.map(shellQuote).join(" "), omits }
+  if (status.host.name !== "unknown") {
+    try {
+      await validate(args)
+    }
+    catch (error: unknown) {
+      if (!isSetupFailure(error)) throw error
+      const missing = error.details.missing
+      if (missing?.length) omits.push(...missing.map(({ field }) => ({ path: field, reason: "required-option" as const })))
+      else omits.push({ path: "features", reason: "unplannable-stack" })
+      return { command: null, omits }
+    }
+  }
+  return { command: ["pnpm", "dlx", "vite-hub", "init", ...args.map(shellQuote)].join(" "), omits }
 }
