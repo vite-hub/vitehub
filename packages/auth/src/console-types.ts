@@ -218,6 +218,7 @@ export interface AuthConsoleHostUserInput {
 /** A live session of a user that holds a host role, with the user's roles. */
 export interface AuthConsoleHostSession extends AuthConsoleSession {
   roles: string[];
+  guest: boolean;
 }
 export interface AuthConsoleAgent {
   id: string;

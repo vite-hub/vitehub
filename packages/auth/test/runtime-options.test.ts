@@ -1,4 +1,5 @@
 import { admin, username } from "better-auth/plugins"
+import { getAuthTables } from "better-auth/db"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
@@ -50,6 +51,24 @@ describe("Auth option resolution", () => {
       expect(providerOptions.plugins).toContain(plugins[0])
     }
     expect(database).not.toHaveBeenCalled()
+  })
+
+  it("adds the role field of Site access only where Auth owns the user table and the app declares no role", () => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    const pluginIds = (options: Parameters<typeof defineFixedAuth>[0]) =>
+      resolveAuthOptions(defineFixedAuth(options)).providerOptions.plugins?.map(plugin => plugin.id)
+    expect(pluginIds({ database })).toContain("vitehub-site-roles")
+    expect(pluginIds({ database: "memory" })).toContain("vitehub-site-roles")
+    expect(pluginIds({ database, plugins: [admin()] })).not.toContain("vitehub-site-roles")
+    expect(pluginIds({ database, user: { additionalFields: { role: { type: "string", input: false } } } })).not.toContain("vitehub-site-roles")
+    expect(pluginIds({ database: Object.assign(vi.fn(), { id: "drizzle" }) })).not.toContain("vitehub-site-roles")
+  })
+
+  it("preserves an app plugin's role default and visibility", () => {
+    const role = { type: "string", defaultValue: "reader", input: false, returned: false } as const
+    const options = resolveAuthOptions(defineFixedAuth({ database: "memory", plugins: [{ id: "reader", schema: { user: { fields: { role } } } }] })).providerOptions
+    expect(options.plugins?.map(plugin => plugin.id)).not.toContain("vitehub-site-roles")
+    expect(getAuthTables(options).user?.fields.role).toMatchObject(role)
   })
 
   it.each([
