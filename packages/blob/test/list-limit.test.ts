@@ -22,12 +22,17 @@ async function fsStorage() {
 }
 
 describe("blob.list({ limit })", () => {
-  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])("rejects limit %s with a 400 before it lists", async (limit) => {
+  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.NaN, Number.POSITIVE_INFINITY])("rejects limit %s with a 400 before it lists", async (limit) => {
     const storage = await fsStorage()
-    await expect(storage.list({ limit })).rejects.toMatchObject({ code: "BLOB_R0034", status: 400 })
+    await expect(storage.list({ limit })).rejects.toMatchObject({
+      code: "BLOB_R0034",
+      fix: expect.stringContaining("safe integer of 0 or more, or omit `limit`"),
+      message: `Blob list() limit must be a safe integer of 0 or more, or omitted. Got ${String(limit)}.`,
+      status: 400,
+    })
   })
 
-  it("pages through every blob with a whole-number limit", async () => {
+  it("pages through every blob with a safe-integer limit", async () => {
     const storage = await fsStorage()
     const pathnames: string[] = []
     let cursor: string | undefined
