@@ -390,7 +390,10 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 `channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. The adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
 
+The codemod does not change `package.json`. Install `@vite-hub/channels` in the app, also when an Agent has only an inline Channel, such as `webChat()`. Without it, the build stops with `VITE_HUB_R0136`.
+
 ```bash [Terminal]
+pnpm add @vite-hub/channels
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
