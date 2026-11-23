@@ -334,6 +334,7 @@ describe("defineChoices() errors", () => {
 
   it.each([
     { name: "a list that is not an array", options: { length: 1 } },
+    { name: "an alias list with a hole", options: [{ label: "A", value: "a", aliases: Array<string>(2).fill("alpha", 1) }] },
     { name: "no list", options: undefined },
     { name: "an option that is not an object", options: [null] },
     { name: "an object value", options: [{ label: "A", value: { id: 1 } }] },
