@@ -8,6 +8,9 @@ import { createHash } from "node:crypto"
 import { gzipSync } from "node:zlib"
 
 import { createConsoleKeyPair, signConsoleRequest } from "@vite-hub/internal/console-signature"
+import { providerHosts } from "@vite-hub/internal/deployment"
+
+import { chunkGrowth } from "./chunk-growth.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../..")
@@ -18,6 +21,7 @@ const kB = 1000
 const MB = 1000 * 1000
 const memoryRounds = 5
 const settleMs = 3000
+const httpTimeoutMs = 60_000
 const ownerNoise = 1000
 const hosts = ["cloudflare", "node"]
 const authModes = ["off", "on"]
@@ -201,6 +205,7 @@ async function buildApp(runDirectory, host, auth, consoleMode) {
   if (auth === "on") cpSync(join(fixture, "auth/auth.ts"), join(app, "server/auth.ts"))
   symlinkSync(join(repo, "node_modules"), join(app, "node_modules"), "dir")
   const env = { ...process.env, CI: "1", CONSOLE_WEIGHT_AUTH: auth, CONSOLE_WEIGHT_CONSOLE: consoleMode, CONSOLE_WEIGHT_HOST: host }
+  for (const name of ["VITEHUB_HOST", "VITEHUB_HOST_SOURCE", "NITRO_PRESET", "SERVER_PRESET", ...providerHosts.map(([name]) => name)]) delete env[name]
   const steps = [["vitehub", ["database", "generate"]], ["vp", ["build"]]]
   for (const [bin, args] of steps) {
     const started = Date.now()
@@ -422,10 +427,7 @@ function attribute(app) {
   }
 }
 
-function declaredEnv(app) {
-  const file = join(app, ".output/deployment.json")
-  if (!existsSync(file)) return []
-  const manifest = JSON.parse(readFileSync(file, "utf8"))
+function declaredEnv(manifest) {
   const entries = Array.isArray(manifest?.env) ? manifest.env : []
   return entries.filter(entry => entry?.required === true).map((entry) => {
     const names = Array.isArray(entry.names) ? entry.names.filter(name => typeof name === "string") : []
@@ -450,14 +452,16 @@ function schemaDiff(off, on) {
   ]
 }
 
-function staticMeasures(app) {
+function staticMeasures(app, host) {
+  const manifest = JSON.parse(readFileSync(join(app, ".output/deployment.json"), "utf8"))
+  if (manifest?.host !== host) fail(`Expected host ${host} in ${app}/.output/deployment.json, got ${manifest?.host ?? "no host"}.`)
   const server = join(app, ".output/server")
   return {
     server: sizes(walk(server, path => path.includes("/node_modules"))),
     startup: startupGraph(server),
     publicFiles: walk(join(app, ".output/public/_vitehub")).filter(file => !isSourceMap(file)).map(file => relative(join(app, ".output/public"), file)).sort(),
     attribution: attribute(app),
-    declaredEnv: declaredEnv(app),
+    declaredEnv: declaredEnv(manifest),
     authSchema: authSchema(app),
   }
 }
@@ -478,6 +482,10 @@ function sleep(ms) {
   return new Promise(done => setTimeout(done, ms))
 }
 
+function fetchProbe(url, options = {}) {
+  return fetch(url, { ...options, signal: options.signal ?? AbortSignal.timeout(httpTimeoutMs) })
+}
+
 const rssReporter = `data:text/javascript,${encodeURIComponent("process.on(\"message\", message => { if (message === \"rss\") process.send({ rss: process.memoryUsage().rss }) }); process.channel?.unref()")}`
 
 async function startServer(app, env) {
@@ -492,33 +500,41 @@ async function startServer(app, env) {
   child.stdout.on("data", chunk => output += chunk)
   child.stderr.on("data", chunk => output += chunk)
   let exited = false
-  const exit = new Promise(done => child.on("exit", () => {
+  child.on("error", error => output += `\n${error.message}`)
+  const exit = new Promise(done => child.once("close", () => {
     exited = true
     done()
   }))
   const base = `http://127.0.0.1:${port}`
   const stop = async () => {
     if (!exited) child.kill("SIGTERM")
-    await Promise.race([exit, sleep(10_000).then(() => child.kill("SIGKILL"))])
-    await exit
+    const killTimer = setTimeout(() => child.kill("SIGKILL"), 10_000)
+    try {
+      await exit
+    }
+    finally {
+      clearTimeout(killTimer)
+    }
   }
-  const deadline = Date.now() + 60_000
-  for (;;) {
-    if (exited) fail(`The server in ${app} exited before it was ready.\n${output.slice(-3000)}`)
-    const response = await fetch(`${base}/api/touch`).catch(() => undefined)
-    if (response) {
-      const body = await response.text()
-      if (!response.ok) {
-        await stop()
-        fail(`GET /api/touch answered ${response.status} in ${app}: ${body.slice(0, 500)}\n${output.slice(-3000)}`)
+  try {
+    const deadline = Date.now() + httpTimeoutMs
+    const signal = AbortSignal.timeout(httpTimeoutMs)
+    for (;;) {
+      if (exited) throw new Error(`The server in ${app} exited before it was ready.\n${output.slice(-3000)}`)
+      const response = await fetchProbe(`${base}/api/touch`, { signal }).catch(() => undefined)
+      if (response) {
+        const body = await response.text()
+        if (!response.ok) throw new Error(`GET /api/touch answered ${response.status} in ${app}: ${body.slice(0, 500)}\n${output.slice(-3000)}`)
+        break
       }
-      break
+      const remaining = deadline - Date.now()
+      if (signal.aborted || remaining <= 0) throw new Error(`The server in ${app} was not ready after ${httpTimeoutMs / 1000} s.\n${output.slice(-3000)}`)
+      await sleep(Math.min(50, remaining))
     }
-    if (Date.now() > deadline) {
-      await stop()
-      fail(`The server in ${app} was not ready after 60 s.\n${output.slice(-3000)}`)
-    }
-    await sleep(50)
+  }
+  catch (error) {
+    await stop()
+    throw error
   }
   const rss = () => new Promise((done, reject) => {
     const timer = setTimeout(() => reject(new Error(`The server in ${app} did not report its RSS.`)), 10_000)
@@ -538,7 +554,7 @@ async function startServer(app, env) {
 async function callConsole(server, key, name, input) {
   const body = JSON.stringify({ t: "q", i: name, m: name, a: [input] })
   const headers = await signConsoleRequest({ body, caller, key, method: "POST", url: `${publicUrl}/_vitehub/rpc` })
-  const response = await fetch(`${server.base}/_vitehub/rpc`, { method: "POST", body, headers: { ...headers, "content-type": "application/json" } })
+  const response = await fetchProbe(`${server.base}/_vitehub/rpc`, { method: "POST", body, headers: { ...headers, "content-type": "application/json" } })
   const text = await response.text()
   let reply
   try {
@@ -553,17 +569,34 @@ async function callConsole(server, key, name, input) {
 }
 
 async function runAgentOnce(server, app) {
-  const response = await fetch(`${server.base}/api/agent`)
+  const response = await fetchProbe(`${server.base}/api/agent`)
   const body = await response.text()
   if (!response.ok) {
-    await server.stop()
-    fail(`GET /api/agent answered ${response.status} in ${app}: ${body.slice(0, 500)}\n${server.output().slice(-3000)}`)
+    throw new Error(`GET /api/agent answered ${response.status} in ${app}: ${body.slice(0, 500)}\n${server.output().slice(-3000)}`)
   }
 }
 
-async function redeemTicket(server, key, state) {
+function isSessionCookie(cookie, auth) {
+  const [pair, ...attributes] = cookie.split(";").map(part => part.trim())
+  const nameAndValue = auth === "on" ? /^(?:__Secure-)?better-auth\.session_token=[^\s;]+$/ : /^vitehub_site=[^\s;]+$/
+  if (!nameAndValue.test(pair)) return false
+  const options = new Map(attributes.map((attribute) => {
+    const [name, ...value] = attribute.split("=")
+    return [name.toLowerCase(), value.join("=")]
+  }))
+  const domain = options.get("domain")?.toLowerCase().replace(/^\./, "")
+  const hostname = new URL(publicUrl).hostname
+  if (options.has("domain") && (!domain?.includes(".") || (hostname !== domain && !hostname.endsWith(`.${domain}`)))) return false
+  if (options.get("path") !== "/" || (pair.startsWith("__Secure-") && !options.has("secure"))) return false
+  if (options.has("max-age")) return Number(options.get("max-age")) > 0
+  return !options.has("expires") || Date.parse(options.get("expires")) > Date.now()
+}
+
+async function redeemTicket(server, key, state, auth) {
+  const name = "site.link redeem"
   const ticket = new URL(state.ticket)
-  const response = await fetch(`${server.base}${ticket.pathname}${ticket.search}`, { redirect: "manual" })
+  if (ticket.origin !== new URL(publicUrl).origin) return { name, ok: false, problem: `ticket points to ${ticket.origin}` }
+  const response = await fetchProbe(`${server.base}${ticket.pathname}${ticket.search}`, { redirect: "manual" })
   await response.arrayBuffer()
   const location = response.headers.get("location")
   const cookies = response.headers.getSetCookie()
@@ -574,22 +607,22 @@ async function redeemTicket(server, key, state) {
     ? `answered ${response.status}, not 303`
     : !location || new URL(location, publicUrl).origin !== new URL(publicUrl).origin
       ? `redirects to ${location ?? "nothing"}`
-      : !cookies.length
-          ? "sets no cookie"
+      : !cookies.some(cookie => isSessionCookie(cookie, auth))
+          ? "sets no session cookie for the fixture"
           : !sessions.ok || list.length <= (state.sessionsBefore ?? 0)
               ? "site.sessions lists no new session"
               : undefined
-  return { name: "site.link redeem", status: response.status, ok: !problem, problem }
+  return { name, status: response.status, ok: !problem, problem }
 }
 
-async function runConsoleOperations(server, key) {
+async function runConsoleOperations(server, key, auth) {
   const calls = []
   const state = {}
   for (const [name, input, accepted = [], after] of operationProbes) {
     const call = await callConsole(server, key, name, typeof input === "function" ? input(state) : input)
     const problem = call.ok && after ? after(call.value, state) : undefined
     calls.push({ name, status: call.status, ok: call.ok && !problem, accepted, problem, code: call.code, message: call.ok ? undefined : call.message, fix: call.fix })
-    if (name === "site.link" && !problem && call.ok) calls.push(await redeemTicket(server, key, state))
+    if (name === "site.link" && !problem && call.ok) calls.push(await redeemTicket(server, key, state, auth))
   }
   return { calls, exposed: state.exposed }
 }
@@ -616,7 +649,7 @@ async function listTables(app) {
 }
 
 async function pageForVisitor(server) {
-  const response = await fetch(`${server.base}/`, { headers: { accept: "text/html" }, redirect: "manual" })
+  const response = await fetchProbe(`${server.base}/`, { headers: { accept: "text/html" }, redirect: "manual" })
   const body = Buffer.from(await response.arrayBuffer())
   const text = body.toString("utf8")
   return { status: response.status, body, comparable: response.status === 200 && text.includes("<title>Console weight</title>") && text.includes("id=\"app\"") }
@@ -677,7 +710,7 @@ async function runtimeMeasures(apps, auth) {
 
   const probeRun = await withServer(apps.on, base, async (server) => {
     await runAgentOnce(server, apps.on)
-    return await runConsoleOperations(server, key)
+    return await runConsoleOperations(server, key, auth)
   })
   const missingEnv = [...new Set(operationProblems(probeRun, auth).flatMap(({ name }) => probeRun.calls.filter(call => call.name === name)).flatMap(call => envNamesIn(`${call.message} ${call.fix ?? ""}`)))].filter(name => !(name in base)).sort()
   const extra = Object.fromEntries(missingEnv.map(name => [name, name.endsWith("SECRET") ? secret : "console-weight"]))
@@ -688,7 +721,7 @@ async function runtimeMeasures(apps, auth) {
     const { page, operations } = await withServer(apps[mode], env, async (server) => {
       const page = await pageForVisitor(server)
       await runAgentOnce(server, apps[mode])
-      return { page, operations: await runConsoleOperations(server, key) }
+      return { page, operations: await runConsoleOperations(server, key, auth) }
     })
     result[mode] = { page, operations, tables: await listTables(apps[mode]) }
   }
@@ -748,7 +781,7 @@ async function main() {
     for (const auth of authModes) {
       const apps = {}
       for (const consoleMode of ["off", "on"]) apps[consoleMode] = await buildApp(runDirectory, host, auth, consoleMode)
-      builds[`${host}-${auth}`] = { host, auth, apps, off: staticMeasures(apps.off), on: staticMeasures(apps.on) }
+      builds[`${host}-${auth}`] = { host, auth, apps, off: staticMeasures(apps.off, host), on: staticMeasures(apps.on, host) }
     }
   }
 
@@ -808,26 +841,11 @@ async function main() {
     })
   }
 
-  const chunkGrowth = (off, on) => {
-    const offChunks = off.attribution.chunks
-    const unchanged = new Map()
-    for (const chunk of Object.values(offChunks)) unchanged.set(chunk.fingerprint, (unchanged.get(chunk.fingerprint) ?? 0) + 1)
-    const sameName = ([name, chunk]) => offChunks[name]?.fingerprint === chunk.fingerprint ? 0 : 1
-    return Object.entries(on.attribution.chunks).sort((a, b) => sameName(a) - sameName(b)).flatMap(([name, chunk]) => {
-      if (unchanged.get(chunk.fingerprint) > 0) {
-        unchanged.set(chunk.fingerprint, unchanged.get(chunk.fingerprint) - 1)
-        return []
-      }
-      const before = offChunks[name]?.owners ?? {}
-      return Object.entries(chunk.owners).filter(([owner, bytes]) => bytes > (before[owner] ?? 0)).map(([owner, bytes]) => ({ chunk: name, owner, bytes: bytes - (before[owner] ?? 0), added: !offChunks[name] }))
-    })
-  }
-
   for (const auth of authModes) {
     const { off, on } = builds[`cloudflare-${auth}`]
     const change = on.server.gzip - off.server.gzip
     const configured = configuredPrimitives(auth)
-    const strays = chunkGrowth(off, on).filter(entry => primitives.includes(entry.owner) && !configured.includes(entry.owner))
+    const strays = chunkGrowth(off.attribution.chunks, on.attribution.chunks).filter(entry => primitives.includes(entry.owner) && !configured.includes(entry.owner))
     const unconfigured = [...new Set(strays.map(entry => entry.owner))].sort()
     addRow({
       id: "server",
