@@ -138,6 +138,25 @@ describe.each(backends)("Agent State on the database clock ($name)", ({ skip, ur
     expect(await ahead.call("claimWebhookDelivery", scope)).toBeNull()
     expect(await databaseNow()).toBeLessThan(writtenFrom + ttlMs - 50)
 
+    const longLived = { ...entry, expiresAt: { hostIn: 60_000 } }
+    await behind.call("enqueue", "rewrite", longLived, 10)
+    await behind.call("enqueue", "rewrite", { ...longLived, message: { text: "retained" } }, 10)
+    const storedTailExpiry = async () => (await database.execute(`SELECT expires_at FROM ${tablePrefix}queue WHERE thread_id = 'rewrite' ORDER BY id DESC LIMIT 1`)).rows[0]?.expires_at
+    const beforeRewrite = await storedTailExpiry()
+    const head = await ahead.call("queuePeek", "rewrite")
+    expect(await ahead.call("queueReplaceHead", "rewrite", head, [], 10)).toBe(true)
+    expect.soft(await storedTailExpiry()).toBe(beforeRewrite)
+    expect.soft(await ahead.call("queuePeek", "rewrite")).toMatchObject({ message: { text: "retained" } })
+
+    await behind.call("enqueue", "drain", longLived, 10)
+    const beforeDrain = await databaseNow()
+    const drained = await ahead.call("dequeue", "drain")
+    expect.soft(drained).toMatchObject({ expiresAt: expect.any(Number), message: { text: "queued" } })
+    if (drained && typeof drained === "object" && "expiresAt" in drained) {
+      expect.soft(Number(drained.expiresAt)).toBeGreaterThan(beforeDrain + skewMs)
+      expect.soft(Number(drained.expiresAt)).toBeLessThanOrEqual(await databaseNow() + skewMs + 60_000 + 50)
+    }
+
     while (await databaseNow() <= writtenTo + ttlMs) await new Promise(resolve => setTimeout(resolve, 50))
     expect(await ahead.call("get", "cache-behind")).toBeNull()
     expect(await behind.call("get", "cache-ahead")).toBeNull()

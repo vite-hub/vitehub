@@ -470,11 +470,13 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ${DB_NOW}`, [threadId])
-      const queueRows = await execute(tx, `SELECT id, value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC LIMIT 1`, [threadId])
+      const queueRows = await execute(tx, `SELECT id, value, expires_at - ${DB_NOW} AS remaining_ms
+        FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at > ${DB_NOW} ORDER BY id ASC LIMIT 1`, [threadId])
       const row = queueRows[0]
       if (!row) return null
+      const expiresAt = Date.now() + numberValue(row.remaining_ms)
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE id = ?`, [row.id])
-      return typeof row.value === "string" ? parseAgentStateQueueEntry(row.value) : null
+      return typeof row.value === "string" ? { ...parseAgentStateQueueEntry(row.value), expiresAt } : null
     })
   }
 
@@ -483,10 +485,10 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.driver.disconnect?.()
   }
 
-  async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  async enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery, options?: { absoluteAvailableAt?: boolean }): Promise<boolean> {
     return await retrySqliteBusy(async () => {
       await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async tx => await this.insertWebhookDelivery(tx, delivery))
+      return await this.transaction(async tx => await this.insertWebhookDelivery(tx, delivery, options?.absoluteAvailableAt))
     })
   }
 
@@ -554,7 +556,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery, absoluteAvailableAt = false): Promise<boolean> {
     const debounceKey = delivery.debounceKey
     if (debounceKey) {
       // A newer delivery permanently supersedes older deliveries with the same key.
@@ -569,12 +571,13 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         [delivery.scope, delivery.deliveryId, debounceKey],
       )
     }
+    const availableAt = delivery.availableAt ?? delivery.enqueuedAt
     const inserted = await execute(
       tx,
       `INSERT OR IGNORE INTO ${this.tables.webhookQueue} (
         scope, delivery_id, value, concurrency_group, concurrency_key, concurrency_limit,
         lease_ttl_ms, status, enqueued_at, available_at, attempts
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ${DB_TIME}, 0) RETURNING delivery_id`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ${absoluteAvailableAt ? "?" : DB_TIME}, 0) RETURNING delivery_id`,
       [
         delivery.scope,
         delivery.deliveryId,
@@ -584,7 +587,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         delivery.concurrencyLimit,
         delivery.leaseTtlMs,
         delivery.enqueuedAt,
-        untilHostTime(delivery.availableAt ?? delivery.enqueuedAt),
+        absoluteAvailableAt ? availableAt : untilHostTime(availableAt),
       ],
     )
     return inserted.length > 0
@@ -620,23 +623,32 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ${DB_NOW}`, [threadId])
-      const queue = await execute(tx, `SELECT id, value FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC`, [threadId])
+      const queue = await execute(tx, `SELECT value, expires_at FROM ${this.tables.queue} WHERE thread_id = ? ORDER BY id ASC`, [threadId])
       const current = typeof queue[0]?.value === "string" ? queue[0].value : null
       if (current !== (expected === null ? null : JSON.stringify(expected))) return false
-      const retained = queue.slice(expected === null ? 0 : 1).flatMap((row) => (typeof row.value === "string" ? [parseAgentStateQueueEntry(row.value)] : []))
-      const next = maxSize > 0 ? [...replacement, ...retained].slice(-maxSize) : [...replacement, ...retained]
+      const retained = queue.slice(expected === null ? 0 : 1).flatMap(row => typeof row.value === "string"
+        ? [{ entry: parseAgentStateQueueEntry(row.value), databaseExpiry: numberValue(row.expires_at) }]
+        : [])
+      const next = [...replacement.map(entry => ({
+        entry,
+        databaseExpiry: expected && entry.enqueuedAt === expected.enqueuedAt && entry.expiresAt === expected.expiresAt
+          ? numberValue(queue[0]?.expires_at)
+          : undefined,
+      })), ...retained]
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ?`, [threadId])
-      for (const entry of next) await this.insertQueueEntry(tx, threadId, entry)
+      for (const { entry, databaseExpiry } of maxSize > 0 ? next.slice(-maxSize) : next) {
+        await this.insertQueueEntry(tx, threadId, entry, databaseExpiry)
+      }
       return true
     })
   }
 
-  private async insertQueueEntry(tx: SqliteAgentStateExecutor, threadId: string, entry: QueueEntry): Promise<void> {
-    await execute(tx, `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ${DB_TIME})`, [
+  private async insertQueueEntry(tx: SqliteAgentStateExecutor, threadId: string, entry: QueueEntry, databaseExpiry?: number): Promise<void> {
+    await execute(tx, `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ${databaseExpiry === undefined ? DB_TIME : "?"})`, [
       threadId,
       JSON.stringify(entry),
       entry.enqueuedAt,
-      untilHostTime(entry.expiresAt),
+      databaseExpiry ?? untilHostTime(entry.expiresAt),
     ])
   }
 
