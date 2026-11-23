@@ -419,7 +419,6 @@ describe("translations in a Workspace", () => {
     const status = async (ifNoneMatch: string) =>
       (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json", { headers: { "if-none-match": ifNoneMatch } }))).status
 
-    // A CDN that compresses the catalog, such as Cloudflare, sends the ETag back as a weak validator.
     expect(await status(`W/"${revision}"`)).toBe(304)
     expect(await status(`"old", "${revision}"`)).toBe(304)
     expect(await status("*")).toBe(304)

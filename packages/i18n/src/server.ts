@@ -138,7 +138,6 @@ export function getRequestI18n(event: unknown): I18n | undefined {
 
 const catalogHeaders = { "cache-control": "no-cache", "content-type": "application/json; charset=utf-8" }
 
-/** Whether `If-None-Match` names `etag`. RFC 9110 compares weakly, so `W/` is ignored, and `*` matches any catalog. */
 function ifNoneMatchNames(header: string | null, etag: string): boolean {
   if (!header) return false
   if (header.trim() === "*") return true
