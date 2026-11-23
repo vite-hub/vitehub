@@ -12,13 +12,15 @@ const server = createServer((request, response) => {
   const params = new URL(request.url ?? "/", "http://localhost").searchParams
   requested.push(params)
   const limit = Number(params.get("limit") ?? 1000)
-  const page = pathnames.slice(0, limit)
-  const hasMore = page.length < pathnames.length
+  const start = Number(params.get("cursor") ?? 0)
+  const page = pathnames.slice(start, start + limit)
+  const hasMore = start + page.length < pathnames.length
   response.setHeader("content-type", "application/json")
   response.end(JSON.stringify({
     blobs: page.map(pathname => ({ downloadUrl: `https://store.test/${pathname}?download=1`, etag: "\"etag\"", pathname, size: 1, uploadedAt: new Date(0).toISOString(), url: `https://store.test/${pathname}` })),
+    ...(params.get("mode") === "folded" ? { folders: ["docs/nested/"] } : {}),
     hasMore,
-    ...(hasMore ? { cursor: "next" } : {}),
+    ...(hasMore ? { cursor: String(start + page.length) } : {}),
   }))
 })
 const previousApiUrl = process.env.VERCEL_BLOB_API_URL
@@ -43,9 +45,23 @@ describe("Vercel Blob list({ limit: 0 })", () => {
     expect(page).toMatchObject({ blobs: [], hasMore: true })
     expect(requested.at(-1)?.get("limit")).toBe("1")
 
+    expect(page?.cursor).toBeTruthy()
+    const [firstError, first] = await storage.list({ cursor: page?.cursor, limit: 1 })
+    expect(firstError).toBeUndefined()
+    expect(first?.blobs.map(blob => blob.pathname)).toEqual(["a.txt"])
+    const [probeError, probe] = await storage.list({ cursor: first?.cursor, limit: 0 })
+    expect(probeError).toBeUndefined()
+    expect(probe?.cursor).toBe(first?.cursor)
+    const [secondError, second] = await storage.list({ cursor: probe?.cursor, limit: 1 })
+    expect(secondError).toBeUndefined()
+    expect(second?.blobs.map(blob => blob.pathname)).toEqual(["b.txt"])
+
     pathnames = []
     const [emptyError, emptyPage] = await storage.list({ limit: 0 })
     expect(emptyError).toBeUndefined()
     expect(emptyPage).toMatchObject({ blobs: [], hasMore: false })
+    const [folderError, folderPage] = await storage.list({ folded: true, prefix: "docs/", limit: 0 })
+    expect(folderError).toBeUndefined()
+    expect(folderPage).toMatchObject({ blobs: [], folders: ["docs/nested/"], hasMore: false })
   })
 })
