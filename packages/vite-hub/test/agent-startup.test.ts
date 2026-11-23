@@ -18,9 +18,9 @@ async function startupSources(file: string, seen = new Map<string, string>()): P
   return seen
 }
 
-/** The modules that Rolldown wrote into `sources`, from its `//#region <module>` comments. */
+/** The modules that Rolldown wrote into `sources`, from the `// <module>` line that starts each one. */
 function bundledModules(sources: Iterable<string>): string[] {
-  return [...sources].flatMap(source => [...source.matchAll(/^\/\/#region (.+)$/gm)].map(match => match[1]!))
+  return [...sources].flatMap(source => [...source.matchAll(/^\/\/ (\S+)$/gm)].map(match => match[1]!))
 }
 
 interface CloudflareAgentApp {

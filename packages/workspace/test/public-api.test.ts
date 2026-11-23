@@ -20,12 +20,12 @@ const tempDirs: string[] = []
 async function readBuiltSourceModule(sourcePath: string): Promise<string> {
   const distDir = new URL("../dist/", import.meta.url)
   const files = await readdir(distDir, { recursive: true })
-  const marker = `//#region ${sourcePath}`
+  const marker = `// ${sourcePath}`
   const modules = await Promise.all(
     files.filter(file => file.endsWith(".js"))
       .map(file => readFile(new URL(file, distDir), "utf8")),
   )
-  const matches = modules.filter(content => content.includes(marker))
+  const matches = modules.filter(content => content.split("\n").includes(marker))
 
   if (matches.length !== 1) {
     throw new Error(`Expected one built module for ${sourcePath}, found ${matches.length}`)
