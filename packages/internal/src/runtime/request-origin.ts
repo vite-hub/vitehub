@@ -39,3 +39,15 @@ export function matchesPublicOrigin(request: Pick<Request, "headers" | "url">, o
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(hostname)
 }
+
+/**
+ * Whether a browser treats `origin` as secure: `https:`, or `http:` on a loopback host (`localhost`, `*.localhost`,
+ * `127.0.0.0/8`, or `[::1]`). A route that answers with a secret, or builds a URL that carries one, needs this.
+ */
+export function isSecureOrigin(origin: string): boolean {
+  if (!URL.canParse(origin)) return false
+  const { protocol, hostname } = new URL(origin)
+  if (protocol === "https:") return true
+  if (protocol !== "http:") return false
+  return isLoopbackHostname(hostname) || hostname.endsWith(".localhost")
+}

@@ -18,6 +18,12 @@ function refuse(reason: string): [RefusedError, undefined] {
   return [webhooksErrors.WEBHOOKS_URL_REFUSED({ reason }), undefined]
 }
 
+/** Why the host of `url` is outside `hosts`, or `undefined` when `hosts` lists it. A host does not match its subdomains. */
+export function outsideHosts(url: URL, hosts: readonly string[]): string | undefined {
+  const host = url.hostname.toLowerCase().replace(/\.$/, "")
+  return hosts.some(allowed => allowed.toLowerCase() === host) ? undefined : `its host is not ${hosts.join(" or ") || "allowed"}`
+}
+
 type IPv4 = readonly [number, number, number, number]
 
 function parseIPv4(host: string): IPv4 | undefined {
@@ -59,14 +65,23 @@ function privateIPv4([a, b, c]: IPv4): string | undefined {
   return undefined
 }
 
+const embeddedIPv4 = (high: number, low: number): IPv4 => [high >> 8, high & 0xFF, low >> 8, low & 0xFF]
+
 function privateIPv6(groups: readonly number[]): string | undefined {
-  const [first = 0, second = 0, , , , sixth = 0, seventh = 0, eighth = 0] = groups
+  const [first = 0, second = 0, third = 0, , , sixth = 0, seventh = 0, eighth = 0] = groups
   const zeroUntil = (end: number) => groups.slice(0, end).every(group => group === 0)
   if (zeroUntil(8)) return "an unspecified address"
   if (zeroUntil(7) && eighth === 1) return "a loopback address"
   const mapped = zeroUntil(5) && sixth === 0xFFFF
+  const compatible = zeroUntil(6)
   const nat64 = first === 0x64 && second === 0xFF9B && groups.slice(2, 6).every(group => group === 0)
-  if (mapped || nat64) return privateIPv4([seventh >> 8, seventh & 0xFF, eighth >> 8, eighth & 0xFF])
+  if (mapped || nat64) return privateIPv4(embeddedIPv4(seventh, eighth))
+  if (compatible) return privateIPv4(embeddedIPv4(seventh, eighth)) ?? "a deprecated IPv4-compatible address"
+  if (first === 0x64 && second === 0xFF9B && third === 1) return "a local-use NAT64 address"
+  if (first === 0x2002) {
+    const reason = privateIPv4(embeddedIPv4(second, third))
+    if (reason) return `a 6to4 address of ${reason}`
+  }
   if ((first & 0xFE00) === 0xFC00) return "a private address"
   if ((first & 0xFFC0) === 0xFE80) return "a link-local address"
   if ((first & 0xFF00) === 0xFF00) return "a multicast address"
@@ -114,9 +129,8 @@ export async function resolveWebhookUrl(url: string, options: CheckWebhookUrlOpt
   if (parsed.protocol !== "https:") return refuse("it does not use https")
   if (parsed.username || parsed.password) return refuse("it holds a user name or a password")
   const host = parsed.hostname.toLowerCase().replace(/\.$/, "")
-  if (options.hosts && !options.hosts.some(allowed => allowed.toLowerCase() === host)) {
-    return refuse(`its host is not ${options.hosts.join(" or ") || "allowed"}`)
-  }
+  const outside = options.hosts && outsideHosts(parsed, options.hosts)
+  if (outside) return refuse(outside)
   if (host === "localhost" || host.endsWith(".localhost")) return refuse("it names a loopback address")
   const literal = privateAddress(host)
   if (literal) return refuse(`it names ${literal}`)

@@ -5,6 +5,8 @@ import { createCommentsStore } from "./operations-core/store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
 import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
+import { commentSendsTables } from "./send/database.ts"
+import { createCommentSendService } from "./send/service.ts"
 import { pendingKey, runtimes } from "./installed.ts"
 
 import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
@@ -15,6 +17,7 @@ import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operatio
 import type { CommentsSchemaOwner } from "./migrate.ts"
 import type { CommentsRequestEvent } from "./types.ts"
 import type { Installed } from "./installed.ts"
+import type { CommentSendWebhooks } from "./send/service.ts"
 
 export interface InstallCommentsOptions {
   database: CommentsDatabase
@@ -36,6 +39,11 @@ export interface InstallCommentsOptions {
   schema?: CommentsSchemaOwner
   /** The SQL dialect of `database`. Default `sqlite`: SQLite, libSQL, and D1. */
   dialect?: "sqlite" | "postgresql"
+  /**
+   * Loads `@vite-hub/webhooks`, for `defineComments({ send })`. The generated plugin passes it when `send` is on.
+   * Without it, the Send routes answer `COMMENTS_SEND_OFF`.
+   */
+  webhooks?: () => Promise<CommentSendWebhooks>
 }
 
 /** The store, after the tables are ready: each method waits for `ready` first. */
@@ -100,7 +108,11 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
       },
     }
   }
-  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}) })
+  const send = comments.options.send && install.webhooks && (install.dialect ?? "sqlite") === "sqlite"
+    ? createCommentSendService({ comments, database: install.database, webhooks: install.webhooks, ...(install.schema === "comments" ? { createTables: commentSendsTables } : {}) })
+    : undefined
+  if (send) runtime.reopened = thread => send.reopened(thread)
+  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}), ...(send ? { send } : {}) })
   // The comment operations of the Console, the CLI, and MCP share the runtime.
   installCommentsRuntime(runtime)
   return runtime

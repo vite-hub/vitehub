@@ -137,6 +137,8 @@ export const panelStyles = `
 /** The toolbar in the pill, after the pill's button styles. It takes the pill's font and colors. */
 export const pillBarStyles = `
 :host { font: inherit; color: inherit; color-scheme: inherit; }
+/* The tones of a status in the dark pill, such as Send's Not delivered, Limit reached, and the Working dot. */
+:host { --vitehub-pill-error: oklch(0.704 0.191 22.216); --vitehub-pill-warning: #fbbf24; --vitehub-pill-success: #34d399; }
 /* The overlay's mount point sits between the segment and the toolbar. It passes the pill's alignment on, so items such as the avatars center like the buttons. */
 :host > div { align-items: inherit; }
 .toolbar { display: flex; flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; gap: 2px; font-variant-numeric: tabular-nums; }
@@ -144,6 +146,9 @@ export const pillBarStyles = `
 .sep { width: 4px; height: 4px; flex: none; }
 .actions { display: flex; flex-direction: inherit; align-items: inherit; gap: 2px; }
 .divider { width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
+/* While Send pairs an agent, its message stands between dividers, as the actions of comment mode do. */
+[data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::before,
+[data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"])::after { content: ""; width: 1px; height: 16px; margin: 0 4px; flex: none; background: var(--vitehub-pill-line); }
 .count { min-width: 16px; padding: 0 4px; border-radius: 4px; background: var(--vitehub-pill-hover); font-size: 10px; line-height: 17px; text-align: center; }
 button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { display: none; }
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
