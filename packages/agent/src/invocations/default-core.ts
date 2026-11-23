@@ -2,6 +2,7 @@
 // `libsql` loader. It never references `@libsql/client`, so a Worker build that passes no loader does not ship it.
 // It imports no Node builtin, so a Worker that selects D1 or memory starts without Node compatibility.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { d1ChatStreamSql, libsqlChatStreamSql, registerChatStreamSql } from "../internal/chat-stream-sql.ts"
 import { isWorkersRuntime } from "../internal/workers-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { d1AgentInvocationRetention } from "./d1-retention.ts"
@@ -220,6 +221,7 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
     return store ??= createD1AgentInvocationStore({ database: open, migrate: false, ...limits })
   }), options.observations)
   databases.set(invocations, { driver: "d1", open })
+  registerChatStreamSql(invocations, async () => d1ChatStreamSql(await open()))
   return invocations
 }
 
@@ -247,6 +249,7 @@ function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAg
       throw error
     })
   databases.set(invocations, { driver: "libsql", open: database })
+  registerChatStreamSql(invocations, async () => libsqlChatStreamSql(await database()))
   return invocations
 }
 

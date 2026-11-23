@@ -93,7 +93,7 @@ import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start
 import { registerAgentWorkflowRetry } from "../internal/workflow-retry.ts"
 import { loadConfiguredAgentWorkflowCapabilities, loadInstalledAgentWorkflowRuntimeStateModule } from "../internal/workflow-runtime-loaders.ts"
 import { portableWorkflowCapabilityMask } from "../internal/workflow-portability.ts"
-import { createResumableChatProcessCustody } from "../internal/resumable-chat.ts"
+import { createResumableChatCustody } from "../internal/resumable-chat.ts"
 import { hasParsedAgentMessageMeta, parsedAgentMessageMetaState, restoreParsedAgentMessageMeta, withParsedAgentMessageMeta } from "../internal/message-meta.ts"
 import type { ParsedAgentMessageMetaState } from "../internal/message-meta.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
@@ -200,7 +200,7 @@ import type { UIMessage } from "ai"
 import type { AgentWebhookQueue, AgentWebhookQueueDelivery, AgentWebhookQueueLease, AgentWebhookQueueRegistration, AgentWebhookQueueStateAdapter } from "../internal/webhook-queue.ts"
 import type { AgentInvocations } from "../invocations.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
-import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
+import type { ResumableChatClaim } from "../internal/resumable-chat.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
 import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
 import { chatStateAgentPrefix, chatStateChannelPrefix, chatStateScopedKey } from "../internal/chat-state-scope.ts"
@@ -371,8 +371,13 @@ export interface AgentChannelChatRouteResumableOptions<
   TAuth = unknown,
 > {
   owner: (context: AgentChannelChatRouteResumableContext<TBody, TAuth>) => MaybePromise<string>
-  /** Keeps claims and response bytes in the generated route process. It does not survive process replacement or cross-instance routing. */
-  scope: "process"
+  /**
+   * Where claims and response bytes live. `"shared"` keeps them in the database of the Agent journal, so a client
+   * resumes on any instance that reads it. `"process"` keeps them in the route process, so they do not survive process
+   * replacement or cross-instance routing.
+   */
+  scope: "process" | "shared"
+  /** How long a finished stream stays resumable, in milliseconds. Defaults to 10 minutes. */
   ttlMs?: number
 }
 
@@ -9110,7 +9115,9 @@ export function createChannelChatRouteHandler(
 ): AgentChannelChatRouteHandler {
   const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
   const resumableCustody = routeOptions.resumable
-    ? createResumableChatProcessCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable)
+    ? createResumableChatCustody<AgentChannelChatRouteResumableContext>(routeOptions.resumable, {
+        journal: () => isRecord(agent) ? agent.invocations : undefined,
+      })
     : undefined
   const respond = async (request: Request, handlerOptions: AgentChannelChatRouteRequestOptions = {}): Promise<Response> => {
     if (request.method !== "POST" && (!resumableCustody || (request.method !== "GET" && request.method !== "DELETE"))) {
@@ -9118,7 +9125,7 @@ export function createChannelChatRouteHandler(
     }
 
     let delivery: AgentChannelDeliveryTracker | undefined
-    let resumableClaim: ResumableChatProcessClaim | undefined
+    let resumableClaim: ResumableChatClaim | undefined
     try {
       if (request.method !== "POST") {
         const searchParams = new URL(request.url).searchParams
@@ -9215,9 +9222,15 @@ export function createChannelChatRouteHandler(
       let triggerInput = mergeAgentChannelChatRouteInput(admittedInput, await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }))
       triggerInput = { ...triggerInput, currentMessage }
       if (resumableSession) {
-        const claim = resumableSession.claim(resumableMessageId || "default")
+        const claim = await resumableSession.claim(resumableMessageId || "default")
         if (claim.kind === "existing") return await claim.response
         resumableClaim = claim
+        if (claim.signal) {
+          triggerInput = {
+            ...triggerInput,
+            abortSignal: triggerInput.abortSignal ? AbortSignal.any([triggerInput.abortSignal, claim.signal]) : claim.signal,
+          }
+        }
       }
       const chatOptions = getChannelChatOptions(agent, routeOptions.channelId, getAgentChatOptions(agent)) || {}
       let invokerInput: AgentRunInput
@@ -9337,13 +9350,13 @@ export function createChannelChatRouteHandler(
         response = withAgentChatInvocationId(response, await agentInvocationId(triggerInput.run.runId, agentName))
       }
       if (!resumableClaim) return response
-      return resumableClaim.complete(response, {
+      return await resumableClaim.complete(response, {
         messageId: resumableMessageId,
         runId: triggerInput.run?.runId,
         waitUntil: promise => context.waitUntil(promise),
       })
     } catch (error) {
-      resumableClaim?.fail(error)
+      await resumableClaim?.fail(error)
       if (delivery) {
         await settleChannelDeliveryInvocation(delivery, "failed", "failed", {
           error: channelDeliveryError(error),
