@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
-import { dirname, relative, resolve } from "node:path"
+import { basename, dirname, relative, resolve } from "node:path"
 import { keyName, parseProgram, type Node } from "@vite-hub/internal/ast"
 import { viteHubServerImportSources } from "@vite-hub/internal/nuxt-server-imports"
+import { parseJSONC } from "confbox/jsonc"
 import * as v from "valibot"
 import { importOptionalOwner } from "../internal/optional-owners.ts"
 import { configObject } from "./config-object.ts"
@@ -207,19 +208,75 @@ function configuredServerAutoImports(layers: ConfigValue[]): boolean {
   return autoImport === undefined || configBoolean(autoImport) === true
 }
 
+const tsconfigReferencesSchema = v.object({ references: v.array(v.object({ path: v.string() })) })
+const serverImportsPath = "types/server-imports.mjs"
+
+function referencedServerImports(root: string): string | undefined {
+  try {
+    const config: unknown = parseJSONC(readFileSync(resolve(root, "tsconfig.json"), "utf8"))
+    if (!v.is(tsconfigReferencesSchema, config)) return
+    const references = config.references.filter(ref => basename(ref.path) === "tsconfig.server.json")
+    const [reference] = references
+    if (references.length === 1 && reference) {
+      const file = resolve(root, dirname(reference.path), serverImportsPath)
+      if (existsSync(file)) return file
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function staticDirectory(value: ConfigValue): string | typeof unknownConfig | undefined {
+  if (!value || value === unknownConfig) return value
+  if (value.type === "StringLiteral") return value.value
+  if (value.type === "TemplateLiteral" && !value.expressions.length) return value.quasis[0]?.value.cooked ?? undefined
+  return unknownConfig
+}
+
+function configuredServerImports(root: string, layers: ConfigValue[]): string | undefined {
+  const typesDir = staticDirectory(layerOptions(layers, "typesDir")[0])
+  const directory = typesDir || staticDirectory(layerOptions(layers, "buildDir")[0]) || ".nuxt"
+  if (directory !== unknownConfig) return resolve(root, directory, serverImportsPath)
+}
+
+function configKeys(config: ConfigValue): string[] {
+  return config && config !== unknownConfig && config.type === "ObjectExpression"
+    ? config.properties.flatMap(property => property.type === "SpreadElement" ? [] : keyName(property.key, property.computed) ?? [])
+    : []
+}
+
+function generatedServerImports(root: string, layers: ConfigValue[]): string | undefined {
+  const referenced = referencedServerImports(root)
+  if (referenced) return referenced
+  const configured = configuredServerImports(root, layers)
+  if (configured && existsSync(configured)) return configured
+  const envNames = new Set(layers.flatMap(layer => [
+    ...configKeys(configProperty(layer, "$env")),
+    ...configKeys(layer).filter(key => key.startsWith("$") && key !== "$env").map(key => key.slice(1)),
+  ]))
+  const candidates = new Set<string>()
+  for (const name of envNames) {
+    const overrides = layers.flatMap<ConfigValue>(layer => [configProperty(configProperty(layer, "$env"), name), configProperty(layer, `$${name}`), layer])
+    const file = configuredServerImports(root, overrides)
+    if (file && existsSync(file)) candidates.add(file)
+  }
+  if (candidates.size === 1) return candidates.values().next().value
+}
+
 function readNuxtServerImportOrigins(root: string, layers: ConfigValue[]): ViteHubInventory["nuxtServerAutoImports"] {
-  const directory = layerOptions(layers, "typesDir")[0] ?? layerOptions(layers, "buildDir")[0]
-  if (directory !== undefined && (directory === unknownConfig || directory.type !== "StringLiteral")) return
-  const file = resolve(root, directory?.value ?? ".nuxt", "types/server-imports.mjs")
+  const file = generatedServerImports(root, layers)
+  if (!file) return
   try {
     const { program } = parseProgram(readFileSync(file, "utf8"), { typescript: false })
     return Object.fromEntries(program.body.flatMap((statement) => {
       if (statement.type !== "ExportNamedDeclaration" || !statement.source) return []
       const source = statement.source.value
       return statement.specifiers.flatMap((specifier) => {
-        if (specifier.type !== "ExportSpecifier") return []
-        const name = keyName(specifier.exported)
-        return name ? [[name, { name: specifier.local.name, source }] as const] : []
+        if (specifier.type !== "ExportSpecifier" && specifier.type !== "ExportNamespaceSpecifier") return []
+        const binding = keyName(specifier.exported)
+        const name = specifier.type === "ExportNamespaceSpecifier" ? "*" : specifier.local.name
+        return binding ? [[binding, { name, source }] as const] : []
       })
     }))
   }
