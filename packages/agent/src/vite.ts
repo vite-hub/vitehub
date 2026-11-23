@@ -22,7 +22,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
-import type { AgentStateDurabilityInput } from "./durability.ts"
+import type { AgentRecoveryDurabilityInput, AgentStateDurabilityInput } from "./durability.ts"
 import { createNativePackageLoading, createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, publishViteHubDevServer, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -137,6 +137,7 @@ export type AgentRuntimeModule =
   | "internal/workspace/runtime"
   | "operations"
   | "runtime/invocations-dev"
+  | "runtime/recovery-leases"
   | "process"
   | "runtime/workflow"
   | "server"
@@ -267,6 +268,7 @@ export interface AgentWorkflowModules {
 interface AgentGeneratedImportOptions {
   denoCronImport?: string
   providerImportAliases?: Record<string, string>
+  recoverySweep?: boolean
   runtimeCapabilities?: GeneratedAgentRuntimeCapability[]
   sourceRootDir?: string
   standaloneChannels?: readonly StandaloneChannel[]
@@ -1487,13 +1489,13 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
   ]
 }
 
-function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = ""): string[] {
+function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = "", libsqlState = true): string[] {
   return [
-    `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}) {`,
-    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
-    "  if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined",
-    "  if (!viteHubChatStateOpens()) return async () => undefined",
-    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })] : [])`,
+    `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}, recoverySweep${typescript ? "?: NonNullable<Parameters<ReturnType<typeof createChannelWebhookRouteHandler>[\"resume\"]>[0]>[\"recoverySweep\"]" : ""}) {`,
+    ...(libsqlState ? ["  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined"] : []),
+    `  const queueOpens = ${libsqlState ? "Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()" : "false"}`,
+    "  if (!queueOpens && !recoverySweep) return async () => undefined",
+    `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, ${libsqlState ? "webhookState: queueOpens ? chatStateFromLibsql() : undefined, " : ""}waitUntil })] : [])`,
     "  return async () => await Promise.all(stops.map(stop => stop()))",
     "}",
     "",
@@ -1881,7 +1883,7 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? ["/** Agent State for contributed process hosts. */", "export const agentProcessHostState = () => chatStateFromLibsql()"] : []),
     "",
     ...routeCapabilities.setup,
-    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
+    ...(options.libsqlState || options.recoverySweep ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption, Boolean(options.libsqlState)) : []),
     ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
     ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : options.cloudflareState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption, true) : []),
     ...(options.processDiscordGateway
@@ -2233,16 +2235,18 @@ async function writeAgentWebhookRouteHandler(
     await Promise.all(processHostFiles.map(file => rm(file, { force: true })))
   }
   const queuePluginPath = join(root, generatedAgentWebhookQueuePlugin)
-  if (options.libsqlState) {
+  if (options.libsqlState || options.recoverySweep) {
     // A persistent server resumes queued deliveries at startup. Ephemeral hosts resume on
     // the first webhook request, so its waitUntil keeps the function alive during the drain.
-    const persistent = !options.libsqlState.ephemeralHosting
+    const persistent = !options.libsqlState?.ephemeralHosting
     // A persistent server also drains inline Chat invocations when it stops.
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
+    const recoveryLeases = options.recoverySweep
     const internalImport = JSON.stringify(agentRuntimeModule("server/internal"))
     await writeFileIfChanged(queuePluginPath, [
-      `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { resumeWebhookQueues${options.libsqlState ? ", warmWebhookRoutes" : ""}${persistent ? "" : ", waitUntilFromContext"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
       `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
+      ...(recoveryLeases ? [`import { agentRecoveryLeases } from ${JSON.stringify(agentRuntimeModule("runtime/recovery-leases"))}`] : []),
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2261,7 +2265,7 @@ async function writeAgentWebhookRouteHandler(
       "  }",
       "  function startWebhookQueues(recoverInterruptedBefore) {",
       "    if (closed || stop || stopping) return",
-      "    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)",
+      `    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore${recoveryLeases ? ", agentRecoveryLeases()" : ""})`,
       "  }",
       ...(persistent
         ? [
@@ -2274,7 +2278,7 @@ async function writeAgentWebhookRouteHandler(
             "  function startNow() {",
             "    clearTimeout(startTimer)",
             "    if (closed || stop) return",
-            "    void warmWebhookRoutes()",
+            ...(options.libsqlState ? ["    void warmWebhookRoutes()"] : []),
             "    startWebhookQueues(startedAt)",
             "  }",
             "  if (!import.meta.prerender) {",
@@ -2841,6 +2845,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let resolved: ResolvedConfig | undefined
   // The Agent state store that the server uses, when the app has hosted Agents.
   let stateDurability: AgentStateDurabilityInput | undefined
+  let recoveryDurability: AgentRecoveryDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
   let serverDirs: string[] | undefined
 
@@ -2955,6 +2960,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           inspectionRoute: normalized.routes.inspection,
           libsqlState: resolveLibsqlAgentState(normalized, config),
           processDiscordGateway,
+          recoverySweep: recoveryDurability?.sweep,
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
           runtimeCapabilities,
           shutdown: normalized.shutdown,
@@ -3184,9 +3190,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       },
     },
     vitehub: {
-      durability: () => stateDurability
-        ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }]
-        : [],
+      durability: () => [
+        ...stateDurability ? [{ export: "agentStateDurability", input: stateDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-state" }] : [],
+        ...recoveryDurability ? [{ export: "agentRecoveryDurability", input: recoveryDurability, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-recovery" }] : [],
+      ],
       // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
       operations: () => [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: agentRuntimeModule("operations") }],
       providerOutput: {
@@ -3307,6 +3314,12 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         && !installCloudflareState
         && (stateDriver === "auto" || stateDriver === "sqlite" || stateDriver === "libsql"),
       )
+      const ephemeralHosting = (resolved && (resolved.runtime === "vercel" || resolved.runtime === "cloudflare-agents")) || Boolean(resolveAgentHosting(config))
+      const installRecoverySweep = Boolean(resolved && hasHostedAgents && !denoOutput && !installCloudflareState && !ephemeralHosting
+        && runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false))
+      recoveryDurability = installRecoverySweep || (installWebhookQueue && !ephemeralHosting)
+        ? { sweep: installRecoverySweep }
+        : undefined
       const installProcessDiscordGateway = Boolean(
         resolved
         && hasHostedAgents
@@ -3422,7 +3435,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         guardAgentDevelopmentRoutes(mergeNitroHandlers(nitro, [...nitroHandlers, ...devNitroHandlers]), devNitroHandlers),
         [
           ...(installPreparation ? [join(generatedRoot, generatedAgentPreparationPlugin)] : []),
-          ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
+          ...(installWebhookQueue || installRecoverySweep ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
           ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
           ...(processHostAgents.length ? [join(generatedRoot, generatedAgentProcessHostsPlugin)] : []),
         ],
