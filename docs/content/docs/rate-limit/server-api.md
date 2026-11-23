@@ -188,10 +188,10 @@ A request with only successful limiter checks gets no `rateLimit` field. Without
 
 ## Use a direct driver
 
-Use `createRateLimiter()` when you choose the policy or driver yourself, outside managed Provider Output. Install the package first:
+Use `createRateLimiter()` when you choose the policy or driver yourself, outside managed Provider Output. With `vite-hub` installed, import from `vite-hub/rate-limit` as below. For standalone use without `vite-hub`, install `@vite-hub/rate-limit` (and `@vite-hub/kv` for `kvRateLimitDriver`) and import from `@vite-hub/rate-limit/*` and `@vite-hub/kv`:
 
 ```bash [Terminal]
-pnpm add @vite-hub/rate-limit
+pnpm add vite-hub
 ```
 
 ```ts
