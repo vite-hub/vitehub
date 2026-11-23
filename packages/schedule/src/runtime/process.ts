@@ -1,10 +1,9 @@
 export { onShutdown } from "@vite-hub/runtime/internal/shutdown"
 
-import { hostname } from "node:os"
 
 import { isRecordOrFunction as isObject } from "@vite-hub/internal/object"
 
-import { createMemoryLeaseStore } from "@vite-hub/runtime"
+import { createMemoryLeaseStore, getInstanceId } from "@vite-hub/runtime"
 
 import { createProcessWakeDriver, DEFAULT_CATCH_UP_MS } from "../internal/process-wake-runtime.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
@@ -164,7 +163,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   const claims = createOccurrenceClaims({
     doneTtlMs: catchUpMs + leaseTtlMs + 2 * minuteMs,
     leases: options.leases ?? createMemoryLeaseStore(),
-    owner: `${hostname()}:${process.pid}`,
+    owner: getInstanceId(),
     prefix: options.prefix,
     reportError,
     ttlMs: leaseTtlMs,
