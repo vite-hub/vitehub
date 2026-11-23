@@ -898,4 +898,45 @@ describe("@vite-hub/source GitHub source", () => {
     const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     expect(archiveCalls).toHaveLength(2)
   })
+
+  it("lists only the keys of the Source among the paths that a compare changed", async () => {
+    const modified = (filename: string, previous?: string) => ({ filename, status: previous ? "renamed" : "modified", ...previous ? { previous_filename: previous } : {} })
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.includes("/compare/a...b")) {
+        return jsonResponse({
+          status: "ahead",
+          total_commits: 2,
+          commits: [{ sha: "c1" }, { sha: "c2" }],
+          files: [modified("docs/hello.md"), modified("docs/drafts/ignore.md"), modified("docs/image.png"), modified("other/outside.md")],
+        })
+      }
+      if (requestUrl.includes("/commits/c1?")) return jsonResponse({ files: [modified("docs/hello.md"), modified("docs/drafts/moved.md", "docs/kept.md")] })
+      if (requestUrl.includes("/commits/c2?")) return jsonResponse({ files: [modified("docs/published.md", "docs/drafts/draft.md"), modified("docs/logo.svg")] })
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs", include: "**/*.md", ignore: "drafts/**" })
+
+    expect((await docs.changes("a", "b"))?.toSorted()).toEqual(["hello.md", "kept.md", "published.md"])
+  })
+
+  it("lists only the keys of the Source among the files of a pull request on every page", async () => {
+    const page = (filenames: string[]) => filenames.map(filename => ({ filename, status: "modified" }))
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = new URL(String(url))
+      if (!requestUrl.pathname.endsWith("/pulls/7/files")) throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+      if (requestUrl.searchParams.get("page") === "1") return jsonResponse(page([...Array.from({ length: 98 }, (_, index) => `docs/drafts/${index}.md`), "docs/a.md", "docs/a.png"]))
+      return jsonResponse([
+        { filename: "docs/b.md", previous_filename: "docs/drafts/b.md", status: "renamed" },
+        { filename: "docs/drafts/c.md", previous_filename: "docs/c.md", status: "renamed" },
+        { filename: "docs/gone.md", status: "removed" },
+        { filename: "other/d.md", status: "added" },
+      ])
+    }))
+
+    const docs = github({ ref: "main", repo: "acme/app", root: "docs", include: "**/*.md", ignore: "drafts/**" })
+
+    expect(await docs.pullChanges(7)).toEqual(["a.md", "b.md"])
+  })
 })
