@@ -14,6 +14,7 @@ import { workspaceHistorySchema } from "../../workspace/src/blob-database/postgr
 import { defineDatabase } from "../src/definition.ts"
 import { createNodePostgresDatabase } from "../src/runtime/node-postgres.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
+import { createPostgresDatabase } from "../src/runtime/postgres.ts"
 import { db as defaultDb } from "../src/runtime/registry.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
@@ -48,6 +49,20 @@ async function text(store: BlobDatabaseWorkspaceStore, id: string, path: string)
 describe("Blob + Database Store on PGlite", () => {
   beforeEach(() => {
     useDatabase.mockReset()
+  })
+
+  it("explains how to apply missing Postgres history migrations and retries after they run", async () => {
+    const { db, migrate } = await historyDatabase()
+    const store = createBlobDatabaseWorkspaceStore({ blob: await sharedBlob(), database: db, workspace: "handbook" })
+
+    await expect(store.history.head()).rejects.toMatchObject({
+      code: "WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING",
+      fix: expect.stringContaining("vitehub database migrate"),
+      cause: { cause: { code: "42P01" } },
+    })
+
+    await migrate()
+    await expect(store.history.head()).resolves.toBeNull()
   })
 
   it("applies the Postgres history schema and keeps history by Database name", async () => {
@@ -124,25 +139,38 @@ describe("Blob + Database Store on PGlite", () => {
 })
 
 async function migratedDatabase() {
+  const { db, migrate } = await historyDatabase()
+  await migrate()
+  return db
+}
+
+async function historyDatabase() {
   const dataDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-pglite-"))
   cleanup.push(() => rm(dataDir, { force: true, recursive: true }))
   const definition = defineDatabase({ dialect: "postgresql", driver: "pglite", schema: workspaceHistorySchema })
   const db = await createDevPostgresDatabase(definition, { binding: "DB" }, { dataDir, migrationsDir: join(dataDir, "migrations") })
   const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
   cleanup.push(() => client.close())
-  for (const statement of await historyMigration()) await client.exec(statement)
-  return db
+  return {
+    db,
+    async migrate() {
+      for (const statement of await historyMigration()) await client.exec(statement)
+    },
+  }
 }
 
-describe.skipIf(!url)("Blob + Database Store on a Postgres server", () => {
-  const schema = `workspace_history_${process.pid}`
+describe.skipIf(!url).each([
+  { driver: "postgres.js", suffix: "js", createDatabase: createPostgresDatabase },
+  { driver: "node-postgres", suffix: "pg", createDatabase: createNodePostgresDatabase },
+])("Blob + Database Store on a Postgres server with $driver", ({ suffix, createDatabase }) => {
+  const schema = `workspace_history_${process.pid}_${suffix}`
   const pools: Array<{ end: () => Promise<void> }> = []
   const connect = (searchPath = schema) => {
     const target = new URL(url!)
     target.searchParams.set("options", `-c search_path=${searchPath}`)
     vi.stubEnv("VITEHUB_TEST_WORKSPACE_DATABASE_URL", target.href)
-    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_WORKSPACE_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
-    const db = createNodePostgresDatabase(definition, { binding: "DB" })
+    const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_WORKSPACE_DATABASE_URL" } } }, dialect: "postgresql", schema: {} })
+    const db = createDatabase(definition, { binding: "DB" })
     pools.push(Reflect.get(db, "$client"))
     return db
   }

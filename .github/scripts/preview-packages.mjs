@@ -12,20 +12,23 @@ export function previewVersion(sha) {
 }
 
 function packedRange(range, version) {
-  if (range === "workspace:*" || range === "workspace:") return version
+  if (range === "*" || range === "workspace:*" || range === "workspace:") return version
   if (range === "workspace:^" || range === "workspace:~") return `${range.slice(-1)}${version}`
   return range.replace(/^workspace:/, "")
 }
 
-export async function writePreviewManifests(workspace, sha) {
+export async function writePreviewManifests(workspace, sha, publishedVersion) {
   const version = previewVersion(sha)
+  if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(publishedVersion)) {
+    throw new Error(`Expected a stable published ViteHub version, got "${publishedVersion}".`)
+  }
   const packages = await listReleasePackages(workspace)
-  const releaseVersions = new Map(packages.map(pkg => [pkg.name, pkg.version]))
+  const packageNames = new Set(packages.map(pkg => pkg.name))
   for (const { manifest, path } of packages) {
     manifest.version = version
     const peers = manifest.peerDependencies ?? {}
     for (const [name, range] of Object.entries(peers)) {
-      if (releaseVersions.has(name)) peers[name] = `${packedRange(range, releaseVersions.get(name))} || ${version}`
+      if (packageNames.has(name)) peers[name] = `${packedRange(range, publishedVersion)} || ${version}`
     }
     await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
   }
@@ -33,6 +36,6 @@ export async function writePreviewManifests(workspace, sha) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const version = await writePreviewManifests(process.cwd(), process.argv[2] ?? "")
+  const version = await writePreviewManifests(process.cwd(), process.argv[2] ?? "", process.argv[3] ?? "")
   console.log(`Preview packages have the version ${version}.`)
 }

@@ -99,7 +99,10 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
 | Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
+| What the Console adds to an app | `corepack pnpm exec vp run console:weight` after `vp run build` (not in CI, see below) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
+
+`console:weight` builds a small app with the Console off and on, on Cloudflare and Node, and prints what the Console adds: startup code, page HTML, public files, server size, tables, Auth schema, env and memory. It fails while any row misses its target, so it is not a CI job; add `--json <file>` for machine output.
 
 A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
 

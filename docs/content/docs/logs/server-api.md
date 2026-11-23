@@ -2,13 +2,15 @@
 title: Logs server API
 navigation.title: Server API
 navigation.order: 4
-description: "The Evlog logger API in vite-hub/logs, the LogSource read contract, the local buffer, and how the Console and the CLI read events."
+description: "Import the Evlog logger API from evlog, use the LogSource read contract and local buffer from vite-hub/logs, and read events in the Console and CLI."
 icon: i-lucide-logs
 ---
 
 ## Logger API
 
-`vite-hub/logs` re-exports the Evlog root API. For request context, import the official Evlog framework adapters, such as `evlog/nitro/v3`. ViteHub does not rename them or add a second logger lifecycle.
+Import the Evlog logger API (`initLogger`, `log`, `createLogger`) from `evlog`. For request context, import the official Evlog framework adapter, such as `useLogger` from `evlog/nitro/v3`.
+
+Import the ViteHub read contract and local buffer (`createLogBuffer()`, `logCursorExpiredError()`, `parseLogQuery()`, and the `LogSource` types) from `vite-hub/logs`. ViteHub keeps Evlog's own API and lifecycle.
 
 ## Fields that ViteHub adds
 
@@ -53,7 +55,22 @@ Throw `logCursorExpiredError()` from `vite-hub/logs` when a cursor points to dat
 
 ## Local buffer
 
-`createLogBuffer()` returns `source`, `append`, `drain`, and `clear`. `append` takes normalized `LogEntry` values. `drain` takes an Evlog drain context after redaction. Neither starts Evlog. Invalid and oversized entries raise the dropped count.
+`createLogBuffer()` from `vite-hub/logs` returns `source`, `append`, `drain`, and `clear`. `append` takes normalized `LogEntry` values. `drain` takes an Evlog drain context after redaction. Neither starts Evlog. Invalid and oversized entries raise the dropped count.
+
+In a standalone script without an existing Evlog setup, pass `buffer.drain` to `initLogger()`:
+
+```ts
+import { initLogger, log } from 'evlog'
+import { createLogBuffer } from 'vite-hub/logs'
+
+const buffer = createLogBuffer()
+initLogger({ drain: buffer.drain, env: { service: 'checkout' }, redact: true })
+log.info({ action: 'order.paid', orderId: 'ord_42' })
+
+const page = await buffer.source.query({ service: 'checkout', text: 'ord_42' })
+```
+
+In Nitro, attach `buffer.drain` to the `evlog:drain` hook when Evlog is already configured. In a standalone script that already calls `initLogger()` with a drain, combine both drains with `composeDrains([existingDrain, buffer.drain])` from `evlog/toolkit` in the original `initLogger()` call instead of calling `initLogger()` twice.
 
 ## Inspection
 

@@ -93,7 +93,7 @@ export default defineEventHandler(async () => {
 
 - `useSource('docs')` opens a reader for `server/sources/docs.ts`. ViteHub generates the types, so your editor knows the Source name `docs` and its file names.
 - `reader.read('intro.md')` reads one file by its name.
-- In Nuxt, `useSource` is auto-imported in server code, so you can remove its import.
+- In Nuxt with `experimental.nitroAutoImports` on, `useSource` is auto-imported in server code, so you can remove its import.
 
 Use the reader only in server code, never in the browser. [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system) explains what happens to the files when you build and deploy.
 

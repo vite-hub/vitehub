@@ -302,7 +302,10 @@ registerWorkspacePlugin('site', {
   id: 'translate',
   hooks: {
     'write:after': async ({ path, ref }) => {
-      if (ref === 'draft' && path.startsWith('docs/en/')) await sendQueue('translate', { path })
+      if (ref === 'draft' && path.startsWith('docs/en/')) {
+        const [error] = await sendQueue('translate', { path })
+        if (error) console.error('Could not queue translation', { path, ref, error })
+      }
     },
   },
 })

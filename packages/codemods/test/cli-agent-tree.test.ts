@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { parse } from "yaml"
 
-import { detectCodemods, runCodemod, upgradeCodemods } from "../src/index.ts"
+import { detectCodemods, runCodemod, runMigration, upgradeCodemods } from "../src/index.ts"
 
 const scratch = fileURLToPath(new URL("../.tmp/cli-agent-tree-test/", import.meta.url))
 
@@ -74,9 +74,7 @@ describe("cli-agent-tree", () => {
       "vitehub agent info --url https://dev.example.com --json",
       "",
     ].join("\n") })
-    for (const codemod of upgradeCodemods.filter(({ name }) => ["cli-url-flag", "cli-get-list", "cli-agent-tree"].includes(name))) {
-      await runCodemod(codemod.name, { cwd, dryRun: false })
-    }
+    await runMigration({ cwd, codemods: upgradeCodemods })
     expect(await readFile(join(cwd, "scripts/inspect.sh"), "utf8")).toBe([
       "vitehub agent get support --dev --url https://dev.example.com",
       "vitehub agent get --dev --url https://dev.example.com --json",

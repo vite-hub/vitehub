@@ -2,6 +2,7 @@ import { and, desc, eq, exists, getColumns, gte, inArray, isNotNull, isNull, lt,
 import { alias } from "drizzle-orm/pg-core"
 
 import { sha256 } from "../core/path.ts"
+import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 import { workspaceHistorySchema } from "./history-schema-postgres.ts"
 
 import type { AnyRelations, SQL } from "drizzle-orm"
@@ -28,7 +29,7 @@ function manifestDigests(where: SQL | undefined) {
 }
 
 function textValues(values: string[]) {
-  return sql`(select jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
+  return sql`(select jsonb_array_elements_text(${JSON.stringify(values)}::text::jsonb))`
 }
 
 async function indexFiles(entries: HistoryRevisionRow["entries"]): Promise<HistoryFileIndex> {
@@ -57,12 +58,21 @@ async function activeKeys(db: PostgresHistoryDatabase | Transaction, workspace: 
 export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex {
   return {
     async claim(current, legacy) {
-      const rows = await db.select({ workspace: workspaces.workspace }).from(workspaces)
-        .where(inArray(workspaces.workspace, legacy === undefined ? [current] : [current, legacy]))
-      if (rows.some(row => row.workspace === current)) return current
-      if (legacy !== undefined && rows.some(row => row.workspace === legacy)) return legacy
-      await db.insert(workspaces).values({ workspace: current }).onConflictDoNothing()
-      return current
+      try {
+        const rows = await db.select({ workspace: workspaces.workspace }).from(workspaces)
+          .where(inArray(workspaces.workspace, legacy === undefined ? [current] : [current, legacy]))
+        if (rows.some(row => row.workspace === current)) return current
+        if (legacy !== undefined && rows.some(row => row.workspace === legacy)) return legacy
+        await db.insert(workspaces).values({ workspace: current }).onConflictDoNothing()
+        return current
+      }
+      catch (error) {
+        const cause: unknown = error instanceof Error ? error.cause : undefined
+        if ([error, cause].some(value => value instanceof Error && "code" in value && value.code === "42P01")) {
+          throw workspaceErrorDiagnostics.WORKSPACE_POSTGRES_HISTORY_SCHEMA_MISSING({ cause: error })
+        }
+        throw error
+      }
     },
 
     async deleted(workspace) {
@@ -151,7 +161,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
         const missing = registry.filter(object => !registered.has(object.digest))
         if (missing.length) await tx.execute(sql`
           insert into ${objects} (workspace, digest, size)
-          select ${workspace}, key, size from jsonb_to_recordset(${JSON.stringify(missing)}::jsonb) as entry(key text, size bigint)
+          select ${workspace}, key, size from jsonb_to_recordset(${JSON.stringify(missing)}::text::jsonb) as entry(key text, size bigint)
           on conflict do nothing
         `)
       })
