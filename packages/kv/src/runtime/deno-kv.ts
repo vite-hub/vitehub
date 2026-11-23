@@ -25,9 +25,11 @@ interface DenoKV {
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
   get: <T = unknown>(key: DenoKVKey) => Promise<DenoKVEntry<T>>
-  list: <T = unknown>(selector: { prefix: [] }, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<T>> & { cursor?: string }
+  list: (selector: DenoKVSelector, options?: { cursor?: string; limit?: number }) => AsyncIterable<DenoKVEntry<unknown>> & { cursor?: string }
   set: <T = unknown>(key: DenoKVKey, value: T, options?: { expireIn: number }) => Promise<unknown>
 }
+
+type DenoKVSelector = { prefix: [] } | { prefix: [], start: ViteHubDenoKVKey } | { start: ViteHubDenoKVKey, end: ViteHubDenoKVKey }
 
 interface DenoRuntime {
   openKv?: (path?: string) => Promise<DenoKV>
@@ -44,6 +46,18 @@ function toDenoKey(key: string): ViteHubDenoKVKey {
 
 function fromDenoKey(key: DenoKVKey): string | undefined {
   return key.length === 1 && typeof key[0] === "string" ? key[0] : undefined
+}
+
+function keysWithPrefix(prefix: string): DenoKVSelector {
+  if (!prefix) return { prefix: [] }
+  const codePoints = Array.from(prefix, character => character.codePointAt(0) ?? 0)
+  for (let index = codePoints.length - 1; index >= 0; index--) {
+    const last = codePoints[index]
+    if (last === undefined || (last >= 0xD800 && last <= 0xDFFF)) break
+    if (last === 0x10FFFF) continue
+    return { start: [prefix], end: [String.fromCodePoint(...codePoints.slice(0, index), last === 0xD7FF ? 0xE000 : last + 1)] }
+  }
+  return { prefix: [], start: [prefix] }
 }
 
 function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
@@ -80,7 +94,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     const kv = await open()
     const keys: DenoKVKey[] = []
 
-    for await (const entry of kv.list({ prefix: [] })) {
+    for await (const entry of kv.list(keysWithPrefix(base))) {
       const key = fromDenoKey(entry.key)
       if (key?.startsWith(base)) keys.push(entry.key)
     }
@@ -125,7 +139,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
       const continuation = cursor ? cursorHistories.take(cursor) : { providerCursor: undefined, history: new Set<string>(), namespace: cursorNamespace }
       try {
         const cursors = continuation.history
-        const iterator = (await open()).list({ prefix: [] }, { cursor: continuation.providerCursor, limit })
+        const iterator = (await open()).list(keysWithPrefix(prefix), { cursor: continuation.providerCursor, limit })
         const keys: string[] = []
         for await (const entry of iterator) {
           const key = fromDenoKey(entry.key)
