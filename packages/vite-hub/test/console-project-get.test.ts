@@ -62,7 +62,12 @@ describe("project.get", () => {
     installConsoleSections("/work/app", ["kv"])
     expect((await project()).value).not.toHaveProperty("build")
 
-    const build = { commit: { author: "Ada", branch: "main", message: "feat: ship", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" }, time: "2026-11-14T10:00:00.000Z" }
+    const build = {
+      commit: { author: "Ada", branch: "main", login: "ada", message: "feat: ship", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+      framework: { name: "nuxt" as const, version: "5.0.2" },
+      host: { name: "cloudflare" as const, preset: "cloudflare-module" },
+      time: "2026-11-14T10:00:00.000Z",
+    }
     installConsoleBuild(build)
     expect((await project()).value?.build).toEqual(build)
   })

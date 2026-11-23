@@ -2,6 +2,7 @@ import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@v
 import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { consoleRpcHeader } from "../rpc"
+import { githubAuthorLogin } from "../github-login"
 import { consoleErrorFields } from "./request"
 import { parseConsoleNavigation } from "./sections"
 
@@ -11,10 +12,26 @@ import type { ConsoleNavigation } from "./sections"
 /** The `project.get` protocol that this Console reads. */
 export const consoleProjectProtocol = 1
 
-/** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
+/**
+ * What the production build of a project recorded: when it ran, its host and framework, and its Git commit when the
+ * build found one. An older vite-hub sends no host, framework, or login.
+ */
 export interface ConsoleProjectBuild {
   time: string
-  commit?: { sha: string, message?: string, author?: string, branch?: string, repository?: string }
+  host?: { name: ConsoleProjectHostName, preset: string }
+  framework?: { name: ConsoleProjectFrameworkName, version?: string }
+  commit?: { sha: string, message?: string, author?: string, login?: string, branch?: string, repository?: string }
+}
+
+/** The names that the Console shows for the host and the framework of a build. */
+export const consoleHostLabels = { cloudflare: "Cloudflare", deno: "Deno", netlify: "Netlify", node: "Node", vercel: "Vercel" } as const
+export const consoleFrameworkLabels = { nitro: "Nitro", nuxt: "Nuxt" } as const
+export type ConsoleProjectHostName = keyof typeof consoleHostLabels
+export type ConsoleProjectFrameworkName = keyof typeof consoleFrameworkLabels
+
+/** The GitHub avatar of a commit author, `size` pixels wide. */
+export function consoleAuthorAvatarUrl(login: string, size = 40): string {
+  return `https://github.com/${encodeURIComponent(login)}.png?size=${size}`
 }
 
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
@@ -72,22 +89,37 @@ const field = (record: object, key: string): string | undefined => {
   return String(value) === value && value.trim() ? value.trim() : undefined
 }
 
+const isKey = <T extends object>(record: T, key: string | undefined): key is Extract<keyof T, string> => key !== undefined && Object.hasOwn(record, key)
+
 /** Read the `build` of a `project.get` answer. A value without a valid time is no build. */
 export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | undefined {
   if (!(value instanceof Object)) return undefined
   const time = field(value, "time")
   if (!time || !Number.isFinite(Date.parse(time))) return undefined
+  const build: ConsoleProjectBuild = { time }
+  const hostValue: unknown = Reflect.get(value, "host")
+  const hostName = hostValue instanceof Object ? field(hostValue, "name") : undefined
+  const preset = hostValue instanceof Object ? field(hostValue, "preset") : undefined
+  if (isKey(consoleHostLabels, hostName) && preset) build.host = { name: hostName, preset }
+  const frameworkValue: unknown = Reflect.get(value, "framework")
+  const frameworkName = frameworkValue instanceof Object ? field(frameworkValue, "name") : undefined
+  if (frameworkValue instanceof Object && isKey(consoleFrameworkLabels, frameworkName)) {
+    const version = field(frameworkValue, "version")
+    build.framework = { name: frameworkName, ...(version ? { version } : {}) }
+  }
   const commitValue: unknown = Reflect.get(value, "commit")
   const sha = commitValue instanceof Object ? field(commitValue, "sha") : undefined
-  if (!(commitValue instanceof Object) || !sha) return { time }
+  if (!(commitValue instanceof Object) || !sha) return build
   const commit: NonNullable<ConsoleProjectBuild["commit"]> = { sha }
   for (const key of ["message", "author", "branch"] as const) {
     const entry = field(commitValue, key)
     if (entry) commit[key] = entry
   }
+  const login = githubAuthorLogin(field(commitValue, "login"))
+  if (login) commit.login = login
   const repository = field(commitValue, "repository")
   if (repository && /^[\w.-]+\/[\w.-]+$/.test(repository)) commit.repository = repository
-  return { time, commit }
+  return { ...build, commit }
 }
 
 /**
