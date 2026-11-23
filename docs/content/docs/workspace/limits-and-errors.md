@@ -27,7 +27,7 @@ Retained-history methods need a Store with `history`.
 
 Blob operations keep their `BLOB_*` error codes. If workspace deletion fails, fix the storage error and retry.
 
-The [GitHub Store](/docs/workspace/configure#github-store) uses branches as refs and commits as revisions. It has no pruning API and never deletes branches or commits.
+The [GitHub Store](/docs/workspace/configure#github-store) uses branches as refs and commits as revisions. It has no pruning API and never deletes commits; `history.deleteRef()` deletes non-default branches.
 
 - `WORKSPACE_R0072`: the repository or token is missing, at the first request.
 - `WORKSPACE_R0073`: the commit message or metadata is too large, or the message has a `Vitehub-Metadata:` line.
