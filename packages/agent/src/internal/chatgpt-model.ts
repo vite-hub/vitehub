@@ -148,6 +148,7 @@ export async function collectStream(result: LanguageModelV4StreamResult): Promis
       case "tool-input-delta":
       case "tool-input-end":
       case "raw":
+      case "ping":
         break
       case "error": throw part.error
       case "finish":
