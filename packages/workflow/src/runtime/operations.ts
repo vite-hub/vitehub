@@ -18,7 +18,6 @@ export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult
 
 const maxRememberedRuns = 1024
 
-/** The HTTP status that the CLI, the Console, and Agents report for each code of a failed operation. */
 const operationStatus: Readonly<Record<string, number>> = {
   VERCEL_WORKFLOW_SDK_LOAD_FAILED: 501,
   WORKFLOW_DEFINITION_NOT_FOUND: 404,
@@ -36,7 +35,6 @@ const operationStatus: Readonly<Record<string, number>> = {
   WORKFLOW_SIGNAL_TOKEN_INVALID: 400,
 }
 
-/** Gives an operation error the status of its code and the redacted message that the CLI and the Console report. */
 function failure<TError extends Error>(error: TError, message = error.message): TError {
   return Object.defineProperties(error, {
     status: { configurable: true, enumerable: false, value: operationStatus[errorCode(error) ?? ""] ?? 500, writable: true },
@@ -48,11 +46,6 @@ function hasStatus(error: unknown): error is Error {
   return error instanceof Error && typeof Reflect.get(error, "status") === "number" && typeof Reflect.get(error, "code") === "string"
 }
 
-/**
- * Checks the Fetch Response fields, not one realm's constructor, so a Response from another Fetch implementation also
- * matches. `status` and `headers` alone also match an HTTP client result, such as an Axios response, so the body fields
- * are checked too. The Agent package has the same check.
- */
 function isResponse(value: unknown): value is Response {
   if (typeof value !== "object" || value === null) return false
   // SAFETY: each field is checked before the value is narrowed.
@@ -106,8 +99,6 @@ function isErrorLike(value: unknown): value is Error {
   return value instanceof Error || (isRecord(value) && typeof value.message === "string")
 }
 
-// A handler can return a `Response`. Read its body so that the CLI shows the
-// value that the Workflow returned.
 async function readResult(result: unknown): Promise<unknown> {
   if (!isResponse(result)) return result
   const text = await result.clone().text()
@@ -146,7 +137,6 @@ export async function toWorkflowRunView(run: WorkflowRun<unknown, unknown>, work
 }
 
 function runtimeFailure(operation: WorkflowOperationName, provider: string, error: unknown): Error {
-  // An operation error of this module already has its status.
   if (hasStatus(error)) return error
   const code = errorCode(error)
   if (code === "WORKFLOW_OPERATION_UNSUPPORTED") return failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_UNSUPPORTED({ cause: error, operation, provider }))
@@ -156,7 +146,6 @@ function runtimeFailure(operation: WorkflowOperationName, provider: string, erro
     return failure(error, `workflow ${operation} needs the Vercel Workflow DevKit runtime, which the runtime could not load.`)
   }
   if (error instanceof Error && code === "WORKFLOW_PROVIDER_OPERATION_FAILED") {
-    // The error message is generic. The cause says what the provider reported.
     const reason = error.cause instanceof Error && error.cause.message ? ` ${error.cause.message}` : ""
     return failure(error, `workflow ${operation} failed in the ${provider} provider.${reason}`)
   }
@@ -165,13 +154,10 @@ function runtimeFailure(operation: WorkflowOperationName, provider: string, erro
   return failure(workflowErrorDiagnostics.WORKFLOW_OPERATION_FAILED({ cause: error }), message || "The Workflow operation failed.")
 }
 
-// Workflows that the app can start by name: the registry that the runtime
-// installed, and inline Workflow Definitions that the app registered.
 function startableWorkflows(): string[] {
   return [...new Set([...Object.keys(getWorkflowRuntimeRegistry() ?? {}), ...getInlineWorkflowDefinitions().keys()])].sort()
 }
 
-// The runtime remembers the name of each run that it starts, so `get` and `cancel` need no `workflow`.
 const startedRuns = new Map<string, string>()
 
 function rememberRun(id: string, workflow: string): void {
@@ -206,7 +192,6 @@ export async function runWorkflowOperation<Name extends WorkflowOperationName>(o
   if (runtimeConfig === false) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_DISABLED())
   }
-  // The runtime uses inline Vercel execution when the app installs no Workflow configuration.
   const provider = runtimeConfig?.driver ?? "vercel"
   const support = resolveWorkflowOperationSupport(provider)[operation]
   if (!support.supported) {
@@ -266,7 +251,6 @@ export interface WorkflowRunsListInput {
   workflow?: string
 }
 
-/** The run history of `vite dev`. Hosted providers keep their own history, which ViteHub does not list. */
 function devRecorder(): WorkflowDevRecorder {
   if (getWorkflowRuntimeConfig() === false) {
     throw failure(workflowErrorDiagnostics.WORKFLOW_DISABLED())

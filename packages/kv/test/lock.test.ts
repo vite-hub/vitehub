@@ -15,10 +15,6 @@ import type { KVDatabasesLoader } from "../src/runtime/driver.ts"
 import type { RuntimeStorage } from "../src/runtime/hosted-storage.ts"
 import type { KVLock, KVLockOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../src/types.ts"
 
-// Locks on the real KV drivers. Each lock has its own store connection, as separate server processes have.
-// Postgres and Redis run when VITEHUB_TEST_POSTGRES_URL and VITEHUB_TEST_REDIS_URL are set.
-
-// Run the source driver, not the package build.
 vi.mock("@vite-hub/kv/runtime/redis-driver", async () => await import("../src/runtime/redis-driver.ts"))
 vi.setConfig({ testTimeout: 30_000 })
 
@@ -56,7 +52,6 @@ function libsqlDatabases(): KVDatabasesLoader {
 
 interface Target {
   name: string
-  /** `count` connections to one fresh, empty namespace. */
   stores(count: number): RuntimeStorage[]
 }
 
@@ -101,7 +96,6 @@ const targets: Target[] = [
     : [],
 ]
 
-/** One lock per connection, as each server process would create it. */
 function locks(target: Target, count: number, key: string, options: KVLockOptions): KVLock[] {
   return target.stores(count).map(storage => createKVLock("default", async () => storage, key, options))
 }
@@ -123,7 +117,6 @@ describe("kv.lock()", () => {
     expect(results.map(([error]) => error)).toEqual([undefined, undefined])
     expect(results.map(([, data]) => data)).toContainEqual({ acquired: true, value: ran[0] })
     expect(results.map(([, data]) => data)).toContainEqual({ acquired: false })
-    // run() released the lock, so the next run gets it.
     expect(await kv.lock("cron:daily", { ttl: 30 }).run(() => "next")).toEqual([undefined, { acquired: true, value: "next" }])
   })
 
@@ -172,13 +165,11 @@ describe.each(targets)("lock on $name", (target) => {
     const callback = vi.fn()
     const pending = createKVLock("default", async () => first, "delayed", { ttl: 0.05 }).run(callback)
     await commit
-    // Deliver only after the successor has acquired the expired lease.
     const [, successor] = await createKVLock("default", async () => second, "delayed", { ttl: 30, wait: 1 }).acquire()
     expect(successor?.acquired).toBe(true)
     deliver()
     expect(await pending).toEqual([undefined, { acquired: false }])
     expect(callback).not.toHaveBeenCalled()
-    // Cleanup of the old claim must preserve the successor's owner token.
     expect(await createKVLock("default", async () => first, "delayed", { ttl: 30 }).acquire()).toEqual([undefined, { acquired: false }])
     if (successor?.acquired) expect(await successor.release()).toEqual([undefined, true])
   })
@@ -188,7 +179,6 @@ describe.each(targets)("lock on $name", (target) => {
     let returned = 0
     const results = await Promise.all(locks(target, 5, "job", { ttl: 30 }).map(lock => lock.run(async () => {
       ran++
-      // Hold the lock until the other runners gave up, so none can take it after this release.
       const deadline = Date.now() + 10_000
       while (returned < 4 && Date.now() < deadline) await sleep(10)
     }).finally(() => { returned++ })))
@@ -206,6 +196,20 @@ describe.each(targets)("lock on $name", (target) => {
     expect(await second!.run(() => "ran")).toEqual([undefined, { acquired: true, value: "ran" }])
   })
 
+  it("rethrows the callback error and warns when the release also fails", async () => {
+    const [storage] = target.stores(1)
+    storage.deleteIfEqualsItem = async () => { throw new Error("store down") }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const failure = new Error("job failed")
+    try {
+      await expect(createKVLock("default", async () => storage, "job", { ttl: 1 }).run(() => { throw failure })).rejects.toBe(failure)
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not release the lock \"job\""), expect.objectContaining({ code: "KV_OPERATION_FAILED" }))
+    }
+    finally {
+      warn.mockRestore()
+    }
+  })
+
   it("lets the next runner in after the ttl, and the expired holder cannot free the new lock", async () => {
     const [first, second, third] = target.stores(3)
     const [firstError, held] = await createKVLock("default", async () => first!, "job", { ttl: 0.3 }).acquire()
@@ -218,7 +222,6 @@ describe.each(targets)("lock on $name", (target) => {
     expect(secondError).toBeUndefined()
     expect(next?.acquired).toBe(true)
 
-    // The first holder's lock expired. Its release must not delete the second holder's lock.
     expect(held?.acquired && await held.release()).toEqual([undefined, false])
     expect((await createKVLock("default", async () => third!, "job", { ttl: 30 }).acquire())[1]).toEqual({ acquired: false })
     expect(next?.acquired && await next.release()).toEqual([undefined, true])

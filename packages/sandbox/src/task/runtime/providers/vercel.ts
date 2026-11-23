@@ -5,11 +5,8 @@ import { resolveVercelSandboxTaskVcpus } from '../../size.ts'
 import { readEnv } from '@vite-hub/internal/env'
 import { sandboxTaskErrorDiagnostics } from '../../error-diagnostics.ts'
 import { DEFAULT_SANDBOX_TASK_TIMEOUT_MS } from '../provider-resolution'
+import { vercelCredentialEnv } from '../../vercel-credentials.ts'
 
-/**
- * The Vercel VM timeout starts at create, but the task timeout starts after the Sandbox opens.
- * The VM gets this extra time so that ViteHub, not the VM, ends a run at the task timeout.
- */
 const VERCEL_TASK_SANDBOX_HEADROOM_MS = 30_000
 
 type SandboxTaskOptions = {
@@ -24,9 +21,9 @@ function readConfigCredential(value: string | undefined) {
 
 function resolveEnvCredentials() {
   const env = typeof process !== 'undefined' ? process.env : {}
-  const token = readEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
-  const teamId = readEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
-  const projectId = readEnv(env, 'VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID')
+  const token = readEnv(env, ...vercelCredentialEnv.token.names)
+  const teamId = readEnv(env, ...vercelCredentialEnv.teamId.names)
+  const projectId = readEnv(env, ...vercelCredentialEnv.projectId.names)
 
   return {
     token,
@@ -71,7 +68,6 @@ export async function resolveVercelTaskSandbox(options: SandboxTaskOptions) {
   }
 }
 
-/** Reports a session timeout above the Vercel plan maximum with its own code and the limit from Vercel. */
 function withPlanLimitError(create: (options: VercelSandboxCreateOptions) => Promise<VercelSandboxInstance>) {
   return async (createOptions: VercelSandboxCreateOptions) => {
     try {

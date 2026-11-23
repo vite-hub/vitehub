@@ -1,7 +1,6 @@
 import { createEnvAuthenticator } from "../src/auth.ts"
 import type { EnvAgentScope } from "../src/auth.ts"
 
-/** Create an administrator context through the same check that production uses. */
 export async function adminContext(id = "owner") {
   const authenticate = createEnvAuthenticator({ getSession: async () => ({ user: { id } }), isAdmin: () => true })
   const context = await authenticate(new Request("https://example.com"))
@@ -9,7 +8,6 @@ export async function adminContext(id = "owner") {
   return context
 }
 
-/** Create an Agent context through a verified Agent token, with a scope ceiling. */
 export async function agentTokenContext(id: string, scope: EnvAgentScope) {
   const authenticate = createEnvAuthenticator({
     getSession: async () => null,

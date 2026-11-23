@@ -22,10 +22,6 @@ type ConsoleDeviceCode = DeviceCode & { clientName?: string | null, teamId?: str
 
 const requestFields = { client_name: z.string().max(200).optional() }
 
-/**
- * Only the ViteHub CLI may start a device flow. The CLI never gets a session from it: Better Auth's `/device/token`
- * refuses every code, and `/cli/token` gives an API key instead.
- */
 const cliGrant: DeviceAuthorizationGrant<typeof requestFields, { client_name: string | null }> = {
   requestSchemaFields: requestFields,
   deviceCodeSchemaFields: {
@@ -73,7 +69,6 @@ export function consoleCliDeviceFlow(options: ConsoleCliOptions): BetterAuthPlug
     id: "console-cli",
     rateLimit: [
       { pathMatcher: (path: string) => path === "/device/code", window: 60, max: 10 },
-      // Each CLI polls 12 times a minute at most. More is a client that ignores slow_down.
       { pathMatcher: (path: string) => path === "/cli/token", window: 60, max: 30 },
     ],
     endpoints: {
@@ -91,7 +86,6 @@ export function consoleCliDeviceFlow(options: ConsoleCliOptions): BetterAuthPlug
         const code = await ctx.context.adapter.findOne<ConsoleDeviceCode>({ model: "deviceCode", where: [{ field: "userCode", value: userCode }] })
         if (!code || code.clientId !== consoleCliClientId) throw new APIError("BAD_REQUEST", { error: "invalid_request", error_description: "There is no such code. Check it in the terminal." })
         if (new Date(code.expiresAt) < new Date()) throw new APIError("BAD_REQUEST", { error: "expired_token", error_description: "The code expired. Run `vitehub login` again." })
-        // GET /api/auth/device gives the code to the first signed-in person who opens it. Another person cannot approve it.
         if (code.userId !== userId) throw new APIError("FORBIDDEN", { error: "access_denied", error_description: "Open the code on this page before you approve it." })
         const approved = await ctx.context.adapter.update<ConsoleDeviceCode>({
           model: "deviceCode",

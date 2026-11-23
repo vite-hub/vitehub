@@ -166,13 +166,15 @@ function agentInfoNames(values: Array<{ id?: string, name?: string }>, fallback:
   return values.length > names.length ? `${names.join(", ")}, +${values.length - names.length} more` : names.join(", ")
 }
 
-function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionMetadata): void {
+function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionMetadata, emulator: AgentEmulatorInfo | undefined): void {
   const files = countAgentInfoFiles(metadata.files || [])
   const authority = metadata.config?.driver?.executionAuthority
   context.stdout.write([
     `Agent: ${metadata.name || "unknown"}`,
     "Metadata: ready",
     `Driver: ${agentInfoDriver(metadata.config)}`,
+    // The dev server reports the emulator for the whole project. Provider status tells if this Driver runs on it.
+    ...(emulator ? [`AI emulator: ${emulator.url} (the dev server sets VITEHUB_MODELS=emulate)`] : []),
     `Capacity: ${agentInfoCapacity(metadata.config)}`,
     ...(isExecutionAuthority(authority) ? agentInfoExecutionAuthority(authority) : ["Execution authority: unavailable"]),
     `Capabilities: ${plural(metadata.capabilities?.length || 0, "Capability", "Capabilities")} (${agentInfoNames(metadata.capabilities || [], "none")})`,
@@ -185,10 +187,21 @@ function writeAgentInfo(context: AgentInfoCliContext, metadata: AgentInspectionM
   ].join("\n"))
 }
 
-function agentInfoMetadata(metadata: AgentInspectionMetadata): AgentInspectionMetadata {
+/** The AI emulator that the dev server reports when `VITEHUB_MODELS=emulate` is set. */
+interface AgentEmulatorInfo {
+  url: string
+}
+
+function agentEmulatorInfo(discovery: Record<PropertyKey, unknown>): AgentEmulatorInfo | undefined {
+  const emulator = discovery.emulator
+  return isRuntimeRecord(emulator) && typeof emulator.url === "string" && emulator.url ? { url: emulator.url } : undefined
+}
+
+function agentInfoMetadata(metadata: AgentInspectionMetadata, emulator: AgentEmulatorInfo | undefined): AgentInspectionMetadata & { emulator?: AgentEmulatorInfo } {
   return {
     ...(metadata.capabilities ? { capabilities: metadata.capabilities } : {}),
     ...(metadata.config ? { config: metadata.config } : {}),
+    ...(emulator ? { emulator } : {}),
     files: metadata.files || [],
     instructions: metadata.instructions || [],
     invokerProfiles: metadata.invokerProfiles || [],
@@ -214,7 +227,6 @@ async function fetchAgentInfo(url: string, rootDir: string, fetchImpl: typeof fe
   })
 }
 
-/** `vitehub agent get --url <deployed app>`: the `status.get` operation of the app's Console RPC. */
 async function readDeployedAgent(parsed: ParsedInfoArgs, context: AgentInfoCliContext, options: AgentInfoCliOptions): Promise<number> {
   const result = await callOperationFromCli({
     env: context.env,
@@ -308,7 +320,8 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
   // SAFETY: The discovery response parser verifies that inspection metadata is a record before its owned fields are rendered.
   const inspection = asUnknownBoundary(result.inspection) as AgentInspectionMetadata
 
-  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(inspection), null, 2)}\n`)
-  else writeAgentInfo(context, inspection)
+  const emulator = agentEmulatorInfo(result)
+  if (parsed.json) context.stdout.write(`${JSON.stringify(agentInfoMetadata(inspection, emulator), null, 2)}\n`)
+  else writeAgentInfo(context, inspection, emulator)
   return 0
 }

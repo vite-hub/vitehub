@@ -24,7 +24,7 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0022: {
-      fix: "Send input that matches the schema of the operation. `vitehub <namespace> <command> --help` shows the fields.",
+      fix: "Send input that matches the schema of the operation. `vitehub <namespace> <command> --help` shows the fields, and the list_operations tool of the ViteHub MCP gives the input schema of each operation.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     INTERNAL_R0024: {

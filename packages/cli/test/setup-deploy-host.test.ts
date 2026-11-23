@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { copyFile, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import process from "node:process"
 
@@ -43,8 +43,16 @@ describe("Windows deploy CLI resolution", () => {
   })
 
   it("resolves native host executables", async () => {
-    const root = await createProject({ "bin/deno.exe": "" })
-    expect(hostCli("deno", "deno", root, { PATH: join(root, "bin") }, "win32")).toEqual([join(root, "bin/deno.exe")])
+    const root = await createProject({ "bin with spaces/deno.exe": "" })
+    const env = { ...process.env, PATH: join(root, "bin with spaces") }
+    const command = hostCli("deno", "deno", root, env, "win32")
+    expect(command).toEqual([join(root, "bin with spaces/deno.exe")])
+    if (process.platform === "win32") {
+      await copyFile(process.execPath, command[0])
+      const result = await createDeployRun({ write() {} }, [])(command[0], ["-p", "JSON.stringify(process.argv.slice(1))", "--", "literal argument"], { cwd: root, env })
+      expect(result.exitCode).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual(["literal argument"])
+    }
   })
 })
 
@@ -95,6 +103,14 @@ it.skipIf(process.platform === "win32")("lets file-reading CLIs reopen stdin wit
   expect(result.stdout).toBe("transport-proof")
 })
 
+it("treats a CLI that exits before it reads stdin as a normal exit", async () => {
+  const root = await createProject()
+  const result = await createDeployRun({ write() {} }, [])(process.execPath, ["-e", "process.exit(3)"], {
+    cwd: root, env: {}, stdin: "x".repeat(4 * 1024 * 1024),
+  })
+  expect(result.exitCode).toBe(3)
+})
+
 it.each([false, true])("keeps a shorter secret pending when it can become a longer secret (reverse: %s)", async (reverse) => {
   const root = await createProject()
   let shown = ""
@@ -124,7 +140,6 @@ it.skipIf(process.platform === "win32")("aborts an execution tree even when a de
     await expect(result).rejects.toMatchObject({ name: "AbortError" })
     expect(pid).toBeGreaterThan(0)
     if (process.platform === "linux") {
-      // A killed orphan can remain a zombie until the system reaps it.
       const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => "")
       expect(stat === "" || stat.includes(") Z ")).toBe(true)
     }

@@ -18,18 +18,15 @@ import type { EnvDiffOutput, EnvPushOutput } from "../src/setup/env.ts"
 type DiffJson = EnvDiffOutput & { error?: SetupError, rerun?: string }
 type PushJson = EnvPushOutput & { error?: SetupError, rerun?: string }
 
-/** A value that must leave the CLI only sealed in a GitHub request body. */
 const canary = "canary-gh-41d9e7a2c0"
 const token = "ghp_testtoken0123456789"
 
 const envEntries = [
   { names: ["VITEHUB_SECRET"], required: true, secret: true, hasDefault: false, owners: ["vite-hub"] },
-  // GitHub reserves GITHUB_*, so only VITEHUB_GITHUB_TOKEN can be a GitHub secret.
   { path: "env.server.github.token", names: ["VITEHUB_GITHUB_TOKEN", "GITHUB_TOKEN"], required: true, secret: true, hasDefault: false },
   { path: "env.server.sentryDsn", names: ["SENTRY_DSN"], required: false, secret: false, hasDefault: false },
 ]
 
-/** An X25519 key pair as raw 32-byte keys, as GitHub keeps the repository public key. */
 function x25519KeyPair(): { publicKey: Uint8Array, privateKey: Uint8Array } {
   const pair = generateKeyPairSync("x25519")
   return {
@@ -38,7 +35,6 @@ function x25519KeyPair(): { publicKey: Uint8Array, privateKey: Uint8Array } {
   }
 }
 
-/** libsodium `crypto_box_seal_open`, written from the secret key side for the test. */
 function sealOpen(sealed: Uint8Array, publicKey: Uint8Array, privateKey: Uint8Array): string {
   const ephemeral = sealed.subarray(0, 32)
   const jwk = (key: Uint8Array) => Buffer.from(key).toString("base64url")
@@ -63,7 +59,6 @@ interface GitHubRequest {
   body?: { encrypted_value: string, key_id: string }
 }
 
-/** The Actions secrets API of one repository and its environments. Stores sealed values, as GitHub does. */
 function fakeGitHub(options: { secrets?: Record<string, string[]>, environments?: string[], appToken?: string } = {}) {
   const keys = x25519KeyPair()
   const stored: Record<string, Map<string, string>> = { "": new Map((options.secrets?.[""] ?? []).map(name => [name.toUpperCase(), ""])) }
@@ -95,7 +90,6 @@ function fakeGitHub(options: { secrets?: Record<string, string[]>, environments?
   return { fetch, keys, requests, stored }
 }
 
-/** A linked Cloudflare project with a build and a GitHub remote, plus a `gh` on PATH that logs its calls. */
 async function project(files: Record<string, string> = {}, remote = "git@github.com:acme/web.git") {
   const root = await createProject({
     "package.json": JSON.stringify({ name: "my-app", packageManager: "pnpm@10.0.0", scripts: { build: "vite build" }, type: "module" }),
@@ -106,7 +100,6 @@ async function project(files: Record<string, string> = {}, remote = "git@github.
   })
   execFileSync("git", ["init", "-q"], { cwd: root, env: { ...process.env, LC_ALL: "C" } })
   if (remote) execFileSync("git", ["remote", "add", "origin", remote], { cwd: root })
-  // Outside the app, whose package.json has "type": "module": the fake gh is CommonJS.
   const bin = join(await createProject(), "bin")
   await mkdir(bin)
   const ghLog = join(dirname(bin), "gh-calls")
@@ -234,7 +227,6 @@ describe("vitehub env --to github", () => {
       expect(request.body?.encrypted_value).not.toContain(canary)
     }
     expect(Object.fromEntries(github.stored[""]!)).toEqual({ SENTRY_DSN: "https://sentry.example/1", VITEHUB_GITHUB_TOKEN: "gh-from-shell", VITEHUB_SECRET: canary })
-    // The value is in no output, no argv, and the token never shows either.
     const output = result.stdout + result.stderr
     for (const value of [canary, "gh-from-shell", token]) expect(output).not.toContain(value)
     expect(JSON.stringify(github.requests.map(request => request.path))).not.toContain(canary)
@@ -305,7 +297,6 @@ describe("vitehub env --to github", () => {
   })
 
   it("opens a sealed box that libsodium wrote, so the test decryptor matches crypto_box_seal", () => {
-    // Written by PyNaCl 1.6.2 (libsodium) SealedBox(public_key).encrypt(b"libsodium-vector-value").
     const privateKey = Buffer.from("OWWfi7b+0/LJFQXO8fGyFVcPGRlbFJ5PirzsfqNhEhI=", "base64")
     const publicKey = Buffer.from("Mk9vP4bHNTWtrKv61I//sI89wKzy+5FTidrEuR6LsiI=", "base64")
     const sealed = Buffer.from("nAKyR0kJSVB4CIMJDx7e4VcLoaWwJRHFwACV2c+qY0fVUidpsnUAvHOFc01RhvRe1QgaPLPVFbLAumAA+nzH7QSwWrluWw==", "base64")

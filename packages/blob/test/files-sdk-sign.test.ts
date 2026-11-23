@@ -125,7 +125,6 @@ describe("signed requests on files-sdk drivers", () => {
 })
 
 describe("signed requests on the R2 HTTP driver", () => {
-  // A binding cannot presign, so the store signs with the AWS SDK presigner and the HTTP credentials.
   const storage = () => createBlobStorage(createCloudflareDriver({
     accountId: "account",
     accessKeyId: "access-key",

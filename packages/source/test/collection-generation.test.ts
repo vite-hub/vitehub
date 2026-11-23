@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { hubSource, inspectCollectionModule, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
+import { hubSource, inspectCollectionModule, inspectContentEntry, mergeGeneratedSourceNitroConfig, prepareSourceGeneration } from "../src/vite.ts"
 
 async function generatedRoutes(files: Record<string, string>) {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
@@ -81,8 +81,6 @@ it.each([
   expect((await generatedRoutes({ "server/collections/articles.ts": source })).routes).toEqual(["/api/articles"])
 })
 
-// The build reads the file and does not run it. When it cannot see a literal `route: false`, it writes the route, and
-// `defineCollectionHandler()` answers 404 at request time.
 it.each([
   "import { defineCollection as makeCollection } from 'vite-hub/source'; export const articles = makeCollection(load, { route: false })",
   "import * as source from '@vite-hub/source'; export const articles = source.defineCollection(load, { route: false })",
@@ -92,11 +90,9 @@ it.each([
   "const key = 'route'; export const articles = defineCollection(load, { [key]: false })",
   "export const articles = (() => defineCollection(load, { route: false }))()",
   "const usePrivate = true; export const articles = usePrivate ? defineCollection(load, { route: false }) : defineCollection(load, {})",
-  // A local factory with the same name can return a public Collection.
   "import { defineCollection as base } from '@vite-hub/source'; function defineCollection(load, options) { return base(load, { ...options, route: undefined }) }; export const articles = defineCollection(load, { route: false })",
   "const defineCollection = (load, options) => base(load, {}); export const articles = defineCollection(load, { route: false })",
   "import { defineCollection } from './collection-helpers'; export const articles = defineCollection(load, { route: false })",
-  // Only a `const` keeps its initializer: a later `var` declaration exports another Collection.
   "export var articles = defineCollection(load, { route: false }); var articles = defineCollection(load, {})",
   "export let articles = defineCollection(load, { route: false })",
 ])("writes the route when route: false is not a literal in the exported call: %s", async (source) => {
@@ -141,7 +137,6 @@ it.each([
   expect(generated.contentPreview).toContain("export default defineContentPreviewPlugin(() => import(")
 })
 
-// The call shape of joyandmaxi `server/content.ts`.
 it("skips the Content route for defineContent({ route: false, ... })", async () => {
   const generated = await generatedRoutes({
     "server/content.ts": [
@@ -219,12 +214,10 @@ it.each([
     const handlers = await prepareSourceGeneration({ projectRoot, contentImportBase: "vite-hub/content" })
     const plugin = join(projectRoot, ".vitehub/content/preview-routes.mjs")
     expect(handlers.some(handler => handler.plugin && handler.handler === plugin)).toBe(generated)
-    // A plugin, so no route of the app can conflict with the preview URLs.
     expect(handlers.flatMap(handler => handler.route ?? [])).toEqual(["/_vitehub/content/github", "/api/content/**"])
     if (generated) {
       const source = await readFile(plugin, "utf8")
       expect(source).toContain('import { defineContentPreviewRoutesPlugin } from "vite-hub/content/preview"')
-      // In a preview request, the app base follows the prefix, so Nuxt links and data requests stay in the preview.
       expect(source).toContain(".then(module => module.default), { app: useRuntimeConfig().app })")
       const config = mergeGeneratedSourceNitroConfig({ plugins: ["async.mjs"] }, handlers)
       expect(config.plugins![0]).toBe(plugin)
@@ -321,7 +314,6 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
     }
     expect(await read("robots.mjs")).toContain("export default defineContentRobotsHandler(content)")
     expect(await read("robots.mjs")).not.toContain("useAuth")
-    // Entries that load when the server starts import Auth on the first request that asks.
     const lazyUser = '{ user: async request => (await (await import("#vitehub/auth/server")).useAuth(request).api.getSession({ headers: request.headers }))?.user ?? null }'
     expect(await read("markdown.mjs")).toContain(`.then(module => module.default), { render: request => serverFetch(request), ${lazyUser.slice(2)})`)
     expect(await read("preview-routes.mjs")).toContain(`.then(module => module.default), { app: useRuntimeConfig().app, ${lazyUser.slice(2)})`)
@@ -332,14 +324,47 @@ it("passes the Auth session user to every Content reader except robots.txt", asy
   }
 })
 
-it("removes the Collection types wrapper that earlier versions wrote", async () => {
+it("removes the retired Collection types wrapper without touching local data", async () => {
   const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
   try {
     const wrapper = join(projectRoot, ".vitehub/types/source/vitehub-source-registry.d.ts")
+    const data = join(projectRoot, ".vitehub/data/local.txt")
     await mkdir(join(projectRoot, ".vitehub/types/source"), { recursive: true })
+    await mkdir(join(projectRoot, ".vitehub/data"), { recursive: true })
     await writeFile(wrapper, '/// <reference path="./collections.d.ts" />\n')
+    await writeFile(data, "keep me")
     expect(await prepareSourceGeneration({ projectRoot })).toEqual([])
     await expect(access(wrapper)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(data, "utf8")).toBe("keep me")
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+it("reports malformed Content before checking for generated route conflicts", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    await mkdir(join(projectRoot, "server"), { recursive: true })
+    await writeFile(join(projectRoot, "server/content.ts"), 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ seo: {')
+    const configureRoutes = async () => mergeGeneratedSourceNitroConfig({
+      handlers: [{ route: "/sitemap.xml", handler: "app-sitemap.mjs" }],
+    }, await prepareSourceGeneration({ projectRoot }))
+    await expect(configureRoutes()).rejects.toMatchObject({ code: "PARSE_ERROR" })
+    await expect(access(join(projectRoot, ".vitehub/content/sitemap.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+  }
+  finally {
+    await rm(projectRoot, { recursive: true, force: true })
+  }
+})
+
+it("counts a Content module that does not parse as defining every handler, and fails on one it cannot read", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "source-routes-"))
+  try {
+    const file = join(projectRoot, "content.ts")
+    await writeFile(file, 'import { defineContent } from "vite-hub/content"\nexport default defineContent({ seo: {')
+    expect(await inspectContentEntry(file)).toEqual({ route: true, collections: true, sitemap: true, robots: true, markdown: true, rss: true, mcp: "unknown", llms: true, live: true, previews: true, sqlite: false, github: false })
+    await expect(inspectContentEntry(join(projectRoot, "missing.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   }
   finally {
     await rm(projectRoot, { recursive: true, force: true })

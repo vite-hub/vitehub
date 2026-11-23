@@ -140,7 +140,6 @@ function unwrapStartableDefinition(loaded: unknown): ScheduleDefinition | undefi
     : undefined
 }
 
-/** The minutes in `[first, last]` when `schedule` is due, after it was created. A one-time Schedule is due once `at` passed. */
 function dueMinutes(schedule: StartedSchedule, first: number, last: number): Date[] {
   if (schedule.at) return schedule.at.getTime() <= last ? [schedule.at] : []
   const due: Date[] = []
@@ -152,12 +151,10 @@ function dueMinutes(schedule: StartedSchedule, first: number, last: number): Dat
   return due
 }
 
-/** Runs one occurrence of a started Schedule. Resolves `false` when another process holds it, so a later tick tries again. */
 async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedSchedule, scheduledAt: Date, waitUntil: ScheduleRunContext["waitUntil"]): Promise<boolean> {
   const load = Object.hasOwn(runtime.registry, schedule.name) ? runtime.registry[schedule.name] : undefined
   const definition = unwrapStartableDefinition(await load?.())
   if (!definition) {
-    // A deploy removed the Definition or gave it a cron. A cron Schedule stays, so it runs again if the Definition returns.
     if (schedule.at) await runtime.store.delete(schedule.id)
     throw startedScheduleErrors.SCHEDULE_NOT_STARTABLE({ name: schedule.name })
   }
@@ -181,7 +178,6 @@ async function runOccurrence(runtime: StartedScheduleRuntime, schedule: StartedS
       })
     }
     finally {
-      // A one-time Schedule runs once, also when the handler fails. The failed run stays in the run history.
       if (schedule.at && final) await runtime.store.delete(schedule.id)
     }
   }
@@ -206,7 +202,6 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
     : Math.min(minute, runtime.checkedThrough + minuteMs)
   const schedules = await runtime.store.list()
   const occurrences = schedules.flatMap(schedule => dueMinutes(schedule, first, minute).map(scheduledAt => ({ schedule, scheduledAt })))
-  // Occurrences that another process held at an earlier tick. A Schedule that is gone now ran its last time or was cancelled.
   const held = runtime.held ??= new Map()
   const byId = new Map(schedules.map(schedule => [schedule.id, schedule]))
   const failing = runtime.failing ??= new Map()
@@ -230,9 +225,7 @@ export async function runStartedSchedules(context: ScheduleRunContext): Promise<
       failing.delete(schedule.id)
       return
     }
-    // A first tick can fail before checkedThrough is set. Keep that occurrence for the next tick as well.
     held.set(runId, { scheduleId: schedule.id, scheduledAt })
-    // The held occurrence fails again at each tick. Log it once, until the cause changes or a run succeeds.
     const cause = errorCode(result.reason) ?? (result.reason instanceof Error ? result.reason.message : String(result.reason))
     if (failing.get(schedule.id) === cause) return
     failing.set(schedule.id, cause)

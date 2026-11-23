@@ -1,10 +1,6 @@
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
 
-/**
- * Site access: three signed-in browsers and one open invite, in memory. A restart resets them. Links point at the
- * playground home, because the playground has no app that redeems them.
- */
 const hour = 3_600_000
 const day = 24 * hour
 const now = Date.now()
@@ -35,7 +31,6 @@ function missing(what: string): ConsoleRpcResult {
   return { code: "CONSOLE_REQUEST_INVALID", message: `No ${what} has this id.`, ok: false, status: 404 }
 }
 
-/** Answers a `site.*` operation, or undefined for any other operation. */
 export function siteFixture(origin: string, operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   switch (operation) {
     case "site.sessions": return { ok: true, value: { sessions } }

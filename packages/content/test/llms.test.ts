@@ -9,6 +9,7 @@ import { files } from "@vite-hub/source"
 import { acceptsMarkdown, contentSource, defineContent, defineContentLlmsHandler, defineContentMarkdownHandler, renderContentLlms, renderContentMarkdownNotFound, renderContentSitemapMarkdown, seo } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
+import type { ContentPlugin } from "comark-content"
 import type { DefineContentSeoOptions } from "../src/index.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -395,6 +396,117 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
     expect(await content.page("/guide")).toMatchObject({ url: "https://example.com/portal/guide" })
   })
 
+  it("looks up only published Markdown pages through Comark", async () => {
+    const pages: Record<string, string> = { "guide.md": "Read the guide.", "hidden.md": "Hidden", "empty.md": "", "logo.svg": "<svg/>" }
+    const source = {
+      keys: async () => Object.keys(pages),
+      getItem: async (key: string) => pages[key] ?? "",
+      getItemRaw: async (key: string) => pages[key],
+    }
+    const plugin: ContentPlugin = {
+      name: "published-pages",
+      setup(instance) {
+        instance.hooks.hook("file:parsed", (context) => {
+          if (context.file?.meta.key === "docs/hidden.md") context.file = null
+          if (context.file?.meta.key === "docs/guide.md") context.file.data.title = "Published guide"
+        })
+      },
+    }
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(source, {
+        url: ({ key }) => key === "guide.md" ? "/docs/../guide" : key === "logo.svg" ? "/guide/" : `/${key?.split(".")[0]}`,
+      }) },
+      plugins: [plugin],
+      seo: { site: "https://example.com", markdown: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.markdown("/guide.md")).toContain("# Published guide")
+    expect(await content.page("/guide")).toMatchObject({ title: "Published guide" })
+    expect(await content.hasMarkdown("/guide.md")).toBe(true)
+    for (const path of ["/hidden", "/empty"]) {
+      expect(await content.hasMarkdown(`${path}.md`)).toBe(false)
+      expect(await content.markdown(`${path}.md`)).toBeNull()
+      expect(await content.page(path)).toBeNull()
+    }
+    delete pages["guide.md"]
+    pages["new.md"] = "New copy"
+    await content.cache.snapshot("docs")
+    expect(await content.hasMarkdown("/guide.md")).toBe(false)
+    expect(await content.markdown("/new.md")).toContain("New copy")
+  })
+
+  it("gives URL and copy callbacks the adapted Source document", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(files({ "guide.md": "---\nslug: start\n---\nGuide" }, { prefix: "manual" }), {
+        url: (document) => {
+          try {
+            return document.key === "manual/guide.md" ? `/${document.data.slug}` : null
+          }
+          catch {
+            return null
+          }
+        },
+        markdown: (page) => {
+          try {
+            return `Copy of ${page.id}`
+          }
+          catch {
+            return null
+          }
+        },
+      }) },
+      seo: { markdown: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.hasMarkdown("/start.md")).toBe(true)
+    expect(await content.markdown("/start.md")).toContain("Copy of manual/guide")
+  })
+
+  it("uses real frontmatter and IDs even when route callbacks catch errors", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: {
+        routed: contentSource(files({ "guide.md": "---\nslug: start\n---\nGuide" }), {
+          url: (document) => {
+            try {
+              return `/${document.data.slug}`
+            }
+            catch {
+              return null
+            }
+          },
+        }),
+        rendered: contentSource(files({ "about.md": "About" }), {
+          url: () => "/about",
+          seo: (document) => {
+            try {
+              return { title: `Page ${document.id}` }
+            }
+            catch {
+              return { title: "Unknown" }
+            }
+          },
+          markdown: (page) => {
+            try {
+              return `${page.title}: ${page.id}`
+            }
+            catch {
+              return null
+            }
+          },
+        }),
+      },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.markdown("/start.md")).toContain("Guide")
+    expect(await content.markdown("/about.md")).toBe("Page about: about")
+  })
+
   it("rejects page options without a url, and a prefix with a trailing slash", () => {
     expect(() => contentSource(files({}), { label: "Docs" })).toThrow(/needs a url/)
     expect(() => defineContent({ seo: { markdown: { prefix: "/raw/" } }, logger: false })).toThrow(/prefix starts with \//)
@@ -630,7 +742,7 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
 
   it("names the copy and revalidates it with an ETag", async () => {
     const content = await site({ site: "https://example.com", markdown: { prefix: "/raw" } })
-    for (const [path, accept, location] of [["/blog/hello.md", "*/*", "/blog/hello.md"], ["/raw/blog/hello.md", "*/*", "/raw/blog/hello.md"], ["/blog/hello", "text/markdown", "/blog/hello.md"]] as const) {
+    for (const [path, accept, location] of [["/blog/hello.md", "*/*", "/blog/hello.md"], ["/raw/blog/hello.md", "*/*", "/raw/blog/hello.md"], ["/blog/hello", "text/markdown", "/blog/hello.md"], ["/blog/hello.md?v=2", "*/*", "/blog/hello.md?v=2"], ["/blog/hello?v=2", "text/markdown", "/blog/hello.md?v=2"]] as const) {
       const first = await app(content).request(`https://example.com${path}`, { headers: { accept } })
       expect(first.status).toBe(200)
       expect(first.headers.get("content-location")).toBe(location)
@@ -924,6 +1036,31 @@ describe("Markdown negotiation", { timeout: 30_000 }, () => {
     expect(acceptsMarkdown("text/plain, text/markdown;q=0.1")).toBe(true)
     expect(acceptsMarkdown("*/*")).toBe(false)
     expect(acceptsMarkdown(null)).toBe(false)
+  })
+
+  it("lets the first listed type win when Markdown and HTML have the same quality", () => {
+    expect(acceptsMarkdown("text/html, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/html;q=0.8, text/markdown;q=0.8")).toBe(false)
+    expect(acceptsMarkdown("text/markdown;q=0.8, text/html;q=0.8")).toBe(true)
+    // A type named on its own beats a wildcard of the same quality, wherever it stands.
+    expect(acceptsMarkdown("text/*, text/markdown")).toBe(true)
+    expect(acceptsMarkdown("text/html, text/*, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/html;q=0, text/markdown;q=0, text/*")).toBe(false)
+  })
+
+  it("skips a range whose parameters the UTF-8 page and copy do not have", async () => {
+    expect(acceptsMarkdown("text/html; charset=iso-8859-1, text/markdown")).toBe(true)
+    // The more specific HTML range refuses UTF-8 HTML, so the plain `text/html` does not decide.
+    expect(acceptsMarkdown("text/html; charset=utf-8;q=0, text/html, text/markdown")).toBe(true)
+    expect(acceptsMarkdown("text/html; charset=UTF-8, text/markdown")).toBe(false)
+    expect(acceptsMarkdown("text/markdown; charset=iso-8859-1, text/html")).toBe(false)
+    // A type with a matching parameter is no more specific in the tie than the same type without one.
+    expect(acceptsMarkdown("text/markdown, text/html; charset=utf-8")).toBe(true)
+    const content = await site({ site: "https://example.com", markdown: true })
+    for (const [accept, markdown] of [["text/html; charset=iso-8859-1, text/markdown", true], ["text/html; charset=utf-8;q=0, text/html, text/markdown", true], ["text/html, text/markdown", false]] as const) {
+      const response = await app(content).request("https://example.com/blog/hello", { headers: { accept } })
+      expect(response.headers.get("content-type")?.startsWith("text/markdown"), accept).toBe(markdown)
+    }
   })
 })
 

@@ -51,7 +51,6 @@ describe("Server Env declaration inventory", () => {
       { path: "env.server.inferred", names: ["VITEHUB_INFERRED", "INFERRED"], required: true, secret: false, hasDefault: false },
       { path: "env.server.aliased", names: ["VITEHUB_ALIASED", "VENDOR_TOKEN", "LEGACY_TOKEN"], required: true, secret: true, hasDefault: false },
       { path: "env.server.vendorOnly", names: ["VENDOR_URL", "VENDOR_ENDPOINT"], required: true, secret: false, hasDefault: false },
-      // The canonical name is read once, even when env.source() lists it too.
       { path: "env.server.canonicalAlias", names: ["VITEHUB_CANONICAL_ALIAS", "ALIAS"], required: true, secret: false, hasDefault: false },
       { path: "env.server.defaulted", names: ["VITEHUB_DEFAULTED", "DEFAULTED"], required: true, secret: false, hasDefault: true },
       { path: "env.server.vault", names: undefined, required: true, secret: true, hasDefault: false },
@@ -88,7 +87,6 @@ describe("Server Env declaration inventory", () => {
     })
     const inspection = await inspectServerEnv(registry, cloudflareRequest({ DOTTED_TOKEN: "dotted" }))
     expect(inspection.entries.map(entry => entry.path)).toEqual(describeServerEnv(registry).entries.map(entry => entry.path))
-    // A dotted declaration key must not report its status under the nested path.
     expect(inspection.entries).toEqual([
       { masked: false, names: ["VITEHUB_NESTED_TOKEN", "NESTED_TOKEN"], path: "env.server.nested.token", required: true, source: "env", status: "missing" },
       { masked: false, name: "DOTTED_TOKEN", names: ["DOTTED_TOKEN"], required: true, source: "env", status: "available" },

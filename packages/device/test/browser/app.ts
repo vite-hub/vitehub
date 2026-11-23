@@ -1,5 +1,3 @@
-// The page of the browser tests: a Vue app with one stored read of `/api/projects`, which the test answers when it
-// wants. The test drives it through `window.deviceTest`.
 import { createApp, defineComponent, effectScope, h, watch } from "vue"
 
 import { clearDevice, inspectDevice, openDevice, setDeviceAccount } from "../../src/index.ts"
@@ -8,7 +6,6 @@ import { useStoredData } from "../../src/vue.ts"
 
 interface MountOptions {
   version?: string
-  /** Names this account after the app mounts. */
   account?: string | null
   maxAge?: number
 }
@@ -17,9 +14,7 @@ const deviceTest = {
   clearDevice,
   inspectDevice,
   setDeviceAccount,
-  /** How long `openDevice()` took, in milliseconds. */
   openMs: 0,
-  /** The text of the first render, read in the same task as `app.mount()`. */
   firstRender: "",
   text: () => document.querySelector("#projects")?.textContent ?? "",
   async mount(options: MountOptions = {}) {
@@ -36,7 +31,6 @@ const deviceTest = {
     deviceTest.firstRender = deviceTest.text()
     if (options.account !== undefined) await setDeviceAccount(options.account)
   },
-  /** Stores `value` as the answer of `key`, and resolves when the read has it. */
   store(key: string, value: unknown): Promise<void> {
     return new Promise((resolve) => {
       const scope = effectScope()
@@ -50,26 +44,19 @@ const deviceTest = {
       })
     })
   },
-  /**
-   * Resets the IndexedDB storage to `account` when it has the generation `expected`, as a tab with that view of the disk
-   * does. Returns the generation that the disk had.
-   */
   async resetDisk(account: string, expected: string | undefined): Promise<string | undefined> {
     const storage = await openIndexedDB()
     const found = await storage.reset({ account, version: "", generation: "reset-by-test" }, expected)
     storage.close()
     return found?.generation
   },
-  /** The generation of the disk, read with the device storage. */
   async diskGeneration(): Promise<string | undefined> {
     const storage = await openIndexedDB()
     const { meta } = await storage.read()
     storage.close()
     return meta?.generation
   },
-  /** The keys in IndexedDB, read with the browser API, not with the device. */
   storedKeys: () => readEntries(entries => entries.getAllKeys(), keys => keys.map(String).sort(), [] as string[]),
-  /** The first characters of the JSON of `key` in IndexedDB, read with the browser API. */
   storedPrefix: (key: string) => readEntries(entries => entries.get(key), (entry: { json: string } | undefined) => entry?.json.slice(0, 4), undefined),
 }
 

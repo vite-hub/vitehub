@@ -3,7 +3,6 @@ import { expect, it } from "vitest"
 import { ask } from "../src/ask.ts"
 import { gatewayDiagnostics } from "../src/diagnostics.ts"
 
-/** The codes that replaced plain errors in `ask.if()`, `ask.each()`, and the Jev gateway. */
 const codes = [
   "GATEWAYS_ASK_EACH_KEY_DUPLICATE",
   "GATEWAYS_ASK_EACH_KEY_INVALID",
@@ -13,7 +12,6 @@ const codes = [
 ] as const
 
 it.each(codes)("gives %s a fix and its own docs page", (code) => {
-  // Each code takes its own params. One object that has all of them fits every code.
   const create = gatewayDiagnostics[code] as (params: { key: string, name: string, problem: "range" }) => Error & { docs?: string, fix?: string }
   const error = create({ key: "\"a\"", name: "a", problem: "range" })
   expect(error.fix).toMatch(/\S/)

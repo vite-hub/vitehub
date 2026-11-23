@@ -104,7 +104,6 @@ describe("Connection activity retention", () => {
     const client = test.runtime.client("mail", {})
     await client.call("mail.labels.list", { userId: "me" })
     expect(await ids(db)).toHaveLength(1)
-    // Each request writes activity and triggers pruning.
     for (let index = 0; index < 150; index += 1) await client.call("mail.labels.list", { userId: "me" })
     expect((await ids(db)).length).toBe(1)
   })

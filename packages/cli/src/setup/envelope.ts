@@ -38,7 +38,6 @@ function toSetupError(error: unknown): SetupError {
   const why = diagnostic.why.replace(/^\[vitehub\] /u, "")
   return {
     code: diagnostic.code,
-    // The first sentence, for a one-line summary. `why` keeps the whole reason.
     message: /^.*?[.!?](?=\s|$)/u.exec(why)?.[0] ?? why,
     why,
     ...(diagnostic.fix ? { fix: diagnostic.fix } : {}),

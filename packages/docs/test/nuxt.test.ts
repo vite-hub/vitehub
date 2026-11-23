@@ -669,7 +669,6 @@ describe("docs Nuxt setup", () => {
       sources: [{ source: files({ "catalog.md": () => "---\ntitle: All skills\n---\n:icon{name=\"i-lucide-library\"} Every skill" }), mount: "/skills" }],
     });
     expect(findDocsPage(manifestTemplate() as never, "/skills/catalog")?.page).toMatchObject({ title: "All skills" });
-    // `nuxi build` empties the build folder after the modules load, and generates the templates before `build:before`.
     rmSync(join(options.buildDir, "docs"), { recursive: true, force: true });
     const icons = new Set<string>();
     await callHook("icon:clientBundleIcons", icons);
@@ -942,6 +941,23 @@ describe("docs Nuxt setup", () => {
     await callHook("vite:serverCreated", devServer(nitro).server)
     writeFileSync(join(content, file), "---\ntitle: New page\n---\n# New page")
     watchContent.mock.calls[0]![2]!("rename", file)
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+    expect(updateTemplates).not.toHaveBeenCalled()
+  })
+
+  it("restarts development when a page becomes a playground, so its workspace module and isolated route follow", async () => {
+    vi.useFakeTimers()
+    const content = mkdtempSync(join(tmpdir(), "docs-workspace-restart-"))
+    roots.push(content)
+    mkdirSync(join(content, "docs"))
+    writeFileSync(join(content, "docs/index.md"), "---\ntitle: Home\n---\n# Home")
+    const page = join(content, "docs/play.md")
+    writeFileSync(page, "---\ntitle: Play\n---\n# Play")
+    await setupDocs({ dir: content }, "/", true)
+    await callHook("vite:serverCreated", devServer().server)
+    writeFileSync(page, "---\ntitle: Play\nlayout: playground\nexamples:\n  - id: hello\n    label: Hello\n    dir: examples/hello\n---\n# Play")
+    watchContent.mock.calls[0]![2]!("change", "docs/play.md")
     await vi.advanceTimersByTimeAsync(100)
     await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
     expect(updateTemplates).not.toHaveBeenCalled()
@@ -1300,7 +1316,9 @@ describe("docs search checks", () => {
 })
 
 it("uses the module-owned Takumi renderer in dev and prerender without shipping a runtime renderer", async () => {
-  const dependencies = await moduleDependencies({ options: { modules: [], alias: {}, docs: { comments: false } } })
+  const rootDir = mkdtempSync(join(tmpdir(), "docs-og-"))
+  roots.push(rootDir)
+  const dependencies = await moduleDependencies({ options: { rootDir, modules: [], alias: {}, docs: { comments: false } } })
   const renderer = Object.entries(dependencies).find(([name]) => name.includes("nuxt-og-image"))?.[1]
   expect(renderer).toMatchObject({
     defaults: {
@@ -1376,5 +1394,36 @@ describe("docs Comments", () => {
   it("names the package or the opt-out when Comments cannot run", async () => {
     await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toMatchObject({ fix: expect.stringMatching(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/) })
     await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toMatchObject({ fix: expect.stringMatching(/Remove `database: false`.*docs: \{ comments: false \}/) })
+  })
+
+  describe("workspace pages", () => {
+    function pages(rootDir: string) {
+      const page = (path: string, frontmatter: string) => {
+        mkdirSync(dirname(join(rootDir, "content/docs", path)), { recursive: true })
+        writeFileSync(join(rootDir, "content/docs", path), `---\ntitle: Page\n${frontmatter}---\nText.\n`)
+      }
+      page("guide.md", "")
+      page("lesson.md", "layout: learn\nfixture: kv\n")
+      page("playground.md", "layout: playground\nexamples:\n  - { id: hello, label: Hello, dir: examples/hello }\n")
+      page("render.md", "layout: playground\nrender: app/playground/render.ts\nexamples:\n  - { id: page, label: Page, dir: examples/page }\n")
+      return rootDir
+    }
+
+    it("isolates the learn pages and the WebContainer playgrounds, in either module order, beside Comments", async () => {
+      for (const modules of [["vite-hub/nuxt", "@vite-hub/docs/nuxt"], ["@vite-hub/docs/nuxt", "vite-hub/nuxt"]]) {
+        const nuxt = app(modules)
+        pages(nuxt.options.rootDir)
+        expect((await moduleDependencies(nuxt))["vite-hub/nuxt"]).toEqual({
+          optional: true,
+          defaults: { comments: true, webContainer: { routes: ["/docs/lesson", "/docs/playground"] } },
+        })
+      }
+    })
+
+    it("fails the build when a page needs a WebContainer and vite-hub/nuxt is missing", async () => {
+      const nuxt = app(["@vite-hub/docs/nuxt"], { comments: false }, false)
+      pages(nuxt.options.rootDir)
+      await expect(moduleDependencies(nuxt)).rejects.toMatchObject({ code: "DOCS_WORKSPACE_VITEHUB_MISSING", fix: expect.stringContaining("vite-hub/nuxt") })
+    })
   })
 })

@@ -30,7 +30,6 @@ describe("H3 2 request events", () => {
   it("keeps host Standard Context so its bindings reach the Durable Object", async () => {
     const fetch = vi.fn(async (request: Request) => new Response(`${request.method} ${request.url}`))
     const req = new Request("http://example.com/_vitehub/realtime/docs/posts%2Fhello", { headers: { upgrade: "websocket" } })
-    // The host set Standard Context with bindings that the event context does not hold.
     const standard = { vendor: "host", req, res: {}, runtime: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } } } } }
     const event = new H3Event(req)
     Object.defineProperty(event, "~standard", { value: standard })
@@ -48,7 +47,6 @@ describe("H3 2 request events", () => {
     const event = new H3Event(req, {
       _platform: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } } } },
     })
-    // Nuxt 5 prepares `event.node` even when the event has a native Fetch request. The Node request has no body to read.
     Object.defineProperty(event, "node", { value: { req: { url: "/_vitehub/realtime/docs/posts%2Fhello?document=save", method: "POST", headers: { host: "example.com" } } } })
 
     const response = await handler()(event)

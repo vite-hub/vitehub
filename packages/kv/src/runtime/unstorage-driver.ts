@@ -25,7 +25,6 @@ export default function createKVStorageDriver(options: KVStorageDriverOptions = 
   const base = normalizeKey(options.base)
   const prefix = base ? `${base}:` : ""
   const key = (name: string | undefined) => prefix + normalizeKey(name)
-  // Unstorage asks for the keys below a base, so the KV text prefix ends with a separator.
   const below = (name: string | undefined) => {
     const value = key(name)
     return value && !value.endsWith(":") ? `${value}:` : value
@@ -35,11 +34,8 @@ export default function createKVStorageDriver(options: KVStorageDriverOptions = 
     name: "vitehub-kv",
     options,
     hasItem: name => unwrap(store().has(key(name))),
-    // Return the stored text: Nitro's storage parses driver values itself, and parsing twice turns a cached '"123"' into 123.
     getItem: name => unwrap(store().get(key(name), { type: "text" })),
-    // Raw entries are stored as base64 text; reading them as text would decode the bytes as UTF-8 and mangle them.
     getItemRaw: name => unwrap(store().get(key(name), { type: "bytes" })),
-    // Nitro sends `{ ttl }` or no options. KV accepts no other option.
     setItem: (name, value, opts: TransactionOptions) => unwrap(store().set(key(name), value, typeof opts?.ttl === "number" ? { ttl: opts.ttl } : undefined)),
     removeItem: name => unwrap(store().delete(key(name))),
     async getKeys(keyBase) {

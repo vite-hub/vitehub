@@ -147,14 +147,7 @@ function isScheduleRuntimeError(error: unknown): error is Error {
     return false
   }
   if (error === null || typeof error !== "object") return false
-  if (typeof intrinsicNativeErrorIsError === "function") {
-    try {
-      return intrinsicNativeErrorIsError(error)
-    }
-    catch {
-      // Continue with the captured Error.isError predicate when the host utility rejects the value.
-    }
-  }
+  if (typeof intrinsicNativeErrorIsError === "function") return intrinsicNativeErrorIsError(error)
   try {
     return typeof intrinsicErrorIsError === "function" && intrinsicErrorIsError(error) === true
   }
@@ -210,7 +203,6 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
     },
     options.waitUntil,
   ))
-  // The tick of started Schedules runs each minute. Each started Schedule logs its own run.
   if (options.name === startedSchedulesTickName) return await execute()
   const run = { name: options.name, source: "static" as const, scheduledAt }
   const startedAt = performance.now()
@@ -227,14 +219,11 @@ export async function executeStaticSchedule(options: ExecuteStaticScheduleOption
   }, options.waitUntil)
 }
 
-// A Cloudflare trigger carries the cron as written in wrangler.json, with weekday names. Cloudflare reads a weekday
-// number as 1-7 from Sunday, so a numeric trigger does not match the standard cron with the same text.
 function isHostCronTrigger(hostCron: string, trigger: string): boolean {
   try {
     return cronWithWeekdayNames(hostCron) === trigger
   }
   catch {
-    // A cron that does not parse matches no trigger.
     return false
   }
 }
@@ -267,13 +256,11 @@ async function matchStaticSchedules(
     const run = executeStaticSchedule({ cron: matchesTrigger ? hostCron : options.cron, definition, name, onRunLogged: () => { logged = true }, scheduledAt, waitUntil: options.waitUntil })
     runs.push({ logged: () => logged, name, run })
   }
-  // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
   const results = await Promise.allSettled(runs.map(({ run }) => run))
   const failures: unknown[] = []
   results.forEach((result, index) => {
     if (result.status === "fulfilled") return
     failures.push(result.reason)
-    // The run's evlog event has the failure. A thrown string has no identity, so the flag of the run tells.
     if (!runs[index]!.logged()) console.error(`[vitehub:schedule] Schedule "${runs[index]!.name}" failed (cron "${options.cron}").`, normalizeRuntimeDiagnosticError(result.reason, { includeStack: true }))
   })
   if (failures.length === 1) throw failures[0]
@@ -375,11 +362,9 @@ function restoreGlobalEnv(
 }
 
 function isCallable(value: unknown): value is CallableFunction {
-  // Callable HTMLDDA browser values report undefined without being undefined.
   return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
-// Keep this provider entry free of the Node-backed shared Cloudflare runtime module.
 function readCloudflareWaitUntil(event: CloudflareScheduledEventLike): ((promise: Promise<unknown>) => void) | undefined {
   const context = isRecord(event.context) ? event.context : undefined
   const cloudflareContext = isRecord(context?.cloudflare) ? context.cloudflare : undefined

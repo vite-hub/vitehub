@@ -17,7 +17,6 @@ interface CloudflareSendOptions {
   delaySeconds?: number
 }
 
-// Worker binding names are identifiers. Only those go into the error `why`, which can reach public responses.
 const cloudflareBindingName = /^[A-Z_]\w{0,127}$/i
 
 function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueBinding {
@@ -64,7 +63,6 @@ function isCloudflareQueueBinding(binding: unknown): binding is CloudflareQueueB
 function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSendOptions, "QUEUE_UNSUPPORTED_OPTION" | "RUNTIME_DURATION_INVALID"> {
   const error = queueUnsupportedOptionsError(options, "cloudflare")
   if (error) return [error, undefined]
-  // Cloudflare takes whole seconds.
   const [timeError, times] = readQueueTimes(options, "ceil")
   if (timeError) return [timeError, undefined]
 
@@ -74,7 +72,6 @@ function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSend
   }]
 }
 
-/** Runs the action that `onError` returned. A `delay` that is not a duration throws, and the caller retries at once. */
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
     const removed = queueRemovedOptionsError("cloudflare", action.retry)
@@ -143,7 +140,6 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
 
 export function createCloudflareQueueClient(provider: CloudflareQueueDriverOptions): CloudflareQueueClient {
   if (typeof provider.binding === "undefined" || typeof provider.binding === "string") {
-    // A binding name means the runtime looked it up in the request env and did not find it.
     const binding = typeof provider.binding === "string" && cloudflareBindingName.test(provider.binding) ? provider.binding : undefined
     throw queueErrorDiagnostics.QUEUE_BINDING_NOT_FOUND({ binding })
   }
@@ -163,7 +159,6 @@ export function createCloudflareQueueClient(provider: CloudflareQueueDriverOptio
       if (optionsError) return [optionsError, undefined]
       const [error] = await queueProviderResult("cloudflare", "send", () => binding.send(normalized.payload, sendOptions))
       if (error) return [error, undefined]
-      // Cloudflare does not return the ID of the message, and the handler gets the ID that Cloudflare assigns.
       return [undefined, { status: "queued" }]
     },
     async sendBatch(items, options) {

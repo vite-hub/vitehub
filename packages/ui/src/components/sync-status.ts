@@ -48,7 +48,6 @@ export const SyncStatusLabel = defineComponent({
   name: "SyncStatusLabel",
   setup(_props, { slots }) {
     const status = inject(statusKey, ref<SyncStatusValue>("loading"));
-    // The default label changes letter by letter, such as "Saving" to "Saved".
     return () => h("span", { "data-slot": "sync-status-label", "data-status": status.value }, slots.default?.({ status: status.value }) ?? [h(MorphText, { text: labels[status.value] })]);
   },
 });

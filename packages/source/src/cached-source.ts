@@ -27,7 +27,6 @@ export function cachedSource<const TReader extends KeyedSourceReader>(
   const get = reader.get as (key: Key) => Promise<Value>
 
   async function readCached(key: Key) {
-    // A failed load lets the next read try again.
     cachedGet ??= import("nitro/cache").then(({ defineCachedFunction }) => defineCachedFunction(
       value => get.call(reader, value),
       {

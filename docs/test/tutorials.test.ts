@@ -1,13 +1,15 @@
+import { existsSync, readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
-import { runnableTutorials } from "../modules/tutorials/list";
-import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
-import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+import { frameworkNodes, parseCurl, restartsDevServer, splitTutorialDocument, tutorialStepFiles, tutorialWorkspaceFiles } from "@vite-hub/docs/runnable";
+
+import { buildRunnableTutorial, frameworkView, readWorkspaceVersions, resolveManifest } from "../../packages/docs/src/runnable/build";
+import { learnLessonSource } from "../../packages/docs/src/runnable/workspaces";
+import { learnPages } from "./workspace-pages";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -153,7 +155,6 @@ describe("documentation tutorials", () => {
 
   it("keeps the Choices tutorial on its fixture", async () => {
     await expectPageToUseFixture("content/docs/choices/get-started.md", "choices", [
-      "server/utils/word-gateway.ts",
       "server/utils/forecast-choices.ts",
       "server/api/choices.post.ts",
       "vite.config.ts",
@@ -200,13 +201,20 @@ describe("documentation tutorials", () => {
 
 });
 
+const pages = await learnPages();
+const runnableTutorials = pages.map(learnLessonSource);
+
 describe("runnable tutorials", () => {
   const repoRoot = resolve(docsRoot, "..");
   const build = async (index: number) => buildRunnableTutorial({
     source: runnableTutorials[index]!,
-    contentDir: resolve(docsRoot, "content"),
+    readPage: (path) => {
+      const file = resolve(docsRoot, `content${path}.md`);
+      return existsSync(file) ? readFileSync(file, "utf8") : undefined;
+    },
     fixturesDir: fixturesRoot,
     versions: await readWorkspaceVersions(repoRoot),
+    start: "/docs/getting-started/installation",
   });
 
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
@@ -215,7 +223,8 @@ describe("runnable tutorials", () => {
     const installation = frameworkView(await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8"), "Vite");
 
     // The docs page links to this copy, and the steps are the page's steps.
-    expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);
+    expect(lesson).toContain(`::run-tutorial{to="${pages[index]!.path}"}`);
+    expect(slug).toBe(`learn-${pages[index]!.path.split("/").at(-1)}`);
     expect(tutorial.steps.map(step => step.title)).toEqual([...lesson.matchAll(/^::tutorial-step\{title="([^"]+)"\}/gm)].map(match => match[1]));
 
     // Step 1 starts from the app of Installation. Every file code block of a step is the fixture file.
@@ -264,7 +273,7 @@ describe("runnable tutorials", () => {
   });
 
   it("restarts the dev server when a step adds or removes the page, not for config edits", async () => {
-    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "choices"));
+    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "learn-choices"));
     const pageStep = tutorial.steps.findIndex(step => "index.html" in step.files);
     const before = tutorialStepFiles(tutorial, pageStep, "start");
     const after = tutorialStepFiles(tutorial, pageStep, "solution");
@@ -309,9 +318,9 @@ describe("runnable tutorials", () => {
     expect(parseCurl("pnpm dev")).toBeUndefined();
   });
 
-  it("isolates only the tutorial pages and the playground", async () => {
+  it("isolates the workspace pages from their frontmatter, not from the app config", async () => {
     const config = await readFile(resolve(docsRoot, "nuxt.config.ts"), "utf8");
-    expect(config).toContain(`webContainer: { routes: ["/learn/**", "/playground"] }`);
-    expect(await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8")).not.toContain("webContainerHeaders");
+    expect(config).not.toContain("webContainer");
+    expect(await readFile(resolve(repoRoot, "packages/docs/src/runnable/nuxt.ts"), "utf8")).not.toContain("webContainerHeaders");
   });
 });

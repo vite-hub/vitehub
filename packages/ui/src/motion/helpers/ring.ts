@@ -2,8 +2,6 @@ import { motionSkipped, reduced } from "./frame.ts";
 import { easeOut, tween } from "./tween.ts";
 import type { Tween } from "./tween.ts";
 
-// The prototype's ring: a ring in the border color grows to 5px in the first 30% of 720ms, then grows to 7px as it
-// fades, on one ease-out curve. It goes on top of the element's own shadow, such as the ring of an outline button.
 const duration = 720;
 const peak = 0.3;
 const color = "var(--ui-border-accented, currentColor)";
@@ -26,7 +24,6 @@ export function ring(element: HTMLElement): void {
     }
     return;
   }
-  // The shadow of the element without the ring. A ring that starts again reuses the one it read first.
   const base = running ? undefined : getComputedStyle(element).boxShadow;
   const under = running?.under ?? (base && base !== "none" ? `, ${base}` : "");
   const handle = tween(0, 1, { duration, ease: easeOut }, (progress) => {

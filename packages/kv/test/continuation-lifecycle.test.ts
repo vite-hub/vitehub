@@ -94,7 +94,6 @@ it("expires abandoned filesystem cursors and closes their directories", async ()
     const page = await driver.listKeys({ limit: 1 })
     await vi.advanceTimersByTimeAsync(15 * 60_000)
     await expect(driver.listKeys({ cursor: page.cursor, limit: 1 })).rejects.toMatchObject({ code: "KV_INVALID_CURSOR", why: "The list cursor has expired." })
-    // Disposal also waits for asynchronous cleanup initiated by expiry.
     await driver.dispose?.()
     await expect(filesystem.opened[0]!.read()).rejects.toMatchObject({ code: "ERR_DIR_CLOSED" })
   }

@@ -47,7 +47,6 @@ describe("githubBranchRuleDetails()", () => {
     const rules = await readable.provider.repos.branchRules(readable.repo, "main")
     expect(rules.requiredChecks).toEqual([{ name: "CI", appId: "42" }])
     expect(githubBranchRuleDetails(rules).classicSource).toBe("protection-endpoint")
-    // forges reads the checks from the branch summary and warns that it cannot read the approvals.
     const limited = await github([get(branchPath, 200, protectedBranch()), get(rulesPath, 200, []), get(`${branchPath}/protection`, 403, { message: "Resource not accessible by integration" })])
     const summary = await limited.provider.repos.branchRules(limited.repo, "main")
     expect(summary.requiredChecks).toEqual([{ name: "CI", appId: "42" }])
@@ -87,7 +86,6 @@ describe("githubBranchRuleDetails()", () => {
 })
 
 describe("forgeBranchRules()", () => {
-  // GitHub's answer on a private repository whose plan has no rulesets or branch protection.
   const planLimit = { message: "Upgrade to GitHub Pro or make this repository public to enable this feature.", status: "403" }
   const unprotected = { name: "main", protected: false, protection: { enabled: false, required_status_checks: { enforcement_level: "off", contexts: [], checks: [] } } }
 

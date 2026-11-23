@@ -7,10 +7,13 @@ import { fileURLToPath } from "node:url"
 import { blob } from "@vite-hub/blob"
 import { checkBlobStoreHealth, setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
 
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { healthVitePlugin, renderHealthHandler, type HealthTargets } from "../src/health-vite.ts"
+import { healthVitePlugin, renderHealthHandler, selectHealthTargets, type HealthTargets } from "../src/health-vite.ts"
+import { vitehub } from "../src/index.ts"
 import { readViteHubVersion } from "../src/version.ts"
+import { createProject, serverBuild } from "./support/content-cms.ts"
 
 type Handler = { fetch(): Promise<Response> }
 type Modules = Record<string, Record<string, unknown>>
@@ -100,6 +103,53 @@ describe("health route", () => {
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ ok: false, commit: "abc123", vitehub: "0.0.9", checks: { blob: { uploads: false } } })
     expect(log).toHaveBeenCalledWith("[vitehub] Blob store \"uploads\" did not answer the health check.", new Error("No answer within 2000 ms."))
+  })
+
+  it("checks only the primitives in `checks`, and fails the build for one that the app does not turn on", () => {
+    const targets = { database: true, kv: ["default"], blob: ["default", "uploads"] }
+
+    expect(selectHealthTargets(undefined, targets)).toEqual(targets)
+    expect(selectHealthTargets(["database"], targets)).toEqual({ database: true, kv: [], blob: [] })
+    expect(selectHealthTargets(["kv", "blob"], targets)).toEqual({ database: false, kv: ["default"], blob: ["default", "uploads"] })
+    expect(selectHealthTargets([], targets)).toEqual({ database: false, kv: [], blob: [] })
+    expect(() => selectHealthTargets(["blob"], { database: true, kv: [], blob: [] })).toThrow(expect.objectContaining({ name: "VITE_HUB_HEALTH_CHECK_DISABLED" }))
+    expect(() => selectHealthTargets(["database"], { database: false, kv: ["default"], blob: [] })).toThrow(expect.objectContaining({ name: "VITE_HUB_HEALTH_CHECK_DISABLED" }))
+  })
+
+  it("leaves a Blob store out of the generated route with `checks: [\"database\"]`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-health-"))
+    roots.push(root)
+    await writeFile(join(root, "package.json"), "{}")
+    const config: Record<string, unknown> = { root }
+
+    await (healthVitePlugin({ checks: ["database"] }, { database: true, kv: ["default"], blob: ["default"] }).config as (config: object) => Promise<void>)(config)
+
+    const source = await readFile(join(root, ".vitehub/nitro/health.mjs"), "utf8")
+    expect(source).toContain("pingDatabases")
+    expect(source).not.toContain("checkBlobStoreHealth")
+    expect(source).not.toContain("vite-hub/kv")
+  })
+
+  it("checks the Database that Forms discovery turns on", async () => {
+    const root = await createProject({
+      "package.json": "{}",
+      "server/forms/contact.ts": "import * as v from 'valibot'\nimport { defineForm } from 'vite-hub/forms'\nexport default defineForm({ schema: v.object({ message: v.string() }) })\n",
+    })
+    const plugins = vitehub({ host: "node", env: false, health: { checks: ["database"] } })
+    await resolveConfig(serverBuild(root, plugins), "build")
+    expect(await readFile(join(root, ".vitehub/nitro/health.mjs"), "utf8")).toContain("pingDatabases")
+  })
+
+  it("rejects a check that discovery did not turn on", async () => {
+    const root = await createProject({ "package.json": "{}" })
+    const plugins = vitehub({ host: "node", env: false, health: { checks: ["database"] } })
+    await expect(resolveConfig(serverBuild(root, plugins), "build"))
+      .rejects.toMatchObject({ name: "VITE_HUB_HEALTH_CHECK_DISABLED" })
+  })
+
+  it.each(["databse", "constructor"])("rejects the unknown check %s from JavaScript config", (check) => {
+    const targets = { database: true, kv: ["default"], blob: ["default"] }
+    expect(() => selectHealthTargets([check], targets)).toThrow(expect.objectContaining({ name: "VITE_HUB_HEALTH_CHECK_INVALID" }))
   })
 
   it("registers the route with the app version, the commit of the build, and the installed ViteHub version", async () => {

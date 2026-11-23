@@ -14,7 +14,7 @@ import { hubEmail } from "../src/vite.ts"
 
 import type { EmailClient, EmailDefinition } from "../src/types.ts"
 
-type ConfigHook = (config: Record<string, unknown>, env?: { command: "build" | "serve", mode: string }) => Promise<unknown>
+type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []
@@ -35,10 +35,10 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubEmail>, root: string, command?: "build" | "serve"): Promise<{ config: Record<string, unknown>, definition: string }> {
+async function configure(plugin: ReturnType<typeof hubEmail>, root: string, command: "build" | "serve" = "build"): Promise<{ config: Record<string, unknown>, definition: string }> {
   const config: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
   // SAFETY: the hooks are functions in hubEmail. The tests call them the way Vite does.
-  await (plugin.config as ConfigHook)(config, command ? { command, mode: command === "serve" ? "development" : "production" } : undefined)
+  await (plugin.config as ConfigHook)(config, { command, mode: command === "serve" ? "development" : "production" })
   await (plugin.configResolved as ConfigResolvedHook)({ root })
   const handler = plugin.api.getDefinition()?.handler
   if (!handler) throw new Error("Expected a configured Email definition")
@@ -110,10 +110,8 @@ describe("Email development outbox output", () => {
 
     const source = await readFile(definition, "utf8")
     expect(source).toContain("vitehub.email.outbox")
-    // The operations carry the outbox, so the plugin adds no Nitro route or handler.
     expect(config.nitro).toEqual({ baseURL: "/app/", modules: expect.any(Array) })
 
-    // The generated definition is a separate bundle. It must write to the outbox that the Console reader reads.
     const module: { definition: EmailDefinition, outboxRuntimeId: string } = await import(pathToFileURL(definition).href)
     const email = createEmail(module.definition)
     for (const subject of ["One", "Two", "Three", "Four"]) {
@@ -136,7 +134,6 @@ describe("Email development outbox output", () => {
     expect(module.outboxRuntimeId).not.toBe("default")
     await createEmail(module.definition).send({ from: "hello@example.com", subject: "Seen by both", text: "Hi", to: "ada@example.com" })
 
-    // The Console calls its section reader with no arguments.
     expect(readEmailOutboxConsoleRecords().map(record => record.cells.subject)).toEqual(["Seen by both"])
     expect(listEmailOutboxMessages().messages.map(message => message.subject)).toEqual(["Seen by both"])
   })
@@ -153,7 +150,6 @@ describe("Email development outbox output", () => {
     expect(secondModule.outboxRuntimeId).not.toBe(firstModule.outboxRuntimeId)
     expect(getEmailOutbox(secondModule.outboxRuntimeId)).toBeUndefined()
     await createEmail(secondModule.definition).send({ from: "hello@example.com", subject: "Second app", text: "Hi", to: "ada@example.com" })
-    // The operations answer for the newest outbox, which is the second application's.
     expect(clearEmailOutboxMessages()).toEqual({ cleared: 1 })
     expect(readEmailOutboxConsoleRecords(firstModule.outboxRuntimeId)).toHaveLength(1)
     expect(getEmailOutbox(firstModule.outboxRuntimeId)?.list()).toHaveLength(1)
@@ -171,10 +167,8 @@ describe("Email development outbox output", () => {
 
   it("keeps a dev send in the outbox without a provider request when remote is not set", async () => {
     const root = await createTempProject()
-    // The fake keeps a regression off the network.
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ id: "real-send" }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    // A configured Resend key: before `remote`, this dev send reached the Resend API.
     const { definition } = await configure(hubEmail({ driver: "resend", options: { apiKey: "re_test_key" } }), root, "serve")
 
     const module: { definition: EmailDefinition, outboxRuntimeId: string } = await import(pathToFileURL(definition).href)

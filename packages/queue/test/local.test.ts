@@ -19,7 +19,6 @@ import { createLocalQueueRuntimeClient } from "../src/internal/runtime/local-cli
 
 import type { QueueDefinition, QueueJob } from "../src/types.ts"
 
-// Pass-through mocks, so a test can fail one disk write or delete.
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
   return { ...actual, rm: vi.fn(actual.rm), writeFile: vi.fn(actual.writeFile) }
@@ -123,7 +122,6 @@ describe("local queue delivery", () => {
     expect(error).toBeUndefined()
     expect(result).toEqual({ messageId: expect.stringMatching(/^queue_/), status: "queued" })
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
-    // The handler gets the stored JSON copy, as it does from a hosted provider.
     expect(handler).toHaveBeenCalledWith({ attempts: 1, id: result?.messageId, payload: { at: "1970-01-01T00:00:00.000Z", email: "ada@example.com" } })
     await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
   })
@@ -247,7 +245,6 @@ describe("local queue durability", () => {
 
   it.each(["dead", "pending"] as const)("redacts recovered %s handler errors outside development", async (state) => {
     const error = new TypeError("SMTP down for ada@example.com")
-    // Error stacks are optional. The message still needs redaction when one is absent.
     if (state === "pending") error.stack = undefined
     const options = {
       base,
@@ -469,7 +466,6 @@ describe("local queue review regressions", () => {
   })
 
   it("does not run a job again that stopped the process on its last attempt", async () => {
-    // Each engine is a process that dies during the handler.
     for (let attempt = 1; attempt <= localQueueMaxAttempts; attempt++) {
       const stuck = vi.fn(() => new Promise(() => {}))
       const engine = engineFor({ welcome: { handler: stuck } })
@@ -560,7 +556,6 @@ describe("local queue review regressions", () => {
     await engine.enqueue("welcome", Array.from({ length: localQueueDeadLimit + 5 }, (_, n) => ({ id: `job-${n}`, payload: n })))
 
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: localQueueDeadLimit, pending: 0, running: 0 }), { timeout: 10_000 })
-    // Status counts change before pruning finishes deleting the old files.
     await vi.waitFor(async () => expect((await storedJobs()).length).toBe(localQueueDeadLimit))
     engine.close()
 
@@ -588,6 +583,7 @@ describe("local queue review regressions", () => {
     await vi.waitFor(() => expect(completionFailed).toBe(true))
     expect(handler).toHaveBeenCalledOnce()
     expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 1, state: "pending" })])
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith(expect.stringContaining("done either. The job runs again after a restart."), expect.objectContaining({ message: "EIO: cannot save completion" })))
     engine.close()
     vi.mocked(rm).mockImplementation(actual.rm)
     vi.mocked(writeFile).mockImplementation(actual.writeFile)
@@ -671,7 +667,6 @@ describe("local queue delivery with hosted provider rules", () => {
 
     await engine.enqueue("welcome", [{ id: "job-1", payload: { email: "ada@example.com" } }])
 
-    // The local rules wait 1, 2, and 4 seconds. Cloudflare retries at once, so the job is dead well before that.
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1), { timeout: 500 })
     expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
     expect(await engine.job("job-1")).toMatchObject({ attempts: 4, payload: { email: "ada@example.com" }, state: "dead" })
@@ -737,7 +732,6 @@ describe("local queue delivery with hosted provider rules", () => {
 
     await vi.waitFor(() => expect(handler.mock.calls.length).toBeGreaterThan(localQueueMaxAttempts + 2))
     engine.close()
-    // Closing stops new attempts; wait for the current attempt's writes before removing its directory.
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 0, pending: 1, running: 0 }))
   })
 
@@ -750,7 +744,6 @@ describe("local queue delivery with hosted provider rules", () => {
     let late = ""
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     try {
-      // The delay is longer than the retention, so Vercel never delivers the job.
       const [error, sent] = await client.sendBatch([{ body: {}, delay: "2m", retention: undefined } as never], { retention: "59.9s" } as never)
       expect(error).toBeUndefined()
       late = sent![0]!.messageId!

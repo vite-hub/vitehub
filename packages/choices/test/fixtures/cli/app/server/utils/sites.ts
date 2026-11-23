@@ -1,5 +1,5 @@
 import { defineChoices } from "../../../../../../src/index.ts"
-import { wordGateway } from "../../../../../support.ts"
+import { wordGateway } from "../../../../../../src/testing.ts"
 
 const sitesByTenant: Record<string, { label: string, value: string }[]> = {
   t1: [{ label: "Berlin", value: "ber" }, { label: "Madrid", value: "mad" }],

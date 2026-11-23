@@ -63,10 +63,8 @@ export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const ENV_DESCRIPTION_ID = "#vitehub/env/description"
 const RESOLVED_DESCRIPTION_ID = `\0${ENV_DESCRIPTION_ID}`
-// No "#" here: Vite dev serves this browser module at `/@id/<id>`, where "#" would start the URL fragment.
 const RESOLVED_PUBLIC_ID = "\0virtual:vitehub/env/public"
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
-// Rolldown and Vite skip the resolveId and load hooks for every other id.
 const ID_PATTERN = /^#vitehub\/env\/(?:description|public|server)$/
 const RESOLVED_ID_PATTERN = /^\0(?:#vitehub\/env\/(?:description|server)|virtual:vitehub\/env\/public)$/
 const defaultRuntimeImports = {
@@ -91,7 +89,6 @@ export interface EnvVitePluginAPI {
   resolveProjectRoot: (viteRoot: string) => string
 }
 
-// A nested group is a plain object that is not an env() declaration.
 function isDeclarationGroup(value: unknown): value is EnvRuntimeConfigOptions {
   return Object.prototype.toString.call(value) === "[object Object]"
     && Reflect.get(Object(value), "kind") !== "env-variable"
@@ -121,7 +118,6 @@ export type EnvVitePlugin = Plugin & {
   vitehub: { cli: () => ViteHubCliContributor, operations: readonly OperationContributionEntry[] }
 }
 
-// Generated code imports the operations module by path, so it needs no package export.
 const operationsModule = ownModule(import.meta.url, "operations")
 
 interface ResolvedEnvState {
@@ -272,7 +268,6 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       // The Console, `vitehub env list --url <app>`, and agents run these on the signed RPC endpoint of the app.
       operations: [{ export: "envOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).envOperations, module: operationsModule }],
     },
-    // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: envNoExternal(config.resolve?.noExternal) } }
@@ -315,8 +310,6 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       if (!state) throw envErrorDiagnostics.ENV_B0001({ message: `Missing resolved Env state for ${projectRoot}` })
       pendingConfigStates.delete(configStateId)
       resolvedConfigStates.set(config, state)
-      // Keep the selected root associated with this Vite configuration. Consumers
-      // such as inline Console Auth must not recover it from process.env.
       Reflect.defineProperty(config, "__vitehubEnvDevelopmentSecretEnvKey", {
         configurable: true,
         value: state.developmentSecretEnvKey,
@@ -474,7 +467,6 @@ function assertConfiguredProviders(registry: EnvRuntimeRegistry, providers: Reco
   }
 }
 
-/** Map each `env.schemaFrom()` specifier to the module the server build imports. Relative specifiers resolve from the project root. */
 function resolveSchemaModules(registry: EnvRuntimeRegistry, root: string): Record<string, string> {
   const output: Record<string, string> = {}
   for (const { entry } of runtimeRegistryEntries(registry)) {
@@ -485,7 +477,6 @@ function resolveSchemaModules(registry: EnvRuntimeRegistry, root: string): Recor
   return output
 }
 
-/** A type-only import specifier for a schema module, relative to the generated declaration file. */
 function schemaModuleTypeSpecifier(specifier: string, outputPath: string): string {
   const typed = specifier.replace(/\.([cm]?)tsx?$/, ".$1js")
   if (!isAbsolute(typed)) return typed
@@ -495,10 +486,6 @@ function schemaModuleTypeSpecifier(specifier: string, outputPath: string): strin
 
 const generatedSecretPattern = /^[0-9a-f]{64}$/
 
-/**
- * Give the development server a root secret when none is configured, so `deriveSecret()` works without setup.
- * The secret is kept in `.vitehub/env/secret` with mode 0600 and survives restarts. Builds never generate one.
- */
 async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean, envKey: string }> {
   const existing = developmentSecretLocks.get(projectRoot)
   if (existing) return existing
@@ -513,8 +500,6 @@ async function resolveDevelopmentSecret(projectRoot: string, loadedEnv: Record<s
 }
 
 async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: Record<string, string>): Promise<{ secret: string, generated: boolean, envKey: string }> {
-  // loadEnv includes external process values with Vite's normal precedence.
-  // Keep the selected root in this project's config and runtime module only.
   const configured = readViteHubSecret(loadedEnv)
   const envKey = `VITEHUB_SECRET_${createHash("sha256").update(resolve(projectRoot)).digest("hex").slice(0, 16)}`
   if (configured) return { generated: false, secret: configured, envKey }
@@ -546,8 +531,6 @@ async function resolveDevelopmentSecretUnlocked(projectRoot: string, loadedEnv: 
             }
           }
           if (!ownerAlive && Date.now() - lockStat.mtimeMs > 30_000) {
-            // Claim stale ownership by renaming the old inode. This prevents
-            // its eventual owner from removing a newer lock at the pathname.
             const stalePath = `${lockPath}.${process.pid}.${Date.now()}.stale`
             await rename(lockPath, stalePath).catch(() => {})
             await unlink(stalePath).catch(() => {})
@@ -793,10 +776,6 @@ function envAccessorTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "env-accessors.d.ts")
 }
 
-/**
- * Types `useServerEnv()` and `usePublicEnv()` of the Env root with the declared fields. The file is a module, so its
- * `declare module` blocks augment the package instead of replacing it.
- */
 function createEnvAccessorTypes(
   publicTypes: Record<string, string>,
   serverRegistry: EnvRuntimeRegistry,
@@ -936,7 +915,6 @@ function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number, schemaTyp
   return `{\n${fields.join("\n")}\n${prefix}}`
 }
 
-/** Infer the output from optional Standard Schema type metadata, falling back to unknown when it is absent. */
 function schemaOutputType(specifier: string, exportName: string, schemaTypes: ServerSchemaTypes): string {
   const module = schemaModuleTypeSpecifier(schemaTypes.modules[specifier] ?? specifier, schemaTypes.outputPath)
   return `typeof import(${JSON.stringify(module)})[${JSON.stringify(exportName)}] extends { readonly "~standard": { readonly types?: { readonly output: infer Output } | undefined } } ? Output : unknown`

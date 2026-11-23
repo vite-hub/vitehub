@@ -13,7 +13,6 @@ import type { CmsRoleName } from "../src/access.ts"
 const contentActions = ["read", "read-draft", "write", "publish"] as const
 const commentActions = ["read", "write", "resolve"] as const
 
-// What each role may do: the Content actions of `content.can()` and the Comments actions.
 const allowed: Record<CmsRoleName, { content: readonly string[], comments: readonly string[] }> = {
   user: { content: [], comments: [] },
   viewer: { content: ["read", "read-draft"], comments: [] },
@@ -122,7 +121,6 @@ describe("the default policy of defineContent({ extends: cms })", () => {
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "publish" })).toBe(false)
       expect(await content.can({ user: { id: "u1", role: "publisher,viewer" }, collection: "posts", action: "publish" })).toBe(true)
-      // Without the Better Auth admin plugin, users have no role, so everything is denied.
       expect(await content.can({ user: { id: "u1" }, collection: "posts", action: "read-draft" })).toBe(false)
       expect(await content.can({ user: { id: "u1", role: "user" }, collection: "posts", action: "read-draft" })).toBe(false)
       expect(await content.can({ collection: "posts", action: "read-draft" })).toBe(false)

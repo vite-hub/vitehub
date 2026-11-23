@@ -86,7 +86,6 @@ export function isForgeResponseError(error: unknown): boolean {
   return error instanceof Error && Reflect.get(error, "code") === "FORGE_RESPONSE_INVALID"
 }
 
-// Channels and Workspaces read the status without loading Forge.
 export { forgeErrorStatus } from "@vite-hub/internal/forge"
 
 /** The error that a cancelled Forge operation rejects with. */
@@ -98,14 +97,10 @@ export function abortError(signal: AbortSignal): Error {
 /** Reject with the abort reason when `signal` aborts before `promise` settles. */
 export async function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await promise
-  if (signal.aborted) {
-    // The supplied operation may still reject after cancellation wins.
-    void promise.catch(() => undefined)
-    throw abortError(signal)
-  }
   return await new Promise<T>((resolve, reject) => {
     const abort = () => reject(abortError(signal))
-    signal.addEventListener("abort", abort, { once: true })
+    if (signal.aborted) abort()
+    else signal.addEventListener("abort", abort, { once: true })
     promise.then(
       (value) => {
         signal.removeEventListener("abort", abort)

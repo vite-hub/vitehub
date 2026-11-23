@@ -56,7 +56,6 @@ const fake = vi.hoisted(() => {
   return { connect, OpenWorkflow, state }
 })
 
-// `installOpenWorkflow()` imports these modules with literal specifiers, so the server bundle includes them.
 vi.mock("openworkflow", () => ({ OpenWorkflow: fake.OpenWorkflow }))
 vi.mock("openworkflow/sqlite", () => ({ BackendSqlite: { connect: fake.connect } }))
 
@@ -178,7 +177,6 @@ describe("installOpenWorkflow", () => {
     const app = createApp()
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const databaseUrl = vi.fn(() => { throw new Error("No Postgres connection URL") })
-    // Execute the generated startup plugin against the real worker installer and an empty registry.
     const code = createWorkflowDevPluginModule({ driver: "openworkflow" }, false, databaseImport)
       .replace(/^import .+$/gm, "").replace("export default ", "return ")
     const startup = new Function("definePlugin", "setWorkflowRuntimeConfig", "setWorkflowRuntimeRegistry", "registry", "installOpenWorkflow", "getPostgresConnectionUrl", code)(
@@ -241,17 +239,14 @@ describe("installOpenWorkflow", () => {
     let finishOldRuns!: () => void
     first!.stop.mockImplementation(() => new Promise<void>(resolve => { finishOldRuns = resolve }))
 
-    // `vite dev` runs the plugin again in the same process after a file changes.
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "v2" } }), added: async () => ({ default: { handler: async () => "new" } }) })
     const app = createApp()
     await expect(installOpenWorkflow(app)).resolves.toBe(true)
 
     const second = fake.state.workers[1]
     expect(first!.stop).toHaveBeenCalledOnce()
-    // A fresh client registers every definition again, so the new worker runs the changed code.
     expect(second!.definitions).toEqual(["added", "welcome"])
     expect(second!.start).toHaveBeenCalledOnce()
-    // The old worker still executes a run on the old backend.
     await flush()
     expect(fake.state.backendStops).toBe(0)
     finishOldRuns()
@@ -272,7 +267,6 @@ describe("installOpenWorkflow", () => {
       await app.close()
     }
 
-    // Only the default file logs. A configured SQLite path is a choice.
     expect(warn).toHaveBeenCalledOnce()
     expect(String(warn.mock.calls[0]![0])).toContain("Other server instances do not see them")
     warn.mockRestore()
@@ -291,7 +285,6 @@ describe("installOpenWorkflow", () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
-    // Postgres is down for a while, then a worker fails to start once.
     fake.state.connectErrors = Array.from({ length: 8 }, () => new Error("connection refused"))
     fake.state.startErrors = [new Error("start failed")]
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
@@ -299,13 +292,11 @@ describe("installOpenWorkflow", () => {
     const app = createApp()
 
     const started = installOpenWorkflow(app)
-    // 0.5, 1, 2, 4, 8, 16, 30, 30, and 30 seconds.
     await vi.advanceTimersByTimeAsync(122_000)
 
     await expect(started).resolves.toBe(true)
     expect(app.captureError).toHaveBeenCalledTimes(9)
     expect(consoleWarn.mock.calls.map(call => String(call[0]).match(/in (\d+) ms/)?.[1])).toEqual(["500", "1000", "2000", "4000", "8000", "16000", "30000", "30000", "30000"])
-    // The worker that failed to start is not used. The next attempt creates a new one.
     expect(fake.state.workers).toHaveLength(2)
     expect(fake.state.workers[1]!.start).toHaveBeenCalledOnce()
     vi.useRealTimers()
@@ -333,7 +324,6 @@ describe("installOpenWorkflow", () => {
     vi.useFakeTimers()
     setWorkflowRuntimeConfig(config)
     setWorkflowRuntimeRegistry({ welcome: async () => ({ default: { handler: async () => "ok" } }) })
-    // Other boot traffic fills the pool twice, then a connection is free.
     fake.state.connectErrors = [
       Object.assign(new Error("No second connection."), { code: "WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE" }),
       Object.assign(new Error("No second connection."), { code: "WORKFLOW_OPENWORKFLOW_SETUP_CONNECTION_UNAVAILABLE" }),
@@ -346,7 +336,6 @@ describe("installOpenWorkflow", () => {
     await vi.advanceTimersByTimeAsync(2_000)
 
     await expect(started).resolves.toBe(true)
-    // Each failure is reported with its error, and each retry is logged.
     expect(app.captureError).toHaveBeenCalledTimes(2)
     const codes = (error: unknown) => {
       const found: unknown[] = []
@@ -377,7 +366,6 @@ describe("installOpenWorkflow", () => {
     const started = installOpenWorkflow(app)
     await vi.advanceTimersByTimeAsync(2_000)
     const attempts = app.captureError.mock.calls.length
-    // Closing ends the wait for the next attempt at once.
     await app.close()
 
     await expect(started).resolves.toBe(false)

@@ -6,13 +6,9 @@ const DEFAULT_DELAY_MS = 250
 const DEFAULT_METHODS = ["GET", "HEAD", "OPTIONS"]
 const MAX_TIMER_MS = 2 ** 31 - 1
 
-/** One request schedule and one 429 pause, shared by every Connection in the bucket. */
 interface Bucket {
-  /** The fixed pacing interval for this bucket. */
   intervalMs?: number
-  /** The earliest start of the next request. */
   nextAt: number
-  /** No request in the bucket starts before this time, after a 429. */
   pausedUntil: number
 }
 
@@ -38,9 +34,7 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
       clearTimeout(timer)
       reject(signal?.reason)
     }
-    // A relative wait must not change when the system clock is corrected.
     const deadline = performance.now() + ms
-    // Timers overflow above the signed 32-bit limit and run almost immediately.
     const wake = () => {
       const remaining = deadline - performance.now()
       if (remaining > 0) {
@@ -55,7 +49,6 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   })
 }
 
-/** `Retry-After` in milliseconds. It is a number of seconds or an HTTP date. */
 function retryAfterMs(response: Response): number {
   const value = response.headers.get("retry-after")?.trim()
   if (!value) return 0
@@ -98,7 +91,6 @@ export function createRequestScheduler() {
     }
   }
 
-  /** Wait for a start slot. A 429 that arrives while this request waits moves it after the pause. */
   async function slot(policy: ResolvedRequestPolicy, signal: AbortSignal | undefined): Promise<void> {
     const { bucket } = policy
     for (;;) {
@@ -111,13 +103,11 @@ export function createRequestScheduler() {
     }
   }
 
-  /** Run one attempt. `timeoutMs` aborts it, also while the caller reads the body. */
   async function attempt(policy: ResolvedRequestPolicy, init: RequestInit, dispatch: (init: RequestInit) => Promise<Response>): Promise<{ response: Response, stop: () => void }> {
     if (policy.timeoutMs === undefined) return { response: await dispatch(init), stop: () => undefined }
     const timeout = new AbortController()
     const ms = policy.timeoutMs
     const timer = setTimeout(() => timeout.abort(new DOMException(`The provider request timed out after ${ms} ms.`, "TimeoutError")), ms)
-    // Do not keep a Node process alive only for the timer of a finished request.
     if (typeof timer === "object" && "unref" in timer) timer.unref()
     const stop = () => clearTimeout(timer)
     const signal = init.signal ? AbortSignal.any([init.signal, timeout.signal]) : timeout.signal
@@ -156,12 +146,6 @@ export function createRequestScheduler() {
     }
   }
 
-  /**
-   * Send one request by the policy. A 429 pauses the whole bucket for `Retry-After`, at least
-   * `retry.on429.minDelayMs`, and is retried for every method. Network errors and 5xx responses
-   * are retried only for `retry.methods`, with exponential backoff. The last attempt returns its
-   * response as is. A caller abort stops at once and is not retried.
-   */
   async function send(policy: ResolvedRequestPolicy, init: RequestInit, dispatch: (init: RequestInit) => Promise<Response>): Promise<Response> {
     const signal = init.signal ?? undefined
     const retryable = policy.methods.includes((init.method ?? "GET").toUpperCase())

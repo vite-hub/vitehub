@@ -96,12 +96,7 @@ The standalone Agent function does not install an app-wide Invocation journal. S
 
 The build writes generated functions and wrappers to Netlify's directories.
 
-The server function comes from Nitro's `netlify` preset, and ViteHub follows Nitro's output directory:
-
-- Nitro 3.0.261029-rc and later write `.netlify/v1/functions/server`. Netlify finds it without `netlify.toml` function settings or redirects.
-- Earlier Nitro betas write `.netlify/functions-internal/server`. ViteHub adds `.netlify/functions/server.mjs` so Netlify finds it.
-
-Either way, `.netlify/deployment.json` records the server entry.
+The server function comes from Nitro's `netlify` preset, which writes `.netlify/v1/functions/server`. Netlify finds it without `netlify.toml` function settings or redirects. `.netlify/deployment.json` records the server entry.
 
 ```bash [Terminal]
 pnpm build

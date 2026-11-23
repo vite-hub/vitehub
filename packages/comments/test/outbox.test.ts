@@ -189,7 +189,7 @@ describe("the comments outbox", () => {
     const { browser, server, client, store, stop } = setup()
     const target = { kind: "page", id: "/not-in-the-list" }
     const thread = await server.memory.create({ subject: target, anchor, body: "Outside the list" })
-    await client.get({ id: thread.id })
+    await client.get({ threadId: thread.id })
     browser.online = false
     const reply = await client.reply({ threadId: thread.id, body: "Offline reply", files: [new Blob(["file"])] })
     expect(reply.messages.at(-1)?.delivery?.status).toBe("pending")

@@ -19,12 +19,10 @@ import { encodeSyncStep1, encodeSyncUpdate } from "../src/internal/server.ts"
 
 const messageSync = 0
 
-/** Lets queued promise continuations run without advancing fake timers. */
 export async function settle(rounds = 50): Promise<void> {
   for (let index = 0; index < rounds; index++) await Promise.resolve()
 }
 
-/** Plain-paragraph schema with an async codec: Markdown paragraphs separated by blank lines. */
 export function createStubEditor() {
   const calls = { fromMarkdown: 0, toMarkdown: 0 }
   const editor = defineRealtimeEditor({
@@ -57,7 +55,6 @@ interface StoredDocument {
   fields?: Record<string, RealtimeFieldValue>
 }
 
-/** In-memory document adapter with compare-and-set saves. */
 export function createMemoryAdapter(initial: Record<string, Omit<StoredDocument, "digest">> = {}, options: {
   issues?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => RealtimeIssue[]
   normalize?: (document: { body: string, fields?: Record<string, RealtimeFieldValue> }) => { body: string, fields?: Record<string, RealtimeFieldValue> }
@@ -104,7 +101,6 @@ type Hooks = {
 
 export interface TestClient {
   awareness: Uint8Array[]
-  /** The `requestRealtimeRoom()` frames this client received. */
   requests: RealtimeRequestFrame[]
   close(): void
   closed?: { code: number, reason: string }
@@ -114,8 +110,7 @@ export interface TestClient {
   response: Response
 }
 
-/** Drives the Realtime handler through its WebSocket hooks the way y-websocket clients do. */
-export function createTestServer(definition: RealtimeDefinition, options: { durable?: FakeSql, handler?: RealtimeHandlerOptions } = {}) {
+export function createTestServer(definition: RealtimeDefinition, options: { durable?: { carrier: Record<string, unknown> }, handler?: RealtimeHandlerOptions } = {}) {
   const handler = createRealtimeHandler(registryOf(definition) as never, options.handler)
   const channels = new Map<string, Set<{ send(data: Uint8Array): void }>>()
 
@@ -147,7 +142,6 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
       peer: undefined as never,
       response,
     }
-    // crossws calls `upgrade` first; a Response refuses the socket with its status.
     const refusal = await response.crossws?.upgrade?.(new Request("https://example.com", { headers: { upgrade: "websocket" } }))
     if (!response.crossws || refusal instanceof Response) {
       client.closed = { code: refusal instanceof Response ? refusal.status : response.status, reason: "rejected" }
@@ -250,13 +244,10 @@ export function paragraphs(doc: Y.Doc): string[] {
   return doc.getXmlFragment("body").toArray().map(node => (node as Y.XmlElement).toArray().map(child => (child as Y.XmlText).toString()).join(""))
 }
 
-/** A carrier with the shape and receiver brand of workerd's native SqlStorage, which Cloudflare storage requires since #2410. */
 export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) => { toArray(): Array<Record<string, unknown>> }) {
   function SqlStorage() {}
   const sql = Object.create(null) as Record<string, unknown>
   const prototype = {
-    // Use a native constructor in the carrier shape. The production detector
-    // treats the constructor as part of the platform object contract.
     constructor: SqlStorage,
     exec,
     get databaseSize() {
@@ -272,24 +263,28 @@ export function nativeSqlCarrier(exec: (query: string, ...bindings: unknown[]) =
         if (thisArg === sql) return 1
         throw new TypeError("Illegal invocation")
       },
+      get(target, key, receiver) {
+        return key === "name" ? "get databaseSize" : Reflect.get(target, key, receiver)
+      },
     }),
   })
   return sql
 }
 
-/** Minimal Durable Object SQLite surface for the statements the Realtime room issues. */
 export class FakeSql {
   documents = new Map<string, Record<string, unknown>>()
-  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update?: number }> = []
-  readonly intermediateJournal: boolean
-  alterJournalAttempted = false
+  updates: Array<{ room_key: string, sequence: number, update_blob: ArrayBuffer, client_update: number }> = []
+  readonly columns: Record<"vitehub_realtime_document_updates" | "vitehub_realtime_documents", Set<string>>
+  altered: string[] = []
   private sequence = 0
 
   constructor(options: { intermediateJournal?: boolean } = {}) {
-    this.intermediateJournal = options.intermediateJournal ?? false
+    this.columns = {
+      vitehub_realtime_documents: new Set(["room_key", "epoch", "digest", "dirty", "update_blob", "editor_version"]),
+      vitehub_realtime_document_updates: new Set(["sequence", "room_key", "update_blob", ...options.intermediateJournal ? [] : ["client_update"]]),
+    }
   }
 
-  /** The native SqlStorage carrier of this database, the `storage.sql` that a Durable Object request carries. */
   get carrier(): Record<string, unknown> {
     this.nativeCarrier ??= nativeSqlCarrier(this.exec)
     return this.nativeCarrier
@@ -300,28 +295,26 @@ export class FakeSql {
   exec = vi.fn((query: string, ...bindings: unknown[]) => {
     const rows = (value: Array<Record<string, unknown>>) => ({ toArray: () => value })
     if (query.startsWith("CREATE TABLE")) return rows([])
-    if (query.startsWith("ALTER TABLE vitehub_realtime_document_updates ADD COLUMN client_update")) {
-      this.alterJournalAttempted = true
-      if (!this.intermediateJournal) throw new Error("duplicate column name: client_update")
-      return rows([])
+    if (query.startsWith("SELECT name FROM pragma_table_info(?) WHERE name = ?")) {
+      const [table, column] = bindings.map(String) as [keyof FakeSql["columns"], string]
+      return rows(this.columns[table].has(column) ? [{ name: column }] : [])
     }
-    if (query.startsWith("ALTER TABLE vitehub_realtime_documents ADD COLUMN editor_version")) {
-      throw new Error("duplicate column name: editor_version")
-    }
-    if (query.startsWith("SELECT client_update FROM vitehub_realtime_document_updates LIMIT 0")) {
-      if (this.intermediateJournal) throw new Error("no such column: client_update")
+    if (query.startsWith("SELECT name FROM sqlite_master")) return rows([])
+    const alter = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(query)
+    if (alter) {
+      const columns = this.columns[alter[1] as keyof FakeSql["columns"]]
+      if (columns.has(alter[2]!)) throw new Error(`duplicate column name: ${alter[2]}`)
+      columns.add(alter[2]!)
+      this.altered.push(`${alter[1]}.${alter[2]}`)
       return rows([])
     }
     if (query.startsWith("SELECT room_key FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [{ room_key: bindings[0] }] : [])
     }
-    if (query.startsWith("SELECT epoch, digest, dirty, update_blob FROM vitehub_realtime_documents") || query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
+    if (query.startsWith("SELECT epoch, digest, dirty, update_blob, editor_version FROM vitehub_realtime_documents")) {
       const row = this.documents.get(String(bindings[0]))
       return rows(row ? [row] : [])
-    }
-    if (query.startsWith("SELECT update_blob FROM vitehub_realtime_document_updates")) {
-      return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
     }
     if (query.startsWith("SELECT update_blob, client_update FROM vitehub_realtime_document_updates")) {
       return rows(this.updates.filter(row => row.room_key === bindings[0]).sort((a, b) => a.sequence - b.sequence))
@@ -336,10 +329,10 @@ export class FakeSql {
       return rows([])
     }
     if (query.startsWith("INSERT INTO vitehub_realtime_document_updates")) {
-      if (this.intermediateJournal && query.includes("client_update")) {
+      if (!this.columns.vitehub_realtime_document_updates.has("client_update")) {
         throw new Error("table vitehub_realtime_document_updates has no column named client_update")
       }
-      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2] ?? 1) })
+      this.updates.push({ room_key: String(bindings[0]), sequence: ++this.sequence, update_blob: bindings[1] as ArrayBuffer, client_update: Number(bindings[2]) })
       return rows([])
     }
     throw new Error(`Unexpected SQL: ${query}`)
@@ -347,18 +340,12 @@ export class FakeSql {
 }
 
 export interface MemoryBus extends RealtimeBus {
-  /** Leaves the network without the goodbye that `close()` sends, as a process that crashed. */
   crash(): void
   published: RealtimeBusMessage[]
 }
 
-/**
- * Buses of several instances in one process, with one shared room store. Messages arrive asynchronously and in order,
- * and never at the sender, as with Postgres and Redis.
- */
 export function createMemoryBusNetwork() {
   const records = new Map<string, RealtimeRoomRecord>()
-  /** Every record write, in order. */
   const writes: Array<{ room: string, epoch: string, digest: string | null }> = []
   const locks = new Map<string, Promise<void>>()
   const members = new Map<string, (message: RealtimeBusMessage) => void>()
@@ -433,7 +420,6 @@ export function createMemoryBusNetwork() {
   return { bus, records, writes }
 }
 
-/** One y-websocket style awareness for a test client, which sends its own state changes to the server. */
 export function createClientAwareness(client: TestClient) {
   const awareness = new awarenessProtocol.Awareness(client.doc)
   const hooks = (client.response as Response & { crossws: Hooks }).crossws
@@ -449,7 +435,6 @@ export function createClientAwareness(client: TestClient) {
   }
 }
 
-/** The presence that a test client sees: every awareness update it received, applied in order. */
 export function presence(client: TestClient): Map<number, Record<string, unknown>> {
   const awareness = new awarenessProtocol.Awareness(new Y.Doc())
   awareness.setLocalState(null)

@@ -3,8 +3,6 @@ import type { Node } from "comark"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
 import { htmlPlugins, literalHtmlTags } from "./parser.ts"
 
-// Comark's block components run before multiline code spans. Protect component
-// lines that its own code parser identifies as literal, then restore after rendering.
 export async function prepareTemplate(source: string) {
   const prefix = `VITEHUBCODE${crypto.randomUUID().replaceAll("-", "")}`
   const lines: string[] = []

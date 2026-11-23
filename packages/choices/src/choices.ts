@@ -2,8 +2,10 @@ import { ask, askWithModel } from "@vite-hub/gateways"
 import { getPublicAiGatewayDiagnostic } from "@vite-hub/gateways/internal"
 
 import { choicesDiagnostics } from "./diagnostics.ts"
+import { resolveSelection } from "./selection-gateway.ts"
 
 import type { AiGatewayAsk, AskAnswers, AskQuestion, AskQuestions } from "@vite-hub/gateways"
+import type { SelectionGateway } from "./selection-gateway.ts"
 import type {
   ChoiceGroup,
   ChoiceGroups,
@@ -24,7 +26,6 @@ import type {
 
 const defaultLimits: ChoicesLimits = { groups: 40, options: 100, text: 300, totalOptions: 100 }
 const defaultThresholds = { option: 0.5, supported: 0.6 }
-/** The label of "no option" in a single group. Option labels cannot use it. */
 const noneLabel = "(none)"
 
 const includeCriteria = "Choose include when the text names this option or clearly refers to it by a common abbreviation, code, partial name, spelling error, synonym, prefix, or suffix. Match the closest specific option. Partial text alone is not permission to include neighboring options. Match each requested option independently."
@@ -52,7 +53,10 @@ function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | 
   return choicesDiagnostics[code]({ message: `[vitehub] ${message}` })
 }
 
-/** Exposes trusted gateway diagnostics while keeping unknown failures in `cause`. */
+function unsupportedText(): ChoicesError {
+  return fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")
+}
+
 function gatewayFailed(cause: unknown): ChoicesError {
   const diagnostic = getPublicAiGatewayDiagnostic(cause)
   return choicesDiagnostics.DECISIONS_R0005({ cause, fix: diagnostic?.fix, reason: diagnostic?.message.replace(/^\[vitehub\]\s*/, "") })
@@ -62,7 +66,6 @@ function probability(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
 
-/** Checks the definition and returns what answers the questions: the gateway, or the model through `askWithModel()`. */
 function checkDefinition(definition: ChoicesDefinition<ChoiceGroups>, limits: ChoicesLimits, thresholds: Required<NonNullable<ChoicesDefinition<ChoiceGroups>["thresholds"]>>): { ask: AiGatewayAsk } {
   const { gateway, model } = definition
   if ((gateway === undefined) === (model === undefined)) define("defineChoices() needs one of gateway or model: a gateway with ask(), such as vercel() from vite-hub/gateways, or an AI SDK model.")
@@ -127,7 +130,6 @@ function describe(option: ChoiceOption): string {
   return option.aliases?.length ? `${option.label} (also ${option.aliases.map(alias => JSON.stringify(alias)).join(", ")})` : option.label
 }
 
-/** What the model reads about one option of a single group: its description and its aliases. */
 function optionCriteria(option: ChoiceOption): string | null {
   const parts = [option.description?.trim(), option.aliases?.length ? `Also called ${option.aliases.join(", ")}.` : undefined].filter(Boolean)
   return parts.length ? parts.join(" ") : null
@@ -160,12 +162,10 @@ function singleInstructions(group: LoadedGroup, hints: string): string {
   ].filter(Boolean).join(" ")
 }
 
-/** The supported check covers the groups that do not infer. It is not asked when every group infers. */
 function needsSupported(groups: readonly LoadedGroup[]): boolean {
   return groups.some(group => !group.infer && group.options.length)
 }
 
-/** Asks if the options can express the text. With `infer` groups, it judges only the other groups, and text that sets none of them is supported. */
 function supportedQuestion(groups: readonly LoadedGroup[], hints: string): AskQuestion {
   const checked = groups.filter(group => !group.infer).map(group => JSON.stringify(group.group.label))
   if (checked.length === groups.length) {
@@ -189,7 +189,6 @@ function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string):
   if (needsSupported(groups)) questions.supported = supportedQuestion(groups, hints)
   groups.forEach((group, groupIndex) => {
     if (!group.options.length) return
-    // One option is the answer. The model only chooses between two or more.
     if (group.infer && group.options.length === 1) return
     if (group.multiple) {
       group.options.forEach((option, optionIndex) => {
@@ -211,7 +210,6 @@ function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string):
         ...(group.infer ? { infer: true as const } : {}),
         label: group.group.label,
         multiple: group.multiple,
-        // Descriptions go only into the question criteria, so a long description is sent once.
         options: group.options.map(option => ({ ...(option.aliases?.length ? { aliases: option.aliases } : {}), label: option.label, value: option.value })),
       })),
       query: text,
@@ -236,9 +234,10 @@ function readSelection(answers: AskAnswers<AskQuestions>, groups: readonly Loade
       if (typeof answer !== "object" || answer.type !== "choice") return [fail("DECISIONS_R0006", `The model did not answer the group "${group.key}".`)]
       const byLabel = new Map(group.options.map(option => [option.label, option.value]))
       const ranked = [...byLabel].map(([label, value]) => ({ probability: probability(Reflect.get(answer.probabilities, label)), value })).sort((a, b) => b.probability - a.probability)
-      const best = ranked[0]
       const chosen = answer.choice === noneLabel ? undefined : byLabel.get(answer.choice)
-      selection[group.key] = { confidence: probability(answer.confidence), ranked, value: chosen !== undefined && best && probability(Reflect.get(answer.probabilities, answer.choice)) >= threshold ? chosen : null }
+      const chance = probability(Reflect.get(answer.probabilities, answer.choice))
+      // Not `answer.confidence`: Jev gives a margin over the other labels, and it can be the margin of "(none)".
+      selection[group.key] = chosen !== undefined && chance >= threshold ? { confidence: chance, ranked, value: chosen } : { confidence: 0, ranked, value: null }
       continue
     }
     const include: ChoiceValue[] = []
@@ -272,7 +271,8 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
     if (trimmed.length > limits.text) return [fail("DECISIONS_R0003", `The text has ${trimmed.length} characters. The limit is ${limits.text}.`)]
     const loaded = await loadGroups(base, limits, request?.context)
     if ("error" in loaded) return [loaded.error]
-    return [undefined, { groups: loaded.groups, plan: buildPlan(trimmed, loaded.groups, hints), text: trimmed }]
+    const plan = buildPlan(trimmed, loaded.groups, hints)
+    return [undefined, { groups: loaded.groups, plan, text: trimmed }]
   }
 
   return {
@@ -285,12 +285,24 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       const request = args[0]
       const [error, prepared] = await prepare(text, request)
       if (error) return [error]
+      const scripted = (asker as Partial<SelectionGateway>)[resolveSelection]
+      if (scripted) {
+        try {
+          request?.signal?.throwIfAborted()
+          const context = request && "context" in request ? request.context : undefined
+          const selection = await scripted(prepared.plan.state, prepared.groups.map(group => group.key), context)
+          // SAFETY: The testing gateway validates the scripted values against the loaded groups.
+          return selection ? [undefined, selection as ChoicesSelection<TGroups>] : [unsupportedText()]
+        }
+        catch (cause) {
+          return [gatewayFailed(cause)]
+        }
+      }
       let answers: AskAnswers<AskQuestions> = {}
-      // Every group can be answered without the model, such as an infer group with one option.
       if (Object.keys(prepared.plan.questions).length) {
         try {
           // SAFETY: The plan questions come from the `ask` builders.
-          const [askError, asked] = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
+          const [askError, asked] = await asker.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal, ...(request?.onUsage && { onUsage: request.onUsage }) })
           if (askError) return [gatewayFailed(askError)]
           answers = asked
         }
@@ -301,7 +313,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
       if (needsSupported(prepared.groups)) {
         const supported = answers.supported
         if (typeof supported !== "object" || supported.type !== "chance") return [fail("DECISIONS_R0006", "The model did not answer the supported check.")]
-        if (probability(supported.chance) < thresholds.supported) return [fail("DECISIONS_R0004", "The options cannot express that text. Try another name, or use the options directly.")]
+        if (probability(supported.chance) < thresholds.supported) return [unsupportedText()]
       }
       const [readError, selection] = readSelection(answers, prepared.groups, thresholds.option)
       if (readError) return [readError]

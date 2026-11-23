@@ -23,6 +23,11 @@ function functionHook(hook: unknown, name: string): Function {
   return handler
 }
 
+function buildConfigHook(plugin: { config?: unknown }): (config: Record<string, unknown>) => Promise<unknown> {
+  const hook = functionHook(plugin.config, "config")
+  return async config => hook(config, { command: "build", mode: "production" })
+}
+
 async function createTempProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-email-vite-"))
   tempDirs.push(root)
@@ -203,7 +208,7 @@ describe("hubEmail", () => {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
     })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     const cloudflareConfig = { nitro: {
       cloudflare: { wrangler: { compatibility_flags: ["custom"] } },
@@ -226,7 +231,7 @@ describe("hubEmail", () => {
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({ driver: "cloudflare" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
     await config(cloudflareConfig)
@@ -254,13 +259,12 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module" } })
     const runCompiled = async () => {
       for (const callback of compiled) await callback()
       return JSON.parse(await readFile(configFile, "utf8")).send_email
     }
 
-    // Nitro lists the module config entries before the project's Wrangler file entries.
     await writeFile(configFile, JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }] }))
     await expect(runCompiled()).resolves.toEqual([{ name: "EMAIL", destination_address: "me@example.com" }, { name: "ALERTS" }])
 
@@ -279,7 +283,7 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
 
     const source = JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL" }] })
     await writeFile(configFile, source)
@@ -289,7 +293,7 @@ describe("hubEmail", () => {
 
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
     const plugin = hubEmail({ driver: "cloudflare" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare\" driver needs a Cloudflare host.")
   })
@@ -349,7 +353,6 @@ describe("hubEmail", () => {
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    // Only an app with templates bundles the Markdown renderer.
     expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
@@ -377,7 +380,6 @@ describe("hubEmail", () => {
     const root = await createTempProject()
     const file = join(root, "server", "emails", "analysis-error.md")
     await mkdir(dirname(file), { recursive: true })
-    // Strata's notification template before ViteHub moved bindings under `data.`.
     await writeFile(file, "Strata could not complete the run for `{{ repoPath }}`.\n\n```text\n{{ errorMessage }}\n```\n\n[Open the analysis]({{ resultUrl }})\n")
     const plugin = hubEmail({ driver: "log" })
 
@@ -385,7 +387,6 @@ describe("hubEmail", () => {
     expect(error).toMatchObject({ code: "EMAIL_TEMPLATE_SYNTAX_INVALID", message: expect.stringContaining("server/emails/analysis-error.md") })
     expect((error as Error).cause).toMatchObject({ code: "MARKDOWN_TEMPLATE_BINDING_OUTSIDE_DATA" })
 
-    // The same template with `data.` bindings still keeps a binding in code unfilled, so the build stops there too.
     for (const source of ["`{{ repoPath }}`", "`{{ data.repoPath }}`"]) {
       await writeFile(file, source)
       await expect(plugin.api.prepareTypes({ projectRoot: root })).rejects.toMatchObject({
@@ -408,7 +409,7 @@ describe("hubEmail", () => {
       driver: "cloudflare",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
@@ -438,7 +439,7 @@ describe("hubEmail", () => {
       driver: "resend",
       workflowDriver: "vercel",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
@@ -501,7 +502,6 @@ describe("hubEmail", () => {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
       const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
       await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
-      // Stop development refreshes before removing the source tree to simulate deployment.
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
@@ -515,7 +515,6 @@ describe("hubEmail", () => {
   })
 
   it("materializes templates before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
-    // `nuxt prepare` in postinstall materializes templates before it writes `.nuxt/tsconfig.*.json`.
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
     await Promise.all([
@@ -534,7 +533,7 @@ describe("hubEmail", () => {
     const root = await createTempProject()
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
     const plugin = hubEmail({ driver: "cloudflare" })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module" } })
 
     await resolvePlugin(plugin, root)
 
@@ -558,7 +557,6 @@ describe("hubEmail", () => {
     try {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
-      // Vite's plugin container normalizes the hook's /@fs// prefix to /@fs/.
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
         .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
     }
@@ -605,7 +603,6 @@ describe("hubEmail", () => {
       watcher.emit("change", template)
       let closed = false
       closing = Promise.resolve(functionHook(plugin.closeBundle, "closeBundle")()).then(() => { closed = true })
-      // The paused rebuild must keep the close hook pending.
       await Promise.resolve()
       expect(closed).toBe(false)
       for (const event of ["add", "change", "unlink"]) expect(watcher.listenerCount(event)).toBe(0)
@@ -649,7 +646,7 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({ driver: "resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
       {
@@ -721,7 +718,7 @@ describe("hubEmail", () => {
       driver: "resend",
       hosting: "vercel",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     await config({ root })
     await resolvePlugin(plugin, root)
 
@@ -793,7 +790,7 @@ describe("hubEmail", () => {
       driver: "resend",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
     await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
@@ -896,7 +893,7 @@ describe("hubEmail", () => {
 
   it("marks the package as noExternal for server environments", async () => {
     const plugin = hubEmail({ driver: "resend" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     const configEnvironment = functionHook(plugin.configEnvironment, "configEnvironment")
 
     expect(await config({})).toEqual({ ssr: { noExternal: ["@vite-hub/email"] } })

@@ -8,13 +8,15 @@ import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
+  name: optional(string()),
   permissions: optional(record(string(), string())),
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   steps: array(object({ name: optional(string()), if: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
-const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
+// Jobs after the gate, such as the preview publish, wait for it and are not part of it.
+const jobNames = Object.entries(workflow.jobs).filter(([name, job]) => name !== "ci" && !job.needs?.includes("ci")).map(([name]) => name)
 const gate = workflow.jobs.ci!
 
 function runGate(results: Record<string, { result: string }>, event = "pull_request", fullSuite = event !== "pull_request") {
@@ -43,7 +45,6 @@ describe("CI merge gate", () => {
       writeFileSync(after, lockfile.replaceAll(version, `${version}-next`))
       const diff = spawnSync("git", ["diff", "--no-index", "--exit-code", "--unified=1000", before, after], { encoding: "utf8" })
       expect(diff.status, diff.stderr).toBe(1)
-      // Keep the real lockfile diff larger than a pipe buffer to expose early reader exits.
       expect(diff.stdout.length).toBeGreaterThan(65_536)
       writeFileSync(join(directory, "diff"), diff.stdout)
       writeFileSync(join(directory, "git"), `#!/bin/sh
@@ -94,6 +95,16 @@ fi
     expect(gate.if).toBe("${{ always() }}")
   })
 
+  it("publishes previews only after the gate passes, under the required check name", () => {
+    const publish = workflow.jobs["publish-preview"]
+    expect(publish?.name).toBe("publish preview packages")
+    expect(publish?.needs).toEqual(["ci"])
+    expect(publish?.if).toBe([
+      "${{ !cancelled() && needs.ci.result == 'success' &&",
+      "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}",
+    ].join(" "))
+  })
+
   it.each(["pull_request", "push", "workflow_dispatch"])("accepts successful checks on %s", (event) => {
     const result = runGate(successfulJobs, event)
     expect(result.status, result.stderr).toBe(0)
@@ -116,11 +127,9 @@ fi
     expect(docs?.if).toBeUndefined()
     expect(docs?.["continue-on-error"]).not.toBe(true)
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
-    // `vp run verify` gates the release on this typecheck, so pull requests run it too.
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs typecheck")).toBe(true)
   })
 
-  // Each site deploys after every verification job and its own build, and not after the other site.
   const sites = { docs: "docs-deploy", "docs-demo": "docs-demo-deploy", console: "console-deploy" }
 
   it.each(Object.entries(sites))("requires successful %s verification and deployment on pushes", (build, deploy) => {
@@ -149,14 +158,14 @@ fi
         GITHUB_REPOSITORY: "vite-hub/vitehub",
         PR_NUMBER: "4593",
         RUNNER_TEMP: directory,
-        EXPECTED: "false", // The original event was unlabeled, even after the label is added.
+        EXPECTED: "false",
         LIVE_EXPECTED: String(accepted),
         API_STATUS: apiStatus,
       },
     })
     try {
       writeFileSync(join(directory, "gh"), '#!/bin/sh\n[ "$1" = "api" ] && [ "$2" = "repos/vite-hub/vitehub/pulls/4593" ] || exit 2\nprintf "%s\\n" "$LIVE_EXPECTED"\nexit "$API_STATUS"\n')
-      writeFileSync(join(directory, "node"), "#!/bin/sh\nexit 1\n") // A changed shot on every attempt.
+      writeFileSync(join(directory, "node"), "#!/bin/sh\nexit 1\n")
       for (const name of ["gh", "node"]) chmodSync(join(directory, name), 0o755)
       expect(run(false).status).toBe(1)
       const added = run(true)
@@ -233,7 +242,6 @@ fi
         chmodSync(path, 0o755)
       }
       writeFileSync(join(output, "index.html"), "<html><head></head></html>")
-      // Attempt 1 builds and deploys. Only console-deploy is rerun as attempt 2, with the artifact of attempt 1.
       expect(run(identify, "123", "1").status).toBe(0)
       writeFileSync(live, readFileSync(join(output, "index.html")))
       const rerun = run(check, "123", "2")
@@ -316,7 +324,6 @@ fi
   })
 
   it("rejects the push-only checks skipped on a repair-main pull request", () => {
-    // A repair that passed only the pull request checks merged and left main red.
     const results = Object.fromEntries(jobNames.map(name => [name, {
       result: pullRequestJobs.includes(name) ? "success" : "skipped",
     }]))

@@ -12,6 +12,13 @@ describe("Workspace inspection line continuations", () => {
     await expect(splitShellCommandSegments(command)).resolves.toMatchObject([{ command: joined, followsPipe: false }])
   })
 
+  it("ends a comment at the newline even when it ends in a backslash", async () => {
+    await expect(splitShellCommandSegments("echo a # note \\\nrm -rf x")).resolves.toMatchObject([
+      { command: "echo a # note \\", separatorAfter: "\n", words: ["echo", "a"] },
+      { command: "rm -rf x", words: ["rm", "-rf", "x"] },
+    ])
+  })
+
   it.each(['cat "docs/re\\\nadme.md"', "cat \\\n'docs/readme.md'"])("reads the existing file with %j", async (command) => {
     const workspace = new MemoryWorkspace({ "docs/readme.md": "mounted content\n" })
     const result = await runWorkspaceInspectionCommand(workspace, command, {

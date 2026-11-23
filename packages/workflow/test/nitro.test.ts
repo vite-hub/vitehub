@@ -212,10 +212,8 @@ it("adds Cloudflare Workflows to the Nitro Worker of a Vite build", async () => 
     expect((nitro.cloudflare as { wrangler: { workflows: unknown[] } }).wrangler.workflows).toEqual([
       expect.objectContaining({ class_name: expect.stringContaining("OnboardUser"), name: expect.stringContaining("6f6e626f6172642d75736572") }),
     ])
-    // The preset stays with vitehub(), which sets it on Nitro.
     expect(nitro.preset).toBeUndefined()
 
-    // The Nuxt module adds the Workflows through `vitehub.workflow.createNitroConfig` instead.
     const nuxtConfig = { nitro: {}, root: rootDir, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
     const nuxt = await runConfigHook(nuxtConfig, "cloudflare-module")
     expect(nuxt.cloudflare).toBeUndefined()

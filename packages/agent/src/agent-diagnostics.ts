@@ -3511,6 +3511,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       ...dynamicError,
       fix: "Write `channels` in `defineAgent()`, and `path` and `aliases` in the Channel adapter, as string literals or same-module `const` values, and correct any syntax error in the file that the message names. ViteHub reads these files without running them.",
     },
+    AGENT_FORMS_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] forms() has an invalid form. ${problem}`,
+      fix: "Pass forms by name, such as `forms({ expense })`, where each value is a defineForm() result, a Standard Schema object, or `{ form, title }`.",
+    },
     AGENT_INVOCATION_DRIVER_INTERRUPTED: {
       why: ({ id }: { id: string }) => `[vitehub] Agent Invocation ${JSON.stringify(id)} was interrupted while its Driver ran, and ViteHub did not run the Driver again. A second run could repeat model calls and tool side effects.`,
       fix: "Start a new turn. Before you do, check the work that the interrupted Driver did, such as tool calls with side effects. The journal record and its observations show how far it got.",
@@ -4430,6 +4434,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ root, other }: { root: string, other: string }) => `[vitehub] The dev server of ${root} and the dev server of ${other} run in one process with different agent.models.emulate settings. Agent model routing is process-wide, so one app would get the answers of the other.`,
       fix: "Give both apps the same `agent.models.emulate`, or run each dev server in its own process.",
     },
+    AGENT_EMULATOR_NOT_RUNNING: {
+      why: ({ where }: { where: string }) => `[vitehub] No AI emulator answers: ${where}.`,
+      fix: "Start the dev server with `vitehub({ agent: { models: { emulate: true } } })`, or set `VITEHUB_EMULATE_URL` to the URL of a running emulator. Pass --url when the dev server runs in another project.",
+    },
     AGENT_EMULATOR_PACKAGES_MISSING: {
       why: "[vitehub] The AI emulator of emulateModels() and agent.models.emulate needs the optional packages @emulators/core and @emulators/ai.",
       fix: "Install both as dev dependencies with `pnpm add -D @emulators/core@0.14.0 @emulators/ai@0.14.0`, or remove `agent.models.emulate`. Read `error.cause` for the import failure.",
@@ -4539,6 +4547,14 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_INVOCATION_ID_AMBIGUOUS: {
       why: "The ID matches multiple Agent invocation journals. Cancel through the intended Agent's invocations.cancel(id).",
       fix: "Cancel the Invocation through the Agent that owns it, with `invocations.cancel(id)` of that Agent.",
+    },
+    AGENT_INVOCATION_POSTGRES_TABLES_MISSING: {
+      why: ({ database, tables }: { database: string, tables: string[] }) => `[vitehub] The Postgres Database "${database}" has no Agent Invocation table ${tables.map(table => JSON.stringify(table)).join(" or ")}. The journal does not create its tables, because a Database user can lack the CREATE privilege.`,
+      fix: "Run `vitehub database generate` and `vitehub database migrate`. ViteHub adds the journal tables to the target Database of `invocations: 'database'`. For another Database or tablePrefix, add `postgresAgentInvocationTables()` from `vite-hub/agent/invocations/postgres` to its schema.",
+    },
+    AGENT_INVOCATION_STORE_OPEN_FAILED: {
+      why: "[vitehub] The Agent Invocation store could not open, so the Invocation did not start.",
+      fix: "Read `error.cause` for the store error. Check that the Invocations store in `defineAgentInvocations({ store })` or the file of `agent.invocations.databaseUrl` can open, then retry the Invocation.",
     },
     AGENT_INVOCATION_STORE_TIMEOUT: {
       why: ({ step, ms }: { step: "store open" | "store operation" | "cancellation store operation", ms: number }) => `[vitehub] Agent Invocation ${step} timed out after ${ms} ms.`,

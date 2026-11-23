@@ -136,7 +136,7 @@ import { useWebContainer } from "@vite-hub/web-container/vue"
 const app = useWebContainer({ files: { "package.json": "...", "server.js": "..." } })
 ```
 
-- `useWebContainer({ files, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Only the server on `port` (default `3000`, given to the dev server as `PORT`), or on `env.PORT`, becomes the preview. Pass `port` when the dev server listens on another port. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
+- `useWebContainer({ files, assets?, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Only the server on `port` (default `3000`, given to the dev server as `PORT`), or on `env.PORT`, becomes the preview. Pass `port` when the dev server listens on another port. `assets` holds binary files by path, such as `{ "weights.bin": bytes }`; each boot mounts them next to `files`, and edits never touch them. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
 - `setFiles(files, { mode: "merge" | "replace" })` writes to the container and rejects when a write fails. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
 - `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)` from `@vite-hub/ui/workspace`.
 - `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.
@@ -151,7 +151,7 @@ await container.run("dev", { env: { OPENAI_API_KEY: key } })
 
 ## Describe connectable accounts
 
-`@vite-hub/web-container/connect` describes the accounts that a page offers. It runs no OAuth flow yet.
+`@vite-hub/web-container/connect` describes the accounts that a page offers. It runs no OAuth flow: for a provider with `auth: "oauth"`, `ConnectPanel` from `@vite-hub/ui/workspace` emits `oauth`, and the page signs the reader in through its own server, which holds the client secret.
 
 ```ts fragment
 import { connectEnv, defineConnect } from "@vite-hub/web-container/connect"
@@ -199,7 +199,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 ## Inspect
 
-Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`docs/modules/tutorials/snapshots.ts`).
+Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`packages/docs/src/runnable/snapshots.ts`).
 
 ## Test
 

@@ -22,7 +22,6 @@ export type SplitSourceItem<TSource extends Source, TPart extends SplitSourcePar
   key: SplitSourceKey<TSource>
 }
 
-/** A Source with one item for each part of another Source's items. */
 type SplitSourceMeta<TSource extends Source> = NonNullable<TSource["getMeta"]> extends (...args: any[]) => infer TResult
   ? TResult
   : Promise<undefined>

@@ -126,17 +126,17 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
     } catch {
       throw envBridgeError("audit_failed");
     }
-    // Export cannot undo a persisted operation. Durable activity is the source of truth.
     try {
       await options.emit?.(structuredClone(event));
-    } catch {}
+    } catch {
+      console.warn(`[vitehub] Env activity export failed for event ${event.id}. The activity store keeps the event.`);
+    }
   }
   async function allowed(
     context: EnvAccessContext,
     key: string,
     permission: EnvPermission | "activity" | "admin",
   ): Promise<boolean> {
-    // Only Env creates contexts. Each one carries the authority that its producer could prove.
     const authority = envAccessAuthority(context);
     identifier(key);
     validateActor(context.actor);
@@ -152,7 +152,6 @@ export function createEnvBridge(options: EnvBridgeOptions): EnvBridge {
       return false;
     return await safe(async () => {
       const grants = await options.access.grants(key);
-      // `access.grants()` of the app returned no list. safe() reports it as ENV_BRIDGE_OPERATION_FAILED.
       if (!Array.isArray(grants)) throw envBridgeError("operation_failed");
       for (const grant of grants) {
         if (

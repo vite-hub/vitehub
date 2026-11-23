@@ -42,11 +42,9 @@ describe("normalizeQueueOptions", () => {
 
 
   it("infers the postgres driver on Node from a Postgres Default Database", () => {
-    // The jobs use the connection of the Default Database.
     expect(normalizeQueueOptions(undefined, { hosting: "node-server", postgresDatabase: true })).toEqual({ database: "default", driver: "postgres" })
     expect(normalizeQueueOptions({ cache: false }, { hosting: "node-server", postgresDatabase: true })).toEqual({ cache: false, database: "default", driver: "postgres" })
     expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", driver: "local" })
-    // `resolveQueueHosting()` passes the driver of a Node server as its hosting.
     expect(normalizeQueueOptions(undefined, { hosting: "postgres" })).toEqual({ driver: "postgres" })
   })
 

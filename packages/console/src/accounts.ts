@@ -52,7 +52,6 @@ export async function readConsoleAccount(
     sessionTeam ? listConsoleProjects(db, sessionTeam) : [],
   ])
   const teams = memberships.map(team => ({ id: String(team.id), name: String(team.name), slug: String(team.slug), role: String(team.role) }))
-  // Projects belong to a team, so a person who left the session's team sees none of them.
   const active = teams.find(team => team.id === sessionTeam)
   const email = String(user.email ?? "")
   return {
@@ -104,7 +103,6 @@ export const passkeySignUp = {
     return { id: crypto.randomUUID(), name: accountName(context) }
   },
   async afterVerification({ ctx, user }: { ctx: GenericEndpointContext, user: { id: string, name: string } }) {
-    // A signed-in person adds a passkey to the account they have. Better Auth then resolved the user from the session.
     if (await ctx.context.internalAdapter.findUserById(user.id)) return {}
     const created = await ctx.context.internalAdapter.createUser({ email: `${user.id}@${passkeyEmailDomain}`, emailVerified: false, name: user.name }, { method: "passkey" })
     return { userId: created.id }
@@ -120,7 +118,6 @@ interface LinkedAccount { userId: string, providerId: string, accessToken?: stri
  */
 export async function adoptGitHubEmail(account: LinkedAccount, context: GenericEndpointContext | null, fetcher: typeof fetch = fetch): Promise<void> {
   if (!context || account.providerId !== "github" || !account.accessToken) return
-  // The link is saved before this runs. The email is extra, so a failure here must not fail the link.
   try {
     const internal = context.context.internalAdapter
     const user = await internal.findUserById(account.userId)

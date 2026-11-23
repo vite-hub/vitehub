@@ -7,7 +7,6 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const runtimeConditions = new Set(["browser", "default", "import", "node", "require", "worker", "workerd"]);
 
 function isDistModuleTarget(value: unknown): value is string {
-  // A `.iife.js` target is a classic script, not a module, so it has no declarations to pair with.
   return typeof value === "string" && value.startsWith("./dist/") && value.endsWith(".js") && !value.endsWith(".iife.js");
 }
 

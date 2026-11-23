@@ -63,6 +63,23 @@ describe("inline runs", () => {
     expect(seen).toEqual([{ to: "ada" }])
   })
 
+  it("warns once per Workflow about a delayed inline run outside `vite dev`", async () => {
+    const seen = inlineWorkflow()
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      await unwrap(startWorkflow("remind", { to: "a" }, { delay: "50ms", id: "later-a" }))
+      await unwrap(startWorkflow("remind", { to: "b" }, { delay: "50ms", id: "later-b" }))
+      expect(warn).toHaveBeenCalledOnce()
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("The Workflow \"remind\" starts later in an inline run. A timer in this process holds the run, so a restart loses it."))
+      await waitFor(async () => seen.length === 2)
+    }
+    finally {
+      vi.unstubAllEnvs()
+      warn.mockRestore()
+    }
+  })
+
   it("accepts a duration string and a future Date", async () => {
     const seen = inlineWorkflow()
 
@@ -138,7 +155,6 @@ describe("OpenWorkflow", () => {
     expect(seen).toEqual([])
     await expect(unwrap(getWorkflowRun("remind", "remind-ada"))).resolves.toMatchObject({ status: "queued" })
 
-    // Move the start time to the past, as if the hour had passed.
     const db: { prepare(sql: string): { run(...values: unknown[]): unknown } } = Reflect.get(runtime.backend, "db")
     db.prepare(`UPDATE "workflow_runs" SET "available_at" = ?`).run(new Date(Date.now() - 1_000).toISOString())
     await worker.tick()

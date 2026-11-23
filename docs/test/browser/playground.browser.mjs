@@ -118,6 +118,13 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
     assert.equal(await page.evaluate(() => crossOriginIsolated), true);
+    const start = page.locator(".vh-ws-start");
+    await start.getByRole("button", { name: /^KV/ }).waitFor();
+    await shot(page, "desktop-start");
+    assert.equal(await page.locator(".vh-ws-shell").count(), 0, "no workspace before the reader picks an example");
+    assert.equal(containerFrames(page).length, 0, "no WebContainer before the reader picks an example");
+    await start.getByRole("button", { name: /^KV/ }).click();
+    await start.waitFor({ state: "detached" });
     await page.locator(".vh-ws-shell").waitFor();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     await shot(page, "desktop-booting");
@@ -158,26 +165,26 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
       await rm(dir, { recursive: true, force: true });
     }
 
-    // The Agent template has other dependencies, so it boots a new workspace with its own snapshot.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^Agent/ }).waitFor();
+    // The Agent example has other dependencies, so it boots a new workspace with its own snapshot.
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Agent/ }).waitFor();
     // Let the menu finish its open animation.
     await page.waitForTimeout(500);
     await shot(page, "desktop-templates");
-    await page.getByRole("menuitem", { name: /^Agent/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Agent/ }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.getByRole("treeitem", { name: "greeting.ts" }).waitFor();
-    await page.waitForURL(/\/playground\?template=agent$/);
+    await page.waitForURL(/\/playground\?example=agent$/);
     await waitForApp(page);
     assert.match(await readPreview(page, /"ok"/), /"ok":\s*true/);
     await shot(page, "desktop-agent");
 
     // The Channels template shares the Agent snapshot. Its preview opens the simulated Slack page of the Agent, and
     // a message sent there streams the reply of the Agent back into the page.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^Channels/ }).click();
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^Channels/ }).click();
     await page.getByRole("treeitem", { name: "support.ts" }).waitFor();
-    await page.waitForURL(/\/playground\?template=channels$/);
+    await page.waitForURL(/\/playground\?example=channels$/);
     await waitForApp(page);
     await chatInPreview(page, /Slack simulator/, "Hello from Slack");
     await shot(page, "desktop-channels");
@@ -187,8 +194,8 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await chatInPreview(page, /Discord simulator/, "Hello from Discord");
 
     // Back to KV without edits: no question.
-    await page.getByRole("button", { name: /^Template:/ }).click();
-    await page.getByRole("menuitem", { name: /^KV/ }).click();
+    await page.getByRole("button", { name: /^Example:/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: /^KV/ }).click();
     await page.getByRole("treeitem", { name: "settings.post.ts" }).waitFor();
     assert.equal(await page.getByRole("dialog").count(), 0);
     await page.close();
@@ -198,7 +205,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     const page = await desktop.newPage();
     step.after(() => page.close().catch(() => {}));
     await page.goto(shareLink);
-    await page.getByText("You opened shared files on the KV template.").waitFor();
+    await page.getByText("You opened shared files on the KV example.").waitFor();
     await page.getByRole("treeitem", { name: "health.get.ts" }).click();
     await page.locator(".cm-content").filter({ hasText: "ok: \"edited\"" }).waitFor();
     await waitForApp(page);
@@ -218,6 +225,7 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await page.getByRole("button", { name: "Open playground" }).click();
+    await page.locator(".vh-ws-start").getByRole("button", { name: /^KV/ }).click();
     await page.locator(".vh-ws-shell").waitFor();
     await page.close();
   });
@@ -268,11 +276,10 @@ test("runs the playground in the browser", { timeout: 30 * 60_000 }, async (t) =
     assert.equal(home?.headers()["cross-origin-opener-policy"], undefined);
     await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Playground" }).click();
     await page.waitForURL(/\/playground$/);
-    await page.locator(".vh-ws-shell").waitFor();
+    await page.locator(".vh-ws-start").waitFor();
     assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the playground loaded as a new isolated document");
-    // Playground to docs, through the header.
-    await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Docs" }).click();
-    await page.waitForURL(/\/docs/);
+    await page.getByRole("navigation", { name: "ViteHub navigation" }).getByRole("link", { name: "Get started" }).click();
+    await page.waitForURL(/\/docs\/getting-started$/);
     assert.equal(await page.evaluate(() => crossOriginIsolated), false, "the docs page loaded as a new document");
     await page.close();
   });
@@ -307,9 +314,9 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on("pageerror", error => console.log("[page error]", error.message));
   const started = performance.now();
-  await page.goto(`${playground}?template=ui`);
+  await page.goto(`${playground}?example=ui`);
   await page.getByRole("treeitem", { name: "App.vue" }).waitFor();
-  await page.getByRole("button", { name: "Template: ViteHub UI" }).waitFor();
+  await page.getByRole("button", { name: "Example: ViteHub UI" }).waitFor();
   await waitForApp(page);
   let app = await uiFrame(page);
   await app.getByRole("heading", { name: "Launch plan" }).waitFor();
@@ -339,7 +346,7 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   // An edit reaches the app through hot module replacement: the component starts again, and the page does not reload.
   await app.evaluate(() => { window.vitehubMark = true; });
   await replaceWord(page, "Ada", "Ida");
-  await page.getByText("hmr update /src/App.vue").waitFor({ timeout: 60_000 });
+  await page.getByText("hmr update /src/App.vue").waitFor({ state: "attached", timeout: 60_000 });
   await app.getByRole("tab", { name: "Members" }).click();
   await app.getByRole("tabpanel").getByText("Ida Lovelace", { exact: true }).waitFor();
   await shot(page, "ui-edited");
@@ -370,8 +377,8 @@ test("runs the ViteHub UI template in a browser frame", { timeout: 15 * 60_000 }
   assert.ok(await app.evaluate(() => innerWidth) > 390);
   assert.equal(await app.evaluate(() => window.vitehubMark), true, "the width switch kept the same page");
 
-  await page.getByRole("button", { name: /^Template:/ }).click();
-  await page.getByRole("menuitem", { name: /^ViteHub UI/ }).waitFor();
+  await page.getByRole("button", { name: /^Example:/ }).click();
+  await page.getByRole("menuitemcheckbox", { name: /^ViteHub UI/ }).waitFor();
   await page.waitForTimeout(500);
   await shot(page, "ui-templates");
   await page.keyboard.press("Escape");

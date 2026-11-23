@@ -17,6 +17,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { resolveAgentTriggerInvocation } from "../index.ts"
+import { modelEmulatorUrl } from "../internal/agent-emulation.ts"
 import { runAgentInline, streamAgentInline } from "../internal/agent-run.ts"
 import { inheritMessageChannelInstructions } from "../internal/channels.ts"
 import { handleChannelReplayRequest } from "../channel-replay.ts"
@@ -628,12 +629,14 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
           runtime: createViteAgentRuntimeContext(server, req, entry.identity, { capabilities, fallbackRoute: agentInvocationStreamRoute, run }),
         })
       : undefined
+    const emulatorUrl = modelEmulatorUrl()
     const response = {
       agents: entries.map(entry => ({
         ...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
         name: entry.name,
         triggers: Object.keys(entry.triggers),
       })),
+      ...(emulatorUrl ? { emulator: { url: emulatorUrl } } : {}),
       ...(inspection && entry ? { inspection: { ...inspection, name: entry.name } } : {}),
       root: server.config.root,
       workspaceDevTokenServerId: tokenOptions.serverId,

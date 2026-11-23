@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 import type { ExecutionAuthority } from "@vite-hub/runtime";
 import { stopMarkedProcesses } from "@vite-hub/internal/process-sweep";
@@ -57,6 +58,7 @@ export interface TrustedHostOptions {
 }
 
 interface TrustedHostSession extends RuntimeSession {
+  destroy(): Promise<void>;
   readonly env: Record<string, string>;
   readonly home: string;
   readonly processes: Set<ChildProcessWithoutNullStreams>;
@@ -224,7 +226,6 @@ async function createSession(
         },
       });
     }
-    // Project files exist only after checkout. The toolchain must precede requirement checks.
     const toolchain = input.toolchain
       ? await provisionTrustedHostToolchain(input.toolchain, checkout ?? input.cwd ?? root, options.stateRoot, env, createOptions.abortSignal)
       : undefined;
@@ -232,10 +233,9 @@ async function createSession(
       env,
       home,
       async release() {
-        // Roll back only after destroy has confirmed process teardown,
-        // while the state lease is still held, including on background retries.
         if (initializationFailed) {
-          await Promise.all(initializedState.map(path => rm(path, { force: true, recursive: true }).catch(() => undefined)));
+          for (const path of initializedState) await rm(path, { force: true, recursive: true });
+          initializedState.length = 0;
         }
         await releases();
       },
@@ -261,12 +261,13 @@ async function createSession(
   } catch (error) {
     if (session) {
       initializationFailed = true;
-      try {
-        await session.destroy?.();
-      } catch {
-        // Keep the session, state and lease owned across cleanup retries. This
-        // covers teardown failures during failed initialization.
-        void retrySessionDestroy(session);
+      const cleanup = await destroyFailedSession(session);
+      if (cleanup) {
+        scheduleFailedSessionDestroy(session);
+        throw new AggregateError(
+          [error, cleanup.error],
+          `[vitehub] Trusted-host Sandbox initialization failed: ${failureMessage(error)} Cleanup failed: ${failureMessage(cleanup.error)}`,
+        );
       }
     }
     else {
@@ -282,21 +283,31 @@ async function createSession(
   }
 }
 
-async function retrySessionDestroy(session: TrustedHostSession): Promise<void> {
-  while (true) {
-    await new Promise<void>((resolvePromise) => {
-      const timer = setTimeout(resolvePromise, 250);
-      // Cleanup is best-effort after initialization failed. Do not let an
-      // unbounded retry loop keep an otherwise idle process alive forever.
-      timer.unref?.();
-    });
+const failedSessionDestroyAttempts = 3;
+const failedSessionDestroyDelayMs = 250;
+
+async function destroyFailedSession(session: TrustedHostSession): Promise<{ error: unknown } | undefined> {
+  let failure: { error: unknown } | undefined;
+  for (let attempt = 0; attempt < failedSessionDestroyAttempts; attempt++) {
+    if (failure) await delay(failedSessionDestroyDelayMs);
     try {
-      await session.destroy?.();
-      return;
-    } catch {
-      // Keep the lease until cleanup succeeds.
+      await session.destroy();
+      return undefined;
+    } catch (error) {
+      failure = { error };
     }
   }
+  return failure;
+}
+
+function scheduleFailedSessionDestroy(session: TrustedHostSession) {
+  setTimeout(() => {
+    void session.destroy().catch(() => scheduleFailedSessionDestroy(session));
+  }, failedSessionDestroyDelayMs).unref();
+}
+
+function failureMessage(error: unknown) {
+  return error instanceof Error ? error.message || error.name : String(error);
 }
 
 async function provisionTrustedHostToolchain(
@@ -494,8 +505,6 @@ async function createTrustedHostSession(options: {
       try {
         await attempt;
       } catch (error) {
-        // A rejected attempt must never poison future retries. Keep an
-        // in-flight attempt shared, but allow the next call to rebuild it.
         if (destroyPromise === attempt) destroyPromise = undefined;
         throw error;
       }
@@ -591,13 +600,10 @@ async function createTrustedHostSession(options: {
         runOptions.workingDirectory ?? this.defaultWorkingDirectory,
       );
       runOptions.abortSignal?.throwIfAborted();
-      // No await may separate this fence from launch and process registration.
-      // Teardown either owns the registered child or prevents its launch.
       if (closing) throw sandboxErrorDiagnostics.SANDBOX_TRUSTED_HOST_CLOSING();
       const child = spawnChildProcess(runOptions.command, {
         cwd,
         detached: process.platform !== "win32",
-        // The marker finds commands that leave their process group, for example with setsid.
         env: { ...options.env, ...runOptions.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd, [sessionEnvironmentKey]: options.root },
         shell: true,
       });
@@ -904,9 +910,6 @@ function processHandle(
       else resolvePromise({ exitCode: code ?? 1 });
     });
   });
-  // A background caller may not await immediately. Observe rejection now so
-  // cancellation and spawn failures cannot become process-level unhandled
-  // rejections before the caller reaches wait().
   void wait.catch(() => undefined);
   if (abortSignal?.aborted) abort();
   let stdin: WritableStream<Uint8Array> | undefined;
@@ -933,7 +936,6 @@ function processHandle(
         await Promise.race([
           gracePeriod,
           settled.then(() => {
-            // The leader can exit while descendants still need termination.
             if (child.pid && process.platform !== "win32" && processGroupExists(child.pid))
               return gracePeriod;
           }),

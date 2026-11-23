@@ -26,8 +26,6 @@ export function queueRemovedOptionsError(provider: QueueDriver, options?: object
 
 /** Shared pre-dispatch option validation for provider clients and the test backend. */
 export function queueUnsupportedOptionsError(options: QueueEnqueueOptions, provider: QueueDriver, names: readonly (keyof QueueEnqueueOptions)[] = unsupportedEnqueueOptions[provider]): ResultError<"QUEUE_UNSUPPORTED_OPTION"> | undefined {
-  // JavaScript callers can still pass removed options: `id`, and `delaySeconds` and `retentionSeconds`, which are now
-  // `delay` and `retention`. Reject them, so a job does not run at once or keep the default retention.
   const unsupported = [...removedEnqueueOptions.filter(option => Object.hasOwn(options, option)), ...names.filter(option => options[option] !== undefined)]
   return unsupported.length
     ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider })

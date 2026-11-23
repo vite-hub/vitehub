@@ -19,7 +19,6 @@ import type { SQLiteAsyncDatabase } from "drizzle-orm/sqlite-core"
  */
 export const consoleProjects = sqliteTable("console_projects", {
   id: text("id").primaryKey(),
-  // Deleting a team deletes its projects.
   teamId: text("team_id").notNull().references(() => authSqliteSchema.organization.id, { onDelete: "cascade" }),
   url: text("url").notNull(),
   label: text("label"),

@@ -88,31 +88,6 @@ The motion comes from the motion layer and the helpers of `@vite-hub/ui/motion` 
 
 A page with a script uses the same helpers: `swapIcon(container, icon, { enter: "draw" })` for the icon, `morphText(label, "Copied")` for the label, and `ring(button)` when the copy finished, all from `@vite-hub/ui/motion`.
 
-A page that runs no script of ours, such as a document in a cross-origin frame, can load `@vite-hub/ui/icon-swap.css`, a plain CSS cross-fade of the two icons, or read it as text with `?raw`:
-
-```ts
-import iconSwap from "@vite-hub/ui/icon-swap.css?raw";
-
-const style = document.createElement("style");
-style.textContent = iconSwap;
-document.head.append(style);
-```
-
-```html
-<button type="button" data-slot="copy-button" aria-label="Copy">
-  <span data-slot="copy-button-icon" aria-hidden="true">
-    <span data-icon="copy"><svg><!-- the copy icon --></svg></span>
-    <span data-icon="check"><svg><!-- the check icon --></svg></span>
-  </span>
-  Copy
-</button>
-```
-
-- `data-slot="copy-button-icon"` holds the two icons.
-- `data-icon="copy"` wraps the icon before a copy, and `data-icon="check"` the icon after it. The swap animates the wrappers, so the icons keep their own classes.
-- Set `data-copied` on the button after a copy, and remove it to swap back. The rules match `data-copied` on any element around the icons.
-- The page announces the result itself, for example in a polite live region.
-
 ## Features
 
 - The icon swaps from `copy`, or the `icon` prop, to `copyCheck` of Nuxt UI's `appConfig.ui.icons`, so the button follows the theme.

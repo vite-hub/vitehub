@@ -1,12 +1,3 @@
-// ViteHub pins @ui-sdk/core and @ui-sdk/vue and patches them (patchedDependencies in pnpm-workspace.yaml). pnpm
-// already fails the install when a patch names a version that is not installed. This script checks what pnpm does not:
-//
-// 1. Every @ui-sdk package in the lockfile resolves to one version, the same for all of them. @ui-sdk/vue calls into
-//    @ui-sdk/core, and the kit build inlines core's web.css, so two versions ship parts and styles that do not match.
-// 2. Given a base ref, it warns when the change drops a ui-sdk patch. A patch holds fixes that npm does not have yet,
-//    so check that the new ui-sdk version ships each of them.
-//
-// Run: node .github/scripts/check-ui-sdk.mjs [<base ref>]
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,7 +5,6 @@ import { pathToFileURL } from "node:url";
 
 import { parse } from "yaml";
 
-/** The `@ui-sdk/*` package versions of a pnpm lockfile, as a map from package name to its versions. */
 export function uiSdkVersions(lockfile) {
   const versions = new Map();
   for (const [, name, version] of lockfile.matchAll(/^ {2}'(@ui-sdk\/[^@']+)@([^(':]+)':$/gm)) {
@@ -38,7 +28,6 @@ export function versionFailures(versions) {
   return failures;
 }
 
-/** The `@ui-sdk/*` keys of patchedDependencies in a pnpm-workspace.yaml. */
 export function uiSdkPatches(workspaceYaml) {
   return Object.keys(parse(workspaceYaml)?.patchedDependencies ?? {}).filter((key) =>
     key.startsWith("@ui-sdk/"),

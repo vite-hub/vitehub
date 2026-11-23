@@ -123,9 +123,6 @@ describe("describeDeploymentPlanOutput", () => {
     expect(describeDeploymentPlanOutput(resolveDeploymentPlan("cloudflare"), "/app", "custom").map(entry => entry.path)).toEqual([
       "/app/custom/deployment.json", "/app/custom/server/wrangler.json",
     ])
-    expect(describeDeploymentPlanOutput(resolveDeploymentPlan("netlify"), "/app", "/app/custom/functions-internal").map(entry => entry.path)).toEqual([
-      "/app/custom/deployment.json", "/app/custom/functions-internal", "/app/custom/functions/server.mjs", "/app/custom/v1",
-    ])
     expect(describeDeploymentPlanOutput(resolveDeploymentPlan("netlify"), "/app", "/app/.netlify/v1/functions").map(entry => entry.path)).toEqual([
       "/app/.netlify/deployment.json", "/app/.netlify/v1/functions", "/app/.netlify/v1",
     ])
@@ -133,7 +130,7 @@ describe("describeDeploymentPlanOutput", () => {
   it.each([
     ["cloudflare", ["/app/.output/deployment.json", "/app/.output/server/wrangler.json"]],
     ["vercel", ["/app/.vercel/output/deployment.json", "/app/.vercel/output/config.json"]],
-    ["netlify", ["/app/.netlify/deployment.json", "/app/.netlify/functions-internal", "/app/.netlify/functions/server.mjs", "/app/.netlify/v1"]],
+    ["netlify", ["/app/.netlify/deployment.json", "/app/.netlify/v1/functions", "/app/.netlify/v1"]],
     ["node", ["/app/.output/deployment.json"]],
   ] as const)("lists the %s preset output", (preset, paths) => {
     const entries = describeDeploymentPlanOutput(resolveDeploymentPlan(preset), "/app")

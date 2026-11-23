@@ -191,7 +191,6 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
         const path = join(directory, "stdin")
         const file = await open(path, "wx+", 0o600)
         try {
-          // Unlink before writing: secret bytes never have a reachable filename.
           await unlink(path)
           const input = Buffer.from(options.stdin ?? "", "utf8")
           let offset = 0
@@ -241,8 +240,6 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
             show(stream, chunk)
           })
         }
-        // A separate process group includes npm's shell and the host CLI it launches.
-        // Escalate even if the immediate child exits first: descendants may retain its pipes.
         let failure: unknown
         let finished = false
         let stopping = false
@@ -278,7 +275,6 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
           killTree("SIGTERM")
           setTimeout(() => {
             killTree("SIGKILL")
-            // Pipes held outside the process group must not indefinitely delay secret cleanup.
             setTimeout(() => {
               child.stdin?.destroy()
               child.stdout?.destroy()
@@ -303,15 +299,16 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
         options.signal?.addEventListener("abort", abort, { once: true })
         if (options.timeoutMs) timeout = setTimeout(stop, options.timeoutMs)
         if (options.signal?.aborted) abort()
-        // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
-        child.stdin?.on("error", () => {})
+        child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+          const exitedBeforeReading = error.code === "EPIPE" || (stopping && error.code === "ERR_STREAM_DESTROYED")
+          if (!exitedBeforeReading) failure ??= error
+        })
         child.stdin?.end(options.stdin ?? "")
       })
     }
   }
 }
 
-/** Resolve npm/pnpm Windows shims to Node entrypoints without evaluating any batch or shell syntax. */
 function windowsNodeEntry(file: string): readonly [string, string] | undefined {
   if (/\.(?:exe|cmd|bat)$/iu.test(file)) return
   if (!existsSync(file)) return
@@ -325,7 +322,6 @@ function executableIn(folder: string, name: string, platform: NodeJS.Platform): 
   if (existsSync(`${file}.exe`)) return [`${file}.exe`]
   const shim = `${file}.cmd`
   if (existsSync(shim)) {
-    // npm uses %dp0%; pnpm and Yarn use %~dp0. Only use existing Node files relative to the shim.
     for (const match of readFileSync(shim, "utf8").matchAll(/"(?:%dp0%|%~dp0)[\\/]([^"\r\n]+)"/giu)) {
       const entry = windowsNodeEntry(join(folder, match[1]!.replaceAll("\\", "/")))
       if (entry) return entry

@@ -1,6 +1,5 @@
 import type { ViteHubConsoleOperationSection } from "@vite-hub/internal/console"
 
-// Only OAuth Connections connect in the browser. API keys and ChatGPT plans use `vitehub connections`.
 const oauth = ["oauth2"]
 
 /** Console section of the app's Connections. It lists `connections.list`, and connects and revokes OAuth Connections. */
@@ -19,6 +18,7 @@ export const connectionsConsoleSection: ViteHubConsoleOperationSection = {
       { key: "name", label: "Connection" },
       { key: "provider", label: "Provider" },
       { format: "status", key: "status", label: "Status", tones: { connected: "success", reauth_required: "warning" } },
+      { key: "keyError", label: "Key error" },
       { key: "account", label: "Account" },
       { format: "datetime", key: "refreshedAt", label: "Refreshed" },
     ],

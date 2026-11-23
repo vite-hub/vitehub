@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as v from "valibot"
@@ -8,9 +8,8 @@ import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyC
 import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
-import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
-/** The private key of the CLI. The app keeps its public key in `VITEHUB_CONSOLE_KEY_CI`. */
 const cliPrivateKey = (await createConsoleKeyPair()).privateKey
 
 const list = defineOperation({
@@ -95,7 +94,6 @@ function stream() {
 
 const operationList = [list, remove, failing, rich, digest]
 
-// A dev server that runs the operations of the fixture plugin.
 function server(origin = "http://localhost:5173", headers: Record<string, string> = {}, operations: readonly AnyOperation[] = operationList) {
   const registry = createOperationRegistry([{ operations }])
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -184,7 +182,6 @@ describe("generated operation commands", () => {
     expect(unknown.stderr).toContain("Unknown ViteHub CLI command: work jobs drop")
     expect((await run(["work", "jobs"], options)).code).toBe(1)
 
-    // A destructive command in a group keeps the confirmation rule.
     const refused = await run(["work", "jobs", "clear"], { ...options, fetch: server("http://localhost:5173", {}, operations) })
     expect(refused.code).toBe(1)
     expect(refused.stderr).toContain("CLI_R0004")
@@ -214,7 +211,6 @@ describe("generated operation commands", () => {
     const confirmed = await run(["reports", "delete", "r1", "--yes"])
     expect(confirmed.code).toBe(0)
     expect(new Headers(confirmed.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("confirmed")
-    // The operation says which calls only read.
     const dryRun = await run(["reports", "delete", "r1", "--dry-run"])
     expect(dryRun.code).toBe(0)
     expect(new Headers(dryRun.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("required")
@@ -440,6 +436,8 @@ describe("generated operation commands", () => {
 
   it("calls the dev server that wrote .vitehub/dev-server.json for this project", async () => {
     const root = await project()
+    await writeFile(join(root, "package.json"), "{}")
+    await writeFile(join(root, "server"), "not a directory")
     writeViteHubDevServerFile(root, { root, url: "http://localhost:5199/" })
     const fetch = server("http://localhost:5199")
     const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000", VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch, root })
@@ -447,6 +445,17 @@ describe("generated operation commands", () => {
     expect(fetch).toHaveBeenCalledOnce()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(root))
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has("x-vitehub-signature")).toBe(false)
+  })
+
+  it.skipIf(process.platform === "win32")("writes a JSON error when a project marker cannot be read", async () => {
+    const root = await project()
+    await symlink("server", join(root, "server"))
+
+    const result = await run(["reports", "list", "acme", "--json"], { root })
+
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout).error.message).toContain("ELOOP")
+    expect(result.fetch).not.toHaveBeenCalled()
   })
 
   it("refuses a dev server that runs another project", async () => {
@@ -474,14 +483,10 @@ describe("generated operation commands", () => {
 
   it("reads every kind of input from flags", async () => {
     const sent = async (...args: string[]) => operationRpcRequest((await run(["reports", "rich", ...args])).fetch.mock.calls[0]![1]!.body).input
-    // JSON for objects, unknown values, and lists of objects.
     expect(await sent("--body", '{"a":[1]}', "--items", '[{"id":"x"}]')).toEqual({ body: { a: [1] }, items: [{ id: "x" }] })
-    // A nullable value takes the literal null.
     expect(await sent("--label", "null", "--count", "null")).toEqual({ count: null, label: null })
     expect(await sent("--label", "text", "--count", "3")).toEqual({ count: 3, label: "text" })
-    // A string or number union stays a string.
     expect(await sent("--mixed", "12")).toEqual({ mixed: "12" })
-    // Lists of numbers parse each item.
     expect(await sent("--scores", "1,2", "--scores", "3")).toEqual({ scores: [1, 2, 3] })
     const wrong = await run(["reports", "rich", "--limit", "1.5"])
     expect(wrong.stderr).toContain("--limit must be a whole number")

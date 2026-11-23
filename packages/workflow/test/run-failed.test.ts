@@ -83,7 +83,6 @@ it("sends workflow.failed once when Cloudflare replays a failed instance", async
 
 it("skips the internal Workflow of an Agent turn, which reports invocation.failed instead", async () => {
   setWorkflowRuntimeConfig({ driver: "vercel" })
-  // The Agent package marks its turn Workflow with this flag.
   const workflow = createWorkflow("agent-turn", async () => {
     throw new Error("model down")
   }, { internalAgentWorkflow: true })
@@ -125,7 +124,6 @@ it("sends workflow.failed for an OpenWorkflow run only when no retry is left", a
   await worker.tick()
   await worker.stop()
 
-  // The failed step waits for its retry, so only the Workflow that failed outside a step ended.
   expect((await unwrap(getWorkflowRun("onboard-user", retried.id))).status).not.toBe("failed")
   expect((await unwrap(getWorkflowRun("send-digest", failed.id))).status).toBe("failed")
   expect(events).toEqual([expect.objectContaining({ event: "workflow.failed", workflow: "send-digest", runId: failed.id, error: expect.objectContaining({ message: "SMTP timeout" }) })])

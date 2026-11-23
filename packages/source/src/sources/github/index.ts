@@ -13,11 +13,8 @@ import { normalizeGitHubRoot } from "./root.ts"
 import type { SourceContext, SourceRevision } from "../../core/types.ts"
 import type { GitHubFile, GitHubFileCommit, GitHubPullRequest, GitHubSource, GitHubSourceOptions } from "./types.ts"
 
-/** Files per GraphQL request of `latest()`. GitHub answers 150 in about 4 seconds, and stops a request at 10. */
 const historyBatch = 150
-/** `latest()` splits a request that GitHub stopped down to this many files, then gives up. */
 const historyBatchMin = 20
-/** GraphQL requests of `latest()` that run at once. */
 const historyConcurrency = 4
 
 function dedupeProviderPromise<TResult>(
@@ -120,7 +117,6 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     }
   }
 
-  // Rate limited API reads fall back to the archive. Anonymous archives come from codeload, which has no API limit.
   function shouldResolveMainFallback(error: unknown) {
     const status = githubErrorStatus(error)
     return status === 403 || status === 429
@@ -257,7 +253,6 @@ export function github(options: GitHubSourceOptions): GitHubSource {
         () => loadFileMetadata(key, token, resolvedRef),
       )
 
-  // A missing path and a missing ref both answer 404.
   function isGitHubAccessError(error: unknown) {
     return githubErrorStatus(error) === 404
   }
@@ -338,7 +333,6 @@ export function github(options: GitHubSourceOptions): GitHubSource {
           commits.forEach((commit, index) => commit && found.set(keys[start + index]!, commit))
         }
         catch (error) {
-          // GitHub stops a GraphQL request after 10 seconds with 502. Ask again with half the files each time.
           const status = githubErrorStatus(error)
           if ((status !== 502 && status !== 504) || end - start <= historyBatchMin) throw error
           const middle = start + Math.ceil((end - start) / 2)
@@ -390,7 +384,6 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       const at = (entries: Array<{ sha: string, pull: GitHubPullRequest }>) => entries.filter(entry => entry.sha.toLowerCase() === sha.toLowerCase()).map(entry => entry.pull)
       const pulls = at(await client.commitPulls(sha, token, signal))
       if (pulls.length) return pulls
-      // The base repository does not list a fork pull request for the commits of the fork. Its open pull requests do.
       return at(await client.openPulls(token, signal))
     },
     async resolveRevision(ctx) {

@@ -4,12 +4,9 @@ import * as v from "valibot"
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { LocalQueueJob, LocalQueueJobDetail, QueueJobsClearInput, QueueJobsListInput, QueueJobsListResult, QueueListResult, QueueSendOperationInput, QueueSendOperationResult } from "./runtime/operations.ts"
 
-// The runtime module reaches the Queue configuration that the generated server installs. The operations load it when
-// they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
 function defineQueueOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The Queue runtime answers for the section. The operations never read the signed-in user.
   return defineOperation({ ...definition, section: "queues", user: false })
 }
 

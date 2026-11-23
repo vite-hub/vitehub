@@ -195,8 +195,9 @@ describe("WorkspaceShell", () => {
   it("shows one tab panel, makes the others inert, and remembers split sizes", async () => {
     const wrapper = mount(WorkspaceShell, {
       attachTo: document.body,
-      props: { layout: "tutorial" },
+      props: { layout: "guide-top" },
       slots: {
+        guide: () => h("p", "guide"),
         connect: () => h("p", "connect"),
         editor: () => h("p", "editor"),
         files: () => h("p", "files"),
@@ -215,33 +216,64 @@ describe("WorkspaceShell", () => {
     expect(wrapper.emitted("update:tab")).toEqual([["terminal"]]);
     expect(wrapper.get("[data-tab='preview']").attributes()).toHaveProperty("inert");
 
-    const separator = wrapper.get("[data-split='main']");
-    expect(separator.attributes("aria-valuenow")).toBe("55");
+    const separator = wrapper.get("[data-split='guide']");
+    expect(separator.attributes("aria-valuenow")).toBe("46");
     await separator.trigger("keydown", { key: "ArrowDown" });
-    expect(JSON.parse(localStorage.getItem("vitehub:workspace:tutorial") ?? "{}")).toMatchObject({ main: 60 });
+    expect(JSON.parse(localStorage.getItem("vitehub:workspace:guide-top") ?? "{}")).toMatchObject({ guide: 51 });
     wrapper.unmount();
 
-    const again = mount(WorkspaceShell, { props: { layout: "tutorial" }, slots: { editor: () => h("p", "editor") } });
+    const again = mount(WorkspaceShell, { props: { layout: "guide-top" }, slots: { editor: () => h("p", "editor"), guide: () => h("p", "guide") } });
     await nextTick();
-    expect(again.get("[data-split='main']").attributes("aria-valuenow")).toBe("60");
+    expect(again.get("[data-split='guide']").attributes("aria-valuenow")).toBe("51");
   });
 
-  it("puts the panels under the editor and the preview at the side in a playground", async () => {
-    const wrapper = mount(WorkspaceShell, {
-      props: { layout: "playground", storageKey: false },
-      slots: { editor: () => h("p", "editor"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") },
-    });
-    await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Terminal"]), { timeout: 5_000 });
-    expect(wrapper.get(".vh-ws-pane--side").text()).toBe("preview");
+  it("puts the output at the side of the code, and the guide over the code or in a column", async () => {
+    const slots = { editor: () => h("p", "editor"), guide: () => h("p", "guide"), preview: () => h("p", "preview"), terminal: () => h("p", "terminal") };
+    const side = mount(WorkspaceShell, { props: { layout: "side", storageKey: false }, slots });
+    await vi.waitFor(() => expect(side.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Preview", "Terminal"]), { timeout: 5_000 });
+    expect(side.findAll(".vh-ws-body > *").map(element => element.classes())).toEqual([
+      expect.arrayContaining(["vh-ws-code"]),
+      expect.arrayContaining(["vh-ws-separator"]),
+      expect.arrayContaining(["vh-ws-pane--output"]),
+    ]);
+    // A playground has no guide, so `side` leaves the guide slot out.
+    expect(side.find(".vh-ws-guide").exists()).toBe(false);
+
+    const top = mount(WorkspaceShell, { props: { layout: "guide-top", storageKey: false }, slots });
+    expect(top.findAll(".vh-ws-column > *").map(element => element.attributes("data-split") ?? element.classes().at(-1))).toEqual(["vh-ws-guide", "guide", "vh-ws-code"]);
+
+    const column = mount(WorkspaceShell, { props: { layout: "guide-side", storageKey: false }, slots });
+    expect(column.findAll(".vh-ws-body > *").map(element => element.classes().at(-1))).toEqual(["vh-ws-guide", "vh-ws-stack"]);
+    expect(column.findAll(".vh-ws-stack > *").map(element => element.classes().at(-1))).toEqual(["vh-ws-pane--output", "vh-ws-code"]);
+    // Nothing to drag but the files.
+    expect(column.findAll("[role='separator']")).toHaveLength(0);
   });
 
   it("shows the tabs of the page, in order, with their badges", async () => {
     const wrapper = mount(WorkspaceShell, {
-      props: { layout: "tutorial", storageKey: false, tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }] },
+      props: { layout: "side", storageKey: false, tabs: [{ label: "Console", value: "terminal" }, { badge: 2, label: "Messages", value: "messages" }] },
       slots: { editor: () => h("p", "editor"), messages: () => h("p", "messages"), terminal: () => h("p", "terminal") },
     });
     await vi.waitFor(() => expect(wrapper.findAll("[role='tab']").map(tab => tab.text())).toEqual(["Console", "Messages2"]), { timeout: 5_000 });
     expect(wrapper.get("[data-tab='messages']").text()).toBe("messages");
+  });
+
+  it("keeps layout slots separate from tabs with the same value", async () => {
+    const wrapper = mount(WorkspaceShell, {
+      props: { layout: "guide-top", storageKey: false, tabs: [{ label: "Guide", value: "guide" }, { label: "Status", value: "status" }] },
+      slots: {
+        guide: () => h("p", "Layout guide"),
+        status: () => h("p", "Editor status"),
+        "tab-guide": () => h("p", "Output guide"),
+      },
+    });
+    expect(wrapper.get(".vh-ws-guide").text()).toBe("Layout guide");
+    expect(wrapper.get("[data-tab='guide']").text()).toBe("Output guide");
+    expect(wrapper.get(".vh-ws-status").text()).toBe("Editor status");
+    expect(wrapper.get("[data-tab='status']").text()).toBe("");
+    await wrapper.setProps({ tab: "status" });
+    expect(wrapper.get("[data-tab='guide']").attributes()).toHaveProperty("inert");
+    wrapper.unmount();
   });
 });
 

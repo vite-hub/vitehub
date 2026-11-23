@@ -39,7 +39,6 @@ declare global {
   }
 }
 
-/** The data element of a successful result. */
 type Data<TResult> = TResult extends [undefined, infer TData] ? TData : never
 
 it("types the codes of client calls and fetch", () => {

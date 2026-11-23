@@ -177,6 +177,7 @@ type NuxtLike = {
     dev?: boolean
     experimental?: {
       emitRouteChunkError?: unknown
+      extraPageMetaExtractionKeys?: string[]
       nitroViteEnvironment?: boolean
     }
     devServerHandlers?: Array<{
@@ -506,11 +507,6 @@ export default defineNuxtPlugin({
   if (!plugins.some(plugin => (typeof plugin === "string" ? plugin : plugin.src) === src)) plugins.push({ src, mode: "client" })
 }
 
-/**
- * The `webContainer` pages are cross-origin isolated and other pages are not. The headers come with the document, so a
- * client-side navigation across that line would keep the headers of the page it left. A global route middleware loads
- * a new document instead.
- */
 async function addWebContainerBoundaryPlugin(nuxt: NuxtLike, projectRoot: string, routes: readonly string[]): Promise<void> {
   const src = join(projectRoot, ".vitehub/web-container/nuxt-boundary.mjs")
   await writeFileIfChanged(src, `import { addRouteMiddleware, defineNuxtPlugin, navigateTo, useRouter } from "#imports"

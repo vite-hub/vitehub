@@ -3,9 +3,6 @@ import type { BaseOptions, ForgeProvider, ThreadRef } from "forges"
 import { forgeDiagnostics } from "../error-diagnostics.ts"
 import { repositoryPath, requireGitHub } from "./github.ts"
 
-// Gap: forges `threads.update()` cannot change the base branch of a pull request.
-// Remove when forges releases it (https://github.com/danielroe/forges/issues/190).
-
 /** Change the base branch of a GitHub pull request. */
 export async function retargetPullRequest(provider: ForgeProvider, thread: ThreadRef, base: string, options?: BaseOptions): Promise<void> {
   requireGitHub(provider, "retargetPullRequest()")

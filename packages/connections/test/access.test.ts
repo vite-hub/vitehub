@@ -70,7 +70,6 @@ describe("Connection access", () => {
     const action = { action: "mail.messages.modify", definition, highRisk: false, write: true }
     expect(decide({ ...action, actor: "agent:bot-dev" })).toBe("deny")
     expect(decide({ ...action, actor: "agent:bot-dev", inherited: ["agent:bot"] })).toBe("allow")
-    // A grandchild uses the nearest parent that has a rule.
     expect(decide({ ...action, actor: "agent:bot-canary", inherited: ["agent:bot-dev", "agent:bot", "agent:base"] })).toBe("allow")
     expect(decide({ ...action, actor: "agent:bot-canary", inherited: ["agent:base", "agent:bot"] })).toBe("deny")
   })
@@ -91,7 +90,6 @@ describe("Connection access", () => {
     expect(decide({ ...action, actor: "server" })).toBe("deny")
     expect(decide({ ...action, actor: "schedule:gmail" })).toBe("deny")
     expect(decide({ ...action, actor: "user:owner" })).toBe("deny")
-    // Inherited entries are Agent actors only. A parent list cannot borrow a server rule.
     const server = mailConnection({ server: { read: true, write: ["mail.messages.modify"] } })
     expect(decide({ ...action, definition: server, actor: "agent:bot-dev", inherited: ["server"] })).toBe("deny")
   })

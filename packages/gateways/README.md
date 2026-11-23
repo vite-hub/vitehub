@@ -66,6 +66,19 @@ receipt.merchant // string
 
 ## Ask your first question
 
+Pick the builder by the answer that you want. The answer types come from the questions.
+
+| You want | Write | You get |
+| --- | --- | --- |
+| Yes or no | `ask.if(instructions, { threshold? })` | `boolean`. `true` when the probability of yes is above `threshold`. The default is `0.5`. |
+| The probability of yes | `ask.chance(instructions, { true?, false? })` | `{ chance }`, from `0` to `1`. |
+| One label | `ask.switch(instructions, criteria)` | The label, such as `'groceries'`. |
+| One label, with how sure the model is | `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. |
+| A rating on an ordered scale | `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }`, for 2 to 10 levels. |
+| The same question for each item of a list | `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. Pass the map to `gateway.ask()`, or spread it into your questions. |
+
+For `ask.switch()` and `ask.choice()`, `criteria` maps labels to descriptions, or is a list of 2 to 255 labels.
+
 ```ts
 import { ask, typesafe } from '@vite-hub/gateways'
 
@@ -86,17 +99,6 @@ answers.category.confidence // 0 to 1
 answers.recurring // boolean
 ```
 
-The answer types come from the questions:
-
-| Builder | Answer |
-| --- | --- |
-| `ask.choice(instructions, criteria)` | `{ choice, confidence, probabilities }`. `criteria` maps labels to descriptions, or is a list of 2 to 255 labels. |
-| `ask.switch(instructions, criteria)` | The selected label only. |
-| `ask.score(instructions, levels)` | `{ score, ratio, confidence, legend, probabilities }` for 2 to 10 ordered levels. |
-| `ask.chance(instructions, criteria?)` | `{ chance }`, the probability of yes. |
-| `ask.if(instructions, { threshold? })` | `true` when the probability of yes is above `threshold`, between `0` and `1`. The default is `0.5`. |
-| `ask.each(items, { key, question })` | One question for each item, under the key that `key(item)` returns. |
-
 `gateway.ask(state, questions, { signal, onUsage })` sends the questions in sequential bounded requests. The shared state plus each question must fit below 30,000 bytes. It retries up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. `onUsage` receives the `model`, `provider`, and token `usage` of each request. It returns `[error, answers]`: a rejected key returns `GATEWAYS_R0008` and a provider that still fails returns `GATEWAYS_R0009`. A missing key or a question that the `ask` builders did not make throws.
 
 ### Ask with any model
@@ -114,6 +116,23 @@ if (error) throw error // GATEWAYS_ASK_MODEL_FAILED when the model request fails
 ```
 
 A chat model gives one answer and how sure it is. `probabilities` put that number on the answer and share the rest between the other options. Jev gives a real probability for every option, so prefer it when you compare or rank options.
+
+### Test without a key
+
+`scriptedAsk(script)` from `@vite-hub/gateways/testing` returns a `gateway` whose `ask()` answers each question with `script(key, question, state)`, and the `calls` that it received. `answers.choice()`, `answers.score()`, `answers.chance()`, and `answers.first()` build answers that pass the same checks as a Jev answer:
+
+```ts [label.test.ts]
+import { ask } from '@vite-hub/gateways'
+import { answers, scriptedAsk } from '@vite-hub/gateways/testing'
+
+const { gateway, calls } = scriptedAsk((key, question) => key === 'category' ? answers.choice(question, 'groceries', 0.9) : answers.first(question))
+const [, result] = await gateway.ask('MERCADONA 23.10 -34.90 EUR', {
+  category: ask.choice('Which category fits this bank transaction?', ['groceries', 'eatingOut']),
+})
+result?.category.choice // 'groceries'
+```
+
+`ask()` calls `onUsage` with `provider: 'scripted'` and the `usage` option. `{ error: 'GATEWAYS_R0008' }` or `{ error: 'GATEWAYS_R0009' }` returns a rejected key or a failing provider instead.
 
 ## Presets
 
@@ -187,7 +206,7 @@ const { text } = await generateText({ model, prompt: 'Hello' })
 - In a test, start the emulator in the test process with `createEmulator({ service: 'ai', port: 0, seed: { ai: { strict: true, rules } } })` from the `emulate` package, and pass its `url`. With `strict: true`, a request that no rule matches fails with a 400 that shows the missing rule.
 - `GET <url>/_ai/calls` lists each request and the rule that answered it.
 - The emulator rejects hosted tools, such as web search.
-- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. A later ViteHub release runs Codex Agents on the emulator through the Codex Driver. Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
+- It does not serve the CLI Drivers. It has no Codex URL, so `codexDriver({ gateway: emulate() })` is a type error, because the emulator rejects the `custom` tools that the Codex CLI sends. To run a Codex Agent without tools on the emulator, set `VITEHUB_MODELS=emulate`, and ViteHub sets up Codex for it. Read [Run on the AI emulator](https://vitehub.dev/docs/agents/agent-drivers#run-on-the-ai-emulator). Claude Code cannot use it either, because the emulator rejects its `system` turns. Its URL is there only for AI SDK `messages` models.
 
 ## Cloudflare AI Gateway
 

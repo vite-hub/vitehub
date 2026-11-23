@@ -133,7 +133,7 @@ async function load(): Promise<void> {
   loading.value = true;
   try {
     const listed = isConsoleCommentThread(props.initial) && props.initial.id === id ? props.initial : undefined;
-    const found = listed ?? (await client.get({ id }));
+    const found = listed ?? (await client.get({ threadId: id }));
     if (current.signal.aborted) return;
     if (!found) throw consoleDiagnostic("CONSOLE_NOT_FOUND", "This thread was deleted, or you may not read it.");
     thread.value = found;

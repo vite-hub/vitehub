@@ -36,7 +36,6 @@ function isSafeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value)
 }
 
-/** A message from the browser that breaks the protocol. `cause` says which rule it breaks. */
 function malformed(problem: string) {
   return browserProviderError("cdp", "parse a protocol message", { cause: problem })
 }
@@ -152,11 +151,11 @@ async function localSocket(
       cleanup()
       try {
         socket.close()
+        reject(browserProviderError("cdp", "connect to the browser"))
       }
-      catch {
-        // Preserve the timeout error when a socket cannot be closed.
+      catch (cause) {
+        reject(browserProviderError("cdp", "connect to the browser", { cause }))
       }
-      reject(browserProviderError("cdp", "connect to the browser"))
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })

@@ -25,13 +25,10 @@ interface I18nState {
   app?: I18n
   scope?: () => I18n | undefined
   appScope?: () => I18n | undefined
-  /** Keep overlapping selections ordered per page or server request, including across linked package copies. */
   selections?: WeakMap<I18n, symbol>
-  /** Set by the Vue plugin. A message read inside `computed` or a render then re-runs after a locale change. */
   track?: () => void
 }
 
-// One state per JavaScript realm, so the build output and linked copies of this package share it.
 const stateKey = Symbol.for("vite-hub.i18n.state")
 
 function state(): I18nState {
@@ -75,10 +72,6 @@ export function getI18n(): I18n {
   return current.app
 }
 
-/**
- * The object that compiled messages call. It forwards to the instance of the current request, so a message in
- * shared server code reads the locale of the request that runs it.
- */
 // SAFETY: Every property read forwards to a real I18n instance.
 export const i18n: I18n = new Proxy({} as I18n, {
   get(_target, key) {
@@ -99,7 +92,6 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
-/** Validate the recursive token tuples consumed by Lingui's compiled-message reader. */
 function isCompiledMessage(value: unknown): boolean {
   return Array.isArray(value) && value.every((token) => {
     if (typeof token === "string") return true
@@ -115,30 +107,35 @@ function isCompiledMessage(value: unknown): boolean {
   })
 }
 
-/** Each message is text or a compiled list of text and validated placeholders. */
 function isMessages(value: unknown): value is Messages {
   return isRecord(value) && Object.values(value).every(message => typeof message === "string" || isCompiledMessage(message))
 }
 
-/** The body of the live catalog route: `{ revision, messages }`. */
 function readLiveCatalog(body: unknown): { revision: string, messages: Messages } | undefined {
   if (!isRecord(body) || typeof body.revision !== "string") return
   const messages = body.messages ?? {}
   return isMessages(messages) ? { revision: body.revision, messages } : undefined
 }
 
-/**
- * Translations that a Workspace published after the build. The route answers with an ETag, so the browser downloads a
- * catalog again only after a publish. When the route fails, the page keeps the catalog of the build.
- */
 async function liveMessages(live: string, locale: string): Promise<Messages> {
+  let response: Response
+  try {
+    response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
+  }
+  catch (cause) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_UNAVAILABLE({ cause, locale, route: live }))
+    return {}
+  }
+  if (!response.ok) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_UNAVAILABLE({ locale, route: live, status: response.status }))
+    return {}
+  }
   let body: unknown
   try {
-    const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
-    if (!response.ok) return {}
     body = await response.json()
   }
-  catch {
+  catch (cause) {
+    console.warn(i18nErrorDiagnostics.I18N_LIVE_CATALOG_INVALID({ cause, locale, route: live }))
     return {}
   }
   const catalog = readLiveCatalog(body)
@@ -166,7 +163,6 @@ export async function activateLocale(target: I18n, locale: string): Promise<void
   if (page) page.documentElement.lang = locale
 }
 
-/** The parts of `document` that the runtime uses. Server code has no `document`. */
 interface BrowserDocument {
   cookie: string
   documentElement: { lang: string }

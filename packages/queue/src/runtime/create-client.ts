@@ -3,7 +3,6 @@ import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import type { QueueClient, QueueDriverOptions } from "../types.ts"
 
 export async function createQueueClient(options: QueueDriverOptions): Promise<QueueClient> {
-  // Without `driver`, the client would fall through to the Vercel Queue, so the former `provider` key would be ignored.
   if (options.driver === undefined && Object.hasOwn(options, "provider")) {
     // SAFETY: A caller without types still passes the former `provider` key.
     const provider = (options as { provider?: unknown }).provider
@@ -26,7 +25,6 @@ export async function createQueueClient(options: QueueDriverOptions): Promise<Qu
   }
 
   if (options.driver === "postgres") {
-    // Node bundlers retain the driver; Worker conditions select a module without its optional driver.
     const { createPostgresQueueRuntimeClient } = await import("#vitehub/queue/node-client")
     return await createPostgresQueueRuntimeClient(options)
   }

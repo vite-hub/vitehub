@@ -18,7 +18,6 @@ interface RuntimeValueSchema {
 
 const runtimeSchemaProperty = "__vitehubRuntimeSchema"
 const runtimeSchemaToken = getRuntimeSchemaToken()
-// Vite and Nuxt clone config objects but keep function references, so parsers identify built-in schemas.
 const runtimeSchemaParsers = new WeakMap<CallableFunction, EnvValueSchema>()
 const runtimeSchemas = new WeakMap<EnvVariableDeclaration, RuntimeValueSchema>()
 
@@ -39,42 +38,24 @@ const numberSchema = createRuntimeValueSchema(Object.freeze({ kind: "number" }))
 
 interface EnvNamespace {
   (options?: EnvVariableOptions): EnvVariableDeclaration
-  /** Parse `true`, `false`, `1`, or `0` into a boolean. */
   boolean: (options?: EnvTypedVariableOptions<boolean>) => EnvVariableDeclaration
   buildTimestamp: () => EnvSource
   custom: (label: string, resolver: EnvSourceResolver) => EnvSource
-  /** Accept only the listed strings. The values are public metadata, so an enum cannot be secret. */
   enum: <const TValues extends readonly [string, ...string[]]>(values: TValues, options?: EnvTypedVariableOptions<TValues[number]> & { secret?: never }) => EnvVariableDeclaration
-  /** The current branch: `GIT_BRANCH`, then `GITHUB_HEAD_REF`, then `GITHUB_REF_NAME` on a GitHub branch ref, then local Git. */
   gitBranch: () => EnvSource
-  /** The current commit SHA: `GIT_SHA`, then `GITHUB_SHA`, then local Git. `short` keeps 7 characters of a CI value. */
   gitCommit: (options?: { short?: boolean }) => EnvSource
-  /** The current tag, or `undefined`: `GIT_TAG`, then `GITHUB_REF_NAME` on a GitHub tag ref, then local Git. */
   gitTag: () => EnvSource
-  /**
-   * Parse a JSON value. In `env.server`, validate it with `env.json(env.schemaFrom(module, exportName))`.
-   * With `mode: "build"`, pass the Standard Schema itself. Without a schema, the value is `unknown`.
-   */
   json: {
     (options?: EnvTypedVariableOptions<unknown>): EnvVariableDeclaration
     (schema: EnvSchemaModuleReference | StandardSchemaLike, options?: EnvTypedVariableOptions<unknown>): EnvVariableDeclaration
   }
-  /**
-   * Parse a list separated by commas or line breaks. Items are trimmed and empty items are dropped. Pass `env.number()`, `env.boolean()`,
-   * or `env.enum()` to parse each item, for example `env.list(env.number())`.
-   */
   list: {
     (options?: EnvTypedVariableOptions<readonly EnvListItem[]>): EnvVariableDeclaration
     (item: EnvVariableDeclaration, options?: EnvTypedVariableOptions<readonly EnvListItem[]>): EnvVariableDeclaration
   }
-  /** Parse a finite number. */
   number: (options?: EnvTypedVariableOptions<number>) => EnvVariableDeclaration
   packageJson: (path: string) => EnvSource
   provider: (provider: string, key: string) => EnvSource
-  /**
-   * Validate a Server Env value with a Standard Schema exported by a module, for example `env.schemaFrom("./server/env.schema.ts", "apiUrl")`.
-   * The server build imports the module, so refinements and transforms run on every resolution.
-   */
   schemaFrom: (module: string, exportName?: string) => EnvSchemaModuleReference
   source: (name: string | string[], options?: { canonical?: boolean }) => EnvSource
 }
@@ -257,7 +238,6 @@ function jsonVariable(
   return typedVariable(createRuntimeValueSchema(Object.freeze({ kind: "json" })), schemaOrOptions ?? {})
 }
 
-/** Wrap a build-time Standard Schema so that it gets the parsed JSON value. */
 function jsonStandardSchema(schema: StandardSchemaLike): StandardSchemaLike {
   const validate = schema["~standard"].validate
   return {
@@ -294,17 +274,6 @@ function isDeclaration(value: unknown): value is EnvVariableDeclaration {
   }
 }
 
-function isInspectableRecord(value: unknown): boolean {
-  try {
-    if (!isRuntimeRecord(value)) return false
-    Reflect.ownKeys(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 interface DeclarationOptions {
   default: unknown
   mode: EnvMode | undefined
@@ -315,36 +284,44 @@ interface DeclarationOptions {
   type: string | undefined
 }
 
-// Read options once so Proxy traps cannot bypass the declaration diagnostic.
+const declarationOptionKeys: ReadonlySet<string> = new Set(["default", "mode", "optional", "schema", "secret", "source", "type"])
+
+function copyOptions(options: EnvVariableOptions): EnvVariableOptions | undefined {
+  if (!isRuntimeRecord(options)) return undefined
+  return Object.fromEntries(Object.getOwnPropertyNames(options).map(key => [key, options[key]]))
+}
+
 function readDeclarationOptions(options: EnvVariableOptions): DeclarationOptions {
-  if (!isInspectableRecord(options)) {
+  let snapshot: EnvVariableOptions | undefined
+  try {
+    snapshot = copyOptions(options)
+  }
+  catch (cause) {
+    throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object.", cause })
+  }
+  if (!snapshot) {
     throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
   }
-  let snapshot: DeclarationOptions
-  let required: unknown
-  try {
-    // JavaScript config can still pass the removed `required` key.
-    required = Reflect.get(options, "required")
-    snapshot = {
-      default: options.default,
-      mode: options.mode,
-      optional: options.optional === true,
-      schema: options.schema,
-      secret: options.secret,
-      source: options.source,
-      type: options.type,
+  for (const key of Object.keys(snapshot)) {
+    if (key === "required") {
+      throw envErrorDiagnostics.ENV_R0006({ message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing." })
+    }
+    if (!declarationOptionKeys.has(key)) {
+      throw envErrorDiagnostics.ENV_R0005({ message: `env() does not accept ${key}. Use default, mode, optional, schema, secret, source, or type.` })
     }
   }
-  catch {
-    throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
-  }
-  if (required !== undefined) {
-    throw envErrorDiagnostics.ENV_R0006({ message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing." })
-  }
-  if (snapshot.optional && snapshot.default !== undefined) {
+  if (snapshot.optional === true && snapshot.default !== undefined) {
     throw envErrorDiagnostics.ENV_R0006({ message: "env() cannot use both optional and default. A default makes the value always present." })
   }
-  return snapshot
+  return {
+    default: snapshot.default,
+    mode: snapshot.mode,
+    optional: snapshot.optional === true,
+    schema: snapshot.schema,
+    secret: snapshot.secret,
+    source: snapshot.source,
+    type: snapshot.type,
+  }
 }
 
 function createDeclaration(options: DeclarationOptions, schema: unknown, type: string | undefined): EnvVariableDeclaration {
@@ -399,18 +376,12 @@ export function runtimeValueSchema(declaration: EnvVariableDeclaration): EnvValu
   if (runtimeSchemas.get(declaration) === schema && isRuntimeValueSchema(schema)) {
     return runtimeSchemaParsers.get(schema.safeParse)
   }
-  // Cloned config reaches this path. Fail closed when reflection throws, for example on a revoked Proxy.
-  try {
-    const declarationToken = Object.getOwnPropertyDescriptor(declaration, runtimeSchemaProperty)?.value
-    if (declarationToken !== runtimeSchemaToken || !isRuntimeRecord(schema)) return undefined
-    const schemaToken = Object.getOwnPropertyDescriptor(schema, runtimeSchemaProperty)?.value
-    if (schemaToken !== runtimeSchemaToken || !hasOnlyRuntimeSchemaKeys(schema)) return undefined
-    const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")?.value
-    return typeof safeParse === "function" ? runtimeSchemaParsers.get(safeParse) : undefined
-  }
-  catch {
-    return undefined
-  }
+  const declarationToken = Object.getOwnPropertyDescriptor(declaration, runtimeSchemaProperty)?.value
+  if (declarationToken !== runtimeSchemaToken || !isRuntimeRecord(schema)) return undefined
+  const schemaToken = Object.getOwnPropertyDescriptor(schema, runtimeSchemaProperty)?.value
+  if (schemaToken !== runtimeSchemaToken || !hasOnlyRuntimeSchemaKeys(schema)) return undefined
+  const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")?.value
+  return typeof safeParse === "function" ? runtimeSchemaParsers.get(safeParse) : undefined
 }
 
 function isRuntimeValueSchema(schema: unknown): schema is RuntimeValueSchema {

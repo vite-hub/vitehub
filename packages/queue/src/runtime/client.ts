@@ -20,7 +20,6 @@ async function loadNamedQueueDefinition(name: string) {
     return await loadQueueDefinition(name)
   }
   catch (cause) {
-    // Names can come from external input. Only a safe identifier goes into the `why`.
     throw queueErrorDiagnostics.QUEUE_DEFINITION_LOAD_FAILED({ cause, queue: normalizePublicQueueIdentifier(name) })
   }
 }
@@ -87,8 +86,6 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
 }
 
 async function useDynamicQueue(name: string): Promise<QueueClient> {
-  // A disabled Queue loads no definitions, so say so first: QUEUE_DEFINITION_NOT_FOUND
-  // would tell the developer to add a queue file that already exists.
   const config = getActiveQueueConfig()
   if (config === false) {
     throw queueErrorDiagnostics.QUEUE_DISABLED()
@@ -116,7 +113,6 @@ async function sendDynamicQueue(name: string, payload: unknown, options?: QueueE
     queue = await useDynamicQueue(name)
   }
   catch (error) {
-    // A provider failure while the client starts is a runtime error. Config errors still throw.
     if (isQueueError(error, ["QUEUE_PROVIDER_FAILED"])) return [error, undefined]
     throw error
   }

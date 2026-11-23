@@ -1,5 +1,6 @@
 import { installViteHubPageTools, installViteHubSiteVisitor, registerViteHubPageAccount, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleAuthorizedSections, installedConsoleAccessPolicy } from "./access-policy.ts"
@@ -90,7 +91,8 @@ export function consolePageAccount({ user, signOut }: ConsolePageUser): ViteHubP
 /**
  * Registers the **Console** link in the page tools pill, and installs the page tools, so an app with the Console and no
  * Comments gets them too. With Auth, it also registers the account of the pill: the signed-in user and a sign-out of
- * the app. Generated Console output calls this with the app base.
+ * the app. Generated Console output calls this with the app base. A build serves the page tools only on the origins of
+ * `vitehub({ publicUrl })`, when it is set. A development server serves them on every origin.
  */
 export function installConsolePageTool(nitroApp: unknown, options: ConsolePageToolOptions): void {
   if (options.site) installViteHubSiteVisitor(options.site)
@@ -122,5 +124,5 @@ export function installConsolePageTool(nitroApp: unknown, options: ConsolePageTo
       return await consolePageToolAllowed(request, { user: user ?? (options.site ? siteUser(options.site) : undefined) })
     },
   })
-  installViteHubPageTools(nitroApp, { base: options.base })
+  installViteHubPageTools(nitroApp, { base: options.base, origins: isConsoleDevelopmentBuild() ? [] : configuredPublicOrigins() })
 }

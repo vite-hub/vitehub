@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { isDocsWorkspaceLayout } from "#docs/navigation"
+
 const { banner } = useDocsConfig()
 const found = useDocsPage()
 // A tutorial with a code panel uses the whole page column, half for prose and half for files.
@@ -6,6 +8,10 @@ const hasCodePanel = computed(() => found.value?.page.codePanel === true)
 // Pages show the sidebar unless they set `sidebar: false`. A page with `sidebar: "collapsed"`, and a code panel tutorial,
 // shows a narrow strip until the reader opens the sidebar.
 const sidebar = useDocsSidebar()
+// A `playground` or `learn` page, and an app page that sets `sidebar: "collapsed"` in its page meta, fill the viewport
+// under the header. Markdown pages with a collapsed sidebar, and code panel tutorials, keep the window scroll.
+const route = useRoute()
+const fills = computed(() => isDocsWorkspaceLayout(found.value?.page.layout) || (sidebar.value.collapsible && route.meta.sidebar === "collapsed"))
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -29,15 +35,20 @@ const docsShellUi = {
           </UPageAside>
         </template>
 
-        <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-        <div id="docs-content" tabindex="-1" class="relative">
-          <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
-          <!-- A page with a collapsible sidebar, such as a playground, fills the viewport, so it has no banner. -->
-          <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
-            <span class="text-muted">{{ banner }}</span>
-          </div>
+        <!-- The window does not scroll. A page that is taller than the viewport, such as the playground intro on a phone, scrolls in here. -->
+        <div v-if="fills" id="docs-content" tabindex="-1" class="vh-docs-fill">
+          <slot />
         </div>
-        <slot />
+        <template v-else>
+          <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
+          <div id="docs-content" tabindex="-1" class="relative">
+            <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
+            <div v-if="banner && !sidebar.collapsible" class="flex min-h-10 items-center justify-center border-b border-default bg-default px-4 py-2 text-center text-sm/5">
+              <span class="text-muted">{{ banner }}</span>
+            </div>
+          </div>
+          <slot />
+        </template>
       </UPage>
     </UMain>
   </DocsAppShell>
@@ -61,6 +72,16 @@ const docsShellUi = {
 
 .vh-skip-link:focus {
   transform: none;
+}
+
+/* One cell as tall as the viewport under the header. The root of the page is exactly that size, so `height: 100%` inside it
+   fills the viewport. Content that is taller scrolls in here. */
+.vh-docs-fill {
+  display: grid;
+  height: calc(100dvh - var(--ui-header-height));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: auto;
 }
 
 @media (min-width: 64rem) {
@@ -101,4 +122,11 @@ const docsShellUi = {
 
 }
 
+</style>
+
+<style>
+/* The fill column scrolls instead of the window. */
+:root:has(.vh-docs-fill) {
+  overflow: hidden;
+}
 </style>

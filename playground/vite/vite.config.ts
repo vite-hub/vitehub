@@ -36,7 +36,6 @@ const inputByMode: Record<ViteHubMode, string> = {
   workflow: "src/server-workflow.ts",
 }
 
-// `VITEHUB_VITE_MODE` picks the mode for CI and the `vitehub` CLI, which load this config without `--mode`.
 function resolveBuildMode(viteMode: string): ViteHubMode {
   const mode = process.env.VITEHUB_VITE_MODE
   if (isViteHubMode(mode)) return mode
@@ -144,7 +143,6 @@ export default defineConfig(async ({ mode }) => {
     const { hubWorkflow } = await import("@vite-hub/workflow/vite")
     return {
       ...baseConfig,
-      // The Workflow output serves this mode's app, not the default `src/server.ts`.
       plugins: [hubWorkflow({}, { includeUserAppEntry: "server-workflow.ts" })],
     }
   }

@@ -24,7 +24,6 @@ export function createTestDatabaseClient(root: string, migrationsDir: string): C
       // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
       const { readMigrationFiles } = await import("drizzle-orm/migrator")
       for (const migration of readMigrationFiles({ migrationsFolder })) {
-        // libSQL runs only the first statement of a part, so a hand-written part is cut at its statements.
         await client.migrate(migration.sql.flatMap(part => migrationParts(part, "sqlite")))
       }
     }

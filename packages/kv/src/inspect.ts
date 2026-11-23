@@ -50,7 +50,6 @@ function cloudflareStores(options: KVOptions | undefined, env: Record<string, st
 export function inspectKVResources(options: KVOptions | undefined, provisionRoot: string, env: Record<string, string | undefined> = process.env, hosting?: string): ViteHubResourceSummary[] {
   const stores = cloudflareStores(options, env, hosting)
   if (!stores.size) return []
-  // `KV_NAMESPACE_ID` fills only a store without a configured id, so resolving without it shows which ids config sets.
   const configured = cloudflareStores(options, { ...env, KV_NAMESPACE_ID: undefined }, hosting)
   const provisionState = readProvisionStateSync(provisionRoot)
   return [...stores].map(([storeName, store]): ViteHubResourceSummary => {

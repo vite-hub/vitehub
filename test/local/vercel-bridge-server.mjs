@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Standalone entry for the Vercel function bridge. Runs in its own process so
-// the orchestrator's synchronous suite spawns never block the server.
 import { parseArgs } from "node:util"
 import { resolve } from "node:path"
 

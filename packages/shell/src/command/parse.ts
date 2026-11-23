@@ -1,11 +1,11 @@
-import { BinCmdOperator, LangVariant, RedirOperator, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
+import { BinCmdOperator, LangVariant, RedirOperator, createSourceIndex, walk, type File, type Stmt, type Word, type WordPart } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 import { parseShell } from "./sh-syntax.ts"
 
 type SourceIndex = (byteOffset: number) => number
 
-export function wordText(word: Word, source: string, toIndex = createSourceIndex(source)): string {
+export function wordText(word: Word, source: string, toIndex: SourceIndex = createSourceIndex(source)): string {
   return word.parts.map(part => wordPartText(part, source, toIndex, false)).join("")
 }
 
@@ -103,9 +103,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const toIndex = createSourceIndex(command)
-  // sh-syntax joins the next line to a comment that ends in a backslash. Bash does not.
-  const scanned = withoutHeredocBodies(file, command, toIndex)
-  if (scanned === undefined || stripLineContinuations(scanned).commentContinuation) {
+  if (hasUnterminatedHeredoc(file)) {
     return [{ command, followsPipe: false, invalid: true, words: [] }]
   }
   const leaves: StatementLeaf[] = []
@@ -119,7 +117,7 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
   for (const { negated, stmt, separator } of leaves) {
     const trailingComment = stmt.comments.find(comment => comment.start >= stmt.end)
     const rawEnd = separator?.offset ?? (trailingComment ? toIndex(trailingComment.start) : toIndex(stmt.end))
-    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd))).text
+    const raw = stripLineContinuations(command.slice(cursor, Math.max(cursor, rawEnd)))
     segments.push({
       command: raw,
       followsPipe,
@@ -132,35 +130,15 @@ export async function splitShellCommandSegments(command: string): Promise<ShellC
   return segments
 }
 
-function withoutHeredocBodies(file: File, command: string, toIndex: SourceIndex): string | undefined {
-  let result: string | undefined = command
+function hasUnterminatedHeredoc(file: File): boolean {
+  let unterminated = false
   walk(file, (node) => {
-    if (result === undefined) return false
-    // An empty heredoc has no body range, so blank its terminator line instead.
-    if (node.type === "Redirect" && !node.hdoc && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc)) {
-      result = withoutTerminatorLine(result, node.word ? wordText(node.word, command, toIndex) : "", toIndex(node.end), node.op === RedirOperator.DashHdoc)
-      return result !== undefined
+    if (node.type === "Redirect" && (node.op === RedirOperator.Hdoc || node.op === RedirOperator.DashHdoc) && node.closePos.offset === 0) {
+      unterminated = true
     }
-    if (node.type === "Redirect" && node.hdoc) {
-      const start = toIndex(node.hdoc.start)
-      const end = toIndex(node.hdoc.end)
-      result = result.slice(0, start) + " ".repeat(end - start) + result.slice(end)
-    }
-    return true
+    return !unterminated
   })
-  return result
-}
-
-function withoutTerminatorLine(source: string, delimiter: string, from: number, stripTabs: boolean): string | undefined {
-  let start = source.indexOf("\n", from) + 1
-  while (start > 0 && start < source.length) {
-    const end = source.indexOf("\n", start) === -1 ? source.length : source.indexOf("\n", start)
-    const line = source.slice(start, end)
-    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delimiter) {
-      return source.slice(0, start) + " ".repeat(end - start) + source.slice(end)
-    }
-    start = end + 1
-  }
+  return unterminated
 }
 
 interface StatementLeaf {
@@ -176,7 +154,6 @@ function flattenStatement(
   leaves: StatementLeaf[],
   negated = false,
 ) {
-  // `!` negates the whole pipeline or list, so it stays on the first command.
   if (stmt.cmd?.type === "BinaryCmd") {
     const operator = binaryOperator(stmt.cmd.op, toIndex(stmt.cmd.opPos.offset))
     flattenStatement(stmt.cmd.x!, operator, toIndex, leaves, negated || stmt.negated)
@@ -217,28 +194,8 @@ function binaryOperator(op: number, offset: number): StatementSeparator | undefi
   }
 }
 
-export function createSourceIndex(source: string): SourceIndex {
-  const indexes = [0]
-  let byteOffset = 0
-  for (let index = 0; index < source.length;) {
-    const codePoint = source.codePointAt(index)!
-    byteOffset += utf8Length(codePoint)
-    index += codePoint > 0xffff ? 2 : 1
-    indexes[byteOffset] = index
-  }
-  return offset => indexes[offset] ?? source.length
-}
-
-function utf8Length(codePoint: number): number {
-  if (codePoint <= 0x7f) return 1
-  if (codePoint <= 0x7ff) return 2
-  if (codePoint <= 0xffff) return 3
-  return 4
-}
-
 function stripLineContinuations(command: string) {
   let result = ""
-  let commentContinuation = false
   let quote: "'" | "\"" | undefined
   let ansiCQuoted = false
   let escaped = false
@@ -247,10 +204,7 @@ function stripLineContinuations(command: string) {
     const char = command[index]!
     if (comment) {
       result += char
-      if (char === "\n") {
-        comment = false
-        if (command[index - 1] === "\\") commentContinuation = true
-      }
+      if (char === "\n") comment = false
       continue
     }
     if (escaped) {
@@ -293,5 +247,5 @@ function stripLineContinuations(command: string) {
     }
     result += char
   }
-  return { commentContinuation, text: result }
+  return result
 }

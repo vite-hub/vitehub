@@ -11,7 +11,6 @@ import type { SetupUpdatePlan } from "../src/setup/index.ts"
 const sha = "01898b8161a1b2c3d4e5f60718293a4b5c6d7e8f"
 const preview = (name: string) => `https://pkg.pr.new/vite-hub/vitehub/${name}@${sha}`
 
-/** npm answers `latest` for `published`, pkg.pr.new has the build of `published`, and both answer 404 for the rest. */
 function registry(published: Record<string, string>) {
   const requests: string[] = []
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -25,7 +24,6 @@ function registry(published: Record<string, string>) {
   return { fetch, requests }
 }
 
-/** A pnpm workspace shaped like the apps that pin ViteHub by hand: an override block, a catalog, and release-age entries. */
 const workspaceYaml = `packages:
   - site
   - cli
@@ -79,7 +77,6 @@ describe("vitehub update", () => {
     expect(spawn).toHaveBeenCalledWith("pnpm", ["update", "--recursive", "vite-hub", "@vite-hub/*"], expect.objectContaining({ cwd: root, stdout: "stderr" }))
     expect(JSON.parse(await readFile(join(root, "site/package.json"), "utf8")).dependencies).toEqual({ "@vite-hub/agent": "^0.1.0", "nuxt": "^5.0.0", "vite-hub": "catalog:" })
     expect(JSON.parse(await readFile(join(root, "cli/package.json"), "utf8")).devDependencies).toEqual({ "@vite-hub/cli": "0.1.0" })
-    // @vite-hub/kit has no npm release, so its override goes. Comments, other entries, and pinned other packages stay.
     expect(await readFile(join(root, "pnpm-workspace.yaml"), "utf8")).toBe(`packages:
   - site
   - cli
@@ -118,9 +115,7 @@ minimumReleaseAgeExclude:
     const yaml = await readFile(join(root, "pnpm-workspace.yaml"), "utf8")
     expect(yaml).toContain(`  vite-hub: ${preview("vite-hub")}\n`)
     expect(yaml).toContain(`  "@vite-hub/kit": ${preview("@vite-hub/kit")}\n`)
-    // pnpm 11 blocks tarball URLs in subdependencies, and preview builds depend on each other by URL.
     expect(yaml.endsWith("\n# pkg.pr.new builds depend on other pkg.pr.new builds.\nblockExoticSubdeps: false\n")).toBe(true)
-    // A preview does not install npm releases, so the release-age list stays as it is.
     expect(yaml).toContain("  - 'vite-hub@0.0.4'\n")
   })
 
@@ -164,7 +159,6 @@ minimumReleaseAgeExclude:
     expect(await readFile(join(root, "package.json"), "utf8")).toBe(`${JSON.stringify({
       dependencies: { "@vite-hub/kv": "~0.1.0", "vite-hub": "^0.1.0" },
       name: "app",
-      // npm rejects an override of a direct dependency with another specifier (EOVERRIDE), so those copy the dependency.
       overrides: { "@vite-hub/kv": "~0.1.0", "@vite-hub/runtime": "0.1.0", "vite-hub": { ".": "^0.1.0", "@vite-hub/env": "0.1.0" } },
     }, null, "\t")}\n`)
     expect(existsSync(join(root, "pnpm-workspace.yaml"))).toBe(false)

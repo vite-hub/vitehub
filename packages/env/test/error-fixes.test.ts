@@ -9,7 +9,6 @@ import { envErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { parseEnvSchema } from "../src/env-schema/profile.ts"
 import { envSchema } from "../src/env-schema/index.ts"
 
-// These published codes have no call site left.
 const unused = new Set(["ENV_R0007", "ENV_R0024"])
 
 it("gives each raised Env code a fix and its own docs page", () => {

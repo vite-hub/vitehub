@@ -1,4 +1,4 @@
-import type { DocsAppPage, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
+import type { DocsAppPage, DocsLayout, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
 
 /** A link that the site options add to the shell, such as a tutorials page or a community chat. */
 export interface DocsLink {
@@ -169,11 +169,12 @@ export function docsSectionHome(section: DocsSection<DocsAppPage>): string {
 export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
 
 /**
- * The first start link that opens a docs page outside the docs base, such as an Introduction outside every section.
- * It leads the start section, so the links that open it begin there. `null` when no start link is a docs page.
+ * The first start link that opens a docs page to read outside the docs base, such as an Introduction outside every
+ * section. It leads the start section, so the links that open it begin there. A `home`, `playground` or `learn` page is
+ * not a page to read first. `null` when no start link is such a page.
  */
 export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
-  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home").map(page => page.path))
+  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)).map(page => page.path))
   const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
   return link ? normalizeDocsPath(link.to) : null
 }
@@ -486,6 +487,14 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
  * that serves prerendered HTML reads it.
  */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/**
+ * Whether a layout fills the page with a workspace: `playground` and `learn`. Such a page renders in the docs shell
+ * wherever it lives, and fills the viewport under the header.
+ */
+export function isDocsWorkspaceLayout(layout: DocsLayout | undefined): layout is "playground" | "learn" {
+  return layout === "playground" || layout === "learn"
+}
 
 /** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
 export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {

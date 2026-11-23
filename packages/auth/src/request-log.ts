@@ -21,10 +21,8 @@ export interface AuthRequestOutcome {
   userId?: string
 }
 
-// Better Auth gets only the Request. `handleAuthRequest()` runs it in this store, so endpoints get the event of the route.
 const authHandlerEvent = new AsyncLocalStorage<ViteHubContext>()
 
-// Requests that already have an `auth` outcome, so a later, less exact source does not replace it.
 const recorded = new WeakSet<object>()
 
 /** Run a Better Auth handler with the request event that endpoints, hooks, and the logger get. */
@@ -74,7 +72,6 @@ function errorCode(value: unknown): string | undefined {
 
 const signInPath = /^\/(?:sign-in|sign-up|callback|oauth2\/callback|magic-link\/verify|passkey\/verify-authentication|siwe\/verify|two-factor\/verify-|email-otp\/verify-email)/
 
-/** The OAuth provider of a callback path or a social sign-in body, when the app configures it. */
 function provider(ctx: GenericEndpointContext): string | undefined {
   const path = ctx.path ?? ""
   const value: unknown = path.startsWith("/callback/") || path.startsWith("/oauth2/callback/")
@@ -103,14 +100,11 @@ async function redirectError(ctx: GenericEndpointContext, headers: ConstructorPa
   }
 }
 
-/** The outcome of one endpoint: an error, a redirect to the error page, or a new session. Else `undefined`. */
 async function endpointOutcome(ctx: GenericEndpointContext, createdUserId: string | undefined): Promise<AuthRequestOutcome | undefined> {
   const path = ctx.path ?? ""
   const oauthProvider = provider(ctx)
   const fields = { path, ...(oauthProvider ? { provider: oauthProvider } : {}) }
-  // Better Auth passes the endpoint result to after-hooks outside the public middleware input type.
   const returned: unknown = Reflect.get(ctx.context, "returned")
-  // `ctx.redirect()` throws Better Call's APIError, not Better Auth's, so `instanceof` misses it.
   const redirect = isAPIError(returned) && returned.status === "FOUND"
   if (isAPIError(returned) && !redirect) {
     const code = errorCode(returned.body?.code)
@@ -147,7 +141,6 @@ export function createRequestLogPlugin(): BetterAuthPlugin {
   }
 }
 
-/** Keeps URL validation reasons, not the submitted URL, and removes URLs and emails from other messages. */
 function scrub(text: string): string {
   const validation = /^(Invalid (?:origin|callbackURL|redirectURL|errorCallbackURL|newUserCallbackURL|redirect URL)):/i.exec(text)
   return validation?.[1] ?? text.replace(/\bhttps?:\/\/[^\s"'`<>]+/gi, "[url]").replace(/[?#][^\s"'`<>]*/g, "").replace(/[^\s"'`<>@]+(?:@|%40)[^\s"'`<>@]+\.[a-z]{2,}/gi, "[email]").slice(0, 500)
@@ -161,7 +154,6 @@ type BetterAuthLogger = NonNullable<BetterAuthOptions["logger"]>
  * hold provider responses.
  */
 export function withRequestLogger(logger: BetterAuthLogger | undefined): BetterAuthLogger {
-  // Better Auth's console logger, made on the first message, when the app has no `log` of its own.
   let fallback: ReturnType<typeof createLogger> | undefined
   return {
     ...logger,

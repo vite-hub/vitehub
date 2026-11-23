@@ -1,15 +1,9 @@
 import type { MotionEffect } from "../registry.ts";
-import { writeMotionStyle } from "../registry.ts";
 import { createSpring } from "../spring.ts";
 import type { Spring } from "../spring.ts";
 
-// The elastic panel edge of the prototype. Within its limits a divider stays under the pointer, as its component puts
-// it. Past a limit the divider stays and its line bends toward the pointer, up to 60px, and on release it springs back
-// straight with a loose spring that passes straight once.
 const springBack = { stiffness: 500, damping: 14 };
-/** The bend comes near this many pixels on a long pull: `over / (1 + |over| / reach)`. */
 const reach = 60;
-/** The bend is drawn at least this far from each end of the line. */
 const inset = 40;
 
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -21,24 +15,26 @@ type Axis = "x" | "y";
 interface Line {
   color: string;
   width: number;
-  /** True when the line is part of the divider, so it hides while the drawn line bends. */
-  own: boolean;
+  /**
+   * The element that draws the line, when the line is part of the divider: the divider itself, for its own background
+   * or a pseudo-element, or the thin child that is the line. It hides while the drawn line bends, and a grip or a label
+   * beside it in the divider stays.
+   */
+  element?: HTMLElement;
 }
 
 interface Bend {
   handle: HTMLElement;
-  /** The axis that the divider moves along. A vertical divider moves along x. */
   axis: Axis;
   line: Line;
-  /** Where the pointer is on the line, in client pixels. */
   at: number;
   spring: Spring;
   lane?: { svg: SVGSVGElement; path: SVGPathElement };
+  opacity?: { value: string; priority: string };
 }
 
 const bends = new WeakMap<HTMLElement, Bend>();
 
-/** A vertical divider (`aria-orientation="vertical"`, or taller than wide) moves along x. */
 function axisOf(handle: HTMLElement, rect: DOMRect): Axis {
   const orientation = handle.getAttribute("aria-orientation");
   if (orientation === "vertical") return "x";
@@ -50,29 +46,28 @@ function shows(color: string): boolean {
   return !/^transparent$|rgba\([^)]*,\s*0\)$|\/\s*0\)$/.test(color.trim());
 }
 
-/**
- * The line that people see: the divider itself, its `::before` or `::after`, or a thin child, as the Console, the
- * workspace, and the agent session draw theirs. A divider with no line of its own, such as the edge of a Nuxt UI
- * dashboard panel, gets a drawn line in the border color while it bends.
- */
 function lineOf(handle: HTMLElement, axis: Axis): Line {
   const across = (style: CSSStyleDeclaration) => Number.parseFloat(axis === "x" ? style.width : style.height);
-  const styles = [getComputedStyle(handle), getComputedStyle(handle, "::before"), getComputedStyle(handle, "::after")];
-  for (const child of handle.children) styles.push(getComputedStyle(child));
-  for (const style of styles) {
+  const styles: Array<[CSSStyleDeclaration, HTMLElement]> = [
+    [getComputedStyle(handle), handle],
+    [getComputedStyle(handle, "::before"), handle],
+    [getComputedStyle(handle, "::after"), handle],
+  ];
+  for (const child of handle.children) if (child instanceof HTMLElement) styles.push([getComputedStyle(child), child]);
+  for (const [style, element] of styles) {
     const width = across(style);
     if (style.display !== "none" && shows(style.backgroundColor) && width > 0 && width <= 4) {
-      return { color: style.backgroundColor, width, own: true };
+      return { color: style.backgroundColor, width, element };
     }
   }
-  return { color: "var(--ui-border, var(--vh-border, currentColor))", width: 1, own: false };
+  return { color: "var(--ui-border, var(--vh-border, currentColor))", width: 1 };
 }
 
 function draw(bend: Bend, amount: number): void {
   const { handle, axis, line } = bend;
   if (Math.abs(amount) < 0.5 && !bend.spring.active) {
     bend.lane?.svg.remove();
-    writeMotionStyle(handle, { opacity: null });
+    if (line.element && bend.opacity) line.element.style.setProperty("opacity", bend.opacity.value, bend.opacity.priority);
     if (bends.get(handle) === bend) bends.delete(handle);
     return;
   }
@@ -87,16 +82,18 @@ function draw(bend: Bend, amount: number): void {
     path.style.strokeWidth = `${line.width}px`;
     svg.append(path);
     bend.lane = { svg, path };
+    if (line.element) {
+      const { style } = line.element;
+      bend.opacity = { value: style.opacity, priority: style.getPropertyPriority("opacity") };
+      style.setProperty("opacity", "0");
+    }
   }
   const { svg, path } = bend.lane;
   if (!svg.isConnected) handle.after(svg);
-  if (line.own) writeMotionStyle(handle, { opacity: "0" });
-  // In CSS pixels of the handle's parent, where the line is drawn, also on a page with CSS `zoom`.
   const zoom = handle.offsetHeight ? handle.getBoundingClientRect().height / handle.offsetHeight || 1 : 1;
   const scaled = (box: DOMRect) => ({ left: box.left / zoom, top: box.top / zoom, width: box.width / zoom, height: box.height / zoom });
   const origin = scaled(svg.getBoundingClientRect());
   const rect = scaled(handle.getBoundingClientRect());
-  // In the coordinates of the drawn line: `u` along the axis the divider moves, `v` along the line.
   const u = (axis === "x" ? rect.left + rect.width / 2 - origin.left : rect.top + rect.height / 2 - origin.top);
   const from = axis === "x" ? rect.top - origin.top : rect.left - origin.left;
   const to = from + (axis === "x" ? rect.height : rect.width);
@@ -128,7 +125,6 @@ export const divider: MotionEffect = {
     const along = (pointer: PointerEvent) => axis === "x" ? pointer.clientX : pointer.clientY;
     const across = (pointer: PointerEvent) => axis === "x" ? pointer.clientY : pointer.clientX;
     const center = (box: DOMRect) => axis === "x" ? box.left + box.width / 2 : box.top + box.height / 2;
-    // Where on the divider the pointer took it, so a press off its center is not a pull.
     const grab = along(event) - center(rect);
     let bend = bends.get(handle);
     if (!bend) {
@@ -140,11 +136,9 @@ export const divider: MotionEffect = {
     active.at = across(event);
     let pointer = event;
     let frame = 0;
-    // The component moves the divider in its own `pointermove` listener, after this one, so read it in the next frame.
     const measure = () => {
       frame = 0;
       const box = handle.getBoundingClientRect();
-      // In CSS pixels, as the bend is drawn, also on a page with CSS `zoom`.
       const zoom = handle.offsetHeight ? box.height / handle.offsetHeight || 1 : 1;
       const over = (along(pointer) - grab - center(box)) / zoom;
       active.at = across(pointer);

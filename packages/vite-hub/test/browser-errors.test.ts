@@ -29,13 +29,11 @@ function post(body: unknown, headers: Record<string, string> = { origin, "sec-fe
 
 type Listener = (event: { error?: unknown, reason?: unknown, payload?: unknown }) => void
 
-/** Session storage of one tab, kept across page loads. */
 function tabStorage() {
   const items = new Map<string, string>()
   return { getItem: (key: string) => items.get(key) ?? null, setItem: (key: string, value: string) => void items.set(key, value) }
 }
 
-/** Runs the page reporter as a browser would, with a fake `fetch`. Each call is one page load. */
 function runReporter(path = "/orders", sessionStorage: unknown = tabStorage()) {
   const listeners = new Map<string, Listener>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
@@ -45,7 +43,6 @@ function runReporter(path = "/orders", sessionStorage: unknown = tabStorage()) {
   return { listeners, fetch, bodies }
 }
 
-/** Runs the Nuxt client plugin with fake Nuxt hooks. */
 function runNuxtPlugin(storage = tabStorage()) {
   const hooks = new Map<string, (payload: unknown) => void>()
   const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(null, { status: 204 }))
@@ -114,7 +111,6 @@ describe("browser error ingest", () => {
     expect(fields({ ...handled, fields: Object.fromEntries(Array.from({ length: 22 }, (_, index) => [`field${index}`, index])) }))
       .toEqual({ fields: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])), droppedFields: 2 })
     expect(fields({ ...handled, fields: ["status"] })).toEqual({ fields: undefined, droppedFields: 1 })
-    // The page counts what it dropped before sending.
     expect(fields({ ...handled, fields: { status: 503 }, droppedFields: 2 })).toEqual({ fields: { status: 503 }, droppedFields: 2 })
     expect(fields({ ...handled, droppedFields: -1 })).toEqual({ fields: undefined, droppedFields: undefined })
     expect(parseBrowserErrorReport({ ...handled, action: 42 })).toMatchObject({ kind: "handled", message: "x is undefined" })
@@ -368,7 +364,6 @@ describe("reportBrowserError", () => {
     listeners.get("error")!({ error: new TypeError("x is undefined") })
     reportBrowserError(new TypeError("Failed to fetch"), { action: "save-order" })
     reportBrowserError(new TypeError("Failed to fetch"), { action: "save-order" })
-    // The same message from another action is another failure.
     reportBrowserError(new TypeError("Failed to fetch"), { action: "load-cart" })
     expect(fetch).toHaveBeenCalledTimes(3)
     for (let index = 0; index < 20; index++) reportBrowserError(new Error(`failure ${index}`))
@@ -378,11 +373,9 @@ describe("reportBrowserError", () => {
   it("drops fields the server would refuse before sending, and counts them", () => {
     const { bodies } = runReporter()
     const fields = { status: 503, note: "n".repeat(500), order: { id: 1 }, "bad key": 1, ...Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])) }
-    // A page without TypeScript can pass any value.
     Reflect.apply(reportBrowserError, undefined, [new Error("Could not save"), { action: "save-order", fields }])
     const [body] = bodies()
     expect(body!.fields).toEqual({ status: 503, note: "n".repeat(300), ...Object.fromEntries(Array.from({ length: 18 }, (_, index) => [`field${index}`, index])) })
-    // `order`, `bad key`, and the two fields after the 20th.
     expect(body!.droppedFields).toBe(4)
     expect(parseBrowserErrorReport(body)).toMatchObject({ fields: body!.fields, droppedFields: 4 })
   })

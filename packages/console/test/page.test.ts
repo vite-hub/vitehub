@@ -46,7 +46,6 @@ describe("renderConsolePage", () => {
       expect(rendered, path).toContain(`<head>\n    ${preload}`)
       expect(rendered.indexOf(preload), path).toBeLessThan(rendered.indexOf("<script"))
     }
-    // Without a session cookie, and on an invitation, the page reads nothing before it knows that it needs to.
     expect(renderConsolePage(page, visit("/"))).not.toContain('rel="preload"')
     expect(renderConsolePage(page, visit("/invite/abc", session))).not.toContain('rel="preload"')
   })

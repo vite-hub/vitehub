@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { denoOrganization } from "../src/setup/deploy/deno.ts"
+import { readSetupLinks } from "../src/setup/link.ts"
 import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
 import type { HostCliRun } from "@vite-hub/internal/host-credentials"
@@ -27,7 +29,6 @@ async function fixture(name: string): Promise<string> {
   return await readFile(join(import.meta.dirname, "fixtures/host-api", name), "utf8")
 }
 
-/** A fetch that answers `METHOD url` (without the query) from a recorded response, and records each request. */
 function hostApi(routes: Record<string, Route>): { fetch: typeof fetch, requests: RecordedRequest[] } {
   const requests: RecordedRequest[] = []
   const fakeFetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -57,11 +58,9 @@ async function readLink(root: string): Promise<SetupLinkFile> {
   return JSON.parse(await readFile(join(root, ".vitehub/link.json"), "utf8")) as SetupLinkFile
 }
 
-/** A `wrangler` login that answers `auth token --json` and `whoami --json`, and records each call. */
 function wranglerLogin(accounts: readonly { id: string, name: string }[]): { run: HostCliRun, calls: string[] } {
   const calls: string[] = []
   const run: HostCliRun = async (command, args) => {
-    // A project-local Wrangler runs through Node with its entry point before the CLI arguments.
     if (command === process.execPath) expect(args[0]).toMatch(/[/\\]wrangler[/\\]/u)
     else expect(command).toBe("wrangler")
     const cliArgs = command === process.execPath ? args.slice(1) : args
@@ -110,7 +109,6 @@ describe("vitehub link", () => {
     const { exitCode, json, stdout } = await runSetup<SetupLinkResult>(["link", "--json"], root, {}, { fetch: api.fetch, runHostCli: wrangler.run })
 
     expect(exitCode).toBe(0)
-    // The package.json name, normalized as the build does: `@acme/My App` deploys as `acme-my-app`.
     expect(api.requests.map(request => request.url)).toEqual([`https://api.cloudflare.com/client/v4/accounts/${cloudflareAccount}/workers/workers/acme-my-app`])
     expect(json).toMatchObject({ credentials: { source: "host-cli" } })
     expect(wrangler.calls).toEqual(["wrangler auth token --json --env-file .env --config wrangler.json", "wrangler whoami --json --env-file .env --config wrangler.json"])
@@ -263,7 +261,7 @@ describe("vitehub link", () => {
     expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
-  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
+  it.each([{}, { DENO_DEPLOY_TOKEN: TOKEN }, { DENO_DEPLOY_ORG: "acme" }])("stores an unverified Deno link without calling an API with env %j", async (env) => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`) })
 
     const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--json"], root, env)
@@ -271,6 +269,57 @@ describe("vitehub link", () => {
     expect(exitCode).toBe(0)
     expect(json).toMatchObject({ credentials: null, link: { host: "deno", project: { name: "my-app" }, verified: false } })
     expect(json.link.account).toBeUndefined()
+  })
+
+  it.each([false, true])("verifies and saves the effective Deno organization with --account=%s", async (explicitAccount) => {
+    const root = await createProject({
+      "node_modules/.bin/deno": "#!/usr/bin/env node\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`),
+    })
+    const calls: string[][] = []
+    const runHostCli: HostCliRun = async (_command, args) => {
+      calls.push(args.slice(args.indexOf("deploy")))
+      return { exitCode: 0, stdout: JSON.stringify({ productionUrl: "https://my-app.acme.deno.net" }) }
+    }
+
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", ...(explicitAccount ? ["--account", "acme"] : []), "--json"], root, { DENO_DEPLOY_ORG: explicitAccount ? "other" : " acme ", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(0)
+    expect(json.link).toMatchObject({ account: { id: "acme" }, host: "deno", project: { name: "my-app" }, verified: true })
+    expect(calls).toEqual([["deploy", "apps", "get", "--json", "--non-interactive", "--org", "acme", "--app", "my-app"]])
+    const [link] = (await readSetupLinks(root)).targets
+    expect(denoOrganization(link, {})).toBe("acme")
+    expect(denoOrganization(link, { DENO_DEPLOY_ORG: "other" })).toBe("acme")
+  })
+
+  it.each([false, true])("reports a missing Deno app as a conflict with --create=%s", async (create) => {
+    const root = await createProject({ "node_modules/.bin/deno": "#!/usr/bin/env node\n", "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`) })
+    const runHostCli: HostCliRun = async () => ({ exitCode: 4, stderr: '{"error":{"code":"NOT_FOUND","message":"Application not found"}}', stdout: "" })
+
+    const { exitCode, json } = await runSetup<{ error: SetupError, rerun?: string }>(["link", "--json", ...(create ? ["--create"] : [])], root, { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(3)
+    expect(json.error).toMatchObject({ code: "SETUP_LINK_PROJECT_NOT_FOUND", fix: expect.stringContaining("Create the app in Deno Deploy first") })
+    expect(json.rerun).toBeUndefined()
+    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
+  })
+
+  it("reports the Deno CLI error without revealing its token", async () => {
+    const root = await createProject({
+      "node_modules/.bin/deno": "#!/usr/bin/env node\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig(`{ host: "deno", name: "my-app" }`),
+    })
+    const runHostCli: HostCliRun = async () => ({ exitCode: 3, stderr: JSON.stringify({ error: { code: "AUTH", message: `Authentication failed: ${TOKEN}` } }), stdout: "" })
+
+    const { exitCode, json, stdout, stderr } = await runSetup<{ error: SetupError }>(["link", "--json"], root, { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: TOKEN }, { runHostCli })
+
+    expect(exitCode).toBe(1)
+    expect(json.error.code).toBe("SETUP_DEPLOY_FAILED")
+    expect(stdout).toContain("Authentication failed: <redacted>")
+    expect(`${stdout}${stderr}`).not.toContain(TOKEN)
+    expect(existsSync(join(root, ".vitehub/link.json"))).toBe(false)
   })
 
   it("exits 2 with the login fix when credentials are missing", async () => {
@@ -348,7 +397,6 @@ describe("vitehub link with several hosts", () => {
       },
     })
 
-    // Linking Vercel again replaces its target, keeps Cloudflare, and says nothing about resources.
     const again = await runSetup<SetupLinkResult>(["link", "--host", "vercel", "--default", "--json"], root, env, { fetch: api().fetch })
     expect(again.stderr).toBe("")
     expect(again.json).toMatchObject({ default: "vercel", hosts: ["cloudflare", "vercel"] })
@@ -358,7 +406,6 @@ describe("vitehub link with several hosts", () => {
     expect(status.json).toMatchObject({ default: "vercel", link: { host: "vercel" }, targets: [{ host: "cloudflare" }, { host: "vercel" }] })
     expect((await runSetup(["status", "--offline"], root, env)).stdout).toContain("my-app on cloudflare in 023e105f4ecef8ad9ca31a8372d0c353; my-app on vercel in team_a1b2c3d4e5f6g7h8i9j0 (default)")
 
-    // Removing the default target leaves the one other target as the default.
     expect((await runSetup(["unlink", "--host", "vercel", "--json"], root)).json).toMatchObject({ host: "vercel", removed: true })
     expect(await readLink(root)).toMatchObject({ default: "cloudflare", targets: { cloudflare: { project: { name: "my-app" } } } })
     expect(Object.keys((await readLink(root)).targets)).toEqual(["cloudflare"])

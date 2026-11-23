@@ -126,7 +126,6 @@ describe("hubRealtime", () => {
 
     expect(config.nitro).toMatchObject({
       preset: "cloudflare-module",
-      // Loaded on the first Realtime request, so the server (Tiptap, ProseMirror, Yjs) stays out of the Worker's start.
       handlers: [expect.objectContaining({ lazy: true, route: "/wiki/_vitehub/realtime/**" })],
       cloudflare: {
         wrangler: {
@@ -140,17 +139,14 @@ describe("hubRealtime", () => {
     expect(config).toMatchObject({
       define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
-    // A plugin sets the keepalive auto-response of the Durable Object at `cloudflare:durable:init`.
     const plugins = (config.nitro as { plugins?: string[] }).plugins ?? []
     const durable = plugins.find(file => file.endsWith("durable-object.mjs"))
     expect(durable).toBeDefined()
-    // The plugin loads with the Worker: it must not import the Realtime server.
     const { readFile } = await import("node:fs/promises")
     await expect(readFile(durable!, "utf8")).resolves.not.toContain("import ")
     const hooks: Array<(durable: unknown, context: { state: unknown, env: unknown }) => void> = []
     const { default: install } = await import(pathToFileURL(durable!).href) as { default: (nitroApp: unknown) => void }
     install({ hooks: { hook: (name: string, fn: (typeof hooks)[number]) => name === "cloudflare:durable:init" && hooks.push(fn) } })
-    // Workerd answers the client's keepalive ping itself, without waking a hibernated Durable Object.
     const autoResponses: unknown[] = []
     vi.stubGlobal("WebSocketRequestResponsePair", class {
       constructor(public request: string, public response: string) {}
@@ -276,7 +272,6 @@ describe("hubRealtime", () => {
     const { readFile } = await import("node:fs/promises")
     const handler = await readFile(join(root, ".vitehub/nitro/realtime/handler.ts"), "utf8")
     expect(handler).toContain(`import { useRealtimeBus } from "@vite-hub/realtime/bus"`)
-    // Without a package.json, the namespace is the root folder name.
     expect(handler).toContain(`createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(expected)}, { namespace: ${JSON.stringify(basename(root))} }) })`)
     const busPlugin = join(root, ".vitehub/nitro/realtime/bus.mjs")
     expect(await readFile(busPlugin, "utf8")).toContain("closeRealtimeBuses()")
@@ -305,7 +300,6 @@ describe("hubRealtime", () => {
     const busFile = join(root, ".vitehub/nitro/realtime/bus.mjs")
     expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { namespace: "my-app" }) })`)
 
-    // The Database integration resolves its Definitions after the config hook.
     dialect = "postgresql"
     await (plugin.buildStart as unknown as () => Promise<void>)()
     expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("vite-hub/database/drizzle").then(module => module.databases), namespace: "my-app" })`)

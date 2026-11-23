@@ -1,17 +1,21 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createHostedKVStorage } from "../../kv/src/runtime/hosted-storage.ts"
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
 import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { readScheduleConsoleRecords } from "../src/runtime/console.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
-import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
+import { createKVScheduleRunStore, createMemoryScheduleRunStore, joinKey } from "../src/runtime/store.ts"
 
 import type { ProcessScheduleEntry, ProcessWakeContext, ProcessWakeDriver, ProcessWakeDriverOptions } from "../src/internal/process-wake-runtime.ts"
-import type { ScheduleDefinition, ScheduleRunListOptions } from "../src/types.ts"
+import type { ScheduleDefinition } from "../src/types.ts"
 
 function record(id: string, options: Partial<ProcessScheduleEntry> = {}): ProcessScheduleEntry {
   return { cron: "* * * * *", id, ...options }
@@ -33,6 +37,75 @@ afterEach(() => {
 })
 
 describe("Process Schedule Runtime", () => {
+  it("runs and records attempts for a long Schedule name on fs-lite", async () => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-schedule-"))
+    const storage = createHostedKVStorage({ store: { base, driver: "fs-lite" } })
+    const scheduleRunStore = createKVScheduleRunStore({ kvStore: {
+      delete: key => storage.removeItem(key),
+      get: key => storage.getItem(key),
+      has: key => storage.hasItem(key),
+      keys: key => storage.getKeys(key),
+      set: (key, value) => storage.setItem(key, value),
+    } })
+    const name = "a".repeat(154)
+    const handler = vi.fn()
+    try {
+      const controller = await installProcessScheduleRuntime({
+        now: () => new Date("2026-07-11T09:00:20.000Z"),
+        registry: { [name]: async () => ({ cron: "0 9 * * *", handler }) },
+        scheduleRunStore,
+      })
+      try {
+        await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+      }
+      finally {
+        await controller.close()
+      }
+      const [run] = await scheduleRunStore.listRuns({ scheduleId: name })
+      expect(run?.status).toBe("succeeded")
+      expect(await scheduleRunStore.listAttempts(run!.id)).toHaveLength(1)
+    }
+    finally {
+      await storage.dispose()
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+
+  it("recovers a retained run and attempt without legacy indexes", async () => {
+    const data = new Map<string, unknown>()
+    const scheduleRunStore = createKVScheduleRunStore({ kvStore: {
+      delete: key => data.delete(key),
+      get: <T,>(key: string) => data.get(key) as T | undefined,
+      has: key => data.has(key),
+      keys: (base = "") => [...data.keys()].filter(key => key.startsWith(base)),
+      set: (key, value) => { data.set(key, value) },
+    } })
+    const at = "2026-07-11T09:00:00.000Z"
+    const runId = `srun_static_daily_${at}`
+    data.set(joinKey("vitehub:schedule", "schedule-runs", runId), {
+      id: runId, scheduleId: "daily", target: "daily", scheduledAt: at,
+      createdAt: at, updatedAt: at, startedAt: at, status: "running", attemptCount: 1,
+    })
+    data.set(joinKey("vitehub:schedule", "schedule-run-attempts", "interrupted"), {
+      id: "interrupted", runId, createdAt: at, updatedAt: at, startedAt: at, status: "running",
+    })
+    const handler = vi.fn()
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 120_000,
+      now: () => new Date("2026-07-11T09:01:20.000Z"),
+      registry: { daily: async () => ({ cron: "0 9 * * *", handler }) },
+      scheduleRunStore,
+    })
+    try {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    }
+    finally {
+      await controller.close()
+    }
+    expect(await scheduleRunStore.getAttempt("interrupted")).toMatchObject({ status: "failed" })
+    expect(await scheduleRunStore.getRun(runId)).toMatchObject({ status: "succeeded" })
+  })
+
   it("runs a due Static Schedule and records the run", async () => {
     vi.useFakeTimers()
     const now = new Date("2026-07-11T09:00:20.000Z")
@@ -70,7 +143,6 @@ describe("Process Schedule Runtime", () => {
 
   it("evaluates a Static Schedule cron in its declared time zone", async () => {
     const handlers = { madrid: vi.fn(), utc: vi.fn() }
-    // 08:00 in Madrid is 06:00Z in summer (CEST) and 07:00Z in winter (CET).
     for (const now of ["2026-07-15T06:00:00.000Z", "2026-01-15T07:00:00.000Z", "2026-07-15T08:00:00.000Z"]) {
       const scheduleRunStore = createMemoryScheduleRunStore()
       const controller = await installProcessScheduleRuntime({
@@ -91,7 +163,6 @@ describe("Process Schedule Runtime", () => {
   })
 
   it.each([60 * 60_000, 90_000, 90_000.5])("catches up a Static Schedule minute after a restart with catchUpMs=%s", async (catchUpMs) => {
-    // The previous process stopped before its 15:00 scan, and this process starts at 15:01.
     const scheduleRunStore = createMemoryScheduleRunStore()
     const previous = new Date("2026-10-16T14:50:00.000Z")
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
@@ -139,43 +210,6 @@ describe("Process Schedule Runtime", () => {
     expect(await scheduleRunStore.getRun(manual.id)).toEqual(manual)
   })
 
-  it.each([1, 101])("catches up with a legacy custom store behind %s future manual runs", async (manualCount) => {
-    const backingStore = createMemoryScheduleRunStore()
-    // Existing custom stores support scheduleId and limit, but ignore the new idPrefix option.
-    const listRuns = vi.fn((options: ScheduleRunListOptions = {}) => backingStore.listRuns({ scheduleId: options.scheduleId, limit: options.limit }))
-    const scheduleRunStore = { ...backingStore, listRuns }
-    const previous = new Date("2026-10-16T14:50:00.000Z")
-    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
-    setScheduleRunStore(scheduleRunStore)
-    const handler = vi.fn()
-    const registry = { reconcile: async () => defineSchedule({ cron: "*/10 * * * *", manual: true, handler }) }
-    for (let index = 0; index < manualCount; index++) {
-      await runScheduleFrom(registry, "reconcile", { scheduledAt: "2026-10-17T15:00:00Z" })
-    }
-    handler.mockClear()
-
-    const controller = await installProcessScheduleRuntime({
-      catchUpMs: 15 * 60_000,
-      now: () => new Date("2026-10-16T15:01:20.000Z"),
-      registry,
-      scheduleRunStore,
-    })
-    try {
-      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
-    }
-    finally {
-      await controller.close()
-    }
-    // The bounded fallback must not repeat the existing 14:50 occurrence.
-    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
-    expect(listRuns.mock.calls.map(([options]) => options)).toEqual([
-      // Recovery of unfinished runs reads the two occurrences of the window, 14:50 and 15:00.
-      { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 2 },
-      { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 },
-      { scheduleId: "reconcile", limit: 100 },
-    ])
-  })
-
   it("does not catch up a Static Schedule that has no run, or minutes outside catchUpMs", async () => {
     const scheduleRunStore = createMemoryScheduleRunStore()
     const previous = new Date("2026-10-16T12:50:00.000Z")
@@ -218,12 +252,10 @@ describe("Process Schedule Runtime", () => {
 
     expect(due).not.toHaveBeenCalled()
     expect(later).not.toHaveBeenCalled()
-    // The Console reads the timing without loading the module.
     expect(await readScheduleConsoleRecords()).toEqual([
       expect.objectContaining({ fields: [{ label: "Cron", value: "*/5 * * * *" }, { label: "Time zone", value: "UTC" }], id: "definition:due" }),
       expect.objectContaining({ fields: [{ label: "Cron", value: "0 3 * * *" }, { label: "Time zone", value: "Europe/Madrid" }], id: "definition:later" }),
     ])
-    // 09:05 and 09:10 are due.
     await vi.advanceTimersByTimeAsync(4 * 60_000)
     await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
     await vi.advanceTimersByTimeAsync(5 * 60_000)

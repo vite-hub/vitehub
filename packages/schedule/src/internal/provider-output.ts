@@ -27,7 +27,6 @@ import { isIanaTimeZone } from "@vite-hub/internal/runtime/time-zone"
 import { isRecord } from "@vite-hub/internal/object"
 
 export const schedulePackageName = "@vite-hub/schedule"
-// Deno cron output keeps npm packages external, so it imports the static runtime from the deployed package.
 const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const cloudflareOutputStateFileName = "cloudflare-output.json"
@@ -53,7 +52,6 @@ export function resolveSchedulePublicEntry(resolveImport: ImportResolver = speci
   return resolve(packageRoot, "dist/index.js")
 }
 
-// Generated Schedule functions import the static runtime by path. It is not a package export.
 const scheduleRuntimeEntry = ownModule(import.meta.url, "runtime/static")
 const schedulePublicEntry = resolveSchedulePublicEntry()
 
@@ -71,11 +69,9 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   clientOutDir: string
-  /** Cron overrides of this build, so the Cloudflare Worker matches each trigger to its Schedule. */
   cron?: ScheduleCronOverrides
   crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
-  /** The host this build targets. Schedule writes wake output only for it, and for every host when it is `undefined`. */
   host?: ViteHubHost
   rootDir: string
   runtimeImport?: string
@@ -172,17 +168,27 @@ export interface NetlifyScheduleFunctionOutput {
 
 const cronFieldPattern = /^[*,/\-0-9]+$/
 
-export function validateProviderCron(cron: string, scheduleName: string): void {
+/** Whether host wake output accepts `cron`: five numeric UTC fields that Cloudflare, Vercel, and Netlify all read. */
+export function isProviderCron(cron: string): boolean {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
-  if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field)) || hasVercelDayConflict) {
+  return fields.length === 5 && fields.every(field => cronFieldPattern.test(field)) && !hasVercelDayConflict
+}
+
+export function validateProviderCron(cron: string, scheduleName: string): void {
+  if (!isProviderCron(cron)) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0003({ message: `Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare, Vercel, and Netlify.` })
   }
 }
 
-function readStaticScheduleCron(file: string, scheduleName: string): string {
+/** Reads the `cron` option of a `defineSchedule()` call. Returns `undefined` when it is missing or not a static string. */
+export function readStaticScheduleCronOption(file: string): string | undefined {
   const definition = findDefaultExportCall(scanModule(readFileSync(file, "utf8"), file), ["defineSchedule"])
-  const cron = definition?.options && staticString(findProperty(definition.options, "cron")?.value)
+  return (definition?.options && staticString(findProperty(definition.options, "cron")?.value)) || undefined
+}
+
+function readStaticScheduleCron(file: string, scheduleName: string): string {
+  const cron = readStaticScheduleCronOption(file)
   if (!cron) {
     throw scheduleErrorDiagnostics.SCHEDULE_R0004({ message: `Schedule "${scheduleName}" must declare a static cron string for provider wake output.` })
   }
@@ -449,7 +455,6 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
 function createSchedulePublicAliasPlugin(): Rolldown.Plugin {
   return {
     name: "vitehub-schedule-public-alias",
-    // `vite-hub/schedule` re-exports `@vite-hub/schedule`. Bundle both, so the output does not need the `vite-hub` package.
     resolveId(source) {
       if (source === "@vite-hub/schedule" || source === "vite-hub/schedule") return schedulePublicEntry
     },
@@ -790,7 +795,6 @@ async function writeNetlifyScheduleFunctions(options: {
       await rebasePublishedProviderSourceLinks(stagedSourcesDir, stagedSourcesDir, netlifySourcesDir)
     }
     options.signal?.throwIfAborted()
-    // Functions and retained sources must move together, including during recovery.
     rmSync(backupOutputRoot, { force: true, recursive: true })
     let movedPrevious = false
     try {
@@ -806,7 +810,6 @@ async function writeNetlifyScheduleFunctions(options: {
           renameSync(backupOutputRoot, options.outputRoot)
         }
         catch (restoreError) {
-          // Retry a transient restore failure without deleting either complete pair.
           try {
             await rename(backupOutputRoot, options.outputRoot)
           }
@@ -818,7 +821,6 @@ async function writeNetlifyScheduleFunctions(options: {
       }
       throw error
     }
-    // Publication is committed. Cleanup must not turn successful output into a failed generation.
     await rm(backupOutputRoot, { force: true, recursive: true }).catch(() => undefined)
     if (outputs.length === 0) await removeEmptyDirectories(functionRoot, options.rootDir).catch(() => undefined)
   }
@@ -968,7 +970,6 @@ async function cleanCloudflareScheduleOutput(rootDir: string, stateFile: string,
 }
 
 export async function generateProviderOutputsWithinLock(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
-  // Restore the complete Netlify publication before any generation work can fail or abort.
   recoverNetlifyDeploymentOutput(options.rootDir)
   options.signal?.throwIfAborted()
   const generatedDir = resolve(options.rootDir, ".vitehub", productName)
@@ -990,7 +991,6 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions, options.cron)
     const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
     const timeZoneCrons = readTimeZoneCrons(artifacts.definitions, options.cron)
-    // Other hosts get the same cleanup as a build without Schedules, so their stale Schedule output goes away.
     const hostDefinitions = (host: ViteHubHost) => options.host === undefined || options.host === host ? artifacts.definitions : []
     options.signal?.throwIfAborted()
     if (hostDefinitions("deno").length > 0) {

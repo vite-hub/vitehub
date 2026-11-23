@@ -1,10 +1,9 @@
 import { defineErrors } from "@vite-hub/runtime"
 
-// Keep published codes stable. Each code has a generated diagnostic page and a member in `ForgeErrorCode`.
 export const forgeErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/forge/diagnostics",
   codes: {
-    // Runtime errors. `useForge()` operations return them as `[error, undefined]`.
+    // Runtime errors.
     FORGE_APP_NOT_INSTALLED: {
       why: ({ repository }: { repository: string }) => `The GitHub App is not installed on ${repository}.`,
       fix: "Install the GitHub App on the repository, or map its owner to an installation that can reach it in VITEHUB_GITHUB_APP_INSTALLATIONS.",
@@ -16,7 +15,7 @@ export const forgeErrors = /*#__PURE__*/ defineErrors({
       fix: "Read `error.cause` for the Forge error. A 401 means that the App ID, the private key, or the token is wrong. Retry after a 5xx or a network error.",
     },
 
-    // Config errors. `useForge()` throws them because the code or the deployment must change.
+    // Config errors.
     FORGE_MISSING_ENV: {
       why: ({ forge, names }: { forge: string, names: string }) => `The ${forge} Forge has no credentials. It reads ${names}.`,
       fix: "Set the variables in the host environment, or pass `env` to `useForge()`.",

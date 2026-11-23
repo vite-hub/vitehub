@@ -33,7 +33,6 @@ function chunk(fileName: string, modules: Record<string, number>, entry?: string
   }
 }
 
-/** Writes `.vitehub/bundle/nitro.json`: a server build whose entry imports `@libsql/client` at startup. */
 function build(root: string): void {
   const entry = join(root, "server/index.ts")
   const libsql = join(root, "node_modules/@libsql/client/web.js")
