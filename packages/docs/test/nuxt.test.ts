@@ -1367,6 +1367,25 @@ describe("docs Comments", () => {
     expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: false }))).not.toHaveProperty("vite-hub/nuxt")
   })
 
+  it("warns when comments: false loses to Comments on in the vitehub options", async () => {
+    const off = app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"], { comments: false })
+    for (const comments of [true, { overlay: false }]) {
+      logger.warn.mockClear()
+      Object.assign(off.options, { vitehub: { comments } })
+      await moduleDependencies(off)
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringMatching(/DOCS_COMMENTS_OFF_IGNORED[\s\S]*Remove `comments: false` from the `docs` options/))
+    }
+    logger.warn.mockClear()
+    await moduleDependencies(app([["vite-hub/nuxt", { comments: true }]], { comments: false }))
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("DOCS_COMMENTS_OFF_IGNORED"))
+    for (const vitehub of [{}, { comments: false }]) {
+      logger.warn.mockClear()
+      Object.assign(off.options, { vitehub })
+      await moduleDependencies(off)
+      expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining("DOCS_COMMENTS_OFF_IGNORED"))
+    }
+  })
+
   it("has no Comments without vite-hub/nuxt, and fails the build when docs asks for them", async () => {
     expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"]))).not.toHaveProperty("vite-hub/nuxt")
     await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toMatchObject({ code: "DOCS_COMMENTS_VITEHUB_MISSING", fix: expect.stringContaining("docs: { comments: false }") })

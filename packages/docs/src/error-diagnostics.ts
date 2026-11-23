@@ -21,6 +21,10 @@ export const docsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "[@vite-hub/docs] Docs sites on vite-hub/nuxt have Comments on, which keeps threads in the Database, but vitehub sets database: false.",
       fix: "Remove `database: false` from the `vitehub` options in nuxt.config.ts, or set `docs: { comments: false }`.",
     },
+    DOCS_COMMENTS_OFF_IGNORED: {
+      why: "[@vite-hub/docs] docs.comments is false, but the vitehub options turn Comments on, and they win. Comments stay on.",
+      fix: "Remove `comments: false` from the `docs` options in nuxt.config.ts. To turn Comments off, set `comments: false` in the `vitehub` options.",
+    },
     DOCS_COMMENTS_PACKAGE_MISSING: {
       why: "[@vite-hub/docs] Docs sites on vite-hub/nuxt have Comments on, which needs @vite-hub/comments.",
       fix: "Run `pnpm add @vite-hub/comments`, or set `docs: { comments: false }` in nuxt.config.ts.",
