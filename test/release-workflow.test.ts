@@ -9,6 +9,7 @@ import viteConfig from "../vite.config.ts"
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
+const verifier = readFileSync(resolve(repoRoot, ".github/actions/verify-release/action.yml"), "utf8")
 // The preview publish job is the last job of ci.yml.
 const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
 const previewWorkflow = ciWorkflow.slice(ciWorkflow.indexOf("  publish-preview:\n"))
@@ -89,9 +90,12 @@ describe("release workflow authority", () => {
   })
 
   it("publishes only from a tag, including a tag dispatch", () => {
-    expect(verify).toContain("Dry-run npm package publish")
-    expect(verify).not.toContain("Publish packages to npm")
-    expect(verify).not.toContain("gh release create")
+    expect(verify).toContain("uses: ./.github/actions/verify-release")
+    expect(verifier).toContain("Dry-run npm package publish")
+    for (const verifying of [verify, verifier]) {
+      expect(verifying).not.toContain("Publish packages to npm")
+      expect(verifying).not.toContain("gh release create")
+    }
 
     const publishGate = "if: needs.verify.outputs.publish == 'true' && github.repository == 'vite-hub/vitehub'"
     expect(publishNpm.indexOf(publishGate)).toBeLessThan(publishNpm.indexOf("    steps:"))
@@ -101,14 +105,16 @@ describe("release workflow authority", () => {
     expect(releaseMetadata("workflow_dispatch", "refs/tags/v1.2.3", "v1.2.3")).toMatchObject({ publish: "true", version: "1.2.3" })
     expect(releaseMetadata("workflow_dispatch", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
     expect(releaseMetadata("push", "refs/heads/main", "main")).toMatchObject({ publish: "false", version: "0.0.0-dev.42" })
-    expect(verify).toContain('root.version !== process.env.RELEASE_VERSION')
-    expect(verify).toContain('manifest.version !== process.env.RELEASE_VERSION')
+    expect(verify).toContain("exact: ${{ steps.release.outputs.publish }}")
+    expect(verifier).toContain('root.version !== process.env.RELEASE_VERSION')
+    expect(verifier).toContain('manifest.version !== process.env.RELEASE_VERSION')
   })
 })
 
 describe("release workflow artifact handoff", () => {
   it("uploads one bounded immutable tarball set after verification", () => {
-    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Dry-run npm package publish"))
+    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("uses: ./.github/actions/verify-release"))
+    expect(verify.indexOf("Upload verified release workspace")).toBeGreaterThan(verify.indexOf("Write release metadata"))
     expect(verify).toMatch(pinned("actions/upload-artifact"))
     expect(verify).toContain('artifact_name="release-packages-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"')
     expect(verify).toContain(".release/release-metadata.json")
@@ -177,28 +183,29 @@ describe("release workflow artifact handoff", () => {
   })
 
   it("validates and dry-runs the exact packed files before upload", () => {
-    expect(verify).toContain("const releaseNames = new Set")
-    expect(verify).toContain('["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]')
-    expect(verify).toContain("manifest[section][name] = process.env.RELEASE_VERSION")
-    expect(verify.indexOf("Pin release dependency versions")).toBeGreaterThan(verify.indexOf('- run: vp run --no-cache --filter "./packages/*" build'))
-    expect(verify.indexOf("Restore workspace dependency ranges")).toBeGreaterThan(verify.indexOf("Pack immutable release tarballs"))
-    expect(verify.indexOf("Restore workspace dependency ranges")).toBeLessThan(verify.indexOf("vp run test:contracts"))
-    expect(verify).toContain("--verify-reproducible")
-    expect(verify).toContain("release-packages.mjs verify")
-    expect(verify).toContain('vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict')
-    expect(verify).toContain("VITEHUB_RELEASE_MANIFEST")
-    expect(verify).toContain("release-packages.mjs publish")
-    expect(verify).toContain("--dry-run")
-    expect(verify).not.toContain("vp pm publish")
+    expect(verifier).toContain("const releaseNames = new Set")
+    expect(verifier).toContain('["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]')
+    expect(verifier).toContain("manifest[section][name] = process.env.RELEASE_VERSION")
+    expect(verifier.indexOf("Pin release dependency versions")).toBeGreaterThan(verifier.indexOf('run: vp run --no-cache --filter "./packages/*" build'))
+    expect(verifier.indexOf("Restore checked-in manifests")).toBeGreaterThan(verifier.indexOf("Pack immutable release tarballs"))
+    expect(verifier.indexOf("Restore checked-in manifests")).toBeLessThan(verifier.indexOf("vp run test:contracts"))
+    expect(verifier).toContain("--verify-reproducible")
+    expect(verifier).toContain("release-packages.mjs verify")
+    expect(verifier).toContain('--workspace-version "$RELEASE_VERSION"')
+    expect(verifier).toContain('vp exec --filter @vite-hub/auth -- publint run "$tarball" --strict')
+    expect(verifier).toContain("VITEHUB_RELEASE_MANIFEST")
+    expect(verifier).toContain("release-packages.mjs publish")
+    expect(verifier).toContain("--dry-run")
+    expect(verifier).not.toContain("vp pm publish")
   })
 
   it("publishes packages from a fresh build of the root build selection", () => {
     const packageSelection = '--filter "./packages/*" build'
     expect(viteConfig.run?.tasks?.build).toEqual({ cache: false, command: `vp run --cache ${packageSelection}` })
-    for (const publishing of [verify, previewWorkflow]) {
-      expect(publishing).toContain(`- run: vp run --no-cache ${packageSelection}\n`)
-      expect(publishing).not.toContain("- run: vp run build\n")
-    }
+    expect(verifier).toContain(`      run: vp run --no-cache ${packageSelection}\n`)
+    expect(verifier).not.toContain("run: vp run build\n")
+    expect(previewWorkflow).toContain(`- run: vp run --no-cache ${packageSelection}\n`)
+    expect(previewWorkflow).not.toContain("- run: vp run build\n")
   })
 
   it("pins every external action in the OIDC job", () => {
