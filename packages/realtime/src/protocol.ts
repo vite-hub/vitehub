@@ -24,7 +24,6 @@ export const realtimeKeepalivePing = "ping"
 export const realtimeKeepalivePong = "pong"
 export const maxAwarenessClients = 1024
 export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
-export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"
 export const realtimeSourceChangedCode = "REALTIME_SOURCE_CHANGED"
 /** A save or checkpoint asked a room whose codec cannot edit the stored document without loss. */
 export const realtimeReadOnlyCode = "REALTIME_READ_ONLY"
@@ -37,10 +36,6 @@ export const realtimeForbiddenWriteCloseCode = 4403
 
 export function isRetryableRealtimeRequestCode(value: unknown): boolean {
   return value === realtimeSyncPendingCode
-}
-
-export function isRetryableRealtimeCheckpointCode(value: unknown): boolean {
-  return value === realtimeSyncPendingCode || value === realtimeCheckpointRejectedCode
 }
 
 export type RealtimeControlMessage =
