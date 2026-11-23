@@ -53,7 +53,7 @@ function valueExports(source: string): string[] {
 const knownRelativeStarExports: Record<string, readonly string[]> = {
   "@vite-hub/agent/capabilities": ["./capabilities/index.ts"],
   "@vite-hub/agent/invocations": ["./d1.ts"],
-  "@vite-hub/agent/process": ["./process-host.ts", "./runtime/process.ts"],
+  "@vite-hub/agent/process": ["./runtime/process.ts"],
   "@vite-hub/agent/state": ["./state/sqlite.ts"],
   "@vite-hub/blob": ["./media.ts"],
   "@vite-hub/browser": ["./client.ts"],

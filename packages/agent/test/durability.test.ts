@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 import { collectDurability } from "@vite-hub/runtime/durability"
 import { describe, expect, it } from "vitest"
 
-import { agentInvocationsDurability, agentRecoveryDurability, agentStateDurability } from "../src/durability.ts"
+import { agentInvocationsDurability, agentProcessHostDurability, agentRecoveryDurability, agentStateDurability } from "../src/durability.ts"
 import { resolveDefaultAgentInvocationsLocation } from "../src/invocations/default-core.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
@@ -76,5 +76,16 @@ describe("agentRecoveryDurability", () => {
     expect(report([jobs])).toMatchObject({ store: "lease (postgres)", scope: "shared", reason: expect.stringContaining("jobs Database") })
     expect(report([jobs, local])).toMatchObject({ store: "lease (sqlite)", scope: "host" })
     expect(report([jobs, { ...local, name: "other" }])).toMatchObject({ store: "startup", scope: "process" })
+  })
+})
+
+describe("agentProcessHostDurability", () => {
+  it("is shared only when a Lease in a shared Database runs the host", () => {
+    const postgres: Durability = { primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }
+    const file: Durability = { primitive: "database", store: "sqlite", scope: "process", reason: "A local file.", fix: "Use a remote Database." }
+    expect(agentProcessHostDurability({ lease: true }, context({}, [postgres]))).toMatchObject([{ primitive: "agent-process-host", store: "lease (postgres)", scope: "shared" }])
+    expect(agentProcessHostDurability({ lease: true }, context({}, [file]))).toMatchObject([{ store: "lease (sqlite)", scope: "process", fix: "Use a remote Database." }])
+    expect(agentProcessHostDurability({ lease: true }, context())).toMatchObject([{ store: "process", scope: "process", fix: expect.stringContaining("agent-process-host:<agent>") }])
+    expect(agentProcessHostDurability({ lease: false }, context({}, [postgres]))).toMatchObject([{ store: "process", scope: "process" }])
   })
 })

@@ -1069,6 +1069,14 @@ package lists each subpath that attaches a process host in `vitehub.agent.proces
 An Agent module that imports a listed subpath gets the generated process host
 plugin. `registerAgentProcessHostIntake()`
 lets a running host receive verified webhook deliveries for its Agent.
+
+With a ViteHub Database, the generated plugin runs each host on one server at a
+time, under the Lease `agent-process-host:<agent>` from `useLeases()`. The Lease
+lasts 25 seconds and each server checks it every 5 seconds, so another server
+starts the host about 30 seconds after the holder stops. A server that waits
+keeps webhook deliveries in Agent State, and the holder hands them to its
+intake. `createAgentProcessHosts({ leases })` takes the Lease store. See
+[Run one host across servers](../../docs/content/docs/agents/process-hosts.md#run-one-host-across-servers).
 [`@vite-hub/presets`](../presets/README.md) uses these primitives for the Babysitter.
 
 ### Provider transport preparation

@@ -15,3 +15,11 @@ export function agentRecoveryLeases(): { leases: LeaseStore } | undefined {
     return undefined
   }
 }
+
+/**
+ * The Leases that choose the one process host of each Agent, in the default or only Database. It throws without
+ * one, and each server then runs its own hosts.
+ */
+export function agentProcessHostLeases(): LeaseStore {
+  return useLeases()
+}
