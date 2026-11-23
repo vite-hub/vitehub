@@ -292,6 +292,37 @@ describe("hubEmail", () => {
     expect(await readFile(configFile, "utf8")).toBe(source)
   })
 
+  it("rejects the smtp driver on Cloudflare hosts", async () => {
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    const config = buildConfigHook(plugin)
+
+    await expect(config({ nitro: { preset: "cloudflare-module" } })).rejects.toThrow(expect.objectContaining({
+      code: "EMAIL_HOST_UNSUPPORTED",
+      why: "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it.",
+    }))
+  })
+
+  it("fails the build of the smtp driver when nodemailer is not installed", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    await buildConfigHook(plugin)({ root })
+
+    await expect(resolvePlugin(plugin, root)).rejects.toThrow(expect.objectContaining({ code: "EMAIL_SMTP_NODEMAILER_MISSING" }))
+  })
+
+  it("leaves nodemailer for the app build to resolve", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(fileURLToPath(new URL("../node_modules/nodemailer", import.meta.url)), join(root, "node_modules", "nodemailer"), "dir")
+    const plugin = hubEmail({ driver: "smtp", options: { host: env({ source: env.source("SMTP_HOST") }) } })
+    await buildConfigHook(plugin)({ root })
+    await resolvePlugin(plugin, root)
+
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toMatch(/import\(["'`]nodemailer["'`]\)/)
+    expect(source).not.toContain("etherealWeb")
+  })
+
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
     const plugin = hubEmail({ driver: "cloudflare" })
     const config = buildConfigHook(plugin)
@@ -894,7 +925,7 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare", "log", or the path of a driver module')
+    expect(() => hubEmail({ driver: "postmark" as "resend" })).toThrow('"resend", "smtp", "cloudflare", "log", or the path of a driver module')
   })
 
   it("compiles a driver module with the app and passes it the resolved options", async () => {
@@ -1016,10 +1047,10 @@ describe("renamed Email drivers", () => {
 
   it("keeps the driver list for a name that was never a driver", () => {
     // SAFETY: An app config without types passes an unknown driver name.
-    expect(() => hubEmail({ driver: "smtp" } as never)).toThrow(expect.objectContaining({
+    expect(() => hubEmail({ driver: "postmark" } as never)).toThrow(expect.objectContaining({
       code: "EMAIL_UNKNOWN_DRIVER",
       fix: expect.stringContaining("driver: 'log'"),
-      why: "The Email `driver` is \"smtp\". It must be \"resend\", \"cloudflare\", \"log\", or the path of a driver module that starts with \"./\" or \"../\".",
+      why: "The Email `driver` is \"postmark\". It must be \"resend\", \"smtp\", \"cloudflare\", \"log\", or the path of a driver module that starts with \"./\" or \"../\".",
     }))
   })
 })

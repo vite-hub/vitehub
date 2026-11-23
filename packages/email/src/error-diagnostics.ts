@@ -95,8 +95,12 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Rename or remove one of the two template files under `server/emails`.",
     },
     EMAIL_HOST_UNSUPPORTED: {
-      why: "The \"cloudflare\" driver needs a Cloudflare host.",
-      fix: "Deploy to Cloudflare, or use the \"resend\" driver.",
+      why: ({ driver }: { driver: "cloudflare" | "smtp" }) => driver === "cloudflare"
+        ? "The \"cloudflare\" driver needs a Cloudflare host."
+        : "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it.",
+      fix: ({ driver }: { driver: "cloudflare" | "smtp" }) => driver === "cloudflare"
+        ? "Deploy to Cloudflare, or use the \"resend\" driver."
+        : "On Cloudflare, use the \"cloudflare\" or \"resend\" driver, or a driver module that sends over HTTP.",
     },
     EMAIL_INVALID_OUTBOX: {
       why: ({ problem }: { problem: EmailOutboxProblem }) => outboxProblems[problem],
@@ -118,6 +122,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ path }: { path: string }) => `The secret Email option ${path} has a default, and defaults are included in build output.`,
       fix: "Remove the default, and set the secret in the host environment.",
     },
+    EMAIL_SMTP_NODEMAILER_MISSING: {
+      why: "The \"smtp\" Email driver needs the `nodemailer` package, and it is not installed.",
+      fix: "Install it in the app, for example `pnpm add nodemailer`.",
+    },
     EMAIL_SYNC_OPTION_REQUIRED: {
       why: ({ path }: { path: string }) => `The Email option ${path} uses \`env.provider()\`, and Email resolves its options synchronously.`,
       fix: "Read the value with `env.source()`, for example `env({ secret: true, source: env.source('RESEND_API_KEY') })`.",
@@ -134,10 +142,10 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     EMAIL_UNKNOWN_DRIVER: {
       why: ({ driver, renamed }: { driver: string, renamed?: string }) => renamed
         ? `\`email.driver\` is ${driver}. ViteHub renamed this driver to "${renamed}", and it does not read ${driver}.`
-        : `The Email \`driver\` is ${driver}. It must be "resend", "cloudflare", "log", or the path of a driver module that starts with "./" or "../".`,
+        : `The Email \`driver\` is ${driver}. It must be "resend", "smtp", "cloudflare", "log", or the path of a driver module that starts with "./" or "../".`,
       fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
         ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
-        : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing. For another provider, write a driver module and set `email: { driver: './server/email-driver.ts' }`.",
+        : "Set `email: { driver: 'resend' }`, `email: { driver: 'smtp' }`, or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing. For another provider, write a driver module and set `email: { driver: './server/email-driver.ts' }`.",
     },
 
     // Tool errors.
