@@ -68,6 +68,25 @@ describe("codemods CLI", () => {
     }
   })
 
+  it("shares a helper already held by Nuxt Kit", async () => {
+    const helper = Object.assign(vi.fn((config: unknown) => config), { count: 1 })
+    vi.stubGlobal("defineNuxtConfig", helper)
+    try {
+      const directory = await app("config-with-kit", {
+        "nuxt.config.mjs": "const file = '.env.example'; export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: file } })",
+        "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}',
+        ".env.example": "NUXT_NAME=demo\n",
+      })
+      expect(await cli(["nuxt-safe-runtime-config", directory, "--dry-run"])).toMatchObject({ code: 0 })
+      expect(helper).toHaveBeenCalled()
+      expect(helper.count).toBe(1)
+      expect(Reflect.get(globalThis, "defineNuxtConfig")).toBe(helper)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("lists every codemod with one line for --help", async () => {
     const result = await cli(["--help"])
     expect(result.code).toBe(0)

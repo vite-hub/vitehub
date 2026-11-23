@@ -129,16 +129,22 @@ export function defaultExport(module: unknown): unknown {
   return typeof module === "object" && module !== null && "default" in module ? module.default : module
 }
 
-let configLoads = 0
-let previousDefineNuxtConfig: { value: unknown } | undefined
+const previousHelpers = new WeakMap<object, PropertyDescriptor>()
 
 /** Runs nuxt.config with a `defineNuxtConfig` stub and returns the exported object. */
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
-  if (configLoads === 0) {
-    previousDefineNuxtConfig = Object.hasOwn(globalThis, "defineNuxtConfig") ? { value: Reflect.get(globalThis, "defineNuxtConfig") } : undefined
-    Reflect.set(globalThis, "defineNuxtConfig", (config: unknown) => config)
+  const key = "defineNuxtConfig"
+  const current: unknown = Reflect.get(globalThis, key)
+  // Nuxt Kit also holds this helper while it loads a config and removes it when the count reaches zero.
+  const helper = typeof current === "function" && "count" in current && typeof current.count === "number"
+    ? current as { count: number }
+    : Object.assign((config: unknown) => config, { count: 0 })
+  if (helper !== current) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    if (previous) previousHelpers.set(helper, previous)
+    Reflect.set(globalThis, key, helper)
   }
-  configLoads++
+  helper.count++
   try {
     const jiti = createJiti(path, { moduleCache: false, fsCache: false, interopDefault: false })
     const loaded = defaultExport(await jiti.import(path))
@@ -151,11 +157,10 @@ export async function loadNuxtConfig(path: string): Promise<Record<string, unkno
     throw codemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
-    configLoads--
-    if (configLoads === 0) {
-      if (previousDefineNuxtConfig) Reflect.set(globalThis, "defineNuxtConfig", previousDefineNuxtConfig.value)
-      else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
-      previousDefineNuxtConfig = undefined
+    if (--helper.count === 0 && Reflect.get(globalThis, key) === helper) {
+      const previous = previousHelpers.get(helper)
+      if (previous) Object.defineProperty(globalThis, key, previous)
+      else Reflect.deleteProperty(globalThis, key)
     }
   }
 }
