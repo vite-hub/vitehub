@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
+import type { Stats } from "node:fs"
+
 import * as v from "valibot"
 
 import { askOnTerminal, listSeedFiles, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
@@ -56,6 +58,8 @@ interface ParsedBlobArgs {
 }
 
 const usageError = (message: string) => blobErrorDiagnostics.BLOB_R0029({ message })
+
+const missingPathError = v.object({ code: v.picklist(["ENOENT", "ENOTDIR"]) })
 
 const codedError = v.object({ code: v.string(), fix: v.optional(v.string()) })
 
@@ -192,8 +196,15 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
 
 /** Reads the upload file. The size check runs before the read, so a large file is not loaded. */
 async function readUpload(path: string): Promise<{ data: string } | ViteHubCliFailure> {
-  const info = await stat(path).catch(() => undefined)
-  if (!info?.isFile()) return cliFailure(usageError(`File not found: ${path}`))
+  let info: Stats
+  try {
+    info = await stat(path)
+  }
+  catch (error) {
+    if (v.is(missingPathError, error)) return cliFailure(usageError(`File not found: ${path}`))
+    return { message: `Could not read ${path}: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  if (!info.isFile()) return cliFailure(usageError(`File not found: ${path}`))
   if (info.size > blobDevMaximumUploadBytes) {
     return {
       code: "BLOB_UPLOAD_TOO_LARGE",

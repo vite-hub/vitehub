@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, truncate, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -11,7 +11,7 @@ import { operationRpcRequest, operationRpcResponse } from "../../internal/test-u
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>()
-  return { ...actual, readFile: vi.fn(actual.readFile) }
+  return { ...actual, readFile: vi.fn(actual.readFile), stat: vi.fn(actual.stat) }
 })
 
 let cwd: string
@@ -313,6 +313,25 @@ describe("vitehub blob", () => {
     const fetch = vi.fn()
     await expect(runBlobCli(["put", "target.bin", "unreadable.bin", "--json"], output.context, { fetch })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: `Could not read ${join(cwd, "unreadable.bin")}: read denied` } })
+    expect(output.stderr.output()).toBe("")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("keeps a usage code for a path that is not a file", async () => {
+    await mkdir(join(cwd, "folder"))
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runBlobCli(["put", "target.bin", "folder", "--json"], output.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "BLOB_R0029", message: `File not found: ${join(cwd, "folder")}` } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("reports upload stat errors other than a missing path without a usage code", async () => {
+    vi.mocked(stat).mockRejectedValueOnce(Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" }))
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runBlobCli(["put", "target.bin", "locked/source.bin", "--json"], output.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: `Could not read ${join(cwd, "locked/source.bin")}: EACCES: permission denied` } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
