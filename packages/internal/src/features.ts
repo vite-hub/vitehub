@@ -191,7 +191,7 @@ export default defineAgent({
     enabledByDiscovery: sourceFiles("auth"),
     hosts: everywhere("better-auth", "Better Auth"),
     id: "auth",
-    packages: ["@vite-hub/auth", "better-auth"],
+    packages: ["@vite-hub/auth", "better-auth", "drizzle-orm"],
     summary: "Better Auth sign-in, sessions, and organizations, with tables that ViteHub owns.",
     title: "Auth",
   }),
@@ -595,6 +595,24 @@ const vercelProviderPackages = {
   queue: ["@vercel/queue", "@vercel/functions"],
   workflow: ["@vercel/functions"],
 } as const
+
+const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
+
+const installRanges: Readonly<Record<string, string>> = {
+  "drizzle-kit": drizzleRange,
+  "drizzle-orm": drizzleRange,
+}
+
+/**
+ * The package manager argument that installs `name`, such as `drizzle-orm@1.0.0-rc.5 || ^1.0.0`. Drizzle tags 0.x as
+ * `latest` and the next 1.0 candidate as `rc`, so a plain name installs a version that ViteHub cannot import. npm saves
+ * the range as written, and an exact version would be saved as `^1.0.0-rc.5`, which also matches later candidates.
+ * Other packages keep their name. Feature catalogs, status, and removal use the plain name.
+ */
+export function installSpecifier(name: string): string {
+  const range = installRanges[name]
+  return range ? `${name}@${range}` : name
+}
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

@@ -7,7 +7,7 @@ import { formatDiagnostic } from "nostics"
 
 import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { FeatureId } from "@vite-hub/internal/features"
-import { consoleFeaturePackages, featureIds, featurePackages, features, isOwnerCheckedPackage } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, featurePackages, features, installSpecifier, isOwnerCheckedPackage } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -197,9 +197,18 @@ export async function importOptionalOwner<T>(packageName: OptionalOwnerPackage, 
 /**
  * The `pnpm add` arguments for `packages`. A pkg.pr.new preview of `vite-hub` keeps the npm version in its optional
  * peers, so a plain name installs the npm release. The preview's own `@vite-hub/*` dependencies point at pkg.pr.new, so
- * the other ViteHub packages get the URL of the same preview.
+ * the other ViteHub packages get the URL of the same preview. Other packages get the range of `installSpecifier`.
  */
 export function installArguments(packages: readonly string[], manifest: unknown = readViteHubManifest()): string[] {
+  return previewArguments(packages, manifest).map(installSpecifier)
+}
+
+/** The `pnpm add` arguments of `installArguments`, quoted for a POSIX shell, such as `'drizzle-orm@1.0.0-rc.5 || ^1.0.0'`. */
+export function installCommandArguments(packages: readonly string[], manifest?: unknown): string {
+  return installArguments(packages, manifest).map(shellArgument).join(" ")
+}
+
+function previewArguments(packages: readonly string[], manifest: unknown): string[] {
   const dependencies = isPlainObject(manifest) && isPlainObject(manifest.dependencies) ? manifest.dependencies : {}
   const preview = Object.entries(dependencies).flatMap(([name, specifier]) => {
     if (!name.startsWith("@vite-hub/") || typeof specifier !== "string" || !specifier.startsWith("https://pkg.pr.new/")) return []
@@ -287,7 +296,7 @@ function resolvesPackageFrom(owner: string, packageName: string): boolean {
 export function missingFeaturePackagesError(features: readonly OptionalFeature[], hostPackages: FeatureHostPackages = {}) {
   const lines = features.map(feature => `The ${feature} feature needs ${packagesOf(feature, hostPackages).join(", ")}.`)
   const packages = [...new Set(features.flatMap(feature => packagesOf(feature, hostPackages)))]
-  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install them in your app with: pnpm add ${installArguments(packages).join(" ")}` })
+  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install them in your app with: pnpm add ${installCommandArguments(packages)}` })
 }
 
 /**
@@ -374,7 +383,7 @@ function unsupportedPackageVersions(
   const viteHub = isPlainObject(manifest) && typeof manifest.version === "string" ? `vite-hub ${manifest.version}` : "vite-hub"
   const installed = unsupported.map(({ name, range, version }) => `${name} ${version} is installed, but ${viteHub} supports ${name}@${range}.`).join(" ")
   // A preview of `vite-hub` gives a ViteHub package the preview URL. Other packages get the supported range.
-  const previews = installArguments(unsupported.map(({ name }) => name), manifest)
+  const previews = previewArguments(unsupported.map(({ name }) => name), manifest)
   const install = unsupported.map(({ name, range }, index) => shellArgument(previews[index] === name ? `${name}@${range}` : previews[index]!)).join(" ")
   return { install, installed }
 }

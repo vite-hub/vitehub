@@ -156,6 +156,16 @@ describe("vitehub init", () => {
     expect(existsSync(join(parent, "app"))).toBe(false)
   })
 
+  it("plans the Drizzle release that ViteHub supports for a Database app", async () => {
+    const parent = await createProject()
+    const result = await init(["app", "--host", "node", "--features", "database", "--no-install", "--yes"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || ^1.0.0"]))
+    expect(result.json.install.command).toContain("'drizzle-orm@1.0.0-rc.5 || ^1.0.0'")
+    expect(result.json.install.command).toContain("'drizzle-kit@1.0.0-rc.5 || ^1.0.0'")
+  })
+
   it("plans nodemailer for the SMTP Email driver on Node", async () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "node", "--features", "email", "--option", "email.driver=smtp", "--no-install", "--yes"], parent)

@@ -67,6 +67,10 @@ interface FakeManifest {
   devDependencies?: Record<string, string>
 }
 
+function specifierName(specifier: string): string {
+  return specifier.includes("://") ? specifier : specifier.replace(/(?<=.)@.*$/u, "")
+}
+
 export function fakePackageManager(root: string): { calls: string[][], spawn: ViteHubCliSpawn } {
   const calls: string[][] = []
   const spawn: ViteHubCliSpawn = async (command, args) => {
@@ -78,7 +82,7 @@ export function fakePackageManager(root: string): { calls: string[][], spawn: Vi
     const manifest = JSON.parse(await readFile(file, "utf8")) as FakeManifest
     if (verb === "add" || verb === "install") {
       const field = dev ? "devDependencies" : "dependencies"
-      manifest[field] = { ...manifest[field], ...Object.fromEntries(names.map(name => [name, "1.0.0"])) }
+      manifest[field] = { ...manifest[field], ...Object.fromEntries(names.map(name => [specifierName(name), "1.0.0"])) }
     }
     else if (verb === "remove" || verb === "uninstall") {
       for (const field of ["dependencies", "devDependencies"] as const) {
