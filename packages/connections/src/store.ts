@@ -161,7 +161,7 @@ export function createDatabaseConnectionStore(options: { activityRetention?: Con
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
     const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
     await options.db.run(
-      sql`DELETE FROM vitehub_env_activity WHERE namespace = 'connections' AND (sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords}) OR json_extract(payload, '$.timestamp') < ${cutoff})`,
+      sql`DELETE FROM vitehub_env_activity WHERE namespace = 'connections' AND (sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords}) OR (json_valid(payload) AND json_extract(payload, '$.timestamp') < ${cutoff}))`,
     )
   }
   const access: EnvAccessStore = retention === false
