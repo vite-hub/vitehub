@@ -206,7 +206,8 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const siteDatabase = !development && siteDatabaseNames !== undefined
+  const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
+  const siteDatabase =!development && siteDatabaseNames !== undefined
     ? resolveConsoleSiteDatabase({ names: siteDatabaseNames, configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), siteAccess: sections.includes("site"), projectRoot })
     : undefined
   const mcpClientEnabled = sections.includes("mcp-client")
