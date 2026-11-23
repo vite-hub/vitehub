@@ -177,8 +177,10 @@ describe("shared resumable chat on SQLite", () => {
   sharedStreamScenarios(() => current)
 
   it("signals the Driver when DELETE arrives before its response", async () => {
-    const { promise: started, resolve: start } = Promise.withResolvers<void>()
-    const { promise: cancelled, resolve: cancel } = Promise.withResolvers<unknown>()
+    let start!: () => void
+    let cancel!: (reason: unknown) => void
+    const started = new Promise<void>(resolve => start = resolve)
+    const cancelled = new Promise<unknown>(resolve => cancel = resolve)
     const processA = sharedHandler(current.a, async ({ input: { abortSignal } }) => {
       if (!abortSignal) throw new Error("The Driver did not receive a cancellation signal")
       start()
@@ -215,14 +217,16 @@ it("keeps the original response open until the final shared chunk is committed",
   const client = createClient({ url: ":memory:" })
   const sql = libsqlChatStreamSql(client)
   const journal = {}
-  const gate = Promise.withResolvers<void>()
-  const writing = Promise.withResolvers<void>()
+  let openGate!: () => void
+  let startWriting!: () => void
+  const gate = new Promise<void>(resolve => openGate = resolve)
+  const writing = new Promise<void>(resolve => startWriting = resolve)
   registerChatStreamSql(journal, async () => ({
     ...sql,
     async query(text, params) {
       if (text.startsWith(`INSERT INTO ${chatStreamTables.chunks}`)) {
-        writing.resolve()
-        await gate.promise
+        startWriting()
+        await gate
       }
       return await sql.query(text, params)
     },
@@ -235,11 +239,11 @@ it("keeps the original response open until the final shared chunk is committed",
     const reader = response.body!.getReader()
     await expect(reader.read()).resolves.toEqual({ done: false, value: encoder.encode("hello") })
     const eof = reader.read()
-    await writing.promise
+    await writing
     try {
       expect(await Promise.race([eof, new Promise(resolve => setTimeout(() => resolve("waiting"), 0))])).toBe("waiting")
     } finally {
-      gate.resolve()
+      openGate()
       await eof
     }
     await expect((await session.latest())!.text()).resolves.toBe("hello")
