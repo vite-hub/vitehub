@@ -131,11 +131,11 @@ describe("vitehub blob", () => {
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-console")).toBe("1")
   })
 
-  it.each([["head", "--json"], ["list", "--limit", "0", "--json"], ["list", "--timeout", "4294967296", "--json"], ["list", "--timeout", "2147483648", "--json"]])("returns JSON for argument errors: %j", async (...args) => {
+  it.each([["head", "--json"], ["get", "a.txt", "--json"], ["list", "--limit", "0", "--json"], ["list", "--timeout", "4294967296", "--json"], ["list", "--timeout", "2147483648", "--json"]])("returns JSON for argument errors: %j", async (...args) => {
     const output = context()
     const fetch = vi.fn()
     await expect(runBlobCli(args, output.context, { fetch })).resolves.toBe(1)
-    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: expect.any(String) } })
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { code: "BLOB_R0029", fix: expect.stringContaining("--help"), message: expect.any(String) } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -272,6 +272,11 @@ describe("vitehub blob", () => {
     const missing = context()
     await expect(runBlobCli(["put", "a.txt", "missing.txt"], missing.context, { fetch })).resolves.toBe(1)
     expect(missing.stderr.output()).toBe(`File not found: ${join(cwd, "missing.txt")}\n`)
+
+    const missingJson = context()
+    await expect(runBlobCli(["put", "a.txt", "missing.txt", "--json"], missingJson.context, { fetch })).resolves.toBe(1)
+    expect(JSON.parse(missingJson.stdout.output())).toEqual({ error: { code: "BLOB_R0029", fix: expect.stringContaining("--help"), message: `File not found: ${join(cwd, "missing.txt")}` } })
+    expect(missingJson.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })
 
