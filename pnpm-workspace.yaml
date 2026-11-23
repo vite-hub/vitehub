@@ -270,10 +270,11 @@ patchedDependencies:
   "@netlify/blobs@11.1.9": patches/@netlify__blobs@11.1.9.patch
   # What 0.1.0-beta.14 still lacks. web.css: --ui-ring-width, --ui-ring-offset, --ui-radius-popup and the tree chevron
   # rotation (the kit build inlines the patched web.css). Core: era years and Roman numeral months in date parsing
-  # (https://github.com/vercel-labs/ui/issues/727), states of revealed refs in agent act (vercel-labs/ui#720), the sign
-  # of number ranges whose ends are both negative (vercel-labs/ui#728), Tab out of a popover through shadow roots
-  # (vercel-labs/ui#731), shortcuts typed with Shift, and Escape in a trigger menu. Vue: Button takes an onClick array,
-  # and Input and Textarea accept numbers for v-model.number (vercel-labs/ui#723).
+  # (https://github.com/vercel-labs/ui/issues/727), ISO dates that the locale's own order can't read, states of revealed
+  # refs in agent act (vercel-labs/ui#720), the sign of number ranges whose ends are both negative (vercel-labs/ui#728),
+  # Tab out of a popover through shadow roots (vercel-labs/ui#731), shortcuts typed with Shift, and Escape in a trigger
+  # menu. Vue: Button takes an onClick array, and Input and Textarea accept numbers for v-model.number
+  # (vercel-labs/ui#723).
   # Remove each hunk when the kit moves to a release with its fix.
   "@ui-sdk/core@0.1.0-beta.14": patches/@ui-sdk__core@0.1.0-beta.14.patch
   "@ui-sdk/vue@0.1.0-beta.14": patches/@ui-sdk__vue@0.1.0-beta.14.patch
