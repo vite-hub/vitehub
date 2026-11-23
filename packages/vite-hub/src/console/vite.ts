@@ -4,6 +4,7 @@ import { resolve } from "node:path"
 import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { getResolvedFeatureOptions, isProductionBuild, publishViteHubDevServer, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubDefinitionInspectors } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 
@@ -24,6 +25,12 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 const generatedDevelopmentConsolePlugin = ".vitehub/nitro/console/plugin-dev.mjs"
+
+async function discoverViteSiteDatabaseNames(plugins: readonly Plugin[]): Promise<string[]> {
+  const inspectors = await collectViteHubDefinitionInspectors(plugins.filter(plugin => plugin.name === "@vite-hub/database/vite"))
+  const inspector = inspectors.find(definition => definition.kind === "database")
+  return (await inspector?.list() ?? []).map(definition => definition.name)
+}
 
 /**
  * The generated Console plugin of a project. A development server writes its own file: it installs the local access
@@ -288,7 +295,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let serverDirs: string[] | undefined
   let scheduleDiscoveryRoot: string | undefined
   let workspaceDiscoveryRoot: string | undefined
-  let resolvedPlugins: readonly unknown[] | undefined
+  let resolvedPlugins: readonly Plugin[] | undefined
   let cliDiscovery = false
   let development = false
   let nitroVersion: string | undefined
@@ -325,7 +332,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    await writeConsoleNitroPlugin({ ...consolePluginOptions(), catalog, file: generatedPlugin, projectRoot })
+    const pluginOptions = consolePluginOptions()
+    const siteDatabaseNames = !development && pluginOptions.pageTool
+      ? await discoverViteSiteDatabaseNames(resolvedPlugins ?? [])
+      : undefined
+    await writeConsoleNitroPlugin({ ...pluginOptions, catalog, file: generatedPlugin, projectRoot, siteDatabaseNames })
   })
 
   function resolveKVRegistration(kv: unknown, plugins?: readonly Plugin[]): void {

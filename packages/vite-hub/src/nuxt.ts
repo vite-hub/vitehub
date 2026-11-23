@@ -1230,8 +1230,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       if (!nuxt.options.dev && !nuxt.options._prepare) assertConsoleProductionAuth(configuredConsole)
     }
   }
-  // Module setup and the `nitro:config` hook write the same Console plugin. Only the file and the catalog differ.
-  const writeNuxtConsolePlugin = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleNitroPlugin({
+  const writeNuxtConsolePlugin = (file: string, catalog: ConsoleBuildCatalog, siteDatabaseNames?: readonly string[]) => writeConsoleNitroPlugin({
     file,
     projectRoot,
     name: options.name,
@@ -1246,6 +1245,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
     ...(consoleOptions?.pill === false ? {} : { pageTool: { base: nuxt.options.app?.baseURL || "/" } }),
     siteDatabase: consoleOptions?.siteAccess?.database,
+    siteDatabaseNames,
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -1615,6 +1615,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
             ? replayedDatabaseDiscoveryRoot
             : configuredDatabaseDiscoveryRoot,
+          databaseImplicitDefault: true,
           discoveryRoot: viteRoot,
           plugins: nuxt.options.vite?.plugins,
           projectRoot,
@@ -1627,9 +1628,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, options.workspace),
           workflowDiscoveryRoot: rootDir,
         })
+        const databases = consoleCatalog.content.databases
+        const siteDatabaseNames = databases?.kind === "definition-catalog" ? databases.definitions.map(definition => definition.name) : []
         await writeNuxtConsolePlugin(
           generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, nuxt.options.dev === true),
           consoleCatalog,
+          nuxt.options._prepare ? undefined : siteDatabaseNames,
         )
       }
     }

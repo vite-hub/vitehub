@@ -120,6 +120,7 @@ export interface ConsoleNitroPluginOptions {
   pageTool?: { base: string }
   /** `console.siteAccess.database`: the Database of Site access links and site sessions without Auth. */
   siteDatabase?: string
+  siteDatabaseNames?: readonly string[]
 }
 
 /** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
@@ -139,16 +140,16 @@ type ConsoleSiteDatabase = { name: string } | { choices: readonly string[] }
 const warnedSiteDatabaseChoices = new Set<string>()
 
 function resolveConsoleSiteDatabase(
-  { names, databases, configured, auth, projectRoot }: { names: readonly string[], databases: boolean, configured: string | undefined, auth: boolean, projectRoot: string },
+  { names, configured, auth, projectRoot }: { names: readonly string[], configured: string | undefined, auth: boolean, projectRoot: string },
 ): ConsoleSiteDatabase | undefined {
   if (configured !== undefined) {
-    if (!databases || (names.length && !names.includes(configured))) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN({ database: configured, names: databases ? [...names].sort() : [] })
+    if (!names.includes(configured)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_SITE_DATABASE_UNKNOWN({ database: configured, names: [...names].sort() })
     return { name: configured }
   }
-  if (!databases) return undefined
+  if (!names.length) return undefined
   const resolution = requireOptionalOwner(ownerModules.databaseConfig, "database").resolveDefaultDatabase(names)
   if (resolution.status === "resolved") return { name: resolution.name }
-  if (resolution.status === "none") return { name: "default" }
+  if (resolution.status === "none") return undefined
   const warning = [projectRoot, ...resolution.names].join("\0")
   if (!auth && !warnedSiteDatabaseChoices.has(warning)) {
     warnedSiteDatabaseChoices.add(warning)
@@ -176,6 +177,7 @@ function renderConsoleNitroPlugin(
     development = false,
     pageTool,
     siteDatabase: configuredSiteDatabase,
+    siteDatabaseNames,
   }: ConsoleNitroPluginOptions,
   build: ConsoleProjectBuild | undefined,
 ): string {
@@ -199,9 +201,8 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
-  const siteDatabase = !development && sections.includes("site")
-    ? resolveConsoleSiteDatabase({ names: databaseNames, databases: configuredSections.includes("databases"), configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), projectRoot })
+  const siteDatabase = !development && sections.includes("site") && siteDatabaseNames !== undefined
+    ? resolveConsoleSiteDatabase({ names: siteDatabaseNames, configured: configuredSiteDatabase, auth: configuredSections.includes("auth"), projectRoot })
     : undefined
   const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
