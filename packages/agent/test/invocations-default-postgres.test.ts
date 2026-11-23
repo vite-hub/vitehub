@@ -1,15 +1,17 @@
+import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import postgres from "postgres"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineDatabase } from "../../database/src/definition.ts"
 import { createNodePostgresDatabase } from "../../database/src/runtime/node-postgres.ts"
 import { createDevPostgresDatabase } from "../../database/src/runtime/pglite.ts"
 import { agentInvocationsDurability } from "../src/durability.ts"
-import { postgresAgentInvocationTables } from "../src/invocations/postgres.ts"
+import { agentDefaultJournalPostgresSchema, agentInvocationsPostgresSchema } from "../src/invocations/postgres.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
 import type { AgentInvocations } from "../src/invocations.ts"
@@ -34,13 +36,25 @@ async function nodeServer(db: object, projectRoot: string): Promise<{ invocation
 }
 
 async function journalMigration(): Promise<string[]> {
-  return await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...postgresAgentInvocationTables() }))
+  return await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...agentInvocationsPostgresSchema, ...agentDefaultJournalPostgresSchema }))
 }
 
 async function shareDefaultJournal(databases: { a: object, b: object }, projectRoot: string) {
   const a = await nodeServer(databases.a, projectRoot)
   const runId = `default-postgres-${process.pid}-${Date.now()}`
-  const journal = await a.bind(a.invocations, { memo: vi.fn(), run: { runId }, runtime: "unknown", waitUntil: vi.fn() }, { agentName: "support" })
+  const bind = (id: string, agentName: string, channelId: string, threadId: string) => a.bind(a.invocations, { memo: vi.fn(), run: { channelId, runId: id, threadId }, runtime: "unknown", waitUntil: vi.fn() }, { agentName })
+  for (const [suffix, agentName, channelId, threadId] of [
+    ["match", "support", "chat", "t1"],
+    ["different-channel", "support", "web", "t1"],
+    ["different-thread", "support", "chat", "t2"],
+    ["different-agent", "other", "chat", "t1"],
+  ] as const) {
+    const earlier = await bind(`${runId}-${suffix}`, agentName, channelId, threadId)
+    if (!earlier) throw new Error("Expected an earlier Invocation")
+    await earlier.running()
+    await earlier.finish("completed")
+  }
+  const journal = await bind(runId, "support", "chat", "t1")
   if (!journal) throw new Error("Expected the default journal")
   await journal.running()
   const started = await a.invocations.getByRunId(runId, "support")
@@ -55,6 +69,16 @@ async function shareDefaultJournal(databases: { a: object, b: object }, projectR
   const finished = await b.invocations.get(started.id)
   expect(finished).toMatchObject({ status: "cancelled" })
   await expect(a.invocations.get(started.id)).resolves.toMatchObject({ status: "cancelled" })
+
+  const previous = await b.invocations.getByRunId(`${runId}-match`, "support")
+  expect(previous).toBeDefined()
+  const { debugInputCommand } = await import("../src/capabilities/input-commands-debug.ts")
+  if (!debugInputCommand.call) throw new Error("Expected the /debug handler")
+  const reply = vi.fn()
+  const invocationUrl = vi.fn(() => "console-link")
+  await Reflect.apply(debugInputCommand.call, undefined, [{ context: { console: { invocationUrl }, invocation: { id: started.id }, reply } }])
+  expect(invocationUrl).toHaveBeenCalledWith({ agentName: "support", id: previous?.id })
+  expect(reply).toHaveBeenCalledWith("console-link")
 }
 
 function context(env: Record<string, string | undefined>, reports: readonly Durability[]): DurabilityContext {
@@ -80,7 +104,13 @@ describe("default Agent journal on a Postgres default Database", () => {
       const client: { exec: (sql: string) => Promise<unknown>, close: () => Promise<void> } = Reflect.get(db, "$client")
       for (const statement of await journalMigration()) await client.exec(statement)
       try {
+        await nodeServer(db, projectRoot)
+        const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
+        const explicit = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
+        const updatedAt = "2020-01-01T00:00:00.000Z"
+        await explicit.create({ agentName: "explicit", createdAt: updatedAt, id: "keep", observations: [], status: "completed", traceId: "keep", updatedAt })
         await shareDefaultJournal({ a: db, b: db }, projectRoot)
+        await expect(explicit.get("keep")).resolves.toMatchObject({ id: "keep" })
         const { resolveDefaultAgentInvocationsLocation } = await import("../src/invocations/default-core.ts")
         await expect(resolveDefaultAgentInvocationsLocation({ database: { name: "default", store: vi.fn() }, env: {}, projectRoot })).resolves.toEqual({ url: "database:default" })
       }
@@ -117,23 +147,35 @@ describe("default Agent journal on a Postgres default Database", () => {
   })
 
   describe.skipIf(!url)("on a Postgres server", () => {
-    const pools: Array<{ end: () => Promise<void> }> = []
-    const nodePostgres = () => {
-      vi.stubEnv("VITEHUB_TEST_AGENT_DATABASE_URL", url!)
-      const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_AGENT_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
-      const db = createNodePostgresDatabase(definition, { binding: "DB" })
-      pools.push(Reflect.get(db, "$client"))
-      return db
-    }
-    afterAll(async () => {
-      await Promise.all(pools.map(pool => pool.end()))
-    })
-
     it("shares the default journal between two processes with their own connections", async () => {
-      const [a, b] = [nodePostgres(), nodePostgres()]
-      await a.execute("DROP TABLE IF EXISTS vitehub_agent_invocations_observations, vitehub_agent_invocations")
-      for (const statement of await journalMigration()) await a.execute(statement)
-      await shareDefaultJournal({ a, b }, projectRoot)
+      const schema = `vitehub_test_${randomUUID().replaceAll("-", "")}`
+      const admin = postgres(url!, { max: 1 })
+      try {
+        await admin`CREATE SCHEMA ${admin(schema)}`
+        try {
+          const connectionUrl = new URL(url!)
+          connectionUrl.searchParams.set("options", `-c search_path=${schema}`)
+          vi.stubEnv("VITEHUB_TEST_AGENT_DATABASE_URL", connectionUrl.href)
+          const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_AGENT_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
+          const a = createNodePostgresDatabase(definition, { binding: "DB" })
+          const b = createNodePostgresDatabase(definition, { binding: "DB" })
+          const pools: Array<{ end: () => Promise<void> }> = [Reflect.get(a, "$client"), Reflect.get(b, "$client")]
+          try {
+            for (const statement of await journalMigration()) await a.execute(statement.replaceAll('"public".', ""))
+            await shareDefaultJournal({ a, b }, projectRoot)
+          }
+          finally {
+            vi.unstubAllEnvs()
+            await Promise.all(pools.map(pool => pool.end()))
+          }
+        }
+        finally {
+          await admin`DROP SCHEMA ${admin(schema)} CASCADE`
+        }
+      }
+      finally {
+        await admin.end()
+      }
     })
   })
 })

@@ -1,4 +1,4 @@
-import { agentJournalStateUrl, defaultDatabaseD1Binding, defaultJournalDatabase, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { invariant } from "@vite-hub/internal/invariant"
@@ -1841,7 +1841,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
         default: defaultInvocations,
         host: plan.host,
         resolveD1Binding: (root, serverDirs) => defaultDatabaseD1Binding(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
-        resolveDatabase: (root, serverDirs) => defaultJournalDatabase(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
         stateUrl: agentJournalStateUrl(options),
       }))
     }

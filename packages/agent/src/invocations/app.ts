@@ -2,6 +2,7 @@ import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
+import { defaultAgentJournalPostgresPrefix } from "./postgres-table-names.ts"
 
 import type { AgentInvocationObservationOptions, AgentInvocations, AgentInvocationsOptions, AgentInvocationStore } from "../invocations.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -232,7 +233,7 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    const store = database === undefined ? undefined : { name: database, store: (limits: DatabaseAgentInvocationStoreOptions) => deferredDatabaseStore({ ...limits, database }) }
+    const store = database === undefined ? undefined : { name: database, store: (limits: DatabaseAgentInvocationStoreOptions) => deferredDatabaseStore({ ...limits, database, tablePrefix: defaultAgentJournalPostgresPrefix }) }
     state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, database: store, libsql, projectRoot, stateUrl }), key }
     return
   }

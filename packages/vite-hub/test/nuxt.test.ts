@@ -1830,16 +1830,20 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
-  it.each([["postgresql", true], ["sqlite", false]] as const)("stores the Node Agent journal in a %s default Database: %s", async (dialect, inDatabase) => {
+  it.each(["definition", "contribution", "sqlite"] as const)("selects the Node Agent journal after Database replay: %s", async (source) => {
+    mocks.vitehub.mockReturnValue([agentInvocationsVitePlugin({ database: true, host: "node" })])
     await rm(agentJournalPlugin, { force: true })
     await mkdir(`${tmp}/vitehub-nuxt/custom-server/databases`, { recursive: true })
-    const driver = dialect === "postgresql" ? 'driver: "node-postgres", ' : ""
-    await writeFile(`${tmp}/vitehub-nuxt/custom-server/databases/default.ts`, `export default defineDatabase({ dialect: "${dialect}", ${driver}schema: {} })\n`)
-    const application = createNuxt(false)
+    const definition = `${tmp}/vitehub-nuxt/custom-server/databases/default.ts`
+    const contribution = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
+    if (source === "contribution") await rm(definition, { force: true })
+    else await writeFile(definition, `export default defineDatabase({ ${source === "definition" ? 'dialect: "postgresql", driver: "node-postgres", ' : ""}schema: {} })\n`)
+    const application = createNuxt(false, source === "contribution" ? [contribution] : [])
+    Object.assign(application.nuxt.options, { _prepare: true })
     await viteHubNuxtModule({ host: "node", agent: true, database: true }, application.nuxt)
 
-    const generated = await generatedAgentJournal(application)
-    if (inDatabase) expect(generated).toContain('database: "default"')
+    const generated = await generatedAgentJournal(application, true)
+    if (source !== "sqlite") expect(generated).toContain('database: "default"')
     else expect(generated).not.toContain('database: "default"')
     await application.runCloseHook()
   })

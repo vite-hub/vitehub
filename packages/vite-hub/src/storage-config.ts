@@ -71,24 +71,6 @@ export function agentJournalStateUrl(options: ViteHubOptions): string | undefine
 }
 
 /**
- * The Database of the default Agent Invocation journal in a Node build: `default` when the default Database uses
- * Postgres, so every instance reads the same Invocations. Undefined on other hosts and for a SQLite default Database.
- */
-export function defaultJournalDatabase(
-  host: string,
-  database: ViteHubOptions["database"],
-  definitions: { implicitDefault?: boolean, root: string, serverDirs?: string[] },
-): string | undefined {
-  if (host !== "node" || !database) return
-  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = requireOptionalOwner(ownerModules.databaseConfig, "database")
-  const options = database === true ? undefined : database
-  const root = resolve(definitions.root, options?.projectRoot ?? ".")
-  const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
-  const target = discoverDatabaseDefinitions(root, { implicitDefault: definitions.implicitDefault, serverDirs }).find(definition => definition.name === "default")
-  return target && readDatabaseDefinitionDialect(target.handler) === "postgresql" ? "default" : undefined
-}
-
-/**
  * The D1 binding of the Database primitive on Cloudflare, where the default Agent Invocation journal lives.
  * Read the binding of the default or only Database Definition before integration defaults.
  */
