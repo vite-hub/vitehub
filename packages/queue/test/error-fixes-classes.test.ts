@@ -44,6 +44,11 @@ it("gives each code that replaced a plain error a fix and its own docs page", ()
   }
 })
 
+it("recommends the standalone codemod for the former Queue definition form", () => {
+  const error = queueErrorDiagnostics.QUEUE_INVALID_DEFINITION({ reason: "`defineQueue(handler, options)` was removed." })
+  expect(error.fix).toContain("`npx @vite-hub/codemods define-forms`")
+})
+
 it("gives an operation failure its code, fix, and HTTP status", async () => {
   await expect(sendToQueue({ payload: {}, queue: "../welcome" })).rejects.toMatchObject({
     code: "QUEUE_DEFINITION_NAME_INVALID",

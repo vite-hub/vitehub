@@ -99,7 +99,6 @@
   "docs/scripts/parity.mjs": 26,
   "docs/scripts/postinstall.mjs": 6,
   "docs/scripts/primitive-svgs.mjs": 7,
-  "docs/server/auth.ts": 2,
   "docs/server/databases/default.ts": 2,
   "docs/server/middleware/canonical-url.ts": 2,
   "docs/server/middleware/static-assets.ts": 15,
