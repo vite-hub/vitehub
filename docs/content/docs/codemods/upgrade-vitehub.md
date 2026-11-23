@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -634,3 +634,27 @@ The codemod leaves old Console deletes untouched. Migrate them by hand to `viteh
 Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
 
 Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` alone for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.
+
+## nuxt-server-imports
+
+On Nuxt 5, the `vite-hub/nuxt` module auto-imports its server helpers only when the app turns on Nuxt's server auto-imports. `nuxt-server-imports` adds an explicit import to each server file that uses a helper without one:
+
+```bash [Terminal]
+npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
+```
+
+```diff [server/api/welcome.post.ts]
+ import { defineEventHandler, readBody } from 'nitro/h3'
++import { kv } from 'vite-hub/kv'
++import { sendQueue } from 'vite-hub/queue'
+
+ export default defineEventHandler(async (event) => {
+   const { email } = await readBody<{ email: string }>(event)
+   const [error] = await sendQueue('welcome', { email })
+```
+
+The codemod reads the server directory of the app and of each local layer. It uses the helper list of [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). It joins a name with an existing import of the same entry, and it leaves a name that the file declares or imports.
+
+It preserves names that Nuxt still auto-imports from your app, such as `db` re-exported by `server/utils/index.ts` or an entry in `nitro.imports`. The report lists them. If the app or one of its layers enables the ViteHub auto-imports and no option disables injection, the codemod leaves the files unchanged. If it cannot determine the settings or the source of a binding statically, it reports what to check instead of guessing.
+
+`vitehub migrate` runs it last, so it imports the names that the other codemods write. The report also names the files that use Nitro and H3 helpers, such as `defineEventHandler`, without an import. Import them as the Nuxt 5 build error lists.

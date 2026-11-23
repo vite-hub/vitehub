@@ -92,8 +92,7 @@ describe("seo.sitemap in a built Nuxt app", () => {
         "app/pages/about.vue": "<template><h1>About</h1></template>\n",
         "app/pages/admin.vue": "<template><h1>Admin</h1></template>\n",
         "app/pages/products/[slug].vue": "<template><h1>Product</h1></template>\n",
-        // Auto-imported in Nitro code.
-        "server/sitemap.ts": "export default defineSitemap([{ loc: '/products/kettle' }])\n",
+        "server/sitemap.ts": "import { defineSitemap } from 'vite-hub/seo'\n\nexport default defineSitemap([{ loc: '/products/kettle' }])\n",
         "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
       }
       for (const [path, source] of Object.entries(files)) {

@@ -632,7 +632,7 @@ Rules:
 - `relations` join like tables. The relations of one table merge across layers, and the app wins a relation name. A layer can relate its tables to the tables of another layer: import them, and pass them to `defineRelationsPart()`. When a layer replaces a table, it must also define the relations of that table.
 - Migrations go to the application, in `server/databases/default/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
 
-ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A `defineDatabase()` object holds options only. It is not a Drizzle database.
+ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or `db` from `vite-hub/database`. A `defineDatabase()` object holds options only. It is not a Drizzle database.
 
 ## Contribute tables from a package
 

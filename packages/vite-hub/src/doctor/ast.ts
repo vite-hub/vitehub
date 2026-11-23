@@ -328,7 +328,7 @@ export function scopeIndex(ctx: RuleContext): ScopeIndex {
   return index
 }
 
-/** Auto-imports that `vite-hub/nuxt` can register for Nitro server code. */
+/** Auto-imports that `vite-hub/nuxt` registers for Nitro server code when the Nuxt config turns on server auto-imports. */
 const nuxtServerAutoImports = new Map<string, ImportOrigin>(
   Object.values(viteHubServerImports).flatMap(sources => Object.entries(sources).flatMap(([source, names]) => names.map((name: string): [string, ImportOrigin] => [name, { source, name }]))),
 )
@@ -362,7 +362,9 @@ export function resolver(ctx: RuleContext): Resolver {
   const cached = root ? resolvers.get(root) : undefined
   if (cached && cached.ctx.file.path === ctx.file.path) return cached
   const scopes = scopeIndex(ctx)
-  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath) ? nuxtServerAutoImports : new Map<string, ImportOrigin>()
+  const autoImports = ctx.project.framework === "nuxt" && isServerFile(ctx.file.relativePath) && viteHubInventory(ctx).nuxtServerAutoImports
+    ? nuxtServerAutoImports
+    : new Map<string, ImportOrigin>()
 
   function binding(node: unknown) {
     const target = unwrap(node)

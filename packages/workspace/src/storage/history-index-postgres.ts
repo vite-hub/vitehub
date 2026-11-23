@@ -28,7 +28,7 @@ function manifestDigests(where: SQL | undefined) {
 }
 
 function textValues(values: string[]) {
-  return sql`(select jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
+  return sql`(select jsonb_array_elements_text(${JSON.stringify(values)}::text::jsonb))`
 }
 
 async function indexFiles(entries: HistoryRevisionRow["entries"]): Promise<HistoryFileIndex> {
@@ -151,7 +151,7 @@ export function postgresHistoryIndex(db: PostgresHistoryDatabase): HistoryIndex 
         const missing = registry.filter(object => !registered.has(object.digest))
         if (missing.length) await tx.execute(sql`
           insert into ${objects} (workspace, digest, size)
-          select ${workspace}, key, size from jsonb_to_recordset(${JSON.stringify(missing)}::jsonb) as entry(key text, size bigint)
+          select ${workspace}, key, size from jsonb_to_recordset(${JSON.stringify(missing)}::text::jsonb) as entry(key text, size bigint)
           on conflict do nothing
         `)
       })
