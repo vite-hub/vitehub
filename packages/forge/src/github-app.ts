@@ -83,9 +83,11 @@ interface TokenMint {
 }
 
 function tokenMint(provider: ForgeProvider, installationId: string): TokenMint {
-  const existing = tokenMints.get(provider)
+  const shared = globalThis.navigator?.userAgent !== "Cloudflare-Workers"
+  const existing = shared ? tokenMints.get(provider) : undefined
   if (existing) return existing
   const controller = new AbortController()
+  let stopped = false
   const forget = () => {
     if (tokenMints.get(provider) === mint) tokenMints.delete(provider)
   }
@@ -95,16 +97,17 @@ function tokenMint(provider: ForgeProvider, installationId: string): TokenMint {
       .then((response) => {
         if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
         const minted = { token: response.data.token, expiresAt: new Date(response.data.expires_at).getTime() }
-        installationTokens.set(provider, minted)
+        if (!stopped) installationTokens.set(provider, minted)
         return minted
       })
       .finally(forget),
     stop(reason) {
+      stopped = true
       forget()
       controller.abort(reason)
     },
   }
-  tokenMints.set(provider, mint)
+  if (shared) tokenMints.set(provider, mint)
   return mint
 }
 

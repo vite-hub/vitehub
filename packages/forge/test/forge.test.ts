@@ -294,6 +294,62 @@ describe("internal Forge client", () => {
     expect(calls).toBe(2)
   })
 
+  it("keeps the token of the next mint when a stopped mint answers later", async () => {
+    const controller = new AbortController()
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    const fetcher: typeof fetch = async () => {
+      calls++
+      const expires_at = new Date(Date.now() + 3_600_000).toISOString()
+      if (calls > 1) return Response.json({ token: "replacement", expires_at })
+      markStarted()
+      await released
+      return Response.json({ token: "abandoned", expires_at })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const abandoned = credentials.installationToken(1, { signal: controller.signal })
+    const rejected = expect(abandoned).rejects.toThrow("cancelled")
+    await started
+    controller.abort(new Error("cancelled"))
+    await rejected
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "replacement" })
+    release()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "replacement" })
+    expect(calls).toBe(2)
+  })
+
+  it("mints a token for each call on Cloudflare Workers until a token is cached", async () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const controller = new AbortController()
+    const signals: (AbortSignal | null | undefined)[] = []
+    let markStarted!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const fetcher: typeof fetch = async (_input, init) => {
+      signals.push(init?.signal)
+      const expires_at = new Date(Date.now() + 3_600_000).toISOString()
+      if (signals.length > 1) return Response.json({ token: `token-${signals.length}`, expires_at })
+      markStarted()
+      return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+      })
+    }
+    const credentials = githubAppCredentials({ appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher })
+    const first = credentials.installationToken(1, { signal: controller.signal })
+    const rejected = expect(first).rejects.toThrow("cancelled")
+    await started
+    const second = credentials.installationToken(1)
+    controller.abort(new Error("cancelled"))
+    await rejected
+    expect(signals[0]?.aborted).toBe(true)
+    await expect(second).resolves.toMatchObject({ token: "token-2" })
+    await expect(credentials.installationToken(1)).resolves.toMatchObject({ token: "token-2" })
+    expect(signals).toHaveLength(2)
+  })
+
   it("rejects an aborted token request", async () => {
     const controller = new AbortController()
     const fetcher: typeof fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
