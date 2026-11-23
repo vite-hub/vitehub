@@ -304,6 +304,24 @@ function journalSchema(table: string) {
   }
 }
 
+async function hasCurrentJournalSchema(client: Client, table: string): Promise<boolean> {
+  const schema = journalSchema(table)
+  const [objects, columns, claimColumns] = await client.batch([
+    `SELECT type, lower(name) AS name FROM sqlite_master
+      WHERE tbl_name COLLATE NOCASE IN ('${table}', '${table}_claims', '${table}_observations')`,
+    `PRAGMA table_info(${table})`,
+    `PRAGMA table_info(${table}_claims)`,
+  ], "read")
+  const names = new Set(objects!.rows.map(row => `${row.type}:${row.name}`))
+  return [...schema.tables, ...schema.beforeBackfill, ...schema.afterBackfill].every((sql) => {
+    const object = /^CREATE (TABLE|INDEX|TRIGGER) IF NOT EXISTS (\w+)/.exec(sql)
+    return !object || object[2] === `${table}_schema` || names.has(`${object[1]}:${object[2]}`.toLowerCase())
+  })
+    && schema.droppedTriggers.every(name => !names.has(`trigger:${name.toLowerCase()}`))
+    && schema.columns.every(column => columns!.rows.some(row => row.name === column.name))
+    && schema.claimColumns.every(column => claimColumns!.rows.some(row => row.name === column.name))
+}
+
 async function schemaFingerprint(schema: ReturnType<typeof journalSchema>): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(schema)))
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
@@ -747,7 +765,8 @@ function createSqliteJournalStore(options: LibsqlAgentInvocationStoreOptions, ba
       ], [])
       startSearchBackfill()
       startSummaryBackfill()
-    })().catch((error) => {
+    })().catch(async (error: unknown) => {
+      if (hasSqliteCode(error, "SQLITE_READONLY") && await hasCurrentJournalSchema(client, table).catch(() => false)) return
       initialized = undefined
       throw error
     })

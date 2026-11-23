@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -43,10 +44,10 @@ function remoteClient(client: Client) {
 
 const freshRequests = 6
 
-async function measureOpen(client: Client, counter: { requests: number }) {
+async function measureOpen(client: Client, counter: { requests: number }, tablePrefix?: string) {
   counter.requests = 0
   const started = performance.now()
-  await createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false }).open()
+  await createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false, tablePrefix }).open()
   return { ms: Math.round(performance.now() - started), requests: counter.requests }
 }
 
@@ -70,15 +71,18 @@ describe("SQLite Agent Invocation schema setup on a remote database", () => {
   it.skipIf(!sqldUrl)("sends few requests to sqld", async () => {
     const sqld = createClient({ url: sqldUrl! })
     clients.push(sqld)
-    for (const name of ["invocations_observations", "invocations_claims", "invocations_schema", "invocations"]) {
-      await sqld.execute(`DROP TABLE IF EXISTS vitehub_agent_${name}`)
-    }
+    const tablePrefix = `schema_test_${randomUUID().replaceAll("-", "")}_`
     const remote = remoteClient(sqld)
-    const fresh = await measureOpen(remote.client, remote.counter)
-    const current = await measureOpen(remote.client, remote.counter)
-    console.info(`[schema-requests] sqld fresh: ${fresh.requests} requests, ${fresh.ms} ms; current: ${current.requests} requests, ${current.ms} ms`)
-    expect(fresh.requests).toBe(freshRequests)
-    expect(current.requests).toBe(1)
+    try {
+      const fresh = await measureOpen(remote.client, remote.counter, tablePrefix)
+      const current = await measureOpen(remote.client, remote.counter, tablePrefix)
+      console.info(`[schema-requests] sqld fresh: ${fresh.requests} requests, ${fresh.ms} ms; current: ${current.requests} requests, ${current.ms} ms`)
+      expect(fresh.requests).toBe(freshRequests)
+      expect(current.requests).toBe(1)
+    }
+    finally {
+      await sqld.batch(["invocations_observations", "invocations_claims", "invocations_schema", "invocations"].map(name => `DROP TABLE IF EXISTS ${tablePrefix}${name}`), "write")
+    }
   })
 })
 
@@ -113,6 +117,26 @@ describe("SQLite Agent Invocation schema migrations", () => {
   afterEach(async () => {
     client.close()
     await rm(directory, { force: true, recursive: true })
+  })
+
+  it.each([false, true])("opens an unmarked read-only journal only if its schema is current (missing index: %s)", async (missingIndex) => {
+    const writer = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    await writer.create({
+      agentName: "review", createdAt: timestamp, id: "legacy", observations: [], status: "completed", traceId: "trace", updatedAt: timestamp,
+    })
+    await client.execute("DROP TABLE vitehub_agent_invocations_schema")
+    if (missingIndex) await client.execute("DROP INDEX vitehub_agent_invocations_status_sequence")
+    await client.execute("PRAGMA query_only = ON")
+
+    const reader = createLibsqlAgentInvocationStore({ client, maxAge: false, maxRecords: false })
+    if (missingIndex) {
+      await expect(reader.open()).rejects.toMatchObject({ code: "SQLITE_READONLY" })
+    }
+    else {
+      expect(await reader.get("legacy")).toMatchObject({ id: "legacy" })
+      expect((await reader.list()).invocations.map(invocation => invocation.id)).toEqual(["legacy"])
+      expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'vitehub_agent_invocations_schema'")).rows).toEqual([])
+    }
   })
 
   it("migrates every column and backfill of a first-release journal", async () => {
