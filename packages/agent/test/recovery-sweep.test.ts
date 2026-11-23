@@ -11,6 +11,12 @@ afterEach(async () => {
   vi.useRealTimers()
 })
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 function start(leases: ReturnType<typeof createMemoryLeaseStore>, swept: string[], name: string, intervalMs = 60_000): AgentRecoverySweep {
   const sweep = startAgentRecoverySweep({ agentName: "support", intervalMs, leases, sweep: async () => { swept.push(name) } })
   started.push(sweep)
@@ -76,7 +82,7 @@ describe("startAgentRecoverySweep", () => {
   it("renews the Lease when a scan takes longer than its TTL", async () => {
     vi.useFakeTimers({ toFake: ["Date", "performance", "setInterval", "clearInterval"] })
     const leases = createMemoryLeaseStore()
-    const release = Promise.withResolvers<void>()
+    const release = deferred()
     const work = vi.fn(async (canRecover: () => boolean) => {
       await release.promise
       expect(canRecover()).toBe(true)
@@ -109,7 +115,7 @@ describe("startAgentRecoverySweep", () => {
       if (result[1]) vi.spyOn(result[1], "renew").mockResolvedValue([undefined, false])
       return result
     })
-    const release = Promise.withResolvers<void>()
+    const release = deferred()
     const recover = vi.fn()
     const holder = startAgentRecoverySweep({
       agentName: "support",
