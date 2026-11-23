@@ -191,7 +191,7 @@ export default defineAgent({
 })
 ```
 
-Each Channel needs its own credentials and webhook. See [Agent Channels](/docs/agents/channels).
+Install the Channels package, and Forge for `github()`, with `pnpm add @vite-hub/channels @vite-hub/forge`. Each Channel needs its own credentials and webhook. See [Agent Channels](/docs/agents/channels).
 
 ## Deploy Codex
 

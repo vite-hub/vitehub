@@ -37,6 +37,7 @@ const fixtureViteHubPackages = [
   "@vite-hub/agent",
   "@vite-hub/auth",
   "@vite-hub/blob",
+  "@vite-hub/channels",
   "@vite-hub/database",
   "@vite-hub/email",
   "@vite-hub/markdown-template",
@@ -1060,6 +1061,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/agent": specs["@vite-hub/agent"],
+            "@vite-hub/channels": specs["@vite-hub/channels"],
             "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
             "drizzle-orm": "1.0.0-rc.5",
@@ -1096,7 +1098,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
 
       await installApp(appDir, "--no-strict-peer-dependencies")
-      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
+      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/channels", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
 
