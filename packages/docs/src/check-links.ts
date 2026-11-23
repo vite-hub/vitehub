@@ -112,7 +112,15 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
     cache.set(file, result);
     return result;
   };
-  const fileOf = docsOutputFile(root, appBase);
+  const outputFile = docsOutputFile(root, appBase);
+  const targets = new Map<string, string | null>();
+  function fileOf(path: string) {
+    const known = targets.get(path);
+    if (known !== undefined) return known;
+    const target = outputFile(path) ?? null;
+    targets.set(path, target);
+    return target;
+  }
   const files = readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".html"))
     .map((entry) => join(entry.parentPath, entry.name));
