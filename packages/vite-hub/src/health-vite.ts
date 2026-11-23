@@ -70,10 +70,11 @@ export function renderHealthHandler(input: { version?: string, commit: string | 
   const groups = [
     ...(input.database ? [`database: import("@vite-hub/database/runtime/registry").then(({ pingDatabases }) => pingDatabases())`] : []),
     ...(input.kv.length ? [`kv: import("vite-hub/kv").then(({ kv }) => checkStores("KV store", ${JSON.stringify(input.kv)}, async (name) => { const [error] = await kv.store(name, { mode: "read" }).has(${JSON.stringify(probeKey)}); if (error) throw error }))`] : []),
-    ...(input.blob.length ? [`blob: import(${JSON.stringify(blobHealthModule())}).then(({ checkBlobStoreHealth }) => checkStores("Blob store", ${JSON.stringify(input.blob)}, checkBlobStoreHealth))`] : []),
+    ...(input.blob.length ? [`blob: checkStores("Blob store", ${JSON.stringify(input.blob)}, checkBlobStoreHealth)`] : []),
   ]
   const build = input.version ? "version, commit, vitehub" : "commit, vitehub"
   return [
+    ...(input.blob.length ? [`import { checkBlobStoreHealth } from ${JSON.stringify(blobHealthModule())}`, ""] : []),
     ...(input.version ? [`const version = ${JSON.stringify(input.version)}`] : []),
     `const commit = ${JSON.stringify(input.commit)}`,
     `const vitehub = ${JSON.stringify(input.vitehub)}`,
