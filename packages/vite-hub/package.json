@@ -902,6 +902,11 @@
       "import": "./dist/workspace/blob-database.js",
       "default": "./dist/workspace/blob-database.js"
     },
+    "./workspace/blob-database/postgres": {
+      "types": "./dist/workspace/blob-database/postgres.d.ts",
+      "import": "./dist/workspace/blob-database/postgres.js",
+      "default": "./dist/workspace/blob-database/postgres.js"
+    },
     "./workspace/checkout": {
       "types": "./dist/workspace/checkout.d.ts",
       "import": "./dist/workspace/checkout.js",

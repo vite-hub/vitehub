@@ -1,5 +1,5 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
-import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
+import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_STORE, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { cloudflareEmailDevShimSource, cloudflareWorkersDevShimSource } from "./cloudflare-workers-dev-shim.injected.ts"
 import { invariant } from "@vite-hub/internal/invariant"
@@ -350,6 +350,7 @@ const nitroConfigResolvedNames = new Set([
   "@vite-hub/sandbox/task/vite",
   "@vite-hub/schedule/vite",
   "@vite-hub/workflow/vite",
+  "vite-hub/agent-invocations",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -1057,10 +1058,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const writeNuxtAgentJournal = async (database: typeof options.database, databaseRoot: string) => {
     if (!options.agent || nuxt.options.dev || nuxt.options.vitehubCliDiscovery || !isDefaultAgentJournal(agentJournal)) return
     // An explicit `databaseUrl` keeps libSQL.
-    const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.host, database, { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
-    assertAgentInvocationsRetention(agentJournal?.retention, d1Binding !== undefined, agentJournal?.databaseUrl)
+    const definitions = { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }
+    const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.host, database, definitions)
+    assertAgentInvocationsRetention(agentJournal?.retention, { d1: d1Binding }, agentJournal?.databaseUrl)
     if (!nuxt.options._prepare) assertAgentInvocationsUrl(plan.host, agentJournal?.databaseUrl)
-    ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_D1] = { binding: d1Binding }
+    ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_STORE] = { d1: d1Binding }
     const libsql = defaultJournalNeedsLibsql({ build: true, databaseUrl: agentJournal?.databaseUrl, host: plan.host })
     await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, libsql, projectRoot, stateUrl: agentJournalStateUrl(options) })
   }
@@ -1530,7 +1532,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const replayedDatabase = hasReplayedDatabaseDiscoveryRoot
       ? getResolvedFeatureOptions<typeof options.database>(replayConfig, "database") ?? options.database
       : options.database
-    await writeNuxtAgentJournal(
+    if (plan.host === "cloudflare") await writeNuxtAgentJournal(
       replayedDatabase && replayedDatabase !== true && hasReplayedDatabaseDiscoveryRoot
         ? { ...replayedDatabase, projectRoot: replayedDatabaseDiscoveryRoot }
         : replayedDatabase,

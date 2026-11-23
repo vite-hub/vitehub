@@ -16,6 +16,7 @@ import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provid
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries, collectViteHubResourceSummaries } from "@vite-hub/internal/inspect"
 import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
+import type { VercelFunctionRuntimePackagesRequest } from "@vite-hub/internal/build/vercel-runtime-packages"
 import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -38,13 +39,27 @@ const chatMessageHeader = expect.objectContaining({ id: "message-header", type: 
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyNodeRuntimePackages: vi.fn(async () => undefined),
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
-vi.mock("@vite-hub/internal/build/deployment-output", async importOriginal => ({
-  ...await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>(),
-  writeProviderDeploymentOutputs: vi.fn(async () => undefined),
-}))
+const addVercelRuntimePackages = vi.hoisted(() => vi.fn((_request: VercelFunctionRuntimePackagesRequest) => {}))
+
+vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/internal/build/deployment-output")>()
+  return {
+    ...actual,
+    contributeProviderDeploymentOutput: (...[catalog, contribution, generation]: Parameters<typeof actual.contributeProviderDeploymentOutput>) => actual.contributeProviderDeploymentOutput(catalog, {
+      ...contribution,
+      write: async writeContext => await contribution.write({
+        ...writeContext,
+        addVercelRuntimePackages: (request) => {
+          addVercelRuntimePackages(request)
+          writeContext.addVercelRuntimePackages(request)
+        },
+      }),
+    }, generation),
+    writeProviderDeploymentOutputs: vi.fn(async () => undefined),
+  }
+})
 
 vi.mock("@vite-hub/internal/build/provider-output-sources", async (importOriginal) => {
   const original = await importOriginal<typeof import("@vite-hub/internal/build/provider-output-sources")>()
@@ -531,6 +546,15 @@ describe("agent Vite plugin", () => {
       await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+      await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
+      const withDatabase = { ...privateConfig, nitro: {}, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
+      await (memoryPlugin.config as typeof config)(withDatabase, { command: "build", mode: "production" })
+      expect(withDatabase).toMatchObject({ nitro: { plugins: [generatedQueue] } })
+      await (memoryPlugin.configResolved as typeof configResolved)({ ...withDatabase, resolve: { alias: [] } })
+      await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
+      await expect(readFile(generatedQueue, "utf8")).resolves.not.toContain("warmWebhookRoutes")
+      await expect(readFile(generatedRoute, "utf8")).resolves.toContain("const queueOpens = false")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -1194,7 +1218,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("materializes Agent runtime packages for Vercel build output", async () => {
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { resolveProviderRuntimePackages } = await import("../src/internal/provider-runtime-packages.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-vercel-runtime-"))
@@ -1210,7 +1233,7 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent()
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
-      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+      addVercelRuntimePackages.mockClear()
       vi.mocked(resolveProviderRuntimePackages).mockReturnValueOnce([
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
         { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
@@ -1219,8 +1242,8 @@ describe("agent Vite plugin", () => {
       await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
-      expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledOnce()
-      const call = vi.mocked(copyVercelFunctionRuntimePackages).mock.calls[0]?.[0]
+      expect(addVercelRuntimePackages).toHaveBeenCalledOnce()
+      const call = addVercelRuntimePackages.mock.calls[0]?.[0]
       expect(call?.rootDir).toBe(root)
       if (!call || Array.isArray(call.packages)) throw new Error("Expected deferred Vercel runtime packages.")
       const packages = await call.packages()
@@ -1231,7 +1254,6 @@ describe("agent Vite plugin", () => {
         { name: "@openai/codex", resolveFrom: join(root, "package.json") },
         { name: platformPackage, resolveFrom: join(codexPackageDir, "package.json") },
       ])
-      expect(call.signal).toEqual(expect.any(AbortSignal))
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2660,7 +2682,6 @@ describe("agent Vite plugin", () => {
   })
 
   it("does not materialize Vercel runtime packages for Deno output", async () => {
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-close-bundle-"))
     try {
@@ -2669,12 +2690,12 @@ describe("agent Vite plugin", () => {
       const plugin = hubAgent({ runtime: "deno" })
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const configResolved = plugin.configResolved as (config: { command: "build"; root: string }) => Promise<void>
-      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+      addVercelRuntimePackages.mockClear()
 
       await configResolved({ command: "build", root })
       await runProviderOutputHooks(plugin)
 
-      expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
+      expect(addVercelRuntimePackages).not.toHaveBeenCalled()
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2897,7 +2918,7 @@ export default defineAgent({
       expect(webhookRoute).toContain(`import { opensLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
       expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: Boolean(runtimeUrl) })")
       expect(webhookRoute).toContain("const viteHubChatStateResolver = () => viteHubChatStateOpens() ? chatStateFromLibsql() : undefined")
-      expect(webhookRoute).toContain("  if (!viteHubChatStateOpens()) return async () => undefined")
+      expect(webhookRoute).toContain("  if (!queueOpens && !recoverySweep) return async () => undefined")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3051,11 +3072,12 @@ export default defineAgent({
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number)")
-        expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
+        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number, recoverySweep?: ")
+        expect(webhookRoute).toContain("const queueOpens = Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()")
+        expect(webhookRoute).toContain("if (!queueOpens && !recoverySweep) return async () => undefined")
         // A file: URL that the app set throws in workerd instead of running without State.
         expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
-        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })")
+        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, webhookState: queueOpens ? chatStateFromLibsql() : undefined, waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 
 import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, collectViteHubResourceSummaries, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { PROVISION_STATE_FILE, readProvisionStateSync } from "@vite-hub/internal/provision-state"
+import { isRecord } from "@vite-hub/internal/object"
 import { operationCliPath } from "@vite-hub/internal/operations"
 import { basename, dirname, relative, resolve } from "pathe"
 
@@ -165,6 +166,19 @@ function readProviderOutputEntry(rootDir: string, entry: ViteHubProviderOutputEn
   return report
 }
 
+function restoreDeploymentEnvSecretFlags(report: ProviderOutputReport, redacted: unknown): unknown {
+  if (report.owner !== "vite-hub" || report.type !== "file" || basename(report.path) !== "deployment.json") return redacted
+  if (!isRecord(report.content) || !Array.isArray(report.content.env)) return redacted
+  if (!isRecord(redacted) || !isRecord(redacted.content) || !Array.isArray(redacted.content.env)) return redacted
+  const source: unknown[] = report.content.env
+  const env = redacted.content.env.map((entry: unknown, index) => {
+    const original = source[index]
+    const secret = isRecord(original) ? original.secret : undefined
+    return isRecord(entry) && (secret === true || secret === false) ? { ...entry, secret } : entry
+  })
+  return { ...redacted, content: { ...redacted.content, env } }
+}
+
 async function runProviderOutput(args: string[], context: InspectContext, plugins: readonly unknown[]): Promise<number> {
   const parsed = parseArgs(args, { kind: false })
   if (parsed.help) {
@@ -209,7 +223,7 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
         ]))
         return { ...report, content: provisionStateOutput }
       }
-      return redactInspectionValue(report)
+      return restoreDeploymentEnvSecretFlags(report, redactInspectionValue(report))
     })
     context.stdout.write(`${JSON.stringify({ providerOutput }, null, 2)}\n`)
     return 0

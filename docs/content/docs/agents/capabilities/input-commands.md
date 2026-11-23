@@ -75,27 +75,26 @@ The handler's `context` has:
 
 When you enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work. Without the Console, `context.console` is `undefined`.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
-Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
+Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store, on a Worker that keeps the journal in memory, and for a default journal in a Postgres Database.
 
 ```ts [server/agents/support.ts]
-import { desc } from 'drizzle-orm'
+import { getAgentInvocations } from 'vite-hub/agent'
 import { inputCommands } from 'vite-hub/agent/capabilities'
-import { getAgentInvocationsDatabase } from 'vite-hub/agent/invocations/drizzle'
 
 const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const database = await getAgentInvocationsDatabase()
-        if (!database) return await context.reply('Invocation history is not available on this Worker journal.')
-        const { db, schema } = database
-        const [latest] = await db
-          .select()
-          .from(schema.invocations)
-          .orderBy(desc(schema.invocations.sequence))
-          .limit(1)
-        if (!latest?.agentName) return 'No previous invocation.'
         if (!context.console) return await context.reply('The ViteHub Console is not enabled.')
+        const journal = getAgentInvocations()
+        const current = context.invocation.id && await journal.getSummary(context.invocation.id)
+        if (!current || !current.agentName) return await context.reply('This invocation is not recorded.')
+        const { invocations: [latest] } = await journal.list({
+          agentName: current.agentName,
+          cursor: current.cursor,
+          limit: 1,
+        })
+        if (!latest?.agentName) return await context.reply('No previous invocation.')
         return await context.reply(context.console.invocationUrl({
           agentName: latest.agentName,
           id: latest.id,

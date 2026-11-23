@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
+
+import { importOptionalOwner } from "./optional-owners.ts"
 
 import type { CallExpression, Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
@@ -20,22 +22,13 @@ export async function loadConfigScanner(load: () => Promise<ScanModule> = () => 
 }
 
 interface ViteHubOptionObjects {
-  /**
-   * The options that take effect: the only `vitehub({...})` call in the exported Vite plugins, or
-   * the `vitehub` key of a Nuxt config without spreads or `vite-hub/nuxt` module options. Undefined otherwise.
-   */
   active: ObjectExpression | undefined
-  /** Every literal `vitehub()` option object and `vitehub: {}` key in the file. */
   options: ObjectExpression[]
+  nuxtConfig?: ObjectExpression
   scan: ScanModule
 }
 
-/**
- * The literal `vitehub()` options and `vitehub: {}` keys of a config file, read without evaluating it. Undefined without
- * a config file, or without `vite` to parse it.
- */
 async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<ScanModule | undefined> = loadConfigScanner): Promise<ViteHubOptionObjects | undefined> {
-  // Nuxt owns discovery whenever both config families exist, matching loadViteHubCliConfig.
   const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
   const file = configExtensions.map(extension => join(rootDir, `${owner}.config.${extension}`)).find(path => existsSync(path))
   if (!file) return
@@ -58,7 +51,6 @@ async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<
   const options: ObjectExpression[] = []
   const calls: CallExpression[] = []
   walk(module.program, (node) => {
-    // Only object literal members: destructuring patterns also have Property nodes, with pattern values.
     if (node.type === "ObjectExpression") {
       for (const property of node.properties) {
         if (property.type !== "Property" || property.computed || property.key.type !== "Identifier" || property.key.name !== "vitehub") continue
@@ -98,7 +90,7 @@ async function viteHubOptionObjects(rootDir: string, loadScanner: () => Promise<
     }))
     if (knownModules) active = literal(findProperty(config, "vitehub")?.value)
   }
-  return { active, options, scan }
+  return { active, options, scan, ...(owner === "nuxt" && config ? { nuxtConfig: config } : {}) }
 }
 
 /**
@@ -109,7 +101,6 @@ export async function isAgentCliEnabled(rootDir: string, loadScanner: () => Prom
   const config = await viteHubOptionObjects(rootDir, loadScanner)
   if (!config) return true
   const { findProperty, staticValue } = config.scan
-  // True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`.
   return !config.options.some((object) => {
     const agent = findProperty(object, "agent")?.value
     if (agent === undefined) return false
@@ -140,17 +131,13 @@ export async function readAgentJournalStateUrl(rootDir: string, env: Readonly<Re
   const options = config?.active
   if (!config || !options) return
   const { findProperty, objectProperties, staticString, staticValue } = config.scan
-  // An object with a spread or a computed key can hold other values at runtime.
   const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
     node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
   if (findProperty(options, "dataDir")) return
-  // Only the Node host puts the journal next to State. Without `host`, ViteHub reads the host from the build
-  // environment, which the CLI does not know. `VITEHUB_HOST` from `vitehub deploy` wins over `host`.
   if (staticString(findProperty(options, "host")?.value) !== "node") return
   if (env.VITEHUB_HOST && env.VITEHUB_HOST !== "node") return
   const agent = literalObject(findProperty(options, "agent")?.value)
   if (!agent) return
-  // The default journal only: no `store`, and no `databaseUrl` of its own.
   const invocations = findProperty(agent, "invocations")?.value
   if (invocations !== undefined && staticValue(invocations) !== undefined) {
     const setting = literalObject(invocations)
@@ -163,4 +150,77 @@ export async function readAgentJournalStateUrl(rootDir: string, env: Readonly<Re
   if (driver !== undefined && !["auto", "libsql", "sqlite"].includes(staticString(driver) ?? "")) return
   const url = staticString(findProperty(state, "url")?.value)?.trim()
   return url && /^file:/i.test(url) ? url : undefined
+}
+
+/** The Postgres default Database that keeps the default Invocation journal of a Node server. */
+export interface AgentJournalPostgres {
+  driver?: "node-postgres"
+  /** The connection URL. Without it, the driver reads the PG* environment variables. */
+  url?: string
+}
+
+/**
+ * The Postgres default Database where a Node production build keeps the default Invocation journal, as
+ * `defaultJournalDatabase()` selects it, with the connection that the runtime uses. Reads only literal config values.
+ * Undefined when the journal is elsewhere, or when the Database runs on PGlite, which only the dev server opens.
+ */
+export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Record<string, string | undefined>>): Promise<AgentJournalPostgres | undefined> {
+  const config = await viteHubOptionObjects(rootDir)
+  const options = config?.active
+  if (!config || !options) return
+  const { findProperty, objectProperties, staticString, staticValue } = config.scan
+  const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
+    node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
+  if (findProperty(options, "dataDir")) return
+  const nuxt = config.nuxtConfig
+  if (nuxt && (["rootDir", "srcDir", "serverDir"].some(key => findProperty(nuxt, key)) || existsSync(join(rootDir, "layers")))) return
+  const host = findProperty(options, "host")?.value
+  const configuredHost = host === undefined ? undefined : staticString(host)
+  if (host !== undefined && configuredHost === undefined) return
+  if (configuredHost !== undefined && configuredHost !== "node" && configuredHost !== "vercel" && configuredHost !== "netlify" && configuredHost !== "cloudflare" && configuredHost !== "deno") return
+  const { hostFromNitroPreset, resolveBuildHost } = await import("@vite-hub/internal/deployment")
+  const nitro = nuxt && findProperty(nuxt, "nitro")?.value
+  const nitroOptions = literalObject(nitro)
+  if (configuredHost === undefined && nitro !== undefined && !nitroOptions) return
+  const preset = nitroOptions && findProperty(nitroOptions, "preset")?.value
+  const configuredPreset = staticString(preset)
+  if (configuredHost === undefined && preset !== undefined && configuredPreset === undefined) return
+  if (resolveBuildHost(configuredHost ?? hostFromNitroPreset(configuredPreset), env) !== "node") return
+  const agent = findProperty(options, "agent")?.value
+  const agentOptions = literalObject(agent)
+  if (agent !== undefined && staticValue(agent) !== true && !agentOptions) return
+  if (agent === undefined) {
+    const { hasDefinitionFiles } = await import("@vite-hub/internal/definition-catalog")
+    const { features } = await import("@vite-hub/internal/features")
+    if (!features.agent.enabledByDiscovery?.some(name => hasDefinitionFiles(join(rootDir, "server", name)))) return
+  }
+  const invocations = agentOptions && findProperty(agentOptions, "invocations")?.value
+  if (invocations !== undefined && staticValue(invocations) !== true) {
+    const setting = literalObject(invocations)
+    if (!setting || findProperty(setting, "store") || findProperty(setting, "databaseUrl")) return
+  }
+  const database = findProperty(options, "database")?.value
+  if (database === undefined) return
+  const databaseOptions = staticValue(database) === true ? undefined : literalObject(database)
+  if (staticValue(database) !== true && !databaseOptions) return
+  const projectRootValue = databaseOptions && findProperty(databaseOptions, "projectRoot")?.value
+  const projectRoot = projectRootValue ? staticString(projectRootValue) : undefined
+  if (projectRootValue && projectRoot === undefined) return
+  const owner = await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config"))
+  if (!owner) return
+  const root = resolve(rootDir, projectRoot ?? ".")
+  let resolved: ReturnType<typeof owner.resolveDBViteConfig>
+  try {
+    resolved = owner.resolveDBViteConfig(undefined, root, { implicitDefault: true, provisionState: {}, ...(projectRoot === undefined ? {} : { serverDirs: [resolve(root, "server")] }) })
+  }
+  catch {
+    return
+  }
+  const target = resolved?.databases.default
+  if (target?.dialect !== "postgresql" || target.driver === "pglite") return
+  const definition = resolved?.definitions.find(item => item.name === "default")
+  if (definition && !owner.readDatabaseDefinitionConnectionIsStatic(definition.handler)) return
+  const url = owner.resolveConfigValue(target.connection?.url, { ...env })?.trim()
+  if (!url && !Object.entries(env).some(([name, value]) => name.startsWith("PG") && value?.trim())) return
+  return { ...(target.driver === "node-postgres" ? { driver: target.driver } : {}), ...(url ? { url } : {}) }
 }

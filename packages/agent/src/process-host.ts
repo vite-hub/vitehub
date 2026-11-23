@@ -42,6 +42,7 @@ export interface AgentProcessHostContribution {
 }
 
 const contributionsKey = Symbol.for("vitehub.agentProcessHostContributions")
+const forwardingIntakeKey = Symbol.for("vitehub.agentProcessHostForwardingIntakes")
 
 /** Known contributions by their marker object, shared by every copy of this module in a process. */
 function contributions(): WeakMap<object, AgentProcessHostContribution> {
@@ -88,7 +89,27 @@ export function registerAgentProcessHostIntake(agentName: string, intake: AgentP
   else intakes().delete(agentName)
 }
 
+type IntakeRoute = (local: AgentProcessHostIntake | undefined) => AgentProcessHostIntake
+
+function forwardingIntakes(): Map<string, IntakeRoute> {
+  const scope: Record<PropertyKey, unknown> = globalThis
+  return (scope[forwardingIntakeKey] ??= new Map()) as Map<string, IntakeRoute>
+}
+
+export function registerAgentProcessHostForwardingIntake(agentName: string, route: IntakeRoute): () => void {
+  const routes = forwardingIntakes()
+  routes.set(agentName, route)
+  return () => {
+    if (routes.get(agentName) === route) routes.delete(agentName)
+  }
+}
+
+export function localAgentProcessHostIntake(agentName: string): AgentProcessHostIntake | undefined {
+  return intakes().get(agentName)
+}
+
 /** Returns the webhook intake of the running host for one Agent, if it is running. */
 export function agentProcessHostIntake(agentName: string): AgentProcessHostIntake | undefined {
-  return intakes().get(agentName)
+  const local = localAgentProcessHostIntake(agentName)
+  return forwardingIntakes().get(agentName)?.(local) ?? local
 }

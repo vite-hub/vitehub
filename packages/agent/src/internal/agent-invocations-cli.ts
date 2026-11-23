@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { createRequire } from "node:module"
 import { basename, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
@@ -9,7 +10,7 @@ import { invocationOperationNames, operationCredentialHint, operationRpcPath, si
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { isCompatibleAgentDevServerRoot } from "./agent-dev-loop-cli.ts"
-import type { AgentInvocationCancelResult, AgentInvocationListResult, AgentInvocationRecord, AgentInvocationStore } from "../invocations.ts"
+import type { AgentInvocationCancelResult, AgentInvocationListResult, AgentInvocationRecord, AgentInvocationRecordStatus, AgentInvocationStore } from "../invocations.ts"
 import type { AgentInvocationsDevRequestBody } from "../invocations-dev.ts"
 import type { AgentInvocationDetailResult } from "../invocations-vue.ts"
 import { formatRuntimeDiagnosticError, type RuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -20,13 +21,22 @@ import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invoc
 import { invocationActivityTrace } from "../invocations/activity.ts"
 import { formatInvocationPageChanges, invocationPageChanges } from "../invocations/page-changes.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { defaultAgentJournalPostgresPrefix } from "../invocations/postgres-table-names.ts"
 import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 
+/** The Postgres default Database that keeps the default journal of a Node server. */
+export interface AgentJournalPostgres {
+  driver?: "node-postgres"
+  /** The connection URL. Without it, the driver reads the PG* environment variables. */
+  url?: string
+}
+
 interface AgentInvocationsCliContext {
   env: NodeJS.ProcessEnv
+  journalPostgres?: () => Promise<AgentJournalPostgres | undefined>
   /** Project root that the Compatible Vite Development Server must serve. Defaults to the current directory. */
   rootDir?: string
   /**
@@ -161,6 +171,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "and sets auto_vacuum = INCREMENTAL. It needs the write lock: stop the server or run it during a quiet window.",
     "With --url, list, get, tail, export, wait-idle, and cancel use the Console of that app. Without it, they use",
     "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
+    "When no dev server runs and a Node app keeps its journal in a Postgres default Database, list, get, tail,",
+    "export, and wait-idle read that Database with its configured connection, read-only.",
     "With --database, list, get, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
     "This command does not load the project config.",
     "",
@@ -177,7 +189,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --interval <ms>           Polling interval, such as 500 or 5s. Defaults to 1000 for tail and 5s for wait-idle.",
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
-    "  --agent <name>            Filter Console list results or wait-idle by Agent.",
+    "  --agent <name>            Filter Console or Postgres list results, or wait-idle, by Agent.",
     "  --database <url>          Journal database. Defaults to VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, else",
     "                            agent-invocations.sqlite next to a file: Agent State URL in the config, else",
     "                            .vitehub/data/agent-invocations.sqlite in the project. list, get, tail, export, and",
@@ -429,7 +441,10 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   return parsed
 }
 
-const invocationStatuses = new Set<string>(["pending", "running", "completed", "failed", "cancelled"])
+const invocationStatuses = new Set<string>(["pending", "running", "completed", "failed", "cancelled"] satisfies AgentInvocationRecordStatus[])
+function isInvocationStatus(value: string): value is AgentInvocationRecordStatus {
+  return invocationStatuses.has(value)
+}
 
 function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]"
@@ -708,6 +723,77 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       }
       return [...records.values()]
     },
+  }
+}
+
+function requireProjectDriver(name: "pg" | "postgres", rootDir: string): unknown {
+  try {
+    return createRequire(resolve(rootDir, "package.json"))(name)
+  }
+  catch (error) {
+    throw agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_MISSING({ cause: error, name })
+  }
+}
+
+interface PostgresJsModule {
+  (url: string, options: Record<string, unknown>): { end: (options: { timeout: number }) => Promise<void> }
+  (options: Record<string, unknown>): { end: (options: { timeout: number }) => Promise<void> }
+}
+
+interface NodePostgresModule {
+  Pool: new (options: Record<string, unknown>) => { end: () => Promise<void> }
+}
+
+function connectJournalPostgres(journal: AgentJournalPostgres, rootDir: string): { client: unknown, close: () => Promise<void> } {
+  if (journal.driver === "node-postgres") {
+    // SAFETY: node-postgres exports the Pool class. agentInvocationPostgresClient() checks the client that it makes.
+    const { Pool } = requireProjectDriver("pg", rootDir) as NodePostgresModule
+    const pool = new Pool({ ...journal.url ? { connectionString: journal.url } : {}, connectionTimeoutMillis: 10_000, max: 1 })
+    return { client: pool, close: async () => await pool.end() }
+  }
+  // SAFETY: postgres.js exports its connect function. agentInvocationPostgresClient() checks the client that it makes.
+  const connect = requireProjectDriver("postgres", rootDir) as PostgresJsModule
+  const options = { connect_timeout: 10, max: 1, onnotice: () => {} }
+  const sql = journal.url ? connect(journal.url, options) : connect(options)
+  return { client: sql, close: async () => await sql.end({ timeout: 5 }) }
+}
+
+async function journalPostgresTarget(parsed: ParsedArgs, journal: AgentJournalPostgres, context: AgentInvocationsCliContext): Promise<InvocationsTarget & { close: () => Promise<void> }> {
+  const [{ createPostgresAgentInvocationStore }, { agentInvocationPostgresClient }] = await Promise.all([
+    import("../invocations/postgres-store.ts"),
+    import("../invocations/postgres-clients.ts"),
+  ])
+  const connection = connectJournalPostgres(journal, context.rootDir ?? process.cwd())
+  const store = createPostgresAgentInvocationStore({
+    client: () => agentInvocationPostgresClient(connection.client, "default"),
+    database: "default",
+    maxAge: false,
+    maxRecords: false,
+    tablePrefix: parsed.tablePrefix ?? defaultAgentJournalPostgresPrefix,
+  })
+  const location = "the Postgres default Database"
+  const status = parsed.status
+  if (status !== undefined && !isInvocationStatus(status)) throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
+  return {
+    cancel: async () => {
+      throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url with the app URL." })
+    },
+    close: connection.close,
+    detail: async (id) => {
+      const record = await store.get(id)
+      if (!record) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location })
+      const { observations, ...invocation } = record
+      return parseInvocationDetail({ invocation, observations })
+    },
+    list: async () => parseInvocationList(await store.list({
+      limit: Math.min(parsed.limit ?? consoleDefaultListLimit, maxAgentInvocationListLimit),
+      ...(parsed.agent === undefined ? {} : { agentName: parsed.agent }),
+      ...(status === undefined ? {} : { status }),
+    })),
+    scan: async statuses => await collectPages(
+      async cursor => parseInvocationList(await store.list({ ...(cursor === undefined ? {} : { cursor }), limit: maxAgentInvocationListLimit, status: statuses.filter(isInvocationStatus) })),
+      () => true,
+    ),
   }
 }
 
@@ -1284,23 +1370,35 @@ export async function runAgentInvocationsCli(
     usage(context)
     return 0
   }
+  let postgres: AgentJournalPostgres | undefined
   if (!useProjectDevServer(parsed, context)) {
-    context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_INVOCATIONS_NO_DEV_SERVER({ root: context.rootDir ?? process.cwd() }))}\n`)
-    return 1
+    try {
+      postgres = fileActions.has(parsed.action) ? await context.journalPostgres?.() : undefined
+    }
+    catch (error) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+      return 1
+    }
+    if (!postgres) {
+      context.stderr.write(`${formatRuntimeDiagnosticError(agentDiagnostics.AGENT_INVOCATIONS_NO_DEV_SERVER({ root: context.rootDir ?? process.cwd() }))}\n`)
+      return 1
+    }
   }
   const fetchImpl = options.fetch || globalThis.fetch
   const timeout = parsed.timeout ?? options.timeout ?? 30_000
   const sleep = options.sleep || (async (milliseconds: number) => await new Promise<void>(resolve => setTimeout(resolve, milliseconds)))
-  let file: Awaited<ReturnType<typeof journalFileTarget>> | undefined
+  let opened: { close: () => unknown } | undefined
   try {
-    if (parsed.action === "list" && parsed.agent !== undefined && (!parsed.console || readsJournalFile(parsed))) throw agentDiagnostics.AGENT_R0505({ message: "list with --agent needs the app's Console. Pass --url <app>." })
+    if (parsed.action === "list" && parsed.agent !== undefined && !postgres && (!parsed.console || readsJournalFile(parsed))) throw agentDiagnostics.AGENT_R0505({ message: "list with --agent needs the app's Console. Pass --url <app>." })
     const local = () => localInvocationsTarget(parsed, context, fetchImpl, timeout)
     const consoleTarget = parsed.console ? consoleInvocationsTarget({ base: parsed.console, env: context.env, fetch: fetchImpl, timeout }, parsed) : undefined
-    const target = readsJournalFile(parsed)
-      ? file = await journalFileTarget(parsed, context)
-      : consoleTarget && parsed.consoleFallback
-        ? appInvocationsTarget(consoleTarget, local)
-        : consoleTarget ?? local()
+    const target = postgres
+      ? opened = await journalPostgresTarget(parsed, postgres, context)
+      : readsJournalFile(parsed)
+        ? opened = await journalFileTarget(parsed, context)
+        : consoleTarget && parsed.consoleFallback
+          ? appInvocationsTarget(consoleTarget, local)
+          : consoleTarget ?? local()
     if (parsed.action === "cancel") {
       const result = await target.cancel(parsed.id!)
       if (!result) return 1
@@ -1370,6 +1468,6 @@ export async function runAgentInvocationsCli(
     return 1
   }
   finally {
-    file?.close()
+    await opened?.close()
   }
 }
