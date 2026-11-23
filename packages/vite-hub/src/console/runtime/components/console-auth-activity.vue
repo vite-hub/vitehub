@@ -98,7 +98,7 @@ onBeforeUnmount(() => controller?.abort());
 <template>
   <ConsoleAuthEventSetup v-if="!enabled" class="overflow-y-auto" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
-    <ConsolePageToolbar width="6xl">
+    <ConsolePageToolbar width="page">
       <form class="contents" @submit.prevent="filter(group, userInput)">
         <USelect
           :model-value="group"
@@ -123,7 +123,7 @@ onBeforeUnmount(() => controller?.abort());
       </form>
     </ConsolePageToolbar>
     <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
-      <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
+      <div class="vitehub-console-page flex flex-col gap-3">
       <ConsoleState v-if="error" :error="error" title="Could not load activity" :retry="load" />
       <p v-else-if="loading" role="status" class="text-sm text-muted">Loading activity…</p>
       <div v-else-if="data" class="overflow-hidden rounded-lg border border-default">

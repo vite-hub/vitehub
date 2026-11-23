@@ -8,7 +8,7 @@ import { createAuthClient } from "better-auth/client"
 import { organizationClient } from "better-auth/client/plugins"
 
 import { consoleDiagnostic, consoleStatusDiagnosticCode } from "../diagnostics.ts"
-import { consoleProjectBuildOf } from "./project-link.ts"
+import { consoleProjectBuildOf, consoleProjectCommentsOf } from "./project-link.ts"
 
 import type { ConsoleProjectBuild } from "./project-link.ts"
 
@@ -308,6 +308,8 @@ export interface ConsoleAccountCheck {
   name?: string
   /** The build that the connected app runs, from its `project.get` answer. */
   build?: ConsoleProjectBuild
+  /** Whether the connected app allows Comments, with its open thread count when available. */
+  comments?: { open?: number }
 }
 
 // The codes of an app that has no public key for the link, or another one.
@@ -317,9 +319,12 @@ const variableProblems = new Set(["CONSOLE_KEY_NOT_CONFIGURED", "CONSOLE_KEY_UNK
 export async function checkConsoleAccountProject(id: string): Promise<ConsoleAccountCheck> {
   const result = await json<{ linked: boolean, status: number, answer?: unknown }>(`/api/projects/${encodeURIComponent(id)}/check`, { method: "POST" })
   if (result.linked) {
-    const name: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "name") : undefined
-    const build = consoleProjectBuildOf(result.answer instanceof Object ? Reflect.get(result.answer, "build") : undefined)
-    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}), ...(build ? { build } : {}) }
+    const answer = result.answer instanceof Object ? result.answer : {}
+    const name: unknown = Reflect.get(answer, "name")
+    const build = consoleProjectBuildOf(Reflect.get(answer, "build"))
+    const sections: unknown = Reflect.get(answer, "sections")
+    const comments = consoleProjectCommentsOf(Reflect.get(answer, "comments")) ?? (Array.isArray(sections) && sections.includes("comments") ? {} : undefined)
+    return { status: "connected", code: result.status, ...(String(name) === name && name.trim() ? { name: name.trim() } : {}), ...(build ? { build } : {}), ...(comments ? { comments } : {}) }
   }
   const answerCode: unknown = result.answer instanceof Object ? Reflect.get(result.answer, "code") : undefined
   const code = String(answerCode)
