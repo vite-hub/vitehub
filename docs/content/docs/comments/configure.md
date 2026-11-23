@@ -81,7 +81,7 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 ## Decide who can comment
 
-`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. Return `true` to allow. Any other value denies.
+`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. It also gets `development: true` on the dev server and `console: true` for [Console callers](#use-your-own-login). Return `true` to allow. Any other value denies.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -115,7 +115,17 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. To keep the default dev, GitHub, and Site access checks and also allow admins, pass `{ development }` to `defaultPolicy()`:
+
+```ts [server/comments.ts]
+import { defaultPolicy, defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === 'admin',
+})
+```
+
+This policy does not grant access based on Console admission alone. Do not pass the entire `authorize` context as the gate: `console: true` means the Console admitted the request, but with `identify` the built-in policy does not treat that as permission for the app user.
 
 On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 

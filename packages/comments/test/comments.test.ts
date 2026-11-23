@@ -113,6 +113,18 @@ describe("defineComments", () => {
     expect(await editorsOnly.can({ user: { id: "e", role: "editor" }, action: "write" })).toBe(true)
   })
 
+  it("gives authorize the gate's development, and console only from the context", async () => {
+    const seen: { development?: boolean, console?: boolean }[] = []
+    const comments = defineComments({ authorize: ({ development, console }) => {
+      seen.push({ development, console })
+      return true
+    } })
+    await comments.can({ user: null, action: "read" })
+    await comments.can({ user: null, action: "read" }, { development: true, console: true })
+    await comments.can({ user: null, action: "read", console: true })
+    expect(seen).toEqual([{ development: false, console: undefined }, { development: true, console: undefined }, { development: false, console: true }])
+  })
+
   it("allows only when the policy returns true", async () => {
     // SAFETY: a JavaScript policy may return nothing, which TypeScript forbids.
     const comments = defineComments({ authorize: (({ action }: { action: string }) => action === "read" ? true : undefined) as never })
