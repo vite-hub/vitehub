@@ -43,9 +43,9 @@ export function groupConsolePrimitives(primitives: readonly ConsolePrimitive[], 
   })
 }
 
-/** The command that adds the primitive, such as `npx vitehub add rate-limit`. Undefined when the CLI cannot add it. */
+/** The command that adds the primitive, such as `npx vite-hub add rate-limit`. Undefined when the CLI cannot add it. */
 export function consoleAddCommand(primitive: Pick<ConsolePrimitive, "feature">): string | undefined {
-  return primitive.feature && `npx vitehub add ${primitive.feature.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
+  return primitive.feature && `npx vite-hub add ${primitive.feature.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
 }
 
 /** A prompt for a coding agent that works in the app's repository. It names the command, when there is one, and the docs. */
