@@ -157,7 +157,9 @@ describe("Database Agent Invocation store on Postgres drivers", () => {
 
       await control.transaction(async (transaction) => {
         await transaction.execute(`LOCK TABLE ${serverPrefix}invocations IN ACCESS EXCLUSIVE MODE`)
-        const update = journal.update("interrupted", { status: "cancelled", timestamp }).catch((error: unknown) => error)
+        const update = Promise.resolve()
+          .then(() => journal.update("interrupted", { status: "cancelled", timestamp }))
+          .catch((error: unknown) => error)
         await vi.waitFor(async () => {
           const { rows: [activity] } = await transaction.execute(sql`SELECT cardinality(pg_blocking_pids(${backend.pid}::integer)) AS blockers`) as { rows: Array<{ blockers: number }> }
           expect(activity?.blockers).toBeGreaterThan(0)
