@@ -139,16 +139,18 @@ describe("Vite provider builds", () => {
     }
   })
 
-  it("reuses the native package in Node SSR dev but not in worker SSR or builds", async () => {
+  it("shares only grant chunks in Node SSR dev and leaves other modules to Vite", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-native-ssr-"))
     try {
-      const linked = join(root, "dist", "index.js")
+      const entry = join(root, "dist", "index.js")
+      const linked = join(root, "dist", "vitehub-grants-123abc.js")
       await mkdir(join(root, "dist"))
       await writeFile(linked, "export const registry = {}\n")
-      const ssr = createNativePackageLoading([pathToFileURL(linked).href])
+      const ssr = createNativePackageLoading([pathToFileURL(entry).href])
       ssr.configureEnvironment("ssr", { command: "serve" })
       expect(ssr.load(linked, "ssr")).toContain("export * from \"data:text/javascript,")
-      expect(ssr.load(join(root, "other", "dist", "index.js"), "ssr")).toBeUndefined()
+      expect(ssr.load(entry, "ssr")).toBeUndefined()
+      expect(ssr.load(join(root, "other", "dist", "vitehub-grants-123abc.js"), "ssr")).toBeUndefined()
       expect(ssr.load(linked, "client")).toBeUndefined()
       ssr.configureEnvironment("ssr", { command: "serve", isSsrTargetWebworker: true })
       expect(ssr.load(linked, "ssr")).toBeUndefined()

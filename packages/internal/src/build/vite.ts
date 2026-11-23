@@ -169,7 +169,9 @@ export function createNativePackageLoading(ssrPackageEntries: readonly string[] 
       if (environmentName === "ssr" && nativeSsr && ssrDistDirs.length) {
         const file = id.startsWith("file:") ? fileURLToPath(id) : id
         const path = file.replace(/\\/g, "/")
-        if (path.endsWith(".js") && ssrDistDirs.some(dir => path.startsWith(dir))) return reexportNativeModule(file)
+        if (/^vitehub-grants(?:-[\w-]+)?\.js$/.test(basename(path)) && ssrDistDirs.some(dir => dirname(path) + "/" === dir)) {
+          return reexportNativeModule(file)
+        }
       }
     },
   }
