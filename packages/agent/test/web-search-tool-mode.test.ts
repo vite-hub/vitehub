@@ -125,7 +125,8 @@ describe("webSearch tool mode through @agntn/web", () => {
       assert.equal(attempts, 0)
       for (const [name, input] of [["web_search", { query: "vitehub" }], ["web_read", { url: "https://vitehub.dev" }]]) {
         await assert.rejects(tools[name].execute(input), (error) => {
-          assert.match(error.message, /Install @agntn\\/web or use webSearch\\(\\{ mode: "model" \\}\\)/)
+          assert.ok(error.message.includes("Install @agntn/web@^0.9.1 on Node.js 26 or newer"))
+          assert.match(error.message, /use webSearch\\(\\{ mode: "model" \\}\\)/)
           assert.equal(error.cause.code, "ERR_MODULE_NOT_FOUND")
           return true
         })

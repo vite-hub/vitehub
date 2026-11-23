@@ -48,7 +48,7 @@ async function loadWeb(): Promise<WebModule> {
     return await import(/* @vite-ignore */ specifier) as WebModule
   }
   catch (error) {
-    throw agentDiagnostics.AGENT_R0274({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires @agntn/web to be installed by the application. Install @agntn/web or use webSearch({ mode: \"model\" }).", cause: error })
+    throw agentDiagnostics.AGENT_R0274({ message: "[vitehub] webSearch({ mode: \"tool\" }) requires @agntn/web to be installed by the application. Install @agntn/web@^0.9.1 on Node.js 26 or newer, or use webSearch({ mode: \"model\" }).", cause: error })
   }
 }
 

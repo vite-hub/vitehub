@@ -28,10 +28,10 @@ export default defineAgent({
 })
 ```
 
-Use tool mode to choose the search provider. Install `@agntn/web` first.
+Use tool mode to choose the search provider. The AI SDK 7-compatible version of `@agntn/web` requires Node.js 26 or newer. On Node.js 24, use model mode with a provider that supports native web search.
 
 ```bash [Terminal]
-pnpm add @agntn/web
+pnpm add @agntn/web@^0.9.1
 ```
 
 ```ts [server/agents/research.ts] fragment
@@ -91,7 +91,7 @@ Tool mode rejects input properties not listed here.
 
 - `mode: 'model'` or `mode: 'tool'`.
 - Model mode: a model-backed Driver (the part that runs the model) whose provider supports the `openai.web_search` tool.
-- Tool mode: `@agntn/web` in the app and one provider with its credential.
+- Tool mode: Node.js 26 or newer, `@agntn/web@^0.9.1` in the app, and one provider with its credential.
 
 ## Security and approval
 
