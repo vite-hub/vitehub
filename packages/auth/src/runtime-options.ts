@@ -18,7 +18,7 @@ import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createRequestLogPlugin, withRequestLogger } from "./request-log.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
-import { authProcessMemoryDatabase, getAuthRuntimeState, resetAuth } from "./runtime-state.ts"
+import { authProcessMemoryDatabase, getAuthRuntimeState, isAuthProcessMemoryDatabase, resetAuth } from "./runtime-state.ts"
 import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -27,6 +27,7 @@ import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy, validateAuthComponents } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
+import { siteRolesPlugin } from "./site-roles.ts"
 import { createDeleteAccount, validateDeleteAccount } from "./delete-account.ts"
 import { assertMembersSessionStore, createMembersGate, readMembers, withMemberScopes } from "./members.ts"
 
@@ -100,13 +101,12 @@ function withRateLimitDefaults(
 
 /**
  * Better Auth reads the client IP from `X-Forwarded-For` by default, which a client can set and Cloudflare does not
- * send. Auth gives it the address that the host reports instead. With `trustedProxyHeaders`, the proxy address is the
- * peer, so `X-Forwarded-For` comes first.
+ * send. Auth gives it the address that the host reports instead, also with `trustedProxyHeaders`: on the Node host behind a proxy,
+ * `vitehub({ trustProxy: true })` makes that address the last `X-Forwarded-For` value, which the proxy adds.
  */
 function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonNullable<BetterAuthOptions["advanced"]> {
   if (advanced?.ipAddress?.ipAddressHeaders) return advanced
-  const ipAddressHeaders = advanced?.trustedProxyHeaders ? ["x-forwarded-for", clientAddressHeader] : [clientAddressHeader]
-  return { ...advanced, ipAddress: { ...advanced?.ipAddress, ipAddressHeaders } }
+  return { ...advanced, ipAddress: { ...advanced?.ipAddress, ipAddressHeaders: [clientAddressHeader] } }
 }
 
 // Better Auth reads these variables when it builds an instance, so an instance keeps the values of that time.
@@ -182,6 +182,10 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
+  const siteRoles = !impersonation
+    && !Object.hasOwn(rest.user?.additionalFields ?? {}, "role")
+    && !declaredPlugins.some(plugin => Object.hasOwn(plugin.schema?.user?.fields ?? {}, "role"))
+    && (authDatabaseName(database) !== undefined || isAuthProcessMemoryDatabase(storage.database))
   const { admins, adminClaim, members } = environment
   assertMembersSessionStore(members, Boolean(storage.database || storage.secondaryStorage))
   const membersGate = members.length ? createMembersGate(members, admins, declaredPlugins) : undefined
@@ -192,6 +196,7 @@ function stripViteHubOptions(
     ...declaredPlugins,
     ...(accountDeletion ? [accountDeletion.plugin] : []),
     ...(impersonation ? [createImpersonationPlugin()] : []),
+    ...(siteRoles ? [siteRolesPlugin] : []),
     ...(adminsPlugin ? [adminsPlugin] : []),
     ...(adminClaimPlugin ? [adminClaimPlugin] : []),
     ...(policy || membersGate ? [createAccessPolicyPlugin({ policy, members: membersGate })] : []),

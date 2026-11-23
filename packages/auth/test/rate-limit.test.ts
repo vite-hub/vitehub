@@ -124,6 +124,15 @@ describe("Auth rate limiting", () => {
     expect(await statuses([send(1), send(2), send(3), send(4)])).toEqual([401, 401, 401, 429])
   })
 
+  it("ignores client-sent X-Forwarded-For with advanced.trustedProxyHeaders", async () => {
+    workerRuntime()
+    const proxied = defineAuth(() => ({ advanced: { trustedProxyHeaders: true }, database: "memory" as const, emailAndPassword: { enabled: true }, secret }))
+    const address = nextAddress()
+    const send = (index: number) => () => handleAuthRequest(proxied, standardEvent(signIn({ "x-forwarded-for": `203.0.113.${index}` }), address))
+
+    expect(await statuses([send(1), send(2), send(3), send(4)])).toEqual([401, 401, 401, 429])
+  })
+
   it("records the host address on a session and drops a client-sent one", async () => {
     workerRuntime()
     const address = nextAddress()
@@ -168,9 +177,9 @@ describe("Auth rate limiting", () => {
     expect(createBetterAuthOptions(defineAuth(() => ({ database: authDatabase(), secondaryStorage: store, secret }))).rateLimit?.storage).toBeUndefined()
   })
 
-  it("reads only the host address unless the app trusts proxy headers", () => {
+  it("reads only the host address unless the app names its own headers", () => {
     expect(createBetterAuthOptions(definition).advanced?.ipAddress?.ipAddressHeaders).toEqual(["x-vitehub-client-address"])
-    expect(createBetterAuthOptions(defineAuth(() => ({ advanced: { trustedProxyHeaders: true }, secret }))).advanced?.ipAddress?.ipAddressHeaders).toEqual(["x-forwarded-for", "x-vitehub-client-address"])
+    expect(createBetterAuthOptions(defineAuth(() => ({ advanced: { trustedProxyHeaders: true }, secret }))).advanced?.ipAddress?.ipAddressHeaders).toEqual(["x-vitehub-client-address"])
     expect(createBetterAuthOptions(defineAuth(() => ({ advanced: { ipAddress: { ipAddressHeaders: ["x-real-ip"] } }, secret }))).advanced?.ipAddress?.ipAddressHeaders).toEqual(["x-real-ip"])
   })
 })

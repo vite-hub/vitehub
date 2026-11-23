@@ -300,7 +300,7 @@ A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments
 
 ### Roles from Site access
 
-[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles in the Better Auth `user.role`, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 

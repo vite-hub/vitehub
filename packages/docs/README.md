@@ -513,7 +513,7 @@ The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Dat
 - `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
 - The Console's Comments section lists the threads.
 
-Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DOCS_COMMENTS_VITEHUB_MISSING`.
+Turn it off with `docs: { comments: false }`. The `comments` option of `vite-hub/nuxt` wins: when it turns Comments on, setup warns with `DOCS_COMMENTS_OFF_IGNORED`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DOCS_COMMENTS_VITEHUB_MISSING`.
 
 ## Docs assistant
 

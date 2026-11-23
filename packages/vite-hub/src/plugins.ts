@@ -537,10 +537,11 @@ export interface ViteHubOptions {
    */
   redirects?: RedirectsOptions
   /**
-   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
-   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
-   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
-   * you run sets the header. Default: `false`.
+   * Trust `X-Forwarded-Proto` from a proxy that ends TLS, such as Caddy or nginx. When
+   * the first `X-Forwarded-Proto` value is `https` and the server sees `http:`, the request URL becomes `https:` before
+   * any middleware or route runs, so URLs built from the request start with `https://`. On the Node host only, the client
+   * address becomes the last `X-Forwarded-For` value, which the proxy adds. It never reads `X-Forwarded-Host`.
+   * Turn it on only when a proxy that you run sets the trusted headers. Default: `false`.
    */
   trustProxy?: boolean
   /**
@@ -1722,7 +1723,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   plugins.push(evlogBridgeVitePlugin())
   const security = resolveSecurityPolicy(options.security)
-  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(options, security))
+  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(host, options, security))
   if (options.health) {
     const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
     plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
@@ -1759,6 +1760,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
       name: options.name,
+      host: { name: plan.host, preset: plan.host === "deno" ? "deno-server" : plan.nitroPreset },
       contentImportBase: "vite-hub/content",
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,

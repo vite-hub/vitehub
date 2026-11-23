@@ -654,7 +654,7 @@ The docs module turns on `vite-hub/nuxt`'s `comments` option, which turns on the
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests Auth users who may read the thread. Without Auth, it suggests people who wrote in threads you can read.
 - **The Console lists the threads.** Open the app in the [Console](/docs/console) and select **Comments** to see every thread with its page.
 
-`comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
+`comments: false` turns Comments off, and sets `comments: false` on `vite-hub/nuxt`. The `comments` option of `vite-hub/nuxt` wins: when it turns Comments on, `docs: { comments: false }` has no effect, and setup warns with [`DOCS_COMMENTS_OFF_IGNORED`](/docs/docs-site/diagnostics/docs_comments_off_ignored). To change the Database or leave the overlay out of the pages, pass `vite-hub/nuxt`'s `comments` options:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({

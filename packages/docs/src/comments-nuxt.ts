@@ -1,6 +1,9 @@
 import { createRequire } from "node:module"
 import { join } from "node:path"
 
+import { useLogger } from "@nuxt/kit"
+import { formatDiagnostic } from "nostics"
+
 import { docsErrorDiagnostics } from "./error-diagnostics.ts"
 import { viteHubModuleOptions } from "./module-options.ts"
 
@@ -30,13 +33,16 @@ function installed(name: string, rootDir: string): boolean {
 /**
  * The module dependency that turns Comments on in `vite-hub/nuxt`. Comments keeps threads in a ViteHub Database, so a
  * site without `vite-hub/nuxt` has none unless it asks for them, which fails the build. `false` sets `comments: false`.
- * The dependency only sets defaults: the app's own `vitehub.comments` wins.
+ * The dependency only sets defaults: the app's own `vitehub.comments` wins, so `false` with Comments on in `vitehub` warns.
  */
 export async function docsCommentsDependencies(
   nuxt: ModuleOptionsNuxt & { options: { rootDir: string } },
   comments: boolean | DocsCommentsOptions | undefined,
 ): Promise<Record<string, { optional: true, defaults: { comments: boolean | DocsCommentsOptions } }>> {
   const vitehub = await viteHubModuleOptions(nuxt)
+  if (comments === false && vitehub?.comments !== undefined && vitehub.comments !== false) {
+    useLogger("@vite-hub/docs").warn(formatDiagnostic(docsErrorDiagnostics.DOCS_COMMENTS_OFF_IGNORED()))
+  }
   if (comments === false) return vitehub ? { "vite-hub/nuxt": { optional: true, defaults: { comments: false } } } : {}
   if (!vitehub) {
     if (comments === undefined) return {}
