@@ -205,6 +205,23 @@ describe("guests", () => {
   })
 })
 
+describe("an app whose Auth cannot sign a browser in", () => {
+  it.each([
+    ["a role field that users can set", { input: true }, "input: false"],
+    ["a role field hidden from sessions", { input: false, returned: false }, "returned: false"],
+  ])("refuses site.link and site.invite with %s before it makes a link", async (_case, field, fix) => {
+    app.database.sqlite.close()
+    app = await consoleEventsFixture({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, ...field } } } })
+    state.app = { auth: app.auth, create: host => createAuthConsole(app.auth, {}, app.store, host as AuthConsoleHostOptions) }
+    for (const [name, input] of [["site.link", { qr: true }], ["site.invite", { name: "Ana", grants: ["comments-write"] }]] as const) {
+      const { status, body } = await call(name, input)
+      expect(status, JSON.stringify(body)).toBe(409)
+      expect(JSON.stringify(body)).toContain(fix)
+    }
+    expect((await call("site.invites")).value).toEqual({ invites: [] })
+  })
+})
+
 describe("GET /_vitehub", () => {
   async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<{ response: Response, location: URL, state: string, cookie: string }> {
     const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))

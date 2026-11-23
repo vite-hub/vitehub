@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { consoleDateTime, consoleInitials, consoleRelativeTime } from "../client/format";
-import { grantSummary, inviteGuest, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession, siteStoreText } from "../client/site-access";
+import { grantSummary, inviteGuest, isSiteAuthUnavailable, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession, siteStoreText } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
 import ConsoleCodeText from "./console-code-text.vue";
@@ -12,6 +12,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import Icon from "./console-icon.vue";
 
+import type { ConsoleRequestError } from "../client/request";
 import type { SiteGrant, SiteInvite, SiteSession, SiteStore } from "../client/site-access";
 
 /**
@@ -34,6 +35,8 @@ const grants = ref<SiteGrant[]>([]);
 const store = ref<SiteStore>();
 const loading = ref(true);
 const error = ref<unknown>();
+const sessionsError = ref<ConsoleRequestError>();
+const linkError = ref<{ title: string, cause: ConsoleRequestError }>();
 const now = ref(Date.now());
 let request: AbortController | undefined;
 let clock: ReturnType<typeof setInterval> | undefined;
@@ -47,6 +50,7 @@ async function load(): Promise<void> {
     const next = await readSiteAccess(controller.signal);
     if (controller.signal.aborted) return;
     sessions.value = next.sessions;
+    sessionsError.value = next.sessionsError;
     invites.value = next.invites;
     grants.value = next.grants;
     store.value = next.store;
@@ -80,14 +84,20 @@ function expiresIn(value: string): string {
 
 // Open site: the new tab is signed in as you, then opens the app's home page.
 const opening = ref(false);
+function showLinkError(cause: unknown, title: string): void {
+  if (isSiteAuthUnavailable(cause)) linkError.value = { title, cause };
+  else toast.error(`${title}. Try again.`);
+}
+
 async function open(): Promise<void> {
+  linkError.value = undefined;
   opening.value = true;
   try {
     await openSite();
     void load();
   }
-  catch {
-    toast.error("Couldn't open the site. Try again.");
+  catch (cause) {
+    showLinkError(cause, "Couldn't open the site");
   }
   finally {
     opening.value = false;
@@ -104,14 +114,15 @@ const phoneCountdown = computed(() => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 });
 async function linkPhone(): Promise<void> {
+  linkError.value = undefined;
   phoneOpen.value = true;
   phoneLoading.value = true;
   try {
     phone.value = await phoneLink();
   }
-  catch {
+  catch (cause) {
     phoneOpen.value = false;
-    toast.error("Couldn't make a QR code. Try again.");
+    showLinkError(cause, "Couldn't make a QR code");
   }
   finally {
     phoneLoading.value = false;
@@ -130,12 +141,14 @@ const inviteName = ref("");
 const inviteGrants = ref<string[]>([]);
 const inviteDays = ref<"1" | "7" | "30">("7");
 const inviting = ref(false);
+const inviteError = ref<ConsoleRequestError>();
 const invited = ref<{ url: string, expiresAt: string, name: string }>();
 const copied = ref(false);
 const dayItems = [{ label: "1 day", value: "1" }, { label: "7 days", value: "7" }, { label: "30 days", value: "30" }];
 const canInvite = computed(() => inviteName.value.trim().length > 0 && inviteGrants.value.length > 0);
 
 function startInvite(): void {
+  inviteError.value = undefined;
   inviteName.value = "";
   // Most guests come to comment: they read and write.
   inviteGrants.value = guestGrants.value.filter(grant => grant.id === "comments-read" || grant.id === "comments-write").map(grant => grant.id);
@@ -151,14 +164,16 @@ function toggleGrant(id: string, value: boolean | "indeterminate"): void {
 
 async function invite(): Promise<void> {
   if (!canInvite.value) return;
+  inviteError.value = undefined;
   inviting.value = true;
   try {
     const result = await inviteGuest({ name: inviteName.value.trim(), grants: inviteGrants.value, expiresInDays: Number(inviteDays.value) as 1 | 7 | 30 });
     invited.value = { url: result.url, expiresAt: result.expiresAt, name: result.invite.name };
     invites.value = [result.invite, ...invites.value];
   }
-  catch {
-    toast.error("Couldn't create the invite. Try again.");
+  catch (cause) {
+    if (isSiteAuthUnavailable(cause)) inviteError.value = cause;
+    else toast.error("Couldn't create the invite. Try again.");
   }
   finally {
     inviting.value = false;
@@ -239,6 +254,9 @@ onBeforeUnmount(() => {
     </ConsolePageHeader>
 
     <main class="min-h-0 flex-1 overflow-auto">
+      <div v-if="linkError || sessionsError" class="vitehub-console-page !pb-0">
+        <ConsoleState compact :error="linkError?.cause ?? sessionsError" :title="linkError?.title ?? 'Couldn’t load site browsers'" />
+      </div>
       <ConsoleState v-if="error" :error="error" title="Couldn't load site access" :retry="load" />
       <div v-else-if="loading" class="vitehub-console-page grid gap-3" aria-busy="true">
         <USkeleton class="h-5 w-40" />
@@ -253,7 +271,7 @@ onBeforeUnmount(() => {
           <p v-else-if="store" class="text-pretty text-xs text-dimmed"><ConsoleCodeText :text="siteStoreText(store)" /></p>
         </div>
 
-        <section v-for="group in [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
+        <section v-for="group in sessionsError ? [] : [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">
           <h2 :id="`site-${group.id}`" class="flex items-baseline gap-2 text-[13px] font-semibold text-highlighted">
             {{ group.title }}
             <span class="font-normal tabular-nums text-dimmed">{{ group.rows.length }}</span>
@@ -300,6 +318,7 @@ onBeforeUnmount(() => {
   <UModal v-model:open="inviteOpen" :title="invited ? `Invite for ${invited.name}` : 'Invite someone'" :description="invited ? undefined : 'They get the page tools you pick on the site. They never see the Console.'">
     <template #body>
       <form v-if="!invited" id="site-invite" class="grid gap-5" @submit.prevent="invite">
+        <ConsoleState v-if="inviteError" compact :error="inviteError" title="Couldn't create the invite" />
         <UFormField label="Name" help="Shown as the author of their comments. They don't type it." required>
           <UInput v-model="inviteName" class="w-full" autocomplete="off" :maxlength="64" placeholder="Ana from design" autofocus />
         </UFormField>
