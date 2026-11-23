@@ -147,6 +147,17 @@ describe("impersonation with one-time links", () => {
       expect((await app.store.list({ type })).events, type).toEqual([expect.objectContaining({ actor: `user:${app.operator.id}`, userId: app.member.id })])
   })
 
+  it("refuses a link when console.sections hides Auth", async () => {
+    const app = await consoleEventsFixture()
+    closers.push(() => app.database.sqlite.close())
+    state.create = host => createAuthConsole(app.auth, {}, app.store, host as AuthConsoleHostOptions)
+    signedApp()
+    const stop = await link(await operation("auth.stop-impersonating"))
+    installConsoleSections("impersonation-tickets", [], undefined, ["auth"])
+    const opened = await open(stop, app.operator.cookie)
+    expect(opened.status).toBe(404)
+  })
+
   it("binds the link to the person: another app session, or none, cannot use it", async () => {
     const app = await consoleEventsFixture()
     closers.push(() => app.database.sqlite.close())

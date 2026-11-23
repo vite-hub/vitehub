@@ -8,7 +8,7 @@ import { consoleImpersonation, readConsoleAccessUser, readConsoleOperationUser, 
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { consoleErrorResult, consoleRequestError, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
-import { hasConsoleIntegration } from "./sections.ts"
+import { getConsoleSections, hasConsoleIntegration } from "./sections.ts"
 import { consoleSiteEntries, consoleSiteKV, describeConsoleSiteKV } from "./site-session.ts"
 
 import type { AuthConsole } from "@vite-hub/auth/console-runtime"
@@ -146,9 +146,9 @@ function isRequestEvent(event: unknown): event is ConsoleRequestEvent {
   return event instanceof Object && "~standard" in event
 }
 
-/** The Auth Console of a request, when the app has Auth, also when `console.sections` hides its section. */
+/** The Auth Console of a request, when the app has Auth. Site access uses it also when `console.sections` hides Auth; impersonation does not. */
 export async function authConsole(request: Request, event: ConsoleRequestEvent | undefined, impersonation = false): Promise<AuthConsole | undefined> {
-  if (!hasConsoleIntegration("auth")) return undefined
+  if (!(impersonation ? getConsoleSections().includes("auth") : hasConsoleIntegration("auth"))) return undefined
   // A build without the Auth section replaces the flag, so the bundler drops the optional import.
   const auth = import.meta.viteHubConsoleAuth === false ? undefined : await import("@vite-hub/auth/server")
   return auth?.getAuthConsoleForRequest(request, event, { impersonation })
