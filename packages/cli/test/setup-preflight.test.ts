@@ -97,13 +97,29 @@ describe("setup feature inputs", () => {
     expect(await readFile(join(root, "nuxt.config.ts"), "utf8")).toContain("mcp: true")
   })
 
-  it("does not treat an opaque Auth setting as enabled", async () => {
+  it("asks for a manual Auth check when the Auth setting is opaque", async () => {
     const before = `const enabled = () => { throw new Error("Do not evaluate config in setup") }\n${viteConfig('{ host: "node", auth: enabled() }')}`
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": before })
     const result = await runSetup<Result>(["add", "mcp", "--option", "mcp.auth=true", ...flags], root)
-    expect(result.exitCode, result.stdout).toBe(2)
-    expect(result.json.missing).toEqual([{ field: "auth" }])
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_CONFIG_MANUAL")
+    expect(result.json.error?.fix).toContain("Confirm Auth is enabled")
     expect(result.loadConfig).not.toHaveBeenCalled()
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(before)
+  })
+
+  it("asks for a manual Auth check when a Nuxt layer can supply the Definition", async () => {
+    const before = 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], vitehub: { host: "node" } })'
+    const root = await createProject({
+      "layers/base/server/auth.ts": "throw new Error('Do not evaluate Definitions in setup')",
+      "nuxt.config.ts": before,
+      "package.json": pnpmManifest,
+    })
+    const result = await runSetup<Result>(["add", "mcp", "--option", "mcp.auth=optional", ...flags], root)
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_CONFIG_MANUAL")
+    expect(result.json.error?.fix).toContain("mcpOAuth()")
+    expect(result.loadConfig).not.toHaveBeenCalled()
+    expect(await readFile(join(root, "nuxt.config.ts"), "utf8")).toBe(before)
   })
 })

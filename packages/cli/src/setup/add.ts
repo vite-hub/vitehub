@@ -399,19 +399,28 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       rerunnable = false
     }
   }
+  const mcpOAuthSetup = "Include `mcpOAuth()` from `vite-hub/auth/mcp` in the `plugins` of `defineAuth()` in the Auth Definition"
   let needsMcpOAuth = false
   if (inputFeatures.includes("mcp") && site?.keys.mcp?.kind !== "expression") {
     const configuredAuth = site?.keys.auth
-    const discoveredAuth = status.features.some(item => item.id === "auth" && item.enabled === "on" && item.reason === "default")
+    const authStatus = status.features.find(item => item.id === "auth")
+    const discoveredAuth = authStatus?.enabled === "on" && authStatus.reason === "default"
     const selectedAuth = args.features.includes("auth") && (!configuredAuth || configuredAuth.kind === "expression" || configuredAuth.value === false)
     const authEnabled = !args.options.auth && (selectedAuth || (configuredAuth?.kind === "literal" && configuredAuth.value === true) || discoveredAuth)
     const mcp = valueFor("mcp")
     const mode = isRecord(mcp) && Object.hasOwn(mcp, "auth") ? mcp.auth : undefined
+    if (!authEnabled && authStatus?.enabled === "unknown" && (mode === undefined || mode === true || mode === "optional")) {
+      const file = project.configFile ?? "vite.config.ts"
+      const snippet = `mcp: ${toSource(isRecord(mcp) ? mcp : true)},`
+      const fix = `Confirm Auth is enabled in the app. ${mcpOAuthSetup}. Add this key to the vitehub() options by hand:\n${snippet}`
+      const reason = "Auth cannot be determined statically"
+      throw setupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, fix, reason }), setupExitCodes.conflict, { data: { snippet } })
+    }
     if (mode === true || mode === "optional" || (mode === undefined && authEnabled)) {
       if (authEnabled) needsMcpOAuth = true
       else {
         missing.push({ field: "auth" })
-        inputFixes.push("Select the `auth` feature or enable Auth in the app config. Add `mcpOAuth()` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()` in the Auth Definition.")
+        inputFixes.push(`Select the \`auth\` feature or enable Auth in the app config. ${mcpOAuthSetup}.`)
         rerunnable = false
       }
     }
@@ -514,7 +523,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     ].find(existsSync)
     const target = definition ? ` in \`${relative(project.root, definition)}\`` : ""
     if (!definition && appServerDir) nextSteps.push(`Create an Auth Definition at \`${join(serverDir, "auth.ts")}\` if the app has none.`)
-    nextSteps.push(`Add \`mcpOAuth()\` from \`vite-hub/auth/mcp\` to the \`plugins\` of \`defineAuth()\` in the Auth Definition${target}. https://vitehub.dev/docs/mcp/configure#sign-in-with-mcp-oauth`)
+    nextSteps.push(`${mcpOAuthSetup}${target}. https://vitehub.dev/docs/mcp/configure#sign-in-with-mcp-oauth`)
   }
   if (command && !args.install) nextSteps.push(`Install the packages: ${command}`)
   for (const id of implied) {
