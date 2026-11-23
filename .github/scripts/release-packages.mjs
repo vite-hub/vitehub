@@ -195,6 +195,7 @@ async function command(runtime, command, args, options = {}) {
 
 function defaultRuntime() {
   return {
+    env: process.env,
     exec: execFileAsync,
     fetch,
     sleep: milliseconds => new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds)),
@@ -556,11 +557,11 @@ function assertAttestationSubject(statement, pkg) {
   if (subject?.digest?.sha512 !== sha512) fail(`Registry attestation digest mismatch for ${pkg.name}@${pkg.version}`)
 }
 
-async function registryFetch(runtime, url, options, label) {
+async function registryFetch(runtime, url, options, label, init = {}) {
   try {
     const timeout = Math.min(options.requestTimeoutMs ?? 15_000, options.deadline === undefined ? Infinity : options.deadline - Date.now())
     if (timeout <= 0) fail("Registry verification deadline passed")
-    return await runtime.fetch(url, { signal: AbortSignal.timeout(timeout) })
+    return await runtime.fetch(url, { ...init, signal: AbortSignal.timeout(timeout) })
   }
   catch (error) {
     throw new Error(`Registry request failed for ${label}`, { cause: error })
@@ -579,7 +580,7 @@ export async function inspectPublishedPackage(pkg, options) {
     fail(`Registry dist-tag ${options.tag} already points to newer ${pkg.name}@${taggedVersion}; refusing stale release ${pkg.version}`)
   }
 
-  if (packumentResponse.status === 404) return { state: "absent" }
+  if (packumentResponse.status === 404) return { exists: rootPackumentResponse.status !== 404, state: "absent" }
   if (!packumentResponse.ok) fail(`Registry returned ${packumentResponse.status} for ${pkg.name}@${pkg.version}`)
   const packument = await packumentResponse.json()
   if (packument.dist?.integrity !== pkg.integrity) fail(`Registry integrity mismatch for ${pkg.name}@${pkg.version}`)
@@ -622,6 +623,74 @@ export async function inspectPublishedPackage(pkg, options) {
     fail(`Registry provenance source mismatch for ${pkg.name}@${pkg.version}`)
   }
   return { state: "verified" }
+}
+
+async function assertTrustedPublisher(pkg, oidc, options, runtime) {
+  const idTokenUrl = new URL(oidc.requestUrl)
+  idTokenUrl.searchParams.append("audience", `npm:${new URL(registry).hostname}`)
+  const idTokenResponse = await registryFetch(runtime, idTokenUrl.href, options, `the GitHub OIDC token for ${pkg.name}`, {
+    headers: { accept: "application/json", authorization: `Bearer ${oidc.requestToken}` },
+  })
+  if (!idTokenResponse.ok) fail(`GitHub returned ${idTokenResponse.status} for the OIDC token for ${pkg.name}`)
+  const idToken = (await idTokenResponse.json())?.value
+  if (!isString(idToken) || !idToken) fail(`GitHub returned no OIDC token for ${pkg.name}`)
+
+  const exchangeResponse = await registryFetch(runtime, `${registry}/-/npm/v1/oidc/token/exchange/package/${pkg.name.replace("/", "%2f")}`, options, `the ${pkg.name} trusted publisher`, {
+    headers: { accept: "application/json", authorization: `Bearer ${idToken}` },
+    method: "POST",
+  })
+  const body = await exchangeResponse.json().catch(() => undefined)
+  if (exchangeResponse.ok && isString(body?.token) && body.token) return
+  const reason = isString(body?.message) ? `: ${body.message.slice(0, 200)}` : ""
+  fail(`npm rejected this workflow as the trusted publisher of ${pkg.name} (${exchangeResponse.status}${reason}). Trust vite-hub/vitehub, workflow release.yml, environment npm-release.`)
+}
+
+async function preflightRegistry(packages, options, runtime) {
+  const problems = []
+  const states = []
+  for (const pkg of packages) {
+    try {
+      states.push(await inspectPublishedPackage(pkg, { ...options, runtime }))
+    }
+    catch (error) {
+      states.push(undefined)
+      problems.push(error.message)
+    }
+  }
+
+  const oidc = { requestToken: runtime.env?.ACTIONS_ID_TOKEN_REQUEST_TOKEN, requestUrl: runtime.env?.ACTIONS_ID_TOKEN_REQUEST_URL }
+  const hasOidc = Boolean(oidc.requestUrl && oidc.requestToken)
+  for (const [index, pkg] of packages.entries()) {
+    if (states[index]?.state !== "absent") continue
+    if (!states[index].exists) {
+      problems.push(`${pkg.name} does not exist on npm. npm can trust a publisher only for an existing package, so publish it once by hand first.`)
+      continue
+    }
+    if (!hasOidc) continue
+    try {
+      await assertTrustedPublisher(pkg, oidc, options, runtime)
+    }
+    catch (error) {
+      problems.push(error.message)
+    }
+  }
+  if (!hasOidc && states.some(state => state?.state === "absent")) {
+    problems.push("Publication needs GitHub Actions OIDC. Run it from release.yml with id-token: write.")
+  }
+
+  if (problems.length > 0) fail(`Release preflight failed. This run published nothing.\n- ${problems.join("\n- ")}`)
+  return states
+}
+
+function stagedConflictMessage(pkg, error) {
+  return [
+    `${pkg.name}@${pkg.version} is staged on npm but not published, so npm refuses to publish it. Packages after it in the release order were not published.`,
+    `A package maintainer must review it: run \`npm stage list ${pkg.name}\` and \`npm stage download <stage-id>\`.`,
+    `Approve it with \`npm stage approve <stage-id>\` only if the downloaded tarball has integrity ${pkg.integrity}. Otherwise reject it with \`npm stage reject <stage-id>\`.`,
+    "Then rerun the failed publish job. See Releases in CONTRIBUTING.md.",
+    "",
+    String(error?.message),
+  ].join("\n")
 }
 
 async function waitUntilVerified(packages, options, verification) {
@@ -680,12 +749,7 @@ export async function publishReleaseArtifacts(options) {
     fail(`Release source ref must be refs/tags/v${verified.releaseVersion}`)
   }
 
-  const registryStates = []
-  if (!options.dryRun) {
-    for (const pkg of verified.manifest.packages) {
-      registryStates.push(await inspectPublishedPackage(pkg, { ...options, runtime }))
-    }
-  }
+  const registryStates = options.dryRun ? [] : await preflightRegistry(verified.manifest.packages, options, runtime)
 
   const published = []
   const verification = {}
@@ -707,7 +771,8 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
+      if (/previously staged version/i.test(String(error?.message))) throw new Error(stagedConflictMessage(pkg, error), { cause: error })
+      if (!/EPUBLISHCONFLICT|cannot publish over the previously published/i.test(String(error?.message))) throw error
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
       await waitUntilVerified([pkg], { ...options, runtime }, verification)
       continue

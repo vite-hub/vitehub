@@ -261,9 +261,28 @@ A release PR is always open. We release every Friday when we merge it. Never pus
 
 Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
 
+Before the publish job publishes a package, it checks each package that npm does not yet show at the release version. The package must exist on npm, and npm must accept `release.yml` as its trusted publisher. The job makes the same OIDC token exchange that `npm publish` makes, then discards the token. If a check fails, the job lists each failed package and publishes nothing.
+
 If merge verification fails permanently before a tag is created, merge a correction PR directly after the failed release merge. Then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version, even if later commits have reached `main`. Use the ordinary rerun path for transient failures.
 
 An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Each public npm package must trust `vite-hub/vitehub` with workflow `release.yml` and environment `npm-release`. npm adds a trusted publisher only to a package that already exists, so publish a new package once by hand before the first release that includes it. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+
+### Recover a failed npm publication
+
+Do not move, delete, or create again a release tag. The publish job stops when the tag does not point to the verified commit. Recover from the same tag:
+
+- **Preflight failure.** Fix each package in the list. Publish a package that does not exist once by hand. Then add the trusted publisher `vite-hub/vitehub`, workflow `release.yml`, environment `npm-release` in the package settings on npmjs.com. Rerun the failed jobs of the release run.
+- **Failure after some packages were published.** Rerun the failed jobs of the same release run. The job skips each version that npm shows with the same integrity and with provenance from this tag. It publishes the other packages in release order. If the run artifact expired, run `gh workflow run release.yml --ref vX.Y.Z`. That run packs the tag again and must produce the same tarballs.
+- **Staged version.** npm returns `E409 Cannot publish over previously staged version` when a version waits for approval in staging. The job stops at that package and prints the integrity that the release expects. A package maintainer checks the staged tarball:
+
+  ```sh
+  npm stage list <package>
+  npm stage download <stage-id>
+  node -p "'sha512-' + require('node:crypto').createHash('sha512').update(require('node:fs').readFileSync(process.argv[1])).digest('base64')" <downloaded-file>
+  ```
+
+  If the integrity is the same, run `npm stage approve <stage-id>`. Otherwise, run `npm stage reject <stage-id>`. Then rerun the failed jobs. The rerun accepts an approved version only when npm shows provenance from this tag. After a reject, the rerun publishes the version again.
+- **A version that does not verify.** npm does not let you replace a published version. If npm shows the version with other contents or without provenance from this tag, do not tag again. Release the fix as the next version through the release PR.
 
 ## Pull requests
 

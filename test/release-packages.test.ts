@@ -34,6 +34,7 @@ const repoRoot = resolve(import.meta.dirname, "..")
 const scriptPath = resolve(repoRoot, ".github/scripts/release-packages.mjs")
 const sourceSha = "a".repeat(40)
 const sourceRef = "refs/tags/v1.2.3"
+const oidcEnv = { ACTIONS_ID_TOKEN_REQUEST_TOKEN: "github-request-token", ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.test/oidc?api-version=2.0" }
 const temporaryDirectories: string[] = []
 
 interface FixturePackage {
@@ -217,6 +218,9 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   let installFailures = 0
   let auditFailures = 0
   const unattested = new Set<string>()
+  const absentFromNpm = new Set<string>()
+  const untrusted = new Set<string>()
+  const oidcRequests: Array<{ authorization?: string, method?: string, url: string }> = []
   let sleeps = 0
   const byTarball = new Map(packages.map(pkg => [pkg.tarball, pkg]))
   const runtime = {
@@ -251,8 +255,18 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       }
       return { stderr: "", stdout: "" }
     },
-    fetch: async (input: string) => {
+    env: oidcEnv,
+    fetch: async (input: string, init: { headers?: Record<string, string>, method?: string } = {}) => {
       const url = new URL(input)
+      if (url.origin === "https://token.actions.test") {
+        oidcRequests.push({ authorization: init.headers?.authorization, method: init.method, url: url.href })
+        return response(200, { value: "github-id-token" })
+      }
+      if (url.pathname.startsWith("/-/npm/v1/oidc/token/exchange/package/")) {
+        oidcRequests.push({ authorization: init.headers?.authorization, method: init.method, url: url.href })
+        const name = decodeURIComponent(url.pathname.slice("/-/npm/v1/oidc/token/exchange/package/".length))
+        return untrusted.has(name) ? response(404, { message: "No matching trusted publisher" }) : response(201, { token: "npm-publish-token" })
+      }
       for (const pkg of packages) {
         const encoded = encodeURIComponent(pkg.name)
         const entry = state.get(pkg.name)
@@ -262,6 +276,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
             : response(404)
         }
         if (url.href === `https://registry.npmjs.org/${encoded}`) {
+          if (absentFromNpm.has(pkg.name)) return response(404)
           const tagged = distTags.get(pkg.name)
           return response(200, { "dist-tags": tagged ? { [tagged.tag]: tagged.version } : {} })
         }
@@ -278,7 +293,10 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
     calls,
     events,
     getSleeps: () => sleeps,
+    oidcRequests,
     runtime,
+    setAbsentFromNpm: (name: string) => { absentFromNpm.add(name) },
+    setUntrusted: (name: string) => { untrusted.add(name) },
     setFailAudit: (value = true) => { failAudit = value },
     setFailPublish: (name?: string, message = "", entry?: ReturnType<typeof verifiedRegistryEntry>) => {
       failPublish = name
@@ -693,6 +711,66 @@ describe("release publication", () => {
     expect(registry.state).toEqual(new Map())
   })
 
+  it("checks that every unpublished package exists and trusts this workflow before mutation", async () => {
+    const root = await temporaryDirectory("vitehub-release-trusted-publisher-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+      { dependencies: ["@vite-hub/app"], name: "@vite-hub/new" },
+    ])
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    registry.setUntrusted("@vite-hub/app")
+    registry.setAbsentFromNpm("@vite-hub/new")
+
+    const failure = publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    await expect(failure).rejects.toThrow("Release preflight failed. This run published nothing.")
+    await expect(failure).rejects.toThrow("npm rejected this workflow as the trusted publisher of @vite-hub/app (404: No matching trusted publisher)")
+    await expect(failure).rejects.toThrow("@vite-hub/new does not exist on npm")
+    await expect(failure).rejects.not.toThrow(/github-id-token|npm-publish-token|github-request-token/)
+    expect(registry.calls).toEqual([])
+    expect(registry.oidcRequests).toEqual([
+      { authorization: "Bearer github-request-token", method: undefined, url: "https://token.actions.test/oidc?api-version=2.0&audience=npm%3Aregistry.npmjs.org" },
+      { authorization: "Bearer github-id-token", method: "POST", url: "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@vite-hub%2fruntime" },
+      { authorization: "Bearer github-request-token", method: undefined, url: "https://token.actions.test/oidc?api-version=2.0&audience=npm%3Aregistry.npmjs.org" },
+      { authorization: "Bearer github-id-token", method: "POST", url: "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@vite-hub%2fapp" },
+    ])
+
+    const withoutOidc = fakeRegistryRuntime(artifact.manifest.packages)
+    await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: { ...withoutOidc.runtime, env: {} }, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Publication needs GitHub Actions OIDC")
+    expect(withoutOidc.calls).toEqual([])
+    expect(withoutOidc.oidcRequests).toEqual([])
+  })
+
+  it("stops on a staged version with a review step, then resumes once it is published and verified", async () => {
+    const root = await temporaryDirectory("vitehub-release-staged-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/agent" },
+      { dependencies: ["@vite-hub/agent"], name: "@vite-hub/final" },
+    ])
+    const agent = artifact.manifest.packages[1]
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    registry.setFailPublish(agent.name, "npm error code E409\nnpm error 409 Conflict - PUT https://registry.npmjs.org/@vite-hub%2fagent - Cannot publish over previously staged version \"1.2.3\".")
+
+    const failure = publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    await expect(failure).rejects.toThrow("@vite-hub/agent@1.2.3 is staged on npm but not published")
+    await expect(failure).rejects.toThrow(`only if the downloaded tarball has integrity ${agent.integrity}`)
+    await expect(failure).rejects.toThrow("Cannot publish over previously staged version")
+    expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
+      `./${artifact.manifest.packages[0].tarball}`,
+      `./${agent.tarball}`,
+    ])
+    expect(registry.events).not.toContain("audit")
+
+    registry.setFailPublish()
+    registry.state.set(agent.name, verifiedRegistryEntry(agent))
+    registry.setDistTag(agent.name, "latest", agent.version)
+    registry.calls.splice(0)
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([`./${artifact.manifest.packages[2].tarball}`])
+  })
+
   it("stops after a publish failure and resumes from verified registry state", async () => {
     const root = await temporaryDirectory("vitehub-release-resume-")
     const artifact = await writeArtifact(root, [
@@ -712,7 +790,12 @@ describe("release publication", () => {
 
     registry.setFailPublish()
     registry.calls.splice(0)
+    registry.oidcRequests.splice(0)
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(registry.oidcRequests.filter(request => request.method === "POST").map(request => request.url)).toEqual([
+      "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@vite-hub%2fapp",
+      "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@vite-hub%2ffinal",
+    ])
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
       `./${artifact.manifest.packages[1].tarball}`,
       `./${artifact.manifest.packages[2].tarball}`,
