@@ -27,6 +27,10 @@ export default defineConfig({
         cache: false,
         command: "vp dev --config playground/console/vite.config.ts",
       },
+      "console:weight": {
+        cache: false,
+        command: "node scripts/console-weight/run.mjs",
+      },
       "consumers:check": {
         cache: false,
         command: "node scripts/consumer-check.mjs",

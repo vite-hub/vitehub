@@ -6,7 +6,7 @@ import type { NodeHandler, NodeRenderData, State } from "comark/render"
 import { assertBindingRoot, resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { hasMarkdownHtmlChildren, htmlPlugins, parserOptions } from "./parser.ts"
+import { hasMarkdownHtmlChildren, htmlPlugins, templateParserOptions, templatePlugins } from "./parser.ts"
 import { prepareTemplate } from "./prepare.ts"
 import { safeLinkDestination } from "./links.ts"
 import type { RenderMarkdownTemplateInternalOptions, RenderMarkdownTemplateOptions } from "./types.ts"
@@ -45,7 +45,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     throw diagnostics.MARKDOWN_TEMPLATE_R0014({ message: "[vitehub] Markdown template must be a string." })
   }
   const prepared = await prepareTemplate(template)
-  const parseOptions = { ...parserOptions, plugins: [...parserOptions.plugins, ...(options.plugins ?? [])] }
+  const parseOptions = templateParserOptions(options.plugins)
   const tree = await parseMarkdown(prepared.template, parseOptions)
   const data = snapshotTemplateData(options.data ?? {})
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
@@ -96,7 +96,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         if (typeof value !== "string") {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
-        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: [...htmlPlugins, ...(options.plugins ?? [])] })
+        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: templatePlugins(...htmlPlugins, ...(options.plugins ?? [])) })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {

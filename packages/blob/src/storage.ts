@@ -362,6 +362,8 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       return blobResult("head", store, () => driver.head(normalizedPathname))
     },
     async list(options: BlobListOptions = {}) {
+      if (options.limit !== undefined && !(Number.isSafeInteger(options.limit) && options.limit >= 0))
+        throw blobHttpError(400, blobErrorDiagnostics.BLOB_R0034({ message: `Blob list() limit must be a whole number of 0 or more. Got ${String(options.limit)}.` }))
       const normalizedPrefix = options.prefix ? normalizePathname(options.prefix, { prefix: true }) : options.prefix
       return blobResult("list", store, () => driver.list({
         ...options,

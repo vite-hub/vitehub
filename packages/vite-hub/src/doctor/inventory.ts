@@ -1,8 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
 import { dirname, relative, resolve } from "node:path"
+import { keyName, type Node } from "@vite-hub/internal/ast"
 import * as v from "valibot"
 import { importOptionalOwner } from "../internal/optional-owners.ts"
+import { configObject } from "./config-object.ts"
 import type { ProjectInfo, ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
 
 /** Name of the ViteHub Project Inventory contribution, read by rules through `viteHubInventory()`. */
@@ -27,12 +29,14 @@ const inventorySchema = v.object({
   serverDirs: v.optional(v.array(v.string())),
   /** Direct dependencies whose installed `package.json` needs `@nuxthub/core`. */
   nuxtHubDependents: v.optional(v.array(v.object({ name: v.string(), field: v.picklist(["peerDependencies", "dependencies"]) }))),
+  nuxtServerAutoImports: v.optional(v.boolean()),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
   serverDirs?: string[]
   nuxtHubDependents?: NuxtHubDependent[]
+  nuxtServerAutoImports?: boolean
 }
 /** A dependency that lists `@nuxthub/core` in `field`, so installing it also installs NuxtHub. */
 export type NuxtHubDependent = { name: string, field: "peerDependencies" | "dependencies" }
@@ -110,13 +114,95 @@ function serverDirsOf(project: ProjectInfo): string[] {
   return [resolve(root, appServerDir ?? "server"), ...layerDirs.filter(isDirectory)]
 }
 
-function configuredServerDir(root: string): string | undefined {
+function nuxtConfigSource(root: string): string | undefined {
   for (const name of ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]) {
     const file = resolve(root, name)
-    if (!existsSync(file)) continue
-    const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(readFileSync(file, "utf8"))
-    return match?.[1] && resolve(root, match[1])
+    if (existsSync(file)) return readFileSync(file, "utf8")
   }
+}
+
+function configuredServerDir(root: string): string | undefined {
+  const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(nuxtConfigSource(root) ?? "")
+  return match?.[1] && resolve(root, match[1])
+}
+
+const unknownConfig = Symbol("unknown Nuxt config")
+type ConfigValue = Node | typeof unknownConfig | undefined
+
+function configProperty(object: ConfigValue, name: string): ConfigValue {
+  if (object === unknownConfig) return object
+  if (object?.type !== "ObjectExpression") {
+    return object && object.type !== "BooleanLiteral" ? unknownConfig : undefined
+  }
+  for (const property of object.properties.toReversed()) {
+    if (property.type === "SpreadElement") return unknownConfig
+    const key = keyName(property.key, property.computed)
+    if (key === name) return property.type === "ObjectProperty" ? property.value : unknownConfig
+    if (key === undefined && property.computed) return unknownConfig
+  }
+}
+
+function layerOptions(configs: ConfigValue[], name: string): ConfigValue[] {
+  const values: ConfigValue[] = []
+  for (const config of configs) {
+    const value = configProperty(config, name)
+    if (value === undefined || value !== unknownConfig && value.type === "NullLiteral") continue
+    if (value === unknownConfig || value.type !== "ObjectExpression") {
+      if (!values.length || value === unknownConfig) values.push(value)
+      break
+    }
+    values.push(value)
+  }
+  return values
+}
+
+function configBoolean(value: ConfigValue): boolean | undefined {
+  return value && value !== unknownConfig && value.type === "BooleanLiteral" ? value.value : undefined
+}
+
+function nuxtConfigLayers(project: ProjectInfo): ConfigValue[] {
+  const seen = new Set<string>()
+  function read(root: string, inherited: readonly string[] = []): ConfigValue[] {
+    if (seen.has(root)) return []
+    seen.add(root)
+    const source = nuxtConfigSource(root)
+    const config = source === undefined ? undefined : configObject(source) ?? unknownConfig
+    if (inherited.length) return [config, ...inherited.flatMap(layer => read(layer))]
+    const extended = configProperty(config, "extends")
+    const layers: readonly (ConfigValue | null)[] = extended !== unknownConfig && extended?.type === "ArrayExpression" ? extended.elements : [extended]
+    const dir = resolve(root, "layers")
+    const auto = isDirectory(dir) ? readdirSync(dir).sort().reverse().flatMap(name => {
+      const layer = resolve(dir, name)
+      return isDirectory(layer) ? read(layer) : []
+    }) : []
+    return [config, ...auto, ...layers.flatMap((layer): ConfigValue[] => {
+      if (layer === undefined) return []
+      if (layer && layer !== unknownConfig && layer.type === "StringLiteral" && layer.value.startsWith(".")) return read(resolve(root, layer.value))
+      return [unknownConfig]
+    })]
+  }
+  const root = resolve(project.root)
+  const known = [...project.nuxt?.layers ?? []].sort((left, right) => right.priority - left.priority)
+    .map(layer => resolve(root, layer.root)).filter(layer => layer !== root)
+  return read(root, known)
+}
+
+function configuredServerAutoImports(project: ProjectInfo): boolean {
+  const layers = nuxtConfigLayers(project)
+  const option = (configs: ConfigValue[], key: string) => layerOptions(configs, key)[0]
+  const experimental = option(layerOptions(layers, "experimental"), "nitroAutoImports")
+  const legacy = layerOptions(layers, "nitroLegacy")
+  const legacyImports = option(legacy, "imports")
+  const first = legacy[0]
+  const legacyEnabled = configBoolean(first) === true || first !== undefined && first !== unknownConfig
+    && first.type === "ObjectExpression" && (legacyImports === undefined || configBoolean(legacyImports) === true)
+  if (configBoolean(experimental) !== true && !legacyEnabled) return false
+
+  const nitro = layerOptions(layers, "nitro")
+  const nitroImports = layerOptions(nitro, "imports")
+  if (nitroImports[0] === unknownConfig || configBoolean(nitroImports[0]) === false) return false
+  const autoImport = option(nitroImports, "autoImport") ?? option(layerOptions(layers, "imports"), "autoImport")
+  return autoImport === undefined || configBoolean(autoImport) === true
 }
 
 const describeSchema = v.object({
@@ -225,6 +311,7 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
       serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
       ...(env ? { env } : {}),
       ...(nuxtHubDependents.length ? { nuxtHubDependents } : {}),
+      ...(project.framework === "nuxt" && configuredServerAutoImports(project) ? { nuxtServerAutoImports: true } : {}),
     } satisfies ViteHubInventory
   },
 }

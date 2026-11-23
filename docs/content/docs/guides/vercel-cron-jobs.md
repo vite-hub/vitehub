@@ -120,7 +120,7 @@ pnpm vitehub schedule run daily-report
 pnpm vitehub schedule runs list daily-report --limit 5
 ```
 
-`schedule run` needs `manual: true`. It runs the handler in the dev server, records a Schedule Run, and prints its status. `schedule runs` lists recorded runs. See [Run and inspect Schedules during development](/docs/schedule/hosts#run-and-inspect-schedules-during-development).
+`schedule run` needs `manual: true`. It runs the handler in the dev server, records a Schedule Run, and prints its status. `schedule runs list` lists recorded runs. See [Run and inspect Schedules during development](/docs/schedule/hosts#run-and-inspect-schedules-during-development).
 
 To check the Vercel output, build and read the config:
 

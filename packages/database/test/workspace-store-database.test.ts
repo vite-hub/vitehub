@@ -80,7 +80,8 @@ it("gives the Workspace store the database of the build, with its migrations fol
   expect(database).toHaveBeenCalledOnce()
 
   // SAFETY: A Blob + Database Store always reports its Blob + Database target.
-  const target = await resolveWorkspaceStoreTarget(store) as BlobDatabaseWorkspaceStoreTarget
+  const target = await resolveWorkspaceStoreTarget(store) as Extract<BlobDatabaseWorkspaceStoreTarget, { dialect: "sqlite" }>
+  expect(target).toMatchObject({ dialect: "sqlite" })
   expect(target.database).toBe(databases.history!.db)
   // The contributed relation exists only in the relations that the build merged.
   await target.database.run(sql`INSERT INTO contributed_notes (id, workspace) VALUES (1, (SELECT workspace FROM workspace_history_workspaces))`)

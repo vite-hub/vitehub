@@ -1,0 +1,9 @@
+{
+  "name": "nuxt-server-imports-fixture",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "nuxt": "npm:nuxt-nightly@5x",
+    "vite-hub": "^0.0.0"
+  }
+}

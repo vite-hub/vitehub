@@ -4167,6 +4167,9 @@ importers:
       srvx:
         specifier: catalog:unjs
         version: 1.0.8
+      unimport:
+        specifier: ^7.0.2
+        version: 7.0.2(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(acorn@8.18.0)(esbuild@0.28.2)(oxc-parser@0.153.0)(rolldown@1.2.18)(rollup@4.67.5)
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)

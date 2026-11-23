@@ -106,7 +106,7 @@ the same behavior.
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/bundle` | Read the [bundle report](/docs/bundle) of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
-| `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` is on. |
+| `vite-hub/cache` | Nitro's `defineCachedFunction()` and `defineCachedHandler()` with `tags`, `defineCachedFunction()` with `staleIfError`, and `invalidateTag()`. See [Cache server results](/docs/guides/cache-server-results). `invalidateTag()` is auto-imported in Nuxt when `cache` and `experimental.nitroAutoImports` are on. |
 | `vite-hub/channels` | `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, `rejected()`, `useChannel()`, and `sendChannelTrigger()`. Needs no `@vite-hub/agent`. |
 | `vite-hub/channels/server` | `useChannel()` for named sends and `sendChannelTrigger()` for outgoing triggers. |
 | `vite-hub/channels/adapters` | Every Channel adapter: `webhook()`, `stripe()`, `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, `gitlab()`, `forgejo()`, `gmail()`, `webChat()`, and `channelAdapter()`. Needs `@vite-hub/agent`, which serves their webhook route. |
@@ -188,6 +188,7 @@ the same behavior.
 | `vite-hub/workspace/lineage` | `derivedFrom` helpers: `lineageDigest()`, `readDerivedFrom()`, and `staleDerivedFiles()`. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
 | `vite-hub/workspace/blob-database` | Content-addressed Workspace history Store and Database schema. Requires `drizzle-orm`. |
+| `vite-hub/workspace/blob-database/postgres` | Postgres Database schema of the Workspace history Store. Requires `drizzle-orm`. |
 | `vite-hub/workspace/loader` and `vite-hub/workspace/server` | Workspace loader and manual server extension APIs. |
 
 ViteHub adapters use `vite-hub/*` imports. You install their optional third-party providers and SDKs yourself. Provider Output, build plugins, and provider modules not listed here stay in their own packages.

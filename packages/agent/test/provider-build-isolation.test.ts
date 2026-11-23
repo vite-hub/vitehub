@@ -16,7 +16,6 @@ vi.mock("@vite-hub/internal/build/deployment-output", async (importOriginal) => 
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyNodeRuntimePackages: vi.fn(async () => undefined),
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
 const roots: string[] = []
@@ -66,6 +65,7 @@ it.each([
     expect(contributions[0]?.rootDir).toBe(config.root)
     const write = vi.fn<ProviderDeploymentOutputWriter>(async () => undefined)
     await contributions[0]!.write({
+      addVercelRuntimePackages: () => {},
       readCloudflareState: async () => ({ wranglerConfig: {} }),
       signal: new AbortController().signal,
       write,
