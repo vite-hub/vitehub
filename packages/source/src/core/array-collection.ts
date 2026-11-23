@@ -76,6 +76,8 @@ type ArrayCursor = {
   query: string
 }
 
+const textOrder = new Intl.Collator("en")
+
 function compareProtocolStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
@@ -193,7 +195,7 @@ function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined)
   return items.map(item => ({ item, value: firstScalar(collectionValueAt(item, sort.field)) }))
     .sort(({ value: leftValue }, { value: rightValue }) => {
       if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
-      return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
+      return textOrder.compare(String(leftValue ?? ""), String(rightValue ?? "")) * direction
     })
     .map(({ item }) => item)
 }
@@ -205,7 +207,7 @@ function buildFacets(items: readonly unknown[], fields: readonly string[], maxVa
       for (const value of new Set(scalarValues(collectionValueAt(item, field)))) counts.set(value, (counts.get(value) ?? 0) + 1)
     }
     const values: CollectionFacetValue[] = [...counts].map(([value, count]) => ({ count, value }))
-      .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value))
+      .sort((left, right) => right.count - left.count || textOrder.compare(left.value, right.value))
       .slice(0, maxValues)
     return [field, values]
   }))

@@ -1,6 +1,6 @@
 import { H3 } from "h3"
 import * as v from "valibot"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { array, CollectionCursorError, defineCollection } from "../src/index.ts"
 import { defineCollectionHandler } from "../src/server.ts"
@@ -115,6 +115,24 @@ describe("array()", () => {
       direction === "asc" ? ["second", "first", "third"] : ["first", "third", "second"],
     )
     expect(items.map(item => item.id)).toEqual(["first", "second", "third"])
+  })
+
+  it("keeps the order of strings and the next page when the host locale changes", async () => {
+    const items = [{ name: "Zebra" }, { name: "Åland" }]
+    const collection = defineCollection({ route: false, source: array(items, { facets: ["name"], sort: { field: "name" } }) })
+    const first = await collection.page({ limit: 1, query: {} })
+    const swedish = new Intl.Collator("sv")
+    const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+      return swedish.compare(this, that)
+    })
+    try {
+      const second = await collection.page({ cursor: first.nextCursor!, limit: 1, query: {} })
+      expect([...first.items, ...second.items]).toEqual([{ name: "Åland" }, { name: "Zebra" }])
+      expect(second.facets?.name?.map(facet => facet.value)).toEqual(["Åland", "Zebra"])
+    }
+    finally {
+      localeCompare.mockRestore()
+    }
   })
 
   it("reads updated sort keys on each load", async () => {
