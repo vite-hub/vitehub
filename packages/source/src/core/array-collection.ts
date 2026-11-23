@@ -76,10 +76,16 @@ type ArrayCursor = {
   query: string
 }
 
-const textOrder = new Intl.Collator("en")
-
 function compareProtocolStrings(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
+}
+
+function foldText(value: string): string {
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase()
+}
+
+function compareText(left: string, right: string): number {
+  return compareProtocolStrings(foldText(left), foldText(right)) || compareProtocolStrings(left, right)
 }
 
 const arrayCursorSchema: StandardSchemaV1<ArrayCursor, ArrayCursor> = {
@@ -195,7 +201,7 @@ function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined)
   return items.map(item => ({ item, value: firstScalar(collectionValueAt(item, sort.field)) }))
     .sort(({ value: leftValue }, { value: rightValue }) => {
       if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
-      return textOrder.compare(String(leftValue ?? ""), String(rightValue ?? "")) * direction
+      return compareText(String(leftValue ?? ""), String(rightValue ?? "")) * direction
     })
     .map(({ item }) => item)
 }
@@ -207,7 +213,7 @@ function buildFacets(items: readonly unknown[], fields: readonly string[], maxVa
       for (const value of new Set(scalarValues(collectionValueAt(item, field)))) counts.set(value, (counts.get(value) ?? 0) + 1)
     }
     const values: CollectionFacetValue[] = [...counts].map(([value, count]) => ({ count, value }))
-      .sort((left, right) => right.count - left.count || textOrder.compare(left.value, right.value))
+      .sort((left, right) => right.count - left.count || compareText(left.value, right.value))
       .slice(0, maxValues)
     return [field, values]
   }))
@@ -253,7 +259,7 @@ export function array<TItem, const TFilter extends string = never>(
   const searchFields = options.search ?? []
   const facetFields = options.facets ?? []
   const maxValues = options.maxLimit ?? defaultMaxLimit
-  const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
+  const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field, text: "folded" } : null })
 
   async function snapshot(signal: AbortSignal | undefined, includeDigest: boolean): Promise<{ digest: string, items: readonly TItem[] }> {
     const result = typeof load === "function" ? await load({ signal }) : load

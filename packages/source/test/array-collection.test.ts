@@ -135,6 +135,19 @@ describe("array()", () => {
     }
   })
 
+  it("sorts strings without case or accents first, then by code unit, without the runtime collation", async () => {
+    const collator = vi.spyOn(Intl, "Collator").mockImplementation(() => {
+      throw new Error("Intl.Collator differs between runtimes")
+    })
+    const names = ["𪛙", "Zebra", "apple", "丁", "Åland", "ab", "Ab", "Banana"]
+    const collection = defineCollection({ route: false, source: array(names.map(name => ({ name })), { facets: ["name"], sort: { field: "name" } }) })
+    const page = await collection.page({ query: {} })
+    const order = ["Ab", "ab", "Åland", "apple", "Banana", "Zebra", "丁", "𪛙"]
+    expect(page.items.map(item => item.name)).toEqual(order)
+    expect(page.facets?.name?.map(facet => facet.value)).toEqual(order)
+    expect(collator).not.toHaveBeenCalled()
+  })
+
   it("reads updated sort keys on each load", async () => {
     const items = [{ id: "first", rank: 2 }, { id: "second", rank: 1 }]
     const collection = defineCollection({ route: false, source: array(() => items, { sort: { field: "rank" } }) })
