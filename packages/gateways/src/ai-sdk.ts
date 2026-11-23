@@ -53,11 +53,8 @@ function routeOf(gateway: AiGateway, api: AiGatewayModelApi): AiGatewayRoute {
   return "openai-compatible"
 }
 
-async function load<T>(api: AiGatewayModelApi, name: ModelPackage, importer: () => Promise<T>): Promise<T> {
-  try {
-    return await importer()
-  }
-  catch (error) {
+function missingProvider(api: AiGatewayModelApi, name: ModelPackage): (error: unknown) => never {
+  return (error) => {
     throw gatewayDiagnostics.GATEWAYS_R0010({
       message: `[vitehub] The "${api}" model API needs the ${name} package. Install it with: pnpm add ${name}`,
       cause: error,
@@ -87,7 +84,7 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
   const headers = headerRecord(route)
   const shared = { headers, name, ...(fetch ? { fetch } : {}) }
   if (api === "chat" && provider === "@ai-sdk/openai-compatible") {
-    const { createOpenAICompatible } = await load(api, provider, async () => await import("@ai-sdk/openai-compatible"))
+    const { createOpenAICompatible } = await import("@ai-sdk/openai-compatible").catch(missingProvider(api, provider))
     return createOpenAICompatible({
       ...shared,
       baseURL: route.baseURL,
@@ -101,7 +98,7 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
     throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" needs an API key for the "${api}" model API. Pass apiKey${api === "chat" ? "" : `, or use api: "chat"`}.` })
   }
   if (api === "chat" || api === "responses") {
-    const { createOpenAI } = await load(api, "@ai-sdk/openai", async () => await import("@ai-sdk/openai"))
+    const { createOpenAI } = await import("@ai-sdk/openai").catch(missingProvider(api, "@ai-sdk/openai"))
     const openai = createOpenAI({
       ...shared,
       apiKey,
@@ -116,7 +113,7 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
     // Chat Completions of `@ai-sdk/openai` ask for token counts in streamed responses by default.
     return api === "chat" ? openai.chat(modelId) : openai.responses(modelId)
   }
-  const { createAnthropic } = await load(api, "@ai-sdk/anthropic", async () => await import("@ai-sdk/anthropic"))
+  const { createAnthropic } = await import("@ai-sdk/anthropic").catch(missingProvider(api, "@ai-sdk/anthropic"))
   return createAnthropic({
     ...shared,
     baseURL: `${route.baseURL}/v1`,

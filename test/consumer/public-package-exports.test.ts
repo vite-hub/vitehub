@@ -23,7 +23,7 @@ const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
 const markdownEditorDragHandlePeers = ["@tiptap/extension-drag-handle", "@tiptap/extension-drag-handle-vue-3"]
-const optionalPeers = ["@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/schema", "@nuxt/ui", ...markdownEditorTiptapPeers, ...markdownEditorDragHandlePeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "nuxt", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@emulators/ai", "@emulators/core", "@formisch/vue", "@json-render/core", "@json-render/vue", "@nuxt/kit", "@nuxt/schema", "@nuxt/ui", ...markdownEditorTiptapPeers, ...markdownEditorDragHandlePeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "nuxt", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 const parallelism = availableParallelism()
 const processSlots = createLimit(parallelism)
@@ -616,6 +616,8 @@ async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
   const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
+    "@emulators/ai": agentManifest.peerDependencies!["@emulators/ai"]!,
+    "@emulators/core": agentManifest.peerDependencies!["@emulators/core"]!,
     "@formisch/vue": await installedVersion(join(repoRoot, "packages/forms/node_modules/@formisch/vue/package.json")),
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),

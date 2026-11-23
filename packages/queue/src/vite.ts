@@ -172,7 +172,7 @@ function addVercelQueueConsumers(kit: ReturnType<typeof createNitroServerKit>, d
   kit.config.vercel = { ...vercel, functionRules }
 }
 
-function mergeNitroConfig(config: object, value: unknown, queue: QueueOptions | undefined, root: string, definitions: DiscoveredQueueDefinition[]): Record<string, unknown> {
+async function mergeNitroConfig(config: object, value: unknown, queue: QueueOptions | undefined, root: string, definitions: DiscoveredQueueDefinition[]): Promise<Record<string, unknown>> {
   const providerOutput = useProviderOutputCatalog(config)
   const nitro = cloneNitroConfig(value)
   const nitroHosting = getHostingProvider(resolveHost({ nitro }))
@@ -211,7 +211,7 @@ function mergeNitroConfig(config: object, value: unknown, queue: QueueOptions | 
   const cloudflareQueues = supportsCloudflareQueues(nitro)
   const rollupConfig = cloneNitroConfig(nitro.rollupConfig)
   const resolvedQueue = normalizeQueueOptions(queue, { hosting: queueHosting })
-  const generated = createCloudflareQueueBindings(definitions, resolvedQueue?.driver === "cloudflare" ? resolvedQueue.namePrefix : undefined)
+  const generated = await createCloudflareQueueBindings(definitions, resolvedQueue?.driver === "cloudflare" ? resolvedQueue.namePrefix : undefined)
   const baseNitro = {
     ...nitro,
     ...(cloudflareQueues ? { rollupConfig: { ...rollupConfig, external: mergeNitroExternal(rollupConfig.external, "cloudflare:workers") } } : {}),
@@ -359,7 +359,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
           resolveNuxtDefinitions = () => discoverQueueDefinitions({ contributions: nuxtContributions, rootDir: root, serverDirs, serverRootDirs: [projectRoot, root] })
           const definitions = resolveNuxtDefinitions()
           nuxtConfiguredDefinitions = definitions
-          const configuredNitro = mergeNitroConfig(config, nitro, projectQueue, projectRoot, definitions)
+          const configuredNitro = await mergeNitroConfig(config, nitro, projectQueue, projectRoot, definitions)
           databasePlugin = findDatabasePlugin(viteConfig?.plugins) ?? databasePlugin
           const host = resolveQueueHost(config, configuredNitro)
           postgresDatabase = host === "node" && hasPostgresDefaultDatabase(databasePlugin)
@@ -389,7 +389,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       const outputRoot = configuredRoot ?? resolve(root)
       contributions = await collectPluginQueueContributions(config.plugins, root, configuredRoot)
       const nitro = (config as { nitro?: unknown }).nitro
-      ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(config, nitro, queue, outputRoot, discoverViteQueueDefinitions(root, outputRoot, contributions))
+      ;(config as { nitro?: unknown }).nitro = await mergeNitroConfig(config, nitro, queue, outputRoot, discoverViteQueueDefinitions(root, outputRoot, contributions))
       if (process.env.VITEST) {
         const testConfig: UserConfig & { test: { setupFiles: string[] } } = {
           test: { setupFiles: [resolve(outputRoot, generatedQueueTestSetup)] },
@@ -413,7 +413,7 @@ export function hubQueue(options?: QueueOptions, internalOptions: QueueVitePlugi
       const resolveContributions = contributions
       const resolveDefinitions = resolveNuxtDefinitions ?? (() => discoverViteQueueDefinitions(config.root, outputRoot, resolveContributions))
       configuredDefinitions = resolveDefinitions()
-      const nitro = mergeNitroConfig(config, configuredNitro, queue, outputRoot, configuredDefinitions)
+      const nitro = await mergeNitroConfig(config, configuredNitro, queue, outputRoot, configuredDefinitions)
       ;(config as { nitro?: unknown }).nitro = nitro
       databasePlugin = findDatabasePlugin(config.plugins) ?? databasePlugin
       const host = resolveQueueHost(config, nitro)
