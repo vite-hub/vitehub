@@ -17,15 +17,22 @@ import { sendQueue } from 'vite-hub/queue'
 import { createError, defineEventHandler, readBody } from 'nitro/h3'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email?: string }>(event)
-  if (!body?.email) throw createError({ status: 400, message: 'Email is required.' })
-  const [queueError] = await sendQueue('welcome-email', { email: body.email })
+  const body = await readBody<{ email?: unknown }>(event)
+  const email = typeof body?.email === 'string' ? body.email.trim() : ''
+  if (!email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email })
   if (queueError) throw queueError
-  const [kvError] = await kv.set(`welcome:${body.email}`, 'queued')
-  if (kvError) throw kvError
+  try {
+    const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+    if (kvError) throw kvError
+  } catch (error) {
+    console.error('Could not save the welcome queue status.', error)
+  }
   return { queued: true }
 })
 ```
+
+The response confirms that the queue accepted the job. If saving the status in KV fails, the route logs the error and still confirms the enqueue.
 
 ## Migrate an app
 
@@ -60,12 +67,17 @@ turns them on.
 
 ```ts [server/api/welcome.post.ts] fragment
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email?: string }>(event)
-  if (!body?.email) throw createError({ status: 400, message: 'Email is required.' })
-  const [queueError] = await sendQueue('welcome-email', { email: body.email })
+  const body = await readBody<{ email?: unknown }>(event)
+  const email = typeof body?.email === 'string' ? body.email.trim() : ''
+  if (!email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email })
   if (queueError) throw queueError
-  const [kvError] = await kv.set(`welcome:${body.email}`, 'queued')
-  if (kvError) throw kvError
+  try {
+    const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+    if (kvError) throw kvError
+  } catch (error) {
+    console.error('Could not save the welcome queue status.', error)
+  }
   return { queued: true }
 })
 ```
