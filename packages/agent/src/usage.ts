@@ -743,7 +743,7 @@ function usageSummary(parts: UsageParts, options: AgentUsageQuery, period: Agent
 }
 
 /**
- * Adds up usage rows into the answer of the `usage.get` Console operation. It reads no storage: pass every row of
+ * Adds up usage rows into the answer of the `invocations.usage` Console operation. It reads no storage: pass every row of
  * the window and the period from `agentUsagePeriod()`.
  */
 export function summarizeAgentUsage(rows: Iterable<AgentUsageRow>, options: AgentUsageQuery, period: AgentUsagePeriod): AgentUsageSummary {

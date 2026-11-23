@@ -157,7 +157,7 @@ const runtimeEntries = [
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
   "src/console/runtime/server/setup.ts",
-  "src/console/runtime/server/usage.get.ts",
+  "src/console/runtime/server/invocations.usage.ts",
   "src/console/runtime/server/status.get.ts",
   // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
   // session request.
@@ -657,7 +657,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/site-session"];
-          delete exports["./console/runtime/server/usage.get"];
+          delete exports["./console/runtime/server/invocations.usage"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];

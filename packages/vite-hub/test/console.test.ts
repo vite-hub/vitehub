@@ -35,7 +35,7 @@ import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/invocations.usage.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -3026,7 +3026,7 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("keeps the all-Agent usage cache separate from an Agent named star", async () => {
+  it("keeps all-Agent usage separate from an Agent named star", async () => {
     const store = createMemoryAgentInvocationStore()
     const timestamp = new Date(Date.now() - 1_000).toISOString()
     for (const [agentName, totalTokens] of [["*", 1], ["review", 2]] as const) {

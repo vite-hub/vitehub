@@ -1,49 +1,12 @@
 import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts";
-import { getConsoleInvocations, getConsoleUsageIndex, readConsoleJournalUsage } from "./invocations.ts";
+import { getConsoleInvocations, readConsoleJournalUsage } from "./invocations.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
 import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { consoleHttpError } from "./http-error.ts";
 import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow, usageQueryWindow } from "./usage.ts";
 
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
-import type { AgentInvocations } from "@vite-hub/agent";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
-
-const caches = new WeakMap<
-  AgentInvocations,
-  Map<string, { expiresAt: number; value: Record<string, unknown> }>
->();
-
-const requests = new WeakMap<AgentInvocations, Map<string, symbol>>();
-
-async function cached(
-  invocations: AgentInvocations,
-  key: string,
-  resolve: () => Promise<Record<string, unknown>>,
-): Promise<Record<string, unknown>> {
-  const cache = caches.get(invocations) ?? new Map();
-  caches.set(invocations, cache);
-  const now = Date.now();
-  for (const [cachedKey, entry] of cache) {
-    if (entry.expiresAt <= now) cache.delete(cachedKey);
-  }
-  const current = cache.get(key);
-  if (current && current.expiresAt > now) return current.value;
-  // Cache completed responses only. Worker requests cannot share pending D1 I/O.
-  const active = requests.get(invocations) ?? new Map<string, symbol>();
-  requests.set(invocations, active);
-  const token = Symbol();
-  active.set(key, token);
-  try {
-    const value = await resolve();
-    if (active.get(key) === token) {
-      cache.set(key, { expiresAt: Date.now() + 5_000, value });
-    }
-    return value;
-  } finally {
-    if (active.get(key) === token) active.delete(key);
-  }
-}
 
 function pricedUsageAgents(names: readonly string[]): string[] {
   return names.filter((name) => {
@@ -84,39 +47,17 @@ function usageQuery(event: ConsoleRequestEvent) {
 const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, unknown>> => {
   const { costConfigured, options } = usageQuery(event);
   const invocations = getConsoleInvocations();
-  return cached(
-    invocations,
-    JSON.stringify([options.agentName ?? null, options.window, options.cursor, options.status, options.search]),
-    async () => {
-      const index = getConsoleUsageIndex(invocations);
-      if (index) {
-        await invocations.list({ limit: 1 }); // Initialize the owning invocation store before projecting it.
-        const result = await index.query(options);
-        return { ...result, costSupported: costConfigured || result.costSupported === true };
-      }
-      const result = await createUsageSummary(invocations, options);
-      return { ...result, costSupported: costConfigured || result.costSupported === true };
-    },
-  );
-};
-
-const journalUsageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, unknown>> => {
-  const { costConfigured, options } = usageQuery(event);
-  const invocations = getConsoleInvocations();
   const result =
     (await readConsoleJournalUsage(invocations, options, usageQueryWindow(options))) ??
     (await createUsageSummary(invocations, options));
   return { ...result, costSupported: costConfigured || result.costSupported };
 };
 
-/** The usage summary, for the `usage.get` operation. */
-export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
-
 /**
- * The usage summary that the journal adds up at request time, for the `invocations.usage` operation. It has the same
- * input and answer as `usage.get`, keeps no copy, and caches nothing.
+ * The usage summary that the journal adds up at request time, for the `invocations.usage` operation. It keeps no
+ * copy and caches nothing.
  */
-export const readConsoleJournalUsageRoute: ConsoleAccessRoute<typeof journalUsageHandler> = withConsoleAccess(journalUsageHandler, { section: "usage" });
+export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
 
 /** `GET <base>/_vitehub/console/usage` */
 const consoleUsageRoute: ConsoleRoute = consoleRoute(readConsoleUsage);

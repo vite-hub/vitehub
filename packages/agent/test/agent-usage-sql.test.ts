@@ -174,4 +174,30 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
     expect(withoutTime(await readAgentUsage(client, { cursor: page.cursor!, now }, next.period))).toEqual(withoutTime(next.summary))
     client.close()
   })
+
+  it("matches search wildcards literally and keeps sessions with one title apart, on every page and in the totals", async () => {
+    const { client, store } = await journal()
+    const add = async (id: string, options: { agentName?: string, hours?: number, status?: "completed" | "failed", title?: string } = {}) => {
+      const time = at(options.hours ?? 2)
+      await store.create({ agentName: options.agentName ?? "bot", completedAt: time, createdAt: time, id, observations: [{ ...finish({ cost: { usd: "0.000000000000001" }, usage: { totalTokens: 1 } }), sequence: 1, timestamp: time, type: "lifecycle" }], status: options.status ?? "failed", threadId: "shared-thread", title: options.title ?? "Fix 100%_complete", traceId: id, updatedAt: time })
+    }
+    for (let index = 0; index < 55; index++) await add(`same-${String(index).padStart(2, "0")}`, { hours: 2 + index / 100 })
+    await add("completed", { status: "completed" })
+    await add("other", { agentName: "other" })
+    await add("old", { hours: 30 })
+    await add("wildcard", { title: "Fix 100 complete" })
+    const query = { agentName: "bot", now, search: "100%_", status: "failed", window: "24h" } satisfies AgentUsageQuery
+    const first = await expected(store, query)
+    const page = await readAgentUsage(client, query, first.period)
+    expect(withoutTime(page)).toEqual(withoutTime(first.summary))
+    expect(page).toMatchObject({ sessionCount: 55, totals: { costUsd: "0.000000000000055", invocations: 55 } })
+    expect(new Set(page.sessions.map(session => session.id)).size).toBe(50)
+    const next = await expected(store, { ...query, cursor: page.cursor! })
+    const last = await readAgentUsage(client, { ...query, cursor: page.cursor! }, next.period)
+    expect(withoutTime(last)).toEqual(withoutTime(next.summary))
+    expect(last).toMatchObject({ sessionCount: 55, totals: page.totals })
+    expect(last.sessions.map(session => session.id)).toEqual(["same-50", "same-51", "same-52", "same-53", "same-54"])
+    expect(last.cursor).toBeUndefined()
+    client.close()
+  })
 })
