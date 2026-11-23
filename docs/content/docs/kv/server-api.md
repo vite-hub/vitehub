@@ -195,7 +195,7 @@ finally {
 | --- | --- |
 | `redis`, `upstash` | Atomic. `SET NX` with a TTL, and a script that deletes the key only when it holds the owner token. Upstash rounds `ttl` up to whole seconds. |
 | `database` | Atomic. One `INSERT ... ON CONFLICT` statement, and one `DELETE` that checks the owner token. Expiry uses the clock of the Database. |
-| `deno-kv`, `fs-lite`, `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`, and `fs-lite` never expires keys. App tests use `fs-lite`, so they return this code too. |
+| `deno-kv`, `fs-lite`, `cloudflare` | Returns `KV_UNSUPPORTED_OPERATION`, and does not call your function. These drivers have no `deleteIfEquals()`. App tests use `fs-lite`, so they return this code too. |
 
 The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock()`. For work that runs longer than you can predict, use a lease, which its holder can renew. See [Locks and leases](/docs/guides/run-one-at-a-time).
 
@@ -215,7 +215,7 @@ The type `KVDriversWith<'deleteIfEquals'>` lists the drivers that support `lock(
 | `kv.increment(key, ttl)` | Atomically increments a counter on `redis`, `database`, and Upstash. |
 | `kv.delete(key)` | Deletes one key. |
 | `kv.deleteIfEquals<T>(key, expected)` | Atomically deletes the key when it holds `expected`. Returns `true` when this call deleted it. On `redis`, `database`, and Upstash. |
-| `kv.list({ prefix?, limit?, cursor? })` | Lists the keys that start with `prefix`, as text: `'user'` matches `users:alice`, and `'users:'` matches only the keys below `users`. Without `limit`, it returns every key and no cursor. With `limit`, it reads one page; pass the returned `cursor` to read the next page. |
+| `kv.list({ prefix?, limit?, cursor? })` | Lists the keys that start with `prefix`, as text: `'user'` matches `users:alice`, and `'users:'` matches only the keys below `users`. Without `limit`, it returns every key and no cursor. With `limit`, it reads one page; pass the returned `cursor` to read the next page. On Cloudflare KV, each page holds at most 1,000 keys even when `limit` is larger; continue with `cursor` to read the rest. |
 | `kv.clear({ prefix? })` | Deletes the keys that start with `prefix`, with the same text match as `list()`. `kv.clear({ prefix: 'users:' })` deletes `users:alice` but not `users-old:alice`. Without `prefix`, it deletes every key of the store. The store deletes in batches: one statement on `database`, 1000 keys per command on Redis, one command on Upstash. Cloudflare KV deletes one key per call. |
 | `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 

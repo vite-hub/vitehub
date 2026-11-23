@@ -40,16 +40,19 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 
 | Code | Returned by | Thrown |
 | --- | --- | --- |
+| `KV_INVALID_CLEAR_OPTIONS` | `clear()` | |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
+| `KV_INVALID_OPTION` | `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
+| `KV_INVALID_VALUE` | `deleteIfEquals()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
-| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
-| `KV_VALUE_TOO_LARGE` | `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `getMany()`, `has()`, `set()`, `setMany()` | |
+| `KV_VALUE_TOO_LARGE` | `set()`, `setMany()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `lock()`, `setIfAbsent()` | |
-| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
-| `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
+| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_INVALID_BATCH`, `KV_INVALID_STORE_MODE`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
+| `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_INVALID_REMOTE`, `KV_MISSING_DEFAULT_STORE`, `KV_REMOTE_CONFLICT`, `KV_UNKNOWN_STORE_OPTION` | | When Vite reads the config |
 
 ## Limits
 
@@ -61,6 +64,8 @@ A store with the `cloudflare` driver checks the [Workers KV limits](https://deve
 | Value size, after ViteHub serializes the value | 25 MiB | `KV_VALUE_TOO_LARGE` |
 
 Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl` below 60 seconds to 60, also in the local store of `vite dev`, so a short `ttl` does not fail.
+
+Cloudflare KV returns at most 1,000 keys per `list()` call. When `kv.list({ limit })` passes a `limit` above 1,000, ViteHub caps each Cloudflare binding request at 1,000 keys and returns a `cursor` for the remaining keys.
 
 `fs-lite`, `deno-kv`, and `upstash` do not check these limits. Upstash [limits requests](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans differ. ViteHub does not know your plan, so a larger request fails with `KV_OPERATION_FAILED`.
 
@@ -76,6 +81,10 @@ A `database` store deletes expired rows in the background, at most once a minute
 
 ## Runtime errors
 
+### KV_INVALID_CLEAR_OPTIONS
+
+`kv.clear()` needs no argument or an options object with an optional string `prefix`. It rejects a legacy string argument before deleting any keys. Pass `kv.clear({ prefix: 'drafts:' })` to clear keys under a prefix, or `kv.clear()` to clear the whole store.
+
 ### KV_INVALID_CURSOR
 
 The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is not valid. `fs-lite` and Upstash keep some cursors in process memory, so a restart or `disposeKVStores()` expires them. Cloudflare KV and Deno KV cursors carry the provider cursor, so another isolate or a restarted process can continue the listing. List again without `cursor`.
@@ -84,9 +93,17 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 `kv.list()` needs `limit` as a positive integer.
 
+### KV_INVALID_OPTION
+
+`kv.set()`, `kv.setMany()`, and `kv.setIfAbsent()` accept only `{ ttl }`. Other keys, such as Cloudflare's `expirationTtl`, `expiration`, or `metadata`, return this code.
+
 ### KV_INVALID_TTL
 
-The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
+The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setMany()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
+
+### KV_INVALID_VALUE
+
+`kv.setIfAbsent()` or `kv.deleteIfEquals()` received `undefined` or a value that KV cannot serialize. Pass a JSON-serializable value, or use `kv.delete()` to remove a key.
 
 ### KV_INVALID_WAIT
 
@@ -163,6 +180,10 @@ In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` c
 ### KV_STORE_NOT_FOUND
 
 `kv.store(name)` uses a name that is not in `kv.stores`.
+
+### KV_UNKNOWN_STORE_OPTION
+
+A KV store config includes an option that its driver does not accept, or a config with `stores` also sets store-level options. Remove the option, move it into a store under `stores`, or set `driver` to the driver that reads it.
 
 ## Provider and tool errors
 
