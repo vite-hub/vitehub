@@ -31,10 +31,11 @@ export function agentStateDurability(input: AgentStateDurabilityInput, { env }: 
 
 /**
  * What the build passes to `agentInvocationsDurability()`. `url` follows the same rule as Agent state. `stateUrl` is
- * the `file:` Agent State URL that the default journal goes next to.
+ * the `file:` Agent State URL that the default journal goes next to. `defaultJournal` marks the default journal in a
+ * Database, which `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves at boot.
  */
 export type AgentInvocationsDurabilityInput =
-  | { store: "database", database?: string }
+  | { store: "database", database?: string, defaultJournal?: true }
   | { store: "d1" }
   | { store: "file", stateUrl?: string, url?: string }
   | { store: "memory" }
@@ -47,14 +48,16 @@ export function agentInvocationsDurability(input: AgentInvocationsDurabilityInpu
   if (input.store === "memory") {
     return [{ primitive: "agent-invocations", store: "memory", scope: "process", reason: "The journal lives in the memory of this process.", fix: journalFix }]
   }
-  if (input.store === "database") {
+  const runtimeUrl = context.env[defaultAgentInvocationsUrlEnv]?.trim()
+  if (input.store === "database" && !(input.defaultJournal && runtimeUrl)) {
     const name = input.database ?? "default"
     const database = context.find("database", name)
     if (!database) return [{ primitive: "agent-invocations", store: "database", scope: "process", reason: `The ${name} Database is off.`, fix: journalFix }]
     return [{ primitive: "agent-invocations", store: `database (${database.store})`, scope: database.scope, reason: `Rows in the ${name} Database. ${database.reason}`, ...(database.fix ? { fix: database.fix } : {}) }]
   }
   // The same order as the journal: its env var, its configured URL, the file next to a `file:` State, the default file.
-  const url = context.env[defaultAgentInvocationsUrlEnv]?.trim() || input.url || agentJournalBesideState(input.stateUrl, context.env)?.url || `file:${defaultAgentInvocationsPath}`
+  const file: { stateUrl?: string, url?: string } = input.store === "file" ? input : {}
+  const url = runtimeUrl || file.url || agentJournalBesideState(file.stateUrl, context.env)?.url || `file:${defaultAgentInvocationsPath}`
   const sqlite = classifySqliteUrl(url)
   return [{ primitive: "agent-invocations", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: journalFix }) }]
 }

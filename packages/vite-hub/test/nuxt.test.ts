@@ -1830,6 +1830,20 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
+  it.each([["postgresql", true], ["sqlite", false]] as const)("stores the Node Agent journal in a %s default Database: %s", async (dialect, inDatabase) => {
+    await rm(agentJournalPlugin, { force: true })
+    await mkdir(`${tmp}/vitehub-nuxt/custom-server/databases`, { recursive: true })
+    const driver = dialect === "postgresql" ? 'driver: "node-postgres", ' : ""
+    await writeFile(`${tmp}/vitehub-nuxt/custom-server/databases/default.ts`, `export default defineDatabase({ dialect: "${dialect}", ${driver}schema: {} })\n`)
+    const application = createNuxt(false)
+    await viteHubNuxtModule({ host: "node", agent: true, database: true }, application.nuxt)
+
+    const generated = await generatedAgentJournal(application)
+    if (inDatabase) expect(generated).toContain('database: "default"')
+    else expect(generated).not.toContain('database: "default"')
+    await application.runCloseHook()
+  })
+
   it.each(["", 'cloudflare: { binding: "APP_DB", databaseName: "app" },'])("uses the effective Nuxt D1 Database binding with Definition config %s", async (config) => {
     await mkdir(`${tmp}/vitehub-nuxt/custom-server/databases`, { recursive: true })
     await writeFile(`${tmp}/vitehub-nuxt/custom-server/databases/default.ts`, `export default defineDatabase({ ${config} schema: {} })\n`)

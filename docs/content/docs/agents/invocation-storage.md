@@ -9,7 +9,7 @@ icon: i-lucide-database
 
 An Invocation is one run of an Agent. The Invocation journal logs each run's status, metadata, and chosen trace content, so you can inspect runs in the CLI and the Console. To run or stream an Agent, read [Invocations](/docs/agents/invocations) first.
 
-The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
+The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. On the Node host, a Postgres `default` Database already holds the [default journal](#use-the-default-journal). If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
 
 ## Store invocation history
 
@@ -53,10 +53,13 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 | Host | Default journal |
 | --- | --- |
 | Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
+| Node production build with a Postgres `default` Database | That Database, tables `vitehub_agent_invocations` and `vitehub_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
-The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem or a Postgres `default` Database. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
+
+On the Node host, a production build reads the dialect of the `default` Database Definition. When it is Postgres, the default journal uses the [Postgres store](#store-invocations-in-a-postgres-database) of that Database, and the Database migrations create its tables. Development, a SQLite `default` Database, an explicit `databaseUrl`, and `dataDir` keep the local file. The `agent-invocations` line of the boot Durability report says `shared` only for a Postgres server, and `process` for PGlite. The CLI reads only a journal file, so read this journal through the Console with `--url`.
 
 The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
@@ -121,10 +124,10 @@ export default defineConfig({
 ::
 
 - `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare host, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
-- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
+- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 and Postgres default journals default to 30 days and 10,000 terminal records. They do not support `maxSize` and fail the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
 - `observations` takes the [observation bounds](#bound-observation-storage).
 
-`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl` and D1. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl`, D1, and the Postgres `default` Database. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
 
 ```dotenv [.env]
 VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
@@ -133,7 +136,7 @@ VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 
 On the Cloudflare host, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
 
-The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, for the memory journal of a Worker, and for the default journal in a Postgres Database. Query those tables with `useDatabase()`.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
 
@@ -359,7 +362,7 @@ On a Postgres Database, the adapter uses two tables. It works with each Postgres
 | `vitehub_agent_invocations` | One row for each Invocation: the record and its summary as JSON text, the status, Agent name, and other columns that lists filter on, a revision, and the claim of the run that owns it (`claim_id`, `claim_token`, `claim_expires_at`). |
 | `vitehub_agent_invocations_observations` | The observations that a running Invocation appends, one row each. When the Invocation ends, the store moves them into its record and deletes the rows. Deleting an Invocation deletes its rows. |
 
-The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. Write and apply their migration with the other tables:
+The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. The default journal of a Node build uses the same tables in the `default` Database. Write and apply their migration with the other tables:
 
 ```sh
 pnpm vitehub database generate

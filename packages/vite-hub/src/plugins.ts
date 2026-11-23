@@ -1,4 +1,4 @@
-import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { agentJournalStateUrl, defaultDatabaseD1Binding, defaultJournalDatabase, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache-storage.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { invariant } from "@vite-hub/internal/invariant"
@@ -465,7 +465,8 @@ export interface AgentOptions extends AgentPluginOptions {
   /**
    * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`. The Console reads it.
    * Omit it, or pass `{ databaseUrl, observations, retention }`, for the default journal: local SQLite at
-   * `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database in a Cloudflare production build.
+   * `.vitehub/data/agent-invocations.sqlite`, the D1 binding of the default Database in a Cloudflare production build,
+   * or the Postgres `default` Database in a Node production build.
    * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process. `false` records no journal.
    * Requires Nitro-hosted Agents. Netlify and `runtime: "deno"` require `false` and journals on each Agent Definition.
    */
@@ -1840,6 +1841,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
         default: defaultInvocations,
         host: plan.host,
         resolveD1Binding: (root, serverDirs) => defaultDatabaseD1Binding(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
+        resolveDatabase: (root, serverDirs) => defaultJournalDatabase(plan.host, options.database, { implicitDefault: true, root, serverDirs }),
         stateUrl: agentJournalStateUrl(options),
       }))
     }

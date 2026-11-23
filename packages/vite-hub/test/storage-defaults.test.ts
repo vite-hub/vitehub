@@ -231,6 +231,42 @@ describe("Default Agent journal host defaults", () => {
   })
 })
 
+describe("Default Agent journal on a Node Postgres Database", () => {
+  const postgres = { "server/databases/default.ts": 'export default defineDatabase({ dialect: "postgresql", driver: "node-postgres", schema: {} })\n' }
+  const sqlite = { "server/databases/default.ts": "export default defineDatabase({ schema: {} })\n" }
+  const node = { host: "node", agent: true, database: true } satisfies ViteHubOptions
+
+  it("stores the default journal in the Postgres default Database of a Node build", async () => {
+    const { durability, info, plugin } = await generatedJournalPlugin(node, "build", postgres)
+    expect(plugin).toContain('database: "default"')
+    expect(durability).toMatchObject([{ input: { database: "default", defaultJournal: true, store: "database" }, primitive: "agent-invocations" }])
+    expect(info).toEqual(["[vitehub] Agent Invocation journal: the Postgres default Database. Its migrations create the journal tables."])
+  })
+
+  it.each([
+    ["a SQLite default Database", node, "build", sqlite],
+    ["development", node, "serve", postgres],
+    ["no Database", { host: "node", agent: true }, "build", postgres],
+    ["an explicit databaseUrl", { ...node, agent: { invocations: { databaseUrl: "libsql://journal.example.com" } } }, "build", postgres],
+    ["another host", { ...node, host: "vercel" }, "build", postgres],
+  ] satisfies Array<[string, ViteHubOptions, "build" | "serve", Record<string, string>]>)("keeps the file journal with %s", async (_, options, command, files) => {
+    const { durability, plugin } = await generatedJournalPlugin(options, command, files)
+    expect(plugin).not.toContain('database: "default"')
+    expect(durability).toMatchObject([{ input: { store: "file" } }])
+  })
+
+  it("keeps an explicit memory journal", async () => {
+    const { durability, plugin } = await generatedJournalPlugin({ ...node, agent: { invocations: "memory" } }, "build", postgres)
+    expect(plugin).not.toContain('database: "default"')
+    expect(durability).toMatchObject([{ input: { store: "memory" } }])
+  })
+
+  it("rejects retention.maxSize for the Postgres journal", async () => {
+    await expect(generatedJournalPlugin({ ...node, agent: { invocations: { retention: { maxSize: "1GB" } } } }, "build", postgres))
+      .rejects.toThrow(expect.objectContaining({ code: "VITE_HUB_B0016", message: expect.stringContaining("default Database") }))
+  })
+})
+
 describe("Connections database default", () => {
   // SAFETY: vitehub() returns a flat list of concrete plugins in these tests.
   const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)

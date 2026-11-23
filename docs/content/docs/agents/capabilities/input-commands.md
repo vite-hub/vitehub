@@ -75,7 +75,7 @@ The handler's `context` has:
 
 When you enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work. Without the Console, `context.console` is `undefined`.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
-Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
+Read the journal itself with `getAgentInvocations()` from `vite-hub/agent` and `getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store, on a Worker that keeps the journal in memory, and for a default journal in a Postgres Database.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'

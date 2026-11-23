@@ -28,10 +28,17 @@ const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
 const agentInvocationsPluginName = "vite-hub/agent-invocations"
 
 /**
- * Vite config key with the D1 binding of the default journal that a host framework resolved, such as Nuxt from its
- * rootDir and replayed Database configuration. `binding: undefined` means no D1 binding. It wins over `resolveD1Binding`.
+ * Vite config key with the store of the default journal that a host framework resolved, such as Nuxt from its rootDir
+ * and replayed Database configuration: the D1 binding and the Database. An undefined field means none. It wins over
+ * `resolveD1Binding` and `resolveDatabase`.
  */
-export const VITEHUB_AGENT_JOURNAL_D1 = "__vitehubAgentJournalD1" as const
+export const VITEHUB_AGENT_JOURNAL_STORE = "__vitehubAgentJournalStore" as const
+
+/** The value of `VITEHUB_AGENT_JOURNAL_STORE`. */
+export interface AgentJournalHostStore {
+  d1?: string
+  database?: string
+}
 
 export interface AgentInvocationsRenderOptions {
   /** Load the Database store, so `invocations: "database"` works in Agent Definitions. */
@@ -39,6 +46,8 @@ export interface AgentInvocationsRenderOptions {
   default?: AgentInvocationsDefault
   /** The D1 binding of the default journal in a Cloudflare production build. */
   d1Binding?: string
+  /** The Database of the default journal in a Node production build whose default Database uses Postgres. */
+  journalDatabase?: string
   /**
    * Load the libSQL driver of the default journal. Defaults to true. A Cloudflare production build without
    * `databaseUrl` sets false, because its journal is D1 or memory: see `defaultJournalNeedsLibsql()`.
@@ -58,6 +67,8 @@ export interface AgentInvocationsPluginOptions {
   host?: string
   /** The D1 binding of the default Database Definition on Cloudflare. A production build stores the default journal there. */
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
+  /** The Postgres default Database on Node. A production build stores the default journal there. See `defaultJournalDatabase()`. */
+  resolveDatabase?: (root: string, serverDirs: string[] | undefined) => string | undefined
   /** The `file:` Agent State URL that the default journal goes next to. See `agentJournalStateUrl()`. */
   stateUrl?: string
 }
@@ -66,9 +77,10 @@ const hostsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
 
 /**
  * Validates `agent.invocations.retention` before code generation. Only a local SQLite journal supports maxSize.
- * D1 reports the size of the whole app database, and remote libSQL does not report file size.
+ * D1 reports the size of the whole app database, a ViteHub Database holds other tables, and remote libSQL does not
+ * report file size. `store` is the D1 binding or the Database that keeps the default journal.
  */
-export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy | undefined, d1: boolean, databaseUrl?: string): void {
+export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy | undefined, store: { d1?: string, database?: string }, databaseUrl?: string): void {
   if (retention === undefined) return
   const { maxSize } = requireOptionalOwner(ownerModules.agentVite, "agent").normalizeRetention(retention, {
     label: "agent.invocations.retention",
@@ -76,7 +88,10 @@ export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy 
     size: "any",
     error: message => viteHubErrorDiagnostics.VITE_HUB_B0015({ message: `[vitehub] ${message}` }),
   })
-  if (maxSize !== false && d1) {
+  if (maxSize !== false && store.database) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0016({ message: `[vitehub] agent.invocations.retention.maxSize is not supported by the journal in the ${store.database} Database, because the Database holds other tables. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file.` })
+  }
+  if (maxSize !== false && store.d1) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0016({ message: "[vitehub] agent.invocations.retention.maxSize is not supported by the D1 journal, because D1 reports the size of the whole app database. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file." })
   }
   if (maxSize !== false && databaseUrl && !/^file:/i.test(databaseUrl)) {
@@ -105,6 +120,7 @@ export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRende
     ? [
         `projectRoot: ${JSON.stringify(options.projectRoot)}`,
         ...(options.d1Binding ? [`d1: { binding: ${JSON.stringify(options.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }`] : []),
+        ...(options.journalDatabase ? [`database: ${JSON.stringify(options.journalDatabase)}`] : []),
         ...(options.libsql === false ? [] : [`libsql: () => import(${JSON.stringify(agentInvocationsLibsqlModule)})`]),
         ...(options.stateUrl ? [`stateUrl: ${JSON.stringify(options.stateUrl)}`] : []),
       ]
@@ -139,12 +155,13 @@ export async function writeAgentInvocationsNitroPlugin(options: AgentInvocations
 }
 
 /** The journal store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
-function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, d1Binding: string | undefined, stateUrl: string | undefined): AgentInvocationsDurabilityInput | undefined {
+function journalDurabilityInput(setting: AgentInvocationsDefault | undefined, store: { d1?: string, database?: string }, stateUrl: string | undefined): AgentInvocationsDurabilityInput | undefined {
   if (setting === false) return
   if (setting === "memory" || (typeof setting === "object" && setting.store === "memory")) return { store: "memory" }
   if (setting === "database") return { store: "database" }
   if (typeof setting === "object" && setting.store === "database") return { store: "database", ...(setting.database ? { database: setting.database } : {}) }
-  if (d1Binding) return { store: "d1" }
+  if (store.d1) return { store: "d1" }
+  if (store.database) return { store: "database", database: store.database, defaultJournal: true }
   const databaseUrl = typeof setting === "object" && "databaseUrl" in setting && typeof setting.databaseUrl === "string" ? setting.databaseUrl : undefined
   return { store: "file", ...(databaseUrl ? { url: sqliteUrlInput(databaseUrl) } : stateUrl ? { stateUrl } : {}) }
 }
@@ -170,7 +187,7 @@ export async function agentInvocationsDatabaseContributions(context: DatabaseCon
     dialect: "postgresql",
     definition: { module: "vite-hub/agent/invocations/postgres", export: "agentInvocationsPostgresSchema" },
     tables: { agentInvocations: "vitehub_agent_invocations", agentInvocationObservations: "vitehub_agent_invocations_observations" },
-    reason: "Stores the Agent Invocations of `invocations: 'database'`. The journal does not create its tables on Postgres.",
+    reason: "Stores the Agent Invocations of `invocations: 'database'`, and of the default journal in a Node build. The journal does not create its tables on Postgres.",
   }]
 }
 
@@ -180,6 +197,7 @@ export async function agentInvocationsDatabaseContributions(context: DatabaseCon
  */
 export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOptions): Plugin & { vitehub: DurabilityPluginMetadata & { databases: (context: DatabaseContributionContext) => Promise<DatabaseContributionEntry[]> } } {
   let d1Binding: string | undefined
+  let journalDatabase: string | undefined
   let libsql = true
   let localFileWarning: string | undefined
   return {
@@ -187,13 +205,13 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
     vitehub: {
       databases: async context => options.database ? await agentInvocationsDatabaseContributions(context, options.default) : [],
       durability: () => {
-        const input = journalDurabilityInput(options.default, d1Binding, options.stateUrl)
+        const input = journalDurabilityInput(options.default, { d1: d1Binding, database: journalDatabase }, options.stateUrl)
         return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
       },
     },
     async config(config, environment) {
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
-      const viteConfig = config as typeof config & { [VITEHUB_AGENT_JOURNAL_D1]?: { binding?: string }, [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }
+      const viteConfig = config as typeof config & { [VITEHUB_AGENT_JOURNAL_STORE]?: AgentJournalHostStore, [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }
       const root = config.root || process.cwd()
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
@@ -201,11 +219,12 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       const setting = options.default
       if (isDefaultAgentJournal(setting)) {
         // Development and an explicit `databaseUrl` keep libSQL.
-        const hostD1 = viteConfig[VITEHUB_AGENT_JOURNAL_D1]
-        d1Binding = environment?.command === "build" && !setting?.databaseUrl
-          ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
-          : undefined
-        assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
+        const hostStore = viteConfig[VITEHUB_AGENT_JOURNAL_STORE]
+        const build = environment?.command === "build" && !setting?.databaseUrl
+        const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
+        d1Binding = build ? hostStore ? hostStore.d1 : options.resolveD1Binding?.(root, serverDirs) : undefined
+        journalDatabase = build && options.database ? hostStore ? hostStore.database : options.resolveDatabase?.(root, serverDirs) : undefined
+        assertAgentInvocationsRetention(setting?.retention, { d1: d1Binding, database: journalDatabase }, setting?.databaseUrl)
         libsql = defaultJournalNeedsLibsql({ build: environment?.command === "build", databaseUrl: setting?.databaseUrl, host: options.host })
         if (isProductionBuild(config, environment)) assertAgentInvocationsUrl(options.host, setting?.databaseUrl)
         localFileWarning = environment?.command === "build" && !setting?.databaseUrl && hostsWithoutPersistentFiles.has(options.host ?? "")
@@ -214,10 +233,11 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       }
       else {
         d1Binding = undefined
+        journalDatabase = undefined
         libsql = true
         localFileWarning = undefined
       }
-      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot, stateUrl: options.stateUrl })
+      const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, journalDatabase, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
       // The Console plugin reads the app-wide journal while it loads, so this plugin loads first.
       kit.addPlugin(plugin, "start")
@@ -226,6 +246,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
     configResolved(config) {
       if (localFileWarning) config.logger.warn(localFileWarning)
       if (d1Binding) config.logger.info(`[vitehub] Agent Invocation journal: D1 binding ${d1Binding}, table vitehub_agent_invocations. The journal creates the table on first use.`)
+      if (journalDatabase) config.logger.info(`[vitehub] Agent Invocation journal: the Postgres ${journalDatabase} Database. Its migrations create the journal tables.`)
     },
   }
 }
