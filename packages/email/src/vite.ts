@@ -443,7 +443,7 @@ export async function renderEmailTemplateTypes(templates: Array<{ file: string, 
       const { content, subject } = parseEmailMarkdown(template.source, template.file)
       const data = await inferMarkdownTemplateDataType(content, { indent: "      ", text: subject })
       await assertNoBindingsInCode(content)
-      return { ...template, data, subject: subject !== undefined }
+      return { ...template, data, subject: subject !== undefined, vue: false }
     }
     catch (cause) {
       if (isRecord(cause) && cause.code === "EMAIL_TEMPLATE_FRONTMATTER_INVALID") throw cause

@@ -232,7 +232,8 @@ it("shares hosted Vite aliases and Vue compiler settings with CLI preview", asyn
   const data = { name: "Ada", team: "Docs" }
   const rendered = await render(data)
   expect(rendered).toMatchObject({ subject: "Join Docs", html: expect.stringContaining("<h1>Hi Ada</h1>") })
-  const cli = await plugin.vitehub.cli?.()
+  const contributor = plugin.vitehub.cli
+  const cli = typeof contributor === "function" ? await contributor() : contributor
   const preview = cli?.namespaces[0]?.features.find(feature => feature.name === "preview")
   const write = vi.fn()
   const context = { cwd: root, rootDir: root, env: {}, spawn: vi.fn(), stderr: { write: vi.fn() }, stdout: { write } }
