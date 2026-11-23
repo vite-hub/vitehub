@@ -20,7 +20,7 @@ import type {
   AgentInvocationStoreCreateInput,
   AgentInvocationStoreUpdateInput,
 } from "../invocations.ts"
-import type { Client, Config, InStatement, Row } from "@libsql/client"
+import type { Client, Config, InStatement, ResultSet, Row } from "@libsql/client"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
 import type { RetentionSizeLimit } from "../internal/retention-policy.ts"
 import type { ObservationRow } from "./observation-rows.ts"
@@ -161,6 +161,170 @@ function triggeredByProjection() {
   const source = "CASE WHEN json_valid(summary) THEN summary ELSE record END"
   return `CASE WHEN json_type(${source}, '$.annotations.triggeredBy') = 'text'
     THEN json_extract(${source}, '$.annotations.triggeredBy') END`
+}
+
+function journalSchema(table: string) {
+  const claimsTable = `${table}_claims`
+  const observationTable = `${table}_observations`
+  const column = (name: string, sql: string, after: string[] = []) => ({ name, statements: [`ALTER TABLE ${sql}`, ...after] })
+  return {
+    tables: [
+      `CREATE TABLE IF NOT EXISTS ${table} (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL,
+        agent_name TEXT NOT NULL DEFAULT '',
+        search TEXT,
+        search_version INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
+        capability_ids TEXT,
+        updated_at TEXT NOT NULL DEFAULT '',
+        record TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS ${claimsTable} (
+        id TEXT PRIMARY KEY,
+        claim_id TEXT NOT NULL,
+        claimed_at INTEGER NOT NULL DEFAULT 0,
+        claim_token TEXT NOT NULL DEFAULT '',
+        expires_at INTEGER NOT NULL
+      )`,
+      // Observations appended to a running Invocation. They follow the observations in its record column
+      // in position order. The terminal update moves them back into the record column.
+      // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
+      `CREATE TABLE IF NOT EXISTS ${observationTable} (
+        position INTEGER PRIMARY KEY AUTOINCREMENT,
+        invocation_sequence INTEGER NOT NULL,
+        observation TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS ${table}_schema (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)`,
+    ],
+    columns: [
+      column("search", `${table} ADD COLUMN search TEXT`),
+      column("agent_name", `${table} ADD COLUMN agent_name TEXT`),
+      column("search_version", `${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`),
+      column("summary", `${table} ADD COLUMN summary TEXT`),
+      column("capability_ids", `${table} ADD COLUMN capability_ids TEXT`),
+      column("updated_at", `${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`),
+    ],
+    claimColumns: [
+      column("claimed_at", `${claimsTable} ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`, [
+        `UPDATE ${claimsTable} SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`,
+      ]),
+      column("claim_token", `${claimsTable} ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`),
+    ],
+    beforeBackfill: [
+      // Updates clear capability_ids in the same statement. The trigger clears it only for
+      // writers that change record alone, so it does not rewrite the row a second time.
+      `CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.capability_ids IS NOT NULL
+        BEGIN
+          UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_capability_ids_update`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
+        BEGIN
+          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.updated_at IS OLD.updated_at
+        BEGIN
+          UPDATE ${table} SET
+            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
+            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
+          WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`,
+      // Version 0 is already stale, so marking it stale again would only rewrite the row.
+      `CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
+        AFTER UPDATE OF search, record ON ${table}
+        WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
+        BEGIN
+          UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
+        END`,
+      `DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
+        AFTER INSERT ON ${table}
+        WHEN NEW.summary IS NULL
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
+        AFTER UPDATE OF record ON ${table}
+        WHEN NEW.summary IS OLD.summary
+        BEGIN
+          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
+            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
+        END`,
+      `CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
+        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`,
+      `CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
+        AFTER UPDATE OF expires_at ON ${claimsTable}
+        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
+        BEGIN
+          UPDATE ${claimsTable}
+          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
+          WHERE id = NEW.id;
+        END`,
+    ],
+    afterBackfill: [
+      `CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
+        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
+        WHERE agent_name IS NULL OR agent_name = ''`,
+      // Tables from older versions store summary and capability_ids after the large record column.
+      // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
+      `CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
+        ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`,
+      `CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
+        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`,
+      `CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
+        ON ${table} (${triggeredByProjection()}, agent_name)`,
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
+        ON ${observationTable} (invocation_sequence, position)`,
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`,
+      // A reader that follows a running Invocation reads only the rows after its last sequence.
+      `CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_sequence
+        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.sequence'))`,
+      // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
+      `CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
+        AFTER DELETE ON ${table}
+        BEGIN
+          DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
+        END`,
+    ],
+    droppedTriggers: [`${table}_capability_ids_update`, `${table}_legacy_updated_at_update`, `${table}_stale_legacy_search_update`],
+  }
+}
+
+async function hasCurrentJournalSchema(client: Client, table: string): Promise<boolean> {
+  const schema = journalSchema(table)
+  const [objects, columns, claimColumns] = await client.batch([
+    `SELECT type, lower(name) AS name FROM sqlite_master
+      WHERE tbl_name COLLATE NOCASE IN ('${table}', '${table}_claims', '${table}_observations')`,
+    `PRAGMA table_info(${table})`,
+    `PRAGMA table_info(${table}_claims)`,
+  ], "read")
+  const names = new Set(objects!.rows.map(row => `${row.type}:${row.name}`))
+  return [...schema.tables, ...schema.beforeBackfill, ...schema.afterBackfill].every((sql) => {
+    const object = /^CREATE (TABLE|INDEX|TRIGGER) IF NOT EXISTS (\w+)/.exec(sql)
+    return !object || object[2] === `${table}_schema` || names.has(`${object[1]}:${object[2]}`.toLowerCase())
+  })
+    && schema.droppedTriggers.every(name => !names.has(`trigger:${name.toLowerCase()}`))
+    && schema.columns.every(column => columns!.rows.some(row => row.name === column.name))
+    && schema.claimColumns.every(column => claimColumns!.rows.some(row => row.name === column.name))
+}
+
+async function schemaFingerprint(schema: ReturnType<typeof journalSchema>): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(schema)))
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 function serializedSummary(record: Omit<AgentInvocationRecord, "cursor">): string {
@@ -536,242 +700,73 @@ function createSqliteJournalStore(options: LibsqlAgentInvocationStoreOptions, ba
           throw retentionError("SQLite Agent Invocation maxSize needs a database file. In-memory databases do not support it.")
         }
       }
-      const executeSchema = async (sql: string) => {
-        if (synchronousNormal) {
-          // executeMultiple keeps the connection-local pragma and DDL on one borrowed connection, outside a transaction.
-          await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${walSizeLimit};\n${sql}`)
-        }
-        else {
-          await client.execute(sql)
-        }
-      }
-      await executeSchema(`CREATE TABLE IF NOT EXISTS ${table} (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT NOT NULL UNIQUE,
-        status TEXT NOT NULL,
-        agent_name TEXT NOT NULL DEFAULT '',
-        search TEXT,
-        search_version INTEGER NOT NULL DEFAULT 0,
-        summary TEXT,
-        capability_ids TEXT,
-        updated_at TEXT NOT NULL DEFAULT '',
-        record TEXT NOT NULL
-      )`)
-      const columns = await client.execute(`PRAGMA table_info(${table})`)
-      if (!columns.rows.some(row => row.name === "search")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN search TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "search")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "agent_name")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN agent_name TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "agent_name")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "search_version")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN search_version INTEGER NOT NULL DEFAULT 0`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "search_version")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "summary")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN summary TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "summary")) throw error
-        }
-      }
-      if (!columns.rows.some(row => row.name === "capability_ids")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN capability_ids TEXT`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "capability_ids")) throw error
-        }
-      }
-      // Updates clear capability_ids in the same statement. The trigger clears it only for
-      // writers that change record alone, so it does not rewrite the row a second time.
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_capability_ids_update_v2
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.capability_ids IS NOT NULL
-        BEGIN
-          UPDATE ${table} SET capability_ids = NULL WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_capability_ids_update`)
-      if (!columns.rows.some(row => row.name === "updated_at")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table})`)
-          if (!currentColumns.rows.some(row => row.name === "updated_at")) throw error
-        }
-      }
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_updated_at_insert
-        AFTER INSERT ON ${table}
-        WHEN NEW.updated_at = '' OR NEW.updated_at IS NULL
-        BEGIN
-          UPDATE ${table} SET updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '') WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_lifecycle_update_v2
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.updated_at IS OLD.updated_at
-        BEGIN
-          UPDATE ${table} SET
-            status = COALESCE(json_extract(NEW.record, '$.status'), NEW.status),
-            updated_at = COALESCE(json_extract(NEW.record, '$.updatedAt'), '')
-          WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_legacy_updated_at_update`)
-      // Version 0 is already stale, so marking it stale again would only rewrite the row.
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_stale_legacy_search_update_v2
-        AFTER UPDATE OF search, record ON ${table}
-        WHEN NEW.search_version = OLD.search_version AND NEW.search_version <> 0
-        BEGIN
-          UPDATE ${table} SET search_version = 0 WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`DROP TRIGGER IF EXISTS ${table}_stale_legacy_search_update`)
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_insert
-        AFTER INSERT ON ${table}
-        WHEN NEW.summary IS NULL
-        BEGIN
-          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
-            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_legacy_summary_update
-        AFTER UPDATE OF record ON ${table}
-        WHEN NEW.summary IS OLD.summary
-        BEGIN
-          UPDATE ${table} SET summary = CASE WHEN json_valid(NEW.record)
-            THEN json_remove(NEW.record, '$.observations') END WHERE sequence = NEW.sequence;
-        END`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_missing_updated_at_sequence
-        ON ${table} (sequence) WHERE updated_at = '' OR updated_at IS NULL`)
-      let backfillSequence = 0
+      const schema = journalSchema(table)
+      const fingerprint = await schemaFingerprint(schema)
+      const storedFingerprint = await client.execute(`SELECT fingerprint FROM ${table}_schema WHERE id = 1
+        AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name IN (${schema.droppedTriggers.map(name => `'${name}'`).join(", ")}))`)
+        .then(result => result.rows[0]?.fingerprint, () => undefined)
+      if (storedFingerprint === fingerprint) return
+      const runSchema = async (statements: string[], reads: InStatement[]): Promise<ResultSet[]> => await retrySqliteBusy(async () => {
+        if (!synchronousNormal) return (await client.batch([...statements, ...reads], "write")).slice(statements.length)
+        // executeMultiple keeps the connection-local pragma and the transaction on one borrowed connection.
+        await client.executeMultiple(`PRAGMA synchronous = NORMAL;\n${walSizeLimit};\nBEGIN IMMEDIATE;\n${statements.map(sql => `${sql};\n`).join("")}COMMIT;`)
+        return reads.length ? await client.batch(reads, "read") : []
+      })
+      const inspection = [`PRAGMA table_info(${table})`, `PRAGMA table_info(${table}_claims)`]
+      const missingColumns = ([columns, claimColumns]: ResultSet[]) => [
+        ...schema.columns.filter(column => !columns!.rows.some(row => row.name === column.name)),
+        ...schema.claimColumns.filter(column => !claimColumns!.rows.some(row => row.name === column.name)),
+      ].flatMap(column => column.statements)
+      const agentNamePage = (after: number): InStatement => ({
+        args: [after, backfillPageSize],
+        sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      const updatedAtPage = (after: number): InStatement => ({
+        args: [after, backfillPageSize],
+        sql: `SELECT sequence FROM ${table}
+          WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
+      })
+      let migrations = missingColumns(await runSchema(schema.tables, inspection))
+      let backfills: ResultSet[]
       while (true) {
-        const missingAgentNames = await client.execute({
-          args: [backfillSequence, backfillPageSize],
-          sql: `SELECT sequence, record FROM ${table} WHERE agent_name IS NULL AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingAgentNames.rows.length) break
-        const agentNameBackfill = missingAgentNames.rows.map((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          const record = deserialize(row.record, row.sequence)
-          return {
-            args: [record ? agentNameRecord(storedRecord(record)) : "", numberValue(row.sequence)],
-            sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
-          }
-        })
-        await batchWrite(agentNameBackfill)
-      }
-      backfillSequence = 0
-      while (true) {
-        const missingUpdatedAt = await client.execute({
-          args: [backfillSequence, backfillPageSize],
-          sql: `SELECT sequence FROM ${table}
-            WHERE (updated_at = '' OR updated_at IS NULL) AND sequence > ? ORDER BY sequence LIMIT ?`,
-        })
-        if (!missingUpdatedAt.rows.length) break
-        const updatedAtBackfill = missingUpdatedAt.rows.map((row) => {
-          backfillSequence = Math.max(backfillSequence, numberValue(row.sequence))
-          return {
-            args: [numberValue(row.sequence)],
-            sql: `UPDATE ${table} SET
-              status = COALESCE(json_extract(record, '$.status'), status),
-              updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
-              WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
-          }
-        })
-        await batchWrite(updatedAtBackfill)
-      }
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_sequence ON ${table} (status, sequence DESC)`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_status_updated_at ON ${table} (status, updated_at)`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_sequence ON ${table} (agent_name, sequence DESC)`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_legacy_agent_name_sequence
-        ON ${table} (json_extract(record, '$.agentName'), sequence DESC)
-        WHERE agent_name IS NULL OR agent_name = ''`)
-      // Tables from older versions store summary and capability_ids after the large record column.
-      // Reading those values from the row walks every overflow page of record, so filter lists read them from these indexes.
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_agent_name_capability_ids
-        ON ${table} (agent_name, capability_ids) WHERE capability_ids IS NOT NULL`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_sequence_capability_ids
-        ON ${table} (sequence DESC, capability_ids, status, agent_name, updated_at)`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${table}_triggered_by_agent_name
-        ON ${table} (${triggeredByProjection()}, agent_name)`)
-      await executeSchema(`CREATE TABLE IF NOT EXISTS ${table}_claims (
-        id TEXT PRIMARY KEY,
-        claim_id TEXT NOT NULL,
-        claimed_at INTEGER NOT NULL DEFAULT 0,
-        claim_token TEXT NOT NULL DEFAULT '',
-        expires_at INTEGER NOT NULL
-      )`)
-      const claimColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-      if (!claimColumns.rows.some(row => row.name === "claimed_at")) {
         try {
-          await executeSchema(`ALTER TABLE ${table}_claims ADD COLUMN claimed_at INTEGER NOT NULL DEFAULT 0`)
+          backfills = await runSchema([...migrations, ...schema.beforeBackfill], [agentNamePage(0), updatedAtPage(0)])
+          break
         }
         catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-          if (!currentColumns.rows.some(row => row.name === "claimed_at")) throw error
-        }
-        await executeWrite(`UPDATE ${table}_claims
-          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE claimed_at = 0`)
-      }
-      if (!claimColumns.rows.some(row => row.name === "claim_token")) {
-        try {
-          await executeSchema(`ALTER TABLE ${table}_claims ADD COLUMN claim_token TEXT NOT NULL DEFAULT ''`)
-        }
-        catch (error) {
-          const currentColumns = await client.execute(`PRAGMA table_info(${table}_claims)`)
-          if (!currentColumns.rows.some(row => row.name === "claim_token")) throw error
+          const remaining = missingColumns(await client.batch(inspection, "read"))
+          if (remaining.length >= migrations.length) throw error
+          migrations = remaining
         }
       }
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${table}_refresh_legacy_claim
-        AFTER UPDATE OF expires_at ON ${table}_claims
-        WHEN NEW.claimed_at = OLD.claimed_at AND NEW.claim_token = OLD.claim_token
-        BEGIN
-          UPDATE ${table}_claims
-          SET claimed_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), claim_token = lower(hex(randomblob(16)))
-          WHERE id = NEW.id;
-        END`)
-      // Observations appended to a running Invocation. They follow the observations in its record column
-      // in position order. The terminal update moves them back into the record column.
-      // AUTOINCREMENT keeps positions unique over time, so a position identifies one row version.
-      await executeSchema(`CREATE TABLE IF NOT EXISTS ${observationTable} (
-        position INTEGER PRIMARY KEY AUTOINCREMENT,
-        invocation_sequence INTEGER NOT NULL,
-        observation TEXT NOT NULL
-      )`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation
-        ON ${observationTable} (invocation_sequence, position)`)
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_name
-        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.name'), position)`)
-      // A reader that follows a running Invocation reads only the rows after its last sequence.
-      await executeSchema(`CREATE INDEX IF NOT EXISTS ${observationTable}_invocation_sequence
-        ON ${observationTable} (invocation_sequence, json_extract(observation, '$.sequence'))`)
-      // Deletes from any writer, including retention and older versions, remove the rows of the deleted Invocation.
-      await executeSchema(`CREATE TRIGGER IF NOT EXISTS ${observationTable}_delete
-        AFTER DELETE ON ${table}
-        BEGIN
-          DELETE FROM ${observationTable} WHERE invocation_sequence = OLD.sequence;
-        END`)
+      const backfill = async (rows: Row[], page: (after: number) => InStatement, update: (row: Row) => InStatement) => {
+        while (rows.length) {
+          await batchWrite(rows.map(update))
+          rows = (await client.execute(page(numberValue(rows.at(-1)!.sequence)))).rows
+        }
+      }
+      await backfill(backfills[0]!.rows, agentNamePage, (row) => {
+        const record = deserialize(row.record, row.sequence)
+        return {
+          args: [record ? agentNameRecord(storedRecord(record)) : "", numberValue(row.sequence)],
+          sql: `UPDATE ${table} SET agent_name = ? WHERE sequence = ? AND agent_name IS NULL`,
+        }
+      })
+      await backfill(backfills[1]!.rows, updatedAtPage, row => ({
+        args: [numberValue(row.sequence)],
+        sql: `UPDATE ${table} SET
+          status = COALESCE(json_extract(record, '$.status'), status),
+          updated_at = COALESCE(json_extract(record, '$.updatedAt'), '')
+          WHERE sequence = ? AND (updated_at = '' OR updated_at IS NULL)`,
+      }))
+      await runSchema([
+        ...schema.afterBackfill,
+        `INSERT INTO ${table}_schema (id, fingerprint) VALUES (1, '${fingerprint}') ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint`,
+      ], [])
       startSearchBackfill()
       startSummaryBackfill()
-    })().catch((error) => {
+    })().catch(async (error: unknown) => {
+      if (hasSqliteCode(error, "SQLITE_READONLY") && await hasCurrentJournalSchema(client, table).catch(() => false)) return
       initialized = undefined
       throw error
     })
