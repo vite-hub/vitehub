@@ -390,7 +390,7 @@ it("generates the Site storage loader when Database inspection is hidden", async
     const plugin = await readFile(file, "utf8")
     expect(plugin).toContain('installConsoleSiteDatabase({ name: "default", load: async () => (await import("@vite-hub/database/runtime/registry")).databases })')
     expect(plugin).not.toContain("installConsoleDatabase")
-    expect(plugin).toContain(' ["kv","site"])')
+    expect(plugin).toContain(' ["kv","site"], undefined, ["databases"])')
   }
   finally {
     await rm(root, { recursive: true, force: true })
@@ -516,6 +516,15 @@ describe("Site access without Auth picks its store as useDatabase() does", () =>
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
     expect(await tools(cookie)).toEqual(["console", "comments"])
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("keeps links in the default KV store on Redis when console.sections hides the KV section", async () => {
+    installConsoleSections("console-site-cookie", ["site"], undefined, ["kv"])
+    const load = vi.fn(async () => ({ default: { db: { $client: { query: vi.fn() } } } }))
+    installConsoleSiteDatabase({ name: "default", load })
+    await link("site.link")
+    expect(kv.entries.size).toBe(1)
     expect(load).not.toHaveBeenCalled()
   })
 

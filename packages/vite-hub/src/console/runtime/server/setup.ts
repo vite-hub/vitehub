@@ -19,8 +19,9 @@ export function installConsoleSiteDatabase(database: { name: string, configured?
     : { choices: [...database.choices] }
 }
 
-export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], navigationSections?: readonly ConsoleSectionId[]): readonly ConsoleSectionId[] {
+export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], navigationSections?: readonly ConsoleSectionId[], hiddenSections?: readonly ConsoleSectionId[]): readonly ConsoleSectionId[] {
   const state = consoleState()
+  state.hiddenSections = hiddenSections?.length ? [...new Set(hiddenSections)] : undefined
   state.navigationSections = navigationSections ? [...new Set(navigationSections)] : undefined
   return state.sections = [...new Set(sections)]
 }

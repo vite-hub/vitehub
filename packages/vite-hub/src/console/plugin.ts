@@ -190,8 +190,9 @@ function renderConsoleNitroPlugin(
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
   // The page tools pill comes with Site access: the Console signs members and guests in to the app.
-  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
-    .filter(section => !access?.hiddenSections?.includes(section))
+  const appSections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
+  const sections = appSections.filter(section => !access?.hiddenSections?.includes(section))
+  const hiddenSections = appSections.filter(section => !sections.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))
@@ -260,7 +261,7 @@ function renderConsoleNitroPlugin(
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
-    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
+    `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections || hiddenSections.length ? `, ${JSON.stringify(navigationSections)}` : ""}${hiddenSections.length ? `, ${JSON.stringify(hiddenSections)}` : ""})`,
     ...(siteDatabase ? [`installConsoleSiteDatabase(${renderConsoleSiteDatabase(siteDatabase)})`] : []),
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
