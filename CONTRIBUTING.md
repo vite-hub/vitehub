@@ -101,7 +101,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
-A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:8` service containers, so a new file needs no CI change.
 
 Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 

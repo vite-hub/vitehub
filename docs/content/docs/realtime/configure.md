@@ -17,7 +17,7 @@ in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
 | --- | --- |
 | `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare host or hosting environment, such as `host: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
-| `redis` | Node only. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
+| `redis` | Node only, Redis 6 or later. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
 | `postgres` | Node only. Each instance holds its rooms in memory and shares them through Postgres `LISTEN`/`NOTIFY`. Uses the connection of the Default Database, which must be on Postgres. `REALTIME_POSTGRES_URL` overrides it. |
 | `memory` | Keeps rooms in one process, for local development or one Node server. Room state is lost when the process stops. |
 
