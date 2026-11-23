@@ -12,10 +12,17 @@ function failed(text: string): DocsToolResult {
   return { content: [{ text, type: "text" }], isError: true }
 }
 
-function message(body: string, type: string | null): unknown {
-  if (!type?.includes("text/event-stream")) return JSON.parse(body)
-  const data = body.split(/\r?\n/).filter(line => line.startsWith("data:")).map(line => line.slice(5).trim()).join("\n")
-  return JSON.parse(data)
+const requestId = 1
+
+function messages(body: string, type: string | null): unknown[] {
+  if (!type?.includes("text/event-stream")) return [JSON.parse(body)]
+  return body.split(/\r\n\r\n|\n\n|\r\r/).flatMap((event) => {
+    const data = event.split(/\r\n|\n|\r/)
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(line.startsWith("data: ") ? 6 : 5))
+      .join("\n")
+    return data.trim() ? [JSON.parse(data)] : []
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -27,7 +34,7 @@ export async function callDocsTool(name: string, args: Record<string, unknown>, 
   let response: Response
   try {
     response = await send(docsMcpUrl, {
-      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: args, name } }),
+      body: JSON.stringify({ id: requestId, jsonrpc: "2.0", method: "tools/call", params: { arguments: args, name } }),
       headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", "mcp-protocol-version": "2025-06-18" },
       method: "POST",
       redirect: "manual",
@@ -38,14 +45,16 @@ export async function callDocsTool(name: string, args: Record<string, unknown>, 
     return failed(`The docs server at ${docsMcpUrl} did not answer. Try again, or read https://vitehub.dev/llms.txt.`)
   }
   if (!response.ok) return failed(`The docs server answered ${response.status}. Try again, or read https://vitehub.dev/llms.txt.`)
-  let answer: unknown
+  let received: unknown[]
   try {
-    answer = message(await response.text(), response.headers.get("content-type"))
+    received = messages(await response.text(), response.headers.get("content-type"))
   }
   catch {
     return failed("The docs server sent an answer that is not JSON-RPC.")
   }
-  if (!isRecord(answer)) return failed("The docs server sent an answer that is not JSON-RPC.")
+  if (!received.every(isRecord)) return failed("The docs server sent an answer that is not JSON-RPC.")
+  const answer = received.find(item => item.id === requestId && ("result" in item || "error" in item))
+  if (!answer) return failed("The docs server did not answer the request.")
   if (isRecord(answer.error)) return failed(typeof answer.error.message === "string" ? answer.error.message : `${name} failed on the docs server.`)
   const result = answer.result
   if (!isRecord(result) || !Array.isArray(result.content)) return failed("The docs server sent a tool result without content.")
