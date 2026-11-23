@@ -195,7 +195,7 @@ import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/channels'
 
 defineChannelTrigger({
   input: ticketOpened,
-  async invoke(context, event) {
+  async invoke(context, { payload: event }) {
     if (!event.ticketId) return rejected('missing_ticket')
     if (!await ticketing.isReady()) return retryLater('ticketing_unavailable')
     return { input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` } }
@@ -209,8 +209,8 @@ defineChannelTrigger({
 
 ```ts fragment
 defineChannelTrigger({
-  input: ticketOpened,
-  invoke: (context, event) => ({
+  input: ticketChanged,
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },
   }),
@@ -226,7 +226,7 @@ defineChannelTrigger({
 ```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { serialize: event.ticketId },
   }),
@@ -242,7 +242,7 @@ Some providers send several notifications for one change. `webhook.debounce: { k
 ```ts fragment
 defineChannelTrigger({
   input: recordChanged,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Check record ${event.recordId} for duplicates.` },
     webhook: {
       concurrencyLimit: 1,
@@ -262,7 +262,7 @@ An accepted delivery gets a JSON receipt such as `{ "accepted": true, "ok": true
 ```ts fragment
 defineChannelTrigger({
   input: recordChanged,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Check record ${event.recordId} for duplicates.` },
     webhook: { concurrencyLimit: 1, deliveryId: event.changeId, response: new Response(null, { status: 200 }) },
   }),
@@ -294,7 +294,7 @@ defineChannelTrigger({
       run: (context, { input }) => mirrorToChat(input.data),
     },
   },
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     task: event.fromAgent ? 'mirror' : 'triage',
     input: { data: { ticketId: event.ticketId }, prompt: `Triage ticket ${event.ticketId}.` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },
@@ -362,7 +362,7 @@ When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the A
 ```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     input: { prompt: `Triage ticket ${event.ticketId}: ${event.summary}` },
     webhook: { concurrencyLimit: 1, deliveryId: event.ticketId },
   }),
@@ -385,7 +385,7 @@ defineChannelTrigger({
       failed: event => commentOnTicket(event.run?.runId, 'Triage failed. Edit the ticket to retry.'),
     },
   },
-  invoke: (context, event) => ({
+  invoke: (context, { payload: event }) => ({
     task: 'triage',
     input: { prompt: `Triage ticket ${event.ticketId}.` },
     webhook: { deliveryId: event.changeId, serialize: event.ticketId },

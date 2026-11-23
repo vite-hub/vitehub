@@ -302,7 +302,7 @@ export default defineChannel({
     webhook: defineChannelTrigger({
       input: ticketEvent,
       tasks: { triage: { agent: () => import('../../agents/triage') } },
-      invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
+      invoke: (context, { payload: event }) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
     }),
   },
 })
