@@ -464,6 +464,9 @@ test('a fold stops holding the parent once the folded child closes', async () =>
     await inbox.seed('vite-hub/vitehub', { ...pr(2, 'first', 'parent', 'closed'), updated_at: '2026-09-14T00:00:00Z' })
     assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), undefined)
     assert.equal(await inbox.beginDirectMerge(claim(3), 'second-sha', true, 1), true)
+    await inbox.seed('vite-hub/vitehub', { ...pr(2, 'first', 'parent'), updated_at: '2026-09-15T00:00:00Z' })
+    assert.equal(await inbox.directMergeAttempt('vite-hub/vitehub', 2), undefined)
+    assert.equal(await inbox.foldingChild('vite-hub/vitehub', 1), 3)
   } finally { await inbox.close() }
 })
 

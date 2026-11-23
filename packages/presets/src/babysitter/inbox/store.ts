@@ -477,6 +477,7 @@ export class PullRequestInbox {
       s.pr?.state === undefined ? null : String(s.pr.state).toLowerCase(), head ?? null, s.pr?.head?.ref ?? null, s.pr?.base?.ref ?? null,
       s.wait?.headSha ?? null, leaseHeads ? JSON.stringify(leaseHeads) : null,
     ])
+    if (s.pr?.state === 'closed') await this.retireFoldIn(tx, s.repository, s.number)
     if (this.activityAuthors.size && (s.status === 'terminal' || reopened || resumed || readySuperseded)) {
       const target = statusTargetKey(s)
       const pending = v.safeParse(statusDeliverySchema, await this.metaIn(tx, `${statusOutboxPrefix}${target}`))
@@ -809,18 +810,25 @@ export class PullRequestInbox {
   }
   private directMergeKey(repository: string, number: number): string { return `direct-merge:${repository}:${number}` }
   private stackFoldKey(repository: string, parent: number): string { return `stack-fold:${repository}:${parent}` }
-  /**
-   * The stacked pull request whose merge into this pull request's branch has an unknown outcome.
-   * A closed child has a known outcome: once its row turns terminal its pending-merge path never runs
-   * again to clear the fold, so the fold must not hold the parent past that point.
-   */
+  /** The stacked pull request whose merge into this pull request's branch has an unknown outcome. */
   private async foldingChildIn(tx: PullRequestInboxExecutor, repository: string, parent: number): Promise<number | undefined> {
     const fold = await this.metaIn(tx, this.stackFoldKey(repository, parent))
     if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
     const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
-    if (!isRuntimeRecord(attempt) || attempt.token !== fold.token || attempt.foldInto !== parent) return undefined
-    const child = await this.getIn(tx, repository, fold.child)
-    return child?.pr?.state === 'open' ? fold.child : undefined
+    return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+  }
+  /**
+   * A closed child's fold has a known outcome, and its pending-merge path never runs again to clear it.
+   * Retire the attempt with the parent's slot, so a reopened child must win the slot again before it folds.
+   */
+  private async retireFoldIn(tx: PullRequestInboxExecutor, repository: string, child: number): Promise<void> {
+    const key = this.directMergeKey(repository, child)
+    const attempt = await this.metaIn(tx, key)
+    if (!isRuntimeRecord(attempt) || !isRuntimeNumber(attempt.foldInto)) return
+    await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+    const foldKey = this.stackFoldKey(repository, attempt.foldInto)
+    const fold = await this.metaIn(tx, foldKey)
+    if (isRuntimeRecord(fold) && fold.child === child && fold.token === attempt.token) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, foldKey])
   }
   async foldingChild(repository: string, parent: number): Promise<number | undefined> {
     await this.init()
