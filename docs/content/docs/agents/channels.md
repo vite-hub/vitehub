@@ -23,6 +23,12 @@ A Channel is one connection in `server/channels/<name>.ts`, defined with `define
 
 ## Add a Channel
 
+Install the Channels package in the app. An Agent with a Channel needs it, also when the Channel is inline in the Agent file. Without it, the build stops with `VITE_HUB_R0136` and this command.
+
+```bash pm
+pnpm add @vite-hub/channels
+```
+
 Define the Channel in `server/channels`, with an adapter from `vite-hub/channels/adapters`. Then list its name in the Agent.
 
 ```ts [server/channels/portal.ts]

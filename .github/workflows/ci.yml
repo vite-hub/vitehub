@@ -1252,7 +1252,9 @@ jobs:
 
       # Gives the previews a version that npm does not have, so pnpm resolves
       # ViteHub peers to the previews and not to npm releases.
-      - run: node .github/scripts/preview-packages.mjs "$PREVIEW_SHA"
+      - run: |
+          published_version="$(npm view vite-hub@latest version --registry=https://registry.npmjs.org)"
+          node .github/scripts/preview-packages.mjs "$PREVIEW_SHA" "$published_version"
 
       - name: Publish preview packages
         run: |

@@ -37,6 +37,7 @@ const fixtureViteHubPackages = [
   "@vite-hub/agent",
   "@vite-hub/auth",
   "@vite-hub/blob",
+  "@vite-hub/channels",
   "@vite-hub/database",
   "@vite-hub/email",
   "@vite-hub/markdown-template",
@@ -732,7 +733,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it.each([true, { driver: "kv" }] as const)("auto-imports KV and stores Nitro cache entries through a packed Nuxt route (cache: %j)", async (cache) => {
+  it.each([true, { driver: "kv" }] as const)("uses KV and stores Nitro cache entries through a packed Nuxt route (cache: %j)", async (cache) => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-kv-cache-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -754,6 +755,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `),
         writeFile(join(appDir, "server/api/visits.get.ts"), `
           import { defineCachedHandler } from "nitro/cache"
+          import { kv } from "vite-hub/kv"
 
           export default defineCachedHandler(async () => {
             const [readError, visits] = await kv.get("visits")
@@ -893,6 +895,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default {
             modules: ["vite-hub/nuxt"],
+            experimental: { nitroAutoImports: true },
             nitro: { preset: "node-server" },
             vitehub: { agent: false, kv: true, host: "node", queue: true },
           }
@@ -1058,6 +1061,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/agent": specs["@vite-hub/agent"],
+            "@vite-hub/channels": specs["@vite-hub/channels"],
             "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
             "drizzle-orm": "1.0.0-rc.5",
@@ -1094,7 +1098,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
 
       await installApp(appDir, "--no-strict-peer-dependencies")
-      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
+      await assertOnlyViteHubDependencies(appDir, ["@vite-hub/agent", "@vite-hub/channels", "@vite-hub/database", "@vite-hub/workflow", "vite-hub"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
 
