@@ -188,7 +188,7 @@ function toJobSummary(job: StoredJob, running: boolean): LocalQueueJob {
     ...(job.failedAt === undefined ? {} : { failedAt: isoTime(job.failedAt) }),
     id: job.id,
     queue: job.queue,
-    state: job.state === "dead" ? "dead" : running ? "running" : "pending",
+    state: running ? "running" : job.state === "dead" ? "dead" : "pending",
   }
 }
 
@@ -208,6 +208,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   let closed = false
 
   const file = (job: Pick<StoredJob, "key">) => join(base, `${job.key}.json`)
+  const attemptInFlight = (job: Pick<StoredJob, "key">) => runningKeys.has(job.key) || expiringKeys.has(job.key)
 
   async function persist(job: StoredJob) {
     const target = file(job)
@@ -465,7 +466,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       const job = findJob(id)
       if (!job) return undefined
       return {
-        ...toJobSummary(job, runningKeys.has(job.key)),
+        ...toJobSummary(job, attemptInFlight(job)),
         file: file(job),
         ...(job.idempotencyKey === undefined ? {} : { idempotencyKey: job.idempotencyKey }),
         ...await readPayload(job),
@@ -476,13 +477,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       return [...jobs.values()]
         .filter(job => job.state !== "done" && !writingKeys.has(job.key))
         .sort((a, b) => b.enqueuedAt - a.enqueuedAt)
-        .map(job => toJobSummary(job, runningKeys.has(job.key)))
+        .map(job => toJobSummary(job, attemptInFlight(job)))
     },
     async retry(id) {
       await this.start()
       const job = findJob(id)
       if (!job) return "missing"
-      if (runningKeys.has(job.key) || expiringKeys.has(job.key)) return "running"
+      if (attemptInFlight(job)) return "running"
       const now = Date.now()
       if (job.state === "dead") {
         const { payload } = await readPayload(job)
@@ -497,12 +498,12 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         await persist(retry)
         jobs.set(job.key, retry)
         schedule()
-        return toJobSummary(retry, runningKeys.has(retry.key))
+        return toJobSummary(retry, attemptInFlight(retry))
       }
       job.availableAt = now
       await persist(job)
       schedule()
-      return toJobSummary(job, runningKeys.has(job.key))
+      return toJobSummary(job, attemptInFlight(job))
     },
     provider: "local",
     rules,
@@ -516,8 +517,8 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       for (const job of jobs.values()) {
         if (job.state === "done") continue
         const entry = queues[job.queue] ??= { dead: 0, pending: 0, running: 0 }
-        if (job.state === "dead") entry.dead++
-        else if (runningKeys.has(job.key)) entry.running++
+        if (attemptInFlight(job)) entry.running++
+        else if (job.state === "dead") entry.dead++
         else entry.pending++
       }
       return { base, deadLimit: localQueueDeadLimit, durability: "single-host", queues }
