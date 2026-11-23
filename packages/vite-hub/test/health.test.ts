@@ -7,7 +7,7 @@ import { blob } from "@vite-hub/blob"
 import { setBlobRuntimeConfig } from "@vite-hub/blob/runtime/state"
 import { blobHealthModule } from "@vite-hub/blob/vite"
 
-import { resolveConfig } from "vite"
+import { build, resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { healthVitePlugin, renderHealthHandler, selectHealthTargets, type HealthTargets } from "../src/health-vite.ts"
@@ -21,11 +21,12 @@ type Modules = Record<string, Record<string, unknown>>
 /** Evaluates the generated handler, with stubs for the modules that it imports. */
 function handler(targets: Partial<HealthTargets>, modules: Modules = {}): Handler {
   const source = renderHealthHandler({ commit: "abc123", vitehub: "0.0.9", database: false, kv: [], blob: [], ...targets })
+    .replace(/^import (\{ \w+ \}) from (.+)$/gm, "const $1 = modules[$2]")
     .replace(/\bimport\(/g, "load(")
     .replace("export default", "return")
   const load = async (specifier: string) => modules[specifier]
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
-  return new Function("load", source)(load) as Handler
+  return new Function("modules", "load", source)(modules, load) as Handler
 }
 
 const roots: string[] = []
@@ -80,7 +81,7 @@ describe("health route", () => {
       vitehub: "0.0.9",
       checks: { database: { default: true }, kv: { default: true, sessions: true }, blob: { default: true } },
     })
-    expect(reads).toEqual(["kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check", "blob:default"])
+    expect(reads.toSorted()).toEqual(["blob:default", "kv:default:vitehub-health-check", "kv:sessions:vitehub-health-check"])
 
     const failing = await handler(targets, modules("sessions")).fetch()
     expect(failing.status).toBe(503)
@@ -127,6 +128,34 @@ describe("health route", () => {
     expect(source).toContain("pingDatabases")
     expect(source).not.toContain("checkBlobStoreHealth")
     expect(source).not.toContain("vite-hub/kv")
+  })
+
+  it("builds without a dynamic import warning when the app also imports Blob storage", async () => {
+    const source = renderHealthHandler({ commit: null, vitehub: "0.0.9", database: false, kv: [], blob: ["default"] })
+    const root = await createProject({
+      "server.mjs": 'export { default as health } from "./health.mjs"\nexport { blob } from "./blob.mjs"',
+      "blob.mjs": "export const blob = {}; export async function checkBlobStoreHealth() {}",
+      "health.mjs": source.replace(JSON.stringify(blobHealthModule), '"./blob.mjs"'),
+    })
+    const warnings: string[] = []
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      build: {
+        ssr: join(root, "server.mjs"),
+        write: false,
+        rolldownOptions: {
+          onLog(level, log, handleLog) {
+            if (level === "warn" && log.code) warnings.push(log.code)
+            handleLog(level, log)
+          },
+        },
+      },
+    })
+
+    expect(warnings).not.toContain("INEFFECTIVE_DYNAMIC_IMPORT")
   })
 
   it("checks the Database that Forms discovery turns on", async () => {
