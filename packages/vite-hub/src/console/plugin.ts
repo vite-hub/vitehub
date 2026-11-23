@@ -107,6 +107,8 @@ export interface ConsoleNitroPluginOptions {
   /** Write nothing when this returns `false`, such as after the dev server closed. */
   active?: () => boolean
   access?: ConsoleAccessBuild
+  /** The host and the framework of a production build, which `project.get` reports with its commit. */
+  target?: Pick<ConsoleProjectBuild, "framework" | "host">
   runtimeCapabilityImports?: Record<string, false | string>
   development?: boolean
   /**
@@ -241,7 +243,7 @@ function renderConsoleNitroPlugin(
 export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
   const { file, active = () => true } = options
   if (!active()) return
-  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : await consoleBuildOf(options.projectRoot))
+  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : { ...await consoleBuildOf(options.projectRoot), ...options.target })
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

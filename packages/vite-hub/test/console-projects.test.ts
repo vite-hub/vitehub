@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProject, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { consoleProjectBuildOf, consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
+import { consoleAuthorAvatarUrl, consoleProjectBuildOf, consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { operationRpcFetch, operationRpcRequest } from "../../internal/test-utils/operation-rpc.ts"
@@ -147,11 +147,49 @@ describe("project.get probe", () => {
     expect(consoleProjectBuildOf({ commit: { message: "no sha" }, time: "2026-11-14T10:00:00.000Z" })).toEqual({ time: "2026-11-14T10:00:00.000Z" })
   })
 
-  it("keeps the name and the build of a connected app from the check of the Console server", async () => {
+  it("reads the host, the framework, and the author login of the build, and drops values it does not know", () => {
+    const time = "2026-11-14T10:00:00.000Z"
+    expect(consoleProjectBuildOf({
+      commit: { login: "ada", sha: "4f9c2e1" },
+      framework: { name: "nuxt", version: "5.0.2" },
+      host: { name: "cloudflare", preset: "cloudflare-module" },
+      time,
+    })).toEqual({ commit: { login: "ada", sha: "4f9c2e1" }, framework: { name: "nuxt", version: "5.0.2" }, host: { name: "cloudflare", preset: "cloudflare-module" }, time })
+    expect(consoleProjectBuildOf({ commit: { login: "mona-cat_octo", sha: "4f9c2e1" }, time })?.commit?.login).toBe("mona-cat_octo")
+    expect(consoleProjectBuildOf({ commit: { login: "dependabot[bot]", sha: "4f9c2e1" }, time })?.commit?.login).toBeUndefined()
+    expect(consoleProjectBuildOf({
+      commit: { login: "../../evil?x=", sha: "4f9c2e1" },
+      framework: { name: "remix" },
+      host: { name: "toString", preset: "x" },
+      time,
+    })).toEqual({ commit: { sha: "4f9c2e1" }, time })
+    expect(consoleProjectBuildOf({ framework: { name: "nitro" }, host: { name: "node" }, time })).toEqual({ framework: { name: "nitro" }, time })
+    expect(consoleAuthorAvatarUrl("ada")).toBe("https://github.com/ada.png?size=40")
+  })
+
+  it("keeps the name, the build, and the open comments of a connected app from the check of the Console server", async () => {
     const build = { commit: { sha: "4f9c2e1" }, time: "2026-11-14T10:00:00.000Z" }
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build }, linked: true, status: 200 })))
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { ...projectGet.value, build, comments: { open: 3 } }, linked: true, status: 200 })))
     const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
-    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, name: "Shop", status: "connected" })
+    expect(await checkConsoleAccountProject("p-1")).toEqual({ build, code: 200, comments: { open: 3 }, name: "Shop", status: "connected" })
+  })
+
+  it.each([
+    { section: "comments", comments: {} },
+    { section: "logs", comments: undefined },
+  ])("uses the $section section to check Comments availability when there is no count", async ({ section, comments }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ answer: { sections: [section] }, linked: true, status: 200 })))
+    const { checkConsoleAccountProject } = await import("../src/console/runtime/client/account.ts")
+    expect((await checkConsoleAccountProject("p-1")).comments).toEqual(comments)
+  })
+
+  it("reads the open comments of a project, and drops a count that is not a whole number", async () => {
+    const counted = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open: 4 } } }) })
+    expect(counted).toMatchObject({ kind: "ready", info: { comments: { open: 4 } } })
+    for (const open of [-1, 1.5, "4"]) {
+      const broken = await probeConsoleProject(target, { fetch: json(200, { ok: true, value: { ...projectGet.value, comments: { open } } }) })
+      expect(broken.kind === "ready" && broken.info).not.toHaveProperty("comments")
+    }
   })
 
   it("reads a refused signature by its code, and any other 401 as a refused signature", async () => {

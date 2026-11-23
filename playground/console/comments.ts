@@ -84,6 +84,10 @@ function save(next: CommentThread): ConsoleRpcResult {
   return ok(next)
 }
 
+export function openCommentsFixture(): number {
+  return threads.filter(thread => thread.status === "open").length
+}
+
 export function callCommentsFixture(operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
   if (!operation.startsWith("comments.")) return undefined
   const now = Date.now()

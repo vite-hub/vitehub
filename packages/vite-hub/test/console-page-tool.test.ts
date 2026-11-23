@@ -211,7 +211,7 @@ describe("a Console app without Comments", () => {
       const registration = /installConsoleSections\([^,]+, (\[[^\n]*?\])/.exec(withoutAuth)
       expect(registration).not.toBeNull()
       installConsoleSections(root, JSON.parse(registration![1]!))
-      const project = await readConsoleProject({ mode: "token", sections: "all" })
+      const project = await readConsoleProject({ access: { mode: "token", sections: "all" }, surface: "console", user: null })
       expect(project.operations).toEqual(expect.arrayContaining(["site.link", "site.sessions", "site.revoke-session"]))
       await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["site"] }, pageTool: { base: "/" } })
       expect(await readFile(file, "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
