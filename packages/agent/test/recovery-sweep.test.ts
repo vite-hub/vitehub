@@ -1,5 +1,5 @@
 import { createMemoryLeaseStore } from "@vite-hub/runtime"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { startAgentRecoverySweep } from "../src/server/recovery-sweep.ts"
 
@@ -8,6 +8,7 @@ import type { AgentRecoverySweep } from "../src/server/recovery-sweep.ts"
 const started: AgentRecoverySweep[] = []
 afterEach(async () => {
   for (const sweep of started.splice(0)) await sweep.stop()
+  vi.useRealTimers()
 })
 
 function start(leases: ReturnType<typeof createMemoryLeaseStore>, swept: string[], name: string, intervalMs = 60_000): AgentRecoverySweep {
@@ -70,5 +71,65 @@ describe("startAgentRecoverySweep", () => {
     started.push(sweep)
     expect(await sweep.tick()).toBe(false)
     expect(errors).toMatchObject([{ message: "journal down" }])
+  })
+
+  it("renews the Lease when a scan takes longer than its TTL", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "performance", "setInterval", "clearInterval"] })
+    const leases = createMemoryLeaseStore()
+    const release = Promise.withResolvers<void>()
+    const work = vi.fn(async (canRecover: () => boolean) => {
+      await release.promise
+      expect(canRecover()).toBe(true)
+    })
+    const holder = startAgentRecoverySweep({ agentName: "support", intervalMs: 100, leases, sweep: work })
+    const swept: string[] = []
+    const contender = start(leases, swept, "contender", 100)
+    started.push(holder)
+    const scan = holder.tick()
+    try {
+      await vi.advanceTimersByTimeAsync(350)
+      expect(work).toHaveBeenCalledOnce()
+      expect(swept).toEqual([])
+    }
+    finally {
+      release.resolve()
+      await scan
+    }
+    expect(await scan).toBe(true)
+    await holder.stop()
+    expect(await contender.tick()).toBe(true)
+  })
+
+  it("stops taking work after renewal fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "performance", "setInterval", "clearInterval"] })
+    const leases = createMemoryLeaseStore()
+    const acquire = leases.acquire.bind(leases)
+    vi.spyOn(leases, "acquire").mockImplementationOnce(async (...args) => {
+      const result = await acquire(...args)
+      if (result[1]) vi.spyOn(result[1], "renew").mockResolvedValue([undefined, false])
+      return result
+    })
+    const release = Promise.withResolvers<void>()
+    const recover = vi.fn()
+    const holder = startAgentRecoverySweep({
+      agentName: "support",
+      intervalMs: 100,
+      leases,
+      sweep: async (canRecover) => {
+        await release.promise
+        if (canRecover()) recover()
+      },
+    })
+    started.push(holder)
+    const scan = holder.tick()
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    finally {
+      release.resolve()
+      await scan
+    }
+    expect(await scan).toBe(false)
+    expect(recover).not.toHaveBeenCalled()
   })
 })

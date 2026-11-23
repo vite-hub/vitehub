@@ -186,14 +186,21 @@ export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Re
   const { findProperty, objectProperties, staticString, staticValue } = config.scan
   const literalObject = (node: Expression | undefined): ObjectExpression | undefined =>
     node?.type === "ObjectExpression" && objectProperties(node).every(property => property.key !== undefined) ? node : undefined
+  if (findProperty(options, "dataDir")) return
   const host = findProperty(options, "host")?.value
   const configuredHost = host === undefined ? undefined : staticString(host)
-  if (host !== undefined && configuredHost !== "node") return
   const { resolveBuildHost } = await import("@vite-hub/internal/deployment")
-  if (configuredHost === undefined && resolveBuildHost(undefined, env) !== "node") return
+  if (host !== undefined && configuredHost !== "node" && configuredHost !== "vercel" && configuredHost !== "netlify" && configuredHost !== "cloudflare" && configuredHost !== "deno") return
+  if (resolveBuildHost(configuredHost, env) !== "node") return
   const agent = findProperty(options, "agent")?.value
-  if (agent === undefined || staticValue(agent) === false) return
-  const invocations = agent.type === "ObjectExpression" ? findProperty(agent, "invocations")?.value : undefined
+  const agentOptions = literalObject(agent)
+  if (agent !== undefined && staticValue(agent) !== true && !agentOptions) return
+  if (agent === undefined) {
+    const { hasDefinitionFiles } = await import("@vite-hub/internal/definition-catalog")
+    const { features } = await import("@vite-hub/internal/features")
+    if (!features.agent.enabledByDiscovery?.some(name => hasDefinitionFiles(join(rootDir, "server", name)))) return
+  }
+  const invocations = agentOptions && findProperty(agentOptions, "invocations")?.value
   if (invocations !== undefined && staticValue(invocations) !== true) {
     const setting = literalObject(invocations)
     if (!setting || findProperty(setting, "store") || findProperty(setting, "databaseUrl")) return
@@ -217,6 +224,8 @@ export async function readAgentJournalPostgres(rootDir: string, env: Readonly<Re
   }
   const target = resolved?.databases.default
   if (target?.dialect !== "postgresql" || target.driver === "pglite") return
+  const definition = resolved?.definitions.find(item => item.name === "default")
+  if (definition && !owner.readDatabaseDefinitionConnectionIsStatic(definition.handler)) return
   const url = owner.resolveConfigValue(target.connection?.url, { ...env })?.trim()
   if (!url && !Object.entries(env).some(([name, value]) => name.startsWith("PG") && value?.trim())) return
   return { ...(target.driver === "node-postgres" ? { driver: target.driver } : {}), ...(url ? { url } : {}) }

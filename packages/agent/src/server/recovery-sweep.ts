@@ -8,7 +8,7 @@ export interface AgentRecoverySweepOptions {
   agentName: string
   leases: LeaseStore
   intervalMs?: number
-  sweep: () => Promise<unknown>
+  sweep: (canRecover: () => boolean) => Promise<unknown>
   onError?: (error: unknown) => void
 }
 
@@ -30,17 +30,28 @@ export function startAgentRecoverySweep(options: AgentRecoverySweepOptions): Age
   const report = options.onError ?? (error => console.error(`[vitehub] The recovery sweep of the Agent ${JSON.stringify(options.agentName)} failed.`, error))
   let lease: Lease | undefined
   let running: Promise<boolean> | undefined
+  let holding: Promise<boolean> | undefined
+  let active: AbortController | undefined
+  let validUntil = 0
   let stopped = false
 
-  async function hold(): Promise<boolean> {
+  async function updateLease(): Promise<boolean> {
+    const now = performance.now()
     if (lease) {
+      if (now >= validUntil) active?.abort()
       const [error, renewed] = await lease.renew({ ttl })
       if (error) {
         report(error)
         return false
       }
-      if (renewed) return true
+      if (renewed) {
+        if (performance.now() >= validUntil) active?.abort()
+        validUntil = now + ttl * 1000
+        return true
+      }
       lease = undefined
+      active?.abort()
+      if (active) return false
     }
     const [error, acquired] = await options.leases.acquire(key, { ttl })
     if (error) {
@@ -48,16 +59,41 @@ export function startAgentRecoverySweep(options: AgentRecoverySweepOptions): Age
       return false
     }
     lease = acquired ?? undefined
+    validUntil = now + ttl * 1000
     return lease !== undefined
+  }
+
+  function hold(): Promise<boolean> {
+    holding ??= updateLease().catch((error: unknown) => {
+      report(error)
+      return false
+    }).then((held) => {
+      if (!held) active?.abort()
+      return held
+    }).finally(() => {
+      holding = undefined
+    })
+    return holding
   }
 
   async function sweepOnce(): Promise<boolean> {
     if (stopped || !await hold() || stopped) return false
-    await options.sweep()
-    return true
+    const controller = new AbortController()
+    active = controller
+    const canRecover = () => !controller.signal.aborted && performance.now() < validUntil
+    try {
+      if (!canRecover()) return false
+      await options.sweep(canRecover)
+      return canRecover()
+    }
+    finally {
+      active = undefined
+    }
   }
 
   function tick(): Promise<boolean> {
+    if (stopped) return Promise.resolve(false)
+    if (active && !active.signal.aborted) void hold()
     running ??= sweepOnce()
       .catch((error: unknown) => {
         report(error)
@@ -77,7 +113,9 @@ export function startAgentRecoverySweep(options: AgentRecoverySweepOptions): Age
     async stop() {
       stopped = true
       clearInterval(timer)
+      active?.abort()
       await running
+      await holding
       const held = lease
       lease = undefined
       if (!held) return

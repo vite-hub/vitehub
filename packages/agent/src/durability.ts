@@ -67,19 +67,19 @@ export interface AgentRecoveryDurabilityInput {
   sweep: boolean
 }
 
-const recoveryFix = "Add a Database named `default`, so each server sweeps the journal under the Lease `agent-recovery:<agent>`."
+const recoveryFix = "Configure a default or sole Database so each server sweeps the journal under the Lease `agent-recovery:<agent>`."
 
 /** How a server finds the Invocations that a stopped server left running. */
 export function agentRecoveryDurability(input: AgentRecoveryDurabilityInput, context: DurabilityContext): Durability[] {
-  const database = input.sweep ? context.find("database") : undefined
+  const database = input.sweep ? context.find("database", "default", true) : undefined
   if (!database) {
-    return [{ primitive: "agent-recovery", store: "startup", scope: "process", reason: "A server fails the Invocations of a stopped server only when it starts.", fix: recoveryFix }]
+    return [{ primitive: "agent-recovery", store: "startup", scope: "process", reason: "No periodic journal recovery sweep runs.", fix: recoveryFix }]
   }
   return [{
     primitive: "agent-recovery",
     store: `lease (${database.store})`,
     scope: database.scope,
-    reason: `One server at a time sweeps the journal every 15 seconds, under a Lease in the default Database. ${database.reason}`,
+    reason: `One server at a time sweeps the journal every 15 seconds, under a Lease in the ${database.name ?? "default"} Database. ${database.reason}`,
     ...(database.fix ? { fix: database.fix } : {}),
   }]
 }

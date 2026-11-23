@@ -25,6 +25,7 @@ export async function failInterruptedAgentInvocations(
     recoveryTimeoutMs?: number
     /** Waits `recoveryTimeoutMs` and retries Invocations that a claim blocked. The periodic sweep turns it off. */
     waitForBlocked?: boolean
+    canRecover?: () => boolean
     recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
   },
 ): Promise<number> {
@@ -37,7 +38,9 @@ export async function failInterruptedAgentInvocations(
   const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
   const seenCursors = new Set<string>()
   let paginationError: Error | undefined
+  const canRecover = options.canRecover ?? (() => true)
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
+    if (!canRecover()) return false
     const claimId = createInvocationClaimId("recovery_")
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
       replaceClaimToken === undefined ? undefined : { replaceClaimToken })) return false
@@ -45,8 +48,9 @@ export async function failInterruptedAgentInvocations(
     const timestamp = new Date().toISOString()
     let updated: Awaited<ReturnType<AgentInvocationStore["update"]>>
     try {
+      if (!canRecover()) return false
       const current = await store.getSummary(invocation.id)
-      if (current?.status !== "pending" && current?.status !== "running") return false
+      if (!canRecover() || (current?.status !== "pending" && current?.status !== "running")) return false
       updated = await store.update(invocation.id, { error: { message }, status: "failed", timestamp }, claimId)
     }
     finally {
@@ -57,6 +61,7 @@ export async function failInterruptedAgentInvocations(
     return true
   }
   do {
+    if (!canRecover()) return failed
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     if (records.cursor && seenCursors.has(records.cursor)) {
       paginationError = new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
@@ -64,10 +69,11 @@ export async function failInterruptedAgentInvocations(
     }
     if (records.cursor) seenCursors.add(records.cursor)
     for (const invocation of records.invocations) {
+      if (!canRecover()) return failed
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
-      if (!await options.recover(invocation)) continue
-      const blockedClaimToken = await store.getClaimToken(invocation.id)
+      if (!await options.recover(invocation) || !canRecover()) continue
+      const blockedClaimToken = options.waitForBlocked === false ? undefined : await store.getClaimToken(invocation.id)
       if (await fail(invocation)) failed += 1
       else if (blockedClaimToken !== undefined && options.waitForBlocked !== false) blocked.push({ ...invocation, blockedClaimToken })
     }
@@ -76,6 +82,7 @@ export async function failInterruptedAgentInvocations(
   if (blocked.length > 0) {
     await new Promise(resolve => setTimeout(resolve, recoveryTimeoutMs))
     for (const invocation of blocked) {
+      if (!canRecover()) return failed
       const current = await store.get(invocation.id)
       if (current && (current.status === "pending" || current.status === "running")
         && await options.recover(current) && await fail(current, invocation.blockedClaimToken)) failed += 1
