@@ -122,7 +122,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     notes.push(`${appNames.get(name)} gives \`${name}\`, and Nuxt still auto-imports it, so ${files.size} file(s) keep the app's \`${name}\`. Import ViteHub's from "${from}" where you need it.`)
   }
   if (nitroFiles.length) {
-    notes.push(`Nuxt 5 also stops auto-importing the Nitro and H3 helpers, such as defineEventHandler, in ${nitroFiles.length} server file(s), for example ${nitroFiles[0]}. Import them as the Nuxt 5 build error lists, from "nitro/h3" or "nuxt/server".`)
+    notes.push(`Nuxt 5 also stops auto-importing the Nitro and H3 helpers, such as defineEventHandler, in ${nitroFiles.length} server file(s), for example ${nitroFiles[0]}. Import each one from the module that the Nuxt 5 build error names: "nitro/h3" or "nuxt/server".`)
   }
   return {
     summary: edits.length ? `added ${added} vite-hub import(s) to ${edits.length} server file(s)` : "found no server file that uses a ViteHub helper without an import",
