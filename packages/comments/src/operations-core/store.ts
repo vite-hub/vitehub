@@ -325,27 +325,49 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
   type CandidateAuthor = Awaited<ReturnType<typeof candidateAuthors>>[number]
 
   function candidateThreadAccess(canRead: (thread: CommentThread) => Promise<boolean>) {
-    const loaded = new Map<string, CommentThread | null>()
+    const prefetched = new Map<string, CommentThread | null>()
     const decided = new Map<string, Promise<boolean>>()
     let batchSize = 1
-    return async function readable(rows: readonly CandidateAuthor[], index: number, seen: ReadonlyMap<string, CommentUser>): Promise<boolean> {
+    let batching = true
+    async function loadAhead(rows: readonly CandidateAuthor[], index: number, seen: ReadonlyMap<string, CommentUser>): Promise<CommentThread | null> {
       const { threadId } = rows[index]!
-      const earlier = decided.get(threadId)
-      if (earlier) return earlier
-      if (!loaded.has(threadId)) {
-        const ids = new Set([threadId])
-        for (let ahead = index + 1; ahead < rows.length && ids.size < batchSize; ahead++) {
-          const row = rows[ahead]!
-          if (!seen.has(row.id) && !decided.has(row.threadId) && !loaded.has(row.threadId)) ids.add(row.threadId)
-        }
-        batchSize = Math.min(batchSize * 2, chunkSize)
-        for (const id of ids) loaded.set(id, null)
-        for (const thread of await read(inArray(threads.id, [...ids]), ids.size)) loaded.set(thread.id, thread)
+      const ids = new Set([threadId])
+      for (let ahead = index + 1; ahead < rows.length && ids.size < batchSize; ahead++) {
+        const row = rows[ahead]!
+        if (!seen.has(row.id) && !decided.has(row.threadId) && !prefetched.has(row.threadId)) ids.add(row.threadId)
       }
-      const thread = loaded.get(threadId)
-      loaded.delete(threadId)
-      const allowed = thread ? canRead(thread) : Promise.resolve(false)
-      decided.set(threadId, allowed)
+      if (batching) batchSize = Math.min(batchSize * 2, chunkSize)
+      if (ids.size > 1) {
+        const found = await read(inArray(threads.id, [...ids]), ids.size).catch(() => {
+          batching = false
+          batchSize = 1
+        })
+        if (found) {
+          for (const id of ids) if (id !== threadId) prefetched.set(id, found.find(thread => thread.id === id) ?? null)
+          return found.find(thread => thread.id === threadId) ?? null
+        }
+      }
+      return await find(threadId)
+    }
+    async function decide(rows: readonly CandidateAuthor[], index: number, seen: ReadonlyMap<string, CommentUser>): Promise<boolean> {
+      const { threadId } = rows[index]!
+      if (!prefetched.has(threadId)) {
+        const thread = await loadAhead(rows, index, seen)
+        return thread ? await canRead(thread) : false
+      }
+      const snapshot = prefetched.get(threadId)
+      prefetched.delete(threadId)
+      if (!snapshot || !(await canRead(snapshot))) return false
+      const current = await find(threadId)
+      return current ? await canRead(current) : false
+    }
+    return function readable(rows: readonly CandidateAuthor[], index: number, seen: ReadonlyMap<string, CommentUser>): Promise<boolean> {
+      const { threadId } = rows[index]!
+      let allowed = decided.get(threadId)
+      if (!allowed) {
+        allowed = decide(rows, index, seen)
+        decided.set(threadId, allowed)
+      }
       return allowed
     }
   }
