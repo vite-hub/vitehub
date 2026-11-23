@@ -9588,7 +9588,7 @@ function createChannelTaskQueue(
           ...(options.key === undefined ? {} : { debounceKey: channelTaskDebounceKey(trigger.id, task, options.key) }),
         },
         async (item) => {
-          const admitted = await webhookState.state.enqueueWebhookDelivery(item)
+          const admitted = await webhookState.state.enqueueWebhookDelivery(item, { absoluteAvailableAt: options.absoluteStart })
           // The queue drain retries a failed journal write from its durable settlement marker.
           await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix).catch(() => undefined)
           return admitted
