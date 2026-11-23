@@ -1,4 +1,5 @@
 import { logFailure } from "@vite-hub/internal/runtime/request-log"
+import { d1PrimaryClient } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import type { KVPageOptions, KVListPage, ResolvedDatabaseKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -44,11 +45,11 @@ function hasMethod(value: unknown, name: string): boolean {
 }
 
 /**
- * A SQL client over the Drizzle database of the app: postgres.js, libSQL, or a Cloudflare D1 binding. It reads `$client`
- * on each query, because a Postgres Database and a D1 binding on Cloudflare belong to the request.
+ * A SQL client over the Drizzle database of the app: postgres.js, libSQL, or primary Cloudflare D1. It resolves
+ * the client on each query because the Database connection can belong to the request.
  */
 export function kvSqlClientFromDatabase(db: object, database: string): KVSqlClient {
-  const client = (): unknown => Reflect.get(db, "$client")
+  const client = (): unknown => Reflect.get(db, d1PrimaryClient) ?? Reflect.get(db, "$client")
   const first = client()
   if (hasMethod(first, "unsafe")) {
     // SAFETY: The check above found `unsafe()`, the query method of postgres.js.
@@ -91,12 +92,14 @@ function decodeCursor(cursor: string | undefined): string | undefined {
   throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
 }
 
+type DatabaseKVDriver = KVRuntimeDriver & Required<Pick<KVRuntimeDriver, "getItems">>
+
 /**
  * KV in a table of the app's Database. Each atomic operation is one statement, so two servers that write one key at
  * the same time get one winner. Expiry uses the clock of the Database. Works on Postgres and on SQLite 3.35 or later,
  * such as libSQL and Cloudflare D1.
  */
-export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>): KVRuntimeDriver {
+export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreConfig, connect: () => Promise<KVSqlClient>): DatabaseKVDriver {
   const table = kvTable
   const namespace = options.namespace
   let pending: Promise<KVSqlClient> | undefined
@@ -198,7 +201,7 @@ export default function createDatabaseKVDriver(options: ResolvedDatabaseKVStoreC
     }
   }
 
-  const driver: KVRuntimeDriver = {
+  const driver: DatabaseKVDriver = {
     name: "vitehub-kv-database",
     options,
     async hasItem(key) {

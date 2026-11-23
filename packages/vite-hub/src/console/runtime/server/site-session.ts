@@ -5,7 +5,6 @@ import { deriveViteHubSecret, readViteHubSecret } from "@vite-hub/internal/secre
 
 import { consoleState } from "../../internal.ts"
 import { consoleRequestError, isConsoleDevelopmentRuntime } from "./request.ts"
-import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { SealKey } from "@vite-hub/env/seal"
@@ -39,6 +38,7 @@ const encoder = new TextEncoder()
 export interface ConsoleSiteKV {
   set: (key: string, value: string, options: { ttl: number }) => Promise<readonly [unknown, unknown]>
   get: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
+  getMany?: (keys: readonly string[], options: { type: "text" }) => Promise<readonly [unknown, readonly (string | null | undefined)[] | undefined]>
   getAndDelete: (key: string, options: { type: "text" }) => Promise<readonly [unknown, string | null | undefined]>
   list: (options: { prefix: string }) => Promise<readonly [unknown, { keys: string[] } | undefined]>
   delete: (key: string) => Promise<readonly [unknown, unknown]>
@@ -50,9 +50,18 @@ function unwrap<T>([error, value]: readonly [unknown, T]): T {
 }
 
 /** The keys of a KV store below a prefix. Some drivers list keys with `/` where the key had `:`. */
-export async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<string[]> {
+async function consoleSiteKeys(kv: ConsoleSiteKV, prefix: string): Promise<string[]> {
   const keys = unwrap(await kv.list({ prefix }))?.keys ?? []
   return keys.map(key => key.replaceAll("/", ":")).filter(key => key.startsWith(prefix))
+}
+
+export async function consoleSiteEntries(kv: ConsoleSiteKV, prefix: string) {
+  const keys = await consoleSiteKeys(kv, prefix)
+  if (!keys.length) return []
+  const values = kv.getMany
+    ? unwrap(await kv.getMany(keys, { type: "text" })) ?? []
+    : await Promise.all(keys.map(async key => unwrap(await kv.get(key, { type: "text" }))))
+  return keys.map((key, index) => ({ key, value: values[index] }))
 }
 
 const memoryKey: unique symbol = Symbol.for("vitehub.console.tickets")
@@ -109,25 +118,23 @@ const databaseNamespace = "vitehub-console-site"
 const databaseSiteKVs = new WeakMap<object, ConsoleSiteKV>()
 
 async function databaseSiteKV(): Promise<ConsoleSiteKV | undefined> {
-  if (!getConsoleSections().includes("databases")) return undefined
-  await loadConsoleRuntime()
-  const inspection = consoleState().database
-  const name = inspection?.names[0] ?? Object.keys(inspection?.databases ?? {})[0]
-  const entry = name === undefined ? undefined : inspection?.databases[name]
-  if (name === undefined || !entry) return undefined
-  const cached = databaseSiteKVs.get(entry.db)
+  const entry = await consoleState().siteDatabase?.()
+  if (!entry) return undefined
+  const { name, db } = entry
+  const cached = databaseSiteKVs.get(db)
   if (cached) return cached
   const { default: createDatabaseKVDriver, kvSqlClientFromDatabase } = await import("@vite-hub/kv/runtime/database")
-  const driver = createDatabaseKVDriver({ driver: "database", database: name, namespace: databaseNamespace }, async () => kvSqlClientFromDatabase(entry.db, name))
+  const driver = createDatabaseKVDriver({ driver: "database", database: name, namespace: databaseNamespace }, async () => kvSqlClientFromDatabase(db, name))
   const text = (value: unknown): string | null => value === null || value === undefined ? null : String(value)
   const store: ConsoleSiteKV = {
     set: async (key, value, { ttl }) => [undefined, await driver.setItem?.(key, value, { ttl })],
     get: async key => [undefined, text(await driver.getItem(key))],
+    getMany: async keys => [undefined, (await driver.getItems(keys.map(key => ({ key })), {})).map(item => text(item.value))],
     getAndDelete: async key => [undefined, text(await driver.getAndDeleteItem?.(key))],
     list: async ({ prefix }) => [undefined, { keys: await driver.getKeys(prefix, {}) }],
     delete: async key => [undefined, await driver.removeItem?.(key, {})],
   }
-  databaseSiteKVs.set(entry.db, store)
+  databaseSiteKVs.set(db, store)
   return store
 }
 
@@ -298,8 +305,7 @@ export async function readConsoleSiteVisitor(request: Request): Promise<ViteHubS
 /** The browsers that Site access signed in without Auth, most recently signed in first. */
 export async function listConsoleSiteSessions(known: ReadonlySet<string>): Promise<SiteSession[]> {
   const kv = await consoleSiteKV()
-  const keys = await consoleSiteKeys(kv, sessionPrefix)
-  const records = await Promise.all(keys.map(async key => readRecord(unwrap(await kv.get(key, { type: "text" })))))
+  const records = (await consoleSiteEntries(kv, sessionPrefix)).map(({ value }) => readRecord(value))
   return records
     .filter((record): record is SiteRecord => record !== undefined && record.expiresAt > Date.now())
     .sort((a, b) => b.createdAt - a.createdAt)
