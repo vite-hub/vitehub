@@ -1,4 +1,4 @@
-import { isTrustedSourceFreeInspection, grantWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { attachedWorkspaceOverride, isTrustedSourceFreeInspection, grantWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, registerWorkspaceAccessWrapper } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { agentInvocationSourceContext } from "../invocation-context.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
@@ -34,7 +34,6 @@ import type {
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
-import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 type WorkspaceAccessRuntime = Pick<
@@ -315,7 +314,7 @@ function setWorkspaceOverride<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName>,
   workspace: ReadonlyWorkspaceFacade,
 ): void {
-  const override = (context as AgentCapabilityRuntimeContext<TRuntimeConfig, WorkspaceName> & Partial<WorkspaceOverrideRuntime<WorkspaceName>>)[workspaceOverrideSymbol]
+  const override = attachedWorkspaceOverride(context)
   if (!override) {
     throw agentDiagnostics.AGENT_R0014({ message: "[vitehub] access() could not apply Workspace Scope." })
   }

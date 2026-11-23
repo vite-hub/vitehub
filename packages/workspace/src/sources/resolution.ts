@@ -9,7 +9,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { registerWorkspaceStoreAlias } from "../storage/identity.ts"
-import { forwardWorkspaceStoreTarget, resolveWorkspaceStoreTarget, workspaceStoreTarget, type WorkspaceStoreTargetCarrier } from "../storage/target.ts"
+import { forwardWorkspaceStoreTarget, provideWorkspaceStoreTarget, resolveWorkspaceStoreTarget } from "../storage/target.ts"
 import { createWorkspaceMetadataTarget, forwardWorkspaceMetadataTarget, resolveWorkspaceMetadataMutationTarget, resolveWorkspaceMetadataTarget, setWorkspaceMetadata, attachWorkspaceMetadataTarget, type WorkspaceMetadataTarget } from "../storage/metadata-target.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { isInternalWorkspaceMetaKey } from "../storage/metadata-keys.ts"
@@ -199,7 +199,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   fallback: (path: string) => boolean,
   backingMetadataTarget?: WorkspaceMetadataTarget,
-): WorkspaceStore & WorkspaceStoreTargetCarrier & { isTombstoned(path: string): boolean } {
+): WorkspaceStore & { isTombstoned(path: string): boolean } {
   const memory = createMemoryWorkspaceStore()
   const tombstones = new Set<string>()
 
@@ -254,9 +254,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
     }
   }
 
-  return {
-    // Snapshot metadata falls back to this Store, so its format must match too.
-    [workspaceStoreTarget]: async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" },
+  const store: WorkspaceStore & { isTombstoned(path: string): boolean } = {
     isTombstoned,
     async readFile(path) {
       return await memory.readFile(path) || await readBaseFile(path)
@@ -308,6 +306,9 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
       await memory.setMeta?.(key, value)
     },
   }
+  // Snapshot metadata falls back to this Store, so its format must match too.
+  provideWorkspaceStoreTarget(store, async () => await resolveWorkspaceStoreTarget(workspace) ?? { provider: "memory" })
+  return store
 }
 
 const sourceSyncStores = new WeakMap<object, (definition: WorkspaceDefinition) => WorkspaceStore>()

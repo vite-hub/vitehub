@@ -1,6 +1,5 @@
 import type { Lock, StateAdapter } from "chat"
 
-
 import type {
   AgentChannelDelivery,
   AgentChannelDeliveryEvent,
@@ -10,6 +9,8 @@ import type {
   AgentRuntimeContext,
 } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+
+export { agentChannelDeliveryOwnershipVerifier, withAgentChannelDeliveryOwnershipVerifier } from "./channel-delivery-ownership.ts"
 
 const retentionMs = 30 * 24 * 60 * 60 * 1000
 const maximumEvents = 256
@@ -28,7 +29,6 @@ interface StoredAgentChannelDelivery extends AgentChannelDelivery {
 }
 
 const agentChannelDeliveryTrackerKey: symbol = Symbol.for("vitehub.agent.channel-delivery")
-const agentChannelDeliveryOwnershipVerifierKey: symbol = Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")
 export const agentChannelDeliveryWorkflowContextKey = "vitehub.channelDelivery"
 
 export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is AgentChannelDeliveryWorkflowBinding {
@@ -545,18 +545,6 @@ export function agentChannelDeliveryTracker(context: AgentRuntimeContext): Agent
   const runtimeContext: unknown = context
   // SAFETY: withAgentChannelDelivery installs this private tracker property on Agent runtime contexts.
   return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryTrackerKey]?: AgentChannelDeliveryTracker })[agentChannelDeliveryTrackerKey]
-}
-
-export function agentChannelDeliveryOwnershipVerifier(context: AgentRuntimeContext): (() => Promise<void>) | undefined {
-  const runtimeContext: unknown = context
-  // SAFETY: withAgentChannelDeliveryOwnershipVerifier installs this private verifier property on Agent runtime contexts.
-  return (runtimeContext as AgentRuntimeContext & { [agentChannelDeliveryOwnershipVerifierKey]?: () => Promise<void> })[
-    agentChannelDeliveryOwnershipVerifierKey
-  ]
-}
-
-export function withAgentChannelDeliveryOwnershipVerifier<T extends AgentRuntimeContext>(context: T, verify: () => Promise<void>): T {
-  return { ...context, [agentChannelDeliveryOwnershipVerifierKey]: verify }
 }
 
 export function withAgentChannelDelivery<T extends AgentRuntimeContext>(context: T, deliveryTracker: AgentChannelDeliveryTracker): T {

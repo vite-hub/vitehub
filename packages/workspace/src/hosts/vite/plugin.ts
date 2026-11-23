@@ -898,7 +898,7 @@ function stripWorkspaceInternalOptions(options: false | WorkspaceOptions | undef
 }
 
 export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceVitePlugin {
-  const packageLoading = createNativePackageLoading()
+  const packageLoading = createNativePackageLoading([import.meta.resolve(WORKSPACE_PACKAGE_NAME)])
   const internalOptions = options as InternalWorkspaceModuleOptions | false | undefined
   let hosting = internalOptions ? internalOptions.hosting : undefined
   const publicOptions = stripWorkspaceInternalOptions(options)
@@ -1055,7 +1055,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          ...(packageLoading.configureEnvironment(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
+          ...(packageLoading.configureEnvironment(name, env, config) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
         },
       }
     },
@@ -1219,7 +1219,7 @@ export function hubWorkspace(options?: WorkspaceOptions | false): WorkspaceViteP
       },
     },
     load: {
-      filter: { id: WORKSPACE_LOAD_ID_PATTERN },
+      filter: { id: new RegExp(`${WORKSPACE_LOAD_ID_PATTERN.source}|/vitehub-grants(?:-[\\w-]+)?\\.js$`) },
       handler(id) {
         if (id === RESOLVED_WORKSPACE_REGISTRY_ID) return registryContents
         if (id === RESOLVED_WORKSPACES_ID) {

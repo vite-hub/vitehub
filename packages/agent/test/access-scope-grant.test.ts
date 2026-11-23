@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest"
-import { grantWorkspaceAccessScope, trustedWorkspaceAccessScope } from "../src/access-runtime.ts"
+import { describe, expect, it, vi } from "vitest"
+import { attachedWorkspaceOverride, attachWorkspaceOverride, grantWorkspaceAccessScope, trustedWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { createAgentInvocationContextStore } from "../src/invocation-context.ts"
 
 const granted = { all: false, paths: ["docs"], role: "viewer", scope: "support", sources: ["docs"] }
@@ -49,5 +49,22 @@ describe("Workspace access scope grant", () => {
     other.set("access", owner.get("access"))
 
     expect(trustedWorkspaceAccessScope(other)).toBeUndefined()
+  })
+})
+
+describe("Workspace override grant", () => {
+  it("ignores an override installed under a global symbol", () => {
+    const context = { [Symbol.for("vitehub.agent.workspaceOverride")]: vi.fn() }
+
+    expect(attachedWorkspaceOverride(context)).toBeUndefined()
+  })
+
+  it("binds the override to one Capability context", () => {
+    const context = {}
+    const override = vi.fn()
+    attachWorkspaceOverride(context, override)
+
+    expect(attachedWorkspaceOverride(context)).toBe(override)
+    expect(attachedWorkspaceOverride({ ...context })).toBeUndefined()
   })
 })

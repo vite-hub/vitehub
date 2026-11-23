@@ -40,6 +40,5 @@ export async function previewEmail(template: string, data?: Record<string, unkno
   const { emailPreview } = await import("#vitehub/email/definition")
   const entry = emailPreview.templates.find(entry => entry.name === template)
   if (!entry) throw emailTemplateNotFound(template, emailPreview.roots, ".", emailPreview.templates.map(entry => entry.name))
-  const rendered = await renderEmailMarkdown(entry.source, { data })
-  return { file: entry.file, html: rendered.html, template: entry.name, text: rendered.text }
+  return { file: entry.file, template: entry.name, ...await renderEmailMarkdown(entry.source, { data }) }
 }

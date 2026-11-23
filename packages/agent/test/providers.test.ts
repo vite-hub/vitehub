@@ -546,6 +546,15 @@ describe("agent Vite plugin", () => {
       await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+
+      await installStubPackages(root, ["@vite-hub/database/runtime/registry"])
+      const withDatabase = { ...privateConfig, nitro: {}, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
+      await (memoryPlugin.config as typeof config)(withDatabase, { command: "build", mode: "production" })
+      expect(withDatabase).toMatchObject({ nitro: { plugins: [generatedQueue] } })
+      await (memoryPlugin.configResolved as typeof configResolved)({ ...withDatabase, resolve: { alias: [] } })
+      await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
+      await expect(readFile(generatedQueue, "utf8")).resolves.not.toContain("warmWebhookRoutes")
+      await expect(readFile(generatedRoute, "utf8")).resolves.toContain("const queueOpens = false")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2909,7 +2918,7 @@ export default defineAgent({
       expect(webhookRoute).toContain(`import { opensLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`)
       expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: Boolean(runtimeUrl) })")
       expect(webhookRoute).toContain("const viteHubChatStateResolver = () => viteHubChatStateOpens() ? chatStateFromLibsql() : undefined")
-      expect(webhookRoute).toContain("  if (!viteHubChatStateOpens()) return async () => undefined")
+      expect(webhookRoute).toContain("  if (!queueOpens && !recoverySweep) return async () => undefined")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3063,11 +3072,12 @@ export default defineAgent({
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
-        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number)")
-        expect(webhookRoute).toContain("if (!runtimeUrl && !viteHubChatStateOptions.url) return async () => undefined")
+        expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number, recoverySweep?: ")
+        expect(webhookRoute).toContain("const queueOpens = Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()")
+        expect(webhookRoute).toContain("if (!queueOpens && !recoverySweep) return async () => undefined")
         // A file: URL that the app set throws in workerd instead of running without State.
         expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
-        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, webhookState: chatStateFromLibsql(), waitUntil })")
+        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, webhookState: queueOpens ? chatStateFromLibsql() : undefined, waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")

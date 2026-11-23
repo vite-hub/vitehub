@@ -3,7 +3,6 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import type { ReadonlyWorkspaceFacade, WorkspaceName } from "@vite-hub/workspace"
 import type { AgentAccessWorkspaceScopeContext, AgentInvocationContextStore } from "./types.ts"
 
-export const workspaceOverrideSymbol: unique symbol = Symbol.for("vitehub.agent.workspaceOverride") as never
 const trustedSourceResolutionDefinitions = new WeakSet<AgentInvocationContextStore>()
 const trustedSourceFreeInspections = new WeakSet<AgentInvocationContextStore>()
 const workspaceAccessWrappers = new WeakMap<AgentInvocationContextStore, (workspace: ReadonlyWorkspaceFacade) => ReadonlyWorkspaceFacade>()
@@ -29,8 +28,19 @@ const workspaceAccessScope = defineGrant("vitehub.agent.workspace-access-scope",
   sources: Object.freeze([...scope.sources]),
 }))
 
-export interface WorkspaceOverrideRuntime<Name extends WorkspaceName = WorkspaceName> {
-  [workspaceOverrideSymbol]: (workspace: ReadonlyWorkspaceFacade<Name>) => void
+type WorkspaceOverride = (workspace: ReadonlyWorkspaceFacade) => void
+
+const workspaceOverride = defineGrant("vitehub.agent.workspace-override", (override: WorkspaceOverride) => override)
+
+/** Lets `access()` replace the Workspace of one Capability context. Only the Capability runtime installs it. */
+export function attachWorkspaceOverride<Name extends WorkspaceName>(context: object, override: (workspace: ReadonlyWorkspaceFacade<Name>) => void): void {
+  // SAFETY: access() passes the Workspace facade of the same Capability context back to its own override.
+  workspaceOverride.attach(context, workspaceOverride.issue(override as WorkspaceOverride))
+}
+
+/** Returns the Workspace override of a Capability context, or `undefined` when the Capability runtime did not install one. */
+export function attachedWorkspaceOverride(context: object): WorkspaceOverride | undefined {
+  return workspaceOverride.check(workspaceOverride.attached(context))
 }
 
 export function markTrustedWorkspaceSourceResolutionDefinition(context: AgentInvocationContextStore): void {

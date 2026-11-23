@@ -417,7 +417,7 @@ export function hasVercelNativeWorkflowEntry(rootDir: string, definitions: Disco
   return hasNativeEntry
 }
 
-export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string): Promise<void> {
+export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: string, emailDefinitionFile: string, aliases?: Record<string, string>): Promise<void> {
   const flowFile = resolve(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
   if (!existsSync(flowFile)) return
   const generatedDir = ensureGeneratedDir(rootDir, productName)
@@ -435,6 +435,7 @@ export async function installEmailDefinitionInVercelWorkflowOutput(rootDir: stri
       "",
     ].join("\n"), "utf8")
     await bundleEsmEntry(bootstrapEntry, flowFile, {
+      alias: aliases,
       external: ["@aws-sdk/credential-provider-web-identity"],
       format: "esm",
       platform: "node",
@@ -731,7 +732,7 @@ async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: Dis
   try {
     await withVercelWorkflowPackageLink(rootDir, async () => await builder.build())
     const emailDefinitionFile = aliases["#vitehub/email/definition"]
-    if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile)
+    if (emailDefinitionFile) await installEmailDefinitionInVercelWorkflowOutput(rootDir, emailDefinitionFile, aliases)
     const workflowConfig = parseJsonRecord(await readFile(outputConfigFile, "utf8"), "Workflow Vercel output config")
     const workflowRoutes = Array.isArray(workflowConfig.routes) ? workflowConfig.routes : []
     await writeFile(outputConfigFile, `${JSON.stringify({

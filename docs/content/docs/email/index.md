@@ -23,7 +23,6 @@ export default defineEventHandler(async () => {
     data: { user: { name: 'Ada' } },
     from: 'verified-sender@example.com',
     to: 'ada@example.com',
-    subject: 'Your workspace is ready',
   })
   if (error) throw error
   return sent
@@ -31,6 +30,10 @@ export default defineEventHandler(async () => {
 ```
 
 ```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
+
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.

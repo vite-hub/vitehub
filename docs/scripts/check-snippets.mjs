@@ -360,35 +360,18 @@ async function registryDeclarations(pageSnippets) {
 }
 
 /**
- * The template types that `hubEmail()` writes to `.vitehub/types/email-templates.d.ts` and `.vitehub/types/email.d.ts`
- * (`renderEmailTemplateTypes()` in packages/email/src/vite.ts), for the `server/emails/*.md` blocks of the page.
+ * The template types that `hubEmail()` writes to `.vitehub/types/email-templates.d.ts` and `.vitehub/types/email.d.ts`,
+ * from `renderEmailTemplateTypes()` of the built Email package, for the `server/emails/*.md` blocks of the page.
  */
 async function emailTemplateDeclarations(pageSnippets) {
   const templates = pageSnippets[0].emailTemplates ?? []
   if (!templates.length) return []
-  const { inferMarkdownTemplateDataType } = await import(pathToFileURL(join(packagesRoot, "markdown-template/dist/internal/vite.js")).href)
-  const typed = await Promise.all(templates.map(async template => ({ ...template, data: await inferMarkdownTemplateDataType(template.code, "    ") })))
+  const { renderEmailTemplateTypes } = await import(pathToFileURL(join(packagesRoot, "email/dist/vite.js")).href)
+  const sources = templates.map(({ code, name }) => ({ file: `server/emails/${name}.md`, name, source: code }))
+  const [scoped, framework] = await Promise.all(["@vite-hub/email", "vite-hub/email"].map(importBase => renderEmailTemplateTypes(sources, importBase)))
   return [
-    {
-      code: ["@vite-hub/email", "vite-hub/email"].flatMap(module => [
-        `import ${JSON.stringify(module)}`,
-        `declare module ${JSON.stringify(module)} {`,
-        "  interface EmailTemplateRegistry {",
-        ...typed.map(({ data, name }) => `    ${JSON.stringify(name)}: ${data.type}`),
-        "  }",
-        "}",
-      ]).join("\n") + "\n",
-      file: join(pageSnippets[0].pageRoot, ".vitehub/types/email-templates.d.ts"),
-    },
-    {
-      code: typed.map(({ data, name }) => [
-        `declare module ${JSON.stringify(`#vitehub/emails/${name}`)} {`,
-        `  const render: (data${data.required ? "" : "?"}: ${data.type.replaceAll("\n    ", "\n  ")}) => Promise<string>`,
-        "  export default render",
-        "}",
-      ].join("\n")).join("\n\n") + "\n",
-      file: join(pageSnippets[0].pageRoot, ".vitehub/types/email.d.ts"),
-    },
+    { code: `${scoped.registry}\n${framework.registry}`, file: join(pageSnippets[0].pageRoot, ".vitehub/types/email-templates.d.ts") },
+    { code: scoped.modules, file: join(pageSnippets[0].pageRoot, ".vitehub/types/email.d.ts") },
   ]
 }
 

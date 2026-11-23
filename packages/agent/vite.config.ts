@@ -12,6 +12,7 @@ const privateEntryExports = new Set([
   "./provider-agent",
   "./runtime/invocations-dev",
   "./runtime/provider-agent-worker",
+  "./runtime/recovery-leases",
   "./runtime/registry",
   "./runtime/workflow",
   "./server/registry",
@@ -33,6 +34,11 @@ function alwaysBundle(id: string, importer: string | undefined): boolean {
 export default defineConfig({
   pack: {
     ...packDefaults,
+    outputOptions: {
+      codeSplitting: {
+        groups: [{ name: "vitehub-grants", test: /[/\\](?:access-runtime|channel-delivery-ownership)\.ts$/ }],
+      },
+    },
     deps: {
       alwaysBundle,
       neverBundle: [
@@ -96,6 +102,7 @@ export default defineConfig({
       "src/cloudflare/state.ts",
       "src/runtime/registry.ts",
       "src/runtime/invocations-dev.ts",
+      "src/runtime/recovery-leases.ts",
       "src/runtime/provider-agent-worker.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",

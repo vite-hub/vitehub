@@ -14,7 +14,7 @@ describe("support matrix test status", () => {
     for (const step of workflow.split(/\n(?=\s+- name: )/)) {
       const name = /- name: (.+?) Live E2E/.exec(step)?.[1];
       if (!name) continue;
-      const only = /if: matrix\.provider == '(\w+)'/.exec(step)?.[1];
+      const only = /if: .*\bmatrix\.provider == '(\w+)'/.exec(step)?.[1];
       for (const host of hosts) {
         if (!only || only === host) expected.add(`${primitiveOfStep[name] ?? name}:${host}`);
       }

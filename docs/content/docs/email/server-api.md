@@ -13,9 +13,9 @@ Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare`, or `lo
 | Import | Runtime values | Public types |
 | --- | --- | --- |
 | `vite-hub` | `vitehub` | Framework Vite Integration options. |
-| `vite-hub/email` | `email` (`email.send()`, `email.canSend`), `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
+| `vite-hub/email` | `email` (`email.send()`, `email.canSend`), `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `RenderedEmail`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
 | `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
-| `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
+| `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmail` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend, Cloudflare Email, and log drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
@@ -99,15 +99,27 @@ export async function sendWelcome(name: string, to: string) {
 }
 ```
 
-`html` is the rendered HTML. `text` is the filled Markdown. Text clients can read it, but it can keep Markdown markers such as `**`. Pass your own `text` when you need plain text without markers.
+`renderEmailMarkdown()` returns `{ subject?, html, text }`, the same contract as a template module. `html` is the rendered HTML. `text` is the filled Markdown. `subject` is set when the Markdown starts with `subject:` frontmatter. Text clients can read it, but it can keep Markdown markers such as `**`. Pass your own `text` when you need plain text without markers.
 
 ### Send a template
 
 Put templates under `server/emails`. ViteHub finds Markdown files in all
-subfolders. Pass the template name as `template` and its values as `data`.
-`email.send()` renders the HTML and text body, then sends the message.
+subfolders. A file or folder whose name starts with `_`, such as
+`server/emails/_partials/footer.md`, is a partial: ViteHub does not discover it
+as a template or include it automatically. To reuse a partial, load the trusted
+Markdown in your application and pass it as data to `:insert`, for example
+`:insert{:markdown="data.footer"}`. Pass the template name as `template` and its
+values as `data`. `email.send()` renders the template once to a subject, an HTML
+body, and a text body, then sends the message.
+
+Set the subject with `subject:` frontmatter. It can read `{{ data.* }}` values.
+ViteHub fills it as plain text, so Markdown markers in it stay as they are.
 
 ```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
+
 # Welcome {{ data.user.name }}
 
 ::if{:condition="data.trial"}
@@ -124,15 +136,20 @@ export async function sendWelcome(name: string, to: string) {
     data: { user: { name } },
     from: 'verified-sender@example.com',
     to,
-    subject: 'Your workspace is ready',
   })
   if (error) throw error
   return sent
 }
 ```
 
+A `subject` in the message overrides the subject of the template. A template
+without `subject:` frontmatter needs `subject` in the message: TypeScript
+requires it, and `send()` throws `EMAIL_TEMPLATE_SUBJECT_REQUIRED` for an
+untyped call without it. A non-string `subject` or any other frontmatter key
+stops the build with `EMAIL_TEMPLATE_FRONTMATTER_INVALID`.
+
 TypeScript completes `template` with the names under `server/emails`, and types
-`data` from the `data.*` values that the template reads:
+`data` from the `data.*` values that the template and its subject read:
 
 | In the template | Type in `data` |
 | --- | --- |
@@ -152,7 +169,8 @@ When `data` does not fit at runtime, `send()` returns
 
 `server/emails/monthly/recap.md` is the template `monthly/recap`. To render a
 template without sending it, import `#vitehub/emails/monthly/recap`. It
-exports an async function that takes the same `data` and returns Markdown.
+exports an async function that takes the same `data` and returns
+`{ subject?, html, text }`, the `RenderedEmail` type.
 ViteHub writes the template types to `.vitehub/types/email-templates.d.ts` and
 `.vitehub/types/email.d.ts`, and bundles the templates for builds under
 `.vitehub/email/templates`. An app without templates gets no template types.
