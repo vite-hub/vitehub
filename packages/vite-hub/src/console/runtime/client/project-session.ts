@@ -692,27 +692,9 @@ export function siteTicketUrl(value: unknown, projectUrl: string): string | unde
  */
 export function siteTokenRedirect(value: unknown, projectUrl: string): string | undefined {
   const app = comparableProjectUrl(projectUrl)
-  if (typeof value !== "string" || !app) return undefined
-  let url: URL
-  try {
-    url = new URL(value)
-  }
-  catch {
-    return undefined
-  }
-  if (`${url.origin}${url.pathname}` !== `${app}/_vitehub/site` || !/^vst1\.[A-Z0-9_]{1,64}\.[\w-]+\.[\w-]+$/.test(url.searchParams.get("token") ?? "")) return undefined
+  const url = typeof value === "string" && app ? URL.parse(value) : null
+  if (!url || `${url.origin}${url.pathname}` !== `${app}/_vitehub/site` || !/^vst1\.[A-Z0-9_]{1,64}\.[\w-]+\.[\w-]+$/.test(url.searchParams.get("token") ?? "")) return undefined
   return url.href
-}
-
-async function requestSiteToken(projectId: string, page: string, state: string): Promise<unknown> {
-  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/site/token`, {
-    body: JSON.stringify({ path: page, state }),
-    credentials: "same-origin",
-    headers: { accept: "application/json", "content-type": "application/json" },
-    method: "POST",
-  })
-  if (!response.ok) throw await consoleResponseError(response)
-  return Reflect.get(Object(await response.json()), "url")
 }
 
 /**
@@ -731,7 +713,14 @@ export async function openConsoleSite(): Promise<void> {
   let url: string | undefined
   try {
     if (gate.visit) {
-      url = siteTokenRedirect(await requestSiteToken(current.id, gate.page, gate.state), current.url)
+      const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/site/token`, {
+        body: JSON.stringify({ path: gate.page, state: gate.state }),
+        credentials: "same-origin",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        method: "POST",
+      })
+      if (!response.ok) throw await consoleResponseError(response)
+      url = siteTokenRedirect(Reflect.get(Object(await response.json()), "url"), current.url)
     }
     else {
       const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])

@@ -11,7 +11,6 @@ import {
   openConsoleSiteLink,
   readGuestRoles,
   siteConsoleRole,
-  siteGuest,
   siteGuestNameLength,
   siteInviteDays,
   siteMember,
@@ -52,10 +51,6 @@ function linkProblem(status: number, message: string): Response {
 
 function field(body: unknown, name: string): unknown {
   return body instanceof Object ? Reflect.get(body, name) : undefined
-}
-
-function openPage(app: string, path: string, state: string, project: string | null): string {
-  return `/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(project ? { app: project } : {}) })}`
 }
 
 async function sitePolicy(caller: ConsoleTeamCaller, projectId: string, write: boolean): Promise<SiteAccessPolicy | Response> {
@@ -101,9 +96,8 @@ async function guestRoles(project: { id: string, teamId: string }, inviter: stri
 }
 
 async function guestAccess(project: { id: string, teamId: string }, grant: ConsoleSiteGrantRow): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
-  const guest = siteGuest(grant)
-  const roles = await guestRoles(project, grant.createdBy, guest.roles)
-  return roles.length ? { person: guest.person, roles } : undefined
+  const roles = await guestRoles(project, grant.createdBy, grant.roles)
+  return roles.length ? { person: { id: `site-guest:${grant.id}`, name: grant.name }, roles } : undefined
 }
 
 async function visitLocation(project: { id: string, teamId: string }, access: { person: ConsoleSitePerson, roles: string[] }, state: string, path: string, headers = new Headers()): Promise<Response | undefined> {
@@ -142,7 +136,7 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
     const visited = access ? await visitLocation(project, access, state, path) : undefined
     if (visited) return visited
   }
-  return seeOther(openPage(app, path, state, only))
+  return seeOther(`/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(only ? { app: only } : {}) })}`)
 })
 
 export async function openSiteLink(request: Request, kind: "invite" | "code"): Promise<Response> {

@@ -7,18 +7,18 @@ import type { ConsoleSigningKey } from "./console-signature.ts"
  * The app route that starts a visit with `?return=<path>` and ends it with `?token=<token>`. Site access tokens let the
  * Console sign a person in to a linked app without a user in the app's database:
  *
- * 1. The app's `GET /_vitehub/site?return=/docs` sets the {@link siteStateCookie} to a new {@link createSiteState} value
- *    and redirects to the Console's {@link siteVisitPath} with {@link siteVisitUrl}: the app URL, the
+ * 1. The app's `GET /_vitehub/site?return=/docs` sets a state cookie to a new {@link createSiteState} value and
+ *    redirects to the Console's `/visit` with {@link siteVisitUrl}: the app URL, the
  *    {@link siteStateHash} of the state, the return path, and the `project` query of the request when it has one. An
  *    invite or a one-time code of the Console sends the browser to `GET /_vitehub/site` with `project`, so the visit
  *    uses the pass of that project.
  * 2. The Console checks the grant of the person: a member of the team that linked the app, or a guest that opened an
- *    invite in this browser. For a member, it asks the app with the signed {@link siteAccessOperation} call, so
- *    `console.authorize` decides, as for every Console call. With a grant, it redirects to {@link siteTokenUrl},
+ *    invite in this browser. It asks the app with the signed {@link siteAccessOperation} call, as the member or as the
+ *    guest's inviter, so `console.authorize` decides, as for every Console call. With a grant, it redirects to {@link siteTokenUrl},
  *    `<app>/_vitehub/site?token=vst1.…`, with a token from {@link signSiteToken}: the key of the link signs it, it lasts
  *    60 seconds, and it holds the hash of the state.
  * 3. The app checks the token with {@link verifySiteToken}, the public keys that it already reads with
- *    `readConsolePublicKeys()`, its URL, and its state cookie. Then it sets {@link siteCookie} for 12 hours and goes to
+ *    `readConsolePublicKeys()`, its URL, and its state cookie. Then it sets its own session cookie and goes to
  *    the `destination` of the match. Before the cookie ends, the app sends the browser through the Console again: while
  *    the grant exists, the Console signs a new token, and after a revoke it signs none.
  *
@@ -26,17 +26,8 @@ import type { ConsoleSigningKey } from "./console-signature.ts"
  * made, does not sign in another browser. The module uses only Web Crypto, so it runs in Node, Workers, and browsers.
  */
 export const siteRoute = "/_vitehub/site"
-/** The Console route that the app sends a visit to: `?app=<app URL>&state=<state hash>&return=<path>&project=<id>`. */
-export const siteVisitPath = "/visit"
-/** The cookie of the app that holds the state of one visit until the token comes back. */
-export const siteStateCookie = "__Host-vitehub-site-state"
-/** The cookie of the app that holds the person that a token signed in. */
-export const siteCookie = "__Host-vitehub-site"
-/** A token is good for this many seconds after the Console signs it. */
-export const siteTokenLifetimeSeconds = 60
-/** The app keeps the person of a token for this many seconds. Then it asks the Console again. */
-export const siteSessionLifetimeSeconds = 12 * 60 * 60
 
+const siteTokenLifetimeSeconds = 60
 const tokenVersion = "vst1"
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -154,7 +145,7 @@ export const siteAccessRoles: readonly SiteAccessRole[] = [
   { id: "comments-delete", label: "Delete comments", description: "Delete threads and messages." },
 ]
 
-/** A new random state for the {@link siteStateCookie}, 32 bytes as base64url. */
+/** A new random state for the app's state cookie, 32 bytes as base64url. */
 export function createSiteState(): string {
   return encodeConsoleBase64url(crypto.getRandomValues(new Uint8Array(32)))
 }
@@ -177,11 +168,7 @@ export function isSitePath(value: string): boolean {
   return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/\p{Cc}/u.test(value) && value.length <= 2_048
 }
 
-/**
- * The URL of a {@link isSitePath} path below an app URL, such as `https://app.example.com/portal` and `/docs`. It is
- * `undefined` when the path is not a site path or resolves outside the origin or the base path of the app.
- */
-export function siteDestination(app: string, path: string): string | undefined {
+function siteDestination(app: string, path: string): string | undefined {
   if (!isSitePath(path)) return undefined
   const base = new URL(app)
   const mount = base.pathname.replace(/\/+$/, "")
@@ -197,7 +184,7 @@ export function siteTokenUrl(app: string, token: string): string {
 /** The Console URL that starts a visit, from the app's `GET /_vitehub/site`, with the `project` query of that request. */
 export function siteVisitUrl(input: { console: string, app: string, state: string, path: string, project?: string }): string {
   const query = new URLSearchParams({ app: input.app, state: input.state, return: input.path, ...(input.project ? { project: input.project } : {}) })
-  return `${input.console.replace(/\/+$/, "")}${siteVisitPath}?${query}`
+  return `${input.console.replace(/\/+$/, "")}/visit?${query}`
 }
 
 /**
@@ -254,7 +241,7 @@ function parseJson(bytes: Uint8Array): unknown {
 /**
  * Check a token in the app. `keys` are the public keys of `readConsolePublicKeys()`, `origin` is the URL that the app
  * serves, with its base path, such as `https://app.example.com/portal`, and `state` is the value of its
- * {@link siteStateCookie}. `kinds` are the kinds that the route accepts, `["site"]` by default. The token is refused
+ * state cookie. `kinds` are the kinds that the route accepts, `["site"]` by default. The token is refused
  * when it is malformed, signed with an unknown key or another key, made for another origin, expired, made for another
  * browser, of another kind, or when its path resolves outside the app URL.
  */

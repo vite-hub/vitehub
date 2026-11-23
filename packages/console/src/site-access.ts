@@ -74,12 +74,11 @@ export const consoleSiteSchema = { consoleSiteGrants, consoleSiteLinks }
 export const siteConsoleRole = "console"
 /** The invite lifetimes that a member can pick, in days. */
 export const siteInviteDays = [1, 7, 30] as const
-/** A one-time code is scanned with another device, which takes longer than a click, so it lasts 10 minutes. */
-export const siteCodeLifetime = 10 * 60_000
-/** A pass is good this long after the last token that it got. */
-export const sitePassLifetime = 7 * 86_400_000
 /** The longest guest name. It is the author of their comments. */
 export const siteGuestNameLength = 64
+
+const siteCodeLifetime = 10 * 60_000
+const sitePassLifetime = 7 * 86_400_000
 
 /** The person that a pass or a Console session signs in to the app. */
 export interface ConsoleSitePerson {
@@ -111,8 +110,7 @@ export interface ConsoleSiteInvite {
   createdBy: { id: string, name: string }
 }
 
-/** The SHA-256 digest of a pass or link secret, base64url. Secrets are random, so a plain digest is enough. */
-export async function siteSecretHash(secret: string): Promise<string> {
+async function siteSecretHash(secret: string): Promise<string> {
   return encodeConsoleBase64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))))
 }
 
@@ -152,8 +150,7 @@ export function sitePassSetCookie(projectId: string, secret: string, secure: boo
   return `${sitePassCookie(projectId, secure)}=${secret}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`
 }
 
-/** Whether a person is a member of a team. A member's pass and Console session give the site only while this holds. */
-export async function isTeamMember(db: ConsoleDatabase, teamId: string, userId: string): Promise<boolean> {
+async function isTeamMember(db: ConsoleDatabase, teamId: string, userId: string): Promise<boolean> {
   const [row] = await db.select({ id: member.id }).from(member).where(and(eq(member.organizationId, teamId), eq(member.userId, userId))).limit(1)
   return Boolean(row)
 }
@@ -174,12 +171,11 @@ export async function siteMember(db: ConsoleDatabase, project: Pick<ConsoleProje
  * The URL that ends a visit: `<app>/_vitehub/site?token=…`, with a token that the key of the link signs for the person,
  * the roles, the state hash that the app sent, and the app path to open.
  */
-export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, now?: number }): Promise<string> {
+export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string }): Promise<string> {
   const { person } = input
   const token = await signSiteToken({
     key: input.key,
     claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: "site", path: input.path, state: input.state },
-    ...(input.now === undefined ? {} : { now: input.now }),
   })
   return siteTokenUrl(input.project.url, token)
 }
@@ -213,8 +209,7 @@ function linkUnused(db: ConsoleDatabase) {
   return notExists(db.select({ id: consoleSiteGrants.id }).from(consoleSiteGrants).where(eq(consoleSiteGrants.linkId, consoleSiteLinks.id)))
 }
 
-export function createConsoleSiteStore(database: ConsoleDatabase | (() => ConsoleDatabase), projectId: string, clock: () => number = Date.now): ConsoleSiteStore {
-  const db = typeof database === "function" ? database : () => database
+export function createConsoleSiteStore(db: ConsoleDatabase, projectId: string): ConsoleSiteStore {
   const inProject = (table: typeof consoleSiteGrants | typeof consoleSiteLinks) => eq(table.projectId, projectId)
   const toInvite = (row: typeof consoleSiteLinks.$inferSelect): ConsoleSiteInvite => ({
     id: row.id,
@@ -227,44 +222,44 @@ export function createConsoleSiteStore(database: ConsoleDatabase | (() => Consol
   return {
     async invite({ name, roles, days, path, createdBy }) {
       const secret = newSecret()
-      const now = clock()
+      const now = Date.now()
       const row = { id: crypto.randomUUID(), projectId, kind: "invite" as const, secretHash: await siteSecretHash(secret), userId: null, name, roles, path, createdBy: createdBy.id, createdByName: createdBy.name, createdAt: now, expiresAt: now + days * 86_400_000, revokedAt: null }
-      await db().insert(consoleSiteLinks).values(row)
+      await db.insert(consoleSiteLinks).values(row)
       return { secret, invite: toInvite(row) }
     },
     async invites() {
-      const rows = await db().select().from(consoleSiteLinks)
-        .where(and(inProject(consoleSiteLinks), eq(consoleSiteLinks.kind, "invite"), linkUnused(db()), isNull(consoleSiteLinks.revokedAt), gt(consoleSiteLinks.expiresAt, clock())))
+      const rows = await db.select().from(consoleSiteLinks)
+        .where(and(inProject(consoleSiteLinks), eq(consoleSiteLinks.kind, "invite"), linkUnused(db), isNull(consoleSiteLinks.revokedAt), gt(consoleSiteLinks.expiresAt, Date.now())))
         .orderBy(desc(consoleSiteLinks.createdAt))
       return rows.map(toInvite)
     },
     async revokeInvite(id) {
-      const revoked = await db().update(consoleSiteLinks).set({ revokedAt: clock() })
-        .where(and(inProject(consoleSiteLinks), eq(consoleSiteLinks.id, id), eq(consoleSiteLinks.kind, "invite"), linkUnused(db()), isNull(consoleSiteLinks.revokedAt)))
+      const revoked = await db.update(consoleSiteLinks).set({ revokedAt: Date.now() })
+        .where(and(inProject(consoleSiteLinks), eq(consoleSiteLinks.id, id), eq(consoleSiteLinks.kind, "invite"), linkUnused(db), isNull(consoleSiteLinks.revokedAt)))
         .returning({ id: consoleSiteLinks.id })
       return revoked.length > 0
     },
     async code({ userId, path, createdBy }) {
       const secret = newSecret()
-      const now = clock()
+      const now = Date.now()
       const expiresAt = now + siteCodeLifetime
-      await db().insert(consoleSiteLinks).values({ id: crypto.randomUUID(), projectId, kind: "code", secretHash: await siteSecretHash(secret), userId, path, createdBy: createdBy.id, createdByName: createdBy.name, createdAt: now, expiresAt })
+      await db.insert(consoleSiteLinks).values({ id: crypto.randomUUID(), projectId, kind: "code", secretHash: await siteSecretHash(secret), userId, path, createdBy: createdBy.id, createdByName: createdBy.name, createdAt: now, expiresAt })
       return { secret, expiresAt: iso(expiresAt) }
     },
     async pass(secret) {
-      const now = clock()
-      const [grant] = await db().update(consoleSiteGrants).set({ lastSeenAt: now, expiresAt: now + sitePassLifetime })
+      const now = Date.now()
+      const [grant] = await db.update(consoleSiteGrants).set({ lastSeenAt: now, expiresAt: now + sitePassLifetime })
         .where(and(inProject(consoleSiteGrants), eq(consoleSiteGrants.secretHash, await siteSecretHash(secret)), isNull(consoleSiteGrants.revokedAt), gt(consoleSiteGrants.expiresAt, now)))
         .returning()
       return grant
     },
     async issued(id, roles) {
-      await db().update(consoleSiteGrants).set({ roles }).where(and(inProject(consoleSiteGrants), eq(consoleSiteGrants.id, id), eq(consoleSiteGrants.kind, "member")))
+      await db.update(consoleSiteGrants).set({ roles }).where(and(inProject(consoleSiteGrants), eq(consoleSiteGrants.id, id), eq(consoleSiteGrants.kind, "member")))
     },
     async sessions() {
-      const rows = await db().select({ grant: consoleSiteGrants, email: authUser.email, image: authUser.image, userName: authUser.name }).from(consoleSiteGrants)
+      const rows = await db.select({ grant: consoleSiteGrants, email: authUser.email, image: authUser.image, userName: authUser.name }).from(consoleSiteGrants)
         .leftJoin(authUser, eq(authUser.id, consoleSiteGrants.userId))
-        .where(and(inProject(consoleSiteGrants), isNull(consoleSiteGrants.revokedAt), gt(consoleSiteGrants.expiresAt, clock())))
+        .where(and(inProject(consoleSiteGrants), isNull(consoleSiteGrants.revokedAt), gt(consoleSiteGrants.expiresAt, Date.now())))
         .orderBy(desc(consoleSiteGrants.lastSeenAt))
       return rows.map(({ grant, email, image, userName }) => ({
         id: grant.id,
@@ -278,7 +273,7 @@ export function createConsoleSiteStore(database: ConsoleDatabase | (() => Consol
       }))
     },
     async revoke(id) {
-      const [revoked] = await db().update(consoleSiteGrants).set({ revokedAt: clock() })
+      const [revoked] = await db.update(consoleSiteGrants).set({ revokedAt: Date.now() })
         .where(and(inProject(consoleSiteGrants), eq(consoleSiteGrants.id, id), isNull(consoleSiteGrants.revokedAt)))
         .returning({ kind: consoleSiteGrants.kind })
       return revoked
@@ -303,8 +298,9 @@ export interface ConsoleSiteLinkOwner {
  * write uses no link and a link makes one pass. Returns the project, the pass secret, and the app path; `forbidden` when
  * `allow` refuses or the code's person left the team; or `undefined` for a used, revoked, expired, or unknown link.
  */
-export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: "invite" | "code", secret: string, userAgent: string, allow?: (link: ConsoleSiteLinkOwner) => Promise<boolean>, now?: number }): Promise<{ projectId: string, pass: string, path: string, grant: ConsoleSiteGrantRow } | "forbidden" | undefined> {
-  const { kind, now = Date.now() } = input
+export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: "invite" | "code", secret: string, userAgent: string, allow: (link: ConsoleSiteLinkOwner) => Promise<boolean> }): Promise<{ projectId: string, pass: string, path: string } | "forbidden" | undefined> {
+  const { kind } = input
+  const now = Date.now()
   const open = and(eq(consoleSiteLinks.kind, kind), eq(consoleSiteLinks.secretHash, await siteSecretHash(input.secret)), linkUnused(db), isNull(consoleSiteLinks.revokedAt), gt(consoleSiteLinks.expiresAt, now))
   const [found] = await db.select({ link: consoleSiteLinks, teamId: consoleProjects.teamId }).from(consoleSiteLinks)
     .innerJoin(consoleProjects, eq(consoleProjects.id, consoleSiteLinks.projectId)).where(open).limit(1)
@@ -312,7 +308,7 @@ export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: "i
   const { link, teamId } = found
   const person = kind === "code" && link.userId ? await siteMember(db, { teamId }, link.userId) : undefined
   if (kind === "code" && !person) return "forbidden"
-  if (input.allow && !await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
+  if (!await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
   const pass = newSecret()
   const grant: ConsoleSiteGrantRow = {
     id: crypto.randomUUID(),
@@ -349,10 +345,5 @@ export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: "i
     revokedAt: sql<null>`null`.as("revoked_at"),
   }).from(consoleSiteLinks).where(and(eq(consoleSiteLinks.id, link.id), open, kind === "code" ? inTeam : undefined))).returning({ id: consoleSiteGrants.id })
   if (!created.length) return kind === "code" && !await isTeamMember(db, teamId, link.userId ?? "") ? "forbidden" : undefined
-  return { projectId: link.projectId, pass, path: link.path, grant }
-}
-
-/** The guest of a good pass, as invited, with the roles of the invite. A member's pass is checked as a member. */
-export function siteGuest(grant: ConsoleSiteGrantRow): { person: ConsoleSitePerson, roles: string[] } {
-  return { person: { id: `site-guest:${grant.id}`, name: grant.name }, roles: grant.roles }
+  return { projectId: link.projectId, pass, path: link.path }
 }
