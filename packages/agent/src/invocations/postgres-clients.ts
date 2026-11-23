@@ -11,8 +11,14 @@ interface RowsQuery {
   query(text: string, values?: PostgresParameters): Promise<PostgresRows>
 }
 
+interface NodePostgresConnection extends RowsQuery {
+  on(event: "error", listener: (error: Error) => void): void
+  removeListener(event: "error", listener: (error: Error) => void): void
+  release(destroy?: boolean): void
+}
+
 interface NodePostgresPool extends RowsQuery {
-  connect(): Promise<RowsQuery & { release(destroy?: boolean): void }>
+  connect(): Promise<NodePostgresConnection>
   totalCount: number
 }
 
@@ -46,21 +52,28 @@ function nodePostgresClient(pool: NodePostgresPool): AgentInvocationPostgresClie
     ...rowsQuery(pool),
     async begin(run) {
       const connection = await pool.connect()
+      let connectionError: Error | undefined
       let rollbackFailed = false
+      const onError = (error: Error) => { connectionError ??= error }
+      connection.on("error", onError)
       try {
         await connection.query("BEGIN")
-        try {
-          const result = await run(rowsQuery(connection))
-          await connection.query("COMMIT")
-          return result
-        }
-        catch (error) {
+        if (connectionError) throw connectionError
+        const result = await run(rowsQuery(connection))
+        if (connectionError) throw connectionError
+        await connection.query("COMMIT")
+        if (connectionError) throw connectionError
+        return result
+      }
+      catch (error) {
+        if (!connectionError) {
           rollbackFailed = await connection.query("ROLLBACK").then(() => false, () => true)
-          throw error
         }
+        throw error
       }
       finally {
-        connection.release(rollbackFailed)
+        connection.release(connectionError !== undefined || rollbackFailed)
+        connection.removeListener("error", onError)
       }
     },
   }
@@ -75,13 +88,6 @@ function pgliteClient(pglite: Pglite): AgentInvocationPostgresClient {
 
 const clients = new WeakMap<object, AgentInvocationPostgresClient>()
 
-/**
- * The journal client of a Postgres Database for its `$client`: postgres.js, a node-postgres Pool, or PGlite. Its queries
- * count in the request's database stats. Each driver client keeps one journal client, so the table check stays cached.
- * Another client, such as a single `pg.Client` that would run other queries inside a transaction, fails with
- * `AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED`. A node-postgres transaction holds one pooled connection, and the
- * pool destroys a connection that cannot roll back.
- */
 export function agentInvocationPostgresClient(client: unknown, database: string): AgentInvocationPostgresClient {
   if (!client || (typeof client !== "object" && typeof client !== "function")) {
     throw agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED({ database })

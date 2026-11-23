@@ -1,8 +1,10 @@
+import { EventEmitter } from "node:events"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
+import { sql } from "drizzle-orm"
 import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy"
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -88,8 +90,44 @@ describe("Database Agent Invocation store on Postgres drivers", () => {
     })
   })
 
+  it.each([false, true])("rolls back a timed-out BEGIN (rollback fails: %s)", async (rollbackFails) => {
+    const failure = new Error("Query read timeout")
+    const connection = Object.assign(new EventEmitter(), {
+      query: vi.fn().mockRejectedValueOnce(failure).mockImplementationOnce(async () => {
+        if (rollbackFails) throw new Error("Rollback timed out")
+        return { rows: [] }
+      }),
+      release: vi.fn(),
+    })
+    const { agentInvocationPostgresClient } = await import("../src/invocations/postgres-clients.ts")
+    const client = agentInvocationPostgresClient({ connect: async () => connection, query: vi.fn(), totalCount: 1 }, "DB")
+    const run = vi.fn()
+
+    await expect(client.begin(run)).rejects.toBe(failure)
+    expect(run).not.toHaveBeenCalled()
+    expect(connection.query.mock.calls).toEqual([["BEGIN"], ["ROLLBACK"]])
+    expect(connection.release).toHaveBeenCalledExactlyOnceWith(rollbackFails)
+    expect(connection.listenerCount("error")).toBe(0)
+  })
+
+  it("does not commit when a checked-out connection emits an error between queries", async () => {
+    const failure = new Error("Connection lost")
+    const connection = Object.assign(new EventEmitter(), {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      release: vi.fn(),
+    })
+    const { agentInvocationPostgresClient } = await import("../src/invocations/postgres-clients.ts")
+    const client = agentInvocationPostgresClient({ connect: async () => connection, query: vi.fn(), totalCount: 1 }, "DB")
+
+    await expect(client.begin(async () => { connection.emit("error", failure) })).rejects.toBe(failure)
+    expect(connection.query.mock.calls).toEqual([["BEGIN"]])
+    expect(connection.release).toHaveBeenCalledExactlyOnceWith(true)
+    expect(connection.listenerCount("error")).toBe(0)
+  })
+
   describe.skipIf(!url)("on a Postgres server", () => {
     const pools: Array<{ end: () => Promise<void> }> = []
+    const serverPrefix = `${prefix}drop_`
     const nodePostgres = () => {
       vi.stubEnv("VITEHUB_TEST_AGENT_DATABASE_URL", url!)
       const definition = defineDatabase({ connection: { url: { kind: "env-variable", source: { kind: "env", name: "VITEHUB_TEST_AGENT_DATABASE_URL" } } }, dialect: "postgresql", driver: "node-postgres", schema: {} })
@@ -98,7 +136,7 @@ describe("Database Agent Invocation store on Postgres drivers", () => {
       return db
     }
     afterAll(async () => {
-      await nodePostgres().execute(`DROP TABLE IF EXISTS ${prefix}invocations_observations, ${prefix}invocations`)
+      await nodePostgres().execute(`DROP TABLE IF EXISTS ${prefix}invocations_observations, ${prefix}invocations, ${serverPrefix}invocations_observations, ${serverPrefix}invocations`)
       await Promise.all(pools.map(pool => pool.end()))
     })
 
@@ -106,6 +144,31 @@ describe("Database Agent Invocation store on Postgres drivers", () => {
       const [a, b] = [nodePostgres(), nodePostgres()]
       for (const statement of await journalMigration(prefix)) await a.execute(statement)
       await shareInvocationBetweenTwoProcesses({ a, b }, prefix)
+    })
+
+    it("rejects a journal update when its backend is terminated and reconnects", async () => {
+      const [db, control] = [nodePostgres(), nodePostgres()]
+      for (const statement of await journalMigration(serverPrefix)) await db.execute(statement)
+      useDatabase.mockReturnValue({ db })
+      const { createDatabaseAgentInvocationStore } = await import("../src/invocations/database.ts")
+      const journal = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false, tablePrefix: serverPrefix })
+      await journal.create(invocation("interrupted"))
+      const { rows: [backend] } = await db.execute("SELECT pg_backend_pid() AS pid") as { rows: [{ pid: number }] }
+
+      await control.transaction(async (transaction) => {
+        await transaction.execute(`LOCK TABLE ${serverPrefix}invocations IN ACCESS EXCLUSIVE MODE`)
+        const update = journal.update("interrupted", { status: "cancelled", timestamp }).catch((error: unknown) => error)
+        await vi.waitFor(async () => {
+          const { rows: [activity] } = await transaction.execute(sql`SELECT cardinality(pg_blocking_pids(${backend.pid}::integer)) AS blockers`) as { rows: Array<{ blockers: number }> }
+          expect(activity?.blockers).toBeGreaterThan(0)
+        }, { timeout: 3_000 })
+        const { rows: [termination] } = await transaction.execute(sql`SELECT pg_terminate_backend(${backend.pid}::integer) AS terminated`) as { rows: Array<{ terminated: boolean }> }
+        expect(termination?.terminated).toBe(true)
+        expect(await update).toBeInstanceOf(Error)
+      })
+
+      await expect(journal.get("interrupted")).resolves.toMatchObject({ status: "running" })
+      await expect(journal.update("interrupted", { status: "cancelled", timestamp })).resolves.toMatchObject({ status: "cancelled" })
     })
   })
 })
