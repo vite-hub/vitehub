@@ -69,8 +69,8 @@ A docs site or another app without Auth gets Site access too. Opening the link s
 
 - The cookie is sealed with AES-GCM under a key that `VITEHUB_SECRET` gives for this purpose alone, so the browser cannot read or change it. It is `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS, and lasts 7 days. A changed cookie, a cookie of another secret, and an expired cookie count as no cookie.
 - The app trusts the person and the roles in the cookie as much as the Console key: a signed Console call made the ticket.
-- Each cookie names a session in the app's default KV store. **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
-- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a KV store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
+- Each cookie names a session in the store of [one-time links](#one-time-links). **Revoke**, or `site.revoke-session`, deletes it, and the cookie stops working on the next request. `site.sessions` lists the sessions.
+- It needs `VITEHUB_SECRET`, else `site.link` and `site.invite` fail with `500` and `CONSOLE_SITE_SECRET_MISSING`, and a store that takes a ticket out once (see [one-time links](#one-time-links)), else they fail with `CONSOLE_TICKET_STORE_MISSING`. A development server keeps sessions in memory.
 
 ## One-time links
 
@@ -84,7 +84,9 @@ A draft preview needs your app's origin to render, and a sign-in needs it to set
 
 A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
 
-The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. A development server without a store keeps tickets in memory. A production app without one refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. With one of them, tickets and site sessions go in the `vitehub_console_site` table of the app's first [Database](/docs/database), such as D1 on Cloudflare or D1 over HTTP. KV stores use the `vitehub_kv` table, so no KV store can read or clear them. A development server without a store keeps tickets in memory. A production app with none of these stores refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+
+When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
 
 ## Link to the Console
 
