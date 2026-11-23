@@ -58,9 +58,10 @@ function placeholders(text: string): string | undefined {
 export function findPreviousTranslations(messages: SourceMessages, records: TranslationRecords): Map<string, PreviousTranslation> {
   const missing = Object.entries(messages).filter(([id]) => !records[id] || !isVisible(records[id]))
   if (!missing.length) return new Map()
+  const contexts = new Set(missing.map(([, message]) => message.context ?? ""))
   const unused = new Map<string, Array<{ id: string, record: TranslationRecord, grams: Bigrams }>>()
   for (const [id, record] of Object.entries(records)) {
-    if (id in messages || !isVisible(record)) continue
+    if (id in messages || !contexts.has(record.salt ?? "") || !isVisible(record)) continue
     const signature = placeholders(record.source)
     if (signature === undefined) continue
     const key = JSON.stringify([record.salt ?? "", signature])
