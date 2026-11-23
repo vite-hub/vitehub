@@ -749,7 +749,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "nuxt.config.ts"), `
           export default {
             modules: ["vite-hub/nuxt"],
-            experimental: { nitroAutoImports: true },
             nitro: { preset: "node-server" },
             vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, host: "node" },
           }
