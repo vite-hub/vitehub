@@ -111,7 +111,7 @@ Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and
 
 Use `createRateLimiter()` when the application selects the driver and handles the decision. A production driver must implement one atomic `consume()` operation for its backend. A generic KV `get()` followed by `set()` is not safe under concurrent requests. `kvRateLimitDriver({ storage })` uses an atomic `increment` instead, so it works with any KV store that has one, for example `kv.store("limits")` from `vite-hub/kv` on Redis or Postgres. Its counters also count rejected requests.
 
-The KV driver waits at most one second for each storage operation. A timed-out operation returns `RATE_LIMIT_KV_TIMEOUT`: consume follows the `failure` policy; peek and reset return `unavailable`. The deadline does not cancel the storage operation, so a timed-out consume can still count. KV configuration errors still throw.
+The KV driver waits at most one second for each storage operation. A timed-out operation returns `RATE_LIMIT_KV_TIMEOUT`: consume follows the `failure` policy; peek, refund, and reset return `unavailable`. The deadline does not cancel the storage operation, so a timed-out consume can still count. KV configuration errors still throw.
 
 Drivers return a `Result`: `[undefined, result]` after consuming the counter, and `[error, undefined]` only for an expected operational outage. Return the error of the store when it has one, such as a KV `Result` error, or a `ResultError` from your own `defineErrors()` catalog. The limiter then returns `reason: "unavailable"` and sets `allowed` from the failure policy, which defaults to deny. ViteHub-owned configuration errors, malformed provider results, and implementation defects throw Nostics diagnostics with `RATE_LIMIT_B####` or `RATE_LIMIT_R####` codes. Application driver errors keep their identity. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
@@ -124,7 +124,7 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 | Driver     | `peek()`                                                                  | `refund()` | `reset()`             |
 | ---------- | ------------------------------------------------------------------------- | ---------- | --------------------- |
 | memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Removes one request from the counter. | Deletes the counter.  |
-| kv         | `used`, `remaining`, and `resetAt` of the current window, shared by every process. | Adds one to a second counter that `consume()` subtracts at the limit. | Deletes the counters of the current window. |
+| kv         | `used`, `remaining`, and `resetAt` of the current window, shared by every process. | Adds one to a second counter that `consume()` subtracts at the limit. | Advances the counter generation so new requests start fresh; previous counters expire by TTL. |
 | cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`. | `unsupported`.        |
 
 For a managed guard, `refundRateLimit(event, id, options)` takes the same arguments as `checkRateLimit()` and returns `[error, result]`. The build discovers it like the other guards.
@@ -139,7 +139,7 @@ With the evlog Nitro module registered, `requireRateLimit()` and `checkRateLimit
 
 | Import                                    | Purpose                                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------- |
-| `@vite-hub/rate-limit`                    | `requireRateLimit()`, `checkRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
+| `@vite-hub/rate-limit`                    | `requireRateLimit()`, `checkRateLimit()`, `refundRateLimit()`, `createRateLimiter()`, `peekRateLimit()`, `resetRateLimit()`, and public contract types |
 | `@vite-hub/rate-limit/drivers/memory`     | Process-local fixed-window driver                                         |
 | `@vite-hub/rate-limit/drivers/kv`         | Fixed-window driver on a KV store with an atomic `increment`              |
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |

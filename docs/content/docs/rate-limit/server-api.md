@@ -131,9 +131,10 @@ It returns `[error, result]`. `result.status` is `refunded`, `unsupported` on th
 | `requireRateLimit` from `vite-hub/rate-limit` | Enforce a managed Rate Limit in an H3 handler. |
 | `checkRateLimit` from `vite-hub/rate-limit` | Consume a managed Rate Limit and return its decision. |
 | `refundRateLimit` from `vite-hub/rate-limit` | Give back one request of a managed Rate Limit. |
+| `peekRateLimit`, `resetRateLimit` from `vite-hub/rate-limit` | Read or reset the counter of a managed Rate Limit in the current runtime. |
 | `createRateLimiter` from `vite-hub/rate-limit` | Build a direct limiter around a custom driver. |
 | `memoryRateLimitDriver` from `vite-hub/rate-limit/drivers/memory` | Fixed windows in one process. |
-| `kvRateLimitDriver` from `@vite-hub/rate-limit/drivers/kv` | Fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |
+| `kvRateLimitDriver` from `vite-hub/rate-limit/drivers/kv` | Fixed windows in a KV store that every process shares, with `kv` from `vite-hub/kv`. |
 | `cloudflareRateLimitDriver` from `vite-hub/rate-limit/drivers/cloudflare` | Use a Cloudflare Rate Limiting binding directly. |
 | `hubRateLimit` from `@vite-hub/rate-limit/vite` | Add call discovery, runtime setup, and Provider Output without the framework integration. |
 
