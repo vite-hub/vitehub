@@ -878,8 +878,8 @@ export function comarkJsonSchema(schema: unknown): JsonSchema {
   if (isPlainRecord(schema.items)) result.items = comarkJsonSchema(schema.items)
   const meta = schema["x-content"]
   if (isPlainRecord(meta)) {
-    // SAFETY: x-content is Comark's own field metadata extension; Comark interprets and validates it.
-    result["x-content"] = meta as JsonSchema["x-content"]
+    // SAFETY: the app's Comark plugins declare and validate x-content field types, so this package cannot name them.
+    result["x-content"] = meta as never
   }
   return result
 }
