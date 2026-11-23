@@ -1,5 +1,6 @@
 /**
- * The server helpers that `vite-hub/nuxt` auto-imports in Nitro code, per ViteHub feature. This table is the only list.
+ * The server helpers that `vite-hub/nuxt` auto-imports in Nitro code, per ViteHub feature, when the app turns on
+ * Nuxt's server auto-imports (see {@link nuxtServerAutoImportsEnabled}). This table is the only list.
  *
  * Rules for an entry:
  * - Runtime helpers that server code calls in a handler, such as `kv` or `sendQueue`.
@@ -72,6 +73,18 @@ export interface ServerAutoImport {
   from: string
   name: string
   priority?: number
+}
+
+/**
+ * Whether the app turns on Nuxt's server auto-imports, with `experimental.nitroAutoImports` or `nitroLegacy.imports`
+ * (`nitroLegacy: true` includes it). Nuxt 5 makes the same check before it adds the Nitro and H3 helpers.
+ */
+export function nuxtServerAutoImportsEnabled(options: { experimental?: { nitroAutoImports?: unknown }, nitroLegacy?: unknown }): boolean {
+  if (options.experimental?.nitroAutoImports === true) return true
+  const legacy = options.nitroLegacy
+  if (legacy === true) return true
+  if (typeof legacy !== "object" || legacy === null) return false
+  return Boolean(("imports" in legacy ? legacy.imports : undefined) ?? true)
 }
 
 /** The import entries for the enabled features, in table order. */

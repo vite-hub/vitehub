@@ -1,5 +1,10 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
+import { scanServerExports } from "../src/internal/server-scan-exports.ts"
 import { resolveViteHubServerImports, viteHubServerImports, type ViteHubServerImportFeature } from "../src/nuxt-server-imports.ts"
 
 // SAFETY: `Object.keys` widens the keys of the const table to string.
@@ -48,5 +53,28 @@ describe("ViteHub server auto-imports", () => {
 
   it("keeps Definition helpers out when ViteHub also loads their files outside Nitro", () => {
     for (const name of ["defineAgent", "defineAuth", "defineComments", "defineDatabase", "defineSchedule", "defineWorkflow", "defineWorkspace"]) expect(names).not.toContain(name)
+  })
+
+  it("reads the value names that Nuxt scans from server/utils", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-server-exports-"))
+    try {
+      await mkdir(join(root, "utils/nested"), { recursive: true })
+      await writeFile(join(root, "utils/db.ts"), "export const db = {}, other = 1\nexport type Row = {}\nexport interface Shape {}\nconst local = 1\nexport { local as kv, type Row as Alias }\n")
+      await writeFile(join(root, "utils/send-mail.ts"), "export default function () {}\n")
+      await writeFile(join(root, "utils/types.d.ts"), "export declare const blob: unknown\n")
+      await writeFile(join(root, "utils/broken.ts"), "export const = \n")
+      await writeFile(join(root, "utils/nested/queue.ts"), "export function sendQueue() {}\n")
+
+      expect([...await scanServerExports([join(root, "utils")])].map(([name, file]) => [name, file.slice(root.length + 1)]).sort()).toEqual([
+        ["db", "utils/db.ts"],
+        ["kv", "utils/db.ts"],
+        ["other", "utils/db.ts"],
+        ["sendMail", "utils/send-mail.ts"],
+      ])
+      expect([...(await scanServerExports([join(root, "utils/**/*")])).keys()]).toContain("sendQueue")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

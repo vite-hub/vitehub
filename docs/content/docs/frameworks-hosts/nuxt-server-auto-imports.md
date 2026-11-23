@@ -7,12 +7,13 @@ navigation.group: Frameworks
 icon: i-lucide-folder-tree
 ---
 
-On Nuxt 5, the `vite-hub/nuxt` module auto-imports the server helpers of each
-feature that you turn on. Nitro server code uses them without an import.
-Definition files that ViteHub loads outside Nitro must keep explicit imports,
-as described below.
+On Nuxt 5, server code imports ViteHub helpers from their `vite-hub/*` paths.
+Server auto-imports are off by default, as they are for the Nitro and H3
+helpers.
 
 ```ts [server/api/welcome.post.ts] fragment
+import { kv } from 'vite-hub/kv'
+import { sendQueue } from 'vite-hub/queue'
 import { defineEventHandler, readBody } from 'nitro/h3'
 
 export default defineEventHandler(async (event) => {
@@ -24,15 +25,39 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`sendQueue` and `kv` need no import. Nuxt 5 does not auto-import Nitro and H3
-helpers such as `defineEventHandler` unless you turn on
-`experimental.nitroAutoImports`, so this example imports them.
+## Turn server auto-imports on
 
-Explicit imports from `vite-hub/*` also work. They are the same functions.
+ViteHub follows Nuxt's own switch. It adds no option of its own.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  experimental: { nitroAutoImports: true },
+})
+```
+
+With the switch on, Nuxt auto-imports the Nitro and H3 helpers, and the
+`vite-hub/nuxt` module auto-imports the server helpers in the table below.
+`nitroLegacy: true`, or a `nitroLegacy` object without `imports: false`, also
+turns them on.
+
+```ts [server/api/welcome.post.ts] fragment
+export default defineEventHandler(async (event) => {
+  const { email } = await readBody<{ email: string }>(event)
+  const [error] = await sendQueue('welcome-email', { email })
+  if (error) throw error
+  await kv.set(`welcome:${email}`, 'queued')
+  return { queued: true }
+})
+```
+
+Explicit imports from `vite-hub/*` also work with the switch on. They are the
+same functions.
 
 ## Folders and auto-imports
 
-The module scans the server directory of the app and of each Nuxt layer.
+The module scans the server directory of the app and of each Nuxt layer. The
+auto-imports apply only when Nuxt server auto-imports are on.
 
 | Feature | Option | Folder that the module scans | Server auto-imports |
 | --- | --- | --- | --- |
@@ -99,39 +124,35 @@ export default defineSchedule({
 })
 ```
 
-Routes and other files that Nitro alone loads can still use the runtime
-auto-imports in the table.
+With server auto-imports on, routes and other files that Nitro alone loads can
+use the runtime auto-imports in the table.
 
 ## Types
 
 Nuxt writes the declarations of all server auto-imports to
 `.nuxt/types/server-imports.d.ts` when it prepares the app. Each ViteHub
 auto-import has the type of its `vite-hub/*` export, so `nuxt typecheck`
-checks the calls.
+checks the calls. With the switch off, the file declares no ViteHub helpers,
+and `nuxt typecheck` reports a name such as `kv` that the file does not import.
 
 ## Names that another source owns
 
 ViteHub does not use a name that Nuxt, Nitro, or H3 auto-imports, such as
 `getSession`, `useSession`, `defineTask`, or `useStorage`.
 
-When another source gives the same name, that source wins and ViteHub skips
-its entry. This is true for `server/utils/` files, `nitro.imports.imports`
-entries, and other modules. For example, `server/utils/kv.ts` that exports
-`kv` replaces the ViteHub `kv`.
+When another source gives the same name, that source wins. ViteHub skips its
+entry and logs one warning that names both sources. This is true for
+`server/utils/` files, `nitro.imports.imports` entries, and other modules. For
+example, `server/utils/db.ts` that exports `db` replaces the ViteHub `db`.
+Import the ViteHub helper from its `vite-hub/*` path where you need it.
 
 ## Turn auto-imports off
 
-ViteHub uses Nuxt's own switches. It adds no option of its own.
+Leave `experimental.nitroAutoImports` off. Nuxt's other switches also stop the
+ViteHub server auto-imports:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['vite-hub/nuxt'],
-  // Turns off server auto-imports, also for `server/utils/`.
-  nitro: { imports: false },
-})
-```
-
-- `nitro: { imports: false }` turns off all server auto-imports.
+- `nitro: { imports: false }` turns off all server auto-imports, also for
+  `server/utils/`.
 - `imports: { autoImport: false }` turns off all auto-imports in the project,
   in the app and in server code.
 

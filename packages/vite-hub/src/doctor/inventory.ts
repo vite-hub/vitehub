@@ -27,12 +27,14 @@ const inventorySchema = v.object({
   serverDirs: v.optional(v.array(v.string())),
   /** Direct dependencies whose installed `package.json` needs `@nuxthub/core`. */
   nuxtHubDependents: v.optional(v.array(v.object({ name: v.string(), field: v.picklist(["peerDependencies", "dependencies"]) }))),
+  nuxtServerAutoImports: v.optional(v.boolean()),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
   serverDirs?: string[]
   nuxtHubDependents?: NuxtHubDependent[]
+  nuxtServerAutoImports?: boolean
 }
 /** A dependency that lists `@nuxthub/core` in `field`, so installing it also installs NuxtHub. */
 export type NuxtHubDependent = { name: string, field: "peerDependencies" | "dependencies" }
@@ -110,13 +112,23 @@ function serverDirsOf(project: ProjectInfo): string[] {
   return [resolve(root, appServerDir ?? "server"), ...layerDirs.filter(isDirectory)]
 }
 
-function configuredServerDir(root: string): string | undefined {
+function nuxtConfigSource(root: string): string | undefined {
   for (const name of ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]) {
     const file = resolve(root, name)
-    if (!existsSync(file)) continue
-    const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(readFileSync(file, "utf8"))
-    return match?.[1] && resolve(root, match[1])
+    if (existsSync(file)) return readFileSync(file, "utf8")
   }
+}
+
+function configuredServerDir(root: string): string | undefined {
+  const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(nuxtConfigSource(root) ?? "")
+  return match?.[1] && resolve(root, match[1])
+}
+
+function configuredServerAutoImports(root: string): boolean {
+  const source = nuxtConfigSource(root) ?? ""
+  if (/\bnitroAutoImports\s*:\s*true\b/.test(source) || /\bnitroLegacy\s*:\s*true\b/.test(source)) return true
+  const legacy = /\bnitroLegacy\s*:\s*\{([^}]*)\}/.exec(source)
+  return legacy !== null && !/\bimports\s*:\s*false\b/.test(legacy[1] ?? "")
 }
 
 const describeSchema = v.object({
@@ -225,6 +237,7 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
       serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
       ...(env ? { env } : {}),
       ...(nuxtHubDependents.length ? { nuxtHubDependents } : {}),
+      ...(project.framework === "nuxt" && configuredServerAutoImports(root) ? { nuxtServerAutoImports: true } : {}),
     } satisfies ViteHubInventory
   },
 }
