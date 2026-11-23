@@ -32,7 +32,7 @@ const methodLabel = (method: string) =>
 
 <template>
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto w-full max-w-6xl sm:p-2">
+    <div class="w-full max-w-[78rem] sm:p-2">
     <ConsoleStatGrid :items="metrics" size="lg" :columns="5" label="Auth totals" class="border-b border-default p-4" />
     <p v-if="!description.storage.enabled" class="px-4 pt-3 text-xs text-muted">
       {{ description.storage.reason }}

@@ -9,7 +9,7 @@ import { authConsoleActionOperations, authConsoleImpersonationOperations, authCo
 import { authFixture } from "./auth-fixture.ts"
 import { cacheFixture } from "./cache-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
-import { callCommentsFixture } from "./comments.ts"
+import { callCommentsFixture, openCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 import { servedSkillsFixture } from "./served-skills-fixture.ts"
 import { siteFixture } from "./site-fixture.ts"
@@ -60,6 +60,8 @@ const fixtureRoutes: Record<string, string> = {
 const projectFixture = {
   build: {
     commit: { author: "Maxi", branch: "main", message: "feat(content): add the ferry schedule to the travel guide", repository: "vite-hub/vitehub", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+    framework: { name: "nuxt", version: "5.0.2" },
+    host: { name: "cloudflare", preset: "cloudflare-module" },
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",
@@ -71,7 +73,7 @@ const projectFixture = {
 
 export async function callConsoleFixture(origin: string, payload: { input?: Record<string, unknown>; operation: string }, cookie?: string): Promise<ConsoleRpcResult> {
   if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload)
-  if (payload.operation === "project.get") return { ok: true, value: projectFixture }
+  if (payload.operation === "project.get") return { ok: true, value: { ...projectFixture, comments: { open: openCommentsFixture() } } }
   const input = payload.input ?? {}
   const auth = authOperationFixture(payload.operation, input)
   if (auth) return auth

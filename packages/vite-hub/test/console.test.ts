@@ -164,6 +164,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
         console: productionConsole,
+        host: { name: "cloudflare", preset: "cloudflare-module" },
         sections: ["agents", "usage", "blob", "kv"],
       })
       const configHook = plugin.config
@@ -195,6 +196,7 @@ describe("Agent invocation console", () => {
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv","site"])`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
+      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain('"host":{"name":"cloudflare","preset":"cloudflare-module"},"framework":{"name":"nitro"}')
       await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,
       )

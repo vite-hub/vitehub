@@ -1,6 +1,8 @@
 import { callOperationRpc, operationRpcPath, type OperationRpcOutcome } from "@vite-hub/internal/operation-rpc"
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { consoleRpcHeader } from "../rpc"
+import { githubAuthorLogin } from "../github-login"
 import { consoleErrorFields } from "./request"
 import { parseConsoleNavigation } from "./sections"
 
@@ -10,10 +12,26 @@ import type { ConsoleNavigation } from "./sections"
 /** The `project.get` protocol that this Console reads. */
 export const consoleProjectProtocol = 1
 
-/** What the production build of a project recorded: when it ran, and its Git commit when the build found one. */
+/**
+ * What the production build of a project recorded: when it ran, its host and framework, and its Git commit when the
+ * build found one. An older vite-hub sends no host, framework, or login.
+ */
 export interface ConsoleProjectBuild {
   time: string
-  commit?: { sha: string, message?: string, author?: string, branch?: string, repository?: string }
+  host?: { name: ConsoleProjectHostName, preset: string }
+  framework?: { name: ConsoleProjectFrameworkName, version?: string }
+  commit?: { sha: string, message?: string, author?: string, login?: string, branch?: string, repository?: string }
+}
+
+/** The names that the Console shows for the host and the framework of a build. */
+export const consoleHostLabels = { cloudflare: "Cloudflare", deno: "Deno", netlify: "Netlify", node: "Node", vercel: "Vercel" } as const
+export const consoleFrameworkLabels = { nitro: "Nitro", nuxt: "Nuxt" } as const
+export type ConsoleProjectHostName = keyof typeof consoleHostLabels
+export type ConsoleProjectFrameworkName = keyof typeof consoleFrameworkLabels
+
+/** The GitHub avatar of a commit author, `size` pixels wide. */
+export function consoleAuthorAvatarUrl(login: string, size = 40): string {
+  return `https://github.com/${encodeURIComponent(login)}.png?size=${size}`
 }
 
 /** The answer of `project.get`: what the project runs, and what this access may use in it. */
@@ -24,6 +42,8 @@ export interface ConsoleProjectInfo {
   vitehub?: string
   /** The build that serves the project. A development server and an older vite-hub send none. */
   build?: ConsoleProjectBuild
+  /** The open Comments threads, when this access may open Comments. An older vite-hub sends none. */
+  comments?: ConsoleProjectComments
   sections: string[]
   operations: string[]
   /** The answer of `sections.list`, which apps send to the Console page with `project.get`. Older apps leave it out. */
@@ -48,27 +68,58 @@ export type ConsoleProjectProbe =
   | { kind: "missing" }
   | { kind: "failed", status: number, code?: string, message?: string, fix?: string }
 
+/** The Comments of a project in `project.get`: how many threads are open. */
+export interface ConsoleProjectComments {
+  open: number
+}
+
+/** The address of `site` that opens with the Comments pill on, as Comment on site does in the app's Console. */
+export function consoleCommentsSiteUrl(site: string): string {
+  return `${site}?${viteHubPageToolsQuery}=comments`
+}
+
+/** Read the `comments` of a `project.get` answer. A count that is not a whole number is no count. */
+export function consoleProjectCommentsOf(value: unknown): ConsoleProjectComments | undefined {
+  const open: unknown = value instanceof Object ? Reflect.get(value, "open") : undefined
+  return Number.isSafeInteger(open) && Number(open) >= 0 ? { open: Number(open) } : undefined
+}
+
 const field = (record: object, key: string): string | undefined => {
   const value: unknown = Reflect.get(record, key)
   return String(value) === value && value.trim() ? value.trim() : undefined
 }
+
+const isKey = <T extends object>(record: T, key: string | undefined): key is Extract<keyof T, string> => key !== undefined && Object.hasOwn(record, key)
 
 /** Read the `build` of a `project.get` answer. A value without a valid time is no build. */
 export function consoleProjectBuildOf(value: unknown): ConsoleProjectBuild | undefined {
   if (!(value instanceof Object)) return undefined
   const time = field(value, "time")
   if (!time || !Number.isFinite(Date.parse(time))) return undefined
+  const build: ConsoleProjectBuild = { time }
+  const hostValue: unknown = Reflect.get(value, "host")
+  const hostName = hostValue instanceof Object ? field(hostValue, "name") : undefined
+  const preset = hostValue instanceof Object ? field(hostValue, "preset") : undefined
+  if (isKey(consoleHostLabels, hostName) && preset) build.host = { name: hostName, preset }
+  const frameworkValue: unknown = Reflect.get(value, "framework")
+  const frameworkName = frameworkValue instanceof Object ? field(frameworkValue, "name") : undefined
+  if (frameworkValue instanceof Object && isKey(consoleFrameworkLabels, frameworkName)) {
+    const version = field(frameworkValue, "version")
+    build.framework = { name: frameworkName, ...(version ? { version } : {}) }
+  }
   const commitValue: unknown = Reflect.get(value, "commit")
   const sha = commitValue instanceof Object ? field(commitValue, "sha") : undefined
-  if (!(commitValue instanceof Object) || !sha) return { time }
+  if (!(commitValue instanceof Object) || !sha) return build
   const commit: NonNullable<ConsoleProjectBuild["commit"]> = { sha }
   for (const key of ["message", "author", "branch"] as const) {
     const entry = field(commitValue, key)
     if (entry) commit[key] = entry
   }
+  const login = githubAuthorLogin(field(commitValue, "login"))
+  if (login) commit.login = login
   const repository = field(commitValue, "repository")
   if (repository && /^[\w.-]+\/[\w.-]+$/.test(repository)) commit.repository = repository
-  return { time, commit }
+  return { ...build, commit }
 }
 
 /**
@@ -95,6 +146,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
     return { kind: "protocol", ...(Number.isInteger(protocol) ? { protocol: Number(protocol) } : {}), ...(version ? { vitehub: version } : {}) }
   }
   const build = consoleProjectBuildOf(record ? Reflect.get(record, "build") : undefined)
+  const comments = consoleProjectCommentsOf(record ? Reflect.get(record, "comments") : undefined)
   return {
     kind: "ready",
     info: {
@@ -102,6 +154,7 @@ function parseProjectInfo(value: unknown): ConsoleProjectProbe {
       ...(String(name) === name && name.trim() ? { name: name.trim() } : {}),
       ...(version ? { vitehub: version } : {}),
       ...(build ? { build } : {}),
+      ...(comments ? { comments } : {}),
       operations: strings(record ? Reflect.get(record, "operations") : undefined),
       sections: strings(record ? Reflect.get(record, "sections") : undefined),
       ...(navigation instanceof Object ? { navigation: parseConsoleNavigation(navigation) } : {}),
