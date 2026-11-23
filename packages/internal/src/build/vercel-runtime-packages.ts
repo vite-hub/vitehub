@@ -46,7 +46,7 @@ export async function copyVercelFunctionRuntimePackages(options: VercelFunctionR
 }
 
 /** Collects the runtime packages that features add to Vercel functions, then traces and copies them once per function. */
-export function createVercelFunctionRuntimePackagesPass(): {
+export function createVercelFunctionRuntimePackagesPass(beforeWrite?: (nodeModules: string) => Promise<void>): {
   add: (request: VercelFunctionRuntimePackagesRequest) => void
   copy: (signal?: AbortSignal) => Promise<void>
 } {
@@ -65,7 +65,7 @@ export function createVercelFunctionRuntimePackagesPass(): {
         functions.set(serverDir, entry)
       }
       for (const [serverDir, entry] of functions) {
-        await copyFunctionRuntimePackages(serverDir, entry.rootDir, entry.requests, signal)
+        await copyFunctionRuntimePackages(serverDir, entry.rootDir, entry.requests, signal, beforeWrite)
       }
     },
   }
@@ -76,6 +76,7 @@ async function copyFunctionRuntimePackages(
   rootDir: string,
   requests: VercelFunctionRuntimePackagesRequest[],
   signal: AbortSignal | undefined,
+  beforeWrite: ((nodeModules: string) => Promise<void>) | undefined,
 ): Promise<void> {
   try {
     await access(serverDir)
@@ -86,51 +87,75 @@ async function copyFunctionRuntimePackages(
     throw error
   }
 
-  const packages: NodeRuntimePackage[] = []
+  const groups: NodeRuntimePackage[][] = []
   for (const request of requests) {
     const requested = Array.isArray(request.packages) ? request.packages : await request.packages()
-    for (const runtimePackage of requested) {
-      packages.push({ ...runtimePackage, resolveFrom: runtimePackage.resolveFrom ?? join(request.rootDir, "package.json") })
-    }
+    if (requested.length) groups.push(requested.map(runtimePackage => ({ ...runtimePackage, resolveFrom: runtimePackage.resolveFrom ?? join(request.rootDir, "package.json") })))
   }
-  if (!packages.length) return
+  if (!groups.length) return
 
+  const directory = resolve(serverDir, "node_modules")
+  await beforeWrite?.(directory)
   await updateRuntimePackageDirectory({
-    directory: resolve(serverDir, "node_modules"),
+    directory,
     signal,
-    update: outputNodeModules => copyNodeRuntimePackages({
-      outputNodeModules,
-      packages,
-      rootDir,
-    }),
+    update: outputNodeModules => copyNodeRuntimePackageGroups(outputNodeModules, rootDir, groups),
   })
 }
 
 export async function copyNodeRuntimePackages(options: NodeRuntimePackagesOptions): Promise<void> {
-  if (!options.packages.length) return
+  await copyNodeRuntimePackageGroups(options.outputNodeModules, options.rootDir, [options.packages])
+}
 
-  const copied = new Set<string>()
-  const expanded = new Set<string>()
+interface RuntimePackageManifest {
+  dependencies?: Record<string, string>
+  exports?: unknown
+  main?: string
+  module?: string
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+interface RuntimePackageSelection {
+  packageJson: RuntimePackageManifest
+  packageJsonPath: string
+  resolver: NodeJS.Require
+}
+
+async function copyNodeRuntimePackageGroups(outputNodeModules: string, rootDir: string, groups: NodeRuntimePackage[][]): Promise<void> {
+  const selected = new Map<string, RuntimePackageSelection>()
   const requested = new Map<string, string>()
-  for (const runtimePackage of options.packages) {
-    const resolveFrom = runtimePackage.resolveFrom ?? join(options.rootDir, "package.json")
-    const resolver = createRequire(resolveFrom)
-    const packageJsonPath = await copyPackageToNodeModules(runtimePackage.name, resolver, dirname(resolveFrom), options.outputNodeModules, copied, expanded, runtimePackage)
-    if (!packageJsonPath) continue
-    const previous = requested.get(runtimePackage.name)
-    if (previous && previous !== packageJsonPath) {
-      throw internalErrorDiagnostics.INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT({ first: dirname(previous), name: runtimePackage.name, second: dirname(packageJsonPath) })
+  for (const packages of groups) {
+    const visited = new Set<string>()
+    const expanded = new Set<string>()
+    for (const runtimePackage of packages) {
+      const resolveFrom = runtimePackage.resolveFrom ?? join(rootDir, "package.json")
+      const resolver = createRequire(resolveFrom)
+      const packageJsonPath = await selectRuntimePackage(runtimePackage.name, resolver, dirname(resolveFrom), selected, visited, expanded, runtimePackage)
+      if (!packageJsonPath) continue
+      const previous = requested.get(runtimePackage.name)
+      if (previous && previous !== packageJsonPath) {
+        throw internalErrorDiagnostics.INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT({ first: dirname(previous), name: runtimePackage.name, second: dirname(packageJsonPath) })
+      }
+      requested.set(runtimePackage.name, packageJsonPath)
     }
-    requested.set(runtimePackage.name, packageJsonPath)
+  }
+  for (const [name, { packageJson, packageJsonPath, resolver }] of selected) {
+    const packageDir = dirname(packageJsonPath)
+    const targetDir = join(outputNodeModules, ...name.split("/"))
+    await rm(targetDir, { force: true, recursive: true })
+    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, packageJsonPath, packageJson, targetDir)
+    if (!copiedTrace) await copyRuntimePackageFiles(packageDir, targetDir)
   }
 }
 
-async function copyPackageToNodeModules(
+async function selectRuntimePackage(
   name: string,
   resolver: NodeJS.Require,
   fromDir: string,
-  outputNodeModules: string,
-  copied: Set<string>,
+  selected: Map<string, RuntimePackageSelection>,
+  visited: Set<string>,
   expanded: Set<string>,
   options: NodeRuntimePackage = { name },
 ): Promise<string | undefined> {
@@ -144,23 +169,11 @@ async function copyPackageToNodeModules(
   const packageDir = dirname(resolvedPackageJsonPath)
   const parsedPackageJson: unknown = JSON.parse(await readFile(resolvedPackageJsonPath, "utf8"))
   // SAFETY: parsePackageJson establishes the object boundary; package metadata fields are optional and consumed defensively below.
-  const packageJson = parsePackageJson(parsedPackageJson, resolvedPackageJsonPath) as {
-    dependencies?: Record<string, string>
-    exports?: unknown
-    main?: string
-    module?: string
-    name?: string
-    optionalDependencies?: Record<string, string>
-    peerDependencies?: Record<string, string>
-    peerDependenciesMeta?: Record<string, { optional?: boolean }>
-  }
+  const packageJson = parsePackageJson(parsedPackageJson, resolvedPackageJsonPath) as RuntimePackageManifest
   const packageKey = `${name}\0${resolvedPackageJsonPath}`
-  if (!copied.has(packageKey)) {
-    copied.add(packageKey)
-    const targetDir = join(outputNodeModules, ...name.split("/"))
-    await rm(targetDir, { force: true, recursive: true })
-    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, resolvedPackageJsonPath, packageJson, targetDir)
-    if (!copiedTrace) await copyRuntimePackageFiles(packageDir, targetDir)
+  if (!visited.has(packageKey)) {
+    visited.add(packageKey)
+    selected.set(name, { packageJson, packageJsonPath: resolvedPackageJsonPath, resolver })
   }
 
   const expansionKey = `${packageKey}\0${options.includePeerDependencies ? "peers" : "dependencies"}`
@@ -182,7 +195,7 @@ async function copyPackageToNodeModules(
   }
 
   for (const dependencyName of dependencyNames) {
-    await copyPackageToNodeModules(dependencyName, packageRequire, packageDir, outputNodeModules, copied, expanded, {
+    await selectRuntimePackage(dependencyName, packageRequire, packageDir, selected, visited, expanded, {
       includePeerDependencies: options.includePeerDependencies,
       name: dependencyName,
       optional: optionalDependencyNames.has(dependencyName) && !requiredPeerDependencyNames.has(dependencyName),

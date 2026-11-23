@@ -132,7 +132,7 @@ async function compare(beforePath, afterPath) {
   const before = JSON.parse(await readFile(beforePath, "utf8"))
   const after = JSON.parse(await readFile(afterPath, "utf8"))
   const withoutContentHash = path => path.replace(/-[\w-]{8}(\.m?js|\.d\.ts)$/, "$1")
-  const list = files => [...new Set(Object.keys(files).map(withoutContentHash))].sort().join("\n")
+  const list = files => Object.keys(files).map(withoutContentHash).sort().join("\n")
   const sameList = list(before.files) === list(after.files)
   const viteHubOwned = path => path.startsWith("node_modules/@vite-hub/") || !path.startsWith("node_modules/")
   const paths = [...new Set([...Object.keys(before.files), ...Object.keys(after.files)])].sort()

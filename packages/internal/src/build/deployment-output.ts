@@ -1249,7 +1249,7 @@ export async function finalizeProviderDeploymentOutputs(
             const write = withProviderDeploymentOutputRootLock(rootDir, async () => {
               await withProviderDeploymentOutputRootTransaction(rootDir, async (transaction) => {
                 try {
-                  const vercelRuntimePackages = createVercelFunctionRuntimePackagesPass()
+                  const vercelRuntimePackages = createVercelFunctionRuntimePackagesPass(nodeModules => transaction.snapshot([nodeModules]))
                   for (const contribution of rootContributions) {
                     throwIfProviderOutputAborted(controller.signal)
                     await contribution.write({

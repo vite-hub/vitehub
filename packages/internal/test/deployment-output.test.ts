@@ -1,6 +1,6 @@
 import { existsSync, renameSync, rmSync } from "node:fs"
 import { spawnSync } from "node:child_process"
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, relative } from "node:path"
 import { tmpdir } from "node:os"
 
@@ -1767,6 +1767,56 @@ describe("provider deployment outputs", () => {
     })
     expect(existsSync(join(nodeModules, "existing"))).toBe(true)
     expect(existsSync(join(nodeModules, "runtime-package"))).toBe(false)
+  })
+
+  it("keeps the last contribution's transitive installation when batching", async () => {
+    const rootDir = await createTempProject()
+    const { createDefaultVercelOutputRoot } = await import("../src/build/deployment-output.ts")
+    const { createVercelFunctionRuntimePackagesPass } = await import("../src/build/vercel-runtime-packages.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const nodeModules = join(outputRoot, "functions", "__server.func", "node_modules")
+    const first = join(rootDir, "first")
+    const second = join(rootDir, "second")
+    await writePackage(first, "consumer", { dependencies: { shared: "1.0.0" } })
+    await writePackage(first, "shared")
+    await writePackage(second, "consumer-two", { dependencies: { shared: "2.0.0" } })
+    await writePackage(second, "shared", { version: "2.0.0" })
+    await mkdir(nodeModules, { recursive: true })
+
+    const pass = createVercelFunctionRuntimePackagesPass()
+    pass.add({ outputRoot, packages: [{ name: "consumer" }], rootDir: first })
+    pass.add({ outputRoot, packages: [{ name: "consumer-two" }], rootDir: second })
+    pass.add({ outputRoot, packages: [{ name: "consumer" }], rootDir: first })
+
+    await pass.copy()
+
+    await expect(readFile(join(nodeModules, "shared", "package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.0.0" })
+  })
+
+  it("rolls back packages in a custom Vercel output when another function fails", async () => {
+    const rootDir = await createTempProject()
+    const {
+      contributeProviderDeploymentOutput,
+      createProviderOutputCatalog,
+      finalizeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = join(rootDir, "custom-output")
+    const nodeModules = join(outputRoot, "functions", "__server.func", "node_modules")
+    await writePackage(rootDir, "runtime-package")
+    await mkdir(join(nodeModules, "existing"), { recursive: true })
+    await mkdir(join(outputRoot, "functions", "other.func"), { recursive: true })
+    const catalog = createProviderOutputCatalog()
+    contributeProviderDeploymentOutput(catalog, {
+      owner: "workspace",
+      rootDir,
+      write: async ({ addVercelRuntimePackages }) => {
+        addVercelRuntimePackages({ outputRoot, packages: [{ name: "runtime-package" }], rootDir })
+        addVercelRuntimePackages({ outputRoot, packages: [{ name: "missing-runtime-package" }], rootDir, serverFunctionName: "other.func" })
+      },
+    })
+
+    await expect(finalizeProviderDeploymentOutputs(catalog)).rejects.toThrow("Could not resolve package.json for missing-runtime-package")
+    expect(await readdir(nodeModules)).toEqual(["existing"])
   })
 
   it("copies runtime packages into an explicit Node output", async () => {
