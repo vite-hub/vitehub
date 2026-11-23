@@ -40,7 +40,7 @@ const packageManagers: readonly SetupPackageManager[] = ["pnpm", "npm", "yarn", 
  */
 export const initPackages: Readonly<Record<InitFramework, { prod: readonly string[], dev: readonly string[] }>> = {
   nuxt: { dev: [], prod: ["vite-hub", "h3@^2.0.8", "valibot"] },
-  vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261102-rc", "h3@2.0.8", "valibot"] },
+  vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261103-rc", "h3@2.0.8", "valibot"] },
 }
 
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
