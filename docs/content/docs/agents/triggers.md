@@ -66,11 +66,13 @@ import { loadAuthorizedSupportThreadMessages } from '../support-history'
 import { getRuntimeContext } from 'vite-hub/runtime'
 
 export default defineEventHandler(async (event) => {
-  const { text, threadId } = await readBody<{
-    text: string
+  const user = await requireAuthenticatedUser(event)
+  const body = await readBody<{
+    text?: string
     threadId?: string
   }>(event)
-  const user = await requireAuthenticatedUser(event)
+  if (!body?.text) throw new HTTPError({ status: 400, message: 'Message text is required.' })
+  const { text, threadId } = body
   const runId = crypto.randomUUID()
   const messages = await loadAuthorizedSupportThreadMessages({
     actorId: user.id,

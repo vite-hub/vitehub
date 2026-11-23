@@ -94,12 +94,16 @@ A route of your own can do work for a comment before it calls `create` or `reply
 For example, a route can return the saved reply before doing any additional work:
 
 ```ts [server/api/feedback/[id]/replies.post.ts] fragment
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError, readBody } from 'h3'
 import { comments } from '../../../comments'
 
 export default defineEventHandler(async (event) => {
   const threadId = getRouterParam(event, 'id')!
-  const { body, requestId } = await readBody<{ body: string, requestId: string }>(event)
+  const payload = await readBody<{ body?: string, requestId?: string }>(event)
+  if (!payload?.body || !payload.requestId) {
+    throw new HTTPError({ status: 400, message: 'Body and requestId are required.' })
+  }
+  const { body, requestId } = payload
   const [findError, earlier] = await comments.findReply(threadId, requestId)
   if (findError) throw findError
   if (earlier) return earlier

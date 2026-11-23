@@ -676,7 +676,7 @@ import labeller from '../agents/labeller'
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
-  const { cursor } = await readBody<{ cursor?: string }>(event)
+  const { cursor } = await readBody<{ cursor?: string }>(event) ?? {}
   return await replayChannel(labeller, 'mailbox', {
     cursor,
     limit: 50,

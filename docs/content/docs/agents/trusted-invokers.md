@@ -29,12 +29,13 @@ import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
   const user = await requireAuthenticatedUser(event)
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const body = await readBody<{ prompt?: string }>(event)
+  if (!body?.prompt) throw new HTTPError({ status: 400, message: 'Prompt is required.' })
 
   const runtime = getRuntimeContext(event)
   try {
     const [error, result] = await runAgent(support, {
-      prompt,
+      prompt: body.prompt,
       context: {
         invoker: {
           id: user.id,

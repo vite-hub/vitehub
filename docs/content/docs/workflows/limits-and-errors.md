@@ -166,8 +166,9 @@ import { resumeWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   // Check the webhook signature first. The token is not a secret.
-  const { token, text } = await readBody(event)
-  const [error] = await resumeWorkflow(token, { text })
+  const body = await readBody<{ token?: string, text?: string }>(event)
+  if (!body?.token || !body.text) throw createError({ status: 400, message: 'Token and text are required.' })
+  const [error] = await resumeWorkflow(body.token, { text: body.text })
   if (error?.code === 'WORKFLOW_SIGNAL_NOT_WAITING') throw createError({ status: 503 })
   if (error) throw error
   return { ok: true }
