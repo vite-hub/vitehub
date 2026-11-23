@@ -288,7 +288,6 @@ export function useTranslations(): Translations {
       const records = { ...published[entry], ...draft[entry] }
       const previous = findPreviousTranslations(sources, records)
       const ids = Object.keys(sources).filter(id => !(id in records)).sort()
-      // The cursor is the last id of the page before. It may be translated since then, so continue after its position.
       const cursor = options?.cursor
       const after = cursor === undefined ? 0 : ids.findIndex(id => id > cursor)
       const start = after === -1 ? ids.length : after

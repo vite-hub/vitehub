@@ -761,7 +761,6 @@ describe("missing translations for Agents", () => {
     do {
       const [, page] = await translations.missing("es", { limit: 2, ...(cursor ? { cursor } : {}) })
       seen.push(...page!.items.map(item => item.source))
-      // An Agent translates the last message of each page and skips the first one.
       const last = page!.items.at(-1)
       if (last) await translations.save({ locale: "es", source: last.source, translation: `es: ${last.source}` })
       cursor = page!.cursor ?? undefined
