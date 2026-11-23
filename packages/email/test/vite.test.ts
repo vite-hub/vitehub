@@ -106,12 +106,12 @@ describe("hubEmail", () => {
     ])).toEqual(["#vitehub/email/definition", "#vitehub/emails/welcome", "#vitehub/emails/../secret"])
     expect(matches(idFilter(plugin.load), [
       "\0#vitehub/email/definition",
-      "/@fs/app/server/emails/welcome.md?markdown-template",
+      "/@fs/app/server/emails/welcome.md?email-template",
       "#vitehub/email/definition",
       "\0#vitehub/email/definition.mjs",
       "/app/server/emails/welcome.md",
-      "/app/server/emails/welcome.md?markdown-template&raw",
-    ])).toEqual(["\0#vitehub/email/definition", "/@fs/app/server/emails/welcome.md?markdown-template"])
+      "/app/server/emails/welcome.md?email-template&raw",
+    ])).toEqual(["\0#vitehub/email/definition", "/@fs/app/server/emails/welcome.md?email-template"])
   })
 
   it("owns generated template module paths", () => {
@@ -309,8 +309,8 @@ describe("hubEmail", () => {
     await plugin.api.prepareTypes({ projectRoot: root })
     const load = functionHook(plugin.load, "load")
 
-    expect(await load(`${unrelated}?markdown-template`)).toBeUndefined()
-    expect(await load(`/@fs/${unrelated}?markdown-template`)).toBeUndefined()
+    expect(await load(`${unrelated}?email-template`)).toBeUndefined()
+    expect(await load(`/@fs/${unrelated}?email-template`)).toBeUndefined()
     const id = await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/welcome")
     expect(await load(id)).toContain("Hello {{ data.name }}")
   })
@@ -320,22 +320,27 @@ describe("hubEmail", () => {
     const template = join(root, "server", "emails", "monthly-recap.md")
     const nestedTemplate = join(root, "server", "emails", "monthly-recap", "index.mjs", "detail.md")
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
-    await writeFile(template, "Hello there")
+    await writeFile(template, "---\nsubject: Your recap for {{ data.month }}\n---\n\nHello there")
     await writeFile(nestedTemplate, "Nested detail")
+    await mkdir(join(root, "server", "emails", "_partials"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "_layout.md"), "Layout")
+    await writeFile(join(root, "server", "emails", "_partials", "footer.md"), "Footer")
     const plugin = hubEmail({ driver: "cloudflare" })
 
     await resolvePlugin(plugin, root)
 
     expect(await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/monthly-recap"))
-      .toBe(`/@fs/${template}?markdown-template`)
+      .toBe(`/@fs/${template}?email-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
-      "  const render: (data?: Record<string, never>) => Promise<string>",
+      "  const render: (data?: Record<string, never>) => Promise<{ html: string, text: string }>",
       "  export default render",
       "}",
       "",
       'declare module "#vitehub/emails/monthly-recap" {',
-      "  const render: (data?: Record<string, never>) => Promise<string>",
+      "  const render: (data: {",
+      '    "month": string | number | boolean',
+      "  }) => Promise<{ subject: string, html: string, text: string }>",
       "  export default render",
       "}",
       "",
@@ -345,8 +350,16 @@ describe("hubEmail", () => {
       "",
       'declare module "@vite-hub/email" {',
       "  interface EmailTemplateRegistry {",
-      '    "monthly-recap/index.mjs/detail": Record<string, never>',
-      '    "monthly-recap": Record<string, never>',
+      '    "monthly-recap/index.mjs/detail": {',
+      "      data: Record<string, never>",
+      "      subject: false",
+      "    }",
+      '    "monthly-recap": {',
+      "      data: {",
+      '        "month": string | number | boolean',
+      "      }",
+      "      subject: true",
+      "    }",
       "  }",
       "}",
       "",
@@ -500,14 +513,14 @@ describe("hubEmail", () => {
     })
     try {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
-      const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
-      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
+      const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<{ html: string, text: string }> }
+      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toEqual({ html: "<p>Hello *Draft*</p>\n<p>@../shared/policy.md</p>", text: "Hello \\*Draft\\*\n\n@../shared/policy.md" })
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
       // SAFETY: prepareTypes materializes the same Email renderer contract for deployment.
       const deployed = await import(pathToFileURL(paths.welcome!).href) as typeof development
-      await expect(deployed.default({ name: "Team", ready: true })).resolves.toBe("Hello Team\n\n@../shared/policy.md")
+      await expect(deployed.default({ name: "Team", ready: true })).resolves.toMatchObject({ text: "Hello Team\n\n@../shared/policy.md" })
     }
     finally {
       await server.close()
@@ -525,8 +538,8 @@ describe("hubEmail", () => {
     const paths = await hubEmail({ driver: "resend" }).api.prepareTypes({ materialize: true, projectRoot: root })
 
     // SAFETY: prepareTypes materializes each template as a module that exports its renderer.
-    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<string> }
-    await expect(template.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<{ html: string, text: string }> }
+    await expect(template.default({ name: "ViteHub" })).resolves.toEqual({ html: "<p>Hello ViteHub</p>", text: "Hello ViteHub" })
   })
 
   it("bundles the Email definition before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
@@ -558,7 +571,7 @@ describe("hubEmail", () => {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
+        .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?email-template`)
     }
     finally {
       await server.close()
@@ -666,8 +679,8 @@ describe("hubEmail", () => {
 
     const handlers = new Map<string, (file: string) => void>()
     const modules = [
-      { id: `/@fs/${template}?markdown-template` },
-      { id: `${template}?markdown-template` },
+      { id: `/@fs/${template}?email-template` },
+      { id: `${template}?email-template` },
       { id: join(root, ".vitehub", "email", "preview.mjs") },
     ]
     const invalidateModule = vi.fn()

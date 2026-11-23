@@ -117,7 +117,7 @@ A `templates/` folder can group files, but ViteHub does not discover or import i
 
 ## Email templates
 
-Each Markdown file in `server/emails` becomes a typed email renderer. ViteHub drops the folder prefix and `.md`, so `server/emails/welcome.md` becomes `#vitehub/emails/welcome` and `server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
+Each Markdown file in `server/emails` becomes a typed email renderer. ViteHub drops the folder prefix and `.md`, so `server/emails/welcome.md` becomes `#vitehub/emails/welcome` and `server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`. The renderer returns `{ subject?, html, text }`, and `subject:` frontmatter sets the subject. Files and folders whose names start with `_` are partials, not templates.
 
 Names need non-empty path segments, and no `.` or `..` segments, query strings, fragments, backslashes, or trailing `.md`. Names must be unique across all server directories.
 
