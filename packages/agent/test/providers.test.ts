@@ -528,7 +528,8 @@ describe("agent Vite plugin", () => {
 
       await rm(evalFile)
       const memoryPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
-      await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
+      const memoryConfigResolved: unknown = memoryPlugin.configResolved
+      await (memoryConfigResolved as typeof configResolved)(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     } finally {
