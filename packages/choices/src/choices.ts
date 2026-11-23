@@ -104,12 +104,16 @@ async function loadGroups(definition: ChoicesDefinition<ChoiceGroups>, limits: C
     catch (cause) {
       return { error: choicesDiagnostics.DECISIONS_R0002({ message: `[vitehub] The options of group "${key}" failed to load.`, cause }) }
     }
+    if (!Array.isArray(options)) return { error: fail("DECISIONS_R0002", `The options of group "${key}" must be a list.`) }
     if (options.length > limits.options) return { error: fail("DECISIONS_R0002", `Group "${key}" has ${options.length} options. The limit is ${limits.options}. Narrow the options before you ask.`) }
     const multiple = group.multiple !== false
     const values = new Set<ChoiceValue>()
     const labels = new Set<string>()
     for (const option of options) {
+      if (typeof option !== "object" || option === null) return { error: fail("DECISIONS_R0002", `An option of group "${key}" is not an object.`) }
       if (typeof option.label !== "string" || !option.label.trim()) return { error: fail("DECISIONS_R0002", `An option of group "${key}" has no label.`) }
+      if (typeof option.value !== "string" && !(typeof option.value === "number" && Number.isFinite(option.value))) return { error: fail("DECISIONS_R0002", `The option "${option.label}" of group "${key}" needs a value that is text or a finite number.`) }
+      if (option.aliases !== undefined && !(Array.isArray(option.aliases) && option.aliases.every((alias: unknown) => typeof alias === "string"))) return { error: fail("DECISIONS_R0002", `The option "${option.label}" of group "${key}" has aliases that are not a list of text.`) }
       if (option.description !== undefined && typeof option.description !== "string") return { error: fail("DECISIONS_R0002", `The option "${option.label}" of group "${key}" has a description that is not text.`) }
       if (values.has(option.value)) return { error: fail("DECISIONS_R0002", `Group "${key}" has the value ${JSON.stringify(option.value)} twice. Values must be unique within a group.`) }
       values.add(option.value)

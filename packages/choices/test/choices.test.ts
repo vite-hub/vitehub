@@ -332,6 +332,25 @@ describe("defineChoices() errors", () => {
     expect(error?.cause).toBeInstanceOf(Error)
   })
 
+  it.each([
+    { name: "a list that is not an array", options: { length: 1 } },
+    { name: "no list", options: undefined },
+    { name: "an option that is not an object", options: [null] },
+    { name: "an object value", options: [{ label: "A", value: { id: 1 } }] },
+    { name: "no value", options: [{ label: "A" }] },
+    { name: "a value that is not a finite number", options: [{ label: "A", value: Number.NaN }] },
+    { name: "aliases that are not a list of text", options: [{ aliases: "a", label: "A", value: 1 }] },
+  ])("returns DECISIONS_R0002 when an options function returns $name", async ({ options }) => {
+    const { ask, gateway } = spiedGateway()
+    // SAFETY: The test sends malformed options from a dynamic source, past the types.
+    const choices = defineChoices({ gateway, groups: { all: { label: "All", options: async () => options as never } } })
+    const [error, selection] = await choices.resolve("a")
+    expect(error?.code).toBe("DECISIONS_R0002")
+    expect(selection).toBeUndefined()
+    expect((await choices.inspect("a"))[0]?.code).toBe("DECISIONS_R0002")
+    expect(ask).not.toHaveBeenCalled()
+  })
+
   it("returns DECISIONS_R0005 when the gateway throws and DECISIONS_R0006 for a missing answer", async () => {
     const throwing = defineChoices({ gateway: { ask: async () => { throw new Error("offline") } }, groups: { s: { label: "S", options: suppliers } } })
     expect((await throwing.resolve("nord"))[0]?.code).toBe("DECISIONS_R0005")
