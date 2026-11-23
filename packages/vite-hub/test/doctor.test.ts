@@ -6,7 +6,7 @@ import type { DoctorPluginApi } from "vite-doctor/extension"
 
 import vitehubDoctorExtension, { destructureResultTuples, noInternalImports, noServerImportsInClient } from "../src/doctor.ts"
 import { vitehub } from "../src/index.ts"
-import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
+import { codes, doctorTestTimeout, nuxtAutoImportCodes, nuxtServerAutoImportsConfig, projectCodes } from "./doctor-helpers.ts"
 import { resolver, type ViteHubReference } from "../src/doctor/ast.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
@@ -227,15 +227,41 @@ describe("vitehub/destructure-result-tuples", () => {
   })
 
   it("reports auto-imported helpers in Nuxt server files", async () => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
+  })
+
+  it.each([
+    ["no switch", "export default defineNuxtConfig({})\n", []],
+    ["experimental.nitroAutoImports", nuxtServerAutoImportsConfig, ["VHUB0003"]],
+    ["nitroLegacy: true", "export default defineNuxtConfig({ nitroLegacy: true })\n", ["VHUB0003"]],
+    ["nitroLegacy without imports: false", "export default defineNuxtConfig({ nitroLegacy: { h3: false } })\n", ["VHUB0003"]],
+    ["nitroLegacy with imports: false", "export default defineNuxtConfig({ nitroLegacy: { imports: false } })\n", []],
+    ["comments and unrelated properties", "export default defineNuxtConfig({ /* nitroLegacy: true */ runtimeConfig: { nitroAutoImports: true } })", []],
+    ["Nuxt opt-out", "export default defineNuxtConfig({ nitroLegacy: true, imports: { autoImport: false } })", []],
+    ["Nitro opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: false } })", []],
+    ["Nitro autoImport opt-out", "export default defineNuxtConfig({ nitroLegacy: true, nitro: { imports: { autoImport: false } } })", []],
+    ["unresolved spread", "export default defineNuxtConfig({ nitroLegacy: true, ...settings })", []],
+  ])("follows Nuxt server auto-imports in the Nuxt config: %s", async (_, config, expected) => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": config,
+      "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
+    }, "nuxt")).toEqual(expected)
+  })
+
+  it.each([false, true])("reads a Nuxt layer default unless the app overrides it (%s)", async (override) => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ extends: './base'${override ? ", experimental: { nitroAutoImports: false }" : ""} })`,
+      "base/nuxt.config.ts": nuxtServerAutoImportsConfig,
+      "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get('settings')\n  return settings\n}\n",
+    }, "nuxt")).toEqual(override ? [] : ["VHUB0003"])
   })
 
   it("follows every ViteHub server auto-import in Nuxt server files", async () => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/welcome.post.ts": "export default async () => {\n  const sent = await sendQueue(\"welcome\", { id: \"1\" })\n  return sent\n}\n",
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
   })
 
   it("resolves I18n server auto-imports to their public exports", async () => {
@@ -252,10 +278,15 @@ describe("vitehub/destructure-result-tuples", () => {
         }
       },
     })
-    await runRuleFixture({
-      rule,
+    await runProjectFixture({
+      rules: [rule],
+      extensions: [vitehubDoctorExtension],
       framework: "nuxt",
-      files: { "server/api/translations.get.ts": "export default event => ({ i18n: getRequestI18n(event), translations: useTranslations() })" },
+      dependencies: { "vite-hub": "*" },
+      files: {
+        "nuxt.config.ts": nuxtServerAutoImportsConfig,
+        "server/api/translations.get.ts": "export default event => ({ i18n: getRequestI18n(event), translations: useTranslations() })",
+      },
     })
     expect(references).toEqual([
       { module: "i18n/server", name: "getRequestI18n", path: [] },
@@ -275,16 +306,16 @@ describe("vitehub/destructure-result-tuples", () => {
     'async function later() { const value = await kv.get("x"); const kv = local }',
     'async function loop() { for (const kv of locals) { const value = await kv.get("x") } }',
   ])("limits Nuxt auto-import shadowing to the binding's scope: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/scopes.ts": source,
-    }, "nuxt")).toEqual([])
-    expect(await codes(destructureResultTuples, {
+    })).toEqual([])
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/scopes.ts": [
         source,
         'async function sibling() { const siblingResult = await kv.get("x") }',
         'const outerResult = await blob.get("x")',
       ].join("\n"),
-    }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
+    })).toEqual(["VHUB0003", "VHUB0003"])
   })
 
   it.each([
@@ -293,61 +324,61 @@ describe("vitehub/destructure-result-tuples", () => {
     'namespace Local.Nested { const kv = local; const blob = local }',
     'declare module "local-storage" { const kv: unknown; const blob: unknown }',
   ])("keeps TypeScript module bindings inside their bodies: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/modules.ts": [
         source,
         'namespace Sibling { async function read() { const siblingKv = await kv.get("sibling"); const siblingBlob = await blob.get("sibling") } }',
         'const a = await kv.get("x")',
         'const b = await blob.get("x")',
       ].join("\n"),
-    }, "nuxt")).toEqual(Array(4).fill("VHUB0003"))
+    })).toEqual(Array(4).fill("VHUB0003"))
   })
 
   it.each(["kv", "blob"])("binds runtime namespace %s only in its enclosing scope", async (name) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/namespaces.ts": [
         `namespace Local { namespace ${name} { export const x = 1 }; async function read() { const result = await ${name}.get("x") } }`,
         `namespace Sibling { async function read() { const siblingResult = await ${name}.get("sibling") } }`,
         `const outerResult = await ${name}.get("outer")`,
       ].join("\n"),
-    }, "nuxt")).toEqual(["VHUB0003", "VHUB0003"])
-    expect(await codes(destructureResultTuples, {
+    })).toEqual(["VHUB0003", "VHUB0003"])
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/namespaces.ts": `namespace ${name} { export const x = 1 }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual([])
+    })).toEqual([])
   })
 
   it.each(["kv", "blob"])("preserves auto-imports across erased %s namespaces", async (name) => {
     for (const body of ["", "export interface X {}", "export type X = string", "interface X {} export { type X }", "export namespace Types { export interface X {} }", "export namespace Types.Deep { export type X = string }"]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/erased.ts": `namespace ${name} { ${body} }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual(["VHUB0003"])
+      })).toEqual(["VHUB0003"])
     }
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/merged-types.ts": `namespace ${name} { export interface X {} }; namespace ${name} { export type Y = string }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
   })
 
   it.each(["kv", "blob"])("distinguishes erased and exported namespace aliases for %s", async (name) => {
     for (const exported of [false, true]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/aliases.ts": `namespace Types { export const x = 1 }; namespace ${name} { ${exported ? "export " : ""}import X = Types }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual(exported ? [] : ["VHUB0003"])
+      })).toEqual(exported ? [] : ["VHUB0003"])
     }
   })
 
   it.each(["kv", "blob"])("retains runtime bindings for nested and merged %s namespaces", async (name) => {
     for (const body of ["export namespace Values { export const x = 1 }", "export namespace Values.Deep { export const x = 1 }"]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/nested.ts": `namespace ${name} { ${body} }; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual([])
+      })).toEqual([])
     }
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/qualified.ts": `namespace ${name}.Values { export const x = 1 }; const result = await ${name}.get("x")`,
-    }, "nuxt")).toEqual([])
+    })).toEqual([])
     for (const bodies of [["export interface X {}", "export const x = 1"], ["export const x = 1", "export interface X {}"]]) {
-      expect(await codes(destructureResultTuples, {
+      expect(await nuxtAutoImportCodes(destructureResultTuples, {
         "server/api/merged.ts": `${bodies.map(body => `namespace ${name} { ${body} }`).join("; ")}; const result = await ${name}.get("x")`,
-      }, "nuxt")).toEqual([])
+      })).toEqual([])
     }
   })
 
@@ -356,9 +387,9 @@ describe("vitehub/destructure-result-tuples", () => {
     'declare module "kv" { const x: number }',
     'declare namespace Local { namespace kv { const x: number }; const result: typeof kv };',
   ])("does not bind ambient modules as runtime helpers: %s", async (source) => {
-    expect(await codes(destructureResultTuples, {
+    expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/ambient.ts": `${source}\nconst result = await kv.get("x")`,
-    }, "nuxt")).toEqual(["VHUB0003"])
+    })).toEqual(["VHUB0003"])
   })
 
   it("resolves local helpers and stores within namespaces", async () => {

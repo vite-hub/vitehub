@@ -86,7 +86,7 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
 
-On Nuxt 5, the module auto-imports the server helpers of each enabled feature, such as `kv`, `db`, and `sendQueue`. Set `nitro: { imports: false }` to turn them off. Read [Nuxt server auto-imports](https://vitehub.dev/docs/frameworks-hosts/nuxt-server-auto-imports).
+On Nuxt 5, server code imports ViteHub helpers such as `kv`, `db`, and `sendQueue` from their `vite-hub/*` paths. When the app turns on Nuxt's `experimental: { nitroAutoImports: true }`, the module also auto-imports the server helpers of each enabled feature. A name that the app or another module already gives keeps that source, and ViteHub logs one warning. Read [Nuxt server auto-imports](https://vitehub.dev/docs/frameworks-hosts/nuxt-server-auto-imports).
 
 On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Agent Invocation journal, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ host: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other hosts require their own storage providers.
 
