@@ -39,6 +39,15 @@ describe("vitehub status", () => {
     for (const name of packages) expect(feature(json, id).fix).toContain(name)
   })
 
+  it.each([
+    ["node", ["@vite-hub/email", "nodemailer"]],
+    ["cloudflare", ["@vite-hub/email"]],
+  ] as const)("asks for nodemailer for the SMTP Email driver only where it runs (%s)", async (host, packages) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}", email: { driver: "smtp" } }`) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "email").missingPackages).toEqual([...packages])
+  })
+
   it("reads the host from config without loading it", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,

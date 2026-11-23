@@ -79,7 +79,6 @@ type CmsPluginConfig = UserConfig & {
 }
 
 const defaultImports: CmsWorkspaceImports = {
-  blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
   contentDatabase: "@vite-hub/content/database",
   database: "@vite-hub/database",

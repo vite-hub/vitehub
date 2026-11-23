@@ -48,16 +48,25 @@ The Nuxt app does not declare a known Nuxt 5 version. ViteHub stops before adopt
 
 Other commands load the project config the way `nuxt dev` does: in a Nuxt app, the `$development` overrides apply, so a command next to a running dev server resolves the same config and leaves its generated files alone. `--stage <name>` loads `$<name>` instead.
 
-`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. `catalog` needs no project and works in an empty folder. `status` needs a project folder with `package.json`, `vite.config.*`, or `nuxt.config.*`. It parses the config file without running it, so it works on a config that throws. In an empty folder, `status` exits with `1` and `SETUP_NOT_A_PROJECT`.
+
+Without `vite-hub` installed, run both commands from the `vite-hub` package with `pnpm dlx`. There is no `vitehub` package on npm. Once `vite-hub` is installed in the project, run `pnpm vitehub`.
 
 ```bash [Terminal]
+# From any folder, without vite-hub installed
+pnpm dlx vite-hub catalog --json
+
+# From a project folder, without vite-hub installed
+pnpm dlx vite-hub status --json
+
+# From a project folder with vite-hub installed
 pnpm vitehub catalog --json
 pnpm vitehub status --json
 ```
 
-`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`.
 
-`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
+`status` reads `package.json`, `vite.config.*`, or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
 
 `status` reports:
 
