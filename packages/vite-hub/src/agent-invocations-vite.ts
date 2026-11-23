@@ -169,8 +169,13 @@ export async function agentInvocationsDatabaseContributions(context: DatabaseCon
     database,
     dialect: "postgresql",
     definition: { module: "vite-hub/agent/invocations/postgres", export: "agentInvocationsPostgresSchema" },
-    tables: { agentInvocations: "vitehub_agent_invocations", agentInvocationObservations: "vitehub_agent_invocations_observations" },
-    reason: "Stores the Agent Invocations of `invocations: 'database'`. The journal does not create its tables on Postgres.",
+    tables: {
+      agentInvocations: "vitehub_agent_invocations",
+      agentInvocationObservations: "vitehub_agent_invocations_observations",
+      agentChatStreams: "vitehub_agent_chat_streams",
+      agentChatStreamChunks: "vitehub_agent_chat_stream_chunks",
+    },
+    reason: "Stores the Agent Invocations of `invocations: 'database'`, and the streams of web chat routes with `resumable.scope: 'shared'`. The journal does not create its tables on Postgres.",
   }]
 }
 
@@ -188,7 +193,12 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       databases: async context => options.database ? await agentInvocationsDatabaseContributions(context, options.default) : [],
       durability: () => {
         const input = journalDurabilityInput(options.default, d1Binding, options.stateUrl)
-        return input ? [{ export: "agentInvocationsDurability", input, module: resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability"), primitive: "agent-invocations" }] : []
+        if (!input) return []
+        const module = resolveDurabilityModule(import.meta.url, "@vite-hub/agent/durability")
+        return [
+          { export: "agentInvocationsDurability", input, module, primitive: "agent-invocations" },
+          { export: "agentChatStreamsDurability", input, module, primitive: "agent-chat-streams" },
+        ]
       },
     },
     async config(config, environment) {

@@ -120,7 +120,10 @@ describe("Node storage defaults", () => {
     const { durability, plugin } = await generatedJournalPlugin({ host: "node", agent: { providers: { state } } }, "build")
     expect(plugin).toContain(`stateUrl: "file:.data/agent-state.db"`)
     // The boot report reads the same State URL, so it names the file that the journal opens.
-    expect(durability).toMatchObject([{ input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" }])
+    expect(durability).toMatchObject([
+      { input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-invocations" },
+      { export: "agentChatStreamsDurability", input: { store: "file", stateUrl: "file:.data/agent-state.db" }, primitive: "agent-chat-streams" },
+    ])
     const stateUrl = (url: string, host: ViteHubOptions["host"] = "node") => agentJournalStateUrl({ host, agent: { providers: { state: { url } } } })
     expect(stateUrl("libsql://state.example.com")).toBeUndefined()
     expect(stateUrl("file:.data/agent-state.db", "vercel")).toBeUndefined()
