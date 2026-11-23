@@ -86,6 +86,8 @@ A ticket works for 60 seconds and only once, even when two instances get it at t
 
 The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. With one of them, tickets and site sessions go in the `vitehub_console_site` table of the app's first [Database](/docs/database), such as D1 on Cloudflare or D1 over HTTP. KV stores use the `vitehub_kv` table, so no KV store can read or clear them. A development server without a store keeps tickets in memory. A production app with none of these stores refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
 
+When apps or previews share this Database, give each one a different `VITEHUB_SECRET` to keep their tickets and sessions separate. Keep the same secret across all instances of one app. Changing it invalidates that app's links and sessions.
+
 ## Link to the Console
 
 ```ts

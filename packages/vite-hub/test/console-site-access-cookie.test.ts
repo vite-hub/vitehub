@@ -33,7 +33,6 @@ import type { ConsoleCallerUser } from "@vite-hub/internal/console-signature"
 import type { CommentsUser } from "../../comments/src/index.ts"
 import type { CommentsRequestEvent } from "../../comments/src/types.ts"
 
-/** The app's default KV store: a map with TTLs, whose `getAndDelete()` takes a key out once, as Redis does. */
 const kv = vi.hoisted(() => {
   const entries = new Map<string, { value: string, expiresAt: number }>()
   const live = (key: string) => {
@@ -57,7 +56,6 @@ const kv = vi.hoisted(() => {
         return [undefined, value] as const
       },
       async list({ prefix }: { prefix: string }) {
-        // Redis lists keys with `:`; some drivers use `/`.
         return [undefined, { keys: [...entries.keys()].filter(key => key.startsWith(prefix) && live(key) !== null).map(key => key.replaceAll(":", "/")) }] as const
       },
       async delete(key: string) {
@@ -89,21 +87,18 @@ async function link(name: string, input: Record<string, unknown> = {}): Promise<
   return url
 }
 
-/** Opens a one-time link in a browser, and returns the redirect and the Site access cookie it set. */
 async function open(url: string): Promise<{ response: Response, cookie: string }> {
   const response = await consoleRpcRoute.fetch(new Request(url, { headers: { "user-agent": chrome } }))
   const cookie = response.headers.getSetCookie().map(value => value.split(";")[0]!).find(pair => pair.startsWith("vitehub_site=")) ?? ""
   return { response, cookie }
 }
 
-/** The page tools that the session route gives this browser. */
 async function tools(cookie: string): Promise<string[]> {
   const response = await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools?page=%2Fguide`, { headers: { cookie } }))
   const body: unknown = await response.json()
   return (Reflect.get(Object(body), "tools") as Array<{ id: string }>).map(tool => tool.id)
 }
 
-/** The person that Comments resolves for this browser. */
 async function commentsUser(cookie: string): Promise<CommentsUser | null> {
   const request = new Request(`${origin}/_vitehub/comments/session`, { headers: { cookie } })
   installRequestStandardContext(request)
@@ -116,7 +111,6 @@ beforeEach(() => {
   kv.driver = "redis"
   for (const [name, value] of Object.entries(key.env)) vi.stubEnv(name, value)
   vi.stubEnv("VITEHUB_SECRET", secret)
-  // An app without Auth, with a default KV store. The Console is not a development server.
   installConsoleSections("console-site-cookie", ["site", "kv"])
   installConsoleAccess({ mode: "token" })
   nitroApp = {}
@@ -143,13 +137,11 @@ describe("Site access without Auth", () => {
       "vitehub_session=1; Path=/; SameSite=Lax; Max-Age=604800",
       "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax",
     ])
-    // The browser sees only the sealed value, not the person or the roles.
     expect(cookie).toMatch(/^vitehub_site=[a-f0-9]{24}:[a-f0-9]+$/)
     expect(await tools(cookie)).toEqual(["console", "comments"])
     const user = await commentsUser(cookie)
     expect(user).toEqual({ id: "console-ada", name: "Ada", email: "ada@example.com", role: "console,comments-read,comments-write,comments-resolve,comments-delete" })
     expect(commentsRoleAllows(user, "delete")).toBe(true)
-    // The link works once.
     expect((await open(url)).response.status).toBe(401)
   })
 
@@ -265,6 +257,24 @@ describe("Site access without Auth on Cloudflare KV and a D1 Database", () => {
     expect((await open(url)).response.status).toBe(303)
   }))
 
+  it("isolates tickets and sessions for apps with different secrets on one Database", async () => {
+    const { cookie } = await inD1(async () => await open(await link("site.link")))
+    const pending = await inD1(() => link("site.link"))
+    const { sessions } = (await inD1(() => call("site.sessions"))).value as { sessions: { id: string }[] }
+    const id = sessions[0]!.id
+
+    await runWithActiveCloudflareEnv({ DB: d1.binding, VITEHUB_SECRET: `${secret}-other-app` }, async () => {
+      expect((await call("site.sessions")).value).toEqual({ sessions: [] })
+      expect((await call("site.revoke-session", { id })).status).toBe(404)
+      expect((await open(pending)).response.status).toBe(401)
+    })
+
+    await inD1(async () => {
+      expect(await tools(cookie)).toEqual(["console", "comments"])
+      expect((await open(pending)).response.status).toBe(303)
+    })
+  })
+
   it("opens a link once when two browsers open it at the same time", () => inD1(async () => {
     const url = await link("site.link")
     const statuses = (await Promise.all([open(url), open(url)])).map(({ response }) => response.status)
@@ -330,6 +340,9 @@ describe.each(["objects", "arrays"] as const)("Site access without Auth on fs-li
     installConsoleSiteDatabase(async () => ({ default: { db } }), "default")
 
     const url = await link("site.link", { path: "/guide" })
+    const requests = api.request.mock.calls
+    expect(requests.length).toBeGreaterThan(0)
+    expect(requests.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(true)
     expect(api.sqlite.prepare("select count(*) as count from vitehub_console_site").get()?.count).toBe(1)
     const { response, cookie } = await open(url)
     expect(response.status).toBe(303)
