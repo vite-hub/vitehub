@@ -810,9 +810,9 @@ describe("Agent Channel delivery journal", () => {
       scope: "channel:support:custom",
       sourceId: "provider-event-9",
     })
-    await bindAgentChannelDeliveryPayload(state, delivery, "custom", fingerprint!)
+    await bindAgentChannelDeliveryPayload(state, delivery, "custom", [fingerprint!])
 
-    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", (await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!)
+    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", [(await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!])
 
     expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
