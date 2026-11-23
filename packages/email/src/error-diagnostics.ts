@@ -66,7 +66,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     EMAIL_TEMPLATE_NOT_FOUND: {
       why: ({ available, roots, template }: { available: string, roots: string, template: string }) => `Email template "${template}" was not found in ${roots}. ${available ? `Templates: ${available}.` : "No templates were found."}`,
-      fix: "Pass the path under server/emails without `.md`, for example `welcome` for `server/emails/welcome.md`. Files and folders that start with `_` are partials, not templates.",
+      fix: "Pass the path under server/emails without `.md` or `.vue`, for example `welcome` for `server/emails/welcome.md`. Files and folders that start with `_` are partials, not templates.",
     },
     EMAIL_TEMPLATE_SUBJECT_REQUIRED: {
       why: ({ template }: { template: string }) => `Email template "${template}" has no \`subject:\` frontmatter, and the message has no \`subject\`.`,
@@ -108,7 +108,7 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     EMAIL_INVALID_TEMPLATE: {
       why: ({ id }: { id: string }) => `The Email template import ${JSON.stringify(id)} is not valid.`,
-      fix: "Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`. Files and folders that start with `_` are partials, so they have no import.",
+      fix: "Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md` or `.vue`. Files and folders that start with `_` are partials, so they have no import.",
     },
     EMAIL_REMOTE_REQUIRED: {
       why: "`email.outbox` is `false`, so a `vite dev` send has no outbox to stay in.",
@@ -138,6 +138,14 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: ({ renamed }: { driver: string, renamed?: string }) => renamed
         ? `Set \`email: { driver: "${renamed}" }\`, or run \`npx @vite-hub/codemods driver-key\` to rename it in every config file.`
         : "Set `email: { driver: 'resend' }` or `email: { driver: 'cloudflare' }`. Set `email: { driver: 'log' }` to print messages and send nothing. For another provider, write a driver module and set `email: { driver: './server/email-driver.ts' }`.",
+    },
+    EMAIL_VUE_MISSING: {
+      why: ({ file }: { file: string }) => `The Email template ${file} is a Vue component, and the app cannot import \`vue\`.`,
+      fix: "Install `vue` in the app, or write the template as Markdown (`.md`).",
+    },
+    EMAIL_VUE_PLUGIN_MISSING: {
+      why: ({ file }: { file: string }) => `The Email template ${file} is a Vue component, and the Vite config has no \`@vitejs/plugin-vue\`.`,
+      fix: "Install `@vitejs/plugin-vue` and add `vue()` to the Vite `plugins`, or write the template as Markdown (`.md`). Nuxt adds the plugin for you.",
     },
 
     // Tool errors.

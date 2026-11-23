@@ -92,7 +92,7 @@ if (error) throw error
 
 ### Send a template
 
-Place reusable Markdown under `server/emails`. `subject:` frontmatter sets the subject and can read `{{ data.* }}` values as plain text. A file or folder whose name starts with `_` is a partial, not a template:
+Place reusable Markdown under `server/emails`, or a [Vue component](#vue-templates). `subject:` frontmatter sets the subject and can read `{{ data.* }}` values as plain text. A file or folder whose name starts with `_` is a partial, not a template:
 
 ```md [server/emails/welcome.md]
 ---
@@ -135,6 +135,28 @@ to `.vitehub/types/email.d.ts` and bundles templates for provider builds under
 `.vitehub/email/templates`.
 
 The renderer does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text, and sanitize untrusted content before passing it through a `:insert{:markdown="data.fragment"}` component.
+
+### Vue templates
+
+A `.vue` file under `server/emails` is also a template. ViteHub compiles it with the app's `@vitejs/plugin-vue` and renders it with `vue/server-renderer`. Install `vue` in the app. Nuxt adds the plugin, and a Vite or Nitro app adds `vue()` to its Vite `plugins`. The props of the component are the `data` of the template, and `<EmailSubject>` sets the subject:
+
+```vue fragment
+<script setup lang="ts">
+import { EmailSubject } from "@vite-hub/email/vue"
+import Layout from "./_layout.vue"
+
+defineProps<{ name: string, team: string }>()
+</script>
+
+<template>
+  <Layout>
+    <EmailSubject>Join {{ team }}</EmailSubject>
+    <h1>Hi {{ name }}</h1>
+  </Layout>
+</template>
+```
+
+`_layout.vue` is a partial that templates import as a component. Import each component that a template uses: Nuxt auto-imports do not apply to Email templates. `text` comes from the rendered HTML, with the same Markdown markers as a Markdown template. The build stops with `EMAIL_VUE_MISSING` when the app cannot import `vue`, and with `EMAIL_VUE_PLUGIN_MISSING` when the Vite config has no `@vitejs/plugin-vue`.
 
 ## Test without delivery
 

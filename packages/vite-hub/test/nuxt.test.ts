@@ -3918,10 +3918,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
-  it("materializes Email templates before Cloudflare Workflow preparation", async () => {
+  it("prepares Email template types at setup, and materializes the templates when Nuxt starts the build", async () => {
     const prepareTypes = vi.fn().mockResolvedValue({
       "monthly-recap": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap.mjs`,
-      "monthly-recap/detail": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap%2Fdetail.mjs`,
+      "monthly-recap/detail": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap~2Fdetail.mjs`,
     })
     mocks.vitehub.mockReturnValue([
       {
@@ -3929,11 +3929,17 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         name: "@vite-hub/email/vite",
       },
     ])
-    const { nuxt } = createNuxt()
+    const { buildBeforeHooks, nuxt } = createNuxt()
 
     await viteHubNuxtModule({ email: true, host: "cloudflare" }, nuxt)
 
-    expect(prepareTypes).toHaveBeenCalledWith({
+    expect(prepareTypes).toHaveBeenCalledExactlyOnceWith({
+      materialize: false,
+      projectRoot: `${tmp}/vitehub-nuxt`,
+      serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+    })
+    await Promise.all(buildBeforeHooks.map(hook => hook()))
+    expect(prepareTypes).toHaveBeenLastCalledWith({
       materialize: true,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
@@ -3945,7 +3951,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap/detail"]).toBe(
-      `${emailTemplates}/monthly-recap%2Fdetail.mjs`,
+      `${emailTemplates}/monthly-recap~2Fdetail.mjs`,
     )
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
@@ -3980,7 +3986,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
     const resolver = rollupConfig.plugins.find(plugin => plugin.name === "vite-hub/nuxt-email-templates")
     expect(resolver?.resolveId("#vitehub/emails/monthly/detail")).toBe(
-      `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly%2Fdetail.mjs`,
+      `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly~2Fdetail.mjs`,
     )
   })
 
@@ -3998,7 +4004,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(prepareTypes).toHaveBeenCalledWith({
-      materialize: true,
+      materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
     })
@@ -4009,7 +4015,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
-  it("materializes and exposes Email templates on non-host-specific Nitro presets", async () => {
+  it("exposes Email templates on non-host-specific Nitro presets", async () => {
     const prepareTypes = vi.fn()
     mocks.vitehub.mockReturnValue([
       {
@@ -4024,7 +4030,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(prepareTypes).toHaveBeenCalledWith({
-      materialize: true,
+      materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
     })

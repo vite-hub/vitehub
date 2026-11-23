@@ -1387,12 +1387,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         }
       })
     | undefined
-  const emailTemplatePaths =
-    (await emailPlugin?.api?.prepareTypes?.({
-      materialize: true,
-      projectRoot,
-      serverDirs: resolveNuxtServerDirs(nuxt.options),
-    })) ?? {}
+  const prepareEmailTemplates = (materialize: boolean) => emailPlugin?.api?.prepareTypes?.({
+    materialize,
+    projectRoot,
+    serverDirs: resolveNuxtServerDirs(nuxt.options),
+  })
+  const emailTemplatePaths = (await prepareEmailTemplates(false)) ?? {}
+  nuxt.hook?.("build:before", async () => {
+    if (!nuxt.options._prepare && !nuxt.options.vitehubCliDiscovery) await prepareEmailTemplates(true)
+  })
   const emailCleanupCandidate: unknown = replayPlugins.find(
     plugin => plugin.name === "@vite-hub/email/optional-peer-resolver",
   )

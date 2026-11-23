@@ -122,11 +122,11 @@ Set `email.outbox` to `false`, or to `{ limit }` with an integer `limit` from 1 
 
 ### EMAIL_INVALID_TEMPLATE
 
-Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`. Files and folders whose names start with `_` are partials, not templates.
+Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md` or `.vue`. Files and folders whose names start with `_` are partials, not templates.
 
 ### EMAIL_DUPLICATE_TEMPLATE
 
-Two template files under the `server/emails` roots have the same name. Rename or remove one.
+Two template files under the `server/emails` roots have the same name, such as `welcome.md` and `welcome.vue`. Rename or remove one.
 
 ### EMAIL_CLI_USAGE
 
