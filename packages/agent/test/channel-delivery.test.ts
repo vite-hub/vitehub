@@ -25,6 +25,23 @@ describe("Agent Channel delivery source identity", () => {
       .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
   })
 
+  it("fingerprints a payload the same on every host locale", async () => {
+    const payload = { event: { channel: "C1", text: "hi", ts: "1.2", type: "message", user: "U1" }, team_id: "T1", type: "event_callback" }
+    const fingerprintIn = async (locale: string) => {
+      const collator = new Intl.Collator(locale)
+      const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+        return collator.compare(this, that)
+      })
+      try {
+        return await agentChannelDeliveryPayloadFingerprint(payload)
+      }
+      finally {
+        localeCompare.mockRestore()
+      }
+    }
+    expect(await fingerprintIn("lt")).toBe(await fingerprintIn("en"))
+  })
+
   it("extracts Telegram message identity separately from provider event identity", () => {
     const payload = { message: { chat: { id: 456 }, message_id: 7 }, update_id: 42 }
     expect(agentChannelDeliverySourceId("telegram", payload)).toBe("42")

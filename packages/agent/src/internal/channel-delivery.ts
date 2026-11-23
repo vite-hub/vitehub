@@ -171,7 +171,7 @@ function stablePayload(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
     .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry)}`)
     .join(",")}}`
 }
