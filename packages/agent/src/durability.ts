@@ -58,3 +58,17 @@ export function agentInvocationsDurability(input: AgentInvocationsDurabilityInpu
   const sqlite = classifySqliteUrl(url)
   return [{ primitive: "agent-invocations", ...sqlite, ...(sqlite.scope === "shared" ? {} : { fix: journalFix }) }]
 }
+
+/**
+ * The durability of web chat streams with `resumable.scope: "shared"`. They live in the database of the journal, so
+ * they are as shared as the journal. A journal in memory cannot hold them: such a route fails, and the row says `process`.
+ */
+export function agentChatStreamsDurability(input: AgentInvocationsDurabilityInput, context: DurabilityContext): Durability[] {
+  return agentInvocationsDurability(input, context).map(({ primitive: _primitive, reason, ...journal }) => ({
+    ...journal,
+    primitive: "agent-chat-streams",
+    reason: input.store === "memory"
+      ? "Shared resumable chat streams need a journal in a database. This journal lives in memory, so only `resumable.scope: \"process\"` works."
+      : `Resumable chat streams with \`scope: "shared"\` use the journal database. ${reason}`,
+  }))
+}

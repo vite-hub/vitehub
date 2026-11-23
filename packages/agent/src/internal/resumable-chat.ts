@@ -1,9 +1,15 @@
 import { invariant } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-interface ResumableChatProcessConfig<TContext> {
+import { createSharedChatStreams } from "./resumable-chat-shared.ts"
+
+interface ResumableChatConfig<TContext> {
   owner: (context: TContext) => string | Promise<string>
-  scope: "process"
+  scope: "process" | "shared"
   ttlMs?: number
+}
+
+interface ResumableChatProcessConfig<TContext> extends ResumableChatConfig<TContext> {
+  scope: "process"
 }
 
 interface ResumableChatProcessIdentity {
@@ -12,7 +18,7 @@ interface ResumableChatProcessIdentity {
   chatId: string
 }
 
-interface ResumableChatProcessCompletion {
+export interface ResumableChatProcessCompletion {
   messageId?: string
   runId?: string
   waitUntil: (promise: Promise<unknown>) => void
@@ -40,28 +46,44 @@ interface ResumableChatProcessRun {
   terminalError?: unknown
 }
 
-export interface ResumableChatProcessClaim {
+export interface ResumableChatClaim {
   kind: "claimed"
   complete(response: Response, completion: ResumableChatProcessCompletion): Response
+  fail(error: unknown): void | Promise<void>
+}
+
+export interface ResumableChatProcessClaim extends ResumableChatClaim {
   fail(error: unknown): void
 }
 
-interface ResumableChatProcessExistingClaim {
+interface ResumableChatExistingClaim {
   kind: "existing"
   response: Promise<Response>
 }
 
+export type ResumableChatClaimResult =
+  | ResumableChatClaim
+  | ResumableChatExistingClaim
+
 type ResumableChatProcessClaimResult =
   | ResumableChatProcessClaim
-  | ResumableChatProcessExistingClaim
+  | ResumableChatExistingClaim
 
-interface ResumableChatProcessSession {
-  claim(invocationId: string): ResumableChatProcessClaimResult
+export interface ResumableChatSession {
+  claim(invocationId: string): ResumableChatClaimResult | Promise<ResumableChatClaimResult>
   latest(): Promise<Response | undefined>
   stop(invocationId: string): Promise<void>
 }
 
-export interface ResumableChatProcessCustody<TContext> {
+interface ResumableChatProcessSession extends ResumableChatSession {
+  claim(invocationId: string): ResumableChatProcessClaimResult
+}
+
+export interface ResumableChatCustody<TContext> {
+  session(context: TContext, identity: ResumableChatProcessIdentity): Promise<ResumableChatSession>
+}
+
+export interface ResumableChatProcessCustody<TContext> extends ResumableChatCustody<TContext> {
   /** Resolves one process-local session. Claims and bytes never cross this factory instance. */
   session(
     context: TContext,
@@ -76,6 +98,29 @@ const resumableChatCancellationReason = "Cancelled by the web chat client."
 
 function resumableChatKey(...parts: string[]): string {
   return JSON.stringify(parts)
+}
+
+function resumableChatTtlMs(config: { ttlMs?: number } | undefined): number {
+  return typeof config?.ttlMs === "number" && config.ttlMs > 0 ? config.ttlMs : resumableChatDefaultTtlMs
+}
+
+async function resumableChatLatestKey<TContext>(
+  config: ResumableChatConfig<TContext>,
+  context: TContext,
+  identity: ResumableChatProcessIdentity,
+  scopes: readonly string[],
+): Promise<string> {
+  if (!config || typeof config !== "object" || typeof config.owner !== "function") {
+    throw agentDiagnostics.AGENT_R0569({ message: "[vitehub] Resumable web chat requires route.resumable.owner()." })
+  }
+  if (!scopes.includes(config.scope)) {
+    throw agentDiagnostics.AGENT_R0570({ message: '[vitehub] Resumable web chat requires route.resumable.scope to be "process" or "shared". Streams with "process" do not survive process replacement or cross-instance routing.' })
+  }
+  const owner = await config.owner(context)
+  if (typeof owner !== "string" || !owner.trim()) {
+    throw agentDiagnostics.AGENT_R0571({ message: "[vitehub] Resumable web chat owner must be a non-empty string." })
+  }
+  return resumableChatKey(identity.agentName, identity.channelId, owner.trim(), identity.chatId)
 }
 
 function resumableChatResponse(run: ResumableChatProcessRun): Response {
@@ -173,9 +218,7 @@ export function createResumableChatProcessCustody<TContext>(
   const invocationRuns = new Map<string, ResumableChatProcessRun>()
   const latestRuns = new Map<string, ResumableChatProcessRun>()
 
-  const ttlMs = typeof config?.ttlMs === "number" && config.ttlMs > 0
-    ? config.ttlMs
-    : resumableChatDefaultTtlMs
+  const ttlMs = resumableChatTtlMs(config)
 
   function removeRun(run: ResumableChatProcessRun): void {
     if (run.removed) return
@@ -258,22 +301,7 @@ export function createResumableChatProcessCustody<TContext>(
 
   return {
     async session(context, identity) {
-      if (!config || typeof config !== "object" || typeof config.owner !== "function") {
-        throw agentDiagnostics.AGENT_R0569({ message: "[vitehub] Resumable web chat requires route.resumable.owner()." })
-      }
-      if (config.scope !== "process") {
-        throw agentDiagnostics.AGENT_R0570({ message: '[vitehub] Resumable web chat requires route.resumable.scope to be "process"; streams do not survive process replacement or cross-instance routing.' })
-      }
-      const owner = await config.owner(context)
-      if (typeof owner !== "string" || !owner.trim()) {
-        throw agentDiagnostics.AGENT_R0571({ message: "[vitehub] Resumable web chat owner must be a non-empty string." })
-      }
-      const latestKey = resumableChatKey(
-        identity.agentName,
-        identity.channelId,
-        owner.trim(),
-        identity.chatId,
-      )
+      const latestKey = await resumableChatLatestKey(config, context, identity, ["process"])
 
       return {
         claim(invocationId) {
@@ -301,6 +329,26 @@ export function createResumableChatProcessCustody<TContext>(
           await run.reader?.cancel(resumableChatCancellationReason).catch(() => undefined)
         },
       }
+    },
+  }
+}
+
+/**
+ * Owns resumable Chat streams by `config.scope`. `"process"` keeps them in this route process. `"shared"` keeps them in
+ * the database of the Agent journal, so another process can resume them.
+ */
+export function createResumableChatCustody<TContext>(
+  config: ResumableChatConfig<TContext>,
+  options: { journal: () => unknown },
+): ResumableChatCustody<TContext> {
+  if (config?.scope !== "shared") {
+    // SAFETY: The process custody rejects every scope but "process" when a session starts.
+    return createResumableChatProcessCustody(config as ResumableChatProcessConfig<TContext>)
+  }
+  const shared = createSharedChatStreams({ journal: options.journal, ttlMs: resumableChatTtlMs(config) })
+  return {
+    async session(context, identity) {
+      return await shared.session(await resumableChatLatestKey(config, context, identity, ["process", "shared"]))
     },
   }
 }

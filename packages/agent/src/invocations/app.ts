@@ -1,9 +1,11 @@
 import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { registerChatStreamSql } from "../internal/chat-stream-sql.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
 
 import type { AgentInvocationObservationOptions, AgentInvocations, AgentInvocationsOptions, AgentInvocationStore } from "../invocations.ts"
+import type { ChatStreamSql } from "../internal/chat-stream-sql.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
 import type { DatabaseAgentInvocationStoreOptions } from "./database.ts"
 import type { DefaultAgentInvocationsD1, DefaultAgentInvocationsLibsql } from "./default-core.ts"
@@ -77,6 +79,7 @@ export interface DefaultAgentJournalLocation {
 
 type DatabaseStoreModule = {
   createDatabaseAgentInvocationStore: (options?: DatabaseAgentInvocationStoreOptions) => AgentInvocationStore
+  databaseChatStreamSql?: (database?: string) => ChatStreamSql
 }
 
 type AgentInvocationsRuntime = {
@@ -100,12 +103,22 @@ function runtime(): AgentInvocationsRuntime {
   return globalThis as AgentInvocationsRuntime
 }
 
-async function loadDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Promise<AgentInvocationStore> {
+async function loadDatabaseModule(): Promise<DatabaseStoreModule> {
   const load = runtime()[databaseStoreLoaderKey]
   if (!load) {
     throw agentDiagnostics.AGENT_R1030({ message: "[vitehub] Agent invocations \"database\" requires ViteHub Database. Set `database` in vitehub() and run the Agent in the ViteHub server." })
   }
-  return (await load()).createDatabaseAgentInvocationStore(options)
+  return await load()
+}
+
+async function loadDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Promise<AgentInvocationStore> {
+  return (await loadDatabaseModule()).createDatabaseAgentInvocationStore(options)
+}
+
+async function databaseChatStreamSql(database: string | undefined): Promise<ChatStreamSql> {
+  const open = (await loadDatabaseModule()).databaseChatStreamSql
+  if (!open) throw agentDiagnostics.AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED()
+  return open(database)
 }
 
 /** A Database store that loads the Database runtime on its first operation. */
@@ -143,10 +156,12 @@ function deferredDatabaseStore(options: DatabaseAgentInvocationStoreOptions): Ag
 function journal(setting: AgentInvocationsStoreName | AgentInvocationsStoreOptions): AgentInvocations {
   if (setting === "database" || setting === "memory") return journal({ store: setting })
   const { database, store, ...options } = setting
-  return defineAgentInvocations({
+  const invocations = defineAgentInvocations({
     ...options,
     store: store === "database" ? deferredDatabaseStore(database === undefined ? {} : { database }) : createMemoryAgentInvocationStore(),
   })
+  if (store === "database") registerChatStreamSql(invocations, async () => await databaseChatStreamSql(database))
+  return invocations
 }
 
 /** Resolve an `invocations` setting to its journal. `false` and `undefined` resolve to no journal. */

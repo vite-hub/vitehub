@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
-import { agentInvocationsDurability, agentStateDurability } from "../src/durability.ts"
+import { agentChatStreamsDurability, agentInvocationsDurability, agentStateDurability } from "../src/durability.ts"
 import { resolveDefaultAgentInvocationsLocation } from "../src/invocations/default-core.ts"
 
 import type { Durability, DurabilityContext } from "@vite-hub/runtime/durability"
@@ -52,5 +52,16 @@ describe("agentInvocationsDurability", () => {
     expect(agentInvocationsDurability({ store: "database" }, context({}, [postgres]))).toMatchObject([{ store: "database (postgres)", scope: "shared" }])
     expect(agentInvocationsDurability({ store: "memory" }, context())).toMatchObject([{ scope: "process" }])
     expect(agentInvocationsDurability({ store: "d1" }, context())).toMatchObject([{ scope: "shared" }])
+  })
+})
+
+describe("agentChatStreamsDurability", () => {
+  it("says shared only when the journal database is shared", () => {
+    const postgres: Durability = { primitive: "database", store: "postgres", scope: "shared", reason: "Postgres." }
+    expect(agentChatStreamsDurability({ store: "database" }, context({}, [postgres]))).toMatchObject([{ primitive: "agent-chat-streams", store: "database (postgres)", scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "d1" }, context())).toMatchObject([{ primitive: "agent-chat-streams", scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "file", url: "remote" }, context())).toMatchObject([{ scope: "shared" }])
+    expect(agentChatStreamsDurability({ store: "file" }, context())).toMatchObject([{ primitive: "agent-chat-streams", store: "sqlite", scope: "host", fix: expect.any(String) }])
+    expect(agentChatStreamsDurability({ store: "memory" }, context())).toMatchObject([{ scope: "process", reason: expect.stringContaining("only `resumable.scope: \"process\"` works") }])
   })
 })
