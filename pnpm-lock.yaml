@@ -2044,6 +2044,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
       vite-hub:
         specifier: workspace:*
         version: link:../vite-hub

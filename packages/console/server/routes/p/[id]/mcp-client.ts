@@ -1,8 +1,9 @@
+import { consoleOutboundFetch } from "#console-outbound-fetch"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { useDatabase } from "vite-hub/database"
 
 import { databaseConsoleMcpRecords } from "../../../../src/mcp-client-records.ts"
-import { answerConsoleMcpCall, consoleMcpMaxRequestBytes, consoleMcpReplyStatus } from "../../../../src/mcp-client-rpc.ts"
+import { answerConsoleMcpCall, consoleMcpCallProject, consoleMcpMaxRequestBytes, consoleMcpReplyStatus } from "../../../../src/mcp-client-rpc.ts"
 import { consoleMcpCallbackPath } from "../../../../src/mcp-client-types.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../../../src/token-box.ts"
 import { allowPrivateProjects, consoleDiagnosticProblem, consoleProblem, consoleTeamRoute, projectIdOf, projectNotFound, spendForwardBudget } from "../../../utils/console.ts"
@@ -17,8 +18,8 @@ export default consoleTeamRoute(async (request, caller) => {
   const problem = consoleSecretProblem(secret)
   if (problem || !secret) return consoleProblem(500, "CONSOLE_SECRET_NOT_CONFIGURED", problem ?? "")
   const id = projectIdOf(request, "/p/")
-  const project = await caller.projects.get(id)
-  if (!project) return projectNotFound()
+  const routeProject = await caller.projects.get(id)
+  if (!routeProject) return projectNotFound()
   const spent = await spendForwardBudget(caller, id)
   if (spent) return consoleDiagnosticProblem(429, spent.diagnostic, { "retry-after": String(spent.retryAfter) })
   const text = await request.text()
@@ -30,9 +31,14 @@ export default consoleTeamRoute(async (request, caller) => {
   catch {
     return consoleProblem(400, "CONSOLE_REQUEST_INVALID", "The request body is not JSON.")
   }
+  const callProject = consoleMcpCallProject(body, id)
+  const project = callProject === id ? routeProject : await caller.projects.get(callProject)
+  if (!project) return projectNotFound()
+  const allowPrivate = allowPrivateProjects()
   const reply = await answerConsoleMcpCall(body, {
-    allowPrivate: allowPrivateProjects(),
+    allowPrivate,
     appOrigin: new URL(project.url).origin,
+    fetch: consoleOutboundFetch(allowPrivate),
     projectId: project.id,
     records: databaseConsoleMcpRecords(useDatabase("default").db, secret),
     redirectUrl: `${resolvePublicUrl({ request }) ?? new URL(request.url).origin}${consoleMcpCallbackPath}`,

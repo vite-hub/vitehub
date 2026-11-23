@@ -12,15 +12,17 @@ export function consolePageBase(scriptPath: string): string {
 }
 
 const appBase = /^(?:\/(?!\.\.?(?:\/|$))[^/?#\\]+)*$/
+const consoleAssetPath = /^\/page\/[^/]+\/(?:[0-9a-f]+\/)?[^/]+$/
 
 /**
  * Where the segment script came from. A script that the app serves has the app base in its path and opens the hosted
  * Console. A script that a Console serves, such as `https://console.vitehub.dev/page/0.4.0/<hash>/page-tool.js?base=/portal`,
- * has the app base in its `base` query and opens that Console. A `base` that is not an app base reads as `""`.
+ * has the app base in its `base` query and opens that Console, also when the page is on the Console itself. A `base` that
+ * is not an app base reads as `""`.
  */
 export function consoleScriptSource(scriptUrl: string, pageOrigin: string): { base: string, consoleOrigin?: string } {
   const url = new URL(scriptUrl)
-  if (url.origin === pageOrigin) return { base: consolePageBase(url.pathname) }
+  if (url.origin === pageOrigin && !consoleAssetPath.test(url.pathname)) return { base: consolePageBase(url.pathname) }
   const base = url.searchParams.get("base") ?? ""
   return { base: appBase.test(base) ? base : "", consoleOrigin: url.origin }
 }
