@@ -412,18 +412,11 @@ export function netlifyScheduleFunctionNames(definitions: readonly Pick<Discover
   return names
 }
 
-// Earlier releases sorted with the build host's locale. English and C hosts sorted like en-US,
-// so this order keeps the cron names that those builds registered on Deno Deploy.
-const denoCronOrder = new Intl.Collator("en-US")
+const englishBuildHostOrder = new Intl.Collator("en-US")
 const denoCronNameLength = 64
 
-/**
- * Names each Deno cron. A name that fits as is keeps `vitehub-<position>-<name>`, which contains the
- * whole Schedule name. A name that must be changed or cut gets `vitehub_<hash>-<name>`, so it can never
- * take a cron name that another Schedule registered.
- */
 function denoCronNames(scheduleNames: Iterable<string>): Map<string, string> {
-  const sorted = [...scheduleNames].sort((left, right) => denoCronOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0))
+  const sorted = [...scheduleNames].sort((left, right) => englishBuildHostOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0))
   return new Map(sorted.map((name, index) => {
     const indexedName = `vitehub-${index.toString(36)}-${name}`
     if (/^[a-z0-9 _-]*$/i.test(name) && indexedName.length <= denoCronNameLength) return [name, indexedName]
