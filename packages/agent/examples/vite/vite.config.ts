@@ -9,10 +9,7 @@ export default defineConfig({
     ssr: true,
     rolldownOptions: {
       input: resolve(import.meta.dirname, "src/server.ts"),
-      output: {
-        entryFileNames: "server.js",
-        strictExecutionOrder: true,
-      },
+      output: { entryFileNames: "server.js" },
     },
   },
   plugins: [hubAgent()],
