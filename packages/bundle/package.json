@@ -55,7 +55,7 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

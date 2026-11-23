@@ -118,13 +118,13 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "birpc": "catalog:runtime",
-    "confbox": "^0.3.1",
+    "confbox": "^0.3.2",
     "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "happy-dom": "21.0.3",
+    "happy-dom": "21.0.4",
     "marked": "catalog:realtime",
     "modern-screenshot": "4.7.0",
     "nitro": "catalog:unjs",
@@ -143,7 +143,7 @@
     "@vite-hub/database": "workspace:*",
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

@@ -91,10 +91,10 @@
     "@formisch/vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@ui-sdk/core": "0.1.0-beta.5",
-    "@ui-sdk/vue": "0.1.0-beta.5",
+    "@ui-sdk/core": "0.1.0-beta.14",
+    "@ui-sdk/vue": "0.1.0-beta.14",
     "@vite-hub/internal": "workspace:*",
-    "happy-dom": "21.0.3",
+    "happy-dom": "21.0.4",
     "publint": "catalog:tooling",
     "strip-ansi": "7.2.0",
     "typescript": "catalog:tooling",
@@ -110,7 +110,7 @@
     "@formisch/vue": "^1.2.0",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@formisch/vue": {

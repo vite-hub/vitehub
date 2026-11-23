@@ -43,11 +43,11 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, plus `drizzle-kit` 1.0.0-rc.5 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
+Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x, plus `drizzle-kit` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 
 ```bash [Terminal]
-pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.

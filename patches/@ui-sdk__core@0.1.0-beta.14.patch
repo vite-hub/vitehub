@@ -1,0 +1,616 @@
+diff --git a/dist/components/trigger-menu/trigger-menu-api.js b/dist/components/trigger-menu/trigger-menu-api.js
+index b2427c25c494dcc04a445134354ed35f46dfb6d1..8b9e17861d2e2dd99d20b01c1a63d5d7731082e3 100644
+--- a/dist/components/trigger-menu/trigger-menu-api.js
++++ b/dist/components/trigger-menu/trigger-menu-api.js
+@@ -383,9 +383,15 @@ function triggerMenuApiBody(context) {
+     if (!ownKeys && typeof document !== "undefined") {
+       const onKey = (event) => {
+         const target = event.target;
+-        if (target && next.element?.contains(target)) {
+-          onKeyDown(event);
++        if (!target || !next.element?.contains(target)) {
++          return;
+         }
++        if (event.key === "Escape" && store.get().open && !event.defaultPrevented && !isComposing(event)) {
++          event.preventDefault();
++          levels.end("escape-key", event, { dismiss: true });
++          return;
++        }
++        onKeyDown(event);
+       };
+       document.addEventListener("keydown", onKey, true);
+       cleanups.push(() => document.removeEventListener("keydown", onKey, true));
+diff --git a/dist/foundation/date/parse.js b/dist/foundation/date/parse.js
+index 7141700411334237c5bfd6b99d278dfa9245c28b..9bb823a8031be856489a3fd310f8a21cdc0d050c 100644
+--- a/dist/foundation/date/parse.js
++++ b/dist/foundation/date/parse.js
+@@ -1,5 +1,5 @@
+ // src/foundation/date/parse.ts
+-import { dateFormatter, monthNames, weekdayNames } from "./format.js";
++import { dateFormatter, formatDate, monthNames, weekdayNames } from "./format.js";
+ import { dateParts, isoDate } from "./plain-date.js";
+ var directionMarks = /[‎‏؜]/g;
+ var fieldLetters = { year: "Y", month: "M", day: "D" };
+@@ -66,8 +66,17 @@ function parseDate(text, locale, options = {}) {
+     return normalized;
+   }
+   const referenceYear = Number((options.referenceDate ?? "").slice(0, 4)) || (/* @__PURE__ */ new Date()).getFullYear();
++  const written = parseWrittenDate(normalized, locale, referenceYear);
++  if (written) {
++    return written;
++  }
+   let namedMonth;
+   let words = normalized.toLocaleLowerCase(locale);
++  const eraName = erasOf(locale).pattern?.exec(words);
++  const era = eraName ? erasOf(locale).offsets.get(compact(eraName[0], locale)) : void 0;
++  if (eraName) {
++    words = `${words.slice(0, eraName.index)} ${words.slice(eraName.index + eraName[0].length)}`;
++  }
+   for (const [name, month] of months(locale).spaced) {
+     const at = wordIndex(words, name);
+     if (at >= 0) {
+@@ -100,7 +109,7 @@ function parseDate(text, locale, options = {}) {
+         month: String(namedMonth)
+       };
+       order.filter((field) => field !== "month").forEach((field, index) => named[field] = numbers[index]);
+-      const date = dateOf(named, locale, referenceYear);
++      const date = dateOf(named, locale, referenceYear, era);
+       if (date) {
+         return date;
+       }
+@@ -120,19 +129,119 @@ function parseDate(text, locale, options = {}) {
+   } else if (numbers.length === 2 || numbers.length === 3) {
+     const short = shortPattern(locale);
+     const typed = normalized.match(/\d(\D+)\d/)?.[1]?.trim();
+-    const all = typed === short.separator && short.separator !== separator.trim() ? short.fields : fields;
++    const year2 = numbers.findIndex((number) => number.length > 2);
++    const all = typed === short.separator && short.separator !== separator.trim() || numbers.length === 3 && year2 === -1 ? short.fields : numbers.length === 3 && fields[year2] !== "year" && short.fields[year2] === "year" ? short.fields : fields;
+     const order = numbers.length === 3 ? all : all.filter((field) => field !== "year");
+     order.forEach((field, index) => values[field] = numbers[index]);
+   } else {
+     return void 0;
+   }
+-  return dateOf(values, locale, referenceYear);
++  return dateOf(values, locale, referenceYear, era);
+ }
+-function dateOf(values, locale, referenceYear) {
++function dateOf(values, locale, referenceYear, era) {
++  if (era !== void 0 && values.year !== void 0) {
++    for (const year2 of eraYears(values.year, era, referenceYear)) {
++      const date = isoDate(year2, Number(values.month), Number(values.day));
++      if (date && eraOf(date, locale) === era) {
++        return date;
++      }
++    }
++    return void 0;
++  }
+   const offset = yearOffset(locale);
+   const year = values.year === void 0 ? referenceYear : fullYear(values.year, referenceYear + offset) - offset;
+   return isoDate(year, Number(values.month), Number(values.day));
+ }
++var writtenStyles = ["full", "long", "medium"];
++var writtenDates = /* @__PURE__ */ new Map();
++function compact(text, locale) {
++  return toLatinDigits(text.replace(directionMarks, ""), locale).replace(/[\s\u200c\u200d]/gu, "").replace(/[’ʼ׳]/gu, "'").toLocaleLowerCase(locale);
++}
++function parseWrittenDate(text, locale, referenceYear) {
++  const typed = compact(text, locale);
++  for (const { dateStyle, pattern, fields, months: months2 } of writtenDatesOf(locale)) {
++    const match = pattern.exec(typed);
++    if (!match) {
++      continue;
++    }
++    const values = {};
++    fields.forEach((field, index) => values[field] = match[index + 1]);
++    const { offsets, firstYears } = erasOf(locale);
++    const era = values.era === void 0 ? void 0 : offsets.get(values.era);
++    const written = firstYears.has(values.year ?? "") ? "1" : values.year ?? "";
++    const offset = yearOffset(locale);
++    const years = era === void 0 ? [fullYear(written, referenceYear + offset) - offset] : eraYears(written, era, referenceYear);
++    for (const year of years) {
++      const date = isoDate(
++        year,
++        months2.get(values.month ?? "") ?? 0,
++        Number(values.day)
++      );
++      if (date && compact(formatDate(date, locale, { dateStyle }), locale) === typed) {
++        return date;
++      }
++    }
++  }
++  return void 0;
++}
++function writtenDatesOf(locale) {
++  const key = locale ?? "";
++  let dates = writtenDates.get(key);
++  if (!dates) {
++    writtenDates.set(
++      key,
++      dates = writtenStyles.map(
++        (dateStyle) => readWrittenDate(locale, dateStyle)
++      )
++    );
++  }
++  return dates;
++}
++function readWrittenDate(locale, dateStyle) {
++  const formatter = dateFormatter(locale, { dateStyle });
++  const partOf = (type, month, day) => formatter.formatToParts(Date.UTC(2026, month, day)).find((part) => part.type === type)?.value;
++  const months2 = /* @__PURE__ */ new Map();
++  for (let month = 0; month < 12; month++) {
++    const name = partOf("month", month, 16);
++    if (name) {
++      months2.set(compact(name, locale), month + 1);
++    }
++  }
++  const weekdays = /* @__PURE__ */ new Set();
++  for (let day = 11; day < 18; day++) {
++    const name = partOf("weekday", 9, day);
++    if (name) {
++      weekdays.add(compact(name, locale));
++    }
++  }
++  const { offsets, firstYears } = erasOf(locale);
++  const fields = [];
++  const source = formatter.formatToParts(Date.UTC(2026, 9, 16)).map((part) => {
++    if (part.type === "day") {
++      fields.push("day");
++      return "(\\d+)";
++    }
++    if (part.type === "year") {
++      fields.push("year");
++      return `(\\d+${firstYears.size ? `|${anyOf(firstYears)}` : ""})`;
++    }
++    if (part.type === "era" && offsets.size) {
++      fields.push("era");
++      return `(${anyOf(offsets.keys())})`;
++    }
++    if (part.type === "month") {
++      fields.push("month");
++      return `(${anyOf(months2.keys())})`;
++    }
++    if (part.type === "weekday") {
++      return `(?:${anyOf(weekdays)})`;
++    }
++    return escapeRegExp(compact(part.value, locale));
++  }).join("");
++  return { dateStyle, pattern: new RegExp(`^${source}$`, "u"), fields, months: months2 };
++}
++var anyOf = (names) => [...names].map(escapeRegExp).join("|");
++var escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+ var yearOffsets = /* @__PURE__ */ new Map();
+ function yearOffset(locale) {
+   const key = locale ?? "";
+@@ -156,6 +265,77 @@ function readYearOffset(locale) {
+   }
+   return year - 2026;
+ }
++var eraCache = /* @__PURE__ */ new Map();
++var eraWidths = ["narrow", "short", "long"];
++function erasOf(locale) {
++  const key = locale ?? "";
++  let eras = eraCache.get(key);
++  if (!eras) {
++    eras = { offsets: /* @__PURE__ */ new Map(), firstYears: /* @__PURE__ */ new Set() };
++    const writesEras = [
++      numericDate,
++      ...writtenStyles.map((dateStyle) => ({ dateStyle }))
++    ].some(
++      (options) => dateFormatter(locale, options).formatToParts(Date.UTC(2026, 9, 16)).some((part) => part.type === "era")
++    );
++    const partsOf = (era, time) => {
++      const parts = dateFormatter(locale, { year: "numeric", era }).formatToParts(time).map((part) => ({ ...part, value: compact(part.value, locale) }));
++      const valueOf = (type) => parts.find((part) => part.type === type)?.value ?? "";
++      return { era: valueOf("era"), year: valueOf("year") };
++    };
++    const written = /* @__PURE__ */ new Set();
++    const found = /* @__PURE__ */ new Map();
++    for (let year = 1868; writesEras && year <= 2100; year++) {
++      const { era, year: value } = partsOf("short", Date.UTC(year, 0, 1));
++      if (!era) {
++        break;
++      }
++      const offset = year - Number(value);
++      const known = found.get(era);
++      found.set(era, {
++        offset: !known || known.offset === offset ? offset : null,
++        year: known?.year ?? year
++      });
++    }
++    for (const { offset, year } of found.values()) {
++      if (offset === null) {
++        continue;
++      }
++      for (const width of eraWidths) {
++        const name = dateFormatter(locale, { year: "numeric", era: width }).formatToParts(Date.UTC(year, 0, 1)).find((part) => part.type === "era")?.value;
++        if (name) {
++          eras.offsets.set(compact(name, locale), offset);
++          written.add(
++            toLatinDigits(name.replace(directionMarks, ""), locale).trim().toLocaleLowerCase(locale)
++          );
++        }
++        const first = partsOf(width, Date.UTC(offset + 1, 11, 31)).year;
++        if (!/\d/.test(first)) {
++          eras.firstYears.add(first);
++        }
++      }
++    }
++    if (written.size) {
++      const names = anyOf([...written].sort((a, b) => b.length - a.length));
++      eras.pattern = new RegExp(
++        `(?<![\\p{L}\\p{M}])(?:${names})(?![\\p{L}\\p{M}])`,
++        "u"
++      );
++    }
++    eraCache.set(key, eras);
++  }
++  return eras;
++}
++function eraOf(date, locale) {
++  const { year, month, day } = dateParts(date);
++  const era = dateFormatter(locale, { year: "numeric", era: "short" }).formatToParts(Date.UTC(year, month - 1, day)).find((part) => part.type === "era")?.value;
++  return erasOf(locale).offsets.get(compact(era ?? "", locale));
++}
++function eraYears(text, offset, referenceYear) {
++  const literal = Number(text) + offset;
++  const expanded = fullYear(text, referenceYear - offset) + offset;
++  return /^0\d$/.test(text) ? [expanded, literal] : [literal, expanded];
++}
+ function fullYear(text, referenceYear) {
+   const year = Number(text);
+   if (text.length > 2) {
+@@ -253,6 +433,13 @@ function monthLookup(locale) {
+       }
+     }
+   }
++  const short = dateFormatter(locale, { dateStyle: "short" });
++  for (let index = 0; index < 12; index++) {
++    const name = short.formatToParts(Date.UTC(2026, index, 16)).find((part) => part.type === "month")?.value;
++    if (name && !/\p{Nd}/u.test(name)) {
++      add(name, index + 1);
++    }
++  }
+   return lookup;
+ }
+ var patternWords = /* @__PURE__ */ new Map();
+diff --git a/dist/foundation/focus/tabbable.js b/dist/foundation/focus/tabbable.js
+index a60a64cb1ff33095218ac1deb9d524837799bc3d..4b46926489c9af8ad6d703867b778e26b000d004 100644
+--- a/dist/foundation/focus/tabbable.js
++++ b/dist/foundation/focus/tabbable.js
+@@ -1,5 +1,4 @@
+ // src/foundation/focus/tabbable.ts
+-import { isAfter } from "../kernel/order.js";
+ var candidates = [
+   "a[href]",
+   "area[href]",
+@@ -84,11 +83,52 @@ function positiveTabStops(stops, root) {
+   };
+   return stops.filter((el) => el.tabIndex > 0 && !slotted(el)).sort((a, b) => a.tabIndex - b.tabIndex);
+ }
++function walkComposed(root, visit, skip) {
++  const walk = (scope) => {
++    for (const el of scope.children) {
++      if (walkElement(el)) {
++        return true;
++      }
++    }
++    return false;
++  };
++  const walkElement = (el) => {
++    if (el === skip) {
++      return false;
++    }
++    if (visit(el)) {
++      return true;
++    }
++    if (el.shadowRoot) {
++      return walk(el.shadowRoot);
++    }
++    if (el.localName === "slot") {
++      const assigned = el.assignedElements({ flatten: true });
++      if (assigned.length) {
++        return assigned.some(walkElement);
++      }
++    }
++    return walk(el);
++  };
++  walk(root);
++}
+ function nextTabbable(node, skip) {
+   const doc = node.ownerDocument ?? document;
+-  return tabbables(doc.body).find(
+-    (el) => !el.contains(node) && !skip?.contains(el) && isAfter(node, el)
++  let passed = false;
++  let next;
++  walkComposed(
++    doc.body,
++    (el) => {
++      if (passed && el.matches(candidates) && isTabbable(el)) {
++        next = el;
++        return true;
++      }
++      passed ||= el === node;
++      return false;
++    },
++    skip
+   );
++  return next;
+ }
+ var focusables = 'a[href],button,input:not([type="hidden"]),select,textarea,iframe,summary,[contenteditable]:not([contenteditable="false"]),[tabindex]';
+ var ownTabStops = /* @__PURE__ */ new WeakSet();
+diff --git a/dist/foundation/number/format.js b/dist/foundation/number/format.js
+index cf38568d16c654d5908563398eaa80ccd87e000c..2cb6f5dcbc943e61d5ace7ec476ab07d6d176808 100644
+--- a/dist/foundation/number/format.js
++++ b/dist/foundation/number/format.js
+@@ -57,7 +57,7 @@ function formatNumberRange(start, end, locale, format) {
+   }
+   const formatter = numberFormatter(locale, format);
+   if (start < 0 && end < 0) {
+-    return `${formatter.format(start)} \u2013 ${formatter.format(end)}`;
++    return `${formatNumber(start, locale, format)} \u2013 ${formatNumber(end, locale, format)}`;
+   }
+   return formatter.formatRange ? formatter.formatRange(start, end) : `${formatter.format(start)}\u2013${formatter.format(end)}`;
+ }
+diff --git a/dist/foundation/platform/platform.js b/dist/foundation/platform/platform.js
+index f5956d2c11be54d4b0dc1b96ead583e33aeaf645..2a816827cf273beb70afbbe177e6c445339c9f78 100644
+--- a/dist/foundation/platform/platform.js
++++ b/dist/foundation/platform/platform.js
+@@ -168,7 +168,11 @@ function matchesShortcut(event, shortcut, apple2 = isApple()) {
+   if (!keys) {
+     cache.set(shortcut, keys = ariaKeyshortcuts(shortcut, apple2).split("+"));
+   }
+-  return matchesKey(event, keys.at(-1)) && event.metaKey === keys.includes("Meta") && event.ctrlKey === keys.includes("Control") && event.altKey === keys.includes("Alt") && event.shiftKey === keys.includes("Shift");
++  const last = keys.at(-1);
++  return matchesKey(event, last) && event.metaKey === keys.includes("Meta") && event.ctrlKey === keys.includes("Control") && event.altKey === keys.includes("Alt") && (event.shiftKey === keys.includes("Shift") || typesWithShift(last, keys));
++}
++function typesWithShift(key, keys) {
++  return key.length === 1 && !/^[A-Z0-9]$/.test(key) && !keys.includes("Shift");
+ }
+ function hasCommandModifier(keys) {
+   return /(^|\+)(Meta|Control|Alt)(\+|$)/.test(ariaKeyshortcuts(keys, true));
+diff --git a/dist/page/agent/agent.js b/dist/page/agent/agent.js
+index b5494f9d4f3862a84a7ef68cd8e208fa651404e1..f8e50baaa42e600b4005d07f37f81c27d41a6655 100644
+--- a/dist/page/agent/agent.js
++++ b/dist/page/agent/agent.js
+@@ -798,7 +798,7 @@ function createAgent(options = {}) {
+       clearTimeout(timer);
+     }
+   }
+-  async function perform(ref, action, args, guard) {
++  async function perform(ref, action, args, prior, guard) {
+     if (typeof ref !== "string" || !ref.trim()) {
+       throw new Error(
+         "A step needs a ref: a component's ref from snapshot, or its label."
+@@ -812,6 +812,11 @@ function createAgent(options = {}) {
+       action,
+       action === "press" && typeof args[0] === "string" ? args[0] : void 0
+     );
++    for (const [shown, state] of capture().states) {
++      if (!prior.states.has(shown)) {
++        prior.states.set(shown, state);
++      }
++    }
+     const { actions, disabled } = describe(entry, instance, parts);
+     const asked = /* @__PURE__ */ new Set();
+     const ask = async (stepArgs, targets2, what) => {
+@@ -1221,6 +1226,7 @@ function createAgent(options = {}) {
+           step.ref,
+           step.action,
+           step.args ?? [],
++          prior,
+           guard
+         );
+         touched.add(ref);
+diff --git a/dist/web.css b/dist/web.css
+index 74773fd28e59d25532c19dea4592ab533f0f6b76..c408879e34100f81771d2f66df5eb4a5daa3791a 100644
+--- a/dist/web.css
++++ b/dist/web.css
+@@ -86,8 +86,8 @@
+   }
+ 
+   :is(a, summary):focus-visible {
+-    outline: 4px solid var(--ui-ring);
+-    outline-offset: 0;
++    outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
++    outline-offset: var(--ui-ring-offset, 0);
+   }
+ 
+   hr {
+@@ -115,8 +115,8 @@
+   }
+ 
+   :where([data-slot]):focus-visible {
+-    outline: 4px solid var(--ui-ring);
+-    outline-offset: 0;
++    outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
++    outline-offset: var(--ui-ring-offset, 0);
+   }
+ 
+   [data-slot] > svg {
+@@ -752,7 +752,7 @@
+     background: var(--ui-background);
+ 
+     &:has(:focus-visible) {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &[data-disabled] {
+@@ -947,7 +947,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -1022,7 +1022,7 @@
+     gap: calc(var(--ui-spacing) * 2);
+     min-height: calc(var(--ui-spacing) * 7.5);
+     padding-inline: calc(var(--ui-spacing) * 2);
+-    border-radius: max(0px, calc(var(--ui-radius) * 1.5 - var(--ui-spacing)));
++    border-radius: max(0px, calc(var(--ui-radius-popup, calc(var(--ui-radius) * 1.5)) - var(--ui-spacing)));
+     outline: none;
+     cursor: default;
+     user-select: none;
+@@ -1125,7 +1125,7 @@
+     max-width: 100%;
+     overflow: hidden;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     color: var(--ui-foreground);
+     font-size: var(--ui-font-size);
+@@ -1184,7 +1184,7 @@
+     max-width: 100%;
+     padding: var(--ui-spacing);
+     border: 1px solid var(--ui-input);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     font-size: var(--ui-font-size);
+   }
+@@ -1268,12 +1268,12 @@
+       flex-direction: column;
+       gap: 2px;
+       padding: calc(var(--ui-spacing) * 2);
+-      border-radius: max(0px, calc(var(--ui-radius) * 1.5 - var(--ui-spacing)));
++      border-radius: max(0px, calc(var(--ui-radius-popup, calc(var(--ui-radius) * 1.5)) - var(--ui-spacing)));
+       color: var(--ui-foreground);
+       font-size: var(--ui-font-size);
+       font-weight: 500;
+       text-decoration: none;
+-      outline-offset: -4px;
++      outline-offset: calc(var(--ui-ring-width, 4px) * -1);
+ 
+       &:is(:hover, [data-highlighted]) {
+         background: var(--ui-muted);
+@@ -1431,7 +1431,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -1790,7 +1790,7 @@
+ 
+     &:has(:focus-visible) {
+       border-color: var(--ui-ring-border);
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &:is([data-invalid], :has([aria-invalid="true"])) {
+@@ -2046,7 +2046,7 @@
+     &[data-active] {
+       z-index: 1;
+       border-color: var(--ui-ring-border);
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+ 
+     &[data-fake-caret]:empty::after {
+@@ -2266,7 +2266,7 @@
+     gap: calc(var(--ui-spacing) * 2) 0;
+     padding: calc(var(--ui-spacing) * 3);
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     color: var(--ui-foreground);
+     font-size: var(--ui-font-size);
+@@ -2419,7 +2419,7 @@
+     overflow-y: auto;
+     overscroll-behavior: contain;
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);
+@@ -2600,7 +2600,7 @@
+     }
+ 
+     &:focus-visible {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+       outline-offset: 2px;
+     }
+   }
+@@ -2725,7 +2725,7 @@
+       outline: none;
+ 
+       &::after {
+-        outline: 4px solid var(--ui-ring);
++        outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+       }
+     }
+   }
+@@ -2967,7 +2967,7 @@
+     width: 100%;
+     height: 100%;
+     border-radius: inherit;
+-    outline-offset: -4px;
++    outline-offset: calc(var(--ui-ring-width, 4px) * -1);
+   }
+ 
+   [data-slot="scroll-area-content"] {
+@@ -3166,7 +3166,7 @@
+ 
+     &:focus-visible > [data-slot="tree-label"],
+     &:focus-visible > :not([data-slot]) > [data-slot="tree-label"] {
+-      outline: 4px solid var(--ui-ring);
++      outline: var(--ui-ring-width, 4px) solid var(--ui-ring);
+     }
+   }
+ 
+@@ -3223,18 +3223,31 @@
+     }
+   }
+ 
++  /* The drawn chevron points down, so it turns to the side while closed. An app's own icon, such as a chevron
++     pointing to the side, turns down when the item opens. */
+   [data-slot="tree-indicator"] {
+     display: inline-flex;
+     flex-shrink: 0;
+     color: var(--ui-muted-foreground);
+-    rotate: -90deg;
+ 
+-    &:is([dir="rtl"] *) {
+-      rotate: 90deg;
++    &:not(:has(svg)) {
++      rotate: -90deg;
++
++      &:is([dir="rtl"] *) {
++        rotate: 90deg;
++      }
++
++      &[data-expanded] {
++        rotate: none;
++      }
+     }
+ 
+-    &[data-expanded] {
+-      rotate: none;
++    &:has(svg)[data-expanded] {
++      rotate: 90deg;
++
++      &:is([dir="rtl"] *) {
++        rotate: -90deg;
++      }
+     }
+   }
+ 
+@@ -3293,7 +3306,7 @@
+     gap: calc(var(--ui-spacing) * 1) calc(var(--ui-spacing) * 3);
+     padding: calc(var(--ui-spacing) * 4);
+     border: 1px solid var(--ui-border);
+-    border-radius: calc(var(--ui-radius) * 1.5);
++    border-radius: var(--ui-radius-popup, calc(var(--ui-radius) * 1.5));
+     background: var(--ui-background);
+     box-shadow: var(--ui-shadow);
+     color: var(--ui-foreground);

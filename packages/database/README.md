@@ -12,8 +12,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 ## Minimal API

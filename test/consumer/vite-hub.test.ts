@@ -389,8 +389,6 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  \"@napi-rs/wasm-runtime\": \"1.2.4\"",
     "  \"@emnapi/core\": \"1.9.2\"",
     "  \"@emnapi/runtime\": \"1.9.2\"",
-    "  \"@nestjs/common\": \"11.2.3\"",
-    "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
     "",
   ].join("\n")
@@ -1060,7 +1058,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             "@vite-hub/agent": specs["@vite-hub/agent"],
             "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
-            "drizzle-orm": "1.0.0-rc.5",
+            "drizzle-orm": "1.0.0-rc.6",
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1258,7 +1256,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/database": specs["@vite-hub/database"],
-            "drizzle-orm": "1.0.0-rc.5",
+            "drizzle-orm": "1.0.0-rc.6",
             h3: "2.0.8",
             nitro: "3.0.261102-rc",
             nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -1267,7 +1265,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          devDependencies: { "drizzle-kit": "1.0.0-rc.5", "vite-plus": "0.1.24" },
+          devDependencies: { "drizzle-kit": "1.0.0-rc.6", "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build" },

@@ -102,7 +102,7 @@
     "test": "vp run --cache -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
-    "@env-spec/parser": "0.6.2",
+    "@env-spec/parser": "0.6.3",
     "@vite-hub/runtime": "workspace:*",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
@@ -123,7 +123,7 @@
   },
   "peerDependencies": {
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "@vite-hub/agent": "*",
     "nitro": "catalog:nitro-compat"
   },

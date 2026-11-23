@@ -82,7 +82,7 @@
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "happy-dom": "21.0.3",
+    "happy-dom": "21.0.4",
     "miniflare": "4.20260730.0",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
@@ -96,7 +96,7 @@
   "peerDependencies": {
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "vite": {

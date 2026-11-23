@@ -261,7 +261,7 @@ describe("vitehub database up", () => {
     const refused = await project.run("up")
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("`vitehub database up` needs drizzle-kit 1.0, and")
-    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.5`")
+    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.6`")
     await expect(readdir(project.database.migrationsDir)).resolves.toContain("meta")
   })
 
