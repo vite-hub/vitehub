@@ -46,7 +46,6 @@ export interface StoredConnection {
   protocolVersion?: string
   sameOrigin: boolean
   server?: ConsoleMcpServerInfo
-  sessionId?: string
   status: ConsoleMcpStatus
   url: string
   usedAt?: number
@@ -60,7 +59,8 @@ export interface ConsoleMcpRecords {
   connections: (userId: string, projectId: string) => Promise<StoredConnection[]>
   remove: (connection: StoredConnection) => Promise<void>
   removeClient: (key: string) => Promise<void>
-  save: (connection: StoredConnection) => Promise<void>
+  /** Insert a new connection, or change a read one. `false` when another request changed or removed the row since. */
+  save: (connection: StoredConnection) => Promise<boolean>
   saveClient: (key: string, client: OAuthClientInformationMixed) => Promise<void>
 }
 
@@ -87,7 +87,6 @@ const connectionSchema = z.object({
   protocolVersion: optionalText,
   sameOrigin: z.boolean(),
   server: z.custom<ConsoleMcpServerInfo>(value => value instanceof Object && typeof Reflect.get(value, "name") === "string" && Reflect.get(value, "capabilities") instanceof Object).optional(),
-  sessionId: optionalText,
   status: z.enum(["authorizing", "connected", "failed", "signed-out"]),
   url: z.string(),
   usedAt: z.number().optional(),
@@ -159,13 +158,15 @@ export function databaseConsoleMcpRecords(db: ConsoleDatabase, secret: string): 
         const updatedAt = Date.now()
         await db.insert(consoleMcpConnections).values({ createdAt: connection.createdAt, id: connection.id, projectId: connection.projectId, sealed, updatedAt, userId: connection.userId })
         versions.set(connection, updatedAt)
-        return
+        return true
       }
       const updatedAt = Math.max(Date.now(), version + 1)
       const [saved] = await db.update(consoleMcpConnections).set({ sealed, updatedAt })
         .where(and(eq(consoleMcpConnections.id, connection.id), eq(consoleMcpConnections.userId, connection.userId), eq(consoleMcpConnections.updatedAt, version)))
         .returning({ updatedAt: consoleMcpConnections.updatedAt })
-      if (saved) versions.set(connection, saved.updatedAt)
+      if (!saved) return false
+      versions.set(connection, saved.updatedAt)
+      return true
     },
     saveClient: async (key, client) => {
       const id = await sha256(key)
