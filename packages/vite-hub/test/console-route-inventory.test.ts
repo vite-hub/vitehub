@@ -38,7 +38,7 @@ describe("generated Agent routes with the Console fallback", () => {
     }, command, command === "build" ? "production" : "development")
     const nitro: { handlers?: NitroEntry[] } = Object(Reflect.get(resolved, "nitro"))
     expect(nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining([
-      "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/channels/intake", "/_vitehub/ready",
+      "/_vitehub/**", "/_vitehub/channels/intake", "/_vitehub/ready",
     ]))
   })
 })
@@ -99,14 +99,12 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
 }
 
 /**
- * The one Console route of an app, `/_vitehub/rpc`. The ViteHub Console and the CLI `POST` signed calls to it, and a
- * browser `GET`s it with a one-time ticket, for Content preview and impersonation.
+ * The one Console route of an app, `/_vitehub/**`. The ViteHub Console and the CLI `POST` signed calls to
+ * `/_vitehub/rpc`, and a browser opens `/_vitehub` and its pages. In an app with Comments, it also serves Site access at
+ * `/_vitehub/site`.
  */
 const consoleRoutes = [
-  "route ALL /_vitehub console/server/site-entry.js",
-  "route ALL /_vitehub/** console/server/site-entry.js",
-  "route ALL /_vitehub/rpc console/server/rpc.js",
-  "route ALL /_vitehub/site console/server/site.js",
+  "route ALL /_vitehub/** console/server/entry-site-access.js",
 ]
 
 /**

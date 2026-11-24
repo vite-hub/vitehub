@@ -146,6 +146,12 @@ export interface ConsoleVitePluginOptions {
   host?: NonNullable<ConsoleAppModuleOptions["target"]>["host"]
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
+  /**
+   * Serve Site access at `/_vitehub/site`, and send `/_vitehub` to the page of the app with the pill. On in an app with
+   * Comments, which reads the person of the site cookie and shows the pill. Without it, `/_vitehub` opens the ViteHub
+   * Console.
+   */
+  siteAccess?: boolean
   contentImportBase?: string
   blobStores?: readonly string[]
   console?: ConsoleOptions
@@ -175,12 +181,13 @@ function configureConsoleNitroRoutes(
   baseURL: string,
   sections: readonly ConsoleSectionId[],
   rpcOnly = false,
+  siteAccess = false,
 ): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
   // Nitro serves its routes below its own `baseURL`, so the routes get only the part of the Vite base that Nitro does not
   // add. Without a Nitro `baseURL`, this is the whole Vite base.
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
-  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount)
+  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, { siteAccess })
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
     .filter(asset => asset?.dir !== consoleSkillsRoot)
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations.
@@ -417,7 +424,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, applicationBase, sections, options.rpcOnly)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, applicationBase, sections, options.rpcOnly, options.siteAccess)
       consoleConfig.nitro = { ...kit.config, publicAssets }
     },
     async configResolved(config) {
@@ -455,7 +462,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "sandbox-tasks")
         if (sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
-      const { kit, publicAssets } = configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, sections, options.rpcOnly)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, sections, options.rpcOnly, options.siteAccess)
       viteConfig.nitro = { ...kit.config, publicAssets }
       generatedApp = resolveGeneratedConsoleApp(projectRoot, development)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.

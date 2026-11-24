@@ -616,6 +616,7 @@ interface NuxtConsoleInstallOptions {
   /** Whether Nitro config is resolved, so discovery can read Database and contributed section definitions. */
   canDiscoverDefinitions: () => boolean
   access?: ConsoleAccessBuild
+  siteAccess: boolean
   /** Writes the generated Console app module. The `nitro:config` hook writes it with the same writer. */
   writeApp: (file: string, catalog: ConsoleBuildCatalog) => Promise<void>
 }
@@ -629,6 +630,7 @@ async function installConsole({
   writeGeneratedApp,
   canDiscoverDefinitions,
   access,
+  siteAccess,
   writeApp,
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
@@ -656,7 +658,7 @@ async function installConsole({
   installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections])
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsoleAppRoutes>[0] & { alias?: Record<string, string> }
   // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule.
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot)
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, { siteAccess })
   addConsoleAppRoutes(nitro, consoleRuntimeRoot)
   nitro.alias = { ...nitro.alias, [consoleAppModuleId]: app }
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
@@ -1588,7 +1590,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, options.name))
-      addConsoleRpcHandler(config, consoleRuntimeRoot)
+      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: Boolean(options.comments) })
       addConsoleAppRoutes(config, consoleRuntimeRoot)
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
       // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
@@ -1733,6 +1735,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       projectRoot,
       name: options.name,
       sections: consoleSections,
+      siteAccess: Boolean(options.comments),
       discovery: {
         contentImportBase: "vite-hub/content",
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,

@@ -21,7 +21,7 @@ async function visit(claims: Partial<Omit<SiteTokenClaims, "iat" | "exp">> = {})
   const state = createSiteState()
   const token = await signSiteToken({
     key,
-    claims: { aud: `${origin}/portal`, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), ...claims },
+    claims: { aud: origin, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), ...claims },
     now,
   })
   return { key, keys, state, token }
@@ -29,21 +29,31 @@ async function visit(claims: Partial<Omit<SiteTokenClaims, "iat" | "exp">> = {})
 
 describe("Site access tokens", () => {
   it("signs in the Console and verifies in the app with the public key of the link", async () => {
-    const { keys, state, token } = await visit()
+    const { keys, state, token } = await visit({ aud: `${origin}/portal` })
     const callback = new URL(siteTokenUrl(`${origin}/portal/`, token))
     expect(callback.pathname).toBe("/portal/_vitehub/site")
-    const result = await verifySiteToken({ token: callback.searchParams.get("token")!, keys, origin, state, now: now + 30_000 })
+    const result = await verifySiteToken({ token: callback.searchParams.get("token")!, keys, origin: `${origin}/portal`, state, now: now + 30_000 })
     expect(result).toEqual({
       ok: true,
       key: name,
-      destination: `${origin}/docs`,
-      claims: { aud: origin, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), iat: now / 1_000, exp: now / 1_000 + 60 },
+      destination: `${origin}/portal/docs`,
+      claims: { aud: `${origin}/portal`, sub: "user-1", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "site", path: "/docs", state: await siteStateHash(state), iat: now / 1_000, exp: now / 1_000 + 60 },
     })
   })
 
   it("refuses a token for another origin", async () => {
     const { keys, state, token } = await visit()
-    expect(await verifySiteToken({ token, keys, origin: "https://evil.example.com", state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_AUDIENCE" })
+    expect(await verifySiteToken({ token, keys, origin: "https://evil.example.com/portal", state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_AUDIENCE" })
+  })
+
+  it("refuses a token for another app on the same origin, and accepts the app URL with a trailing slash", async () => {
+    const { keys, state, token } = await visit({ aud: `${origin}/portal` })
+    for (const app of [origin, `${origin}/`, `${origin}/other`, `${origin}/portal/admin`]) {
+      expect(await verifySiteToken({ token, keys, origin: app, state, now }), app).toMatchObject({ ok: false, code: "SITE_TOKEN_AUDIENCE" })
+    }
+    expect(await verifySiteToken({ token, keys, origin: `${origin}/portal/`, state, now })).toMatchObject({ ok: true })
+    const root = await visit({ aud: `${origin}/` })
+    expect(await verifySiteToken({ token: root.token, keys: root.keys, origin, state: root.state, now })).toMatchObject({ ok: true })
   })
 
   it("refuses an expired token", async () => {
@@ -104,13 +114,20 @@ describe("Site access tokens", () => {
 
   it("refuses control characters in a path, and a token path outside the app URL", async () => {
     expect(["/\t/evil.example", "/\n/evil.example", "/docs\u007f"].map(isSitePath)).toEqual([false, false, false])
-    const { keys, state, token } = await visit({ path: "/../admin" })
+    const { keys, state, token } = await visit({ aud: `${origin}/portal`, path: "/../admin" })
     expect(await verifySiteToken({ token, keys, origin: `${origin}/portal`, state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
-    expect(await verifySiteToken({ token, keys, origin, state, now })).toMatchObject({ ok: true, destination: `${origin}/admin` })
-    const inside = await visit({ path: "/docs?tab=1" })
+    const root = await visit({ aud: origin, path: "/../admin" })
+    expect(await verifySiteToken({ token: root.token, keys: root.keys, origin, state: root.state, now })).toMatchObject({ ok: true, destination: `${origin}/admin` })
+    const inside = await visit({ aud: `${origin}/portal`, path: "/docs?tab=1" })
     expect(await verifySiteToken({ token: inside.token, keys: inside.keys, origin: `${origin}/portal/`, state: inside.state, now })).toMatchObject({ ok: true, destination: `${origin}/portal/docs?tab=1` })
     const control = await visit({ path: "/\t/evil.example" })
     expect(await verifySiteToken({ token: control.token, keys: control.keys, origin, state: control.state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
+  })
+
+  it("verifies a token for an app URL with a long base path", async () => {
+    const app = `${origin}/${"a".repeat(600)}`
+    const { keys, state, token } = await visit({ aud: app })
+    expect(await verifySiteToken({ token, keys, origin: app, state, now })).toMatchObject({ ok: true, destination: `${app}/docs` })
   })
 
   it("refuses to sign a token that the app would refuse for its length", async () => {

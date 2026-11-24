@@ -54,10 +54,22 @@ function sourceFile(handler: string): string {
   return `${match[1]}.ts`
 }
 
-/** One request for a registered route: the concrete path for a `**` route, and its method. */
-function remoteRequest(entry: Registration, remoteAddress?: string): ConsoleRequestEvent {
-  const path = entry.route!.replace("/**", "/agents")
-  const method = [entry.method ?? "post"].flat()[0]!.toUpperCase()
+type RouteCase = { file: string, method: "GET" | "POST", path: string }
+
+/** The requests that reach each entry of the one `/_vitehub/**` route: the RPC, the entry, a page, and Site access with Comments. */
+const routeCases: RouteCase[] = [
+  { file: "entry.ts", method: "POST", path: "/_vitehub/rpc" },
+  { file: "entry.ts", method: "GET", path: "/_vitehub" },
+  { file: "entry.ts", method: "GET", path: "/_vitehub/agents" },
+  { file: "entry-site-access.ts", method: "POST", path: "/_vitehub/rpc" },
+  { file: "entry-site-access.ts", method: "GET", path: "/_vitehub" },
+  { file: "entry-site-access.ts", method: "GET", path: "/_vitehub/agents" },
+  { file: "entry-site-access.ts", method: "GET", path: "/_vitehub/site" },
+  { file: "entry-site-access.ts", method: "POST", path: "/_vitehub/site" },
+]
+
+/** One request of a route case. */
+function remoteRequest({ method, path }: RouteCase, remoteAddress?: string): ConsoleRequestEvent {
   return consoleEvent({
     url: `http://localhost:3000${path}`,
     method,
@@ -95,9 +107,8 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
   // Let cold route imports finish before another test changes the process-wide access policy.
   it("refuses a remote client with CONSOLE_LOOPBACK_ONLY before the route runs", { timeout: 30_000 }, async () => {
     const routes = await registeredConsoleRoutes()
-    const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["rpc.ts", "site-entry.ts", "site.ts"])
+    expect(routes.map(entry => [entry.route, sourceFile(entry.handler)])).toEqual([["/_vitehub/**", "entry.ts"]])
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
       { key: true, remoteAddress: undefined },
@@ -112,9 +123,9 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     ]) {
       if (peer.key) useViteHubDevPeerKey()
       else vi.stubEnv(viteHubDevPeerKeyEnv, undefined)
-      for (const entry of routes) {
-        const label = `${entry.route} (${sourceFile(entry.handler)}), key ${peer.key}, address ${peer.remoteAddress}`
-        const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
+      for (const entry of routeCases) {
+        const label = `${entry.method} ${entry.path} (${entry.file}), key ${peer.key}, address ${peer.remoteAddress}`
+        const route: unknown = (await import(new URL(entry.file, serverRoot).href)).default
         if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${label} must default-export a Fetchable route.`)
         const response: unknown = await route.fetch(routeRequest(remoteRequest(entry, peer.remoteAddress)))
         if (!(response instanceof Response)) throw new TypeError(`${label} must answer with a Response.`)
@@ -128,8 +139,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
 
   it("serves the same routes to this machine", { timeout: 30_000 }, async () => {
     useViteHubDevPeerKey()
-    const routes = await registeredConsoleRoutes()
-    for (const entry of routes) {
+    for (const entry of routeCases) {
       const request = remoteRequest(entry)
       const standard = request["~standard"]
       const url = new URL(standard.req.url)
@@ -138,12 +148,12 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
       await viteHubDevPeerDevHandler({ runtime: { node: { req: node } } })
       standard.req.headers.set("x-vitehub-dev-peer", node.headers["x-vitehub-dev-peer"]!)
       standard.req.headers.delete("x-forwarded-host")
-      const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
-      if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${entry.route} must default-export a Fetchable route.`)
+      const route: unknown = (await import(new URL(entry.file, serverRoot).href)).default
+      if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${entry.file} must default-export a Fetchable route.`)
       // Past access, a route can still fail on state that this test does not install. That failure is not a refusal.
       const response: unknown = await Promise.resolve(route.fetch(routeRequest(request))).catch((error: unknown) => error)
       const code = response instanceof Response ? await codeOf(response) : undefined
-      expect(code, `${entry.route} (${sourceFile(entry.handler)})`).not.toBe("CONSOLE_LOOPBACK_ONLY")
+      expect(code, `${entry.method} ${entry.path} (${entry.file})`).not.toBe("CONSOLE_LOOPBACK_ONLY")
     }
     expect(loadConsoleRuntime).toHaveBeenCalled()
   })

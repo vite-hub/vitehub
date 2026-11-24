@@ -186,7 +186,7 @@ describe("Site access in the Console", () => {
 
     const appState = createSiteState()
     const token = await api("POST", "/token", { path: "/runs/42", state: await siteStateHash(appState) })
-    expect(await verifyAt(project, String(token.body.url), appState)).toMatchObject({ ok: true, claims: { path: "/runs/42", aud: "https://app.example.com" } })
+    expect(await verifyAt(project, String(token.body.url), appState)).toMatchObject({ ok: true, claims: { path: "/runs/42", aud: "https://app.example.com/portal" } })
     expect(await api("POST", "/token", { path: "/", state: "short" })).toMatchObject({ status: 400 })
   })
 

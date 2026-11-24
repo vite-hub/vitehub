@@ -783,14 +783,9 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve the Console RPC, Site access, and the way into the Console only: no Console page, client script, page
-      // tools session, MCP, or Env management.
-      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub/site",
-        "/_vitehub",
-        "/_vitehub/**",
-      ]);
+      // Apps serve one Console route for the Console RPC and the way into the Console only: no Console page, client
+      // script, page tools session, MCP, or Env management.
+      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual(["/_vitehub/**"]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.");

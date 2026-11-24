@@ -106,4 +106,15 @@ describe("Cloudflare D1 HTTP resolver", () => {
 
     await expect(database.insert(schema.notes).values({ id: 1, title: "hello" }).run()).resolves.toEqual({ rows: [] })
   })
+
+  it("gives each startup migration request a deadline", async () => {
+    vi.stubEnv("DESIGN_D1_TOKEN", "token")
+    vi.stubEnv("DESIGN_D1_URL", "https://d1.example.com/raw")
+    const request = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => Response.json({ success: true, result: [{ success: true, results: [] }] }))
+    const database = createCloudflareD1HttpResolver(configuration(), relations, request)()
+    const client = Reflect.get(database, "$client") as { query: (sql: string) => Promise<unknown[]> }
+
+    await client.query("SELECT 1")
+    expect(request.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+  })
 })

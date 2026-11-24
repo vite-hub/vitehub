@@ -71,6 +71,12 @@ async function visit(request: Request, app: string): Promise<Response> {
   return seeOther(location, new Headers({ "set-cookie": cookie(siteStateCookie, state, siteStateLifetime) }))
 }
 
+function isSameOriginRequest(request: Request): boolean {
+  const site = request.headers.get("sec-fetch-site")
+  if (site !== null) return site === "same-origin"
+  return request.headers.get("origin") === siteApp(request, "")
+}
+
 function signOut(): Response {
   const headers = new Headers({ "cache-control": "no-store" })
   headers.append("set-cookie", cookie(siteCookie, "", 0))
@@ -87,7 +93,8 @@ function signOut(): Response {
  * - The Console checks the person and sends the browser back to `GET ?token=vst1.…` with a token that the key of the
  *   link signed for this app and this state. The route checks the token with the `VITEHUB_CONSOLE_KEY_<NAME>` public
  *   keys, keeps it in the site cookie for 12 hours, and opens the page with the page tools.
- * - `POST` signs the browser out of Site access.
+ * - `POST` signs the browser out of Site access. It needs `Sec-Fetch-Site: same-origin`, or, without that header, an
+ *   `Origin` that is the app origin.
  *
  * After 12 hours, `/_vitehub` sends the browser through the Console again, which signs a new token while the person
  * still has access.
@@ -99,7 +106,7 @@ export const siteAccessRoute: ConsoleRoute = consoleRoute(async (event) => {
   if (!await isConsoleLoopbackRequest(request, { access: policy.mode, remoteAddress: runtime?.clientAddress })) throw consoleRequestError(403, "This development server answers the Console only on this computer.", "CONSOLE_LOOPBACK_ONLY")
   if (!isConsoleDevelopmentRuntime() && !matchesPublicOrigin(request, configuredPublicOrigins())) throw consoleRequestError(404, `ViteHub serves ${siteRoute} only on the public URL of the app.`)
   if (request.method === "POST") {
-    if ((request.headers.get("sec-fetch-site") ?? "same-origin") !== "same-origin") throw consoleRequestError(403, "Sign out from a page of this app.", "CONSOLE_ACCESS_DENIED")
+    if (!isSameOriginRequest(request)) throw consoleRequestError(403, "Sign out from a page of this app.", "CONSOLE_ACCESS_DENIED")
     return signOut()
   }
   if (request.method !== "GET" && request.method !== "HEAD") throw consoleRequestError(405, `Open ${siteRoute} in the browser.`)

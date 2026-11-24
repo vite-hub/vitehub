@@ -1766,6 +1766,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
+      siteAccess: Boolean(options.comments),
       runtimeCapabilityImports,
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,

@@ -68,7 +68,6 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await builder.buildApp()
 
       await withBuiltServer(root, async (fetchServer) => {
-        // The entry route redirects to the hosted Console in either plugin order.
         const page = await fetchServer("/_vitehub", { redirect: "manual" })
         expect(page.status).toBe(303)
         const target = new URL(page.headers.get("location")!)

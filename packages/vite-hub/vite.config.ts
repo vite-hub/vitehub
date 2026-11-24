@@ -151,6 +151,8 @@ const runtimeEntries = [
   "src/console/runtime/server/env.get.ts",
   "src/console/runtime/server/auth.ts",
   "src/console/runtime/server/tickets.ts",
+  "src/console/runtime/server/entry.ts",
+  "src/console/runtime/server/entry-site-access.ts",
   "src/console/runtime/server/site-entry.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",

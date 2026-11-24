@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
@@ -389,7 +389,7 @@ describe("generated Console access", () => {
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
   })
 
-  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("marks the Console RPC and entry routes below %s for app Auth access routes to leave to them", async (base, route) => {
+  it.each([["/", "/_vitehub/**"], ["/portal/", "/portal/_vitehub/**"]])("marks the Console route below %s for app Auth access routes to leave to it", async (base, route) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -405,9 +405,6 @@ describe("generated Console access", () => {
     const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
     expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
       expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/site"), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
     ])
   })
 
@@ -417,17 +414,21 @@ describe("generated Console access", () => {
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
-    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc" }))
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/**" }))
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers the entry, RPC and Site access routes below %s", async (base) => {
+  it.each([
+    ["/", false, "entry.js"],
+    ["/portal/", false, "entry.js"],
+    ["/", true, "entry-site-access.js"],
+    ["/portal/", true, "entry-site-access.js"],
+  ] as const)("registers one Console route below %s (Site access: %s)", async (base, siteAccess, file) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
-    await generatedPlugin({ console: {} }, "build", config)
+    await generatedPlugin({ console: {}, siteAccess }, "build", config)
 
-    const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/site`, `${mount}/_vitehub`, `${mount}/_vitehub/**`])
+    expect(config.nitro.handlers.map(handler => [handler.route, basename(handler.handler)])).toEqual([[`${mount}/_vitehub/**`, file]])
   })
 
   it("imports console.authorize for open access", async () => {

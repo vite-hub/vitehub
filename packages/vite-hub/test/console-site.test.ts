@@ -9,7 +9,8 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import siteAccessRoute from "../src/console/runtime/server/site.ts"
-import siteEntryRoute from "../src/console/runtime/server/site-entry.ts"
+import { consoleEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
+import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
 import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
@@ -162,6 +163,15 @@ describe("the site cookie", () => {
     expect((await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { "sec-fetch-site": "cross-site" } }))).status).toBe(403)
   })
 
+  it("signs out without Sec-Fetch-Site only for the Origin of the app", async () => {
+    const signOut = async (headers: Record<string, string>) => (await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers }))).status
+    expect(await signOut({ origin })).toBe(204)
+    expect(await signOut({})).toBe(403)
+    expect(await signOut({ origin: "null" })).toBe(403)
+    expect(await signOut({ origin: "https://evil.example" })).toBe(403)
+    expect(await signOut({ "sec-fetch-site": "same-site", origin })).toBe(403)
+  })
+
   it("gives the pill the account of a member, and the Console segment to members only", async () => {
     const nitroApp = {}
     installConsolePill(nitroApp, { version: "0.4.0" })
@@ -177,9 +187,65 @@ describe("the site cookie", () => {
   })
 })
 
-describe("GET /_vitehub", () => {
+describe("GET /_vitehub in an app with Comments", () => {
+  async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<Response> {
+    return await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))
+  }
+
+  it("sends a visitor without Site access to /_vitehub/site with the page of the Referer", async () => {
+    const response = await enter("/_vitehub", { referer: `${origin}/runs/42?tab=logs` })
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe(`/_vitehub/site?${new URLSearchParams({ return: "/runs/42?tab=logs" })}`)
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it("comes back to the path below /_vitehub and the app base", async () => {
+    expect((await enter("/_vitehub/projects/meetups?task=x")).headers.get("location")).toBe(`/_vitehub/site?${new URLSearchParams({ return: "/projects/meetups?task=x" })}`)
+    expect((await enter("/portal/_vitehub/runs/42")).headers.get("location")).toBe(`/portal/_vitehub/site?${new URLSearchParams({ return: "/runs/42" })}`)
+  })
+
+  it("goes to the page with the pill at once for a browser with a good site cookie, and on a development server", async () => {
+    const open = async (cookie: string) => (await enter("/_vitehub/docs", { cookie })).headers.get("location")
+    expect(await open(await signIn())).toBe("/docs?vitehub")
+    expect(await open(await signIn({ roles: ["comments-write"] }))).toBe("/docs?vitehub")
+    const { state } = await startVisit()
+    expect(await open(`__Host-vitehub-site=${state}.${await token(state, { aud: `${origin}/portal` })}`)).toMatch(/^\/_vitehub\/site\?/)
+    expect(await open("__Host-vitehub-site=forged")).toMatch(/^\/_vitehub\/site\?/)
+    installConsoleDevelopment("", true)
+    expect((await enter("/_vitehub/docs?tab=1")).headers.get("location")).toBe("/docs?tab=1&vitehub")
+  })
+
+  it("answers 404 for a path that ViteHub serves itself", async () => {
+    for (const path of ["/_vitehub/rpc/x", "/_vitehub/site/x", "/_vitehub/page/assets/old.js", "/_vitehub/_vitehub/runs"]) {
+      const response = await enter(path)
+      expect(response.status, path).toBe(404)
+      expect(response.headers.get("location"), path).toBeNull()
+    }
+  })
+
+  it.each([
+    [null, "/"],
+    ["/guide/day-2", "/guide/day-2"],
+    ["//evil.example/x", "/"],
+    ["https://evil.example/", "/"],
+    ["/\\evil.example", "/"],
+    ["/\t/evil.example", "/"],
+    ["/_vitehub/rpc", "/"],
+  ])("reads %s as the page %s", (page, path) => {
+    expect(siteEntryPage(page, "")).toBe(path)
+  })
+
+  it("answers only on the public URL, so another hostname of the deployment gets 404", async () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://drop.example.com" })
+    expect((await siteEntryRoute.fetch(new Request("https://drop.example.com/_vitehub/d/report"))).status).toBe(303)
+    expect((await siteEntryRoute.fetch(new Request("https://abc-drop.example.com/_vitehub"))).status).toBe(404)
+    expect((await siteAccessRoute.fetch(new Request("https://abc-drop.example.com/_vitehub/site?return=/"))).status).toBe(404)
+  })
+})
+
+describe("GET /_vitehub in an app without Comments", () => {
   async function enter(path = "/_vitehub", init: RequestInit = {}, base = origin): Promise<Response> {
-    return await siteEntryRoute.fetch(new Request(`${base}${path}`, init))
+    return await consoleEntryRoute.fetch(new Request(`${base}${path}`, init))
   }
 
   it("sends the browser to the app in the ViteHub Console", async () => {
@@ -198,6 +264,11 @@ describe("GET /_vitehub", () => {
     expect(Object.fromEntries((await location("/_vitehub/_vitehub/runs")).searchParams)).toEqual({ project: origin, path: "/runs" })
   })
 
+  it("goes to the Console also with a good site cookie", async () => {
+    const response = await enter("/_vitehub/docs", { headers: { cookie: await signIn() } })
+    expect(new URL(response.headers.get("location") ?? "").origin).toBe("https://console.vitehub.dev")
+  })
+
   it("answers 404 for an app origin that the Console cannot open", async () => {
     installConsoleDevelopment("", true)
     expect((await enter("/_vitehub", {}, "http://192.168.0.38:3000")).status).toBe(404)
@@ -211,9 +282,29 @@ describe("GET /_vitehub", () => {
 
   it("answers only on the public URL, so another hostname of the deployment gets 404", async () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "https://drop.example.com" })
-    expect((await siteEntryRoute.fetch(new Request("https://drop.example.com/_vitehub/d/report"))).status).toBe(303)
-    expect((await siteEntryRoute.fetch(new Request("https://abc-drop.example.com/_vitehub"))).status).toBe(404)
-    expect((await siteAccessRoute.fetch(new Request("https://abc-drop.example.com/_vitehub/site?return=/"))).status).toBe(404)
+    expect((await consoleEntryRoute.fetch(new Request("https://drop.example.com/_vitehub/d/report"))).status).toBe(303)
+    expect((await consoleEntryRoute.fetch(new Request("https://abc-drop.example.com/_vitehub"))).status).toBe(404)
+  })
+})
+
+describe("the /_vitehub/** route", () => {
+  it("serves Site access at /_vitehub/site only in an app with Comments", async () => {
+    const withComments = consoleRoutes({ siteAccess: true })
+    const withoutComments = consoleRoutes({ siteAccess: false })
+    const site = await withComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))
+    expect(new URL(site.headers.get("location") ?? "").pathname).toBe("/visit")
+    expect(site.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
+    const opened = await withoutComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))
+    expect(Object.fromEntries(new URL(opened.headers.get("location") ?? "").searchParams)).toEqual({ project: origin, path: "/site?return=%2Fdocs" })
+    expect((await withComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(204)
+    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(404)
+  })
+
+  it("sends /_vitehub/rpc to the Console RPC and every other path to the entry", async () => {
+    for (const routes of [consoleRoutes({ siteAccess: true }), consoleRoutes({ siteAccess: false })]) {
+      expect((await routes.fetch(new Request(`${origin}/portal/_vitehub/rpc`, { method: "PUT" }))).status).toBe(401)
+      expect((await routes.fetch(new Request(`${origin}/_vitehub/docs`))).status).toBe(303)
+    }
   })
 })
 
