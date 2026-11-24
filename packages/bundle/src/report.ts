@@ -1,3 +1,5 @@
+import { posix } from "node:path"
+
 import { allocateBytes } from "./bytes.ts"
 import { checkBundle } from "./checks.ts"
 import { moduleGroup } from "./groups.ts"
@@ -111,13 +113,18 @@ export function createBundleReport(reports: readonly BundleEnvironmentReport[]):
   return { schemaVersion: 1, build: current[0]!.build, ...(host ? { host } : {}), ...(client ? { client } : {}), ...(server ? { server } : {}), findings }
 }
 
-function matches(id: string, target: string): boolean {
-  if (id === target) return true
-  if (id.startsWith("node_modules/")) {
-    const group = moduleGroup(id).name
-    if (group === target || id.startsWith(`node_modules/${target}/`)) return true
+function moduleMatcher(target: string): (id: string) => boolean {
+  if (target.startsWith("./") || target.startsWith(".\\")) {
+    const file = posix.normalize(target.replaceAll("\\", "/"))
+    return id => id === file
   }
-  return !id.startsWith("node_modules/") && (id.startsWith(`${target}/`) || id.endsWith(`/${target}`))
+  return (id) => {
+    if (id === target) return true
+    if (id.startsWith("node_modules/")) {
+      return moduleGroup(id).name === target || id.startsWith(`node_modules/${target}/`)
+    }
+    return id.startsWith(`${target}/`) || id.endsWith(`/${target}`)
+  }
 }
 
 function chainIn(report: BundleEnvironmentReport, found: (id: string) => boolean): string[] | undefined {
@@ -157,22 +164,23 @@ function searchChain(report: BundleEnvironmentReport, found: (id: string) => boo
  */
 export function explainBundle(reports: readonly BundleEnvironmentReport[], target: string): BundleExplanation[] {
   const current = latestBuild(reports)
+  const matches = moduleMatcher(target)
   const explanations: BundleExplanation[] = []
   for (const side of ["client", "server"] as const) {
     const own = current.filter(report => report.side === side)
     const outer = own.filter(report => !isInner(report, current))
-    const hits = placedModules(outer, current).filter(module => matches(module.id, target))
+    const hits = placedModules(outer, current).filter(module => matches(module.id))
     if (!hits.length) continue
     const inner = own.filter(report => !outer.includes(report))
     let chain: BundleChainStep[] = []
     for (const report of outer) {
-      const direct = chainIn(report, id => matches(id, target))
+      const direct = chainIn(report, matches)
       if (direct) {
         chain = direct.map(id => ({ environment: report.environment, id }))
         break
       }
       for (const nested of inner) {
-        const innerChain = chainIn(nested, id => matches(id, target))
+        const innerChain = chainIn(nested, matches)
         if (!innerChain) continue
         const entryFiles = new Set(nested.chunks.filter(chunk => chunk.entry).map(chunk => outputPath(nested, chunk.file)))
         const outerChain = chainIn(report, id => entryFiles.has(id))
