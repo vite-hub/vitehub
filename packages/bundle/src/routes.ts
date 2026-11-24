@@ -1,6 +1,6 @@
 import { createRouterMatcher } from "vue-router"
 
-import type { BundleEnvironmentReport, BundleRoute, BundleRouteExplanation, BundleRouteFile, BundleRouteModule, BundleRouteOptions, BundleRouteSource } from "./types.ts"
+import type { BundleEnvironmentReport, BundleFile, BundleRoute, BundleRouteExplanation, BundleRouteFile, BundleRouteModule, BundleRouteOptions, BundleRouteSource } from "./types.ts"
 
 /** A page route with the absolute files of the components that render it, outermost first. */
 export interface PageRoute {
@@ -62,8 +62,8 @@ export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly
 }
 
 interface RouteGraph {
-  report: BundleEnvironmentReport
   byFile: Map<string, BundleEnvironmentReport["chunks"][number]>
+  stylesheets: Map<string, BundleFile>
   holders: Map<string, string[]>
   startup: string[]
 }
@@ -74,8 +74,8 @@ function graphOf(report: BundleEnvironmentReport): RouteGraph {
     for (const module of chunk.modules) holders.set(module.id, [...holders.get(module.id) ?? [], chunk.file])
   }
   return {
-    report,
     byFile: new Map(report.chunks.map(chunk => [chunk.file, chunk])),
+    stylesheets: new Map((report.css ?? []).map(file => [file.file, file])),
     holders,
     startup: report.chunks.filter(chunk => chunk.startup).map(chunk => chunk.file),
   }
@@ -95,12 +95,11 @@ function routeFiles(graph: RouteGraph, source: BundleRouteSource): Set<string> {
 
 function routeOf(graph: RouteGraph, source: BundleRouteSource): BundleRoute {
   const files = [...routeFiles(graph, source)].flatMap(file => graph.byFile.get(file) ?? [])
-  const cssSizes = new Map((graph.report.css ?? []).map(file => [file.file, file]))
   const css = new Map<string, boolean>()
   for (const chunk of files) for (const file of chunk.css ?? []) css.set(file, (css.get(file) ?? false) || chunk.startup)
   const js: BundleRouteFile[] = files.map(chunk => ({ file: chunk.file, bytes: chunk.bytes, gzip: chunk.gzip, startup: chunk.startup }))
   const styles: BundleRouteFile[] = [...css].flatMap(([file, startup]) => {
-    const size = cssSizes.get(file)
+    const size = graph.stylesheets.get(file)
     return size ? [{ ...size, startup }] : []
   })
   return {

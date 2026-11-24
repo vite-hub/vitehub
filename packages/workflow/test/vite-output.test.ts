@@ -1662,7 +1662,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain(nativeExport)
     expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__workflow.func"))).toBe(false)
-    const startupPlugin = await readFile(join(rootDir, ".vitehub", "nitro", "workflow", "dev-plugin.mjs"), "utf8")
+    const startupPlugin = await readFile(join(rootDir, ".vitehub", "nitro", "workflow", "build-plugin.mjs"), "utf8")
     expect(startupPlugin).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(startupPlugin).toContain("setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)

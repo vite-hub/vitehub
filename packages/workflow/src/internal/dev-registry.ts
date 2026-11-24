@@ -14,8 +14,10 @@ import type { AgentWorkflowModules } from "./vite-build.ts"
 
 export const workflowDevGeneratedDir = ".vitehub/nitro/workflow"
 export const workflowTestSetupFile = "test-setup.mjs"
-const devRegistryFile = "dev-registry.mjs"
-const devPluginFile = "dev-plugin.mjs"
+const generatedFilesSeparatePerCommand = {
+  build: { plugin: "build-plugin.mjs", registry: "build-registry.mjs" },
+  dev: { plugin: "dev-plugin.mjs", registry: "dev-registry.mjs" },
+}
 
 /**
  * The Workflow Definitions of the startup registry. With `agents`, it also has each discovered Agent Workflow and its
@@ -39,6 +41,7 @@ export function registersAgentWorkflows(workflow: false | ResolvedWorkflowOption
  * unless `workflow.worker` is `false`.
  */
 export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, dev = false, databaseImport?: string): string {
+  const registryFile = generatedFilesSeparatePerCommand[dev ? "dev" : "build"].registry
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   const openWorkflow = workflow !== false && workflow.driver === "openworkflow"
   const runtimeConfig = dev && workflow !== false ? localDevWorkflowOptions(workflow) : workflow
@@ -48,7 +51,7 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
     ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(workflowRuntimeModule("dev-runs"))}`] : []),
     ...(openWorkflow ? [`import { installOpenWorkflow } from ${JSON.stringify(workflowRuntimeModule("openworkflow-worker"))}`] : []),
     ...(openWorkflow && databaseImport ? [`import { getPostgresConnectionUrl } from ${JSON.stringify(databaseImport)}`] : []),
-    `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
+    `import registry from ${JSON.stringify(`./${registryFile}`)}`,
     "",
     `export default definePlugin((${openWorkflow ? "nitroApp" : ""}) => {`,
     `  setWorkflowRuntimeConfig(${JSON.stringify(runtimeConfig)})`,
@@ -145,8 +148,9 @@ export interface WorkflowDevRegistryFiles {
 export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistryFilesOptions): Promise<WorkflowDevRegistryFiles> {
   const directory = resolve(options.projectRoot, workflowDevGeneratedDir)
   await mkdir(directory, { recursive: true })
-  const registry = resolve(directory, devRegistryFile)
-  const plugin = resolve(directory, devPluginFile)
+  const names = generatedFilesSeparatePerCommand[options.dev ? "dev" : "build"]
+  const registry = resolve(directory, names.registry)
+  const plugin = resolve(directory, names.plugin)
   let registryContents = createWorkflowRegistryContents(registry, options.definitions, {
     agent: options.definitions.some(definition => definition.source === "agent-workflow")
       ? options.agentModules ?? await installedAgentWorkflowModules(options.projectRoot)
@@ -163,7 +167,7 @@ export async function writeWorkflowDevRegistryFiles(options: WorkflowDevRegistry
   if (process.env.VITEST) {
     files.push([resolve(directory, workflowTestSetupFile), [
       `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(workflowRuntimeModule("state"))}`,
-      `import registry from "./${devRegistryFile}"`,
+      `import registry from "./${names.registry}"`,
       `setWorkflowRuntimeConfig(${JSON.stringify(options.workflow ?? false)})`,
       "setWorkflowRuntimeRegistry(registry)",
       "",

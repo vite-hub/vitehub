@@ -497,6 +497,7 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-generated-root-"))
     const generatedRoot = join(root, ".nuxt", "vitehub")
     const generatedRoute = join(generatedRoot, "agent", "chat-webhook-route.ts")
+    const generatedHttpRoute = join(generatedRoot, "agent", "http-route.ts")
     const generatedQueue = join(generatedRoot, "agent", "webhook-queue-plugin.ts")
     const generatedEvalConfig = join(generatedRoot, "agent", "evalite.config.ts")
     const evalFile = join(root, "support.eval.ts")
@@ -527,8 +528,8 @@ describe("agent Vite plugin", () => {
         nitro: {
           handlers: [
             { handler: join(generatedRoot, "agent", "ready-route.ts"), route: "/_vitehub/ready" },
-            { handler: generatedRoute, route: "/_vitehub/agents/:agent/chat" },
-            { handler: generatedRoute, route: "/_vitehub/agents/:agent/webhooks/:webhook" },
+            { handler: generatedHttpRoute, route: "/_vitehub/agents/:agent/chat" },
+            { handler: generatedHttpRoute, route: "/_vitehub/agents/:agent/webhooks/:webhook" },
             { handler: join(generatedRoot, "agent", "declared-webhook-route.ts"), middleware: true, route: "/**" },
           ],
           plugins: [generatedQueue],
@@ -536,6 +537,7 @@ describe("agent Vite plugin", () => {
       })
       await configResolved(privateConfig)
 
+      await expect(readFile(generatedHttpRoute, "utf8")).resolves.toContain('export { default } from "./chat-webhook-route"')
       await expect(readFile(generatedRoute, "utf8")).resolves.toContain("server/agents/support.ts")
       await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues")
       await expect(readFile(generatedEvalConfig, "utf8")).resolves.toContain("forceRerunTriggers")
@@ -961,7 +963,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs"])("installs portable Capability loaders in generated Agent Workflow registry %s", async (registryPath) => {
+  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs", "nitro/workflow/build-registry.mjs"])("installs portable Capability loaders in generated Agent Workflow registry %s", async (registryPath) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))
     try {
@@ -1031,7 +1033,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs"])("installs durable host state in generated Agent Workflow registry %s", async (registryPath) => {
+  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs", "nitro/workflow/build-registry.mjs"])("installs durable host state in generated Agent Workflow registry %s", async (registryPath) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-"))
     try {
@@ -1594,7 +1596,7 @@ describe("agent Vite plugin", () => {
     // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
     const handlers = (result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers
     const webhook = {
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/_vitehub/agents/:agent/webhooks/:webhook",
     }
@@ -1602,7 +1604,7 @@ describe("agent Vite plugin", () => {
     expect(handlers).toEqual([
       { handler: join(hostedAgentRoot, ".vitehub/agent/ready-route.ts"), lazy: true, route: "/_vitehub/ready" },
       {
-        handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+        handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
         lazy: true,
         route: "/_vitehub/agents/:agent/chat",
       },
@@ -1618,7 +1620,7 @@ describe("agent Vite plugin", () => {
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     expect((result as { nitro?: { handlers?: unknown[] } } | undefined)?.nitro?.handlers).toContainEqual({
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/internal/agents/:agent/status",
     })
@@ -1874,7 +1876,7 @@ describe("agent Vite plugin", () => {
     const plugin = hubAgent({ routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
     const result = await resolveAgentViteConfig(plugin, { root: hostedAgentRoot })
     expect(result).toMatchObject({ nitro: { handlers: expect.arrayContaining([
-      { handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"), lazy: true, route: "/api/github/webhook" },
+      { handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"), lazy: true, route: "/api/github/webhook" },
     ]) } })
   })
 
@@ -2029,7 +2031,7 @@ describe("agent Vite plugin", () => {
       nitro: {
         handlers: expect.arrayContaining([
           {
-            handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+            handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
             lazy: true,
             route: "/_vitehub/agents/:agent/webhooks/:webhook",
           },
@@ -2588,12 +2590,12 @@ describe("agent Vite plugin", () => {
     }
 
     expect(output.nitro?.handlers).toContainEqual({
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/_vitehub/agents/:agent/webhooks/:webhook",
     })
@@ -2653,12 +2655,12 @@ describe("agent Vite plugin", () => {
     }
 
     expect(output.nitro?.handlers).toContainEqual({
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/_vitehub/agents/:agent/chat",
     })
     expect(output.nitro?.handlers).toContainEqual({
-      handler: join(hostedAgentRoot, ".vitehub/agent/chat-webhook-route.ts"),
+      handler: join(hostedAgentRoot, ".vitehub/agent/http-route.ts"),
       lazy: true,
       route: "/_vitehub/agents/:agent/webhooks/:webhook",
     })

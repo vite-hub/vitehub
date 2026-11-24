@@ -68,7 +68,59 @@ export interface GitHubAppInput {
 }
 
 const appProviders = new Map<string, Promise<ForgeProvider>>()
-const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
+const installationTokens = new WeakMap<ForgeProvider, InstallationToken>()
+const tokenMints = new WeakMap<ForgeProvider, TokenMint>()
+
+interface InstallationToken {
+  token: string
+  expiresAt: number
+}
+
+interface TokenMint {
+  minted: Promise<InstallationToken>
+  waiters: number
+  stop(reason: unknown): void
+}
+
+function tokenMint(provider: ForgeProvider, installationId: string): TokenMint {
+  const shared = globalThis.navigator?.userAgent !== "Cloudflare-Workers"
+  const existing = shared ? tokenMints.get(provider) : undefined
+  if (existing) return existing
+  const controller = new AbortController()
+  let stopped = false
+  const forget = () => {
+    if (tokenMints.get(provider) === mint) tokenMints.delete(provider)
+  }
+  const mint: TokenMint = {
+    waiters: 0,
+    minted: provider.request<{ token?: string, expires_at: string }>("POST", `/app/installations/${installationId}/access_tokens`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
+        const minted = { token: response.data.token, expiresAt: new Date(response.data.expires_at).getTime() }
+        if (!stopped) installationTokens.set(provider, minted)
+        return minted
+      })
+      .finally(forget),
+    stop(reason) {
+      stopped = true
+      forget()
+      controller.abort(reason)
+    },
+  }
+  if (shared) tokenMints.set(provider, mint)
+  return mint
+}
+
+async function joinTokenMint(mint: TokenMint, signal: AbortSignal | undefined): Promise<InstallationToken> {
+  mint.waiters++
+  try {
+    return await withSignal(mint.minted, signal)
+  }
+  finally {
+    mint.waiters--
+    if (!mint.waiters && signal?.aborted) mint.stop(signal.reason)
+  }
+}
 const appProviderLimit = 128
 const appIdentities = new Map<string, ReturnType<typeof appIdentity>>()
 const fetchIds = new WeakMap<typeof fetch, number>()
@@ -137,13 +189,8 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
       if (cached && cached.expiresAt > Date.now() + Math.max(options.minLifetime ?? 0, 60_000)) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
-      const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
-        "POST", `/app/installations/${id}/access_tokens`, { signal: options.signal },
-      ), options.signal)
-      if (!response.data.token) throw forgeResponseError("GitHub App installation token response did not include token.")
-      const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
-      installationTokens.set(provider, { token: details.token, expiresAt: details.expiresAt.getTime() })
-      return details
+      const minted = await joinTokenMint(tokenMint(provider, id), options.signal)
+      return { token: minted.token, expiresAt: new Date(minted.expiresAt) }
     },
     async installation(repository, signal) {
       const provider = await withSignal(appProvider(input), signal)

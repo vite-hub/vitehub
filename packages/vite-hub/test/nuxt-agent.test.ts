@@ -70,12 +70,12 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
         route: "/_vitehub/ready",
       },
       {
-        handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        handler: join(buildDir, "vitehub/agent/http-route.ts"),
         lazy: true,
         route: "/_vitehub/agents/:agent/chat",
       },
       {
-        handler: join(buildDir, "vitehub/agent/chat-webhook-route.ts"),
+        handler: join(buildDir, "vitehub/agent/http-route.ts"),
         lazy: true,
         route: "/_vitehub/agents/:agent/webhooks/:webhook",
       },
@@ -139,7 +139,7 @@ it.each([
   const requestPolicy = join(rootDir, ".vitehub/nitro/request-policy.mjs")
   const standardContext = join(rootDir, ".vitehub/nitro/standard-context.mjs")
   expect((nitroConfig.plugins as string[]).slice(0, 4)).toEqual([generated, requestPolicy, standardContext, "/app/existing-plugin.mjs"])
-  expect(nitroConfig.plugins).not.toContain(join(rootDir, ".vitehub/nitro/workflow/dev-plugin.mjs"))
+  expect(nitroConfig.plugins).not.toContain(join(rootDir, ".vitehub/nitro/workflow/build-plugin.mjs"))
   expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
   await expect(readFile(generated, "utf8")).resolves.toContain(installation)
 })

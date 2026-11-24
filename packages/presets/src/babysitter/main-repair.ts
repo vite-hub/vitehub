@@ -128,7 +128,12 @@ export async function repairBaseBranch(
   }
 
   // One repair at a time: an open repair PR already works on the default branch.
-  const open = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100 })).find(repairPull);
+  let open: v.InferOutput<typeof pullsSchema>[number] | undefined;
+  for (let page = 1; !open; page++) {
+    const pulls = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100, page }));
+    open = pulls.find(repairPull);
+    if (pulls.length < 100) break;
+  }
   if (open) {
     event("repair_open", { head, pull_request: open.number });
     return { state: "repair-open", head, pullRequest: open.number };

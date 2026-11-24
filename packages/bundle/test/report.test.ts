@@ -274,6 +274,21 @@ describe("app report", () => {
 })
 
 describe("why", () => {
+  it("prefers a literal virtual module ID to the project-relative filename", () => {
+    const entry = root + "/entry.ts"
+    const virtual = "\0./banner.ts"
+    const physical = root + "/banner.ts"
+    const report = collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "x".repeat(100), { [entry]: 10, [virtual]: 30, [physical]: 60 }, { entry }),
+    }, {
+      build: "build", environment: "client", side: "client", root, outDir: root + "/dist",
+      getModuleInfo: graph({ [entry]: [physical, virtual] }, [entry]),
+    })
+    expect(explainBundle([report], "./banner.ts")).toMatchObject([
+      { target: "./banner.ts", bytes: 30, chain: [{ id: "entry.ts" }, { id: "./banner.ts" }] },
+    ])
+  })
+
   it("prefers the static chain that loads a module at startup over a shorter lazy one", () => {
     const entry = `${root}/server/index.ts`
     const usage = `${root}/server/routes/usage.ts`

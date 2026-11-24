@@ -80,7 +80,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ root }: { root?: unknown }) => `${String(root)} has no package.json, vite.config, or nuxt.config file.`,
     },
     SETUP_CONFIG_MANUAL: {
-      fix: ({ snippet }: { snippet?: unknown }) => `Add these keys to the vitehub() options by hand:\n${String(snippet)}`,
+      fix: ({ fix, snippet }: { fix?: string, snippet?: unknown }) => fix ?? `Add these keys to the vitehub() options by hand:\n${String(snippet)}`,
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `ViteHub cannot edit the vitehub() options in ${String(file)} without running the config (${String(reason)}).`,
     },
     SETUP_FEATURE_UNSUPPORTED: {
@@ -95,12 +95,12 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_SERVER_DIR_MANUAL: {
       fix: ({ command }: { command?: unknown }) => command === "remove"
-        ? "Use literal rootDir and serverDir options without layers, or pass --force to turn the features off without checking unresolved Definition files."
-        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+        ? "Pass --force to turn the features off without checking unresolved Definition files, or use literal directory options without layers or directory overrides."
+        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal directory options without layers or directory overrides.",
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {
-      fix: "Run the `rerun` command, or pass the missing values with --option.",
+      fix: ({ fix }: { fix?: string }) => fix ?? "Run the `rerun` command, or pass the missing values with --option.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     SETUP_INSTALL_FAILED: {
