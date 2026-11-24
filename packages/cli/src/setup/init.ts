@@ -14,7 +14,7 @@ import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, write
 import { gitignoreWithViteHub } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
 import { deriveSetupStack, setupStackLabels } from "./stack.ts"
-import { installArgs, installCommand, setupStatus } from "./status.ts"
+import { formatInstallCommand, installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { JsonValue } from "@vite-hub/internal/config-edit"
@@ -424,7 +424,7 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
       const commandArgs = installArgs(plan.packageManager, packages, dev)
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
+        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(plan.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
       }
     }
   }

@@ -208,7 +208,7 @@ If another third-party dependency version falls outside the range supported by y
 | Feature | Add these packages |
 | --- | --- |
 | `agent` | `@vite-hub/agent` |
-| `auth` | `@vite-hub/auth better-auth` |
+| `auth` | `@vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5` (see [Auth setup](/docs/auth/get-started)) |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
 | `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |

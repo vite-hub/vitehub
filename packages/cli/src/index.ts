@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import process from "node:process"
 
 import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, viteCliProjectConfig, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { quoteSupportedInstallSpecifier } from "@vite-hub/internal/features"
 import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -232,10 +233,11 @@ function resolveRouteHandlers(nitro: unknown, projectRoot: string): unknown[] {
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
   return new Promise<ViteHubCliSpawnResult>((resolveResult, reject) => {
-    const child = spawn(command, args, {
+    const shell = process.platform === "win32" && command !== process.execPath
+    const child = spawn(command, shell ? args.map(arg => quoteSupportedInstallSpecifier(arg) ?? arg) : args, {
       cwd: options.cwd,
       env: options.env,
-      shell: process.platform === "win32" && command !== process.execPath,
+      shell,
       stdio: [
         options.stdin || "inherit",
         options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
