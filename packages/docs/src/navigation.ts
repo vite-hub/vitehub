@@ -174,8 +174,9 @@ export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
  * not a page to read first. `null` when no start link is such a page.
  */
 export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
+  if (!start || !start.links?.length) return null
   const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)).map(page => page.path))
-  const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
+  const link = start.links.find(candidate => pages.has(normalizeDocsPath(candidate.to)))
   return link ? normalizeDocsPath(link.to) : null
 }
 

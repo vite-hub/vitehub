@@ -41,7 +41,12 @@ function fakeGitHub(state: {
       }
       const jobs = /actions\/runs\/(\d+)\/jobs$/.exec(path);
       if (jobs) return { jobs: state.jobs?.[Number(jobs[1])] ?? [] };
-      if (path === `repos/${repository}/pulls`) return query.state === "open" ? state.openPulls ?? [] : state.closedPulls ?? [];
+      if (path === `repos/${repository}/pulls`) {
+        const pulls = query.state === "open" ? state.openPulls ?? [] : state.closedPulls ?? [];
+        const perPage = Number(query.per_page ?? 30);
+        const start = (Number(query.page ?? 1) - 1) * perPage;
+        return pulls.slice(start, start + perPage);
+      }
       const ref = /git\/ref\/heads\/(.+)$/.exec(path);
       if (ref) return state.branches?.includes(ref[1]!) ? { ref: `refs/heads/${ref[1]}` } : undefined;
       throw new Error(`Unexpected read ${path}`);
@@ -114,6 +119,10 @@ describe("Babysitter main repair", () => {
     // A fork's branch with the prefix is not a repair PR.
     const fork = await check({ runs, openPulls: [pull(11, `${prefix}11111111`, undefined, "someone/app")] });
     expect(fork.outcome).toMatchObject({ state: "opened" });
+    const features = Array.from({ length: 100 }, (_, index) => pull(100 + index, `feature-${index}`));
+    const later = await check({ runs, openPulls: [...features, pull(300, `${prefix}22222222`)] });
+    expect(later.outcome).toEqual({ state: "repair-open", head: tip, pullRequest: 300 });
+    expect(later.writes).toEqual([]);
     const attempted = await check({ runs, branches: [`${prefix}aaaaaaaa`], closedPulls: [pull(77, `${prefix}aaaaaaaa`)] });
     expect(attempted.outcome).toEqual({ state: "already-attempted", head: tip, red: tip, branch: `${prefix}aaaaaaaa` });
     expect(attempted.writes).toEqual([]);
