@@ -113,9 +113,10 @@ export function createBundleReport(reports: readonly BundleEnvironmentReport[]):
   return { schemaVersion: 1, build: current[0]!.build, ...(host ? { host } : {}), ...(client ? { client } : {}), ...(server ? { server } : {}), findings }
 }
 
-function moduleMatcher(target: string): (id: string) => boolean {
+function moduleMatcher(target: string, reports: readonly BundleEnvironmentReport[]): (id: string) => boolean {
   if (target.startsWith("./") || target.startsWith(".\\")) {
-    const file = posix.normalize(target.replaceAll("\\", "/"))
+    const literal = reports.some(report => report.chunks.some(chunk => chunk.modules.some(module => module.id === target)))
+    const file = literal ? target : posix.normalize(target.replaceAll("\\", "/"))
     return id => id === file
   }
   return (id) => {
@@ -164,7 +165,7 @@ function searchChain(report: BundleEnvironmentReport, found: (id: string) => boo
  */
 export function explainBundle(reports: readonly BundleEnvironmentReport[], target: string): BundleExplanation[] {
   const current = latestBuild(reports)
-  const matches = moduleMatcher(target)
+  const matches = moduleMatcher(target, current)
   const explanations: BundleExplanation[] = []
   for (const side of ["client", "server"] as const) {
     const own = current.filter(report => report.side === side)
