@@ -9,6 +9,7 @@ import { Headers as ForeignHeaders, Request as ForeignRequest } from "undici"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../src/internal/cloudflare-resource-name.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from "../src/runtime/hosted.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
@@ -682,6 +683,29 @@ describe("cloudflare queue runtime", () => {
       queue: "preview-welcome-0123456789abcdef0123456789abcdef",
       retryAll: vi.fn(),
     }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
+  })
+
+  it.each([
+    ["a prefixed name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a bounded name", { queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" as const } }, getCloudflareQueueName("welcome", `${"deployment".repeat(8)}-`), "welcome", "welcome"],
+    ["a generated mapping", { definitions: { "preview-queue--77656c636f6d65": "welcome" } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a non-ASCII name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--636166c3a9", "café", "preview-queue--636166c3a9"],
+  ])("identifies the queue in delivery reports of %s", async (_case, options, physicalName, definitionName, reportedName) => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const handler = vi.fn(async () => { throw new Error("SMTP down") })
+    const worker = createQueueCloudflareWorker({ ...options, registry: { [definitionName]: async () => ({ default: { handler } }) } })
+    const retry = vi.fn()
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: {}, id: "1", retry }],
+      queue: physicalName,
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: reportedName })
   })
 
   it("derives bounded physical names from manual worker registries", async () => {

@@ -138,6 +138,12 @@ export function getRequestI18n(event: unknown): I18n | undefined {
 
 const catalogHeaders = { "cache-control": "no-cache", "content-type": "application/json; charset=utf-8" }
 
+function ifNoneMatchNames(header: string | null, etag: string): boolean {
+  if (!header) return false
+  if (header.trim() === "*") return true
+  return header.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag) ?? false
+}
+
 /**
  * Response of `GET /_vitehub/i18n/<locale>.json`: the published translations of the browser messages. The ETag is the
  * Workspace revision, so a browser downloads a catalog again only after a publish.
@@ -149,7 +155,7 @@ export async function i18nCatalogResponse(request: Request): Promise<Response> {
   if (!state?.live || !locale) return new Response("Not found", { status: 404 })
   await state.live.refresh()
   const etag = `"${state.live.revision}"`
-  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
+  if (ifNoneMatchNames(request.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
   const body = { revision: state.live.revision, messages: state.live.clientMessages(locale) }
   return new Response(JSON.stringify(body), { headers: { ...catalogHeaders, etag } })
 }
@@ -288,7 +294,9 @@ export function useTranslations(): Translations {
       const records = { ...published[entry], ...draft[entry] }
       const previous = findPreviousTranslations(sources, records)
       const ids = Object.keys(sources).filter(id => !(id in records)).sort()
-      const start = options?.cursor ? Math.max(0, ids.indexOf(options.cursor) + 1) : 0
+      const cursor = options?.cursor
+      const after = cursor === undefined ? 0 : ids.findIndex(id => id > cursor)
+      const start = after === -1 ? ids.length : after
       const limit = Math.max(1, Math.min(options?.limit ?? 50, 200))
       const page = ids.slice(start, start + limit)
       const items = page.map((id): MissingTranslation => {
