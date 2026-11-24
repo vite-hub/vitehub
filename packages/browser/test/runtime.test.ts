@@ -8,7 +8,7 @@ import {
 } from "../src/runtime.ts"
 import { loadCloudflarePlaywright as unconfiguredCloudflarePlaywright } from "../src/internal/runtime/unconfigured.ts"
 
-import type { BrowserClient } from "../src/types.ts"
+import type { BrowserClient, BrowserDefinitionBrowser } from "../src/types.ts"
 
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", driver: "cloudflare" as string | undefined, engine: "chromium" }))
 const availability = vi.hoisted(() => ({ available: true, host: "node", reason: "Browser is disabled.", fix: "Enable Browser on Cloudflare." }))
@@ -465,6 +465,48 @@ describe("Browser Definitions", () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(release).toHaveBeenCalledOnce()
     expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("returns the open error while another acquisition is pending, and closes that session when it arrives", async () => {
+    let finishAcquire!: () => void
+    const acquired = new Promise<void>(resolve => {
+      finishAcquire = resolve
+    })
+    const attach = vi.fn()
+    const close = vi.fn(async () => {})
+    let laterOpen: Promise<unknown> | undefined
+    const client = {
+      open: vi.fn()
+        .mockImplementationOnce(async () => {
+          await acquired
+          return { id: "browser-1", attach, close, inspect: vi.fn() }
+        })
+        .mockImplementationOnce(async () => {
+          throw new Error("too many browsers")
+        }),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      laterOpen = browser.open().catch((error: unknown) => error)
+      await browser.open()
+    })
+
+    await expect(executeBrowserDefinition(definition, undefined, { client })).rejects.toThrow("too many browsers")
+    expect(close).not.toHaveBeenCalled()
+    finishAcquire()
+    await expect(laterOpen).resolves.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    expect(attach).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("rejects an open that starts after the Browser Definition ends", async () => {
+    const client = { open: vi.fn() } as unknown as BrowserClient
+    let ended: BrowserDefinitionBrowser | undefined
+    await executeBrowserDefinition(defineBrowser(async (_input, { browser }) => {
+      ended = browser
+    }), undefined, { client })
+
+    await expect(ended?.open()).rejects.toMatchObject({ code: "BROWSER_SESSION_STATE" })
+    expect(client.open).not.toHaveBeenCalled()
   })
 
   it("does not retry session cleanup after a successful handler", async () => {
