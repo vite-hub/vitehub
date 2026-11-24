@@ -1171,6 +1171,37 @@ describe("actions across stores", () => {
     expect(shown!.get("c1")).toMatchObject({ body: "First!" })
   })
 
+  it("rolls back an offline action in a linked subset when the stored copy is lost", async () => {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    let epoch = 0
+    const storage = { ...createMemoryStorage(), get epoch() { return epoch } }
+    const { store: todos } = h.open({ storage, actions: {
+      complete(local, { id }) {
+        local.sync("comments").insert({ id: "c1", todoId: id, body: "First" })
+      },
+    } })
+    const { store: shown } = h.open({ storage, name: "comments", fetch: comments.fetch, where: { todoId: "t1" } })
+    await Promise.all([todos.refresh(), shown.refresh()])
+    h.server.offline = true
+    comments.offline = true
+    const action = todos.actions.complete({ id: "t1" })
+    const rejected = expect(action).rejects.toMatchObject({ code: "SYNC_CLEARED" })
+    await until(() => todos.getState().status === "offline")
+    expect(shown.get("c1")).toMatchObject({ body: "First" })
+    expect(shown.pending("c1")).toBe(true)
+
+    await storage.clear()
+    epoch++
+    await todos.refresh()
+    await rejected
+    await shown.refresh()
+    expect(shown.getState().status).toBe("offline")
+    expect(shown.get("c1")).toBeUndefined()
+    expect(h.server.applied).toHaveLength(0)
+  })
+
   it("reads the other store for an optimistic function also before anything read that store", async () => {
     const gate = new Promise<void>(() => {})
     const { todos, stores: [shown] } = await commentPage((local) => {

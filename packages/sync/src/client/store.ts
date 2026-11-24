@@ -707,13 +707,16 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const from = storage.epoch
       const stored = await storage.read(id)
       if (at !== version || from !== storage.epoch) continue
-      if (from !== epoch) lose()
+      const lost = from !== epoch
+      if (lost) lose()
       if (parked.size) settleParked(stored.writes, new Map(stored.rows))
       if (paused) return
       epoch = from
-      // Another tab sent the actions that left the queue without an error: the server applied them.
-      const kept = new Set(stored.writes.map(write => write.id))
-      handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
+      if (!lost) {
+        // Another tab sent the actions that left the queue without an error: the server applied them.
+        const kept = new Set(stored.writes.map(write => write.id))
+        handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
+      }
       meta = stored.meta
       confirmed = new Map(stored.rows)
       const removed = new Set(removals)
