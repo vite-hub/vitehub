@@ -171,16 +171,15 @@ describe("resolving the cms preset resources", () => {
       .toContain("option database is \"blog\", but no Database Definition has that name. Database Definitions: \"default\".")
   })
 
-  it("renders a Workspace module that loads without a configured Database", () => {
+  it("renders a Workspace module that names its Blob store and Database", () => {
     const module = renderCmsWorkspaceModule({ ...usage, store: "blob-database", blob: "media", database: "audit", databaseReason: "option", workspace: "site" }, {
-      blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       database: "vite-hub/database",
       workspace: "vite-hub/workspace",
     })
-    expect(module).toContain("import { useDatabase } from \"vite-hub/database\"")
-    expect(module).toContain("try { database = useDatabase(\"audit\").db }")
-    expect(module).toContain("blob: blob.store(\"media\"),")
+    expect(module).not.toContain("useDatabase")
+    expect(module).toContain("blob: \"media\",")
+    expect(module).toContain("database: \"audit\",")
     expect(module).toContain("workspace: \"site\",")
     expect(module).toContain("export const contentWorkspace = defineWorkspace({")
   })
@@ -255,13 +254,14 @@ describe("hubCms()", () => {
 
   it("contributes the Workspace module and the history tables", async () => {
     const root = await project(presetContent)
-    const plugin = hubCms({ imports: { blob: "vite-hub/blob" } })
+    const plugin = hubCms({ imports: { workspace: "vite-hub/workspace" } })
     const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     const module = join(root, ".vitehub/content/workspace.mjs")
     expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
     const generated = await readFile(module, "utf8")
-    expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
-    expect(generated).toContain("import { useDatabase } from \"@vite-hub/database\"")
+    expect(generated).toContain("import { defineWorkspace } from \"vite-hub/workspace\"")
+    expect(generated).toContain("blob: \"default\",")
+    expect(generated).toContain("database: \"default\",")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }, { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
   })
 
@@ -385,7 +385,7 @@ describe("the cms preset on the GitHub store", () => {
       return list.length ? { names: [...list].sort(), status: "ambiguous" as const } : { status: "none" as const }
     },
   })
-  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database", workspace: "vite-hub/workspace" }
+  const imports = { blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database", workspace: "vite-hub/workspace" }
 
   it("reads the GitHub options as string literals", () => {
     expect(readCmsPresetUsage(githubSource("store: 'github', repo: 'onmax/docs', branch: 'main', draftBranch: 'cms/drafts', root: 'content', publish: 'commit', database: 'default'"), file, "/app", parseAst))
@@ -477,7 +477,7 @@ describe("the cms preset on the GitHub store", () => {
     const root = await temporaryRoot()
     await writeProjectFile(root, "server/content.ts", githubSource("store: 'github', repo: 'onmax/docs'"))
     await writeProjectFile(root, "server/databases/default.ts", "export default {}\n")
-    const plugin = hubCms({ imports: { blob: "vite-hub/blob" } })
+    const plugin = hubCms()
     const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     expect(workspaces).toMatchObject([{ name: "content", definition: { export: "contentWorkspace" } }])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("driver: \"github\"")

@@ -37,6 +37,30 @@ it("reads the bundle report without loading the project", async () => {
   expect(stdout).toContain("Server: 2.0 kB of JavaScript in 1 files")
 })
 
+it("explains an explicit project-relative file when another file has the same name", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-bundle-cli-file-"))
+  roots.push(root)
+  await mkdir(join(root, ".vitehub/bundle"), { recursive: true })
+  await writeFile(join(root, "package.json"), '{"private":true}')
+  await writeFile(join(root, ".vitehub/bundle/client.json"), JSON.stringify({
+    build: "fixture-build",
+    chunks: [{ bytes: 192, entry: true, file: "entry.js", gzip: 112, startup: true, modules: [
+      { id: "index.ts", bytes: 64, entry: true, imports: ["src/index.ts"], dynamicImports: [] },
+      { id: "src/index.ts", bytes: 128, entry: false, imports: [], dynamicImports: [] },
+    ] }],
+    environment: "client",
+    outDir: "dist",
+    schemaVersion: 1,
+    side: "client",
+  }))
+
+  const { stdout } = await execFileAsync(process.execPath, [bin, "bundle", "why", "./index.ts", "--json"], { cwd: root })
+  expect(JSON.parse(stdout)).toMatchObject({
+    target: "./index.ts",
+    explanations: [{ target: "index.ts", bytes: 64, chain: [{ id: "index.ts" }] }],
+  })
+})
+
 it("reads the configured nested root after a build without loading the config", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-bundle-cli-root-"))
   roots.push(root)

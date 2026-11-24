@@ -51,8 +51,10 @@ function currentProject(): { id: string, url: string } {
   return project
 }
 
-async function siteApi(method: "GET" | "POST" | "DELETE", path: string, input: { body?: unknown, signal?: AbortSignal } = {}): Promise<Record<string, unknown>> {
-  const response = await fetch(`/api/projects/${encodeURIComponent(currentProject().id)}/site${path}`, {
+async function siteApi(method: "GET" | "POST" | "DELETE", path: string, input: { body?: unknown, signal?: AbortSignal, commentsProject?: string } = {}): Promise<Record<string, unknown>> {
+  const project = input.commentsProject ?? currentProject().id
+  const surface = input.commentsProject === undefined ? "site" : "comments-access"
+  const response = await fetch(`/api/projects/${encodeURIComponent(project)}/${surface}${path}`, {
     credentials: "same-origin",
     headers: { accept: "application/json", ...(input.body === undefined ? {} : { "content-type": "application/json" }) },
     method,
@@ -128,6 +130,21 @@ export async function revokeSession(id: string): Promise<void> {
 /** Revokes a guest invite that nobody opened yet. */
 export async function revokeInvite(id: string): Promise<void> {
   await siteApi("DELETE", `/invites/${encodeURIComponent(id)}`)
+}
+
+export async function readHostedCommentsAccess(commentsProject: string): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
+  const body = await siteApi("GET", "", { commentsProject })
+  return { sessions: listOf(body, "sessions", isSession), invites: listOf(body, "invites", isInvite), grants: listOf(body, "grants", isGrant) }
+}
+
+export async function inviteHostedCommentsGuest(commentsProject: string, input: { name: string, grants: string[], expiresInDays: number }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
+  const body = await siteApi("POST", "/invites", { body: input, commentsProject })
+  if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
+  return { ...linkOf(body), invite: body.invite }
+}
+
+export async function revokeHostedCommentsAccess(commentsProject: string, type: "invites" | "sessions", id: string): Promise<void> {
+  await siteApi("DELETE", `/${type}/${encodeURIComponent(id)}`, { commentsProject })
 }
 
 /** The QR code of a link as SVG markup. It draws with `currentColor`, so it follows the theme. */

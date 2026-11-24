@@ -7,6 +7,7 @@ import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 import { isSitePath, isSiteStateHash, readSiteAccessPolicy, siteAccessOperation, siteAccessRoles, siteRoute } from "@vite-hub/internal/site-token"
 
 import { consoleProjects } from "../../src/projects.ts"
+import { hostedCommentGuestRoles } from "../../src/hosted-comments.ts"
 import {
   createConsoleSiteStore,
   openConsoleSiteLink,
@@ -20,7 +21,7 @@ import {
   sitePassSetCookie,
   siteTokenLocation,
 } from "../../src/site-access.ts"
-import { callProjectOperation, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
+import { callProjectOperation, canManageProjects, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
 
 import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
 import type { ConsoleSiteGrantRow, ConsoleSitePerson } from "../../src/site-access.ts"
@@ -140,11 +141,11 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
   return seeOther(`/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(only ? { app: only } : {}) })}`)
 })
 
-export async function openSiteLink(request: Request, kind: "invite" | "code"): Promise<Response> {
+export async function openSiteLink(request: Request, kind: "invite" | "code" | "comments"): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { headers: { allow: "GET" }, status: 405 })
-  const secret = decodeURIComponent(new URL(request.url).pathname.split("/")[2] ?? "")
+  const secret = new URL(request.url).pathname.split("/")[kind === "comments" ? 3 : 2] ?? ""
   const db = useDatabase("default").db
-  const what = kind === "invite" ? "invite" : "code"
+  const what = kind === "code" ? "code" : "invite"
   if (!/^[\w-]{43}$/.test(secret)) return linkProblem(404, `There is no such ${what}.`)
   const opened = await openConsoleSiteLink(db, {
     kind,
@@ -152,6 +153,7 @@ export async function openSiteLink(request: Request, kind: "invite" | "code"): P
     userAgent: request.headers.get("user-agent") ?? "",
     allow: async (link) => {
       const project = { id: link.projectId, teamId: link.teamId }
+      if (link.kind === "comments") return Boolean(await siteMember(db, project, link.createdBy))
       if (link.kind === "invite") return (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
       return link.userId !== null && Boolean(await memberAccess(project, link.userId))
     },
@@ -160,6 +162,12 @@ export async function openSiteLink(request: Request, kind: "invite" | "code"): P
   const [project] = opened ? await db.select().from(consoleProjects).where(eq(consoleProjects.id, opened.projectId)).limit(1) : []
   if (opened && project) {
     const headers = new Headers()
+    if (kind === "comments") {
+      headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request), "comments", opened.expiresAt))
+      const destination = new URL(project.url)
+      destination.searchParams.set("comment", "")
+      return seeOther(destination.href, headers)
+    }
     headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request)))
     return seeOther(`${project.url}${siteRoute}?${new URLSearchParams({ return: opened.path, project: project.id })}`, headers)
   }
@@ -179,30 +187,33 @@ function nameOf(caller: ConsoleTeamCaller): string {
 
 export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCaller): Promise<Response> {
   const url = new URL(request.url)
-  const match = /^\/api\/projects\/([^/]+)\/site(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/.exec(url.pathname)
+  const match = /^\/api\/projects\/([^/]+)\/(site|comments-access)(?:\/([^/]+)(?:\/([^/]+))?)?\/?$/.exec(url.pathname)
   if (!match) return consoleProblem(404, "NOT_FOUND", "Not found.")
-  const [, rawId, section = "", rawItem] = match
+  const [, rawId, surface, section = "", rawItem] = match
+  const hosted = surface === "comments-access"
   const item = rawItem ? decodeURIComponent(rawItem) : undefined
   const route = `${request.method} ${section}${item ? "/:item" : ""}`
   if (!siteRoutes.has(route)) return consoleProblem(404, "NOT_FOUND", "Not found.")
+  if (hosted && (route === "POST codes" || route === "POST token")) return consoleProblem(404, "NOT_FOUND", "Not found.")
   const project = await caller.projects.get(decodeURIComponent(rawId!))
   if (!project) return projectNotFound()
-  const policy = await sitePolicy(caller, project.id, route !== "GET ")
+  if (hosted && route !== "GET " && !canManageProjects(caller)) return consoleProblem(403, "CONSOLE_SITE_FORBIDDEN", "Only owners and admins of the team invite and remove Comments guests.")
+  const policy: SiteAccessPolicy | Response = hosted ? { write: true, roles: hostedCommentGuestRoles } : await sitePolicy(caller, project.id, route !== "GET ")
   if (policy instanceof Response) return policy
   const db = useDatabase("default").db
-  const store = createConsoleSiteStore(db, project.id)
+  const store = createConsoleSiteStore(db, project.id, hosted ? "comments" : "site")
   const body: unknown = request.method === "POST" ? await request.json().catch(() => undefined) : undefined
   const origin = url.origin
   switch (route) {
     case "GET ": {
-      const consoleRole = siteAccessRoles.filter(role => role.id === siteConsoleRole)
+      const consoleRole = hosted ? [] : siteAccessRoles.filter(role => role.id === siteConsoleRole)
       return consoleJson({ sessions: await store.sessions(), invites: await store.invites(), grants: [...consoleRole, ...policy.roles.filter(role => role.id !== siteConsoleRole)] })
     }
     case "POST invites": {
       const name = field(body, "name")
       const grants = field(body, "grants")
       const days = field(body, "expiresInDays") ?? 7
-      const path = pathOf(field(body, "path"))
+      const path = hosted ? "/" : pathOf(field(body, "path"))
       if (typeof name !== "string" || !name.trim() || name.trim().length > siteGuestNameLength) return consoleProblem(400, "CONSOLE_SITE_INVITE_INVALID", `Give the guest a name of 1 to ${siteGuestNameLength} characters. It is the author of their comments.`)
       if (!Array.isArray(grants) || !grants.every(grant => typeof grant === "string")) return consoleProblem(400, "CONSOLE_SITE_INVITE_INVALID", "Send the roles of the guest as \"grants\", such as [\"comments-write\"].")
       if (!siteInviteDays.some(allowed => allowed === days)) return consoleProblem(400, "CONSOLE_SITE_INVITE_INVALID", `An invite lasts ${siteInviteDays.join(", ")} days.`)
@@ -210,7 +221,7 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
       const roles = readGuestRoles(grants.filter(grant => typeof grant === "string"), policy)
       if ("error" in roles) return consoleProblem(400, "CONSOLE_SITE_INVITE_INVALID", roles.error)
       const { secret, invite } = await store.invite({ name: name.trim(), roles, days: Number(days), path, createdBy: { id: caller.user.id, name: nameOf(caller) } })
-      return consoleJson({ url: `${origin}/i/${secret}`, expiresAt: invite.expiresAt, invite }, 201)
+      return consoleJson({ url: `${origin}${hosted ? "/comments/invite" : "/i"}/${secret}`, expiresAt: invite.expiresAt, invite }, 201)
     }
     case "DELETE invites/:item":
       return await store.revokeInvite(item!) ? consoleJson({ revoked: true }) : consoleProblem(404, "CONSOLE_SITE_INVITE_NOT_FOUND", "No open invite has this id. It was opened, revoked, or it expired.")
@@ -222,7 +233,7 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
     }
     case "DELETE sessions/:item": {
       const revoked = await store.revoke(item!)
-      return revoked ? consoleJson({ revoked: true, removedUser: revoked.kind === "guest" }) : consoleProblem(404, "CONSOLE_SITE_SESSION_NOT_FOUND", "No browser has this pass. It was revoked, or it expired.")
+      return revoked ? consoleJson({ revoked: true, ...(!hosted ? { removedUser: revoked.kind === "guest" } : {}) }) : consoleProblem(404, "CONSOLE_SITE_SESSION_NOT_FOUND", "No browser has this pass. It was revoked, or it expired.")
     }
     case "POST token": {
       const path = pathOf(field(body, "path"))

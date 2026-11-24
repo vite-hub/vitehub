@@ -728,8 +728,9 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
           },
           owner: "workflow",
           rootDir,
-          write: async ({ write }) => {
+          write: async ({ addVercelRuntimePackages, write }) => {
             await generateWorkflowProviderOutputs({
+              addVercelRuntimePackages,
               agentModules: agentWorkflowModules(config.plugins),
               artifacts,
               clientOutDir: resolve(config.root, config.build.outDir),

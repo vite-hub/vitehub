@@ -85,8 +85,8 @@ pnpm vitehub i18n import es es.po
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/i18n` | `t`, `plural`, `select`, `selectOrdinal`, `msg`, `translate()`, `getLocale()`, `getLocales()`, and `setLocale()` |
-| `@vite-hub/i18n/vue` | `createI18n()` and `useLocale()` for Vue apps |
-| `@vite-hub/i18n/server` | `useTranslations()`, which saves and publishes translations in a Workspace |
+| `@vite-hub/i18n/vue` | `createI18n()`, `i18nPlugin()`, and `useLocale()` for Vue apps |
+| `@vite-hub/i18n/server` | `useTranslations()`, which saves and publishes translations in a Workspace, and `agentI18n` for the `i18n()` Agent Capability |
 | `@vite-hub/i18n/vite` | `hubI18n()`, which `vite-hub` adds for you |
 
 In a ViteHub app, import the same functions from `vite-hub/i18n`, `vite-hub/i18n/vue`, and `vite-hub/i18n/server`.

@@ -534,11 +534,11 @@ describe("Blob Nitro runtime module", () => {
     await writeFile(runtime, renderBlobRuntimeModule(runtime, resolved))
     await writeFile(broken, "not a directory")
 
-    const state = new URL("../dist/runtime/state.js", import.meta.url).href
+    const storage = new URL("../dist/runtime/storage.js", import.meta.url).href
     await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
       import ${JSON.stringify(pathToFileURL(runtime).href)}
       import { rejects } from 'node:assert/strict'
-      import { checkBlobStoreHealth } from ${JSON.stringify(state)}
+      import { checkBlobStoreHealth } from ${JSON.stringify(storage)}
       await checkBlobStoreHealth('default')
       await rejects(() => checkBlobStoreHealth('archive'), { code: 'ENOTDIR' })
     `])

@@ -218,7 +218,7 @@ describe("package manifest contracts", () => {
   })
 
   it("declares Drizzle peer ranges whose highest published match is the version that ViteHub tests", () => {
-    const published = ["0.45.4", "1.0.0-rc.4", "1.0.0-rc.4-fb12281", "1.0.0-rc.5", "1.0.0-rc.5-169397b", "1.0.0-rc.5-5935859", "1.0.0-rc.5-ab785fc"]
+    const published = ["0.45.4", "1.0.0-rc.4", "1.0.0-rc.4-fb12281", "1.0.0-rc.5", "1.0.0-rc.5-169397b", "1.0.0-rc.5-5935859", "1.0.0-rc.5-ab785fc", "1.0.0-rc.6"]
     const peers = ["drizzle-orm", "drizzle-kit"] as const
     const checked: string[] = []
     for (const packageName of packageNames) {

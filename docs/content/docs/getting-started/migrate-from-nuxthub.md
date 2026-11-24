@@ -28,7 +28,7 @@ After the move, [Agents](/docs/agents) can also use KV, Blob, and Database throu
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
-| Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | On Nuxt 5, the module adds them, and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
+| Auto-imported `kv`, `blob`, `db`, `schema` | Imported from `vite-hub/*` in Nuxt server code | On Nuxt 5, server auto-imports are off by default, so the codemod imports them in each server file. Set `experimental: { nitroAutoImports: true }` to auto-import them and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
 NuxtHub v0.10 removed `hubAI()`, AutoRAG, Vectorize, and `hubBrowser()`.
 ViteHub has no AI or Vectorize feature either. For browser work on Cloudflare,
@@ -43,11 +43,11 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5 or 1.x, plus `drizzle-kit` 1.0.0-rc.5 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
+Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x, plus `drizzle-kit` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 
 ```bash [Terminal]
-pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/blob @vite-hub/kv @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.

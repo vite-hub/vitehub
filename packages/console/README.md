@@ -87,6 +87,7 @@ The client registers itself (Dynamic Client Registration), and the browser opens
 The account tools act on the team that the person opened last in the Console, else their first team, and they keep the rules of the HTTP routes because they call the same code:
 
 - `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
+- `unlink_app` permanently deletes the app's hosted threads and replies. Pass `deleteHostedComments: true` after the user confirms.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app. An app with an older vite-hub refuses the MCP fields of the caller as a malformed header (`CONSOLE_SIGNATURE_INVALID`). `check_app` then calls `project.get` as the Console page does, so the app shows as linked, and the other tools answer `CONSOLE_APP_VITEHUB_OUTDATED` with the version of the app. They do not send the call without the MCP fields, because the app would then run it without its MCP rules.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
 - `read_operation` runs an operation that only reads. The Console signs `readOnly: true` in the caller, and the app refuses a write or destructive call. The tool has `readOnlyHint: true`, so an MCP client can run it without asking the person. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
@@ -155,10 +156,10 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | --- | --- |
 | `GET /api/account` | The person, their teams, their roles in the session's team, and its projects, with one session check. The page HTML starts this read with `<link rel="preload">` when the request has a session cookie. Signed out, it answers `401`. |
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
-| `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
+| `POST /api/projects` | Owners and admins link a project with `{ "url": "https://app.example.com", "label": "Docs" }`. Set `"kind": "site"` to register a static site for Hosted Comments. A site registration has `publicKey: null` and `keyVariable: null`. Answers `201` with the project, `400` for an invalid URL, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
 | `PATCH /api/projects/<id>` | Owners and admins rename a project: `{ "label": "Docs" }`. `{ "label": null }` removes the label, so the Console shows the name that the app reports. The key of the link does not change. |
-| `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
+| `DELETE /api/projects/<id>?deleteHostedComments=true` | Owners and admins unlink a project and permanently delete its hosted comment threads and replies. The query parameter confirms deletion. Without it, the Console returns `409`. Remove the link's variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |
 | `GET /oauth` | The sign-in and consent page of MCP clients. It needs no session. |

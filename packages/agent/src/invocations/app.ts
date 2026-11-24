@@ -3,6 +3,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { registerChatStreamSql } from "../internal/chat-stream-sql.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createDefaultAgentInvocations, defaultAgentInvocationsUrlEnv } from "./default-core.ts"
+import { defaultAgentJournalPostgresPrefix } from "./postgres-table-names.ts"
 
 import type { AgentInvocationObservationOptions, AgentInvocations, AgentInvocationsOptions, AgentInvocationStore } from "../invocations.ts"
 import type { ChatStreamSql } from "../internal/chat-stream-sql.ts"
@@ -33,7 +34,8 @@ export type AgentInvocationsSetting =
 
 /**
  * Options of the default journal, which ViteHub installs for Agents that set no journal.
- * It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or D1 in a Cloudflare production build.
+ * It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, D1 in a Cloudflare production build, or the
+ * `default` Database in a Node production build when that Database uses Postgres.
  */
 export interface AgentInvocationsDefaultJournal {
   /**
@@ -45,7 +47,7 @@ export interface AgentInvocationsDefaultJournal {
   observations?: AgentInvocationObservationOptions
   /**
    * Remove old terminal records by `maxAge`, `maxRecords`, or `maxSize`. SQLite and libSQL keep every record by default.
-   * The D1 journal defaults to 30 days and 10,000 records, and does not support `maxSize`.
+   * The D1 and Postgres Database journals default to 30 days and 10,000 records, and do not support `maxSize`.
    */
   retention?: AgentRetentionPolicy
   database?: never
@@ -66,6 +68,11 @@ export type AgentInvocationsDefault =
 export interface DefaultAgentJournalLocation {
   /** Store the journal in this D1 binding. A Cloudflare production build sets it from the default Database Definition. */
   d1?: DefaultAgentInvocationsD1
+  /**
+   * Store the journal in this ViteHub Database. A Node production build sets `default` when the default Database uses
+   * Postgres, so every instance reads the same Invocations. It needs the `database` loader.
+   */
+  database?: string
   /**
    * The libSQL driver for a local SQLite file or a libSQL URL. A Cloudflare production build without
    * `agent.invocations.databaseUrl` omits it, so the Worker does not ship the libSQL client.
@@ -226,9 +233,10 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     if (globalThis.process?.env?.VITEHUB_CONSOLE_DATABASE_URL?.trim()) {
       throw agentDiagnostics.AGENT_R1032({ message: "[vitehub] VITEHUB_CONSOLE_DATABASE_URL was renamed. Set VITEHUB_AGENT_INVOCATIONS_DATABASE_URL, and VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN for an authenticated libSQL endpoint." })
     }
-    const { d1, libsql, projectRoot, stateUrl } = options.journal
+    const { d1, database, libsql, projectRoot, stateUrl } = options.journal
     const key = JSON.stringify({
       d1: d1?.binding,
+      database,
       databaseUrl: setting?.databaseUrl,
       libsql: libsql !== undefined,
       observations: setting?.observations,
@@ -240,7 +248,8 @@ export function installAgentInvocations(options: { database?: () => Promise<Data
     })
     // Keep one journal per location and options when development reloads the generated plugin.
     if (state[defaultInvocationsKey]?.key === key) return
-    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, libsql, projectRoot, stateUrl }), key }
+    const store = database === undefined ? undefined : { name: database, store: (limits: DatabaseAgentInvocationStoreOptions) => deferredDatabaseStore({ ...limits, database, tablePrefix: defaultAgentJournalPostgresPrefix }) }
+    state[defaultInvocationsKey] = { invocations: createDefaultAgentInvocations({ ...setting, d1, database: store, libsql, projectRoot, stateUrl }), key }
     return
   }
   const key = JSON.stringify(setting)

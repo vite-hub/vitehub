@@ -193,4 +193,4 @@ The page gets one same-origin script: the page tools loader at `/_vitehub/page/a
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/_vitehub/comments/**`, the presence state, and the page tool hint. Without a Realtime driver, the presence line reads `off: the host has no Realtime driver`. The Database inspector lists the Comments tables as contributed tables.

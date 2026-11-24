@@ -20,9 +20,13 @@ const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
     run: async (args, context) => {
       const cli = requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/internal/agent-invocations-cli")), "agent")
       // The default journal goes next to a `file:` Agent State, which only the config names. Read it without evaluating the config.
-      const { readAgentJournalStateUrl } = await import("./internal/runtime-feature-guard.ts")
+      const { readAgentJournalPostgres, readAgentJournalStateUrl } = await import("./internal/runtime-feature-guard.ts")
       const stateUrl = await readAgentJournalStateUrl(context.rootDir, context.env)
-      return cli.runAgentInvocationsCli(args, { ...context, ...(stateUrl ? { stateUrl } : {}) })
+      return cli.runAgentInvocationsCli(args, {
+        ...context,
+        journalPostgres: async () => await readAgentJournalPostgres(context.rootDir, context.env),
+        ...(stateUrl ? { stateUrl } : {}),
+      })
     },
   }, {
     name: "state",
@@ -69,7 +73,9 @@ runViteHubCliEntrypoint({
   helpNamespaces: {
     database: async () => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/cli")))?.createDbCliContributor()?.namespaces[0],
   },
-  loadConfig: loadViteHubCliConfig,
+  loadConfig: (root, command, mode) => loadViteHubCliConfig(root, command, mode, {
+    prepareNuxtTypes: process.argv[2] === "email" && process.argv[3] === "preview",
+  }),
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
     if (namespace !== "agent" || (feature !== "emulator" && feature !== "invocations" && feature !== "state")) return true
     const { isAgentCliEnabled, isAgentEmulatorStandalone } = await import("./internal/runtime-feature-guard.ts")

@@ -15,7 +15,7 @@ interface AgentDatabaseEntry {
 
 // Postgres databases run every statement through execute(). SQLite databases use all() and run().
 const postgresSchemaQuery = "SELECT table_schema, table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog', 'information_schema') ORDER BY table_schema, table_name, ordinal_position"
-const sqliteSchemaQuery = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+const sqliteSchemaQuery = "SELECT name, type, sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY type, name"
 
 export function defaultDatabaseNotConfiguredError(): Error {
   return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: "default" })

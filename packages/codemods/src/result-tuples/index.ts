@@ -152,7 +152,7 @@ function migrateBlock(context: BlockContext): number {
       if (statement.declaration?.type === "VariableDeclaration") {
         for (const { id } of statement.declaration.declarations) if (id.type === "Identifier") addExport(id)
       }
-      for (const specifier of statement.specifiers) if (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type") addExport(specifier.local)
+      for (const specifier of statement.specifiers) if (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type" && specifier.local.type === "Identifier") addExport(specifier.local)
     }
     else if (statement.type === "ExportDefaultDeclaration") {
       const declaration = statement.declaration

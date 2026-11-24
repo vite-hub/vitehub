@@ -16,7 +16,7 @@ const bundledFilesSdkDrivers = new Set([
 ]);
 
 // Generated code imports these modules by path. They are not public API.
-const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./runtime/signed", "./storage"]);
+const privateEntries = new Set(["./config", "./drivers/vercel-bundled", "./errors", "./operations", "./runtime/signed", "./runtime/storage", "./storage"]);
 
 const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).flat())].sort();
 
@@ -83,6 +83,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/runtime/signed.ts",
       "src/runtime/state.ts",
+      "src/runtime/storage.ts",
       "src/served.ts",
       "src/virtual.ts",
       "src/vue.ts",

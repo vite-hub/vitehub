@@ -37,11 +37,17 @@ export async function forgeCommitFiles(provider: ForgeProvider, repo: RepoRef, i
     ? input.expectedHead ?? await readHead()
     : await provider.contents.resolveRef(repo, input.createFrom, { signal })
   const baseTree = sha((await provider.request<unknown>("GET", `${base}/commits/${encodeURIComponent(parent)}`, { signal })).data, "tree", "commit")
+  const blobs = new Map<string, Promise<string>>()
   const tree = await Promise.all(input.changes.map(async (change) => {
     if (change.content === null) return { mode: change.mode ?? "100644", path: change.path, sha: null, type: "blob" }
     const content = Buffer.from(change.content).toString("base64")
-    const blob = await provider.request<unknown>("POST", `${base}/blobs`, { body: { content, encoding: "base64" }, signal })
-    return { mode: change.mode ?? "100644", path: change.path, sha: sha(blob.data, undefined, "blob"), type: "blob" }
+    let blob = blobs.get(content)
+    if (!blob) {
+      blob = provider.request<unknown>("POST", `${base}/blobs`, { body: { content, encoding: "base64" }, signal })
+        .then(response => sha(response.data, undefined, "blob"))
+      blobs.set(content, blob)
+    }
+    return { mode: change.mode ?? "100644", path: change.path, sha: await blob, type: "blob" }
   }))
   const treeSha = sha((await provider.request<unknown>("POST", `${base}/trees`, { body: { base_tree: baseTree, tree }, signal })).data, undefined, "tree")
   const body = { message: input.message, parents: [parent], tree: treeSha }

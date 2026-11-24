@@ -124,15 +124,13 @@ const comments = useSync('comments', { where: () => ({ issueId: props.issueId })
 An action is a named write with server logic, such as `complete` or `rate`. Define it in the Sync definition. Annotate `args`, so the browser call has the type:
 
 ```ts [server/sync/todos.ts] fragment
-import { HTTPError } from 'h3'
-
 export default defineSync({
   table: todos,
   where: ({ user }) => user ? { ownerId: user.id } : false,
   actions: {
-    complete: async ({ get, update }, { id }: { id: string }) => {
+    complete: async ({ get, update, refuse }, { id }: { id: string }) => {
       const todo = await get(id)
-      if (!todo) throw new HTTPError({ status: 404, message: 'This todo is gone.' })
+      if (!todo) refuse('This todo is gone.')
       update(id, { done: true })
       return { done: true }
     },
@@ -163,7 +161,7 @@ const todos = useSync('todos', {
 - `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait, and `sync(name)` for the stores of another name (see below).
 - The function runs again each time the rows change, until the server answers. Keep it pure: no requests, no random values, no clock.
 - An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
-- When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message of an error with a status below 500, such as the `HTTPError` above. Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
+- When the server rejects the action, the optimistic change goes away, the call rejects with a `SyncError`, and the action goes to `failures`. Use `retry()` to call it again. If the action called `refuse(message)`, the error code is `SYNC_ACTION_REFUSED` and the error carries that message. See [Server action rules](/docs/sync/server-api#actions) for thrown errors and rejected writes.
 - An error in the optimistic function shows in the console. The action still goes to the server.
 - The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
 
@@ -201,7 +199,7 @@ The rows of other people show within about a second. Each tab that shows and is 
 
 Each write belongs to the account that was signed in when it was made: the user that `identify` returns, else the user of ViteHub Auth, else the scope. When another person signs in on the device, the old writes wait in IndexedDB. They do not show in `rows`, do not count in `queued`, and are never sent with the other person's session. When the first person signs in again, they go out.
 
-Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
+Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`. Unconfirmed writes from an old stored copy also reject with `SYNC_CLEARED` if another tab or the browser deletes, upgrades, or closes the local IndexedDB database; see [Browser storage](/docs/sync/limits-and-errors#browser-storage).
 
 With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync({ keepWrites: true })` for you, after the server ended the session and before the next page opens. Signing in again also retries writes from subsets that are no longer open. A write made before the first pull waits for the same Auth user; that user's first pull establishes the Sync account, including for definitions with `identify`. To drop every queued write on sign-out instead, add `onSignOut(() => clearSync())` in a plugin: it runs after the one of ViteHub. In a Vue app without Nuxt, add it once with `onSignOut()`:
 
@@ -225,7 +223,7 @@ export async function signOutEverywhere() {
 
 If the app does not clear Sync, the next person still never gets the old rows from the server, and old writes are never sent with their session. But the old rows show until the first pull.
 
-To clear the rows and keep the writes that wait, such as changes that a person made offline, pass `keepWrites: true`. Each write stays in IndexedDB with its account, hidden from the next person, and goes out when its person signs in again. Its promise stays pending until then. A write made before the first pull belongs to the user that `setSyncUser()` named, with the id that `user.id` has on the server. Without one, it has no account, so it goes with the rows:
+To clear the rows and keep queued writes that belong to an account, such as changes that a person made offline, pass `keepWrites: true`. These writes stay in IndexedDB, hidden from the next person, and go out when their owner signs in again. Their promises stay pending until then. A write made before the first pull belongs to the user that `setSyncUser()` named, with the id that `user.id` has on the server. If no user was set, the write has no account, so `clearSync({ keepWrites: true })` drops it and it rejects with `SYNC_CLEARED`:
 
 ```ts [app/composables/sign-out.ts] fragment
 import { clearSync, setSyncUser } from 'vite-hub/sync/client'

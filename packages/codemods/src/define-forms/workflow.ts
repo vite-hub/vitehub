@@ -107,7 +107,7 @@ function rewriteHandlerParams(code: string, handler: FunctionNode): HandlerRewri
 
 /** The type arguments of a call, such as `<"onboard", Payload>`, as text. */
 function typeArguments(code: string, call: CallExpression): { node: Node, params: string[] } | undefined {
-  const node = call.typeParameters ?? call.typeArguments
+  const node = call.typeArguments
   if (!node) return undefined
   return { node, params: node.params.map(param => code.slice(start(param), end(param))) }
 }

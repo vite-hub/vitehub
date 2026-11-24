@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, expectTypeOf, it } fr
 
 import { resetConsoleMcp } from "../src/mcp-client.ts"
 import { databaseConsoleMcpRecords } from "../src/mcp-client-records.ts"
-import { answerConsoleMcpCall, consoleMcpCallProject } from "../src/mcp-client-rpc.ts"
+import { answerConsoleMcpCall, consoleMcpCallProject, readConsoleMcpRequest } from "../src/mcp-client-rpc.ts"
 import { consoleOutboundFetch } from "../src/outbound-fetch.ts"
 import { memberConsoleProject } from "../src/projects.ts"
 
@@ -327,6 +327,23 @@ describe("Console MCP client", () => {
     expect((await call(scope, "mcp-client.connect", {})).error).toMatchObject({ code: "CONSOLE_REQUEST_INVALID", status: 400 })
     expect((await call(scope, "toString", {})).error).toMatchObject({ code: "CONSOLE_NOT_FOUND", status: 404 })
     expect(await answerConsoleMcpCall({ m: "mcp-client.list" }, scope)).toMatchObject({ e: { code: "CONSOLE_REQUEST_INVALID", status: 400 } })
+  })
+})
+
+describe("readConsoleMcpRequest", () => {
+  it("reads a body under the limit, and stops reading and cancels a larger one", async () => {
+    const post = (body: string | null) => new Request("https://console.example.com/p/abc/mcp-client", { body, method: "POST" })
+    expect(await readConsoleMcpRequest(post("{\"m\":\"ö\"}"), 12)).toBe("{\"m\":\"ö\"}")
+    expect(await readConsoleMcpRequest(post(null))).toBe("")
+    let pulls = 0
+    let cancelled = false
+    const endless = new ReadableStream<Uint8Array>({
+      cancel() { cancelled = true },
+      pull(controller) { pulls++; controller.enqueue(new Uint8Array(1_024)) },
+    })
+    expect(await readConsoleMcpRequest(new Request("https://console.example.com/p/abc/mcp-client", { body: endless, duplex: "half", method: "POST" } as RequestInit), 4 * 1_024)).toBeUndefined()
+    expect(cancelled).toBe(true)
+    expect(pulls).toBeLessThan(10)
   })
 })
 

@@ -5,7 +5,7 @@ import { compileMessages } from "./catalogs.ts"
 import { parseRecordPath, recordPath, recordSegment } from "./record-format.ts"
 
 import type { Messages } from "@lingui/core"
-import type { TranslationRecords } from "./record-format.ts"
+import type { MessageSegment, TranslationRecord, TranslationRecords } from "./record-format.ts"
 
 /** The ref that readers see. Writes go to `draft`, and `publish()` copies them here. */
 export const publishedRef = "published"
@@ -42,6 +42,22 @@ export interface WritableTranslationsWorkspace extends TranslationsWorkspace {
   }
 }
 
+async function readRecord(view: RevisionView, path: string, hash: string) {
+  const contents = await view.readFile(path, { encoding: "utf8" })
+  const record = parseRecordFile(contents, hash)
+  return record && recordSegment(record).hash === hash ? record : undefined
+}
+
+export async function readRevisionRecord(workspace: TranslationsWorkspace, revision: Revision | null, locale: string, segment: Pick<MessageSegment, "hash" | "skeleton" | "salt">): Promise<TranslationRecord | undefined> {
+  if (!revision) return
+  const view = await workspace.history.open(revision.id)
+  const path = recordPath(locale, segment.hash)
+  const entries = await view.list(path.slice(0, path.lastIndexOf("/")))
+  if (!entries.some(entry => entry.type === "file" && entry.path === path)) return
+  const record = await readRecord(view, path, segment.hash)
+  if (record && record.source === segment.skeleton && (record.salt || undefined) === segment.salt) return record
+}
+
 /** Read the records of every locale in one Workspace revision. A file that is not a record is skipped. */
 export async function readRevisionRecords(view: RevisionView, locales: readonly string[]): Promise<Record<string, TranslationRecords>> {
   const result: Record<string, TranslationRecords> = {}
@@ -51,9 +67,8 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
     await Promise.all(entries.map(async (entry) => {
       const path = entry.type === "file" ? parseRecordPath(entry.path) : undefined
       if (!path || path.locale !== locale) return
-      const contents = await view.readFile(entry.path, { encoding: "utf8" })
-      const record = parseRecordFile(contents, path.hash)
-      if (record && recordSegment(record).hash === path.hash) records[generateMessageId(record.source, record.salt)] = record
+      const record = await readRecord(view, entry.path, path.hash)
+      if (record) records[generateMessageId(record.source, record.salt)] = record
     }))
     result[locale] = records
   }))

@@ -12,6 +12,7 @@ import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNa
 import { consoleAddPrimitiveOpen } from "../client/sidebar";
 import { resolveConsoleRouteName } from "../console-route";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
+import ConsoleHostedCommentsEmbed from "./console-hosted-comments-embed.vue";
 import ConsoleAppLogo from "./console-app-logo.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -85,6 +86,7 @@ const statusTones: Record<ConsoleAccountAppStatus, StatusTone> = {
   setup: "warning",
   unconfigured: "warning",
   unreachable: "error",
+  site: "success",
 };
 const check = shallowRef<ConsoleAccountCheck & { at: Date }>();
 const checking = ref(false);
@@ -202,10 +204,14 @@ onBeforeUnmount(() => unsubscribe?.());
           <template v-else-if="section === 'connection' && link">
             <ConsoleSettingsCard title="Console key" description="The app checks each Console call with this public key. The Console server keeps the private key.">
               <div class="grid gap-2">
-                <ConsoleSettingsValue label="Variable name" :value="link.keyVariable" mono copy />
-                <ConsoleSettingsValue label="Public key" :value="link.publicKey" mono copy />
+                <ConsoleSettingsValue label="Variable name" :value="link.keyVariable ?? undefined" mono copy />
+                <ConsoleSettingsValue label="Public key" :value="link.publicKey ?? undefined" mono copy />
               </div>
               <template #footer>Set as an environment variable of the app. Linking the app again makes a new key.</template>
+            </ConsoleSettingsCard>
+
+            <ConsoleSettingsCard title="Hosted Comments">
+              <ConsoleHostedCommentsEmbed :project-id="link.id" />
             </ConsoleSettingsCard>
 
             <ConsoleSettingsCard title="Connection check" description="The Console server calls the app with a signed request. Home checks every app the same way.">

@@ -8,7 +8,7 @@ export const choicesDiagnostics = /*#__PURE__*/ defineDiagnostics({
   docsBase: "https://vitehub.dev/docs/choices/diagnostics",
   codes: {
     DECISIONS_R0001: { ...dynamicError, fix: "Change the `defineChoices()` option that the message names: one of `gateway` with `ask()` or `model`, at least one group, a label on each group, and thresholds from 0 to 1." },
-    DECISIONS_R0002: { ...dynamicError, fix: "Use fewer options, a unique value and a label on each option, and an `options` function that does not throw. `error.cause` holds the error of a failed `options` function." },
+    DECISIONS_R0002: { ...dynamicError, fix: "Use fewer options, a list of option objects with a label and a unique text or finite number value, aliases as a list of text, and an `options` function that does not throw. `error.cause` holds the error of a failed `options` function." },
     DECISIONS_R0003: { ...dynamicError, fix: "Pass `resolve()` a nonempty text no longer than `limits.text`." },
     DECISIONS_R0004: { ...dynamicError, fix: "Show a message and let the person use your normal controls, or ask with a text that the options can express." },
     DECISIONS_R0005: {
