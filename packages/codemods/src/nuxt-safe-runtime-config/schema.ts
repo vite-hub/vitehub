@@ -6,7 +6,7 @@ import { toJsonSchema } from "@valibot/to-json-schema"
 import { isRecordOrFunction } from "@vite-hub/internal/object"
 
 import { codemodError } from "../error-diagnostics.ts"
-import { defaultRejection, fieldAccess, fieldSchema } from "./field-schema.ts"
+import { defaultRejection, fieldAccess, fieldSchema, hasSchemaDefault, isAsyncSchema } from "./field-schema.ts"
 import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fields.ts"
 
 import type { BaseIssue, BaseSchema } from "valibot"
@@ -330,7 +330,7 @@ interface PlanInput {
   schemaExports?: boolean
   jsonSchema: JsonObject
   issues: Map<string, string[]>
-  runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "literal" | "processEnv">>
+  runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "json" | "literal" | "processEnv">>
   validateAtBuild?: boolean
   validateAtRuntime?: boolean
   rejectInvalidDefaults?: boolean
@@ -430,8 +430,8 @@ export function coerceDefault(value: LiteralValue, field: Pick<EnvField, "kind" 
   return text
 }
 
-function literalText(value: LiteralValue): string {
-  return typeof value === "string" ? JSON.stringify(value) : String(value)
+function literalText(value: NonNullable<EnvField["default"]>): string {
+  return typeof value === "string" || typeof value === "object" ? JSON.stringify(value) : String(value)
 }
 
 function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
@@ -530,6 +530,24 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     const schemaKind = found && schemaFieldKind(found, leaf)
     const access = schemaKind ? found : undefined
     const kind = schemaKind || plainFieldKind(leaf)
+    const stay = (reason: string) => {
+      plan.unmigrated.push(label)
+      follow(`${label} ${reason} It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.`, { runtimeConfig: label })
+    }
+    const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
+    const jsonDefault = kind === "json" ? runtimeValue?.json : undefined
+    if (kind && access && isAsyncSchema(access.schema, [undefined, moduleInput ?? jsonDefault])) {
+      stay("has an async validator, and Env runs schemas synchronously.")
+      return
+    }
+    if (kind && runtimeValue?.expression && jsonDefault === undefined) {
+      stay(`has the value ${runtimeValue.expression} in runtimeConfig, which the codemod cannot keep as an Env default.`)
+      return
+    }
+    if (kind && access && moduleInput === undefined && jsonDefault === undefined && hasSchemaDefault(access.schema)) {
+      stay("gets its default from its $schema, and Env does not run the schema when the variable is not set.")
+      return
+    }
     if (!kind) {
       plan.unmigrated.push(label)
       const reason = leaf.kind === "union"
@@ -562,13 +580,21 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     if (section === "public" && configPath.length > 1) {
       follow(`${label} is nested. Public Env is flat, so read it as usePublicEnv().${field.envPath[0]}.`, { env: field })
     }
+    if (kind === "json" && leaf.kind === "boolean") {
+      follow(`${label}: Env reads ${field.variable} as JSON before its schema runs. Set it to true or false. Spellings such as 1, 0, or TRUE now fail.`, { env: field })
+    }
+    else if (kind === "json" && (leaf.kind === "number" || leaf.kind === "integer")) {
+      follow(`${label}: Env reads ${field.variable} as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail.`, { env: field })
+    }
+    if (access && section === "server" && validateAtBuild && !validateAtRuntime) {
+      follow(`${label}: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads ${field.variable}, so a value that the build did not check now stops the request.`, { env: field })
+    }
 
-    const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
     const runtimeInput = moduleInput !== undefined && validateAtRuntime
       ? coerceRuntimeInput(moduleInput, coercionSchema ? leafAtPath(coercionSchema, schemaPath) : leaf)
       : moduleInput
     const toDefault = (value: LiteralValue) => access ? schemaDefault(value, kind) : coerceDefault(value, field)
-    let defaultValue = runtimeInput === undefined ? undefined : toDefault(runtimeInput)
+    let defaultValue: EnvField["default"] = jsonDefault ?? (runtimeInput === undefined ? undefined : toDefault(runtimeInput))
     if (runtimeValue?.literal !== undefined) {
       if (defaultValue === undefined) {
         follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
@@ -578,13 +604,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       field.extraVariables = [runtimeValue.processEnv.name]
       follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
-    else if (runtimeValue?.expression && kind === "json") {
-      follow(`runtimeConfig.${label} has the value ${runtimeValue.expression}. The codemod keeps only string, number, and boolean defaults. Set ${field.variable}, or add default: ${runtimeValue.expression} to the env.json() options by hand.`, { env: field })
-    }
-    else if (runtimeValue?.expression) {
-      follow(`runtimeConfig.${label} is computed (${runtimeValue.expression}). It was not kept as a default. Set ${field.variable} or add a default by hand.`, { env: field })
-    }
-    if (defaultValue === undefined) {
+    if (defaultValue === undefined && !access) {
       const schemaDefaultValue = leaf.node.default
       if (typeof schemaDefaultValue === "string" || typeof schemaDefaultValue === "number" || typeof schemaDefaultValue === "boolean") {
         defaultValue = toDefault(schemaDefaultValue)
@@ -593,9 +613,9 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     let rejection: string | undefined
     if (defaultValue !== undefined && input.rejectInvalidDefaults !== false && (validateAtRuntime || validateAtBuild)) {
       const schema = access?.schema ?? fieldSchema(input.schema, schemaPath)
-      const check = { schema, node: leaf.node, input: validateAtBuild ? moduleInput : runtimeInput, value: defaultValue }
+      const check = { schema, node: leaf.node, input: jsonDefault ?? (validateAtBuild ? moduleInput : runtimeInput), value: defaultValue }
       rejection = await defaultRejection(check)
-      if (rejection === undefined && validateAtBuild && runtimeInput !== moduleInput) {
+      if (rejection === undefined && validateAtBuild && jsonDefault === undefined && runtimeInput !== moduleInput) {
         rejection = await defaultRejection({ ...check, input: runtimeInput })
       }
     }
