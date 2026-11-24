@@ -1,10 +1,12 @@
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { z } from "zod"
 
-import { callConsoleMcpTool, completeConsoleMcp, ConsoleMcpError, consoleMcpStateProject, connectConsoleMcp, disconnectConsoleMcp, getConsoleMcpPrompt, listConsoleMcp, listConsoleMcpItems, readConsoleMcpResource, reconnectConsoleMcp } from "./mcp-client.ts"
+import { callConsoleMcpTool, completeConsoleMcp, consoleMcpError, consoleMcpStateProject, connectConsoleMcp, disconnectConsoleMcp, getConsoleMcpPrompt, isConsoleMcpError, listConsoleMcp, listConsoleMcpItems, readConsoleMcpResource, reconnectConsoleMcp } from "./mcp-client.ts"
 
 import type { OperationRpcReply } from "@vite-hub/internal/operation-rpc"
 import type { ConsoleMcpScope } from "./mcp-client.ts"
+
+type OperationRpcFailure = Extract<OperationRpcReply, { e: unknown }>["e"]
 
 /** The largest request body of an MCP client call: a tool call carries up to 256 KiB of arguments. */
 export const consoleMcpMaxRequestBytes = 300 * 1_024
@@ -15,15 +17,10 @@ const prompt = z.literal("login").optional()
 
 type McpOperation = (scope: ConsoleMcpScope, input: unknown) => Promise<unknown>
 
-class InvalidInput extends Error {
-  readonly status = 400
-  readonly code = "CONSOLE_REQUEST_INVALID"
-}
-
 function operation<Schema extends z.ZodType>(schema: Schema, run: (scope: ConsoleMcpScope, input: z.infer<Schema>) => Promise<unknown>): McpOperation {
   return (scope, input) => {
     const parsed = schema.safeParse(input ?? {})
-    if (!parsed.success) throw new InvalidInput(`The input is not valid: ${parsed.error.issues.map(issue => `${issue.path.join(".") || "input"} ${issue.message}`).join("; ").slice(0, 300)}`)
+    if (!parsed.success) throw consoleMcpError(400, "CONSOLE_REQUEST_INVALID", `The input is not valid: ${parsed.error.issues.map(issue => `${issue.path.join(".") || "input"} ${issue.message}`).join("; ").slice(0, 300)}`)
     return run(scope, parsed.data)
   }
 }
@@ -40,8 +37,8 @@ const operations: Readonly<Record<string, McpOperation>> = {
   "mcp-client.reconnect": operation(z.strictObject({ id, prompt }), reconnectConsoleMcp),
 }
 
-function failure(error: unknown): { code: string, message: string, status: number } {
-  if (error instanceof ConsoleMcpError || error instanceof InvalidInput) return { code: error.code, message: error.message, status: error.status }
+function failure(error: unknown): OperationRpcFailure {
+  if (isConsoleMcpError(error)) return { code: error.code, message: error.message, status: error.data.status, ...(error.fix ? { fix: error.fix } : {}), ...(error.docs ? { docs: error.docs } : {}) }
   console.error("[vitehub] Console MCP client failed:", error)
   return { code: "CONSOLE_REQUEST_FAILED", message: "The MCP client of the Console failed. Try again.", status: 500 }
 }
@@ -65,7 +62,7 @@ export async function answerConsoleMcpCall(body: unknown, scope: ConsoleMcpScope
     failure,
     operations,
     run: (selected, input) => selected(scope, input),
-    unknown: name => new ConsoleMcpError(404, "CONSOLE_NOT_FOUND", `The Console has no MCP client operation ${name.slice(0, 80)}.`),
+    unknown: name => consoleMcpError(404, "CONSOLE_NOT_FOUND", `The Console has no MCP client operation ${name.slice(0, 80)}.`),
   })
 }
 
