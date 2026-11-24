@@ -860,6 +860,28 @@ describe("@vite-hub/shell just-bash runtime", () => {
     await expect(workspace.exists("other.txt")).resolves.toBe(false)
   })
 
+  it("rejects cp and mv of a file into a missing directory without changing the Workspace", async () => {
+    const workspace = new MemoryWorkspace({ "a.txt": "a", "dir/x.txt": "x", "dir2/y.txt": "y" })
+    const runtime = createShellRuntime({
+      driver: createJustBashDriver({ commands: ["cp", "mv"], cwd: workspaceMountPoint, fs: createWritableWorkspaceFs(workspace) }),
+    })
+
+    for (const command of ["cp a.txt missing/", "mv a.txt gone/"]) {
+      await expect(runtime.exec(command), command).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("not a directory") })
+    }
+    for (const command of ["cp -r dir newdir/", "mv dir2 moved/"]) {
+      await expect(runtime.exec(command), command).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    }
+    expect((await workspace.list("", { recursive: true })).map(entry => entry.path).sort()).toEqual(["a.txt", "dir", "dir/x.txt", "moved", "moved/y.txt", "newdir", "newdir/x.txt"])
+  })
+
+  it("keeps a Workspace registration failure instead of reporting a missing path", async () => {
+    const workspace = new MemoryWorkspace({ "a.txt": "a" })
+    vi.spyOn(workspace, "stat").mockRejectedValueOnce(Object.assign(new Error("[vitehub] Workspace \"docs\" is not registered."), { code: "WORKSPACE_NOT_FOUND" }))
+    vi.spyOn(workspace, "exists").mockResolvedValueOnce(false)
+    await expect(createWritableWorkspaceFs(workspace).stat("/workspace/a.txt")).rejects.toThrow("is not registered")
+  })
+
   it("keeps a Workspace stat failure for a path that exists", async () => {
     const workspace = new MemoryWorkspace({ "a.txt": "a" })
     vi.spyOn(workspace, "stat").mockRejectedValueOnce(new Error("store offline"))
