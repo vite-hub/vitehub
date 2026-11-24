@@ -2464,6 +2464,9 @@ importers:
       vue:
         specifier: 3.5.46
         version: 3.5.46(typescript@6.0.3)
+      workerd:
+        specifier: 1.20260730.1
+        version: 1.20260730.1
 
   packages/docs/playground:
     dependencies:
