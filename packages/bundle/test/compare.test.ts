@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -116,6 +116,16 @@ describe("vitehub bundle --against", () => {
     writeEnvironmentReport(dir, after)
     const checkout = mkdtempSync(join(tmpdir(), "vitehub-bundle-checkout-"))
     writeEnvironmentReport(join(checkout, "apps/web"), before)
+    writeBundleReportRoot(checkout, join(checkout, "apps/web"))
+    expect(JSON.parse(run(dir, ["--against", checkout, "--json"]).stdout).server.delta.bytes).toBe(320)
+  })
+
+  it("uses the root report of another checkout when its report root has no report", () => {
+    const dir = project()
+    writeEnvironmentReport(dir, after)
+    const checkout = mkdtempSync(join(tmpdir(), "vitehub-bundle-checkout-"))
+    writeEnvironmentReport(checkout, before)
+    mkdirSync(join(checkout, "apps/web/.vitehub/bundle"), { recursive: true })
     writeBundleReportRoot(checkout, join(checkout, "apps/web"))
     expect(JSON.parse(run(dir, ["--against", checkout, "--json"]).stdout).server.delta.bytes).toBe(320)
   })

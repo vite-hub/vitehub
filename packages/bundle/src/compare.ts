@@ -85,8 +85,11 @@ export function readSavedBundleReport(path: string): BundleReport | undefined {
   if (!existsSync(path)) return undefined
   if (statSync(path).isDirectory()) {
     const reportRoot = readBundleReportRoot(path)
-    const folder = [...reportRoot ? [join(reportRoot, bundleReportDir)] : [], join(path, bundleReportDir)].find(dir => existsSync(dir)) ?? path
-    return createBundleReport(readEnvironmentReportFolder(folder))
+    for (const folder of [...reportRoot ? [join(reportRoot, bundleReportDir)] : [], join(path, bundleReportDir), path]) {
+      const report = createBundleReport(readEnvironmentReportFolder(folder))
+      if (report) return report
+    }
+    return undefined
   }
   try {
     const value: unknown = JSON.parse(readFileSync(path, "utf8"))
