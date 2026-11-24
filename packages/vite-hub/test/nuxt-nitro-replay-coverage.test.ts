@@ -9,7 +9,7 @@ type ReplayHook = "resolveId" | "load" | "transform"
 const replayHooks: readonly ReplayHook[] = ["resolveId", "load", "transform"]
 
 const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string }> = {
-  "@vite-hub/agent/vite": { hooks: ["resolveId", "load", "transform"], reason: "The Agent Nitro config aliases its generated modules. KNOWN GAP: Nitro gets only vitehub.agent.transformWorkspaceAgent, not the transform that registers named Channels, so an Agent with channels: ['slack'] throws AGENT_R0425 on Nuxt 4.7." },
+  "@vite-hub/agent/vite": { hooks: ["resolveId", "load", "transform"], reason: "The Agent Nitro config aliases its generated modules. KNOWN GAP: Nitro runs transformWorkspaceAgent instead of the original transform that registers named Channels." },
   "@vite-hub/channels/vite": { hooks: ["resolveId", "load"], reason: "packages/channels/src/vite.ts configureNitroChannels aliases #vitehub/channels/registry to a generated file." },
   "@vite-hub/connections/vite": { hooks: ["resolveId", "load"], reason: "packages/connections/src/vite.ts aliases #vitehub/connections/registry to a generated file." },
   "@vite-hub/content/vite": { hooks: ["resolveId", "load", "transform"], reason: "The plugin's nitro.setup adds @vite-hub/content/nitro-kv for the KV registration. Without a Vite environment the build makes no Source snapshots, so a cold server parses glob() and files() Sources on its first read." },
@@ -57,19 +57,15 @@ function collectPlugins(): Map<string, Plugin> {
   return plugins
 }
 
-function replays(plugin: Plugin, hook: ReplayHook): boolean {
-  if (hook === "transform" && !nitroServerTransformNames.has(plugin.name)) return false
-  return Reflect.get(nitroRuntimeResolver(plugin, {}, { root: process.cwd() }) ?? {}, hook) !== undefined
-}
-
 describe("Nuxt 4.7 Nitro replay coverage", () => {
   const plugins = collectPlugins()
 
   it("replays or explains every server resolveId, load and transform hook", () => {
     const unexplained: string[] = []
     for (const plugin of plugins.values()) {
+      const originalHooks = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })?.originalHooks
       for (const hook of replayHooks) {
-        if (Reflect.get(plugin, hook) === undefined || replays(plugin, hook)) continue
+        if (plugin[hook] === undefined || originalHooks?.[hook] !== undefined) continue
         if (!notReplayed[plugin.name]?.hooks.includes(hook)) unexplained.push(`${plugin.name} ${hook}`)
       }
     }
@@ -80,7 +76,8 @@ describe("Nuxt 4.7 Nitro replay coverage", () => {
     const stale = Object.entries(notReplayed).flatMap(([name, { hooks }]) => {
       const plugin = plugins.get(name)
       if (!plugin) return [`${name}: no such plugin`]
-      return hooks.filter(hook => Reflect.get(plugin, hook) === undefined || replays(plugin, hook)).map(hook => `${name} ${hook}`)
+      const originalHooks = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })?.originalHooks
+      return hooks.filter(hook => plugin[hook] === undefined || originalHooks?.[hook] !== undefined).map(hook => `${name} ${hook}`)
     })
     expect(stale).toEqual([])
   })

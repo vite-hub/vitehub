@@ -348,7 +348,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig)
 }
 
 function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[], agentOptions: { root: string, serverDirs?: string[] }): void {
-  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config, agentOptions)).filter((plugin): plugin is Plugin => Boolean(plugin))
+  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config, agentOptions)?.plugin).filter((plugin): plugin is Plugin => Boolean(plugin))
   if (!resolvers.length) return
 
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>

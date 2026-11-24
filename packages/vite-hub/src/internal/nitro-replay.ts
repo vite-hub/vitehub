@@ -61,13 +61,13 @@ function withHookFilter<Handler>(hook: unknown, handler: Handler): Handler | { f
   return isRecord(hook) && hook.filter !== undefined ? { filter: hook.filter, handler } : handler
 }
 
-export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: { root: string, serverDirs?: string[] }): Plugin | undefined {
+export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: { root: string, serverDirs?: string[] }): { plugin: Plugin, originalHooks: Pick<Plugin, "resolveId" | "load" | "transform"> } | undefined {
   const resolveId = nitroRuntimeResolverNames.has(plugin.name) ? pluginResolveIdHandler(plugin) : undefined
   const load = nitroRuntimeResolverNames.has(plugin.name) ? pluginLoadHandler(plugin) : undefined
   const transformWorkspaceAgent = (plugin as Plugin & {
     vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
   }).vitehub?.agent?.transformWorkspaceAgent
-  const serverTransform = nitroServerTransformNames.has(plugin.name)
+  const serverTransform = !transformWorkspaceAgent && nitroServerTransformNames.has(plugin.name)
     ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
     : undefined
   if (!resolveId && !load && !transformWorkspaceAgent && !serverTransform) return
@@ -82,8 +82,7 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
   const replayServerTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = serverTransform && function (code, id, options) {
     return serverTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
   }
-  return {
-    name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
+  const originalHooks = {
     // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
     ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
     ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
@@ -91,11 +90,18 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
       // SAFETY: the filter belongs to the same transform hook of the replayed plugin.
       transform: withHookFilter(plugin.transform, replayServerTransform) as Plugin["transform"],
     } : {}),
-    ...(transformWorkspaceAgent ? {
-      transform: {
-        filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
-        handler: (code: string, id: string) => transformWorkspaceAgent(code, id, agentOptions),
-      },
-    } : {}),
+  }
+  return {
+    originalHooks,
+    plugin: {
+      name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
+      ...originalHooks,
+      ...(transformWorkspaceAgent ? {
+        transform: {
+          filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
+          handler: (code: string, id: string) => transformWorkspaceAgent(code, id, agentOptions),
+        },
+      } : {}),
+    },
   }
 }
