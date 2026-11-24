@@ -72,6 +72,31 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
+  it("can list missing Spanish messages when another locale directory is unavailable", async () => {
+    const store = memoryWorkspace()
+    const open = store.workspace.history.open.bind(store.workspace.history)
+    vi.spyOn(store.workspace.history, "open").mockImplementation(async (id) => {
+      const view = await open(id)
+      return {
+        ...view,
+        list: async (path, options) => {
+          if (path === "fr/segments") throw new Error("French records are unavailable")
+          return view.list(path, options)
+        },
+      }
+    })
+    await store.workspace.history.commit({ ref: "published", ifHead: null, changes: {}, message: "Start translations" })
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config: { ...config, locales: ["en", "es", "fr"] },
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null },
+    })
+    const [error, page] = await useTranslations().missing("es")
+    expect(error).toBeUndefined()
+    expect(page).toMatchObject({ items: [], total: 0 })
+  })
+
   it("skips invalid ICU without blocking valid translations in later revisions", async () => {
     const store = memoryWorkspace()
     const snapshot = { [note.id]: compileMessage("Nota del servidor") }
@@ -743,6 +768,30 @@ describe("missing translations for Agents", () => {
     await translations.publish()
     expect(await translations.status()).toEqual([{ locale: "es", messages: 1, published: 0, drafted: 0, missing: 1 }])
     expect((await translations.missing("es"))[1]?.items).toEqual([{ id: deploy.id, source: deploy.message, origins: [] }])
+  })
+
+  it("pages missing translations after the cursor when the cursor message was translated between pages", async () => {
+    const store = memoryWorkspace()
+    const messages = ["Archive", "Build", "Cancel", "Delete", "Edit", "Find"]
+    const sources = Object.fromEntries(messages.map(message => [messageId(message), { message, hash: messageSegment(message).hash, origins: [] }]))
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0, sources },
+    })
+    const translations = useTranslations()
+    const seen: string[] = []
+    let cursor: string | undefined
+    do {
+      const [, page] = await translations.missing("es", { limit: 2, ...(cursor ? { cursor } : {}) })
+      seen.push(...page!.items.map(item => item.source))
+      const last = page!.items.at(-1)
+      if (last) await translations.save({ locale: "es", source: last.source, translation: `es: ${last.source}` })
+      cursor = page!.cursor ?? undefined
+    } while (cursor && seen.length <= messages.length)
+
+    expect([...seen].sort()).toEqual([...messages].sort())
   })
 
   it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {

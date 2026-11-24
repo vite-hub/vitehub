@@ -154,10 +154,10 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
     ].join("\n"));
     await writeFile(join(projectRoot, "server/databases/default.ts"), `import { defineDatabase } from "@vite-hub/database"\nconst options = { connection: { url: "file:instance.db" }, schema: {} }\nexport default defineDatabase(options)\n`);
     await writeFile(join(projectRoot, "server/workspaces/docs/config.ts"), [
-      'import { defineWorkspace } from "@vite-hub/workspace"',
+      'import { defineWorkspace, isWorkspaceName } from "@vite-hub/workspace"',
       'import { useNitroApp } from "nitro/app"',
       'const options = {',
-      '  store: { driver: "memory" },',
+      '  store: { driver: isWorkspaceName("docs") && !isWorkspaceName("unregistered") ? "memory" : "local" },',
       '  hooks: { "write:error": ({ error }) => {',
       '    if (error instanceof Error) useNitroApp().captureError?.(error, { tags: ["workspace"] })',
       '  } },',
@@ -165,8 +165,19 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       'export default defineWorkspace(options)',
     ].join("\n"));
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
+    const warnings: string[] = [];
     const builder = await createBuilder({
       logLevel: "silent",
+      nitro: {
+        rolldownConfig: {
+          onwarn(warning, warn) {
+            if (warning.code === "INEFFECTIVE_DYNAMIC_IMPORT" && warning.message.includes("durability-registry.js")) {
+              warnings.push(warning.message);
+            }
+            warn(warning);
+          },
+        },
+      },
       plugins: [nitro() as never, vitehub({
         host: "node",
         database: { connection: { url: "libsql://shared.example?authToken=secret" } },
@@ -176,6 +187,7 @@ it("loads Definitions with deferred Nitro hooks before serving and enforces thei
       root: projectRoot,
     });
     await builder.buildApp();
+    expect(warnings).toEqual([]);
     const single = await startBuiltServer("1", {}, projectRoot);
     expect(single.response?.status, single.output).toBe(200);
     const report = await single.response?.json();

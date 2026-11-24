@@ -58,22 +58,18 @@ export function createLogBuffer(
         : entries.length;
       if (cursorIndex === -1) throw logCursorExpiredError();
       const text = query.text?.toLowerCase();
-      const filtered = entries
-        .slice(0, cursorIndex)
-        .reverse()
-        .filter(
-          (entry) =>
-            (!query.level || entry.level === query.level) &&
-            (!query.service || entry.service === query.service) &&
-            (!text || JSON.stringify(entry).toLowerCase().includes(text)),
-        );
-      const page = filtered.slice(0, query.limit);
-      const last = page.at(-1);
-      return structuredClone({
-        entries: page,
-        ...(filtered.length > query.limit && last ? { cursor: last.id } : {}),
-        dropped,
-      });
+      const page: LogEntry[] = [];
+      for (let index = cursorIndex - 1; index >= 0; index--) {
+        const entry = entries[index]!;
+        if (query.level && entry.level !== query.level) continue;
+        if (query.service && entry.service !== query.service) continue;
+        if (text && !JSON.stringify(entry).toLowerCase().includes(text)) continue;
+        if (page.length === query.limit) {
+          return structuredClone({ entries: page, cursor: page[page.length - 1]!.id, dropped });
+        }
+        page.push(entry);
+      }
+      return structuredClone({ entries: page, dropped });
     },
   };
   return {
