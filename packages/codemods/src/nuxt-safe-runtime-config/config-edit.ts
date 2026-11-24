@@ -129,7 +129,7 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   }
   else {
     if (!bindingFree(config, "envSchema")) throw codemodError(`${config.fileName} already declares envSchema. Rename it, then run the codemod again.`)
-    imports.push(`import { envSchema } from ${quoteString("@vite-hub/env/vite", style)}${semicolon}`)
+    imports.push(`import { envSchema } from ${quoteString("vite-hub/env/vite", style)}${semicolon}`)
   }
 
   const env = input.env
@@ -146,7 +146,7 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     code,
     host,
     hostNote,
-    imports: input.env.kind === "fields" ? ["vite-hub/env"] : ["@vite-hub/env/vite"],
+    imports: input.env.kind === "fields" ? ["vite-hub/env"] : ["vite-hub/env/vite"],
     removedImports: editor.removedImports,
     lineOf: createLineResolver(code),
   }

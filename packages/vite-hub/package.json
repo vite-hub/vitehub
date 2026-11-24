@@ -507,6 +507,11 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./env/vite": {
+      "types": "./dist/env/vite.d.ts",
+      "import": "./dist/env/vite.js",
+      "default": "./dist/env/vite.js"
+    },
     "./forge": {
       "types": "./dist/forge.d.ts",
       "import": "./dist/forge.js",

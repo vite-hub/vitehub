@@ -215,7 +215,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edited = editNuxtConfig({ config, env, migrated })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: env.kind === "env-schema" ? ["vite-hub", "@vite-hub/env"] : ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: ["vite-hub"] })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
   const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
@@ -267,7 +267,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install ${env.kind === "env-schema" ? "vite-hub and @vite-hub/env" : "vite-hub"} and remove ${moduleName}.`,
+      `Run \`${packageResult.installCommand}\` to install vite-hub and remove ${moduleName}.`,
       "Run `npx nuxi prepare` to generate the Env types, then type-check the app.",
     ],
   }

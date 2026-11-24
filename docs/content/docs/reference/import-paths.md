@@ -129,6 +129,7 @@ the same behavior.
 | `vite-hub/email/vue` | `<EmailSubject>`, which sets the subject of a Vue Email template. |
 | `vite-hub/email/test` | `createTestEmail()`: in-memory message capture for tests. |
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
+| `vite-hub/env/vite` | `envSchema()`, which reads Env Declarations from a committed `.env.example`, for `vite.config.ts` and `nuxt.config.ts`. Re-exports `@vite-hub/env/vite`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
