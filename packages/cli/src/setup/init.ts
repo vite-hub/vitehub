@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig, insertViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds } from "@vite-hub/internal/features"
 import { basename, dirname, join, resolve } from "pathe"
-import { minVersion, Range, subset, validRange } from "semver"
+import { minVersion, Range, satisfies, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
@@ -46,8 +46,8 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
   vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261103-rc", "h3@2.0.8", "valibot"] },
 }
 
-/** The Nitro 3 package that a Nuxt 4.7 app must declare, so that Nuxt builds its server with Nitro 3. */
-export const nuxtNitroPackage = "nitro@^3.0.261103-rc"
+const nuxtNitroRange = "^3.0.261103-rc"
+export const nuxtNitroPackage = `nitro@${nuxtNitroRange}`
 
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
@@ -326,7 +326,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     dev: basePackages.dev.filter(spec => !declared(packageName(spec), true)),
     prod: basePackages.prod.filter(spec => !declared(packageName(spec), false)),
   }
-  if (nuxtNeedsNitro && !declared(packageName(nuxtNitroPackage), true)) install.prod.push(nuxtNitroPackage)
+  if (nuxtNeedsNitro) install.prod.push(nuxtNitroPackage)
   const willInstall = new Set([...install.prod, ...install.dev].map(packageName))
 
   const configSource = base.get(configFile)!.after
@@ -479,7 +479,16 @@ async function checkNuxtVersion(root: string, scaffolded = false): Promise<{ nee
   if (!releases || !subset(releases, ">=4.7.0 <6.0.0")) {
     throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
-  return { needsNitro: !subset(releases, ">=5.0.0 <6.0.0") }
+  if (subset(releases, ">=5.0.0 <6.0.0")) return { needsNitro: false }
+
+  const nitroDeclarations = [dependencies.nitro, devDependencies.nitro].filter(spec => spec !== undefined)
+  for (const spec of nitroDeclarations) {
+    const range = typeof spec === "string" ? validRange(spec.replace(/^npm:nitro@/u, "")) : null
+    if (!range || !minVersion(range) || !range.split("||").every(branch => satisfies(branch, nuxtNitroRange) || subset(branch, nuxtNitroRange))) {
+      throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NITRO_VERSION({ dir: root, range: nuxtNitroRange, scaffolded }), setupExitCodes.conflict)
+    }
+  }
+  return { needsNitro: nitroDeclarations.length === 0 }
 }
 
 function interactive(args: SetupInitArgs): boolean {

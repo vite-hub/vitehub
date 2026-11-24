@@ -495,7 +495,7 @@ describe("vitehub init", () => {
 
   it.each([
     { dependencies: { nitro: "3.0.261103-rc", nuxt: "^4.7.0" } },
-    { dependencies: { nuxt: "^4.7.0" }, devDependencies: { nitro: "3.0.261103-rc" } },
+    { dependencies: { nuxt: "^4.7.0" }, devDependencies: { nitro: "^3.0.261103-rc" } },
   ])("adopts a Nuxt 4.7 app that declares nitro without installing nitro again (%j)", async (dependencies) => {
     const manifest = JSON.stringify({ ...dependencies, type: "module" })
     const root = await createProject({
@@ -506,6 +506,24 @@ describe("vitehub init", () => {
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.install.packages.some(spec => spec.startsWith("nitro"))).toBe(false)
     expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    { dependencies: { nitro: "3.0.0" } },
+    { devDependencies: { nitro: "3.0.261102-rc" } },
+    { dependencies: { nitro: "^3.0.0" } },
+    { dependencies: { nitro: "^3.0.261103-rc" }, devDependencies: { nitro: "3.0.0" } },
+  ])("rejects an incompatible Nitro declaration before writing files (%j)", async ({ dependencies, devDependencies }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt: "4.7.0", ...dependencies }, devDependencies }),
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const before = await snapshot(root)
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_INIT_NITRO_VERSION")
+    expect(result.json.error?.fix).toContain("^3.0.261103-rc")
+    expect(await snapshot(root)).toEqual(before)
   })
 
   it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a supported Nuxt version in %s before any install or write", async (dependencyKey) => {

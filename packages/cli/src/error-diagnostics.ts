@@ -175,6 +175,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
       why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} host.`,
     },
+    SETUP_INIT_NITRO_VERSION: {
+      fix: ({ dir, range, scaffolded }: { dir?: unknown, range?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nitro to \`${String(range)}\` in each section of package.json that declares it, then run init again.`,
+      why: ({ dir, range }: { dir?: unknown, range?: unknown }) => `${String(dir)} declares a Nitro version that init cannot verify against Nuxt 4.7's requirement (${String(range)}). ViteHub did not adopt it.`,
+    },
     SETUP_INIT_NUXT_VERSION: {
       fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Upgrade to Nuxt 4.7 with Nitro 3 (\`pnpm add nuxt@^4.7.0 nitro\`), or set nuxt to a Nuxt 5 version. Then run init on that folder again.`,
       why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a supported Nuxt version. ViteHub needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. ViteHub did not adopt it.`,
