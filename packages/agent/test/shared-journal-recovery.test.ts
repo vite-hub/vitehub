@@ -136,7 +136,7 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
       expect(response.status).toBe(200)
     },
     /** Starts the webhook queue like the server plugin does when this process starts, with its recovery. */
-    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean } } = {}) {
+    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean }, discoveredAgentNames?: string[] } = {}) {
       stops.push(handler.resume({ ...routeOptions, ...options, recoverInterruptedBefore: Date.now() }))
     },
   }
@@ -294,5 +294,41 @@ describe("recovery at boot on processes that share one journal and one State", (
 
     await vi.waitFor(async () => expect(await processes[1]!.store.getSummary(id)).toMatchObject({ status: "failed" }), { timeout: 2_000 })
     expect(sweeps.filter(list => list.mock.calls.length > 0)).toHaveLength(1)
+  })
+
+  it("fails an interrupted Invocation of an inline Agent, and leaves its live runs and other discovered Agents alone", async () => {
+    const files = await sharedFiles()
+    const prompts: string[] = []
+    const restarted = await startProcess(files, prompts)
+    const startedAt = new Date(Date.now() - 60_000).toISOString()
+    const running = async (runId: string, agentName: string, claim: { id: string, leaseMs: number }) => {
+      const id = await agentInvocationId(runId, agentName)
+      await restarted.store.create({ agentName, createdAt: startedAt, id, observations: [], startedAt, status: "running", traceId: runId, updatedAt: startedAt })
+      expect(await restarted.store.claim(id, claim.id, claim.leaseMs)).toBe(true)
+      return id
+    }
+    const stoppedInlineRun = await running("stopped-summary", "summaries", { id: "stopped-process", leaseMs: 1 })
+    const inlineRunInOtherProcess = await running("live-summary", "summaries", { id: "other-process", leaseMs: 60_000 })
+    const otherRouteAgentRun = await running("other-route", "billing", { id: "stopped-process", leaseMs: 1 })
+    const queuedInlineRun = await running("queued-summary", "summaries", { id: "stopped-process", leaseMs: 1 })
+    await restarted.state.enqueueWebhookDelivery({
+      concurrencyGroup: "billing:default",
+      concurrencyLimit: 1,
+      deliveryId: "queued-summary",
+      enqueuedAt: Date.now(),
+      invocation: { agentName: "summaries", input: { prompt: "summarize" }, run: { runId: "queued-summary" } },
+      leaseTtlMs: 30_000,
+      request: { body: "{}", headers: {}, method: "POST", url: "https://example.com/api/github/webhook" },
+      scope: "webhook:billing:github:github:",
+      webhookId: "github",
+    })
+    await new Promise(resolve => setTimeout(resolve, 10))
+
+    restarted.boot({ discoveredAgentNames: ["support", "billing"] })
+
+    await vi.waitFor(async () => expect(await restarted.store.getSummary(stoppedInlineRun)).toMatchObject({ status: "failed" }), { timeout: 5_000 })
+    expect(await restarted.store.getSummary(inlineRunInOtherProcess)).toMatchObject({ status: "running" })
+    expect(await restarted.store.getSummary(otherRouteAgentRun)).toMatchObject({ status: "running" })
+    expect(await restarted.store.getSummary(queuedInlineRun)).toMatchObject({ status: "running" })
   })
 })
