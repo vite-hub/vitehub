@@ -149,23 +149,49 @@ describe("Cloudflare KV binding", () => {
     expect(suppliedCursors).toEqual([undefined, "first", "second"])
   })
 
-  it("fails closed at the cursor history limit without discarding earlier cursors", async () => {
+  it("pages past 1,024 pages and still rejects a recent repeated cursor", async () => {
     const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
     const namespace = createNamespace()
-    let page = 0
-    namespace.list = async () => ({ cursor: String(++page), keys: [], list_complete: false })
-    let cursor: string | undefined
-    for (let index = 0; index < 1_024; index++) {
-      cursor = (await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor, limit: 1 }))).cursor
+    const keys = Array.from({ length: 1_100 }, (_, index) => `key-${String(index).padStart(4, "0")}`)
+    namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => {
+      const start = cursor ? Number(cursor) : 0
+      return start + 1 < keys.length
+        ? { cursor: String(start + 1), keys: [{ name: keys[start]! }], list_complete: false }
+        : { keys: [{ name: keys[start]! }], list_complete: true }
     }
+    const listed: string[] = []
+    let cursor: string | undefined
+    do {
+      const page = await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor, limit: 1 }))
+      listed.push(...page.keys)
+      cursor = page.cursor
+    } while (cursor)
+    expect(listed).toEqual(keys)
 
-    await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor, limit: 1 }))).rejects.toThrow(
-      "cursor history limit",
-    )
-    namespace.list = async () => ({ cursor: "1", keys: [], list_complete: false })
+    namespace.list = async ({ cursor }: { prefix?: string, cursor?: string }) => ({ cursor: cursor === "a" ? "b" : "a", keys: [], list_complete: false })
+    const first = await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ limit: 1 }))
+    const second = await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor: first.cursor, limit: 1 }))
+    cursor = second.cursor
     await expect(runWithActiveCloudflareEnv({ KV: namespace }, () => storage.listKeys({ cursor, limit: 1 }))).rejects.toThrow(
       "repeated pagination cursor",
     )
+  })
+
+  it("clears a namespace that takes more than 1,024 list pages", async () => {
+    const storage = createCloudflareKVStorage({ binding: "KV", driver: "cloudflare" }) as RuntimeStorage
+    const namespace = createNamespace()
+    for (let index = 0; index < 1_100; index++) namespace.values.set(`key-${String(index).padStart(4, "0")}`, "x")
+    namespace.list = async ({ cursor, prefix = "" }: { prefix?: string, cursor?: string }) => {
+      const keys = [...namespace.values.keys()].filter(key => key.startsWith(prefix)).sort()
+      const start = cursor ? keys.findIndex(key => key > cursor) : 0
+      if (start === -1) return { keys: [], list_complete: true }
+      return start + 1 < keys.length
+        ? { cursor: keys[start]!, keys: [{ name: keys[start]! }], list_complete: false }
+        : { keys: [{ name: keys[start]! }], list_complete: true }
+    }
+
+    await runWithActiveCloudflareEnv({ KV: namespace }, () => storage.clear())
+    expect(namespace.values.size).toBe(0)
   })
 })
 

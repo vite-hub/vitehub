@@ -189,11 +189,19 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    return this.#meta.get(key)
+    return structuredClone(this.#meta.get(key))
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    this.#meta.set(key, value)
+    try {
+      this.#meta.set(key, structuredClone(value))
+    }
+    catch (error) {
+      if (!(error instanceof DOMException && error.name === "DataCloneError")) throw error
+      const json = JSON.stringify(value)
+      if (json === undefined) this.#meta.delete(key)
+      else this.#meta.set(key, JSON.parse(json))
+    }
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {

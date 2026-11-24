@@ -106,20 +106,27 @@ export function createDrizzleFormsStore(database: FormsDatabase | (() => FormsDa
       if (!await insertRow(() => ({ id, form, createdAt, updatedAt, status: "pending", data: "null", page: null, anchor: null, user: null }))) return false
 
       const pending = and(eq(formSubmissions.id, id), eq(formSubmissions.status, "pending"))
+      const release = () => guarded("release a submission reservation", async () => {
+        await db().delete(formSubmissions).where(pending)
+      })
       let accepted = false
       try {
         accepted = await beforeInsert()
       }
       finally {
-        if (!accepted) await guarded("release a submission reservation", async () => {
-          await db().delete(formSubmissions).where(pending)
-        })
+        if (!accepted) await release()
       }
       if (!accepted) return false
-      return guarded("finish storing a submission", async () => {
-        const rows = await db().update(formSubmissions).set({ ...toRow(submission), id }).where(pending).returning({ id: formSubmissions.id })
-        return rows.length > 0
-      })
+      try {
+        return await guarded("finish storing a submission", async () => {
+          const rows = await db().update(formSubmissions).set({ ...toRow(submission), id }).where(pending).returning({ id: formSubmissions.id })
+          return rows.length > 0
+        })
+      }
+      catch (error) {
+        await release().catch(() => undefined)
+        throw error
+      }
     },
     list: (options: ListFormSubmissionsOptions = {}) => guarded("list submissions", async () => {
       const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)
