@@ -29,7 +29,6 @@ export function docsRedirects(routeRules: Record<string, DocsRouteRule | undefin
   })
 }
 
-/** A docs page or the Markdown copy of one that answers a URL path. */
 function docsPaths(manifest: DocsManifest): Set<string> {
   return new Set(docsManifestPages(manifest).flatMap(page => [page.path, docsRawPath(page.path)]))
 }
@@ -60,46 +59,53 @@ export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly
   const pages = docsPaths(manifest)
   const routes = createRouter()
   for (const { route, method } of serverRoutes) addRoute(routes, method, route, true)
-  const next = new Map(redirects.filter(redirect => !isSpellingRedirect(redirect)).map(redirect => [normalizeDocsPath(redirect.from), redirect.to]))
+  const next = new Map(redirects.filter(redirect => !isTrailingSlashRedirect(redirect)).map(redirect => [routeRulePath(redirect.from), redirect.to]))
   const problems: string[] = []
   for (const redirect of redirects) {
     const { from, to } = redirect
-    const source = normalizeDocsPath(from)
-    const spelling = isSpellingRedirect(redirect)
-    const page = spelling ? undefined : docsManifestPages(manifest).find(candidate => candidate.path === source || docsRawPath(candidate.path) === source)
+    const source = routeRulePath(from)
+    const trailingSlashRedirect = isTrailingSlashRedirect(redirect)
+    const page = trailingSlashRedirect ? undefined : docsManifestPages(manifest).find(candidate => candidate.path === source || docsRawPath(candidate.path) === source)
     if (page) problems.push(`The redirect from ${from} hides the page ${page.file}. Remove the route rule, or move the page.`)
-    // A redirect to another redirect counts where the chain ends.
-    const seen = new Set(spelling ? [] : [source])
+    const seen = new Set(trailingSlashRedirect ? [] : [source])
     let end = to
-    let target = targetPath(end)
-    while (target !== undefined && next.has(target) && !seen.has(target)) {
-      seen.add(target)
-      end = next.get(target)!
-      target = targetPath(end)
+    let path = localTargetPath(end)
+    while (path !== undefined) {
+      const target = normalizeDocsPath(path)
+      const rulePath = routeRulePath(path)
+      const key = !next.has(rulePath) && path.endsWith("/") && pages.has(target) ? target : rulePath
+      const redirectTarget = next.get(key)
+      if (seen.has(key)) {
+        problems.push(`The redirect from ${from} comes back to ${key} and never reaches a page. Point one of its route rules to a page.`)
+        break
+      }
+      if (redirectTarget === undefined) {
+        const owned = target.startsWith("/raw/") || docsSectionForPath(manifest, target) !== null || (manifest.base !== "/" && isDocsPath(target, manifest.base))
+        if (owned && !pages.has(target) && !findRoute(routes, "GET", path)) problems.push(`The redirect from ${from} goes to ${end}, which is not a docs page. Point it to a page, or remove the route rule.`)
+        break
+      }
+      seen.add(key)
+      end = redirectTarget
+      path = localTargetPath(end)
     }
-    if (target === undefined) continue
-    if (seen.has(target)) {
-      problems.push(`The redirect from ${from} comes back to ${target} and never reaches a page. Point one of its route rules to a page.`)
-      continue
-    }
-    // With the base `/`, every path is under the base, so only a path inside a section belongs to the docs.
-    const owned = target.startsWith("/raw/") || docsSectionForPath(manifest, target) !== null || (manifest.base !== "/" && isDocsPath(target, manifest.base))
-    if (owned && !pages.has(target) && !findRoute(routes, "GET", end.replace(/[?#].*$/, ""))) problems.push(`The redirect from ${from} goes to ${end}, which is not a docs page. Point it to a page, or remove the route rule.`)
   }
   return problems
 }
 
-function isSpellingRedirect({ from, to }: DocsRedirect): boolean {
-  const target = to.replace(/[?#].*$/, "")
-  return target !== from && target === targetPath(to) && target === normalizeDocsPath(from)
+function routeRulePath(path: string): string {
+  return path.replace(/\/$/, "") || "/"
 }
 
-function targetPath(to: string): string | undefined {
+function isTrailingSlashRedirect({ from, to }: DocsRedirect): boolean {
+  const target = localTargetPath(to)
+  return target !== undefined && target !== from && target === routeRulePath(from)
+}
+
+function localTargetPath(to: string): string | undefined {
   if (!to.startsWith("/") || to.startsWith("//")) return undefined
-  return normalizeDocsPath(to.replace(/[?#].*$/, ""))
+  return to.replace(/[?#].*$/, "")
 }
 
-/** Redirect route rules that break links. The build stops on them while the link checker is on. */
 /** `DOCS_REDIRECTS_BROKEN`, with the list of problems in `problems`. */
 export function docsRedirectError(problems: readonly string[]): Diagnostic & { problems: readonly string[] } {
   return Object.assign(docsErrorDiagnostics.DOCS_REDIRECTS_BROKEN({ problems }), { problems })
