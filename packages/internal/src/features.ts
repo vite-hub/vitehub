@@ -107,6 +107,7 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   packages: readonly string[]
   /** Additional packages selected by literal provider options. */
   providerPackages?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>
+  requiredOptions?: readonly { option: `${TId}.${string}`, detail: string }[]
   /** Development dependencies that the app installs for this feature. */
   devPackages: readonly string[]
   implies: readonly FeatureImplication[]
@@ -350,6 +351,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
+    requiredOptions: [{ option: "i18n.locales", detail: "Pass a nonempty JSON array of locale names or set locales in your I18n config." }],
     summary: "Messages with translation records for each locale and a locale for each request.",
     title: "I18n",
   }),
@@ -375,6 +377,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: everywhere("nitro", "Nitro"),
     id: "mcp",
     packages: ["@vite-hub/mcp"],
+    requiredOptions: [{ option: "mcp.auth", detail: "Choose an access mode when Auth is disabled. With Auth enabled, MCP requires sign-in by default. The optional mode requires Auth and lets anyone call public tools. Set false only when anyone may call every tool." }],
     summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
     title: "MCP server",
   }),

@@ -396,6 +396,8 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
         ...(id === "console" ? ["--option", "console.auth=false"] : []),
+        ...(id === "i18n" ? ["--option", 'i18n.locales=["en","es"]'] : []),
+        ...(id === "mcp" ? ["--option", "mcp.auth=false"] : []),
         ...(featureSupport("database", host).level === "explicit" && ["comments", "connections"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
       ]
 
