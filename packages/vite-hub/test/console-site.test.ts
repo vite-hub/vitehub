@@ -161,6 +161,15 @@ describe("the site cookie", () => {
     expect((await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { "sec-fetch-site": "cross-site" } }))).status).toBe(403)
   })
 
+  it("signs out without Sec-Fetch-Site only for the Origin of the app", async () => {
+    const signOut = async (headers: Record<string, string>) => (await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers }))).status
+    expect(await signOut({ origin })).toBe(204)
+    expect(await signOut({})).toBe(403)
+    expect(await signOut({ origin: "null" })).toBe(403)
+    expect(await signOut({ origin: "https://evil.example" })).toBe(403)
+    expect(await signOut({ "sec-fetch-site": "same-site", origin })).toBe(403)
+  })
+
   it("gives the pill the account of a member, and the Console link to members only", async () => {
     const nitroApp = {}
     installConsolePageTool(nitroApp, { script: "/console.js", site: readConsoleSiteVisitor })
