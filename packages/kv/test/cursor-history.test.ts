@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest"
-import { createCursorHistory } from "../src/runtime/cursor-history.ts"
+import { createCursorHistory, recordCursor } from "../src/runtime/cursor-history.ts"
 
 it.each(["vhc:provider-cursor", "vhc:1:not-json", "vhc:1:%7B%7D", "vhc:1:%"])("preserves opaque provider cursor %s", (cursor) => {
   expect(createCursorHistory().take(cursor)).toMatchObject({ providerCursor: cursor, history: new Set([cursor]) })
@@ -164,4 +164,19 @@ it.each([false, true])("invalidates a decoded continuation on disposal after res
   consumer.clear()
   consumer.restore(cursor, continuation)
   expect(() => fresh.createCursorHistory().take(cursor)).toThrow("expired")
+})
+
+it("forgets the oldest cursor when the history is full", () => {
+  const history = new Set(Array.from({ length: 1_024 }, (_, index) => `cursor-${index}`))
+  expect(recordCursor(history, "cursor-1024")).toBe(true)
+  expect(history.size).toBe(1_024)
+  expect(history.has("cursor-0")).toBe(false)
+  expect(history.has("cursor-1")).toBe(true)
+  expect(history.has("cursor-1024")).toBe(true)
+})
+
+it("rejects a cursor longer than 8 KiB without changing the history", () => {
+  const history = new Set(["first"])
+  expect(recordCursor(history, "x".repeat(8 * 1_024 + 1))).toBe(false)
+  expect(history).toEqual(new Set(["first"]))
 })

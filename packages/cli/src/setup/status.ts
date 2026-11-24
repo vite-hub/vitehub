@@ -1,6 +1,6 @@
 import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, formatInstallArgument, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
 import { isRecord } from "@vite-hub/internal/object"
 import { join } from "pathe"
 
@@ -40,6 +40,11 @@ const addArgs: Record<SetupPackageManager, { dev: readonly string[], prod: reado
   yarn: { dev: ["add", "-D"], prod: ["add"] },
 }
 
+/** Quotes `value` for a POSIX shell when it needs quotes. */
+export function shellQuote(value: string): string {
+  return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
+}
+
 /** The arguments of the `packageManager` command that installs `packages`, such as `["add", "-D", "drizzle-kit"]`. */
 export function installArgs(packageManager: SetupPackageManager, packages: readonly string[], dev: boolean): string[] {
   return [...addArgs[packageManager][dev ? "dev" : "prod"], ...packages]
@@ -52,11 +57,14 @@ export function uninstallArgs(packageManager: SetupPackageManager, packages: rea
   return [...removeArgs[packageManager], ...packages]
 }
 
-/** The shell command that installs `prod` and then `dev`, such as `pnpm add kv && pnpm add -D drizzle-kit`. */
+export function formatInstallCommand(command: string, args: readonly string[]): string {
+  return [command, ...args].map(formatInstallArgument).join(" ")
+}
+
 export function installCommand(packageManager: SetupPackageManager, prod: readonly string[], dev: readonly string[]): string | undefined {
   const commands = [
-    ...(prod.length ? [[packageManager, ...installArgs(packageManager, prod, false)].join(" ")] : []),
-    ...(dev.length ? [[packageManager, ...installArgs(packageManager, dev, true)].join(" ")] : []),
+    ...(prod.length ? [formatInstallCommand(packageManager, installArgs(packageManager, prod, false))] : []),
+    ...(dev.length ? [formatInstallCommand(packageManager, installArgs(packageManager, dev, true))] : []),
   ]
   return commands.length ? commands.join(" && ") : undefined
 }
@@ -112,7 +120,7 @@ export function missingProviderOption(project: SetupProject, option: string, val
 }
 
 function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }, providerChosen: boolean): string | undefined {
-  const install = installCommand(project.packageManager, missing.prod, missing.dev)
+  const install = installCommand(project.packageManager, missing.prod.map(installSpecifier), missing.dev.map(installSpecifier))
   if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another host than ${host}.`
   if (support.level === "explicit" && !providerChosen) {

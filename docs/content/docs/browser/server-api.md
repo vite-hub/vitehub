@@ -77,8 +77,10 @@ Navigation and clicks run one at a time, because each can replace the page. A ti
 `createBrowser()` is for libraries and standalone code that choose the driver, attach the controller, and clean up. Use it when you need Playwright, page state that changes, downloads, or CDP.
 
 ```bash [Terminal]
-pnpm add @vite-hub/browser
+pnpm add vite-hub @vite-hub/browser @cloudflare/playwright playwright-core
 ```
+
+Without `vite-hub`, install `@vite-hub/browser` instead and import the same paths from `@vite-hub/browser`, `@vite-hub/browser/controllers/playwright`, and `@vite-hub/browser/providers/cloudflare`.
 
 ```ts [server/browser.ts]
 import { createBrowser } from 'vite-hub/browser'

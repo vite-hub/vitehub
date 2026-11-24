@@ -4,14 +4,14 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
-import { installArgs, installCommand, missingProviderOption, setupStatus } from "./status.ts"
+import { formatInstallCommand, installArgs, installCommand, missingProviderOption, setupStatus, shellQuote } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
@@ -20,6 +20,8 @@ import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
+
+export { shellQuote } from "./status.ts"
 
 export interface SetupAddArgs {
   features: FeatureId[]
@@ -95,7 +97,7 @@ function installSpecifiers(packages: readonly string[]): string[] {
     const [base, ref] = specifier.split(`/${name}@`)
     return base && ref ? [{ base, ref }] : []
   })[0]
-  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : installSpecifier(name))
 }
 
 function invalid(message: string, commandUsage = usage): Error {
@@ -169,10 +171,6 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
   return parsed
 }
 
-/** Quotes `value` for a POSIX shell when it needs quotes. */
-export function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
-}
 
 /** `value` as `--option` values under `prefix`, such as `["email.driver=resend"]`. */
 export function flattenOptions(prefix: string, value: JsonValue, out: string[] = []): string[] {
@@ -504,7 +502,7 @@ export async function applySetupAdd(project: SetupProject, planned: SetupAddPlan
       const commandArgs = installArgs(project.packageManager, packages, isDev)
       const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(project.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
       }
     }
   }
