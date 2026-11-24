@@ -32,6 +32,7 @@ describe.each([
   ["valibot-schema", "an inline Valibot $schema"],
   ["valibot-schema-module", "a Valibot $schema module with rules on the defaults"],
   ["zod-schema-module", "a Zod $schema module in a Nuxt 3 layout"],
+  ["zod3-schema-module", "a Zod 3 $schema module"],
   ["env-schema", "an envSchema .env.example in module options"],
   ["valibot-transform", "a Valibot $schema module with transforms and checks"],
 ])("nuxt-safe-runtime-config with %s", (name, label) => {

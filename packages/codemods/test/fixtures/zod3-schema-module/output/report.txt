@@ -1,0 +1,29 @@
+nuxt-safe-runtime-config: migrated 8 Env declarations (3 public, 5 server) from $schema (runtime-config.schema.ts) to vite-hub/nuxt.
+Dry run: no files were written.
+
+Files to change (5):
+  nuxt.config.ts
+  server/env.schema.ts (new)
+  package.json
+  server/api/info.get.ts
+  server/utils/session.ts
+
+Manual follow-ups (6):
+  1. nuxt.config.ts:15 sessionPassword had the value "dev-only-password", which its $schema rejects: String must contain at least 32 character(s). The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_SESSION_PASSWORD.
+  2. nuxt.config.ts:11 public.posthog.host is nested. Public Env is flat, so read it as usePublicEnv().posthogHost.
+  3. nuxt.config.ts:12 public.posthog.sampleRate accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.
+  4. nuxt.config.ts:12 public.posthog.sampleRate is nested. Public Env is flat, so read it as usePublicEnv().posthogSampleRate.
+  5. nuxt.config.ts:7 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  6. server/utils/session.ts:2 useServerEnv().sessionPassword is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
+
+Notes:
+  - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.
+  - server/env.schema.ts exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value. Public Env runs it during the build.
+  - server/env.schema.ts imports runtime-config.schema.ts. Keep runtime-config.schema.ts and its schema library.
+  - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
+  - The standalone Nitro module (nuxt-safe-runtime-config/nitro) is out of scope for this codemod.
+  - No ESLint config references nuxt-safe-runtime-config/eslint.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.
+  - Run `npx nuxi prepare` to generate the Env types, then type-check the app.
