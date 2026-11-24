@@ -1285,6 +1285,22 @@ describe("ViteHub Nuxt integration", () => {
     expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
   })
 
+  it("forwards the i18n server transform in Nitro-only replay", async () => {
+    const transform = vi.fn(() => ({ code: "compiled-message" }))
+    const filter = { id: { include: [/\.ts$/] } }
+    mocks.vitehub.mockReturnValue([{ name: "@vite-hub/i18n/vite", transform: { filter, handler: transform } }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ i18n: { locales: ["en", "es"] } }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const hook = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/i18n/vite")?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered i18n transform.")
+    expect(hook.filter).toEqual(filter)
+    expect(await Reflect.apply(hook.handler, {}, ["t`Payment received`", "/server/api/pay.ts"])).toEqual({ code: "compiled-message" })
+    expect(transform).toHaveBeenCalledWith("t`Payment received`", "/server/api/pay.ts", { moduleType: "js", ssr: true })
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
