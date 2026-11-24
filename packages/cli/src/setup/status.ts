@@ -1,6 +1,7 @@
 import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
 import { featureIds, featurePackages, features, featureSupport, formatInstallArgument, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
+import { isRecord } from "@vite-hub/internal/object"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -97,22 +98,35 @@ function readEnabled(project: SetupProject, id: FeatureId, withoutDefinitions: R
   return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 
-/** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
-export function setsOption(project: SetupProject, option: string): boolean {
-  const config = project.config
-  if (!config?.ok) return false
+const kvDefaultStoreOption = "kv.stores.default.driver"
+
+function kvStores(value: unknown) {
+  return isRecord(value) && isRecord(value.stores) ? value.stores : undefined
+}
+
+export function missingProviderOption(project: SetupProject, option: string, value?: unknown): string | undefined {
   const [id, key] = option.split(".") as [string, string]
-  const value = config.site.keys[id]
-  if (value?.kind === "expression") return true
-  const options = value?.value
-  return !!options && typeof options === "object" && !Array.isArray(options) && key in options
+  const configured = project.config?.ok ? project.config.site.keys[id] : undefined
+  if (configured?.kind === "expression") return
+  const options = value ?? configured?.value
+  const stores = option === "kv.driver" ? kvStores(options) : undefined
+  if (stores) {
+    const store = stores.default
+    const driver = isRecord(store) ? store.driver : undefined
+    if (driver !== "upstash" && driver !== "redis" && driver !== "database") return kvDefaultStoreOption
+    return
+  }
+  if (!isRecord(options) || !(key in options)) return option
 }
 
 function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }, providerChosen: boolean): string | undefined {
   const install = installCommand(project.packageManager, missing.prod.map(installSpecifier), missing.dev.map(installSpecifier))
   if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another host than ${host}.`
-  if (support.level === "explicit" && !providerChosen && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
+  if (support.level === "explicit" && !providerChosen) {
+    const option = missingProviderOption(project, support.option)
+    if (option) return `Set \`${option}\` in vitehub() to choose a provider on ${host}.`
+  }
 }
 
 /** What the project enables, on which host, and what each enabled feature still needs. Reads the config without running it. */
@@ -146,13 +160,17 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv, witho
         : featureSupport(id, host.name)
       const definition = features[id]
       const value = project.config?.ok ? project.config.site.keys[id] : undefined
-      const packages = featurePackages(id, value?.kind === "literal" ? value.value : undefined, host.name, featureIds.filter(feature => enabled.get(feature)?.enabled === "on"))
+      const literal = value?.kind === "literal" ? value.value : undefined
+      const packages = featurePackages(id, literal, host.name, featureIds.filter(feature => enabled.get(feature)?.enabled === "on"))
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
       const providerChosen = id === "workflow" && host.name !== "netlify" && packages.includes("openworkflow")
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing, providerChosen) : undefined
-      return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }
+      const resolvedSupport: SetupFeatureStatus["support"] = support.level === "explicit" && support.option === "kv.driver" && kvStores(literal)
+        ? { ...support, option: kvDefaultStoreOption }
+        : support
+      return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support: resolvedSupport, ...(fix ? { fix } : {}) }
     }),
     framework: project.framework,
     host,
