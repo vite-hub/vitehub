@@ -79,6 +79,24 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 [Docs sites](/docs/docs-site/configure#comments) on `vite-hub/nuxt` have Comments on by default. Turn it off with `docs: { comments: false }`.
 
+### Add Hosted Comments
+
+Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
+
+1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
+2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.
+
+```html
+<script type="module" src="https://console.vitehub.dev/hosted-comments.js"
+  data-vitehub-comments="PROJECT_ID"></script>
+```
+
+Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`.
+
+Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
+
+Use **Guest access** below the script to create a one-time invite. You can revoke an invite or a guest's access from the same menu.
+
 ## Decide who can comment
 
 `authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. It also gets `development: true` on the dev server and `console: true` for [Console callers](#use-your-own-login). Return `true` to allow. Any other value denies.

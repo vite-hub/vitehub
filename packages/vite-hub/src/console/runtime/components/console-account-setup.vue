@@ -8,11 +8,8 @@ import { openAccountProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
+import ConsoleHostedCommentsEmbed from "./console-hosted-comments-embed.vue";
 
-/**
- * The step after linking an app to an `account` Console: the app must keep the public key of the link. The page shows
- * the line to set, and asks the Console server to check the app again.
- */
 const props = defineProps<{ project: ConsoleAccountProject }>();
 const emit = defineEmits<{ checked: [status: ConsoleAccountAppStatus] }>();
 
@@ -48,7 +45,14 @@ async function check(): Promise<void> {
 </script>
 
 <template>
-  <div class="grid max-w-2xl gap-6">
+  <div v-if="project.publicKey === null" class="grid max-w-2xl gap-6">
+    <ConsoleHostedCommentsEmbed :project-id="project.id" />
+    <div class="flex flex-wrap gap-2">
+      <UButton icon="i-lucide-external-link" label="Open site" :to="`${project.url}?vitehub`" target="_blank" rel="noopener" />
+      <UButton color="neutral" variant="ghost" icon="i-lucide-unlink" :label="`Unlink ${name}`" @click="unlinking = true" />
+    </div>
+  </div>
+  <div v-else class="grid max-w-2xl gap-6">
     <p class="text-sm text-pretty text-muted">
       {{ host }} needs <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] whitespace-nowrap text-highlighted">console: true</code> in its config.
       Then add this environment variable to its deployment settings, redeploy, and check the connection.
@@ -76,7 +80,6 @@ async function check(): Promise<void> {
       </div>
       <p role="status" class="text-[13px] leading-5 text-muted">{{ result }}</p>
     </div>
-
-    <ConsoleAccountUnlink v-model:open="unlinking" :project-id="project.id" :name="name" />
   </div>
+  <ConsoleAccountUnlink v-model:open="unlinking" :project-id="project.id" :name="name" />
 </template>
