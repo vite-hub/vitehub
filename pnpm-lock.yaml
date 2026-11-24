@@ -2024,6 +2024,9 @@ importers:
       '@better-auth/passkey':
         specifier: catalog:auth
         version: 1.7.27(5e416e269c581361521113a9435aec71)
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.2(@cfworker/json-schema@4.1.6)(supports-color@10.2.2)(zod@4.6.7)
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
@@ -2048,6 +2051,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
       vite-hub:
         specifier: workspace:*
         version: link:../vite-hub
@@ -18213,6 +18219,10 @@ packages:
   undici@7.30.2:
     resolution: {integrity: sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==}
     engines: {node: '>=20.18.1'}
+
+  undici@8.12.2:
+    resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
+    engines: {node: '>=22.19.0'}
 
   undici@8.13.1:
     resolution: {integrity: sha512-Kt7EaPjh0s93lJH/PmW3d5rhkcpUa6fS3jqZ7+YGxNd9L7Xy/i827xe4C2uhhq+pJebM4tQOl5AgHmW11G5Skg==}
@@ -38716,6 +38726,8 @@ snapshots:
   undici@7.29.0: {}
 
   undici@7.30.2: {}
+
+  undici@8.12.2: {}
 
   undici@8.13.1: {}
 

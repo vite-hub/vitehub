@@ -199,7 +199,7 @@ const config: KnipConfiguration = {
       .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
       .map(match => `import ${JSON.stringify(match[1])};`).join("\n"),
   },
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-assets", "#console-outbound-fetch", "#console-page"],
   ignoreBinaries: ["crabbox"],
   workspaces: {
     ".": {
