@@ -55,7 +55,7 @@ A draft preview needs your app's origin to render, and impersonation needs it to
 | `auth.impersonate` | `impersonate` | The app home as the user. See [impersonation](/docs/auth/console#changes-and-limits). | The browser's app session has the person's email and Better Auth's `impersonate` permission. |
 | `auth.stop-impersonating` | `impersonate` | The app home as the administrator again. | The browser impersonates for the person. |
 
-The app refuses a token for another app, for another browser, of another kind, and an expired token with `401` and `CONSOLE_SITE_TOKEN_REFUSED`. A `site` token cannot run an action, and an action token cannot sign a browser in to Site access. In a browser signed in to the app as another person, an impersonation gets `403` with `CONSOLE_SITE_ACCOUNT_MISMATCH`. An action token works once: the app clears the state cookie of the browser when it runs the action.
+The app refuses a token for another app, for another browser, of another kind, and an expired token with `401` and `CONSOLE_SITE_TOKEN_REFUSED`. A `site` token cannot run an action, and an action token cannot sign a browser in to Site access. In a browser signed in to the app as another person, an impersonation gets `403` with `CONSOLE_SITE_ACCOUNT_MISMATCH`. When the app runs an action, its response clears the state cookie of the browser. After the browser applies that response, the app refuses the same token.
 
 ## Link to the Console
 
