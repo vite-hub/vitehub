@@ -55,7 +55,6 @@ export const siteEntryReservedNames: ReadonlySet<string> = new Set([
   "host",
   "i",
   "mcp",
-  "mcp-client",
   "page",
   "ready",
   "realtime",

@@ -54,7 +54,6 @@ pnpm add vite-hub
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm` |
-| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
@@ -328,7 +327,7 @@ Without a `console` option, `vite dev` serves the operation RPC, so `vitehub <co
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. When the ViteHub MCP of the Console calls for the user, `surface` is `"mcp"`: the RPC then refuses operations with `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that the person did not confirm. A caller with `readOnly: true` runs only operations that read. The app ignores caller fields that it does not know, so a newer Console can still call it. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
 
-Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
+Set `console.url` to the origin of a self-hosted Console, such as `https://console.example.com`. `/_vitehub`, `hostedConsoleUrl()`, the Site access sign-in, and the Console segment of the Comments pill then go there. It defaults to `https://console.vitehub.dev`. The build refuses a value that is not an `https://` origin without a path, or `http://localhost`. The MCP client section runs on the Console server, so the app needs nothing for it. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
 
 `invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/cli/primitives#run-a-schedule-on-demand).
 

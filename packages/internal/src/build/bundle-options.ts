@@ -34,7 +34,7 @@ export function encodeProviderOutputAliases(configAliases: readonly StringAlias[
 /** Select the runtime constants from one resolved Vite configuration. */
 export function resolveViteHubBundleDefines(config: { define?: Record<string, unknown> }): Record<string, string> {
   const defines: Record<string, string> = {}
-  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__"]) {
+  for (const name of ["__VITEHUB_PUBLIC_URL__", "__VITEHUB_APP_BASE_URL__", "__VITEHUB_CONSOLE_URL__"]) {
     const value = config.define?.[name]
     if (typeof value === "string") defines[name] = value
   }

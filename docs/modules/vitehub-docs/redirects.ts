@@ -413,7 +413,7 @@ export const docsLegacyFragmentRedirects = {
     "manage-connections": "/docs/console/sections#content-and-people",
     "connect-to-mcp-servers": "/docs/console/mcp-client",
     "sign-in-with-oauth": "/docs/console/mcp-client#sign-in-with-oauth",
-    "what-the-mcp-client-keeps": "/docs/console/mcp-client#keep-connections-across-restarts",
+    "what-the-mcp-client-keeps": "/docs/console/mcp-client#where-connections-live",
     "one-time-links": "/docs/console/site-access#one-time-links",
     "site-access-from-the-terminal": "/docs/console/site-access#sign-browsers-in",
     "site-access-without-auth": "/docs/console/site-access#how-the-app-checks-a-visit",

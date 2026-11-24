@@ -78,7 +78,7 @@ import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type LogsOptions, type ObservabilityOptions } from "./observability-vite.ts"
-import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
+import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
@@ -1609,7 +1609,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ["channels", options.channels],
     ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
-    ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],

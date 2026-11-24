@@ -104,7 +104,7 @@ The Console refuses private MCP addresses, such as `localhost` and `10.0.0.8`, a
 
 ## Skills and page tools for apps
 
-The Console serves the public ViteHub skill of its `vite-hub` version, in the same well-known format as an app at `<base>/_vitehub/.well-known/skills`. The build copies the files from the built `vite-hub` package, so build `vite-hub` first.
+The Console serves the public ViteHub skill of its `vite-hub` version in the well-known skills format. Apps do not serve it. The build copies the files from `dist/console-skills` of the built `vite-hub` package, so build `vite-hub` first.
 
 ```sh
 npx skills add https://console.vitehub.dev               # the Console's version

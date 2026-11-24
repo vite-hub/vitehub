@@ -3,7 +3,7 @@ import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteToken } from "@vite-hub/internal/site-token"
-import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
+import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
@@ -67,7 +67,7 @@ async function visit(request: Request, app: string): Promise<Response> {
   const current = cookieValue(request, siteStateCookie)
   const state = current && statePattern.test(current) ? current : createSiteState()
   const project = url.searchParams.get("project") ?? undefined
-  const location = siteVisitUrl({ console: hostedConsoleOrigin, app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
+  const location = siteVisitUrl({ console: configuredConsoleOrigin(), app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
   return seeOther(location, new Headers({ "set-cookie": cookie(siteStateCookie, state, siteStateLifetime) }))
 }
 

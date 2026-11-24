@@ -938,11 +938,6 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/mcp-client": {
-      "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
-      "import": "./dist/console/runtime/server/mcp-client-operations.js",
-      "default": "./dist/console/runtime/server/mcp-client-operations.js"
-    },
     "./page/pill.js": {
       "default": "./dist/page/pill.iife.js"
     },
@@ -1061,7 +1056,6 @@
     "@json-render/core": "0.22.0",
     "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
-    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "catalog:nuxt",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
@@ -1164,7 +1158,6 @@
     "@json-render/core": "0.22.0",
     "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
-    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
@@ -1256,9 +1249,6 @@
       "optional": true
     },
     "@libsql/client": {
-      "optional": true
-    },
-    "@modelcontextprotocol/sdk": {
       "optional": true
     },
     "@nuxt/ui": {

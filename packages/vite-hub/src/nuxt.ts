@@ -48,7 +48,7 @@ import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectName } from "./console/project.ts"
 import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
-import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
+import { addConsoleRpcHandler } from "./console/nitro.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleAppModuleId, consoleOperationContributions, resolveConsoleAccessBuild, resolveGeneratedConsoleApp, type ConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -656,10 +656,9 @@ async function installConsole({
   // Record table sections that an application module turns on, such as Comments with server/comments.ts.
   const entrySections = (await discoverConsoleEntrySections({ discoveryRoot, projectRoot, serverDirs })).filter(section => !sections.includes(section))
   installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections])
-  const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsoleAppRoutes>[0] & { alias?: Record<string, string> }
+  const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsoleRpcHandler>[0] & { alias?: Record<string, string> }
   // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule.
   addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, { siteAccess })
-  addConsoleAppRoutes(nitro, consoleRuntimeRoot)
   nitro.alias = { ...nitro.alias, [consoleAppModuleId]: app }
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     const discoverySections = canDiscoverDefinitions()
@@ -1591,7 +1590,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, options.name))
       addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: Boolean(options.comments) })
-      addConsoleAppRoutes(config, consoleRuntimeRoot)
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
       // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
       if (!nuxt.options.vitehubCliDiscovery) {

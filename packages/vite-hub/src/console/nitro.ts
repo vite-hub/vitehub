@@ -15,23 +15,6 @@ type NitroHandler = { handler: string; lazy?: boolean; meta?: Record<string, unk
  * so an app route file on the same path keeps the app Auth access routes.
  */
 export const consoleRouteMeta = { vitehubAuthAccess: "handler" } as const
-type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
-
-/**
- * Serves the ViteHub skill at `/_vitehub/.well-known/skills` for `npx skills add <app>/_vitehub`. The files are static and
- * public, and match the installed `vite-hub` version. Nitro adds the application base to the path.
- */
-export function addConsoleAppRoutes(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
-  consoleRuntimeRoot: string,
-  base?: string,
-): void {
-  const skills = join(consoleRuntimeRoot, "public/skills")
-  nitro.publicAssets = [
-    { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
-    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== skills),
-  ]
-}
 
 const consoleRouteGuardName = "vite-hub/console-route-guard"
 

@@ -12,8 +12,8 @@ import type { ConsoleAssets } from "./assets.ts"
 /** The page tools pill parts in the `vite-hub` package, by the name that the Console serves them under. */
 export const consolePageAssetFiles = { "account.js": "dist/console/runtime/page-tool/account.js", "page-tool.js": "dist/console/runtime/page-tool/page-tool.js" }
 
-/** The folder of the skills that an app serves at `<base>/_vitehub/.well-known/skills`, in the `vite-hub` package. */
-export const consoleSkillsFolder = "dist/console/runtime/public/skills"
+/** The folder of the skills and their `index.json` in the `vite-hub` package. */
+export const consoleSkillsFolder = "dist/console-skills"
 
 /** The folder of the installed `vite-hub` package. */
 export function viteHubPackageRoot(): string {
@@ -21,7 +21,7 @@ export function viteHubPackageRoot(): string {
 }
 
 /**
- * Read the files that the Console serves from the built `vite-hub` package: the same skills that apps serve, and the
+ * Read the files that the Console serves from the built `vite-hub` package: the ViteHub skills, and the
  * page tools pill parts. It runs at Console build time. A missing file names the build that makes it.
  */
 export function readConsoleAssets(): ConsoleAssets {
