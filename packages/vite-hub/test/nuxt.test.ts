@@ -1301,6 +1301,29 @@ describe("ViteHub Nuxt integration", () => {
     expect(transform).toHaveBeenCalledWith("t`Payment received`", "/server/api/pay.ts", { moduleType: "js", ssr: true })
   })
 
+  it("bundles the Schedule registry for runSchedule() in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/schedule/vite",
+      configResolved,
+      resolveId: { filter: { id: /^#vitehub\/schedule\/registry$/ }, handler: () => "\0#vitehub/schedule/registry" },
+      load: { filter: { id: /^\0#vitehub\/schedule\/registry$/ }, handler: () => "export default { 'daily-report': {} }" },
+      transform: { filter: { code: /@vitehub-schedule-registry/ }, handler: (code: string) => code.replace(/registryModule/, "\"#vitehub/schedule/registry\"") },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ schedule: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/schedule/vite")
+    const handler = (hook: unknown) => Reflect.get(Object(hook), "handler") as Function
+    const code = "import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule)"
+    expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/node_modules/@vite-hub/schedule/dist/run.js"])).toBe("import(/* @vite-ignore */ /* @vitehub-schedule-registry */ \"#vitehub/schedule/registry\")")
+    expect(Reflect.apply(handler(resolver?.resolveId), {}, ["#vitehub/schedule/registry"])).toBe("\0#vitehub/schedule/registry")
+    expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
