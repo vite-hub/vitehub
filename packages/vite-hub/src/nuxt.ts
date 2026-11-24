@@ -339,6 +339,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
   // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
@@ -350,6 +351,7 @@ const nitroRuntimeResolverNames = new Set([
 const nitroServerTransformNames = new Set([
   "@vite-hub/i18n/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "@vite-hub/workflow/vite",
 ])
 
