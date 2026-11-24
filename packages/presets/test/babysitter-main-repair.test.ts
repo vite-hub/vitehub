@@ -29,7 +29,7 @@ function fakeGitHub(state: {
   closedPulls?: ReturnType<typeof pull>[];
   branches?: string[];
 }) {
-  const writes: { path: string; body?: Record<string, unknown> }[] = [];
+  const writes: { path: string; body?: Record<string, unknown>; method?: string }[] = [];
   const github: MainRepairGitHub = {
     async read(path, query = {}) {
       if (path === `repos/${repository}`) return { default_branch: "main" };
@@ -51,8 +51,8 @@ function fakeGitHub(state: {
       if (ref) return state.branches?.includes(ref[1]!) ? { ref: `refs/heads/${ref[1]}` } : undefined;
       throw new Error(`Unexpected read ${path}`);
     },
-    async write(path, body) {
-      writes.push({ path, body });
+    async write(path, body, method = "POST") {
+      writes.push({ path, body, ...method === "POST" ? {} : { method } });
       if (path.endsWith("/git/commits")) return { sha: "e".repeat(40) };
       if (path.endsWith("/git/refs")) return { ref: body?.ref };
       if (path.endsWith("/pulls")) return { number: 77 };
@@ -94,6 +94,18 @@ describe("Babysitter main repair", () => {
     expect(green.outcome).toEqual({ state: "green", head: tip });
     expect(green.writes).toEqual([]);
     expect(green.event).toHaveBeenCalledWith("babysitter.main_repair.green", { repository, head: tip });
+  });
+
+  it("closes a repair PR that is still open once the default branch is green", async () => {
+    const { outcome, writes } = await check({
+      runs: [run(1, "ci", tip, "success"), run(2, "pkg.pr.new", tip, "success")],
+      openPulls: [pull(40, `${prefix}bbbbbbbb`), pull(41, "feature")],
+    });
+    expect(outcome).toEqual({ state: "green", head: tip, closed: [40] });
+    expect(writes).toEqual([
+      { path: `repos/${repository}/issues/40/comments`, body: { body: expect.stringContaining(`main is green at ${tip}`) } },
+      { path: `repos/${repository}/pulls/40`, body: { state: "closed" }, method: "PATCH" },
+    ]);
   });
 
   it("falls back to the newest finished run of each workflow after the last merged repair", async () => {

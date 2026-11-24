@@ -467,9 +467,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           throw error;
         }
       },
-      async write(path, body) {
+      async write(path, body, method = "POST") {
         const { provider } = await forge(repository, signal);
-        return (await provider.request<unknown>("POST", `/${path}`, { body, signal })).data;
+        return (await provider.request<unknown>(method, `/${path}`, { body, signal })).data;
       },
     };
   }

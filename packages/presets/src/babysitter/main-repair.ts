@@ -18,14 +18,14 @@ export interface BabysitterMainRepair {
   stuckJobMinutes?: number | false;
 }
 
-/** GitHub REST calls with the repository's credentials. `read` returns undefined for a 404. */
+/** GitHub REST calls with the repository's credentials. `read` returns undefined for a 404. `write` sends a POST unless `method` says otherwise. */
 export interface MainRepairGitHub {
   read(path: string, query?: Record<string, string | number>): Promise<unknown>;
-  write(path: string, body?: Record<string, unknown>): Promise<unknown>;
+  write(path: string, body?: Record<string, unknown>, method?: "POST" | "PATCH"): Promise<unknown>;
 }
 
 export type MainRepairOutcome =
-  | { state: "green"; head: string }
+  | { state: "green"; head: string; closed?: number[] }
   | { state: "waiting"; head: string; reason: "ci-running" | "no-ci-run" }
   | { state: "repair-open"; head: string; pullRequest: number }
   | { state: "already-attempted"; head: string; red: string; branch: string }
@@ -118,22 +118,31 @@ export async function repairBaseBranch(
       .filter(run => watched(run) && !["cancelled", "skipped"].includes(run.conclusion ?? "") && Date.parse(run.created_at) > repairedAt);
     failed = mainRepair.workflows.flatMap(name => finished.find(run => run.name === name) ?? []).find(run => run.conclusion === "failure");
   }
+  const openRepairs = async () => {
+    const repairs: v.InferOutput<typeof pullsSchema> = [];
+    for (let page = 1; ; page++) {
+      const pulls = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100, page }));
+      repairs.push(...pulls.filter(repairPull));
+      if (pulls.length < 100) return repairs;
+    }
+  };
   if (!failed) {
     if (!runs.length || runs.some(run => run.status !== "completed")) {
       event("waiting", { head, reason: runs.length ? "ci-running" : "no-ci-run" });
       return { state: "waiting", head, reason: runs.length ? "ci-running" : "no-ci-run" };
     }
-    event("green", { head });
-    return { state: "green", head };
+    const stale = await openRepairs();
+    for (const pull of stale) {
+      await github.write(`repos/${repository}/issues/${pull.number}/comments`, { body: `${base} is green at ${head}, so this repair is no longer needed. Closed by the Babysitter.` });
+      await github.write(`repos/${repository}/pulls/${pull.number}`, { state: "closed" }, "PATCH");
+    }
+    const closed = stale.map(pull => pull.number);
+    event("green", { head, ...closed.length ? { closed } : {} });
+    return closed.length ? { state: "green", head, closed } : { state: "green", head };
   }
 
   // One repair at a time: an open repair PR already works on the default branch.
-  let open: v.InferOutput<typeof pullsSchema>[number] | undefined;
-  for (let page = 1; !open; page++) {
-    const pulls = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100, page }));
-    open = pulls.find(repairPull);
-    if (pulls.length < 100) break;
-  }
+  const [open] = await openRepairs();
   if (open) {
     event("repair_open", { head, pull_request: open.number });
     return { state: "repair-open", head, pullRequest: open.number };
